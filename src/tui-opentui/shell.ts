@@ -10,8 +10,6 @@ import { homedir } from "node:os"
 import {
   BoxRenderable,
   CliRenderEvents,
-  InputRenderable,
-  InputRenderableEvents,
   MarkdownRenderable,
   ScrollBoxRenderable,
   TextRenderable,
@@ -46,8 +44,16 @@ import {
   type SentHistoryBrowse,
 } from "../tui/sent-message-history.js"
 import { spliceMentionCompletion } from "./prompt-attachments.js"
+import {
+  createPromptInput,
+  promptCaretAtFirstRow,
+  promptCaretAtLastRow,
+  promptRowCount,
+  type PromptInput,
+} from "./prompt-input.js"
+import { promptBoxRows } from "./prompt-rows.js"
 import { composeNoticeLine } from "./notice-line.js"
-import { LOCKUP_WIDTH, lockupCells, lockupText } from "./lockup.js"
+import { lockupCells, lockupText, lockupWidth } from "./lockup.js"
 import {
   BORDER,
   composeRule,
@@ -69,7 +75,7 @@ import {
   type FocusState,
 } from "./focus/index.js"
 import {
-  PROMPT_BASE_ROWS,
+  PROMPT_IDLE_ROWS,
   resolveGeometry,
   resolveTopPadRows,
   type GeometryLayout,
@@ -488,7 +494,7 @@ export type AppShell = {
   readonly overlayHost: BoxRenderable
   readonly overlayTitle: TextRenderable
   readonly overlayBody: BoxRenderable
-  readonly prompt: InputRenderable
+  readonly prompt: PromptInput
   readonly promptBox: BoxRenderable
   /** The input's own row, bordered left and right only. */
   readonly promptField: BoxRenderable
@@ -556,13 +562,17 @@ export type AppShell = {
    */
   turnPhase: string | null
   /**
-   * Clock and motion state for the bottom-left brand lockup. The bridge pushes
-   * both off its existing monitor tick (`setLockupFrame`); the shell never
-   * reads a clock of its own, so a shell without a bridge simply paints the
-   * settled mark.
+   * Clock, motion and content state for the bottom-left status slot. The bridge
+   * pushes all of it off its existing monitor tick (`setLockupFrame`); the
+   * shell never reads a clock of its own, so a shell without a bridge simply
+   * paints the settled idle slot.
    */
   lockupNowMs: number
   lockupAnimating: boolean
+  /** Live phase word the slot shows, or null for the idle wordmark. */
+  lockupPhase: string | null
+  /** Clock reading when `lockupPhase` last changed — the fade's origin. */
+  lockupChangedMs: number
   /**
    * Active subagent observe session (null when viewing parent).
    * Independent stream window; Esc restores parent lease.
@@ -577,7 +587,7 @@ export type AppShell = {
   parentStreamLog: StreamRow[] | null
   /**
    * Readline kill ring backing Ctrl+Y/Alt+Y. Ctrl+K/U/W and Alt+D feed it;
-   * the InputRenderable itself has no concept of a kill ring (see
+   * the text widget itself has no concept of a kill ring (see
    * ./prompt-kill-ring.js).
    */
   promptKillRing: KillRing
@@ -702,17 +712,30 @@ function syncLandingSuggestions(shell: AppShell): void {
 }
 
 /**
- * Advance the lockup's animation clock. Callers own the tick; the shell only
- * repaints when the frame it would draw can actually differ.
+ * Advance the status slot's clock and publish what it says. Callers own the
+ * tick; the shell only repaints when the frame it would draw can actually
+ * differ.
+ *
+ * A change of phase stamps the fade's origin, so the crossfade runs off the
+ * frames the monitor is already scheduling for the live turn. Settling snaps
+ * straight to the idle slot rather than fading into it: the tick stops on the
+ * frame the turn ends, and a transition with no frames left to draw is worse
+ * than none.
  */
 export function setLockupFrame(
   shell: AppShell,
   nowMs: number,
   animating: boolean,
+  phase: string | null = null,
 ): void {
   const settled = !animating && !shell.lockupAnimating
   shell.lockupNowMs = nowMs
-  if (settled && shell.lockupAnimating === animating) return
+  const changed = phase !== shell.lockupPhase
+  if (changed) {
+    shell.lockupPhase = phase
+    shell.lockupChangedMs = nowMs
+  }
+  if (settled && !changed && shell.lockupAnimating === animating) return
   shell.lockupAnimating = animating
   paintChrome(shell)
 }
@@ -1006,15 +1029,22 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
       )
       continue
     }
-    const cells = lockupCells({
-      nowMs: shell.lockupNowMs,
-      still: !shell.lockupAnimating,
-    })
+    const cells = lockupCells(lockupFrameInput(shell))
     chunks.push(fgChunk(UI.textFaint)(" "))
     for (const cell of cells) chunks.push(fgChunk(cell.fg)(cell.char))
     chunks.push(fgChunk(UI.textFaint)(" "))
   }
   return chunks
+}
+
+/** The status slot's state, as the lockup renderer wants it. */
+function lockupFrameInput(shell: AppShell) {
+  return {
+    nowMs: shell.lockupNowMs,
+    still: !shell.lockupAnimating,
+    phase: shell.lockupPhase,
+    changedMs: shell.lockupChangedMs,
+  }
 }
 
 /**
@@ -1035,7 +1065,7 @@ export function paintPromptBorder(shell: AppShell): void {
   // what the workspace has to fit inside — with the lockup if the rule can
   // seat both, without it if it cannot. Where the row can only afford one, the
   // information wins and the mark goes.
-  const withBrand = Math.max(0, width - 9 - LOCKUP_WIDTH)
+  const withBrand = Math.max(0, width - 9 - lockupWidth(shell.lockupPhase))
   const alone = Math.max(0, width - 6)
   const workspaceInput = {
     cwd: shell.workspace.cwd,
@@ -1047,9 +1077,7 @@ export function paintPromptBorder(shell: AppShell): void {
     roomy.length > 0
       ? roomy
       : composeWorkspaceLabel({ ...workspaceInput, maxWidth: alone })
-  const brand = lockupText(
-    lockupCells({ nowMs: shell.lockupNowMs, still: !shell.lockupAnimating }),
-  )
+  const brand = lockupText(lockupCells(lockupFrameInput(shell)))
   const bottom = composeRule({
     width,
     corners: [BORDER.bottomLeft, BORDER.bottomRight],
@@ -1080,6 +1108,26 @@ export function setPromptWorkspace(
   if (cwd === shell.workspace.cwd && branch === shell.workspace.branch) return
   shell.workspace = { cwd, branch }
   paintPromptBorder(shell)
+}
+
+/**
+ * How the landing divides its rows around the prompt box.
+ *
+ * A floated overlay is clipped to the rows above the box so it never covers the
+ * thing the operator types into. Losing the tail of a long body to that clip is
+ * survivable; losing every choice is not, because then the surface cannot be
+ * answered. So the box slides down just far enough to keep the overlay's chrome
+ * and one choice on screen, and the starters below it pay for the move.
+ */
+function landingSplitFor(
+  landingRows: number,
+  minOverlayRows: number,
+  padRows: number,
+): { readonly above: number; readonly below: number } {
+  const even = splitLandingRows(landingRows)
+  const needed = Math.min(landingRows, minOverlayRows - padRows)
+  if (minOverlayRows <= 0 || even.above >= needed) return even
+  return { above: needed, below: Math.max(0, landingRows - needed) }
 }
 
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
@@ -1121,7 +1169,14 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const bag = internals.get(shell)
   const landing = bag?.landing ?? null
   const landingRows = transcriptH - padH + (landing === null ? 0 : overlayH)
-  const split = landing === null ? null : splitLandingRows(landingRows)
+  const split =
+    landing === null
+      ? null
+      : landingSplitFor(
+          landingRows,
+          overlayH > 0 ? overlayHostRows(shell.overlayBodyLines.length, 1) : 0,
+          padH,
+        )
   if (bag !== undefined && landing !== null && split !== null) {
     landing.above.box.height = Math.max(1, split.above)
     // A new zone can seat a different tier, and a tier is a different grid, so
@@ -1148,7 +1203,11 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.promptBox.height = promptH
   shell.promptBox.visible = promptH > 0
   // The field takes whatever the box has left once both labelled rules are paid.
-  shell.promptField.height = Math.max(1, promptH - 2)
+  const promptInnerH = Math.max(1, promptH - 2)
+  shell.promptField.height = promptInnerH
+  // Sized explicitly rather than left to grow with its content: past the cap the
+  // input has to scroll inside a fixed window instead of pushing the frame open.
+  shell.prompt.height = promptInnerH
 
   // Sized last: the float is anchored against chrome sized earlier in this
   // pass. Modal over the landing, an in-flow band once there is a transcript
@@ -1184,6 +1243,17 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   }
 
   paintChrome(shell)
+}
+
+/**
+ * Re-size the prompt box for what is now in it. Cheap enough to run on every
+ * content change: it re-resolves geometry only when the row count actually
+ * moves, which is once per wrapped line gained or lost.
+ */
+export function syncPromptRows(shell: AppShell): void {
+  const rows = promptBoxRows(promptRowCount(shell.prompt), shell.renderer.height)
+  if (rows === shell.layout.heights.prompt) return
+  relayout(shell, { promptContentRows: rows })
 }
 
 export type RelayoutOpts = {
@@ -1289,6 +1359,10 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
               : {}),
           },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
+    // The landing owns the screen until the first transcript row lands, so
+    // holding rows back for a transcript that does not exist would only clip
+    // whatever the operator opened over it.
+    ...(isLanding(shell) ? { transcriptFloor: 0 } : {}),
   })
   applyLayout(shell, layout)
   return layout
@@ -2169,6 +2243,47 @@ function paletteTitleLine(title: string, interior: number): string {
   const head = `─ ${title} `
   if (head.length >= interior) return head.slice(0, Math.max(0, interior))
   return head + "─".repeat(interior - head.length)
+}
+
+/**
+ * Which open surface a chord toggles shut, or null when the chord is not a
+ * toggling opener.
+ *
+ * Only pickers appear here. An opener that performs an action (Ctrl+P attaches
+ * an image, Ctrl+C interrupts, the expand key expands a row) has nothing to
+ * toggle, and a decision surface — a permission or operator question — is
+ * deliberately absent: re-pressing whatever chord happened to be underneath it
+ * must not count as an answer. Those leave via a choice or Esc.
+ *
+ * `@` and `/` are openers too, but they are also characters being typed, so
+ * pressing them again inserts them rather than closing the popup.
+ */
+function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
+  if (key.ctrl && !key.meta && !key.option && (key.name === "o" || key.name === "O")) {
+    return "palette"
+  }
+  if ((key.meta || key.option) && !key.ctrl && (key.name === "c" || key.name === "C")) {
+    return "copy"
+  }
+  if (!key.ctrl && !key.meta && !key.option && key.sequence === "?") {
+    return "help"
+  }
+  return null
+}
+
+/**
+ * Re-pressing the chord that opened a picker closes it, through the same path
+ * Esc uses so key claims and focus are unwound identically.
+ */
+function toggleCloseOpenSurface(shell: AppShell, key: KeyEvent): boolean {
+  if (shell.overlayList === null) return false
+  const kind = toggledSurfaceFor(key)
+  if (kind === null || kind !== shell.overlayKind) return false
+  // The `/` popup borrows the palette overlay; there the chord is still a
+  // character the operator may be typing into the filter.
+  if (kind === "palette" && isSlashPopupOpen(shell)) return false
+  closeInsetOverlay(shell)
+  return true
 }
 
 /** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
@@ -3130,7 +3245,7 @@ export function createAppShell(
 ): AppShell {
   const title = options?.title ?? DEFAULT_TITLE
   const visibility = defaultVisibility(options?.visibility)
-  const promptContentRows = options?.promptContentRows ?? PROMPT_BASE_ROWS
+  const promptContentRows = options?.promptContentRows ?? PROMPT_IDLE_ROWS
   const wireKeys = options?.wireKeys !== false
   const mount = options?.mount !== false
   // A freshly mounted shell has nothing in flight; the runner sets busy when a
@@ -3315,9 +3430,10 @@ export function createAppShell(
     paddingLeft: 1,
     paddingRight: 1,
   })
-  const prompt = new InputRenderable(ctx, {
+  const prompt = createPromptInput(ctx, {
     id: "shell-prompt",
     width: "100%",
+    height: Math.max(1, layout.heights.prompt - 2),
     placeholder: "message…",
     backgroundColor: UI.ground,
     focusedBackgroundColor: UI.ground,
@@ -3382,6 +3498,12 @@ export function createAppShell(
     }
 
     if (shell.overlayList) {
+      // Checked ahead of the filter handlers: an opener chord pressed again is
+      // a request to close, not a character to narrow the list with.
+      if (toggleCloseOpenSurface(shell, key)) {
+        key.preventDefault()
+        return
+      }
       // The `/` popup filters as you type, so it claims printable keys before
       // the overlay's j/k navigation can swallow them.
       if (handleSlashPopupKey(shell, key)) {
@@ -3582,16 +3704,21 @@ export function createAppShell(
       (key.name === "up" || key.name === "down") &&
       focusOwner(shell.focus) === "prompt"
     ) {
+      // Multi-row prompt: Up/Down are caret motion first. Recall only fires at
+      // the buffer's edges, which is where a shell history is conventionally
+      // reachable and where the caret has nowhere left to go.
       const stepped =
         key.name === "up"
-          ? shell.prompt.cursorOffset === 0
+          ? promptCaretAtFirstRow(shell.prompt)
             ? stepSentHistoryUp(shell.sentHistory, shell.prompt.value)
             : null
-          : stepSentHistoryDown(
-              shell.sentHistory,
-              shell.prompt.value,
-              shell.prompt.cursorOffset,
-            )
+          : promptCaretAtLastRow(shell.prompt)
+            ? stepSentHistoryDown(
+                shell.sentHistory,
+                shell.prompt.value,
+                shell.prompt.value.length,
+              )
+            : null
       if (stepped !== null) {
         key.preventDefault()
         shell.sentHistory = stepped.browse
@@ -3671,9 +3798,17 @@ export function createAppShell(
     }
   }
 
-  const onEnter = (_value: string): void => {
+  const onEnter = (): void => {
     if (disposed || shell.overlayList) return
     submitPrompt(shell, "queue")
+  }
+
+  // Per frame rather than per keystroke: the editor view's wrapped-line table is
+  // rebuilt during layout, so on the content-changed callback it still describes
+  // the text before the edit and the box would size itself one keystroke behind.
+  const onFrame = (): void => {
+    if (disposed) return
+    syncPromptRows(shell)
   }
 
   const onResize = (width: number, height: number): void => {
@@ -3691,8 +3826,9 @@ export function createAppShell(
 
   if (wireKeys) {
     renderer.keyInput.on("keypress", onKey)
-    prompt.on(InputRenderableEvents.ENTER, onEnter)
+    prompt.onSubmit = onEnter
   }
+  renderer.on(CliRenderEvents.FRAME, onFrame)
   renderer.on(CliRenderEvents.RESIZE, onResize)
 
   const shell: AppShell = {
@@ -3737,6 +3873,8 @@ export function createAppShell(
     turnPhase: null,
     lockupNowMs: 0,
     lockupAnimating: false,
+    lockupPhase: null,
+    lockupChangedMs: 0,
     observe: null,
     parentStreamLog: null,
     promptKillRing: emptyKillRing,
@@ -3747,8 +3885,9 @@ export function createAppShell(
       disposed = true
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey)
-        prompt.off(InputRenderableEvents.ENTER, onEnter)
+        prompt.onSubmit = undefined
       }
+      renderer.off(CliRenderEvents.FRAME, onFrame)
       renderer.off(CliRenderEvents.RESIZE, onResize)
       try {
         renderer.root.remove(root)

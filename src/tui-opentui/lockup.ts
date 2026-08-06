@@ -1,112 +1,132 @@
 /**
- * The persistent bottom-left brand lockup: a one-row mountain glyph followed by
- * the "corbits code" wordmark.
+ * The bottom-left status slot: a token peak, then whatever the session is
+ * currently doing.
  *
  * It rides the prompt box's bottom border, at the left end, opposite the
  * working directory and branch. There is no status row left to share — the
- * permanent hint strip is gone — and a row is the scarcest thing in a
- * terminal, so the mark buys one of zero. Sitting in the border also means it
- * inherits the box's gutter and its narrow-terminal behaviour for free, and
- * when the rule cannot seat both labels the lockup is what goes: the workspace
- * is information, the mark is not.
+ * permanent hint strip is gone — and a row is the scarcest thing in a terminal,
+ * so the slot buys one of zero. Sitting in the border also means it inherits
+ * the box's gutter and its narrow-terminal behaviour for free, and when the
+ * rule cannot seat both labels the slot is what goes: the workspace is
+ * information, the mark is not.
  *
- * Motion reuses the landing mark's timeline (`markFrame`, `ditherTone`) so both
- * marks breathe together, and like it this module is pure and clock-injected:
- * `nowMs` in, cells out, no timer.
+ * Idle it reads `▂█▃ corbits code`; while a turn runs it reads the live phase
+ * — `thinking`, `responding`, the running tool's name. The motion is the slot
+ * changing what it *says*, crossfading through the warm dim tones. An earlier
+ * version animated a wide ridgeline instead; one row has too little vertical
+ * range for a mountain to deform legibly, and widening it only flattened it
+ * further. A few cells is a token, not a picture, so it needs no valley.
+ *
+ * Pure and clock-injected: `nowMs` in, cells out, no timer.
  */
 
-import { ditherTone, markFrame, type MarkCell } from "./mark-anim.js"
-import { MARK_COLS, MARK_COVERAGE, MARK_ROWS } from "./mark-shape.js"
+import { type MarkCell } from "./mark-anim.js"
+import { MARK_RIDGE } from "./mark-shape.js"
 import { UI } from "./theme.js"
 
-/** Columns the miniature ridgeline occupies. */
-export const LOCKUP_MARK_COLS = 5
+/** Eighth blocks, tallest last. Index 0 is an empty cell. */
+const BLOCKS = " ▁▂▃▄▅▆▇█"
+
+/** Columns the token peak occupies. */
+export const LOCKUP_MARK_COLS = 3
 
 export const LOCKUP_WORDMARK = "corbits code"
 
-/** One space between the glyph and the wordmark. */
+/** One space between the glyph and the text. */
 const GLYPH_GAP = " "
 
-/** Total columns the lockup paints, wordmark included. */
-export const LOCKUP_WIDTH =
-  LOCKUP_MARK_COLS + GLYPH_GAP.length + LOCKUP_WORDMARK.length
-
-/** Eighth blocks, shortest to tallest — the ridgeline's vertical resolution. */
-const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const
+/** How long a state change takes to cross the fade ramp. */
+export const LOCKUP_FADE_MS = 240
 
 /**
- * Collapse the baked mark into one row of ridge heights in [0, 1].
+ * The mark reduced to three cells: a summit and the toe of each slope.
  *
- * Each of the full mark's columns contributes the height of its highest
- * covered cell; those columns are then bucketed into `LOCKUP_MARK_COLS` and
- * reduced by max, so the summit survives the downsample instead of being
- * averaged away into a flat bar.
+ * The summit takes its bucket's peak — a token that loses its peak is not a
+ * mountain — while the flanks take a lower quartile, so they read as ground
+ * rising rather than as two more summits.
  */
-function ridgeHeights(): readonly number[] {
-  const perColumn: number[] = []
-  for (let col = 0; col < MARK_COLS; col++) {
-    let top = MARK_ROWS
-    for (let row = 0; row < MARK_ROWS; row++) {
-      if ((MARK_COVERAGE[row]?.[col] ?? 0) > 0) {
-        top = row
-        break
-      }
-    }
-    perColumn.push(top === MARK_ROWS ? 0 : (MARK_ROWS - top) / MARK_ROWS)
-  }
-  const bucket = MARK_COLS / LOCKUP_MARK_COLS
-  const heights: number[] = []
+function tokenGlyph(): string {
+  const bucket = MARK_RIDGE.length / LOCKUP_MARK_COLS
+  const cells: string[] = []
   for (let slot = 0; slot < LOCKUP_MARK_COLS; slot++) {
-    const from = Math.floor(slot * bucket)
-    const to = Math.min(MARK_COLS, Math.floor((slot + 1) * bucket))
-    let peak = 0
-    for (let col = from; col < to; col++) {
-      peak = Math.max(peak, perColumn[col] ?? 0)
-    }
-    heights.push(peak)
+    const samples = MARK_RIDGE.slice(
+      Math.floor(slot * bucket),
+      Math.floor((slot + 1) * bucket),
+    )
+    const summit = slot === (LOCKUP_MARK_COLS - 1) / 2
+    const sorted = [...samples].sort((a, b) => a - b)
+    const height = summit
+      ? Math.max(...samples)
+      : (sorted[Math.floor(sorted.length / 4)] ?? 0)
+    cells.push(BLOCKS[Math.min(8, Math.max(0, Math.round(height * 8)))] ?? " ")
   }
-  return heights
+  return cells.join("")
 }
 
-const RIDGE = ridgeHeights()
+export const LOCKUP_MARK = tokenGlyph()
+
+/**
+ * Fade ramps, faintest first. A terminal has no alpha, so a transition steps
+ * through the warm dim tones toward its resting tone instead of blending.
+ */
+const MARK_FADE = [UI.textFaint, UI.actionDim, UI.action] as const
+const WORDMARK_FADE = [UI.textFaint, UI.textDim] as const
+const PHASE_FADE = [UI.textFaint, UI.textDim, UI.text] as const
 
 export type LockupInput = {
   readonly nowMs: number
   /** Hold the settled frame: idle session, or reduced motion. */
   readonly still: boolean
+  /** Live phase word, or null when the session is idle. */
+  readonly phase?: string | null
+  /** Clock reading when the slot's text last changed. */
+  readonly changedMs?: number
+}
+
+/** What the slot says: the phase while a turn runs, the wordmark otherwise. */
+export function lockupLabel(phase: string | null | undefined): string {
+  const live = phase?.trim() ?? ""
+  return live.length > 0 ? live : LOCKUP_WORDMARK
+}
+
+/** Columns the slot paints for a given state. */
+export function lockupWidth(phase: string | null | undefined): number {
+  return LOCKUP_MARK.length + GLYPH_GAP.length + lockupLabel(phase).length
 }
 
 /**
- * The lockup as coloured cells, left to right. `still` is the settled state —
- * the whole ridgeline at full height in the mark's steady tone.
+ * The slot as coloured cells, left to right. `still` is the settled state: the
+ * idle wordmark at its resting tones, with nothing left to animate.
  */
 export function lockupCells(input: LockupInput): readonly MarkCell[] {
-  const seconds = input.nowMs / 1000
-  const { drawProg, fillProg, alpha } = markFrame(seconds, input.still)
-  // One row has no vertical reveal to spend, so draw and fill both drive the
-  // ridge's height and the fade lands on it too.
-  const grow = input.still ? 1 : Math.min(1, drawProg * 0.5 + fillProg * 0.5)
+  const live = (input.phase?.trim().length ?? 0) > 0
+  const progress = fadeProgress(input)
   const cells: MarkCell[] = []
-  for (let col = 0; col < LOCKUP_MARK_COLS; col++) {
-    const height = (RIDGE[col] ?? 0) * grow * alpha
-    cells.push({
-      char: ridgeChar(height),
-      fg: ditherTone(col, 0, seconds, input.still),
-    })
+  for (const char of LOCKUP_MARK) {
+    cells.push({ char, fg: toneAt(MARK_FADE, progress) })
   }
-  for (const char of `${GLYPH_GAP}${LOCKUP_WORDMARK}`) {
-    cells.push({ char, fg: UI.textDim })
+  const textTone = toneAt(live ? PHASE_FADE : WORDMARK_FADE, progress)
+  for (const char of `${GLYPH_GAP}${lockupLabel(input.phase)}`) {
+    cells.push({ char, fg: textTone })
   }
   return cells
 }
 
-function ridgeChar(height: number): string {
-  if (height <= 0) return " "
-  const index = Math.min(
-    EIGHTHS.length - 1,
-    Math.max(0, Math.round(height * EIGHTHS.length) - 1),
-  )
-  return EIGHTHS[index] ?? " "
+/**
+ * 0 the moment the text changes, 1 once the fade has run. A settled slot skips
+ * it entirely: idle is genuinely still, and the monitor tick that would carry
+ * the remaining frames has already stopped by then.
+ */
+function fadeProgress(input: LockupInput): number {
+  if (input.still || input.changedMs === undefined) return 1
+  const elapsed = input.nowMs - input.changedMs
+  if (!Number.isFinite(elapsed) || elapsed >= LOCKUP_FADE_MS) return 1
+  return elapsed <= 0 ? 0 : elapsed / LOCKUP_FADE_MS
+}
+
+function toneAt(ramp: readonly string[], progress: number): string {
+  const index = Math.min(ramp.length - 1, Math.floor(progress * ramp.length))
+  return ramp[Math.max(0, index)] ?? ramp[ramp.length - 1] ?? UI.textDim
 }
 
 /** Plain-text rendering of a lockup frame — what the shape tests read. */

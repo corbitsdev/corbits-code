@@ -218,7 +218,9 @@ describe("Wave 7: subagent observe", () => {
 describe("Wave 7: residual fixtures", () => {
   test("catalogs are non-empty and stable", () => {
     expect(makeSettingsItems().length).toBeGreaterThan(3)
-    expect(makeHelpItems()).toContain("Ctrl+O — Open command palette")
+    expect(makeHelpItems()).toContain(
+      "Ctrl+O — Open the command palette; press again to close it",
+    )
     expect(makeHelpItems()).toEqual([
       ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
       "Close help",

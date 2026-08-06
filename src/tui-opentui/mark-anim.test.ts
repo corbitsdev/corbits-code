@@ -2,14 +2,12 @@ import { describe, expect, test } from "bun:test"
 
 import {
   MARK_PERIOD_SECONDS,
-  ditherTone,
   markFrame,
   markText,
-  markWave,
   renderMark,
   smooth,
 } from "./mark-anim"
-import { MARK_COLS, MARK_COVERAGE, MARK_ROWS } from "./mark-shape"
+import { MARK_COLS, MARK_COVERAGE, MARK_LARGE, MARK_ROWS } from "./mark-shape"
 import { UI } from "./theme"
 
 describe("smooth", () => {
@@ -63,39 +61,6 @@ describe("markFrame", () => {
   })
 })
 
-describe("markWave", () => {
-  test("still pins the wave regardless of the clock", () => {
-    expect(markWave(3, 2, 0, true)).toBe(markWave(3, 2, 99, true))
-  })
-
-  test("moving field changes with time", () => {
-    expect(markWave(3, 2, 0, false)).not.toBe(markWave(3, 2, 1, false))
-  })
-})
-
-describe("ditherTone", () => {
-  test("paints only the two brand orange tones", () => {
-    for (let row = 0; row < MARK_ROWS; row++) {
-      for (let col = 0; col < MARK_COLS; col++) {
-        const tone: string = ditherTone(col, row, 1.3, false)
-        expect([UI.action, UI.actionDim] as readonly string[]).toContain(tone)
-      }
-    }
-  })
-
-  test("the ordered matrix splits neighbours at a fixed wave", () => {
-    // Same wave value, different Bayer slots: the tones must not agree, or the
-    // gradient would band instead of dither.
-    const tones = new Set([
-      ditherTone(0, 0, 0, true),
-      ditherTone(1, 0, 0, true),
-      ditherTone(0, 1, 0, true),
-      ditherTone(3, 0, 0, true),
-    ])
-    expect(tones.size).toBe(2)
-  })
-})
-
 describe("renderMark", () => {
   const emptyCells = (grid: readonly (readonly { char: string }[])[]): number =>
     grid.flat().filter((cell) => cell.char === " ").length
@@ -111,6 +76,16 @@ describe("renderMark", () => {
     grid.forEach((row, y) => {
       row.forEach((cell, x) => {
         if ((MARK_COVERAGE[y]?.[x] ?? 0) === 0) expect(cell.char).toBe(" ")
+      })
+    })
+  })
+
+  test("the silhouette is solid, with blocks only at partial coverage", () => {
+    const grid = renderMark({ nowMs: 0, still: true, grid: MARK_LARGE })
+    grid.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        expect(" ▁▂▃▄▅▆▇█").toContain(cell.char)
+        if ((MARK_LARGE.coverage[y]?.[x] ?? 0) === 1) expect(cell.char).toBe("█")
       })
     })
   })
@@ -151,7 +126,7 @@ describe("renderMark", () => {
 
   test("filling makes the mark denser than its outline alone", () => {
     const weight = (grid: readonly (readonly { char: string }[])[]): number =>
-      grid.flat().reduce((sum, cell) => sum + " ░▒▓█".indexOf(cell.char), 0)
+      grid.flat().reduce((sum, cell) => sum + " ▁▂▃▄▅▆▇█".indexOf(cell.char), 0)
     const outlineOnly = renderMark({
       nowMs: 0.42 * MARK_PERIOD_SECONDS * 1000,
       still: false,

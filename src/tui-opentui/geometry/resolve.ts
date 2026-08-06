@@ -10,6 +10,7 @@ import {
   PAINT_ORDER,
   PROMPT_BASE_ROWS,
   PROMPT_CAP_FRACTION,
+  PROMPT_IDLE_ROWS,
   ZONE_REGISTRY,
   type ZoneId,
 } from "./zones.js";
@@ -53,10 +54,16 @@ export type GeometryInput = {
   readonly visibility?: ZoneVisibility;
   /**
    * Requested prompt rows (content + borders). Capped at 40% of terminal rows
-   * and floor-safe max. Default PROMPT_BASE_ROWS (3).
+   * and floor-safe max. Default PROMPT_IDLE_ROWS (5).
    */
   readonly promptContentRows?: number;
   readonly overlay?: OverlayInput;
+  /**
+   * Transcript rows to hold back for content, when the caller knows better than
+   * the registry default. The landing screen passes 0: there is no transcript
+   * yet, so reserving rows for one only starves whatever is on screen.
+   */
+  readonly transcriptFloor?: number;
 };
 
 export type Rect = {
@@ -113,7 +120,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
           ? 1
           : 0;
 
-  const promptRequested = input.promptContentRows ?? PROMPT_BASE_ROWS;
+  const promptRequested = input.promptContentRows ?? PROMPT_IDLE_ROWS;
   const promptCap = Math.max(
     PROMPT_BASE_ROWS,
     Math.floor(rows * PROMPT_CAP_FRACTION),
@@ -201,9 +208,10 @@ function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | nu
     if (h <= 0) continue;
 
     if (id === "prompt") {
-      // Never below base; reclaim growth only.
+      // Never below base, and one row at a time: a one-row shortfall should not
+      // cost the operator the whole composing area.
       if (h > PROMPT_BASE_ROWS) {
-        heights.prompt = PROMPT_BASE_ROWS;
+        heights.prompt = h - 1;
         if (!collapsed.includes("prompt")) collapsed.push("prompt");
         return "prompt";
       }
@@ -262,7 +270,10 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     rows: Math.max(1, Math.floor(input.terminal.rows)),
   };
   const mode: OverlayMode = input.overlay?.mode ?? "closed";
-  const floor = transcriptFloorFor(mode, terminal.rows);
+  const floor =
+    input.transcriptFloor === undefined
+      ? transcriptFloorFor(mode, terminal.rows)
+      : Math.max(0, Math.floor(input.transcriptFloor));
   const heights = desiredHeights({ ...input, terminal });
   const collapsed: ZoneId[] = [];
 
@@ -305,7 +316,9 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   if (heights.prompt > promptCap) heights.prompt = promptCap;
 
   // Iteratively collapse optional chrome until transcript meets floor with overlay.
-  const maxIters = 32;
+  // Enough steps to walk a grown prompt back to base one row at a time on top
+  // of dropping every optional zone.
+  const maxIters = 128;
   for (let i = 0; i < maxIters; i++) {
     const chrome = sumChrome(heights);
     const overlay = desiredOverlayHeight(

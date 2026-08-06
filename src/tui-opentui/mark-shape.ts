@@ -76,7 +76,26 @@ export const MARK_LARGE: MarkGrid = {
   ],
 }
 
-/** The compact grid's dimensions and coverage, the lockup's source of truth. */
+/** The compact grid's dimensions and coverage. */
 export const MARK_COLS = MARK_SMALL.cols
 export const MARK_ROWS = MARK_SMALL.rows
 export const MARK_COVERAGE = MARK_SMALL.coverage
+
+/**
+ * The mark's upper silhouette, sampled far finer than any cell grid: 96 columns
+ * of ridge height in [0, 1], 0 where the column is off the mark.
+ *
+ * The one-row lockup downsamples this rather than a cell grid. The valley where
+ * the left summit meets the main slope is a single sample deep at cell
+ * resolution, so a grid coarse enough to draw loses it before the lockup ever
+ * sees it; at 96 samples it survives the trip down to a dozen columns.
+ */
+export const MARK_RIDGE: readonly number[] = [
+  0, 0, 0, 0.1, 0.13, 0.17, 0.17, 0.2, 0.23, 0.27, 0.3, 0.3, 0.33, 0.33, 0.37,
+  0.37, 0.4, 0.43, 0.43, 0.47, 0.47, 0.5, 0.5, 0.53, 0.53, 0.57, 0.57, 0.57,
+  0.57, 0.57, 0.53, 0.53, 0.5, 0.5, 0.5, 0.5, 0.53, 0.57, 0.57, 0.6, 0.63,
+  0.63, 0.63, 0.63, 0.67, 0.7, 0.73, 0.77, 0.77, 0.8, 0.83, 0.83, 0.87, 0.87,
+  0.9, 0.93, 0.93, 0.97, 0.97, 0.97, 0.97, 0.97, 0.93, 0.93, 0.93, 0.9, 0.9,
+  0.87, 0.87, 0.83, 0.8, 0.8, 0.77, 0.77, 0.77, 0.77, 0.73, 0.7, 0.67, 0.6,
+  0.6, 0.57, 0.53, 0.5, 0.5, 0.4, 0.33, 0.33, 0.33, 0.3, 0.23, 0.17, 0, 0, 0, 0,
+]

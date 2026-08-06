@@ -5,6 +5,7 @@ import {
   OVERLAY_TRANSCRIPT_FLOOR,
   PROMPT_BASE_ROWS,
   PROMPT_CAP_FRACTION,
+  PROMPT_IDLE_ROWS,
   SIDE_MARGIN,
   ZONE_IDS,
   ZONE_REGISTRY,
@@ -41,9 +42,10 @@ describe("zone registry", () => {
     }
   });
 
-  test("the prompt box is the only always-on chrome (3 rows)", () => {
+  test("the prompt box is the only always-on chrome, and it rests taller than its floor", () => {
     expect(ZONE_REGISTRY.notice.idleDefault).toBe(0);
-    expect(ZONE_REGISTRY.prompt.idleDefault).toBe(3);
+    expect(ZONE_REGISTRY.prompt.idleDefault).toBe(PROMPT_IDLE_ROWS);
+    expect(ZONE_REGISTRY.prompt.min).toBe(PROMPT_BASE_ROWS);
     expect(ZONE_REGISTRY.notice.alwaysOn).toBe(false);
     expect(ZONE_REGISTRY.progress.idleDefault).toBe(0);
     expect(ZONE_REGISTRY.goal.idleDefault).toBe(0);
@@ -61,11 +63,11 @@ describe("zone registry", () => {
 describe("resolveGeometry — 80×24 idle floor", () => {
   test("idle default chrome yields transcript ≥ 12", () => {
     const layout = idle80x24();
-    // The prompt box is the whole of idle chrome: 3 rows → transcript 21.
-    expect(layout.chromeHeight).toBe(3);
-    expect(layout.transcriptHeight).toBe(21);
+    // The prompt box is the whole of idle chrome: 5 rows → transcript 19.
+    expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
+    expect(layout.transcriptHeight).toBe(24 - PROMPT_IDLE_ROWS);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
-    expect(layout.regions.transcript?.height).toBe(21);
+    expect(layout.regions.transcript?.height).toBe(24 - PROMPT_IDLE_ROWS);
     expect(layout.overlayHeight).toBe(0);
     expect(layout.overlayMode).toBe("closed");
   });
@@ -211,12 +213,13 @@ describe("resolveGeometry — prompt growth", () => {
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
     // Prompt should not stay at 9 if collapse was needed.
     if (layout.collapsed.includes("prompt")) {
-      expect(layout.heights.prompt).toBe(PROMPT_BASE_ROWS);
+      expect(layout.heights.prompt).toBeLessThan(9);
+      expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
     }
   });
 
-  test("prompt stays at base 3 by default", () => {
-    expect(idle80x24().heights.prompt).toBe(PROMPT_BASE_ROWS);
+  test("prompt rests at its idle composing height by default", () => {
+    expect(idle80x24().heights.prompt).toBe(PROMPT_IDLE_ROWS);
   });
 });
 
@@ -266,8 +269,8 @@ describe("resolveGeometry — resize / residual", () => {
   test("120×40 idle still keeps floor and accrues residual to transcript", () => {
     const layout = resolveGeometry({ terminal: { columns: 120, rows: 40 } });
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
-    expect(layout.chromeHeight).toBe(3);
-    expect(layout.transcriptHeight).toBe(37);
+    expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
+    expect(layout.transcriptHeight).toBe(40 - PROMPT_IDLE_ROWS);
   });
 
   test("does not read process.stdout — pure input only", () => {

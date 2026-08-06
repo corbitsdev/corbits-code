@@ -52,7 +52,15 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
   // Transient: rows only while the shell has state worth a row (queue depth,
   // latched interrupt, a flash, a live turn). Idle it is off.
   notice: { id: "notice", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
-  prompt: { id: "prompt", min: 3, max: 3, idleDefault: 3, alwaysOn: true },
+  // Grows with what is being composed; the resolver caps it at PROMPT_CAP_FRACTION
+  // and collapses it back toward min when the transcript would breach its floor.
+  prompt: {
+    id: "prompt",
+    min: 3,
+    max: Number.POSITIVE_INFINITY,
+    idleDefault: 5,
+    alwaysOn: true,
+  },
   goal: { id: "goal", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   agents: { id: "agents", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
@@ -106,8 +114,20 @@ export const PROMPT_CAP_FRACTION = 0.4;
 /** Overlay host body may not exceed this fraction of terminal rows (proposed). */
 export const OVERLAY_MAX_FRACTION = 0.7;
 
-/** Prompt base bordered height (labelled borders + one content line). */
+/**
+ * Prompt floor: labelled borders + one content line. Only a terminal too short
+ * to seat the transcript floor alongside a composing area gets squeezed here.
+ */
 export const PROMPT_BASE_ROWS = 3;
+
+/** Input rows the prompt offers at rest, before anything has been typed. */
+export const PROMPT_IDLE_INPUT_ROWS = 3;
+
+/** Rows the two labelled rules cost the prompt box. */
+export const PROMPT_BORDER_ROWS = 2;
+
+/** Prompt bordered height at rest. */
+export const PROMPT_IDLE_ROWS = PROMPT_IDLE_INPUT_ROWS + PROMPT_BORDER_ROWS;
 
 /**
  * Collapse order when transcript would breach the floor (first cut first).

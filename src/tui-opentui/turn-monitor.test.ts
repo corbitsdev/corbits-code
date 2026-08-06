@@ -83,6 +83,33 @@ describe("turn progress label", () => {
     })
   })
 
+  test("the bottom-left slot carries the phase and fades on each change", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        expect(t.shell.lockupPhase).toBeNull()
+
+        t.bridge.handle({ type: "inference.start", data: {} })
+        expect(t.shell.lockupPhase).toBe("working")
+        const started = t.shell.lockupChangedMs
+
+        t.advance(500)
+        t.bridge.handle({
+          type: "inference.thinking.delta",
+          data: { token: "hm" },
+        })
+        expect(t.shell.lockupPhase).toBe("thinking")
+        // A new phase restamps the fade so the crossfade starts over.
+        expect(t.shell.lockupChangedMs).toBeGreaterThan(started)
+
+        t.bridge.handle({ type: "reactor.done", data: {} })
+        expect(t.shell.lockupPhase).toBeNull()
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   /**
    * The shape a real chat turn actually has. A chat session emits no
    * `reactor.done` until it closes, so `connector.reply` is the only terminal

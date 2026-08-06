@@ -1,13 +1,11 @@
 /**
- * The animated Corbits dither mark, ported from the web boot screen.
+ * The animated Corbits mark, ported from the web boot screen.
  *
- * Two passes composite per frame, exactly as the canvas version does:
- *
- * 1. A *color field* — an ordered Bayer dither of a travelling sine wave into
- *    two tones. The dither is what makes the mark shimmer; a terminal has the
- *    same texture natively, so it ports rather than being approximated.
- * 2. A *shape mask* — the real mark silhouette (`mark-shape.ts`), revealed
- *    left to right by `drawProg` and filled bottom-up by `fillProg`.
+ * The mark is the real silhouette (`mark-shape.ts`) drawn as a solid body,
+ * revealed left to right by `drawProg` and filled bottom-up by `fillProg`. The
+ * canvas version shades it with an ordered Bayer dither of a travelling sine
+ * wave; at hero size a terminal renders that as visible noise rather than as
+ * shimmer, so the terminal mark is opaque instead.
  *
  * Everything here is pure and clock-injected: `nowMs` is the only time source,
  * so the caller's existing 250 ms status tick drives the animation and tests
@@ -61,61 +59,16 @@ export function markFrame(seconds: number, still: boolean): MarkFrame {
   return { drawProg: 1, fillProg: 1, alpha: smooth((1 - p) / 0.1) }
 }
 
-/** Standard 4x4 ordered dither matrix. */
-const BAYER4: readonly (readonly number[])[] = [
-  [0, 8, 2, 10],
-  [12, 4, 14, 6],
-  [3, 11, 1, 9],
-  [15, 7, 13, 5],
-]
-
-/** Where the wave sits when motion is suppressed. */
-const STILL_WAVE = 0.6
-
-/** Travelling sine field sampled at a cell, in [0, 1]. */
-export function markWave(
-  col: number,
-  row: number,
-  seconds: number,
-  still: boolean,
-  grid: MarkGrid = MARK_SMALL,
-): number {
-  if (still) return STILL_WAVE
-  const u = col / grid.cols
-  const v = row / grid.rows
-  return 0.5 + 0.5 * Math.sin((u + v) * 5.0 - seconds * 1.6)
-}
-
-/**
- * Binary two-tone dither of the wave. The threshold comes from the cell's slot
- * in the Bayer matrix, so neighbouring cells flip at different wave values and
- * the gradient reads as texture instead of a band.
- */
-export function ditherTone(
-  col: number,
-  row: number,
-  seconds: number,
-  still: boolean,
-  grid: MarkGrid = MARK_SMALL,
-): string {
-  const threshold = ((BAYER4[row & 3]?.[col & 3] ?? 0) + 0.5) / 16
-  return markWave(col, row, seconds, still, grid) > threshold
-    ? UI.action
-    : UI.actionDim
-}
-
-/** Sparsest to densest. Index 0 is an empty cell. */
-const RAMP = [" ", "░", "▒", "▓", "█"] as const
-
-/** Eighth blocks for the fill's leading edge, growing upward from the floor. */
+/** Eighth blocks, shortest to tallest, growing upward from the cell floor. */
 const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const
 
 /**
- * Coverage is raised to this power before it picks a ramp glyph. The mark is a
- * thin ridgeline, so most cells it touches are only partially covered; the
- * gamma lifts them far enough up the ramp for the silhouette to read.
+ * Coverage is raised to this power once a cell is filled. The mark is a thin
+ * ridgeline, so most cells it touches are only partially covered; the gamma
+ * lifts them far enough for the silhouette to read as one solid body while
+ * leaving the sparsest edge cells short enough to still slope.
  */
-const DENSITY_GAMMA = 0.6
+const FILL_GAMMA = 0.6
 
 export type MarkCell = {
   readonly char: string
@@ -133,8 +86,13 @@ export type MarkInput = {
 /**
  * Composite one frame into a row-major cell grid.
  *
- * `alpha` has no terminal equivalent, so it scales density instead: the mark
- * thins out through the ramp toward empty rather than blending to black.
+ * The silhouette is drawn solid: a wholly covered cell is `█` and a partly
+ * covered one is the eighth block matching its coverage, so the ridgeline
+ * slopes instead of staircasing. No dither texture survives inside the shape —
+ * the mark is a mountain, and a mountain is opaque.
+ *
+ * `alpha` has no terminal equivalent, so it scales the block height instead:
+ * the mark sinks toward empty rather than blending to black.
  */
 export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const shape = input.grid ?? MARK_SMALL
@@ -150,18 +108,22 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
     const rowFill = clamp01(row + 1 - fillLine)
     for (let col = 0; col < shape.cols; col++) {
       const coverage = shape.coverage[row]?.[col] ?? 0
-      const fg = ditherTone(col, row, seconds, input.still, shape)
       const reveal = clamp01(revealed - col)
       if (coverage === 0 || reveal === 0) {
-        cells.push({ char: RAMP[0], fg })
+        cells.push({ char: " ", fg: UI.action })
         continue
       }
-      const outline = coverage ** DENSITY_GAMMA
-      // Filling lifts every silhouette cell toward solid, weighted by coverage
-      // so the edge of the mark stays soft instead of squaring off.
-      const fill = rowFill * (0.5 + 0.5 * coverage)
-      const density = clamp01(Math.max(outline, fill) * reveal * alpha)
-      cells.push({ char: fillEdgeChar(rowFill, fill, outline) ?? rampChar(density), fg })
+      // The outline states the shape at its true coverage; filling lifts it
+      // toward solid without squaring off the edge cells that carry the slope.
+      const outline = coverage
+      const filled = coverage ** FILL_GAMMA
+      const height = clamp01(
+        (outline + (filled - outline) * rowFill) * reveal * alpha,
+      )
+      cells.push({
+        char: fillEdgeChar(rowFill, height) ?? blockChar(height),
+        fg: UI.action,
+      })
     }
     grid.push(cells)
   }
@@ -169,21 +131,24 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
 }
 
 /**
- * The row the fill is currently crossing, drawn with eighth blocks so the
- * bottom-up sweep reads as continuous motion even across a handful of rows.
+ * The row the fill is currently crossing. Solid interior cells change too
+ * little between outline and filled to show the sweep on their own, so the
+ * crossing row is drawn at the fill's own height — capped by the cell, which
+ * keeps the wipe inside the silhouette.
  */
-function fillEdgeChar(
-  rowFill: number,
-  fill: number,
-  outline: number,
-): string | null {
-  if (rowFill <= 0 || rowFill >= 1 || fill <= outline) return null
-  return EIGHTHS[Math.min(EIGHTHS.length - 1, Math.round(rowFill * 8) - 1)] ?? null
+function fillEdgeChar(rowFill: number, height: number): string | null {
+  if (rowFill <= 0 || rowFill >= 1) return null
+  return blockChar(Math.min(rowFill, height))
 }
 
-function rampChar(density: number): string {
-  const index = Math.min(RAMP.length - 1, Math.round(density * (RAMP.length - 1)))
-  return RAMP[index] ?? RAMP[0]
+function blockChar(height: number): string {
+  const index = Math.min(
+    EIGHTHS.length - 1,
+    Math.round(height * EIGHTHS.length) - 1,
+  )
+  // Below half an eighth there is no block short enough to be honest: the cell
+  // is closer to empty, which is also how the fade reaches nothing.
+  return index < 0 ? " " : (EIGHTHS[index] ?? " ")
 }
 
 /** Flatten a frame to plain text — the shape assertion tests read this. */

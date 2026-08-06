@@ -458,9 +458,6 @@ export function attachSessionBridge(
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
     paintLanding(shell, now(), turn.isProcessing)
-    // The bottom-left lockup rides the same re-entry as the landing mark, so it
-    // keeps animating after the landing is gone without a timer of its own.
-    setLockupFrame(shell, now(), turn.isProcessing)
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
@@ -469,6 +466,9 @@ export function attachSessionBridge(
       streamingType: turn.streamingType,
     }
     const label = resolveTurnLabel(input)
+    // The bottom-left status slot rides the same re-entry as the landing mark,
+    // so it crossfades between phases without a timer of its own.
+    setLockupFrame(shell, now(), turn.isProcessing, label ?? null)
     if (label === undefined) {
       setTurnPhase(shell, null)
       // Nothing animates and nothing is being waited on, so the loop stops
