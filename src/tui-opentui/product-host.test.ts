@@ -1,13 +1,67 @@
 /**
- * Pure unit tests for product-host helpers (no TTY / createCliRenderer).
+ * Unit tests for product-host: pure helpers plus mount-level coverage of
+ * `mountProductHost` using the headless harness and fakes.
  */
+import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest } from "../permission/types.js"
+import { createHarness } from "./harness.js"
+import { acceptOverlaySelection } from "./shell.js"
 import {
+  mountProductHost,
   operatorResultFromSelection,
   permissionChoices,
   rowFromHistoryBlock,
+  type ProductHostConfig,
 } from "./product-host.js"
+
+function makeFakeSessionPort(): {
+  readonly sends: string[]
+  readonly interrupts: number
+  readonly send: ProductHostConfig["send"]
+  readonly interrupt: ProductHostConfig["interrupt"]
+  readonly deliver: NonNullable<ProductHostConfig["deliver"]>
+} {
+  const sends: string[] = []
+  let interrupts = 0
+  return {
+    sends,
+    get interrupts() {
+      return interrupts
+    },
+    send: (text) => {
+      sends.push(text)
+    },
+    interrupt: () => {
+      interrupts += 1
+    },
+    deliver: (text) => {
+      sends.push(text)
+    },
+  }
+}
+
+async function mountHeadless(
+  overrides: Partial<ProductHostConfig> = {},
+): Promise<{
+  host: Awaited<ReturnType<typeof mountProductHost>>
+  emitter: EventEmitter
+  destroyHarness: () => void
+}> {
+  const harness = await createHarness({ width: 80, height: 24 })
+  const emitter = new EventEmitter()
+  const port = makeFakeSessionPort()
+  const host = await mountProductHost({
+    title: "test-session",
+    eventEmitter: emitter,
+    send: port.send,
+    interrupt: port.interrupt,
+    deliver: port.deliver,
+    createRenderer: async () => harness.renderer,
+    ...overrides,
+  })
+  return { host, emitter, destroyHarness: harness.destroy }
+}
 
 function makeRequest(
   scopes: PermissionRequest["scopes"] = [],
@@ -146,5 +200,125 @@ describe("rowFromHistoryBlock", () => {
 
   test("unknown type → null", () => {
     expect(rowFromHistoryBlock({ type: "unknown" })).toBeNull()
+  })
+})
+
+describe("mountProductHost", () => {
+  test("stream events emitted on the event emitter paint rows into the shell", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      emitter.emit("event", { type: "user", text: "hello there" })
+      emitter.emit("event", { type: "assistant", text: "hi back" })
+      expect(host.shell.streamLog).toEqual([
+        { role: "user", text: "hello there" },
+        { role: "assistant", text: "hi back" },
+      ])
+    } finally {
+      host.dispose()
+    }
+  })
+
+  test("history.hydrate replays blocks as stream rows", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      emitter.emit("history.hydrate", [
+        { type: "user", content: "past prompt" },
+        { type: "text", content: "past reply" },
+        { type: "unknown" },
+      ])
+      expect(host.shell.streamLog).toEqual([
+        { role: "user", text: "past prompt" },
+        { role: "assistant", text: "past reply" },
+      ])
+    } finally {
+      host.dispose()
+    }
+  })
+
+  test("session.title updates the shell header", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      expect(host.shell.baseTitle).toBe("test-session")
+      emitter.emit("session.title", "renamed session")
+      expect(host.shell.baseTitle).toBe("renamed session")
+    } finally {
+      host.dispose()
+    }
+  })
+
+  test("permission.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      let resolved: unknown
+      const request: PermissionRequest = {
+        tool: "bash",
+        action: "run",
+        subject: "ls",
+        scopes: [],
+      }
+      emitter.emit("permission.gate", {
+        request,
+        resolve: (outcome: unknown) => {
+          resolved = outcome
+        },
+      })
+      expect(host.shell.overlayKind).toBe("permissions")
+      expect(host.shell.overlayItems).toEqual(["Reject", "Accept once"])
+
+      acceptOverlaySelection(host.shell)
+      expect(resolved).toEqual({ allow: false })
+    } finally {
+      host.dispose()
+    }
+  })
+
+  test("operator.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      let resolved: unknown
+      emitter.emit("operator.gate", {
+        question: "Proceed?",
+        options: ["Cancel", "Continue"],
+        resolve: (result: unknown) => {
+          resolved = result
+        },
+      })
+      expect(host.shell.overlayKind).toBe("operator")
+      expect(host.shell.overlayItems).toEqual(["Cancel", "Continue"])
+    } finally {
+      host.dispose()
+    }
+  })
+
+  test("dispose() detaches emitter listeners and resolves waitUntilExit", async () => {
+    const { host, emitter } = await mountHeadless()
+
+    expect(emitter.listenerCount("event")).toBe(1)
+    expect(emitter.listenerCount("history.hydrate")).toBe(1)
+    expect(emitter.listenerCount("session.title")).toBe(1)
+    expect(emitter.listenerCount("permission.gate")).toBe(1)
+    expect(emitter.listenerCount("operator.gate")).toBe(1)
+
+    const exited = host.waitUntilExit()
+    host.dispose()
+    await exited
+
+    expect(emitter.listenerCount("event")).toBe(0)
+    expect(emitter.listenerCount("history.hydrate")).toBe(0)
+    expect(emitter.listenerCount("session.title")).toBe(0)
+    expect(emitter.listenerCount("permission.gate")).toBe(0)
+    expect(emitter.listenerCount("operator.gate")).toBe(0)
+  })
+
+  test("dispose() is idempotent and events after dispose are ignored", async () => {
+    const { host, emitter } = await mountHeadless()
+    host.dispose()
+    expect(() => host.dispose()).not.toThrow()
+
+    // Listeners were removed by dispose; emitting is a no-op, not a throw.
+    expect(() =>
+      emitter.emit("event", { type: "user", text: "late" }),
+    ).not.toThrow()
+    expect(host.shell.streamLog).toEqual([])
   })
 })

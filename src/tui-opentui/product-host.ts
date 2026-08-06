@@ -62,6 +62,12 @@ export type ProductHostConfig = {
    * this to view real subagent sessions.
    */
   readonly onObserveRequest?: PaletteOnObserveRequest
+  /**
+   * Renderer factory override for headless mounting in tests.
+   * Defaults to the real `createCliRenderer`; tests inject a
+   * `createTestRenderer`-backed renderer instead.
+   */
+  readonly createRenderer?: () => Promise<CliRenderer>
 }
 
 export type ProductHost = {
@@ -172,10 +178,12 @@ export function rowFromHistoryBlock(block: {
 export async function mountProductHost(
   config: ProductHostConfig,
 ): Promise<ProductHost> {
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
-    targetFps: 30,
-  })
+  const renderer = config.createRenderer
+    ? await config.createRenderer()
+    : await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+      })
 
   const shell = createAppShell(renderer, {
     title: config.title,
