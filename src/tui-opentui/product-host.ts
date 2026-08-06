@@ -181,12 +181,12 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // The kitty keyboard protocol was enabled here to make Shift+Enter
-        // reachable — a plain terminal sends a bare CR for both Enter and
-        // Shift+Enter, so the modifier never arrives. It did not work in
-        // Ghostty, and it coincided with visible horizontal jitter in the
-        // rendered frame. A mode negotiation that buys nothing is not worth
-        // the risk of destabilising output, so Ctrl+J stays the newline chord.
+        // A plain terminal sends a bare CR for both Enter and Shift+Enter, so
+        // the modifier only arrives once the kitty keyboard protocol is
+        // negotiated. Empty object, not explicit flags: this matches what
+        // OpenCode passes, and it is the configuration Shift+Enter is known
+        // to work under on the same OpenTUI renderer.
+        useKittyKeyboard: {},
       })
 
   const shell = createAppShell(renderer, {
