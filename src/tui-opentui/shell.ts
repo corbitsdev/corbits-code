@@ -88,6 +88,16 @@ import {
   sessionHeaderTitle,
   type StreamRow,
 } from "./stream.js"
+import {
+  beginYank,
+  breakKillSequence,
+  emptyKillRing,
+  killedTextBackward,
+  killedTextForward,
+  recordKill,
+  rotateYank,
+  type KillRing,
+} from "./prompt-kill-ring.js"
 
 /** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
 export type ShellBridgeHooks = {
@@ -395,6 +405,12 @@ export type AppShell = {
   } | null
   /** Parent stream snapshot while observe is active. */
   parentStreamLog: StreamRow[] | null
+  /**
+   * Readline kill ring backing Ctrl+Y/Alt+Y. Ctrl+K/U/W and Alt+D feed it;
+   * the InputRenderable itself has no concept of a kill ring (see
+   * ./prompt-kill-ring.js).
+   */
+  promptKillRing: KillRing
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
 }
@@ -1939,6 +1955,86 @@ export function createAppShell(
       return
     }
 
+    // Emacs-style prompt editing: Ctrl+B/F/D, arrow motion, and Alt+B/F word
+    // motion are already native InputRenderable bindings (see
+    // defaultTextareaKeyBindings in @opentui/core). What's missing is the
+    // kill ring — Ctrl+K/U/W and Alt+D delete natively but discard the text;
+    // Ctrl+Y/Alt+Y need somewhere to yank it back from.
+    const keyName = typeof key.name === "string" ? key.name.toLowerCase() : ""
+    const isCtrlKillYank =
+      key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      (keyName === "k" || keyName === "u" || keyName === "w" || keyName === "y")
+    const isAltKillYank =
+      (key.meta || key.option) && !key.ctrl && (keyName === "d" || keyName === "y")
+    if (!isCtrlKillYank && !isAltKillYank) {
+      shell.promptKillRing = breakKillSequence(shell.promptKillRing)
+    }
+
+    if (key.ctrl && !key.meta && !key.option && keyName === "k") {
+      key.preventDefault()
+      const before = shell.prompt.value
+      const beforeCursor = shell.prompt.cursorOffset
+      shell.prompt.deleteToLineEnd()
+      const killed = killedTextForward(before, beforeCursor, shell.prompt.value)
+      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "forward")
+      return
+    }
+
+    if (key.ctrl && !key.meta && !key.option && keyName === "u") {
+      key.preventDefault()
+      const before = shell.prompt.value
+      const beforeCursor = shell.prompt.cursorOffset
+      shell.prompt.deleteToLineStart()
+      const killed = killedTextBackward(before, beforeCursor, shell.prompt.cursorOffset)
+      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "backward")
+      return
+    }
+
+    if (key.ctrl && !key.meta && !key.option && keyName === "w") {
+      key.preventDefault()
+      const before = shell.prompt.value
+      const beforeCursor = shell.prompt.cursorOffset
+      shell.prompt.deleteWordBackward()
+      const killed = killedTextBackward(before, beforeCursor, shell.prompt.cursorOffset)
+      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "backward")
+      return
+    }
+
+    if ((key.meta || key.option) && !key.ctrl && keyName === "d") {
+      key.preventDefault()
+      const before = shell.prompt.value
+      const beforeCursor = shell.prompt.cursorOffset
+      shell.prompt.deleteWordForward()
+      const killed = killedTextForward(before, beforeCursor, shell.prompt.value)
+      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "forward")
+      return
+    }
+
+    if (key.ctrl && !key.meta && !key.option && keyName === "y") {
+      key.preventDefault()
+      const yank = beginYank(shell.promptKillRing, shell.prompt.cursorOffset)
+      if (yank !== null) {
+        shell.promptKillRing = yank.ring
+        shell.prompt.insertText(yank.text)
+      }
+      return
+    }
+
+    if ((key.meta || key.option) && !key.ctrl && keyName === "y") {
+      key.preventDefault()
+      const rotated = rotateYank(shell.promptKillRing)
+      if (rotated !== null && rotated.span.end <= shell.prompt.value.length) {
+        shell.promptKillRing = rotated.ring
+        shell.prompt.setSelection(rotated.span.start, rotated.span.end)
+        shell.prompt.deleteSelection()
+        shell.prompt.cursorOffset = rotated.span.start
+        shell.prompt.insertText(rotated.text)
+      }
+      return
+    }
+
     if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
       key.preventDefault()
       toggleShellFocus(shell)
@@ -2044,6 +2140,7 @@ export function createAppShell(
     statusFlash: null,
     observe: null,
     parentStreamLog: null,
+    promptKillRing: emptyKillRing,
     dispose: () => {
       if (disposed) return
       disposed = true

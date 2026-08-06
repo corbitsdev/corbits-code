@@ -439,6 +439,216 @@ describe("product skin: stream + queue + overlay", () => {
   })
 })
 
+describe("prompt editing chords", () => {
+  test("Ctrl+K kills to end of prompt, Ctrl+Y yanks it back", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "hello world"
+          shell.prompt.cursorOffset = 5
+          h.pressKey("k", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello world")
+          expect(shell.prompt.cursorOffset).toBe(11)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+U kills to start of prompt (backward)", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "hello world"
+          shell.prompt.cursorOffset = 6
+          h.pressKey("u", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("world")
+          expect(shell.prompt.cursorOffset).toBe(0)
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello world")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+W kills the previous word", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "hello world"
+          shell.prompt.cursorOffset = 11
+          h.pressKey("w", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello ")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello world")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Alt+D kills the next word", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "hello world"
+          shell.prompt.cursorOffset = 0
+          h.pressKey("d", { meta: true })
+          await h.renderOnce()
+          // The native deleteWordForward consumes the trailing separator too.
+          expect(shell.prompt.value).toBe("world")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("hello world")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a no-op Ctrl+K (already at end) does not clobber the prior kill", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "one two three"
+          shell.prompt.cursorOffset = 3
+          h.pressKey("k", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("one")
+
+          // Cursor is already at the end of the buffer, so this Ctrl+K kills
+          // nothing — it must not overwrite the ring with an empty entry.
+          h.pressKey("k", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("one")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("one two three")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Alt+Y rotates the yank to the next-older kill", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "first second"
+          shell.prompt.cursorOffset = 12
+          h.pressKey("w", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("first ")
+
+          // A non-kill keystroke breaks accumulation so the next kill lands
+          // in a fresh ring entry instead of merging with this one.
+          h.pressKey("ARROW_LEFT")
+          await h.renderOnce()
+          shell.prompt.cursorOffset = 0
+
+          h.pressKey("k", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("first ")
+
+          h.pressKey("y", { meta: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("second")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("typing between kills breaks accumulation: a later Ctrl+K starts a fresh entry", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        })
+        try {
+          shell.prompt.value = "one two"
+          shell.prompt.cursorOffset = 3
+          h.pressKey("k", { ctrl: true })
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("one")
+
+          h.pressKey("x")
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("onex")
+
+          h.pressKey("Backspace")
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("one")
+
+          h.pressKey("y", { ctrl: true })
+          await h.renderOnce()
+          // The kill ring still has " two" from the original Ctrl+K — typing
+          // and backspacing in between must not have merged into it.
+          expect(shell.prompt.value).toBe("one two")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
 describe("list kit + overlay focus simulation", () => {
   test("list viewport keep-active-visible works as overlay consumer", () => {
     let list = createListViewport({ count: 40, height: 8, activeIndex: 0 })

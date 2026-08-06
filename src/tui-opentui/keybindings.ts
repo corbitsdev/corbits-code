@@ -2,9 +2,12 @@
  * OpenTUI shell keybinding catalog (pure data).
  *
  * This is the source of truth for the help overlay — every row here must
- * match a real handler in src/tui-opentui/shell.ts's `onKey`/`onEnter`
- * listeners. Do not hand-transcribe from docs or from the Ink renderer's
- * src/tui/keymap-table.ts, which describes a different key handler.
+ * match a real, currently-working chord: either a handler in
+ * src/tui-opentui/shell.ts's `onKey`/`onEnter` listeners, or a default
+ * binding of the prompt's InputRenderable (see `defaultTextareaKeyBindings`
+ * in @opentui/core — Ctrl+B/F/D, Alt+B/F, and arrow motion come from there,
+ * not from shell.ts). Do not hand-transcribe from docs or from the Ink
+ * renderer's src/tui/keymap-table.ts, which describes a different key handler.
  */
 
 export type ShellShortcut = {
@@ -20,4 +23,14 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+C", description: "Copy mode: pick a message, tool output, or diff" },
   { keys: "Tab", description: "Toggle prompt ↔ transcript focus" },
   { keys: "Esc", description: "Close overlay / leave subagent observe" },
+  { keys: "Ctrl+B / Ctrl+F", description: "Move cursor back / forward one character" },
+  { keys: "Ctrl+D", description: "Delete character under cursor" },
+  { keys: "Alt+B / Alt+F", description: "Move cursor back / forward one word" },
+  { keys: "Ctrl+K", description: "Kill from cursor to end of prompt" },
+  { keys: "Ctrl+U", description: "Kill from start of prompt to cursor" },
+  { keys: "Ctrl+W", description: "Kill previous word" },
+  { keys: "Alt+D", description: "Kill next word" },
+  { keys: "Ctrl+Y", description: "Yank last kill at cursor" },
+  { keys: "Alt+Y", description: "Cycle yank to the next-older kill" },
+  { keys: "Arrow keys", description: "Move cursor left / right / up / down in prompt" },
 ] as const
