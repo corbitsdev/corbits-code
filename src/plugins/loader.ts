@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
@@ -200,8 +200,10 @@ export async function loadPluginEntry(
 //
 // Marketplace `source` entries must be relative. Absolute sources are rejected.
 // Resolved paths must stay under `containRoot` when set; when omitted, path
-// plugins default to the parent of the marketplace root (one-level siblings
-// like `../agents/x` are allowed). Claude discovery passes `~/.claude/plugins`.
+// plugins default to the parent of the marketplace root (any relative under that
+// parent tree, e.g. `../agents/x` or deeper). Claude discovery passes
+// `~/.claude/plugins`. Existing paths are realpath-checked so a symlink under
+// the contain root that points outside is rejected (see list-dir.ts).
 async function pathExists(p: string): Promise<boolean> {
   try {
     await stat(p);
@@ -229,12 +231,47 @@ export type ExpandPluginPathOptions = {
   /**
    * Resolved member directories must stay under this root (or equal it).
    * Claude installs: `~/.claude/plugins`. Path/pluginPaths marketplaces omit
-   * this and get the parent of the marketplace root (sibling `../agents` ok).
+   * this and get the parent of the marketplace root (any path under that parent
+   * tree is allowed — multi-level relatives ok).
    */
   containRoot?: string;
   /** Called for each skipped marketplace source (never silent). */
   onSkip?: (skip: ExpandPluginPathSkip) => void;
 };
+
+/** Default skip reporter: stderr, same shape as Claude discovery. */
+function defaultExpandSkip(skip: ExpandPluginPathSkip): void {
+  const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
+  process.stderr.write(
+    `plugins: skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}\n`,
+  );
+}
+
+/**
+ * Containment check with symlink safety. Lexical reject first; when both the
+ * candidate and the contain root exist, realpath both and re-check so a symlink
+ * under the root that points outside is refused. Missing paths keep the lexical
+ * result (not-yet-created members still expand if they resolve under the root).
+ */
+async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
+  if (!pathIsInsideOrEqual(abs, root)) return false;
+  let realAbs: string | undefined;
+  let realRoot: string | undefined;
+  try {
+    realAbs = await realpath(abs);
+  } catch {
+    // Candidate missing or broken link — keep lexical allow.
+  }
+  try {
+    realRoot = await realpath(root);
+  } catch {
+    // Root missing is pathological; keep lexical allow.
+  }
+  if (realAbs !== undefined && realRoot !== undefined) {
+    return pathIsInsideOrEqual(realAbs, realRoot);
+  }
+  return true;
+}
 
 export async function expandPluginPath(
   path: string,
@@ -242,11 +279,11 @@ export async function expandPluginPath(
 ): Promise<string[]> {
   const marketplaceRoot = resolve(path);
   const report = (skip: ExpandPluginPathSkip): void => {
-    opts.onSkip?.(skip);
+    (opts.onSkip ?? defaultExpandSkip)(skip);
   };
 
   // 1. Declared marketplace: relative `source` list, contained under containRoot
-  // (or parent of marketplace root for path plugins — one-level siblings).
+  // (or parent of marketplace root for path plugins — any depth under that parent).
   try {
     const raw = await readFile(
       join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
@@ -278,7 +315,7 @@ export async function expandPluginPath(
           continue;
         }
         const resolved = resolve(marketplaceRoot, src);
-        if (!pathIsInsideOrEqual(resolved, containRoot)) {
+        if (!(await pathContainedUnder(resolved, containRoot))) {
           report({ source: src, reason: "outside-contain-root", resolved });
           continue;
         }
@@ -329,7 +366,7 @@ export async function expandPluginPath(
       if (!entry.isDirectory()) continue;
       const child = join(marketplaceRoot, "plugins", entry.name);
       if (!(await pathExists(child))) continue;
-      if (!pathIsInsideOrEqual(child, containRoot)) {
+      if (!(await pathContainedUnder(child, containRoot))) {
         report({ source: child, reason: "outside-contain-root", resolved: child });
         continue;
       }
@@ -523,14 +560,7 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
-  const onExpandSkip =
-    opts.onExpandSkip
-    ?? ((skip: ExpandPluginPathSkip) => {
-      const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
-      process.stderr.write(
-        `plugins: skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}\n`,
-      );
-    });
+  const onExpandSkip = opts.onExpandSkip ?? defaultExpandSkip;
   const installPaths: Array<{ abs: string; registryKey: string }> = [];
   const seen = new Set<string>();
   for (const [registryKey, entries] of Object.entries(

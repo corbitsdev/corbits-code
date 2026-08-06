@@ -320,15 +320,17 @@ shape.
 | Form | Allowed? | Notes |
 |------|----------|--------|
 | `./plugins/<name>` | Yes | Under the marketplace root |
-| `../agents/<name>` (and other relative siblings) | Yes, when still under the contain root | Claude installs: contain root is `~/.claude/plugins`. Path/`pluginPaths` marketplaces: contain root is the **parent** of the marketplace directory (one-level siblings only) |
+| `../agents/<name>` (and deeper relatives under the contain root) | Yes, when still under the contain root | **Claude installs:** contain root is `~/.claude/plugins` (so `../agents/x` from a marketplace under that tree is allowed). **Path / `pluginPaths` marketplaces:** contain root is the **parent** of the marketplace directory — any relative that resolves under that parent tree is allowed (multi-level, not one-level-only). |
 | Absolute path (`/…`, `C:\…`) | No | Rejected; reported as skip reason `absolute` |
 | Relative escape outside the contain root | No | Rejected; reported as skip reason `outside-contain-root` |
+| Symlink under the contain root that realpaths outside it | No | Existing candidates and the contain root are `realpath`'d before the final contain check (same idea as `list_dir`); lexical-only paths that do not exist yet keep the lexical check |
 | Missing on-disk path | No | Reported as skip reason `missing`; other members still load |
 
-Skipped sources are never silent: Claude discovery logs them to stderr (and
-accepts `onExpandSkip` for tests/callers). Partial failure does not block other
-members. Each resolved member path is still subject to path-plugin trust when
-loaded via `pluginPaths`.
+Skipped sources are never silent: `expandPluginPath` reports every skip (default:
+stderr; Claude discovery also accepts `onExpandSkip` for tests/callers; path /
+`pluginPaths` expansion uses the same default). Partial failure does not block
+other members. Each resolved member path is still subject to path-plugin trust
+when loaded via `pluginPaths`.
 
 ## Decisions (locked)
 
