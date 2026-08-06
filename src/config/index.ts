@@ -58,7 +58,7 @@ import {
 import { resolveProfile } from "./profiles.js";
 
 // The per-call token ceiling for the inference source. Lives here so agent
-// creation (runner.tsx) and live provider switching (the /agent
+// creation (runner.ts) and live provider switching (the /agent
 // modal) all build the source the same way and a live switch can never silently
 // revert the ceiling.
 export const SOURCE_MAX_TOKENS = 16384;

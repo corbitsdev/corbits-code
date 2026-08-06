@@ -4,7 +4,7 @@ import {
   getToolApprovalBudget,
   runWithToolExecutionWatchdog,
 } from "./tool-execution-watchdog.js";
-import type { PermissionGateEvent } from "./hooks/use-gates.js";
+import type { PermissionGateEvent } from "./gate-events.js";
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 
 const request: PermissionRequest = {

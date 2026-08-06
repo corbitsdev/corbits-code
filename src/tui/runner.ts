@@ -118,7 +118,7 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "../tui-opentui/runner-host.js";
 import { appendStreamRow } from "../tui-opentui/shell.js";
-import type { OperatorGateEvent } from "./hooks/use-gates.js";
+import type { OperatorGateEvent } from "./gate-events.js";
 import {
   createLifecycleHookManager,
   createRunSummary,

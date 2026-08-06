@@ -1,8 +1,4 @@
-import { useState, useEffect, useRef } from "react";
-import { useMemo } from "react";
-import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { type } from "arktype";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import { lookupModelPricing } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
@@ -115,11 +111,6 @@ export type AgentStreamState = {
   appendUserMessage(content: string): void;
   clear(): void;
 };
-
-// Inference error categories the reactor recovers from on its own — a retry is
-// coming or the user aborted — so they must not terminally fail the run or
-// finalize its in-flight tool calls.
-
 
 // This is display-only state; the agent context is retained separately. Keep the
 // TUI tail bounded so long tool-heavy runs do not stall every streaming render.
@@ -551,11 +542,9 @@ export function createAgentStreamState(
     pushBlock(capResumedBlock(block));
   }
   // Blocks now hold capped copies, so drop the original resume payload — it can
-  // be multiple megabytes and would otherwise stay reachable through the prop
+  // be multiple megabytes and would otherwise stay reachable through the caller
   // long after the visible tail is trimmed. This mutates a caller-owned array,
-  // which is safe only because the useState initializer runs exactly once; a
-  // double-invoked initializer (e.g. React StrictMode) would hydrate the
-  // already-emptied array and lose the transcript.
+  // so createAgentStreamState must be called at most once per resume payload.
   initialContentBlocks.length = 0;
 
   return {
@@ -1286,148 +1275,4 @@ export function createAgentStreamState(
       });
     },
   };
-}
-
-// Token events arrive at high frequency; structural events (status changes,
-// turn boundaries) bypass pending-render batching so they're never delayed.
-const TOKEN_EVENTS = new Set([
-  "inference.text.delta",
-  "inference.thinking.delta",
-  "inference.tool_call.delta",
-]);
-
-export type AgentStreamView = AgentStreamState & { displayRevision: number };
-
-export function useAgentStream(
-  emitter: EventEmitter,
-  initialHooks: LifecycleHookStatus[] = [],
-  getModel?: () => string,
-  onInferenceTimeout?: () => void,
-  initialContentBlocks: ContentBlockData[] = [],
-  onCredentialFailure?: () => void,
-): AgentStreamView {
-  // getModel is read live by the faremeter's pricing resolver, so a
-  // mid-session model switch is priced correctly without recreating the state.
-  const [state] = useState(() => createAgentStreamState(initialHooks, getModel, initialContentBlocks));
-  const [tick, setTick] = useState(0);
-  const [displayRevision, setDisplayRevision] = useState(0);
-  const onInferenceTimeoutRef = useRef(onInferenceTimeout);
-  onInferenceTimeoutRef.current = onInferenceTimeout;
-  const onCredentialFailureRef = useRef(onCredentialFailure);
-  onCredentialFailureRef.current = onCredentialFailure;
-  const pendingRenderRef = useRef(false);
-  const pendingLineRevisionRef = useRef(false);
-
-  const bumpDisplayRevision = (): void => {
-    pendingLineRevisionRef.current = false;
-    setDisplayRevision((r) => r + 1);
-  };
-
-  // `state` is a stable store object from useState — never recreated. Effects
-  // that re-arm on status/quota changes depend only on those fields; listing
-  // `state` itself would be noise (always same identity).
-
-  // ~30fps drain makes streaming feel metronomic rather than bursty. Gated to
-  // running/blocked so an idle session schedules no periodic timer.
-  useEffect(() => {
-    if (state.status !== "running" && state.status !== "blocked") return;
-    const interval = setInterval(() => {
-      if (pendingRenderRef.current) {
-        pendingRenderRef.current = false;
-        setTick((t) => t + 1);
-      }
-    }, 33);
-    return () => clearInterval(interval);
-  }, [state.status]);
-
-  // Line layout is heavier than chrome updates; coalesce it during token
-  // streaming. Gated to running/blocked so an idle session schedules no
-  // periodic timer.
-  useEffect(() => {
-    if (state.status !== "running" && state.status !== "blocked") return;
-    const interval = setInterval(() => {
-      if (pendingLineRevisionRef.current) {
-        bumpDisplayRevision();
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [state.status]);
-
-  // requestStop()/clear() can transition status out of running/blocked with a
-  // token delta still buffered in pendingRenderRef/pendingLineRevisionRef —
-  // the two drain intervals above are gated off before their next tick would
-  // have flushed it. Perform that flush once on the transition so nothing is
-  // stranded, without reviving a periodic timer while idle.
-  useEffect(() => {
-    if (state.status === "running" || state.status === "blocked") return;
-    if (pendingRenderRef.current || pendingLineRevisionRef.current) {
-      pendingRenderRef.current = false;
-      setTick((t) => t + 1);
-      bumpDisplayRevision();
-    }
-  }, [state.status]);
-
-  useEffect(() => {
-    const handler = (event: ReactorEmittedEvent) => {
-      state.addEvent(event);
-      if (TOKEN_EVENTS.has(event.type)) {
-        pendingRenderRef.current = true;
-        pendingLineRevisionRef.current = true;
-      } else {
-        setTick((t) => t + 1);
-        bumpDisplayRevision();
-      }
-      if (event.type === "inference.error") {
-        const category = (event.data as { error: { category: string } }).error.category;
-        if (category === "timeout") onInferenceTimeoutRef.current?.();
-        if (category === "credential_failure") onCredentialFailureRef.current?.();
-      }
-    };
-    const hookHandler = (event: LifecycleHookEvent) => {
-      state.addHookEvent(event);
-      setTick((t) => t + 1);
-      bumpDisplayRevision();
-    };
-    const progressHandler = (info: { description: string; toolName: string }) => {
-      state.noteSubAgentProgress(info);
-      // Progress is infrequent (per tool call), so render immediately rather
-      // than waiting on the token drain interval.
-      setTick((t) => t + 1);
-      bumpDisplayRevision();
-    };
-    const hydrateHandler = (blocks: ContentBlockData[]) => {
-      state.hydrateHistory(blocks);
-      setTick((t) => t + 1);
-      bumpDisplayRevision();
-    };
-    emitter.on("event", handler);
-    emitter.on("hook", hookHandler);
-    emitter.on("subagent.progress", progressHandler);
-    emitter.on("history.hydrate", hydrateHandler);
-    return () => {
-      emitter.off("event", handler);
-      emitter.off("hook", hookHandler);
-      emitter.off("subagent.progress", progressHandler);
-      emitter.off("history.hydrate", hydrateHandler);
-    };
-    // state is a stable store; only re-bind when the emitter instance changes.
-  }, [emitter]);
-
-  useEffect(() => {
-    if (state.status !== "running" && state.status !== "blocked" && state.quotaError === null) return;
-    const interval = setInterval(() => {
-      setTick((t) => t + 1);
-    }, 1000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, [state.status, state.quotaError]);
-
-  void tick;
-
-  // state identity is stable; re-wrap only when displayRevision advances.
-  return useMemo(
-    () => Object.assign(Object.create(state), { displayRevision }),
-    [displayRevision],
-  );
 }

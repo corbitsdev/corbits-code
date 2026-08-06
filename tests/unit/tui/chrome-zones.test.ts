@@ -5,18 +5,12 @@ import {
   shouldShowProgressRow,
   sumChromeZoneRows,
 } from "../../../src/tui/chrome-zones.js";
-import { CHROME_ROWS } from "../../../src/tui/hooks/use-layout-geometry.js";
 
-// Per-zone budgets are checked against rendered component output in
-// chrome-zone-budgets.test.tsx; this pin only guards the overall total.
-// Progress is optional (via progressChromeRowCount) so idle sessions stay quiet.
+// This pin only guards the overall total. Progress is optional (via
+// progressChromeRowCount) so idle sessions stay quiet.
 test("sumChromeZoneRows totals always-present zone budgets", () => {
   // header(2) + divider(1) + modelBar(1) + prompt(3) + status(2) = 9
   expect(sumChromeZoneRows()).toBe(9);
-});
-
-test("CHROME_ROWS is derived from chrome zone budgets", () => {
-  expect(CHROME_ROWS).toBe(sumChromeZoneRows());
 });
 
 test("shouldShowProgressRow and progressChromeRowCount share one predicate", () => {

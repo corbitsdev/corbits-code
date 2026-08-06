@@ -1,6 +1,5 @@
-// Fixed row budgets for each chrome zone. Sum feeds CHROME_ROWS in
-// use-layout-geometry so the transcript height stays aligned with what App
-// actually paints under/above the event log.
+// Fixed row budgets for each chrome zone. The sum keeps the transcript height
+// aligned with what the session chrome actually paints under/above the event log.
 
 export const CHROME_ZONE_ROWS = {
   /** Header: profile/workflow row + optional latest user message. */

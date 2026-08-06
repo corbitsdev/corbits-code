@@ -38,7 +38,7 @@ const defaultDeps: TelemetryToggleDeps = {
 };
 
 // Builds the /settings > Telemetry toggle handler, bound to the true global
-// settings path (never a --config override — see index.ts / runner.tsx for
+// settings path (never a --config override — see index.ts / runner.ts for
 // why). Returned as a plain function so it can be wired into onChange props
 // without an inline closure, and so tests can call it directly with fake deps.
 export function createTelemetryToggleHandler(

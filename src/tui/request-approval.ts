@@ -3,7 +3,7 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ApprovalOutcome, PermissionRequest, RequestApproval } from "../permission/types.js";
 import type { ChainedPauseToken } from "./tool-execution-watchdog.js";
 import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
-import type { PermissionGateEvent } from "./hooks/use-gates.js";
+import type { PermissionGateEvent } from "./gate-events.js";
 
 export type CreateGateRequestApprovalArgs = {
   /** Emits the gate event to the UI; returns false when nothing is listening. */

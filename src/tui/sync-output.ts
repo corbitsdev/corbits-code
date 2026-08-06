@@ -1,6 +1,6 @@
 // DEC synchronized-output (mode 2026) wrapper for the handful of TUI writes
 // that go straight to `process.stdout` outside Ink's own render loop (alt-screen
-// enter/exit, mouse-reporting toggles in src/tui/runner.tsx). Ink 7 already
+// enter/exit, mouse-reporting toggles in src/tui/runner.ts). Ink 7 already
 // wraps every one of its own frame writes in `\x1b[?2026h` / `\x1b[?2026l`
 // (node_modules/ink/build/write-synchronized.js), so this exists only for
 // writes Ink never sees, not as a replacement for Ink's own wrapping.
