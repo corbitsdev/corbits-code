@@ -114,6 +114,25 @@ function isPureDirectoryListingSegment(segment: string): boolean {
   return isBoundedDirectoryListing(program, tokens.slice(1));
 }
 
+// True when some stage is a directory listing program without a recursion bound
+// (`ls -R`, bare `tree`, …). Same OOM class as open-ended find/rg — auto mode
+// must not rubber-stamp these even inside the workspace.
+export function commandHasUnboundedDirectoryListing(command: string): boolean {
+  const segments = splitChainedCommand(command);
+  const parts = segments.length > 0 ? segments : [command];
+  for (const segment of parts) {
+    for (const pipeSeg of segment.split("|")) {
+      const trimmed = pipeSeg.trim();
+      if (trimmed.length === 0) continue;
+      const tokens = tokenize(trimmed);
+      const program = tokens[0] ?? "";
+      if (!PURE_DIRECTORY_LISTING_PROGRAMS.has(program)) continue;
+      if (!isBoundedDirectoryListing(program, tokens.slice(1))) return true;
+    }
+  }
+  return false;
+}
+
 // Whether a shell command reads through a restricted path. Tokenised so a bare
 // `cat .agent-state/run.json` is caught; flags are ignored since they are not
 // path arguments. The auto-shell allowlist (SAFE_SHELL_PROGRAMS) only ever
