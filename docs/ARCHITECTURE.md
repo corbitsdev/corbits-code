@@ -2,7 +2,7 @@
 
 ## System Overview
 
-The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a `ChatDirector`, and consumes the event stream through an Ink-based TUI. The director layers chat semantics, compaction, and workflow coordination on the reactor's default behavior; tool-layer middleware (authorization, permission gate, verification) enforces hard constraints before tools run. Delegated work runs through a second, sub-agent director on the same loop.
+The system is an event-driven agent loop with a custom reactor director. The CLI parses arguments, builds a `Config`, creates an agent with sandboxed tools and a `ChatDirector`, and consumes the event stream through an OpenTUI-based TUI. The director layers chat semantics, compaction, and workflow coordination on the reactor's default behavior; tool-layer middleware (authorization, permission gate, verification) enforces hard constraints before tools run. Delegated work runs through a second, sub-agent director on the same loop.
 
 ## The Reactor Loop
 
@@ -51,18 +51,18 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `loadConfig` is async (it reads settings files). Parses a leading `exec`/`run` subcommand, flags `--cwd`, `--config`, `--provider`, `--model`, `--force`, `--dangerously-skip-permissions`, `--auto` / `--no-auto` (auto mode defaults on); collects positional arguments as the optional initial task for the TUI or the required prompt for exec.
 - Both settings files are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials. Shell commands that reference them still require explicit operator approval.
 
-### TUI Runner (`src/tui/runner.tsx`)
+### TUI Runner (`src/tui/runner.ts`)
 
 - Builds a chat-mode agent using the `ChatDirector`
 - Wires `ask_operator` to an operator-gate event resolved by a modal
-- Drives the terminal alternate-screen buffer manually (Ink 7 has no alt-screen option) and renders the Ink app
-- Bridges reactor events to React via an `EventEmitter`
+- Mounts the OpenTUI host via `mountRunnerHost` (`src/tui-opentui/runner-host.ts`), which mounts `mountProductHost` (`src/tui-opentui/product-host.ts`) over the shell (`src/tui-opentui/shell.ts`)
+- Bridges reactor events to the OpenTUI host via a plain `EventEmitter`
 - **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
 
 ### Exec Runner (`src/exec/runner.ts`)
 
-- Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without Ink
+- Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without the OpenTUI shell
 - Bootstrap is intentionally a **forked copy** of the TUI path (not a shared factory yet). Intentional deltas vs TUI:
   - No workflow controller (`isWorkflowActive` is always false)
   - No goal governor / multi-turn goal loop (single primary `send`)
@@ -82,7 +82,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 
 Two directors, selected by role:
 
-- **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, multi-turn chat semantics, and an optional **goal governor** (session-scoped auto-continue until every acceptance criterion is done). It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. SHIFT+TAB toggles **auto mode** (default on; constrained envelope — workspace writes and unconstrained shell auto-allow; installs, recursive rm, worktree changes, sensitive-path and opaque-wrapper shell still ask; shell file-mutation denied). It is not a separate edit/plan mode.
+- **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, multi-turn chat semantics, and an optional **goal governor** (session-scoped auto-continue until every acceptance criterion is done). It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. Auto mode is toggled by CLI flags (`--auto` / `--no-auto`); there is currently no in-session key to toggle it (default on; constrained envelope — workspace writes and unconstrained shell auto-allow; installs, recursive rm, worktree changes, sensitive-path and opaque-wrapper shell still ask; shell file-mutation denied). It is not a separate edit/plan mode.
 - **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. A tool-less completion with **zero tool calls in the entire run** is returned as a **never-acted** salvage report (not a successful implement); explore/read-only workers that used tools then replied with findings remain normal completes. Hard stops also fire after 2 consecutive identical tool-call fingerprints (**no-progress**), on progressive re-read pressure (**thrash** — the same path re-read past a limit amid enough tool volume, tracked by `src/subagent/thrash.ts`), or after the leaf turn budget (**turn-budget**, default 30, overridable via `task(maxTurns)`, agent profile `maxTurns`, or `settings.subagentMaxTurns`, capped at 100), each returning a structured salvage report (reason, partial findings, blockers) so a thrashing child cannot burn tokens indefinitely. A fourth hard stop, **repetition**, is detected outside the director entirely: `runSubAgent`'s stream sink watches the streamed text of the in-flight cycle for degenerate token loops (`src/subagent/repetition.ts`) — whitespace-collapsed raw text, a smallest-period KMP check over the probe tail, default window >= 16 chars repeated >= 8 times, evaluated every 256 streamed chars — and on a hit aborts the run controller mid-cycle, returning a `repetition` salvage report that leads with the looped window and warns the parent against re-dispatching the identical brief. Because directors only see completed turns, this is the only stop that can catch a loop inside a single turn that never finishes. A one-shot **report-forced** signal fires a few turns before the cap while the leaf is still tooling — it is not a stop: the director injects a wrap-up nudge and lets the leaf finish on its own, so turn-budget stays reachable for a leaf still making progress. Operator/parent cancel after any progress likewise returns a **cancelled** salvage report (partial findings + tool activity) instead of a bare cancel string; cancel before progress still surfaces as cancelled-by-operator. Optional `task(tier=)` (`fast` | `standard` | `clever`) overrides profile inference, profile tier, and the parent provider for that spawn only, and fails closed when the tier is unconfigured. The parent `task` tool keeps a session-scoped brief-dispatch ledger (`src/subagent/brief-dispatch.ts`): fingerprints cover prompt + agent + intent + success_criteria + do_not (not maxTurns/description/tier). After thrash / no-progress / repetition / never-acted salvage, an identical re-dispatch is hard-blocked for the rest of the parent chat; change at least one fingerprint field to force a re-run. Turn-budget salvage still invites a higher maxTurns for a few same-brief retries without a successful complete, then flips the parent hint to stop and change approach (soft — further identical dispatches are still admitted). A successful complete resets the same-brief retry budget.
 
 
@@ -174,9 +174,9 @@ Profiles with `orchestrator: true` may themselves call `task` (one hop only): ne
 
 **Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole`): spawn-time defaults are orchestrator → `high`, leaf → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
 
-**Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar / Agents strip. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
+**Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
 
-**Enter-session TUI** (`src/tui/components/agents-strip.tsx`, `subagent-session-view.tsx`): `Ctrl+E` opens Agents-strip navigation (↑/↓ select, Enter observe, `x`/Backspace cancel selected running worker, Esc leave nav). Entering a session swaps the main log for that child's transcript (live while running, historical when done/failed/cancelled) without stealing the parent reactor. Header chrome shows which agent is focused; Esc returns to the parent; `x` cancels the focused running worker. Parent Esc/stop and `/clear` call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops.
+**Observe (OpenTUI)**: the command palette's **observe** action (`src/tui-opentui/palette.ts`) asks the host for a live session (`onObserveRequest` → `observeSessionFromSubAgents`, `src/tui-opentui/runner-host.ts`), which picks the newest running child, else the most recent session of any status. Entering observe swaps the transcript for that child's stream (live while running, historical when done) without stealing the parent reactor; child events are mapped to stream rows by `src/tui-opentui/observe-map.ts`. Esc leaves observe and restores the parent transcript. Parent Esc/stop and `/clear` still call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops.
 
 Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 
@@ -262,56 +262,18 @@ tool call
 
 Approval scopes offered: Allow Once (persist nothing), Allow Always for a file or its directory (file tools), or a command shape (shell). There is intentionally no "all files" rung.
 
-### TUI (`src/tui/`)
+### TUI (`src/tui-opentui/`)
 
-Ink 7 + React 19, full-screen via the alternate-screen buffer. Production today is this Ink shell. The **OpenTUI rebuild** is the target platform for layout/scroll work (branch migration; not the shipping default until cutover). Contracts and sequencing:
+OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been deleted from the repo. The runner (`src/tui/runner.ts`) mounts the host via `mountRunnerHost` (`src/tui-opentui/runner-host.ts`), which mounts `mountProductHost` (`src/tui-opentui/product-host.ts`) over the shell (`src/tui-opentui/shell.ts`).
 
-- Layout constitution: `docs/tui-layout-constitution.md`
-- Interaction contract: `docs/tui-interaction-contract.md`
-- Ink freeze: `docs/tui-ink-freeze.md`
-- Migration cutover: `docs/tui-migration-cutover.md`
-- Epic plan: `docs/plans/tui-layout-scroll-platform.md` · brief: `briefs/tui-rebuild-opentui.md` · spike notes: `docs/plans/opentui-spike-report.md`
+- **Shell** (`shell.ts`) — Owns the transcript window, header, status line, prompt, overlay/palette stack, and layout/relayout (`applyLayout`, `relayout`). Transcript rows are appended via `appendStreamRow`/`appendObserveStreamRow`; focus moves between prompt and transcript via `applyFocus`/`toggleShellFocus`.
+- **Product host** (`product-host.ts`) — Creates the `CliRenderer`, wires the event emitter bridge, model/command catalogs, and chrome pushes.
+- **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and the quit key (`Ctrl+D`, since `Ctrl+C` is the shell's interrupt key).
+- **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) and session-mode prompt (`src/tui/session-mode-prompt.ts`) use `runListModal` (`src/tui-opentui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui-opentui/command-surfaces.ts`).
+- **Auto mode** — Toggled by CLI flags only (`--auto` / `--no-auto`); there is currently no in-session key bound to it.
+- `@file` mention resolution and image paste are not wired on the OpenTUI send path.
 
-- `app.tsx` — Root layout: pinned header, scrollable event log, chat input, status bar, and overlay modals. Owns keymap, gate/scroll state, and the mid-run message queue (`pendingQueueRef` + `queuedCount`): while `isProcessing`, **Alt+Enter** enqueues outbound messages and **Enter** steers via interrupt (see interrupt/queue steering below). The queue drains one message per `connector.reply` (end of a response cycle), skipping drain while status is `blocked` (permission/operator gates). The queue is cleared on session rotation (`/clear`, `/new`). SHIFT+TAB toggles auto mode through the permission gate (`onToggleAuto`); enabling shows a one-line envelope reminder. Plan handling is a separate approval gate (`use-gates`), not a mode. `@file` mentions in chat input are resolved to file contents before the message is sent to the agent.
-
-  **Line cache** — `app.tsx` maintains a `Map<string, StyledLine[]>` (keyed `blockId:expansion`) passed to `buildLines`. Completed blocks are cached; the last block (still streaming) is always recomputed. The cache is cleared when layout width or display options change. `buildLines` evicts entries for block IDs not in the current block list on every call, so manage_tasks/present splices do not accumulate orphaned entries.
-
-- `use-stream.ts` — Consumes `agent.stream()` events into typed content blocks and tracks turns/status/cost. **AgentStatus** is a 7-state machine: `"idle"` (not-yet-started or post-clear), `"running"`, `"stopping"`, `"stopped"`, `"blocked"` (awaiting operator), `"done"`, `"failed"`. Initial state and post-`/clear` state are both `"idle"` (not `"running"`), so the permission-gate refcount (`setGatePending`) correctly skips terminal and idle states.
-
-  **Rate-limited renders** — Token events (`inference.text.delta`, `inference.thinking.delta`, `inference.tool_call.delta`) set a `pendingRenderRef` flag rather than calling `setTick` directly. A 33ms `setInterval` drains the flag, batching token renders to ~30fps. Structural events (status changes, turn boundaries, tool completions) bypass the drain and call `setTick` immediately so state transitions are never delayed.
-
-- **Interrupt and queue steering** (`chat-input.tsx`) — When `isProcessing` is true:
-  - **Enter** calls `onInterrupt(message)`, which synchronously calls `requestStop()` (aborting the in-flight HTTP request) before resolving `@file` mentions and sending. The abort-before-async ordering ensures no stale `connector.reply` can race the new turn.
-  - **Alt+Enter** calls `onSubmit(message)` immediately, queuing the message for delivery after the current response cycle completes.
-  - A hint line (`↵ interrupt · Alt+↵ queue`) is shown in the input area while processing and the queue is empty.
-
-- **Status bar** — Shows the working directory, model name, optional reasoning-effort suffix, terminal status, and the brand label. Token counts and cost display removed.
-
-- **Task view** — Compact rendering: shows only the current in-progress task plus a `(N done, M todo)` count suffix. No scrolling task list.
-
-- **In-flight indicator** — Spinner uses the `"live"` semantic color (calm blue) rather than the brand orange, reducing visual noise during long runs.
-
-- Hooks: `use-gates` (permission/plan/operator gates), `use-keymap`, `use-scroll`, `use-mouse-scroll`, `use-spinner`, `use-terminal-size`, `use-layout-geometry`, `use-mcp-status`, `use-provider-manager`.
-- Components: `header`, `event-log`, `chat-input`, `status-bar`, `task-view`, `operator-modal`, `permission-modal`, `permissions-manager`, `plugins-manager`, `settings-overlay`, `agent-modal`, `exit-confirm`, `help-overlay`, `hook-panel`, `codex-login-modal`, `mcp-auth-prompt`, `onboarding-animation`, `in-flight-indicator`.
-- Support: `stdin-filter.ts` (strips SGR mouse sequences before Ink parses input — see below), `tool-formatter.ts` (human-readable tool args/results), `markdown-parser.ts`, `keymap-table.ts`, `theme.ts` (semantic color roles including `dim` and `live`).
-- Slash commands: `commands/registry.ts` (extensible registry) + `commands/built-in.ts` (`/help`, `/model`, `/settings`, `/permissions`, `/plugins`, `/clear`, `/new`, `/mcp`). There is no `/login` — connect providers from `/model` (Alt+A / c).
-- `/model` configuration surface (`components/agent-modal.tsx`): a full-screen, section-based modal. **Default step is models-first** (Recent / Favorites / Providers via `buildModelsFirstList`); advanced provider drill-down remains on **a**. **Connect** lists first-class providers (OpenAI dual-path, xAI, Zen, Anthropic, Google, OpenCode Go, Z.AI, Custom); OAuth opens `codex-login-modal` / xAI login, API-key flows use an auth-only form and pre-seed models on save. OpenCode Go sources are built with per-model protocol routing (`buildGoSource` / `resolveGoEndpoint`) and a forced Go base URL when `opencodeGo` is set. "Set as default" persists the selection (selection-only, no credentials) to the per-repo `.corbits/settings.json` via `saveLocalSettings`. Recent/favorite model pairs persist in global settings.
-
-#### Event log rendering
-
-`event-log.tsx` renders the content block list to a flat `StyledLine[]` buffer; the viewport slices it by index. Notable rendering behaviors:
-
-- **Collapsed tool calls** — Non-danger tools render dimmed with a muted summary suffix. Danger-role tools (destructive shell, writes under risk paths) retain their role color when collapsed so they remain visually salient.
-- **Thinking gutter** — When `thinkingExpanded` is true, thinking content lines are prefixed with `│ ` in the `dim` color, separating them visually from model output without requiring a header.
-- **Block-level cache** — `buildLines` accepts an optional `Map<string, StyledLine[]>` cache. Completed blocks are served from cache; only the streaming tail is recomputed per render tick. Individual log lines use a memoized `RenderedLine` component so padding/segment merge work is not repeated when only the viewport scroll offset changes.
-
-#### Input handling
-
-Ink reads stdin, parses it into string events, and broadcasts every event to *all* mounted `useInput` handlers. That broadcast model means an escape sequence not consumed by one handler leaks into another — in particular, SGR mouse tracking sequences (emitted on every terminal click, e.g. `ESC[<0;39;38M`) would surface as literal `[<...` text in whichever input is focused.
-
-Rather than filter per component, `stdin-filter.ts` (`createFilteredStdin`) wraps `process.stdin` and is passed to Ink's `render` via the `stdin` option. It proxies the stream, intercepting `read()` to strip all `ESC[<…M/m` sequences before Ink's parser sees them — so no component's `useInput` ever receives one. A sequence split across two `read()` calls is handled by holding back an incomplete trailing `ESC[<…` (the SGR private marker is unambiguous, so this never swallows a boundary-split Esc or arrow key) and prepending it to the next chunk. This depends on Ink 7 driving its input pipeline off `stdin.read()`; bytes Ink consumes via its transient Kitty-keyboard probe are `unshift`ed back and re-enter through `read()`, so they pass through the filter too.
-
-Mouse-wheel events are the one class of mouse input the UI acts on. Since they can no longer arrive through `useInput`, the filter detects wheel buttons (64 = up, 65 = down) and re-emits them as `scrollUp`/`scrollDown` on a dedicated `EventEmitter`. `use-mouse-scroll` subscribes to that emitter (and still owns enabling/disabling SGR mouse mode on the terminal). Bursts of wheel events within one frame are coalesced before updating scroll offset so rapid scrolling stays smooth.
+Known keybindings: `Ctrl+D` quits; `Ctrl+C` interrupts the in-flight run.
 
 ### Skills (`src/extensions/skills.ts`)
 
@@ -323,7 +285,7 @@ Skills are Markdown capability packages (`SKILL.md`) that the model loads on dem
 
 | Base directory | Source |
 |---|---|
-| `<pluginDir>/skills/` | Each enabled plugin that ships skills (`runner.tsx` includes only `pluginConfig[id].enabled`) |
+| `<pluginDir>/skills/` | Each enabled plugin that ships skills (`runner.ts` includes only `pluginConfig[id].enabled`) |
 | `.agents/skills/` | Shared across runtimes |
 | `.claude/skills/` | Claude Code workspace skills |
 | `.codex/skills/` | Codex workspace skills |
@@ -345,14 +307,14 @@ There are no `type`, `argument-hint`, or `disable-model-invocation` fields — a
 
 `buildSkillsSection` lists each discovered skill as `- name: description` in the system prompt — descriptions only, so the prompt stays small regardless of how many skills exist. The full instructions enter context only when the model calls the `use_skill` core tool (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result. There is no slash-command surface and no operator-side injection — the model decides when a skill applies and loads it itself.
 
-Which plugin skill directories are in scope is decided in `runner.tsx`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched.
+Which plugin skill directories are in scope is decided in `runner.ts`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched.
 
 ## Data Flow
 
 ```
 CLI argv
   → src/config/index.ts (Config)
-    → src/tui/runner.tsx (TUI)
+    → src/tui/runner.ts (TUI)
       → LoadState, LoadPricing, discover hooks
       → CreatePermissionGate
       → CreatePosixTools (plugin chain)
@@ -362,7 +324,7 @@ CLI argv
       → agent.send(task)
       → src/session/stream-consumer.ts → sink
           → turnCollector.observe → postTurn hooks
-          → emit to React (TUI)
+          → emit to OpenTUI host (TUI)
       → saveState at session lifecycle points (initial write, progress
         snapshots on model/MCP/turn changes, and finalize on done/failed/cancelled)
       → (interactive) connector.reply → optional queue drain → next user turn

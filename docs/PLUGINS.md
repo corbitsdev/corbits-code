@@ -90,7 +90,7 @@ Five mechanisms, three loading models, one manifest that only governs one kind.
 
 | Mechanism | Entry contract | Loads via | Config | Manifest | UI |
 |---|---|---|---|---|---|
-| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin` | wired in `src/tui/runner.tsx` / `tools.ts` | — | no | no |
+| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin` | wired in `src/tui/runner.ts` / `tools.ts` | — | no | no |
 | WorkflowPlugin | `plugin` / default | `settings.workflowPlugins: string[]` → `loadWorkflowPlugins` | specifier array | no | no |
 | AgentPlugin | `plugin` / default | `settings.agentPlugins: string[]` → `loadAgentPlugins` | specifier array | no | no |
 | CommandPlugin | `commandPlugin` | directory discovery | discovery only | no | no |
@@ -102,7 +102,7 @@ Concrete problems, with file references:
    *specifier arrays*; command/web load from *directory discovery* (plus the new
    `pluginPaths`). Same concept, two code paths.
 2. **A dead path.** `src/plugins/loader.ts` captures `workflowPlugin` from a
-   discovered module, but `src/tui/runner.tsx` only registers `commandPlugin`
+   discovered module, but `src/tui/runner.ts` only registers `commandPlugin`
    from discovered modules — a discovered workflow plugin is silently dropped.
 3. **Manifest governs only web.** `kind: "workflow" | "command"` exist in the
    type (`src/plugins/manifest.ts`) but nothing routes by them; command plugins
@@ -233,7 +233,7 @@ shape.
 
 - `kind: "tool"` plugins export `createToolPlugin(credentials)` and contribute
   posix `ToolPlugin`s, resolved in `src/plugins/tool-plugins.ts` and wired into
-  the toolset in `src/tui/runner.tsx` and `tools.ts` (appended last, so they cannot
+  the toolset in `src/tui/runner.ts` and `tools.ts` (appended last, so they cannot
   shadow core middleware).
 - A tool plugin is wired in only when **enabled AND consented**. Enabling one in
   `/plugins` prompts a one-time y/n consent recorded in `settings.plugins[id]`.

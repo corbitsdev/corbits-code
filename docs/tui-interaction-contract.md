@@ -3,11 +3,11 @@
 **Status:** constitution (locked product bindings + implementable focus/scroll design)  
 **Source plan:** `docs/plans/tui-layout-scroll-platform.md` §5, §12  
 **Product brief:** `briefs/tui-rebuild-opentui.md`  
-**Siblings:** `docs/tui-layout-constitution.md`, `docs/tui-ink-freeze.md`
+**Siblings:** `docs/tui-layout-constitution.md`, `docs/tui-cutover-readiness.md`
 
-This document is the interaction constitution for the OpenTUI rebuild. It locks mid-run send semantics, discovery chords, focus ownership, and scroll lease rules so implementers do not re-open product decisions or invent focus/scroll races.
+This document is the interaction constitution for the OpenTUI shell. It locks mid-run send semantics, discovery chords, focus ownership, and scroll lease rules so implementers do not re-open product decisions or invent focus/scroll races.
 
-Runtime keymaps are **not** changed by this document. Ink behavior stays as-is until the migration branch wires these bindings.
+The cutover has landed and OpenTUI is the shipping renderer, but not every binding below is implemented — `docs/tui-cutover-readiness.md` records which ones are missing (Shift+Tab, sent-history recall, typed slash commands) and where runtime behavior deviates (quit is Ctrl+D, not Ctrl+C).
 
 ---
 
@@ -250,11 +250,12 @@ Agents strip horizontal navigation is not a vertical scroll lease.
 
 ---
 
-## 7. Current vs target (Ink today)
+## 7. Historical: Ink vs this contract
 
-Documentation only — do not implement these bindings on Ink under the freeze policy.
+The Ink shell has been deleted. This table is kept only to explain why the current
+bindings differ from muscle memory built on the old shell.
 
-| Concern | Current (Ink) | Target (this contract) |
+| Concern | Old (Ink) | Target (this contract) |
 |---|---|---|
 | Enter while busy | Interrupt + send (`steerOnEnter` path) | **Queue** (no stop) |
 | Alt+Enter while busy | Queue follow-up | **Steer** at tool boundary |
@@ -324,7 +325,6 @@ These are the operator-visible checks for this contract (subset of the plan acce
 - Amp-style selective reorder of queue items beyond clear last / clear all.
 - Multi-message inject at a single boundary.
 - Mouse click-to-focus everywhere.
-- Changing Ink runtime bindings before the OpenTUI migration branch.
 
 ---
 
@@ -335,6 +335,6 @@ These are the operator-visible checks for this contract (subset of the plan acce
 | `docs/plans/tui-layout-scroll-platform.md` | Plan + locked decisions source |
 | `briefs/tui-rebuild-opentui.md` | Product intent and acceptance narrative |
 | `docs/tui-layout-constitution.md` | Chrome budget, geometry ownership |
-| `docs/tui-ink-freeze.md` | What may still change on Ink vs freeze |
+| `docs/tui-cutover-readiness.md` | Post-cutover state: which bindings are implemented, which are not |
 
 When implementation lands, the keymap truth table, hint line, and palette labels must be generated from or checked against **this** binding table so help cannot drift again.
