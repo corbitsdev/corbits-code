@@ -181,11 +181,12 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // Without the kitty keyboard protocol a terminal sends a bare CR for
-        // both Enter and Shift+Enter, so the newline chord is unreachable and
-        // Ctrl+J is the only way to open a line. Terminals that negotiate the
-        // protocol report the modifier; those that do not are unaffected.
-        useKittyKeyboard: { disambiguate: true, alternateKeys: true },
+        // The kitty keyboard protocol was enabled here to make Shift+Enter
+        // reachable — a plain terminal sends a bare CR for both Enter and
+        // Shift+Enter, so the modifier never arrives. It did not work in
+        // Ghostty, and it coincided with visible horizontal jitter in the
+        // rendered frame. A mode negotiation that buys nothing is not worth
+        // the risk of destabilising output, so Ctrl+J stays the newline chord.
       })
 
   const shell = createAppShell(renderer, {
