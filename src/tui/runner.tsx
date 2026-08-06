@@ -1,6 +1,5 @@
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { EventEmitter } from "node:events";
-import { render } from "ink";
 import {
   createAgent,
   defineAgent,
@@ -65,7 +64,14 @@ import {
   type PathTrustStore,
 } from "../trust/path-trust.js";
 import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
-import { registerCommandPlugin, setHiddenCommands } from "./commands/registry.js";
+import {
+  getCommand,
+  listCommands,
+  registerCommandPlugin,
+  setHiddenCommands,
+  type CommandContext,
+  type CommandResult,
+} from "./commands/registry.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
@@ -109,9 +115,8 @@ import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
-import { enterAltScreen } from "../util/alt-screen.js";
-import { createFilteredStdin, enableMouseReporting } from "./stdin-filter.js";
-import { App } from "./app.js";
+import { mountRunnerHost } from "../tui-opentui/runner-host.js";
+import { appendStreamRow } from "../tui-opentui/shell.js";
 import type { OperatorGateEvent } from "./hooks/use-gates.js";
 import {
   createLifecycleHookManager,
@@ -1390,9 +1395,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   };
 
-  // Ink 7.0.4 has no enterAltScreen render option, so drive the alternate
-  // screen buffer by hand: enter before render to hide pre-launch scrollback,
-  // and restore it on exit (including abrupt process exit) so history returns.
   // The `onboarded` flag is global user state: read and written against the TRUE
   // global settings file, never config.globalSettingsPath (which is the --config
   // file when one was given). This keeps first-run detection consistent and stops
@@ -1448,188 +1450,110 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // session can show them.
   }
 
-  const exitAltScreen = enterAltScreen();
-
-  // Strip SGR mouse sequences before Ink's parser broadcasts input to every
-  // useInput handler, so they can never leak into a text field as literal text.
-  // Scroll-wheel events are re-routed through `mouseEvents` since they no longer
-  // arrive via useInput.
-  const { stdin: filteredStdin, mouse: mouseEvents } = createFilteredStdin(process.stdin);
-
-  // Turn on SGR mouse reporting so the terminal emits the wheel sequences the
-  // filter detects and re-routes to `mouseEvents`.
-  const disableMouseReporting = enableMouseReporting();
-
-  // Render first so the App's gate listeners are registered before it sends the
-  // initial task. exitOnCtrlC is off so Ctrl+C reaches our keymap (stop the run)
-  // instead of Ink killing the process outright.
-  const { waitUntilExit } = render(
-    <App
-      eventEmitter={emitter}
-      agent={agentProxy}
-      sessionTitle={runTaskTitle.length > 0 ? runTaskTitle : "Untitled session"}
-      initialModel={config.model}
-      initialProvider={config.providerName}
-      {...(config.reasoningEffort !== undefined ? { initialReasoningEffort: config.reasoningEffort } : {})}
-      providers={config.providers}
-      globalSettingsPath={config.globalSettingsPath}
-      globalOnboardingPath={trueGlobalSettingsPath}
-      globallyOnboarded={globallyOnboarded}
-      {...(telemetryNotice !== undefined ? { telemetryNotice } : {})}
-      {...(config.settingsDiagnostics !== undefined && config.settingsDiagnostics.length > 0
-        ? { settingsDiagnostics: config.settingsDiagnostics }
-        : {})}
-      {...(whatsNewMarkdown !== undefined ? { whatsNewMarkdown } : {})}
-      telemetryEnabled={liveTelemetryIntent}
-      onChangeTelemetryEnabled={(enabled) => {
-        liveTelemetryIntent = enabled;
-        onChangeTelemetryEnabled(enabled);
-      }}
-      {...(telemetryFirstRun
-        ? {
-            onFirstUserMessage: () => {
-              if (!liveTelemetryIntent) return;
-              void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
-            },
-          }
-        : {})}
-      {...(config.globalDefaultProvider !== undefined ? { globalDefaultProvider: config.globalDefaultProvider } : {})}
-      cwd={config.cwd}
-      initialTask={config.task}
-      skipInitialTask={resumeSkipInitialTask}
-      initialContentBlocks={[]}
-      getSessionId={() => sessionId}
-      initialHooks={hookManager.getStatuses()}
-      onToggleHook={(hookId, enabled) => hookManager.setEnabled(hookId, enabled)}
-      onAgentError={recordRunError}
-      onInterrupt={interrupt}
-      onNewSession={newSession}
-      onRenameSession={(name) => {
-        const trimmed = name.trim();
-        if (trimmed.length === 0) return "Session name cannot be empty";
-        runTaskTitle = trimmed;
-        emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
-        void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
-        return undefined;
-      }}
-      permissionsAdmin={permissionsAdmin}
-      pluginsAdmin={pluginsAdmin}
-      {...(config.profile !== undefined ? { profile: config.profile } : {})}
-      initialAuto={config.auto}
-      onToggleAuto={(value) => permissionGate.setAuto(value)}
-      {...(config.tiers !== undefined ? { initialTiers: config.tiers } : {})}
-      {...(config.settings !== undefined ? { initialSettings: config.settings } : {})}
-      onChangeCompactionMode={async (mode) => {
-        liveCompactionMode = mode;
-        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) {
-          tuiLogger.warn(
-            "Skipping compaction mode write: unreadable global settings at {path}",
-            { path: config.globalSettingsPath },
-          );
-          return;
-        }
-        await saveGlobalSettings(config.globalSettingsPath, { ...base, compactionMode: mode });
-      }}
-      onChangeMaxConcurrentSubAgents={async (limit) => {
-        configureSubAgentConcurrency(limit);
-        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) {
-          tuiLogger.warn(
-            "Skipping max concurrent sub-agents write: unreadable global settings at {path}",
-            { path: config.globalSettingsPath },
-          );
-          return;
-        }
-        await saveGlobalSettings(config.globalSettingsPath, {
-          ...base,
-          maxConcurrentSubAgents: limit,
-        });
-      }}
-      waitForApproval={resolveWaitForApproval(liveToolWatchdog)}
-      onChangeWaitForApproval={async (value) => {
-        liveToolWatchdog.waitForApproval = value;
-        const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-        if (base === null) {
-          tuiLogger.warn(
-            "Skipping wait-for-approval write: unreadable global settings at {path}",
-            { path: config.globalSettingsPath },
-          );
-          return;
-        }
-        await saveGlobalSettings(config.globalSettingsPath, {
-          ...base,
-          tools: { ...base.tools, waitForApproval: value },
-        });
-      }}
-      initialSessionMode={liveSessionMode}
-      {...(config.settings?.sessionMode !== undefined
-        ? { initialSavedGlobalSessionMode: config.settings.sessionMode }
-        : {})}
-      {...(localSettingsForMode?.sessionMode !== undefined
-        ? { initialSavedLocalSessionMode: localSettingsForMode.sessionMode }
-        : {})}
-      onChangeSessionMode={async (mode, scope) => {
-        if (scope === "local") {
-          const path = localSettingsPath(config.cwd);
-// Absent → {}; unreadable/invalid → null so we never clobber.
-          const existing = await loadLocalSettingsWriteBase(path);
-          if (existing === null) {
-            tuiLogger.warn(
-              "Skipping local session mode write: unreadable settings at {path}",
-              { path },
-            );
-            return;
-          }
-          await saveLocalSettings(path, { ...existing, sessionMode: mode });
-        } else {
-          const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-          if (base === null) {
-            tuiLogger.warn(
-              "Skipping global session mode write: unreadable settings at {path}",
-              { path: config.globalSettingsPath },
-            );
-            return;
-          }
-          await saveGlobalSettings(config.globalSettingsPath, { ...base, sessionMode: mode });
-        }
-      }}
-      initialProfiles={initialProfiles}
-      profilesDir={profilesDir}
-      onAgentProfilesChange={(profiles) => {
-        liveAgentProfiles = profiles;
-      }}
-      onSubAgentProviderChange={(provider) => {
-        liveSubAgentProvider.current = provider;
-      }}
-      onSubAgentRuntimeResolutionChange={({ catalog, settings }) => {
-        liveSubAgentCatalog.current = [...catalog];
-        liveSubAgentSettings.current = settings;
-      }}
-      onStartWorkflow={(name) => workflowController.start(name)}
-
-      onToggleCapability={(name) => workflowController.toggleCapability(name)}
-      loadedSkills={skills}
-      activePlugins={activePlugins}
-      initialWorkflowStatus={workflowController.status()}
-      mouseEvents={mouseEvents}
-      subAgentSessions={subAgentSessions}
-      goalApi={{
-        get: () => goalGovernor.get(),
-        set: (condition, opts) => goalGovernor.set(condition, opts),
-        pause: () => goalGovernor.pause(),
-        resume: (opts) => goalGovernor.resume(opts),
-        clear: () => goalGovernor.clear(),
-      }}
-    />,
-    {
-      exitOnCtrlC: false,
-      stdin: filteredStdin,
-      // Incremental (line-diff) rendering materially cuts streaming repaint
-      // bytes versus Ink's default full-frame redraw.
-      incrementalRendering: true,
+  const commandContext: CommandContext = {
+    signalClear: newSession,
+    getMCPServers: () => connectedMcpServers.map((s) => ({ name: s.name, tools: [] })),
+    startWorkflow: (name) => workflowController.start(name),
+    renameSession: (name) => {
+      const trimmed = name.trim();
+      if (trimmed.length === 0) return "Session name cannot be empty";
+      runTaskTitle = trimmed;
+      emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
+      void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
+      return undefined;
     },
-  );
+    goal: {
+      get: () => goalGovernor.get(),
+      set: (condition, opts) => goalGovernor.set(condition, opts),
+      pause: () => goalGovernor.pause(),
+      resume: (opts) => goalGovernor.resume(opts),
+      clear: () => goalGovernor.clear(),
+    },
+  };
+
+  const systemRow = (text: string): void => {
+    appendStreamRow(host.shell, { role: "system", text, meta: "command" });
+  };
+
+  const applyCommandResult = (result: CommandResult): void => {
+    switch (result.type) {
+      case "message":
+        systemRow(result.text);
+        return;
+      case "send":
+        void agentProxy.send(result.text).catch(recordRunError);
+        return;
+      case "workflow":
+        systemRow(workflowController.start(result.name));
+        return;
+      case "tier":
+        systemRow(`Tier ${result.tier} selected`);
+        return;
+      case "noop":
+        return;
+      default:
+        systemRow(`${result.type} is not available in this renderer yet`);
+    }
+  };
+
+  // Mount OpenTUI before the initial task is sent so gate and stream listeners
+  // are registered first. Ctrl+C stays with the shell (interrupt the run);
+  // OpenTUI owns the alternate screen and mouse reporting itself.
+  const host = await mountRunnerHost({
+    title: runTaskTitle.length > 0 ? runTaskTitle : "Untitled session",
+    eventEmitter: emitter,
+    send: (text) => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return;
+      if (telemetryFirstRun && liveTelemetryIntent) {
+        void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
+      }
+      void agentProxy.send(trimmed).catch(recordRunError);
+    },
+    interrupt,
+    providers: config.providers,
+    onModelSelect: (id) => {
+      const sep = id.indexOf(":");
+      if (sep <= 0) return;
+      config = { ...config, providerName: id.slice(0, sep), model: id.slice(sep + 1) };
+      const bundle = buildSessionSources();
+      agentProxy.setSources(bundle.sources, bundle.defaultSource);
+    },
+    commands: listCommands().map((c) => ({ name: c.name, description: c.description })),
+    onCommand: (name) => {
+      const parts = name.trim().split(/\s+/);
+      const commandName = parts[0] ?? "";
+      const command = getCommand(commandName);
+      if (command === undefined) {
+        systemRow(`Unknown command: ${commandName}`);
+        return;
+      }
+      applyCommandResult(command.handler(parts.slice(1).join(" "), commandContext));
+    },
+    chrome: () => ({
+      goal: goalGovernor.get(),
+      agents: subAgentSessions.listForStrip().map((s) => ({
+        agentId: s.agentId,
+        id: s.id,
+        description: s.description,
+        status: s.status,
+        currentToolName: s.currentToolName,
+      })),
+    }),
+    subscribeChrome: (notify) => {
+      const unsubscribeAgents = subAgentSessions.subscribe(notify);
+      emitter.on("goal", notify);
+      return () => {
+        unsubscribeAgents();
+        emitter.off("goal", notify);
+      };
+    },
+    subAgentSessions: () => subAgentSessions.list(),
+  });
+
+  if (!resumeSkipInitialTask && config.task.trim().length > 0) {
+    void agentProxy.send(config.task.trim()).catch(recordRunError);
+  }
 
   // Hydrate a resumed session's transcript after first paint. Reading history and
   // mapping it to content blocks is pure I/O with no bearing on the shell, so the
@@ -1700,13 +1624,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     });
 
-  await waitUntilExit();
+  await host.waitUntilExit();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
   await cycleRecorder.dispose("exit");
   mcpConnectController.abort();
-  disableMouseReporting();
-  exitAltScreen();
 
   const finishedAt = Date.now();
   const turnCollector = runSink.getTurnCollector();

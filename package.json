@@ -29,8 +29,8 @@
     "corbits": "./dist/corbits"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core",
-    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external react-devtools-core --external '@opentui/core-*'",
+    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --external '@opentui/core-*' --outfile ./dist/corbits",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests ./evals",
     "test:tui": "bun test --isolate --preload ./tests/setup/tui-preload.ts ./src/tui ./tests/unit/tui",
