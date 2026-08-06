@@ -67,19 +67,120 @@ export function restrictedPathArg(
   return isRestricted(path, isWriteTool(call.name)) ? path : undefined;
 }
 
+// Programs that only print directory names / metadata. Outside-workspace path
+// arguments are fine for these — listing is not a content read. Content readers
+// (cat, head, xxd, …) still fail the restricted-path check below.
+const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
+
+// Cap accepted tree depth so `tree -L 999999 /` cannot auto-allow an OOM walk.
+const MAX_PURE_TREE_DEPTH = 10;
+
+// Recursive ls / unbounded or over-deep tree can OOM the host — pure-listing
+// auto-allow is only for shallow name dumps.
+function parseTreeDepth(arg: string, next: string | undefined): number | undefined {
+  if (arg === "-L" || arg === "--max-depth") {
+    if (next !== undefined && /^\d+$/.test(next)) return Number(next);
+    return undefined;
+  }
+  const short = /^-L(\d+)$/.exec(arg);
+  if (short !== null) return Number(short[1]);
+  const long = /^--max-depth=(\d+)$/.exec(arg);
+  if (long !== null) return Number(long[1]);
+  return undefined;
+}
+
+// GNU ls accepts any unambiguous abbreviation of a long option, so `--recu`
+// recurses just like `--recursive`; treat every prefix as recursive.
+const LS_RECURSIVE_LONG_FLAG = /^--r(e(c(u(r(s(i(v(e)?)?)?)?)?)?)?)?(=|$)/;
+
+// A listing command that writes a file is not a listing command: these tree
+// flags emit output to disk (or read a listing from one) and must go through
+// the normal write review instead of the pure-listing exemption.
+const TREE_FILE_IO_FLAG = /^(-o|--output|-H|--html|--fromfile)(=|$)/;
+
+function isBoundedDirectoryListing(program: string, args: readonly string[]): boolean {
+  if (program === "ls") {
+    for (const arg of args) {
+      if (LS_RECURSIVE_LONG_FLAG.test(arg)) return false;
+      if (arg.startsWith("--")) continue;
+      if (arg.startsWith("-") && arg.includes("R")) return false;
+    }
+    return true;
+  }
+  if (program === "tree") {
+    if (args.some((arg) => TREE_FILE_IO_FLAG.test(arg))) return false;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      const depth = parseTreeDepth(arg, args[i + 1]);
+      if (depth === undefined) continue;
+      // `-L` / `--max-depth` consume the next token when separate.
+      if (arg === "-L" || arg === "--max-depth") i++;
+      return depth >= 0 && depth <= MAX_PURE_TREE_DEPTH;
+    }
+    return false;
+  }
+  return false;
+}
+
+function isPureDirectoryListingSegment(segment: string): boolean {
+  const trimmed = segment.trim();
+  // Redirects / composition mean the segment is not "names only" — e.g.
+  // `ls > /dev/pts/0` must still hit path restriction + authz hard-deny.
+  // Pipes are evaluated per stage by callers; a multi-stage string is never pure.
+  if (trimmed.includes("|") || DANGEROUS_METACHARACTERS.test(trimmed)) return false;
+  const tokens = tokenize(trimmed);
+  const program = tokens[0] ?? "";
+  if (!PURE_DIRECTORY_LISTING_PROGRAMS.has(program)) return false;
+  return isBoundedDirectoryListing(program, tokens.slice(1));
+}
+
+// True when some stage is a directory listing program without a recursion bound
+// (`ls -R`, bare `tree`, …). Same OOM class as open-ended find/rg — auto mode
+// must not rubber-stamp these even inside the workspace.
+export function commandHasUnboundedDirectoryListing(command: string): boolean {
+  const segments = splitChainedCommand(command);
+  const parts = segments.length > 0 ? segments : [command];
+  for (const segment of parts) {
+    for (const pipeSeg of segment.split("|")) {
+      const trimmed = pipeSeg.trim();
+      if (trimmed.length === 0) continue;
+      const tokens = tokenize(trimmed);
+      const program = tokens[0] ?? "";
+      if (!PURE_DIRECTORY_LISTING_PROGRAMS.has(program)) continue;
+      if (!isBoundedDirectoryListing(program, tokens.slice(1))) return true;
+    }
+  }
+  return false;
+}
+
 // Whether a shell command reads through a restricted path. Tokenised so a bare
 // `cat .agent-state/run.json` is caught; flags are ignored since they are not
 // path arguments. The auto-shell allowlist (SAFE_SHELL_PROGRAMS) only ever
 // admits read-only commands, so shell targets are always judged as reads.
 // Surfaces flag-glued path values (`--file=PATH`, `-fPATH`) and treats `~…`
 // as outside-workspace the same way the safe-shell path does.
+// Pure directory listing (`ls`, bounded `tree`) is exempt: names/metadata only,
+// even outside the workspace. Chains and pipelines are judged per segment so
+// `ls /tmp && cat …` / `ls /tmp | cat …` still flags the content-reading half.
 export function commandTargetsRestricted(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
-  return pathLikeTokens(command).some(
-    (token) => token.startsWith("~") || isRestricted(token, false),
-  );
+  const segments = splitChainedCommand(command);
+  const parts = segments.length > 0 ? segments : [command];
+  for (const segment of parts) {
+    for (const pipeSeg of segment.split("|")) {
+      if (isPureDirectoryListingSegment(pipeSeg)) continue;
+      if (
+        pathLikeTokens(pipeSeg).some(
+          (token) => token.startsWith("~") || isRestricted(token, false),
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function pathLikeTokens(command: string): string[] {
@@ -128,10 +229,12 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // A safe read command auto-runs only when every path-like argument stays inside
 // the workspace. Containment — not a secret-name denylist — is the real
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
-// `strings /proc/self/environ` from auto-reading any file on the host. Sensitive
-// path names (`.env`, keys) additionally never auto-allow; the permission gate
-// asks so the operator can approve legitimate shell uses (e.g. `--env-file`).
-// Path-keyed secret reads remain a hard deny in secret-guard.
+// `strings /proc/self/environ` from auto-reading any file on the host. Pure
+// directory listing (`ls`, `tree`) is the exception: names/metadata only, so
+// outside-workspace targets still auto-allow. Sensitive path names (`.env`,
+// keys) additionally never auto-allow; the permission gate asks so the operator
+// can approve legitimate shell uses (e.g. `--env-file`). Path-keyed secret
+// reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
@@ -193,6 +296,10 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
+  // Listing programs that fail pure (recursive ls, over-deep tree, …) never
+  // auto-allow — they can OOM the host the same way open-ended find/rg can.
+  const pureListing = isPureDirectoryListingSegment(trimmed);
+  if (PURE_DIRECTORY_LISTING_PROGRAMS.has(program) && !pureListing) return false;
   const args = tokens.slice(1);
   if (program === "find") {
     if (args.some((token) => FIND_DANGEROUS_FLAG.test(token))) return false;
@@ -201,7 +308,11 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
   if (args.some((token) => isSensitivePath(token))) return false;
-  if (args.some((token) => argEscapesWorkspace(token, realCwd))) return false;
+  // Pure directory listing may target outside-workspace paths (names only).
+  // Content readers must stay inside the workspace.
+  if (!pureListing && args.some((token) => argEscapesWorkspace(token, realCwd))) {
+    return false;
+  }
   return true;
 }
 

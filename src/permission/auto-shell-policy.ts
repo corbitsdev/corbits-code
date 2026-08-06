@@ -1,7 +1,7 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-authz.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { commandTargetsRestricted } from "./classify.js";
+import { commandHasUnboundedDirectoryListing, commandTargetsRestricted } from "./classify.js";
 import { splitChainedCommand, tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
@@ -254,6 +254,16 @@ const OUTSIDE_WORKSPACE_ASK_RULE: AutoShellRule = {
   patterns: [],
 };
 
+// Recursive ls / unbounded tree can walk huge trees and OOM the host — same
+// class as open-ended find/rg. Shallow ls and depth-bounded tree stay free.
+const UNBOUNDED_LISTING_ASK_RULE: AutoShellRule = {
+  name: "unbounded-listing",
+  effect: "ask",
+  reason:
+    "Unbounded recursive directory listing (ls -R, tree without a safe -L / --max-depth, or depth over 10) can walk huge trees and OOM the host. Use a shallow ls, tree -L N (N ≤ 10), or list_dir, or wait for explicit operator approval.",
+  patterns: [],
+};
+
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
 
 function safeWorktreeCommand(command: string): boolean | undefined {
@@ -312,6 +322,11 @@ export function autoShellRuleForCall(
 
   for (const subject of subjects) {
     if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
+  }
+
+  // Even inside the workspace: unbounded listing must ask so auto mode cannot OOM.
+  for (const subject of subjects) {
+    if (commandHasUnboundedDirectoryListing(subject)) return UNBOUNDED_LISTING_ASK_RULE;
   }
 
   // Containment: a command whose path arguments resolve outside the workspace

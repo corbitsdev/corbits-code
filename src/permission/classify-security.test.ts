@@ -85,6 +85,86 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
   test("allows an in-workspace flag-glued path", () => {
     expect(isAutoAllowedShellCall(shellCall("grep --file=patterns.txt src"), "/repo")).toBe(true);
   });
+
+  // Pure directory listing is names/metadata only — outside-workspace targets
+  // still auto-allow. Content readers (cat, head, …) remain contained.
+  // tree requires an explicit depth bound (-L / --max-depth); unbounded tree
+  // walks are not pure listing (same OOM class as open-ended find/rg).
+  test("auto-allows pure directory listing outside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls /tmp"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L10 /var"), "/repo")).toBe(true);
+  });
+
+  test("does not auto-allow unbounded recursive directory listing", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls -R /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls -laR /tmp"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
+    // Depth present but over the pure-listing cap still forces ask (OOM).
+    expect(isAutoAllowedShellCall(shellCall("tree -L 999999 /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=99 /var"), "/repo")).toBe(false);
+  });
+
+  test("auto mode forces ask for unbounded recursive listing even inside workspace", () => {
+    expect(autoShellRuleForCall(shellCall("ls -R ."))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name).toBe("unbounded-listing");
+    // Bounded forms stay free of the ask rule.
+    expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree -L 2 packages"))).toBeUndefined();
+  });
+
+  test("still denies content reads outside the workspace", () => {
+    expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("head ~/.aws/config"), "/repo")).toBe(false);
+  });
+});
+
+describe("pure directory listing — outside-workspace auto-shell policy", () => {
+  // Paths that resolve outside /repo are restricted; ~ is also treated as
+  // outside by commandTargetsRestricted. Pure ls/tree must not trip the ask rule.
+  const isRestricted = (path: string): boolean =>
+    path.startsWith("~") || path.startsWith("/") || path.includes("..");
+
+  test("does not force outside-workspace ask for pure ls/tree outside paths", () => {
+    expect(autoShellRuleForCall(shellCall("ls /tmp"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("ls -la ~"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree -L 1 /var"), isRestricted)).toBeUndefined();
+  });
+
+  test("unbounded recursive listing outside still forces ask", () => {
+    // Unbounded listing is the more specific OOM rule and wins over
+    // outside-workspace when both would apply.
+    expect(autoShellRuleForCall(shellCall("ls -R /tmp"), isRestricted)?.name).toBe(
+      "unbounded-listing",
+    );
+    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)?.name).toBe(
+      "unbounded-listing",
+    );
+  });
+
+  test("still forces outside-workspace ask for content reads outside paths", () => {
+    // Non-sensitive outside paths so this asserts containment, not the
+    // sensitive-path ask rule (which fires first for e.g. ~/.aws/config).
+    expect(autoShellRuleForCall(shellCall("cat /etc/passwd"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+    expect(autoShellRuleForCall(shellCall("head /tmp/notes.txt"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+  });
+
+  test("chained ls outside + cat outside still asks for the content half", () => {
+    expect(autoShellRuleForCall(shellCall("ls /tmp && cat /etc/passwd"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+  });
 });
 
 describe("isAutoAllowedShellSegment — command substitution", () => {
@@ -541,5 +621,26 @@ describe("upload-shaped network shell commands force ask in auto mode", () => {
   test("netcat in any form asks", () => {
     expect(autoShellRuleForCall(shellCall("nc -l 1234"))?.name).toBe("network-upload");
     expect(autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name).toBe("network-upload");
+  });
+});
+
+describe("pure directory listing exemption", () => {
+  test("tree writing its output to a file does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("tree -L 2 -o /tmp/x /var"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("tree -L 2 -o /tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 --output=/tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 -H /tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 --fromfile /var"))?.effect).toBe("ask");
+  });
+
+  test("long-form recursive ls does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls --recursive=x /tmp"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("ls --recursive=x /tmp"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("ls --recursive /tmp"))?.effect).toBe("ask");
+  });
+
+  test("a listing stage piped into a content reader does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls .env | xargs cat"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("ls .env | xargs cat"))?.effect).toBe("ask");
   });
 });

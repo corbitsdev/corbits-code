@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Fixed
+
+- Pure directory listing (`ls`, depth-bounded `tree` via `-L`/`--max-depth`, depth ≤ 10) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`, or over-deep `tree`) forces operator approval even inside the workspace. (CL-5422)
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)
