@@ -19,7 +19,7 @@ import {
   appendStreamRow,
   applyShellInterrupt,
   clearShellBridgeHooks,
-  paintStatus,
+  paintChrome,
   replaceStreamRowAt,
   setShellBridgeHooks,
   setStatusFlash,
@@ -27,7 +27,8 @@ import {
   streamRowCount,
   type AppShell,
 } from "./shell.js"
-import { resolveSessionSpinnerLabel } from "./session-chrome.js"
+import { rampFor, rampLine } from "./ramp.js"
+import { resolveRampPhase, resolveTurnLabel } from "./session-chrome.js"
 import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
 import {
   applyStallRecovery,
@@ -335,7 +336,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     bag.pendingEchoes.push(item.text.trim())
     bag.port.deliver(item)
   }
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 function applyInbound(
@@ -361,7 +362,7 @@ function applyInbound(
 
   if (event.type === "run") {
     shell.session = setRunState(shell.session, event.state)
-    paintStatus(shell)
+    paintChrome(shell)
     if (event.state === "idle") {
       drainAtBoundary(shell, bag)
     }
@@ -375,7 +376,7 @@ function applyInbound(
 
   const row = rowFromInbound(event)
   if (row) appendStreamRow(shell, row)
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -413,16 +414,22 @@ export function attachSessionBridge(
     const gated =
       shell.overlayKind === "permissions" || shell.overlayKind === "operator"
     const turn = gated ? turnStateBlocked(bag.turn) : bag.turn
-    setTurnPhase(
-      shell,
-      resolveSessionSpinnerLabel({
-        isProcessing: turn.isProcessing,
-        status: turn.status,
-        awaitingResponse: turn.awaitingResponse,
-        currentToolName: turn.currentToolName,
-        streamingType: turn.streamingType,
-      }) ?? null,
-    )
+    const input = {
+      isProcessing: turn.isProcessing,
+      status: turn.status,
+      awaitingResponse: turn.awaitingResponse,
+      currentToolName: turn.currentToolName,
+      streamingType: turn.streamingType,
+    }
+    const label = resolveTurnLabel(input)
+    if (label === undefined) {
+      setTurnPhase(shell, null)
+      return
+    }
+    // The monitor tick already re-enters here every 250 ms, so reading the
+    // clock is all the animation the ramp needs — no second timer.
+    const ramp = rampFor({ phase: resolveRampPhase(input), nowMs: now() })
+    setTurnPhase(shell, rampLine(ramp, label))
   }
 
   const noteEvent = (event: { type: string; data?: unknown }): void => {
@@ -470,7 +477,7 @@ export function attachSessionBridge(
       shell.session = setRunState(shell.session, "busy")
       bag.lastSentMessage = t
       bag.turn = turnStateOnSubmit(bag.turn, now())
-      paintStatus(shell)
+      paintChrome(shell)
       paintPhase()
       return
     }
@@ -485,7 +492,7 @@ export function attachSessionBridge(
       text: `${kind} +1 → pending ${badgeCount(shell.session)}`,
       meta: "queue",
     })
-    paintStatus(shell)
+    paintChrome(shell)
   }
 
   const doInterrupt = (): void => {

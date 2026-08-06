@@ -42,9 +42,9 @@ async function setup(h: { renderer: Parameters<typeof createAppShell>[0] }) {
   }
 }
 
-/** The status row holds a StyledText; join its chunks for assertions. */
-function statusText(shell: { status: { content: unknown } }): string {
-  const content = shell.status.content
+/** The hint row holds a StyledText; join its chunks for assertions. */
+function hintText(shell: { hint: { content: unknown } }): string {
+  const content = shell.hint.content
   if (typeof content === "string") return content
   const { chunks } = content as { chunks?: readonly { text?: string }[] }
   return (chunks ?? []).map((c) => c.text ?? "").join("")
@@ -55,6 +55,8 @@ const quotaEvent = (retryAfterMs: number) => ({
   data: { error: { category: "quota_exhausted", retryAfterMs } },
 })
 
+const RAMP = /[░▒▓█]/
+
 describe("turn progress label", () => {
   test("tracks the live phase and clears when the run settles", async () => {
     await withTestRenderer(async (h) => {
@@ -63,22 +65,23 @@ describe("turn progress label", () => {
         expect(t.shell.turnPhase).toBeNull()
 
         t.bridge.handle({ type: "inference.start", data: {} })
-        expect(t.shell.turnPhase).toBe("Working…")
+        expect(t.shell.turnPhase).toMatch(RAMP)
+        expect(t.shell.turnPhase).toEndWith("working")
 
         t.bridge.handle({
           type: "inference.thinking.delta",
           data: { token: "hm" },
         })
-        expect(t.shell.turnPhase).toBe("Thinking…")
+        expect(t.shell.turnPhase).toEndWith("thinking")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
-        expect(t.shell.turnPhase).toBe("Responding…")
+        expect(t.shell.turnPhase).toEndWith("responding")
 
         t.bridge.handle({
           type: "inference.tool_call.end",
           data: { name: "bash", callId: "c1" },
         })
-        expect(t.shell.turnPhase).toBe("Running tool…")
+        expect(t.shell.turnPhase).toEndWith("bash")
 
         t.bridge.handle({ type: "reactor.done", data: {} })
         expect(t.shell.turnPhase).toBeNull()
@@ -88,15 +91,21 @@ describe("turn progress label", () => {
     })
   })
 
-  test("an open permission overlay shows the approval wait", async () => {
+  test("an open permission overlay freezes the ramp and reads blocked", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
       try {
         t.bridge.handle({ type: "inference.start", data: {} })
         t.shell.overlayKind = "permissions"
         t.tick()
-        expect(t.shell.turnPhase).toBe("Waiting for approval…")
-        expect(statusText(t.shell)).toContain("Waiting for approval…")
+        expect(t.shell.turnPhase).toEndWith("blocked")
+
+        // Frozen is the signal: the ramp must not move while a human is asked.
+        const frozen = t.shell.turnPhase
+        t.advance(1_000)
+        expect(t.shell.turnPhase).toBe(frozen)
+
+        expect(hintText(t.shell)).toContain("blocked")
       } finally {
         t.bridge.dispose()
       }

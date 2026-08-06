@@ -126,7 +126,7 @@ describe("overlay host never shares cells with the model bar", () => {
       // The model bar keeps its own row, outside the overlay box.
       const barRows = frameLine(frame, (l) => l.includes(MODEL_LABEL))
       expect(barRows).toHaveLength(1)
-      expect(barRows[0]?.trim()).toBe(MODEL_LABEL)
+      expect(barRows[0]?.trim()).toEndWith(MODEL_LABEL)
       expect(barRows[0]?.includes("│")).toBe(false)
     })
   }
@@ -189,7 +189,7 @@ describe("every overlay kind paints clean rows", () => {
 
       const barRows = frameLine(frame, (l) => l.includes(MODEL_LABEL))
       expect(barRows).toHaveLength(1)
-      expect(barRows[0]?.trim()).toBe(MODEL_LABEL)
+      expect(barRows[0]?.trim()).toEndWith(MODEL_LABEL)
     })
   }
 })

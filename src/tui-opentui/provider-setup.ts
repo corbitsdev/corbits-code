@@ -17,6 +17,7 @@ import {
 } from "@opentui/core"
 
 import { PRODUCT_NAME } from "../branding.js"
+import { UI } from "./theme.js"
 import { TELEMETRY_NOTICE } from "../telemetry/index.js"
 
 export type ProviderField = "name" | "baseURL" | "apiKey" | "model"
@@ -183,7 +184,7 @@ export async function runProviderSetup(
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    backgroundColor: "#1a1b26",
+    backgroundColor: UI.ground,
     paddingTop: 1,
     paddingLeft: 2,
     paddingRight: 2,
@@ -192,22 +193,22 @@ export async function runProviderSetup(
   const header = new TextRenderable(renderer, {
     id: "provider-setup-header",
     content: `${PRODUCT_NAME} · Provider setup`,
-    fg: "#7aa2f7",
+    fg: UI.inFlightBright,
   })
   const welcome = new TextRenderable(renderer, {
     id: "provider-setup-welcome",
     content: "Welcome — connect an inference provider",
-    fg: "#c0caf5",
+    fg: UI.text,
   })
   const step = new TextRenderable(renderer, {
     id: "provider-setup-step",
     content: stepHeadline(0),
-    fg: "#9aa5ce",
+    fg: UI.textDim,
   })
   const switchHint = new TextRenderable(renderer, {
     id: "provider-setup-switch-hint",
     content: "After setup, switch providers with /model",
-    fg: "#565f89",
+    fg: UI.textDim,
   })
 
   const summary = new BoxRenderable(renderer, {
@@ -216,14 +217,14 @@ export async function runProviderSetup(
     flexDirection: "column",
     flexShrink: 0,
     paddingTop: 1,
-    backgroundColor: "#1a1b26",
+    backgroundColor: UI.ground,
   })
   const summaryRows = PROVIDER_FIELDS.map(
     (field) =>
       new TextRenderable(renderer, {
         id: `provider-setup-field-${field}`,
         content: "",
-        fg: "#9aa5ce",
+        fg: UI.textDim,
       }),
   )
   for (const row of summaryRows) summary.add(row)
@@ -234,9 +235,9 @@ export async function runProviderSetup(
     height: 3,
     flexShrink: 0,
     border: true,
-    borderColor: "#414868",
-    focusedBorderColor: "#7aa2f7",
-    backgroundColor: "#24283b",
+    borderColor: UI.textFaint,
+    focusedBorderColor: UI.textDim,
+    backgroundColor: UI.ground,
     paddingLeft: 1,
     paddingRight: 1,
   })
@@ -244,29 +245,29 @@ export async function runProviderSetup(
     id: "provider-setup-input",
     width: "100%",
     placeholder: PROVIDER_FIELD_HINTS.name,
-    backgroundColor: "#24283b",
-    focusedBackgroundColor: "#414868",
-    textColor: "#c0caf5",
-    cursorColor: "#7aa2f7",
-    placeholderColor: "#565f89",
+    backgroundColor: UI.ground,
+    focusedBackgroundColor: UI.ground,
+    textColor: UI.text,
+    cursorColor: UI.text,
+    placeholderColor: UI.textFaint,
   })
   inputFrame.add(input)
 
   const statusLine = new TextRenderable(renderer, {
     id: "provider-setup-status",
     content: "",
-    fg: "#f7768e",
+    fg: UI.action,
   })
   const telemetry = new TextRenderable(renderer, {
     id: "provider-setup-telemetry",
     content: config.showTelemetryNotice ? TELEMETRY_NOTICE : "",
-    fg: "#565f89",
+    fg: UI.textDim,
     visible: config.showTelemetryNotice,
   })
   const footer = new TextRenderable(renderer, {
     id: "provider-setup-footer",
     content: "Enter confirm · Esc back · Ctrl+C cancel",
-    fg: "#565f89",
+    fg: UI.textDim,
   })
 
   root.add(header)
@@ -293,12 +294,12 @@ export async function runProviderSetup(
     input.placeholder = PROVIDER_FIELD_HINTS[currentField()]
     if (submitting) {
       statusLine.content = SUBMIT_PHASE_LABEL[submitPhase]
-      statusLine.fg = "#9aa5ce"
+      statusLine.fg = UI.textDim
     } else if (submitError !== null) {
       statusLine.content = saveAnywayOffered
         ? `${submitError} — Enter retry · Ctrl+S save anyway`
         : submitError
-      statusLine.fg = "#f7768e"
+      statusLine.fg = UI.action
     } else {
       statusLine.content = ""
     }

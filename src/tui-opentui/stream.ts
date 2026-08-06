@@ -7,6 +7,7 @@ import { SyntaxStyle } from "@opentui/core"
 
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
+import { UI } from "./theme.js"
 
 export type StreamRole = "user" | "assistant" | "tool" | "system"
 
@@ -43,22 +44,26 @@ export type PaintedStreamLine = {
   readonly fg: string
 }
 
+/**
+ * Transcript rows are text, so they take the element cream. Only the tool role
+ * is tinted — it is machine output threaded through a human conversation, and
+ * Summit Blue separates it without adding a second voice.
+ */
 const ROLE_FG: Record<StreamRole, string> = {
-  user: "#bb9af7",
-  assistant: "#9ece6a",
-  tool: "#7dcfff",
-  system: "#565f89",
+  user: UI.text,
+  assistant: UI.text,
+  tool: UI.inFlight,
+  system: UI.textDim,
 }
 
 /**
- * Diff body palette. Additions reuse the assistant tone and context the system
- * tone so a diff reads as the same skin as every other transcript row;
- * removals take the product danger red already used for error chrome.
+ * Diff body palette. This is the one place orange is not the decision marker:
+ * a diff is content, and add/remove is the brand's own green/orange pair.
  */
 export const DIFF_FG = {
-  add: ROLE_FG.assistant,
-  del: "#f7768e",
-  context: ROLE_FG.system,
+  add: UI.done,
+  del: UI.action,
+  context: UI.textDim,
 } as const
 
 const ROLE_LABEL: Record<StreamRole, string> = {
@@ -111,26 +116,26 @@ export function streamRowGutter(row: StreamRow): PaintedStreamLine {
  * syntax highlighting.
  */
 const MARKDOWN_STYLES = {
-  default: { fg: ROLE_FG.assistant },
-  conceal: { fg: ROLE_FG.system, dim: true },
-  "markup.heading": { fg: "#7aa2f7", bold: true },
-  "markup.strong": { fg: "#e0af68", bold: true },
-  "markup.italic": { fg: ROLE_FG.assistant, italic: true },
-  "markup.strikethrough": { fg: ROLE_FG.system },
-  "markup.raw": { fg: ROLE_FG.tool },
-  "markup.list": { fg: "#7aa2f7" },
-  "markup.quote": { fg: ROLE_FG.system, italic: true },
-  "markup.link": { fg: "#7dcfff", underline: true },
-  "markup.link.label": { fg: "#7dcfff" },
-  "markup.link.url": { fg: "#7dcfff", underline: true },
-  keyword: { fg: "#bb9af7" },
-  string: { fg: "#9ece6a" },
-  number: { fg: "#ff9e64" },
-  comment: { fg: ROLE_FG.system, italic: true },
-  function: { fg: "#7aa2f7" },
-  type: { fg: "#2ac3de" },
-  variable: { fg: "#c0caf5" },
-  punctuation: { fg: "#89ddff" },
+  default: { fg: UI.text },
+  conceal: { fg: UI.textFaint, dim: true },
+  "markup.heading": { fg: UI.inFlightBright, bold: true },
+  "markup.strong": { fg: UI.text, bold: true },
+  "markup.italic": { fg: UI.text, italic: true },
+  "markup.strikethrough": { fg: UI.textFaint },
+  "markup.raw": { fg: UI.inFlight },
+  "markup.list": { fg: UI.inFlightBright },
+  "markup.quote": { fg: UI.textDim, italic: true },
+  "markup.link": { fg: UI.inFlightBright, underline: true },
+  "markup.link.label": { fg: UI.inFlightBright },
+  "markup.link.url": { fg: UI.inFlightBright, underline: true },
+  keyword: { fg: UI.inFlightBright },
+  string: { fg: UI.done },
+  number: { fg: UI.done },
+  comment: { fg: UI.textFaint, italic: true },
+  function: { fg: UI.inFlight },
+  type: { fg: UI.inFlightBright },
+  variable: { fg: UI.text },
+  punctuation: { fg: UI.textDim },
 } as const
 
 let cachedSyntaxStyle: SyntaxStyle | null = null
@@ -144,17 +149,4 @@ export function transcriptSyntaxStyle(): SyntaxStyle {
     cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...MARKDOWN_STYLES })
   }
   return cachedSyntaxStyle
-}
-
-/** Hint line under the prompt (locked product bindings). */
-export const PROMPT_HINT =
-  "Enter queue · Alt+Enter steer · / commands · Ctrl+C stop (×2 exit)" as const
-
-/** Header chrome for product-skin demo sessions. */
-export function sessionHeaderTitle(
-  title: string,
-  run: "idle" | "busy",
-): string {
-  const tag = run === "busy" ? "BUSY" : "IDLE"
-  return `${title} · ${tag}`
 }

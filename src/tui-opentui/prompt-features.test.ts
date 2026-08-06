@@ -55,7 +55,8 @@ describe("image attachments", () => {
       expect(await attachClipboardImage(shell)).toBe(true)
       expect(shell.pendingAttachments).toHaveLength(1)
       const hint = shell.hint.content.chunks.map((c) => c.text).join("")
-      expect(hint).toContain("1 image attached: clipboard.png")
+      expect(hint).toContain("1 image")
+      expect(hint).toContain("attached clipboard.png")
     })
   })
 

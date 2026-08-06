@@ -54,12 +54,11 @@ Budgets are validated against **80×24** as the hard floor and **120×40** as th
 
 | Zone | Role | Idle target (rows) | Min | Max | Collapse / resize rules | Owner |
 |---|---|---|---|---|---|---|
-| **header** | Profile / workflow / session chip | ≤ 2 | 1 | 2 | Never expands past 2. Dense session detail → modal or palette, not a third header row. | Shell |
 | **progress** | In-flight phase / workflow line | 0 when idle; 1–2 when active or workflow chip | 0 | 2 | **0** when inactive and no workflow chip. Shown only while agent is active or a workflow chip needs it. | Shell |
 | **progress_divider** | Hairline above prompt stack | 0–1 | 0 | 1 | Present only when the prompt stack is painted as a distinct block. Prefer absorbing into prompt chrome if a hairline is free on OpenTUI. | Shell |
-| **model_bar** | Profile · model · effort above prompt | 1 | 0 | 1 | Collapse to 0 only under extreme starve (see §3.3); restore as soon as space allows. | Shell |
+| **model_bar** | Session · profile · model · effort above prompt, dim and right-aligned | 1 | 0 | 1 | Collapse to 0 only under extreme starve (see §3.3); restore as soon as space allows. | Shell |
 | **prompt** | Bordered input (content + borders) | 3 base | 3 | Cap: **≤ 40% of terminal rows**, and never so large that transcript falls below floor when only prompt grows | Content growth **scrolls inside** the prompt box. Cap fraction is of full terminal height. Multi-line paste must not steal the log permanently. | Shell + prompt |
-| **status** | Status / hint under prompt | 1–2 | 1 | 2 | Prefer 1 row when possible. Second row only for required hints (queue badge line, interrupt hint). | Shell |
+| **hint** | Stateful key hints under the prompt | 1 | 1 | 1 | Exactly one dim row showing the keys that work in the current state. State (queue depth, interrupt latch, pinned scroll) appears only when it is not at its default. Never a filled bar. | Shell |
 | **goal** | Goal / acceptance strip | 0 default | 0 | **1** collapsed; expanded dense detail → **modal** | Default collapsed or hidden. Implementing phase may show a compact 1-row chip. Full criteria lists are modal, not an unbounded strip. | Zone registry consumer |
 | **task** | Work checklist strip | 0 default | 0 | **1** collapsed; expand → **modal** or temporary expand capped at **proposed 5** content rows then modal | Default off or 1-row summary. Full checklist is not a permanent multi-row tenant. | Zone registry consumer |
 | **agents** | Orchestrator agents strip | 0 in single-agent; 0–1 collapsed in orchestrator | 0 | **1** collapsed; observe/expand → modal or dedicated region under overlay host | Single-agent sessions pay **0**. Orchestrator default is a thin strip, never a permanent multi-row roster. | Zone registry consumer |
@@ -67,9 +66,11 @@ Budgets are validated against **80×24** as the hard floor and **120×40** as th
 | **command_banner** | Command feedback | 0 | 0 | **1–2**, short-lived | Auto-dismiss or Esc; not a permanent zone. | Shell banners |
 | **settings_notice** | Settings diagnostics | 0 | 0 | **proposed ≤ 3** rows then collapse remainder into modal/settings | Multi-line dump of every diagnostic is forbidden in chrome. | Shell banners |
 | **transcript** | Event log (residual) | **≥ 12** on 80×24 idle | **12** on 24-row idle; **proposed ≥ 8** when overlay open on 24-row | Remaining height | Always residual after higher-priority zones. Optional chrome may not push idle transcript below floor. | Geometry owner |
-| **overlay_host** | Single modal / blocking surface | 0 when closed | 0 | Layout-owned region: **proposed ≤ 70% of terminal rows**, and never eliminates prompt+status entirely on 24-row | One primary blocking overlay at a time. Open replaces or stacks with a single Esc path back to prompt. Height is measured for the active surface inside the host box (list kit + wrap measure), not a per-surface magic constant table outside the host. | Overlay host |
+| **overlay_host** | Single modal / blocking surface | 0 when closed | 0 | Layout-owned region: **proposed ≤ 70% of terminal rows**, and never eliminates the prompt stack entirely on 24-row | One primary blocking overlay at a time. Open replaces or stacks with a single Esc path back to prompt. Height is measured for the active surface inside the host box (list kit + wrap measure), not a per-surface magic constant table outside the host. | Overlay host |
 
-**Proposed (not yet paint-proven) defaults** are marked **proposed**. Locked floors from the epic plan: header ≤ 2, progress 0 or 1–2, model bar 1, prompt 3+ capped, status 1–2, optional strips 0–1 collapsed, transcript ≥ 12 on 80×24 idle.
+**Proposed (not yet paint-proven) defaults** are marked **proposed**. Locked floors: progress 0 or 1–2, model bar 1, prompt exactly 3 (capped growth), hint 1, optional strips 0–1 collapsed, transcript ≥ 12 on 80×24 idle.
+
+There is no titlebar and no status strip. The prompt box is the product: it is anchored at the bottom in every state, and the only permanent chrome around it is the dim model bar above and the dim hint row below. No zone paints a full-width background fill.
 
 ### 3.3 Chrome priority when space is scarce
 
@@ -82,9 +83,10 @@ When `terminal.rows` cannot host all desired chrome without violating the transc
 5. `progress_divider` — drop if still short.
 6. `model_bar` — last fixed chrome to shrink (0 only under extreme starve).
 7. `prompt` — never below 3; growth reclaims only via internal scroll (already capped).
-8. `header` / `status` — last resort; keep ≥ 1 each.
 
-**Overlays:** opening a blocking overlay may shrink the transcript below the idle floor, but must leave a **proposed ≥ 8** row transcript (or hide transcript entirely only in full-shell modal mode, where the overlay owns the residual box and prompt/status remain reachable on Esc). Full-shell modal mode is explicit (e.g. model picker, settings), not the default for thin permission prompts.
+`hint` is never collapsed: one row, in every mode, including full-shell modal, where it carries the overlay's own keys.
+
+**Overlays:** opening a blocking overlay may shrink the transcript below the idle floor, but must leave a **proposed ≥ 8** row transcript (or hide transcript entirely only in full-shell modal mode, where the overlay owns the residual box and the prompt remains reachable on Esc). Full-shell modal mode is explicit (e.g. model picker, settings), not the default for thin permission prompts.
 
 ### 3.4 Idle budget check (80×24)
 
@@ -92,16 +94,15 @@ Example idle layout that satisfies the floor:
 
 | Zone | Rows |
 |---|---|
-| header | 2 |
 | model_bar | 1 |
 | prompt | 3 |
-| status | 2 |
+| hint | 1 |
 | optional strips | 0 |
 | progress | 0 |
-| **subtotal chrome** | **8** |
-| **transcript residual** | **16** (≥ 12) |
+| **subtotal chrome** | **5** |
+| **transcript residual** | **19** (≥ 12) |
 
-With progress (2) + thin agents strip (1) still idle-optional collapsed: chrome 10 → transcript 14. Goal+task+agents all expanded as multi-row strips is **out of constitution** — those expansions must modalize or collapse under §3.3.
+With progress (2) + thin agents strip (1): chrome 8 → transcript 16. Goal+task+agents all expanded as multi-row strips is **out of constitution** — those expansions must modalize or collapse under §3.3.
 
 ### 3.5 Today vs target (Ink reference only)
 
@@ -133,7 +134,7 @@ The **app shell geometry resolver** is the only module allowed to turn terminal 
 
 | Output | Meaning |
 |---|---|
-| Region rects | `{ x, y, width, height }` for header, transcript, prompt stack, status, overlay host, and each active optional strip |
+| Region rects | `{ x, y, width, height }` for transcript, prompt stack, hint, overlay host, and each active optional strip |
 | Transcript residual height | Explicit; not re-derived in leaves |
 | Scroll lease region | Which rect currently owns wheel/page keys (focus tree decides *who*; geometry provides *where*) |
 
@@ -177,7 +178,7 @@ Prompt base row count stays stable across resize; only wrap width and internal s
 
 ### 4.5 Overlay host modes
 
-| Mode | Transcript | Prompt / status | Use |
+| Mode | Transcript | Prompt / hint | Use |
 |---|---|---|---|
 | **Closed** | Residual full | Visible | Default session |
 | **Inset** | Shrinks; ≥ overlay floor | Visible | Permission, operator question, thin confirms |
@@ -226,7 +227,7 @@ Full corpus and harness mapping live in `docs/plans/tui-layout-scroll-platform.m
 |---|---|
 | **Starved chrome** | Goal + tasks + agents + active progress on 24 rows → transcript still ≥ floor; expand/collapse works via §3.3 |
 | **Permission list** | Host measures list; keep-active-visible; wheel on list lease; close restores prompt rect/focus |
-| **Operator question** | Long question + many choices fit host box; no overpaint into status |
+| **Operator question** | Long question + many choices fit host box; no overpaint into the hint row |
 | **Prompt expand** | Multi-line paste; internal scroll; transcript does not vanish |
 | **Stream follow** | Transcript residual stable under append; no layout thrash |
 | **Resize mid-session** | 80×24 ↔ 120×40; resolver re-runs; no ghost lines; prompt base stable |
@@ -267,7 +268,7 @@ These are **proposed** in this constitution so Platform can implement without wa
 | Transcript idle floor (24-row) | **12** | Locked by plan/brief |
 | Transcript inset-overlay floor (24-row) | **8** | Keeps log glanceable under permission/operator |
 | Prompt height cap | **40% of terminal rows** | Matches current prompt-layout intent; internal scroll |
-| Overlay host max (inset) | **≤ 70% of terminal rows** | Leaves room for prompt/status/header |
+| Overlay host max (inset) | **≤ 70% of terminal rows** | Leaves room for the prompt stack |
 | Goal / task / agents collapsed | **0–1 row each** | Plan budget; dense → modal |
 | Task temporary expand cap | **5 content rows then modal** | Prevents checklist starvation of log |
 | Settings notice chrome cap | **≤ 3 rows** | Diagnostics dump belongs in settings |

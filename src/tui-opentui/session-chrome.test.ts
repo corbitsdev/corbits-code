@@ -2,14 +2,15 @@ import { describe, expect, test } from "bun:test"
 
 import {
   classifyAgentSendFailure,
-  resolveSessionSpinnerLabel,
+  resolveRampPhase,
+  resolveTurnLabel,
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js"
 
-describe("resolveSessionSpinnerLabel", () => {
+describe("resolveTurnLabel", () => {
   test("idle processing off yields no label", () => {
     expect(
-      resolveSessionSpinnerLabel({
+      resolveTurnLabel({
         isProcessing: false,
         status: "idle",
         awaitingResponse: false,
@@ -21,38 +22,38 @@ describe("resolveSessionSpinnerLabel", () => {
 
   test("blocked gate shows approval wait", () => {
     expect(
-      resolveSessionSpinnerLabel({
+      resolveTurnLabel({
         isProcessing: true,
         status: "blocked",
         awaitingResponse: false,
         currentToolName: "run_shell",
         streamingType: "tool",
       }),
-    ).toBe("Waiting for approval…")
+    ).toBe("blocked")
   })
 
   test("stopping beats tool phase", () => {
     expect(
-      resolveSessionSpinnerLabel({
+      resolveTurnLabel({
         isProcessing: true,
         status: "stopping",
         awaitingResponse: false,
         currentToolName: "grep",
         streamingType: "tool",
       }),
-    ).toBe("Stopping…")
+    ).toBe("stopping")
   })
 
   test("tool phase beats generic working", () => {
     expect(
-      resolveSessionSpinnerLabel({
+      resolveTurnLabel({
         isProcessing: true,
         status: "running",
         awaitingResponse: true,
         currentToolName: "grep",
         streamingType: "tool",
       }),
-    ).toBe("Running tool…")
+    ).toBe("grep")
   })
 
   test("thinking and text phases", () => {
@@ -63,18 +64,40 @@ describe("resolveSessionSpinnerLabel", () => {
       currentToolName: null,
     }
     expect(
-      resolveSessionSpinnerLabel({ ...base, streamingType: "thinking" }),
-    ).toBe("Thinking…")
-    expect(resolveSessionSpinnerLabel({ ...base, streamingType: "text" })).toBe(
-      "Responding…",
+      resolveTurnLabel({ ...base, streamingType: "thinking" }),
+    ).toBe("thinking")
+    expect(resolveTurnLabel({ ...base, streamingType: "text" })).toBe(
+      "responding",
     )
     expect(
-      resolveSessionSpinnerLabel({
+      resolveTurnLabel({
         ...base,
         awaitingResponse: true,
         streamingType: null,
       }),
-    ).toBe("Working…")
+    ).toBe("working")
+  })
+})
+
+describe("resolveRampPhase", () => {
+  const base = {
+    isProcessing: true,
+    awaitingResponse: false,
+    currentToolName: null,
+    streamingType: null,
+  }
+
+  test("blocked gate freezes the ramp", () => {
+    expect(resolveRampPhase({ ...base, status: "blocked" })).toBe("blocked")
+  })
+
+  test("done fills the ramp", () => {
+    expect(resolveRampPhase({ ...base, status: "done" })).toBe("done")
+  })
+
+  test("everything else is working", () => {
+    expect(resolveRampPhase({ ...base, status: "running" })).toBe("working")
+    expect(resolveRampPhase({ ...base, status: "stopping" })).toBe("working")
   })
 })
 

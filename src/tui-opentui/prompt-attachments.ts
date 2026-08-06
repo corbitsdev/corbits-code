@@ -1,26 +1,16 @@
 /**
- * Pure prompt-composition helpers shared by the OpenTUI shell: pending image
- * attachment display, path-mention ingestion, and @-mention splicing.
+ * Pure prompt-composition helpers shared by the OpenTUI shell: path-mention
+ * ingestion and @-mention splicing.
  * No renderer access — the shell owns paint and key wiring.
  */
 
 import {
   findImagePathMentions,
-  formatAttachmentSummary,
   type AttachImageResult,
   type PendingImageAttachment,
 } from "../tui/image-attachments.js"
 
 export type { PendingImageAttachment }
-
-/** Prompt hint line, extended with the pending-attachment summary. */
-export function promptHintWithAttachments(
-  base: string,
-  attachments: readonly PendingImageAttachment[],
-): string {
-  const summary = formatAttachmentSummary(attachments)
-  return summary.length === 0 ? base : `${base} · ${summary}`
-}
 
 export type PathMentionIngestion = {
   readonly text: string

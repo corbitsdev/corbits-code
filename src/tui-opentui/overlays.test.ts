@@ -178,11 +178,10 @@ describe("operator question overlay", () => {
           expect(frame).toMatch(/destructive|working tree|git reset/i)
           // Choice visible
           expect(frame).toMatch(/Cancel|Allow/)
-          // Status zone still present (not overpainted away)
-          expect(frame).toMatch(/IDLE|FOLLOW|queue/)
-          // Status box still has positive height
-          expect(shell.statusBox.height).toBeGreaterThanOrEqual(1)
-          expect(shell.layout.heights.status).toBeGreaterThanOrEqual(1)
+          // Hint row still present (not overpainted away)
+          expect(frame).toContain("esc close")
+          expect(shell.hint.height).toBeGreaterThanOrEqual(1)
+          expect(shell.layout.heights.hint).toBe(1)
 
           // Esc restore: closeInsetOverlay is the Esc path (same as key handler).
           closeInsetOverlay(shell)

@@ -1,12 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import {
-  PROMPT_HINT,
-  paintStreamRow,
-  sessionHeaderTitle,
-} from "./stream"
+import { paintStreamRow } from "./stream"
+import { UI } from "./theme"
 
 describe("stream paint", () => {
-  test("roles get distinct labels and colors", () => {
+  test("roles are distinguished by label, and tinted only where earned", () => {
     const u = paintStreamRow({ role: "user", text: "hi" })
     const a = paintStreamRow({ role: "assistant", text: "hello" })
     const t = paintStreamRow({ role: "tool", text: "ran", meta: "bash" })
@@ -19,18 +16,21 @@ describe("stream paint", () => {
     expect(t.content).toContain("bash")
     expect(s.content).toContain("sys")
 
-    const fgs = new Set([u.fg, a.fg, t.fg, s.fg])
-    expect(fgs.size).toBe(4)
+    // Both human voices are elements, so both are cream; the gutter label is
+    // what separates them. Tool output and system chrome step away from it.
+    expect(u.fg).toBe(UI.text)
+    expect(a.fg).toBe(UI.text)
+    expect(t.fg).toBe(UI.inFlight)
+    expect(s.fg).toBe(UI.textDim)
   })
 
-  test("prompt hint matches locked bindings", () => {
-    expect(PROMPT_HINT).toBe(
-      "Enter queue · Alt+Enter steer · / commands · Ctrl+C stop (×2 exit)",
-    )
-  })
-
-  test("session header tags run state", () => {
-    expect(sessionHeaderTitle("corbits", "busy")).toContain("BUSY")
-    expect(sessionHeaderTitle("corbits", "idle")).toContain("IDLE")
+  test("no role paints a gray", () => {
+    for (const role of ["user", "assistant", "tool", "system"] as const) {
+      const { fg } = paintStreamRow({ role, text: "x" })
+      const [r, g, b] = [1, 3, 5].map((i) =>
+        Number.parseInt(fg.slice(i, i + 2), 16),
+      ) as [number, number, number]
+      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeGreaterThan(8)
+    }
   })
 })

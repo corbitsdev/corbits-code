@@ -1,5 +1,5 @@
 /**
- * OpenTUI app shell — header, sticky transcript, prompt chrome, status, inset overlay.
+ * OpenTUI app shell — sticky transcript, prompt chrome, hint line, inset overlay.
  *
  * Wave 3 product skin on the Wave 2 platform. Functional wrappers around
  * @opentui/core class renderables. Not wired to production CLI; Ink remains production.
@@ -43,10 +43,8 @@ import {
   stepSentHistoryUp,
   type SentHistoryBrowse,
 } from "../tui/sent-message-history.js"
-import {
-  promptHintWithAttachments,
-  spliceMentionCompletion,
-} from "./prompt-attachments.js"
+import { spliceMentionCompletion } from "./prompt-attachments.js"
+import { composeHintLine, type HintSurface } from "./hint-line.js"
 import {
   viewToTableContent,
   type McpStructuredView,
@@ -62,6 +60,7 @@ import {
   type FocusState,
 } from "./focus/index.js"
 import {
+  PROMPT_BASE_ROWS,
   resolveGeometry,
   type GeometryLayout,
   type OverlayMode,
@@ -118,14 +117,13 @@ import {
   type SessionQueueState,
 } from "./session-queue.js"
 import {
-  PROMPT_HINT,
   isMarkdownRow,
   paintStreamRow,
-  sessionHeaderTitle,
   streamRowGutter,
   transcriptSyntaxStyle,
   type StreamRow,
 } from "./stream.js"
+import { UI } from "./theme.js"
 import type { DiffLine, DiffView } from "./diff.js"
 import {
   beginYank,
@@ -384,9 +382,9 @@ export type ShellRenderer = Pick<
 >
 
 export type AppShellOptions = {
-  /** Header base title. Default "corbits". */
+  /** Session name shown on the model bar. Default "corbits". */
   readonly title?: string
-  /** Zone visibility overrides for resolveGeometry. model_bar off by default. */
+  /** Zone visibility overrides for resolveGeometry. Optional strips off by default. */
   readonly visibility?: ZoneVisibility
   /** Requested prompt content rows (geometry caps at 40%). Default 3. */
   readonly promptContentRows?: number
@@ -426,8 +424,6 @@ export type AppShellOptions = {
 export type AppShell = {
   readonly renderer: ShellRenderer
   readonly root: BoxRenderable
-  readonly header: TextRenderable
-  readonly headerBox: BoxRenderable
   /** Optional chrome zones (constitution goal/task/agents). */
   readonly goalBox: BoxRenderable
   readonly goalText: TextRenderable
@@ -443,21 +439,19 @@ export type AppShell = {
   readonly modelBar: TextRenderable
   readonly promptBox: BoxRenderable
   readonly hint: TextRenderable
-  readonly status: TextRenderable
-  readonly statusBox: BoxRenderable
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout
   /** Focus tree + scroll lease (updated by shell helpers). */
   focus: FocusState
   /** Session queue / steer / interrupt bag. */
   session: SessionQueueState
-  /** Pending queue count (mirrors badgeCount(session); kept for status API). */
+  /** Pending queue count (mirrors badgeCount(session)). */
   pendingQueue: number
   /** Transcript line count (append counter / full log length). */
   lineCount: number
   /** Full stream log (windowed paint; never unbounded render tree). */
   streamLog: StreamRow[]
-  /** Base title without BUSY/IDLE tag. */
+  /** Session name shown on the model bar. */
   baseTitle: string
   /** Composed `profile · model · effort` label for the model_bar zone. */
   modelLabel: string | null
@@ -479,13 +473,13 @@ export type AppShell = {
    */
   copyTargets: readonly CopyTarget[] | null
   /**
-   * Short status-line flash (copy feedback, etc.). Cleared when replaced or
+   * Short hint-line flash (copy feedback, etc.). Cleared when replaced or
    * set to null; never appended to the stream log.
    */
   statusFlash: string | null
   /**
    * Live turn phase ("Thinking…", "Running tool…", …) or null when idle.
-   * Lives on the status row rather than a chrome zone because the product host
+   * Lives on the hint row rather than a chrome zone because the product host
    * owns the goal/task/agents zones and overwrites them wholesale on every
    * snapshot push, which would clobber a per-token progress line.
    */
@@ -555,11 +549,9 @@ function terminalOf(
 
 function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
   return {
-    modelBar: false,
-    header: 2,
+    modelBar: true,
     progress: false,
     progressDivider: false,
-    status: 1,
     ...visibility,
   }
 }
@@ -571,7 +563,7 @@ export function isTranscriptFollowing(shell: AppShell): boolean {
   return transcript.scrollTop >= max - 1
 }
 
-/** Status mode label from sticky state. */
+/** Sticky-scroll mode label (surfaced on the hint row only when PINNED). */
 export function stickyMode(shell: AppShell): "FOLLOW" | "PINNED" {
   return isTranscriptFollowing(shell) ? "FOLLOW" : "PINNED"
 }
@@ -580,23 +572,35 @@ function syncPending(shell: AppShell): void {
   shell.pendingQueue = badgeCount(shell.session)
 }
 
-/** Rebuild status + header from focus, sticky, session, overlay. */
-export function paintStatus(shell: AppShell): void {
+function hintSurface(shell: AppShell): HintSurface {
+  if (shell.overlayList !== null) {
+    const kind = shell.overlayKind
+    return {
+      kind: "overlay",
+      filterable: kind === "palette" || kind === "mentions",
+    }
+  }
+  if (shell.observe !== null) return { kind: "observe" }
+  if (focusOwner(shell.focus) === "transcript") return { kind: "transcript" }
+  return { kind: "prompt" }
+}
+
+/** Rebuild the bottom hint row and the model bar from live shell state. */
+export function paintChrome(shell: AppShell): void {
   syncPending(shell)
-  const mode = stickyMode(shell)
-  const owner = focusOwner(shell.focus)
-  const interrupt = shell.session.interruptFlash ? " · INTERRUPT" : ""
-  const statusFlash =
-    shell.statusFlash && shell.statusFlash.length > 0
-      ? ` · ${shell.statusFlash}`
-      : ""
-  const phase =
-    shell.turnPhase && shell.turnPhase.length > 0 ? ` · ${shell.turnPhase}` : ""
-  const run = shell.session.run.toUpperCase()
-  shell.status.content =
-    ` ${mode} · ${run}${phase} · queue ${shell.pendingQueue} · focus ${owner}${interrupt}${statusFlash} · lines ${shell.lineCount}`
-  shell.header.content = ` ${sessionHeaderTitle(shell.baseTitle, shell.session.run)}`
-  shell.hint.content = ` ${promptHintWithAttachments(PROMPT_HINT, shell.pendingAttachments)}`
+  const bag = internals.get(shell)
+  shell.hint.content = ` ${composeHintLine({
+    surface: hintSurface(shell),
+    run: shell.session.run,
+    workers: (bag?.chrome.agents.length ?? 0) > 0,
+    queue: shell.pendingQueue,
+    interrupt: shell.session.interruptFlash,
+    pinned: !isTranscriptFollowing(shell),
+    phase: shell.turnPhase,
+    flash: shell.statusFlash,
+    attachments: shell.pendingAttachments.length,
+  })}`
+  paintModelBar(shell)
 }
 
 /** Queue an image for the next submit and reflect it in the prompt hint. */
@@ -605,12 +609,12 @@ export function addPendingAttachment(
   attachment: PendingImageAttachment,
 ): void {
   shell.pendingAttachments = [...shell.pendingAttachments, attachment]
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 export function clearPendingAttachments(shell: AppShell): void {
   shell.pendingAttachments = []
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -642,17 +646,17 @@ function recordSentMessage(shell: AppShell, text: string): void {
   shell.sentHistory = createSentHistoryBrowse([...shell.sentHistory.sent, text])
 }
 
-/** Set a non-destructive status flash and repaint (does not touch streamLog). */
+/** Set a non-destructive hint flash and repaint (does not touch streamLog). */
 export function setStatusFlash(shell: AppShell, message: string | null): void {
   shell.statusFlash = message
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Set the live turn phase label (null hides it). Repaints only on change. */
 export function setTurnPhase(shell: AppShell, phase: string | null): void {
   if (shell.turnPhase === phase) return
   shell.turnPhase = phase
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Apply focus state to OpenTUI focusables. */
@@ -667,7 +671,7 @@ export function applyFocus(shell: AppShell): void {
   } else {
     shell.prompt.focus()
   }
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 export function shellFocusPrompt(shell: AppShell): void {
@@ -739,7 +743,7 @@ function paintOverlayList(shell: AppShell): void {
   if (!list) return
 
   for (const line of shell.overlayBodyLines) {
-    addOverlayRow(shell, ` ${line}`, "#a9b1d6")
+    addOverlayRow(shell, ` ${line}`, UI.text)
   }
 
   const slice = visibleSlice(list)
@@ -749,7 +753,7 @@ function paintOverlayList(shell: AppShell): void {
     addOverlayRow(
       shell,
       ` ${active ? ">" : " "} ${label}`,
-      active ? "#c0caf5" : "#565f89",
+      active ? UI.text : UI.textDim,
     )
   }
 }
@@ -761,19 +765,18 @@ function paintOverlayList(shell: AppShell): void {
  * without changing the label.
  */
 function paintModelBar(shell: AppShell): void {
-  const label = shell.modelLabel
+  const label =
+    shell.modelLabel === null
+      ? shell.baseTitle
+      : `${shell.baseTitle} · ${shell.modelLabel}`
   const rows = Math.max(0, shell.layout.heights.model_bar)
-  shell.modelBar.visible = rows > 0 && label !== null
+  shell.modelBar.visible = rows > 0
   shell.modelBar.height = rows > 0 ? rows : 1
-  if (label === null) {
-    shell.modelBar.content = ""
-    return
-  }
   const pad = Math.max(0, shell.renderer.width - stringWidth(label) - 1)
   shell.modelBar.content = `${" ".repeat(pad)}${label}`
 }
 
-/** Publish the `profile · model · effort` line above the prompt border. */
+/** Publish the `session · profile · model · effort` line above the prompt border. */
 export function setPromptModelLabel(
   shell: AppShell,
   input: PromptActionBarModelLabelInput,
@@ -781,20 +784,12 @@ export function setPromptModelLabel(
   const label = composePromptActionBarModelLabel(input) ?? null
   if (label === shell.modelLabel) return
   shell.modelLabel = label
-  // The zone is off by default so shells with no model state (demo, smoke)
-  // don't spend a row on it; claim it only once there is something to paint.
-  const bag = internals.get(shell)
-  const visibility = { ...(bag?.visibility ?? defaultVisibility()), modelBar: label !== null }
-  relayout(shell, { visibility })
+  paintModelBar(shell)
 }
 
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.layout = layout
   const h = layout.heights
-
-  const headerH = Math.max(1, h.header)
-  shell.headerBox.height = headerH
-  shell.headerBox.visible = headerH > 0
 
   const goalH = Math.max(0, h.goal)
   shell.goalBox.height = goalH > 0 ? goalH : 1
@@ -828,11 +823,11 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.promptBox.height = promptH
   shell.promptBox.visible = promptH > 0
 
-  const statusH = Math.max(1, h.status)
-  shell.statusBox.height = statusH
-  shell.statusBox.visible = statusH > 0
+  const hintH = Math.max(1, h.hint)
+  shell.hint.height = hintH
+  shell.hint.visible = hintH > 0
 
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 export type RelayoutOpts = {
@@ -877,6 +872,11 @@ type ShellInternals = {
     | readonly PaletteCommand[]
     | (() => readonly PaletteCommand[])
     | null
+  /**
+   * Landing mark shown while the transcript has no content. Dropped (not
+   * hidden) on the first row so it never occupies a transcript line later.
+   */
+  landingMark: TextRenderable | null
   /** Chrome text content (empty = zone off). */
   chrome: {
     goal: string
@@ -929,14 +929,15 @@ export function appendTranscript(
   line: string,
   opts?: { readonly fg?: string },
 ): void {
+  clearLandingMark(shell)
   shell.lineCount += 1
   shell.transcript.add(
     new TextRenderable(shell.renderer as CliRenderer, {
       content: ` ${line}`,
-      fg: opts?.fg ?? "#a9b1d6",
+      fg: opts?.fg ?? UI.text,
     }),
   )
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -966,6 +967,7 @@ export function appendObserveStreamRow(shell: AppShell, row: StreamRow): boolean
 
 /** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
+  clearLandingMark(shell)
   shell.streamLog.push(row)
   shell.lineCount = shell.streamLog.length
 
@@ -973,12 +975,12 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   // Over threshold: rebuild the windowed paint tree only.
   if (!mustWindow(shell.streamLog.length)) {
     shell.transcript.add(createStreamRowRenderable(shell, row))
-    paintStatus(shell)
+    paintChrome(shell)
     return
   }
 
   repaintTranscriptWindow(shell)
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Row count of the log `appendStreamRow` currently targets (parent or observe). */
@@ -1014,13 +1016,13 @@ export function replaceStreamRowAt(
   // the windowed rebuild, which derives every node from the log.
   if (mustWindow(shell.streamLog.length) || children.length !== shell.streamLog.length) {
     repaintTranscriptWindow(shell)
-    paintStatus(shell)
+    paintChrome(shell)
     return
   }
 
   const stale = children[index]
   if (stale && retextStreamRow(stale, row)) {
-    paintStatus(shell)
+    paintChrome(shell)
     return
   }
   if (stale) {
@@ -1030,7 +1032,7 @@ export function replaceStreamRowAt(
     }
   }
   shell.transcript.add(createStreamRowRenderable(shell, row), index)
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -1066,6 +1068,7 @@ function retextStreamRow(node: BaseRenderable, row: StreamRow): boolean {
 
 /** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
 export function repaintTranscriptWindow(shell: AppShell): void {
+  clearLandingMark(shell)
   const children = shell.transcript.getChildren()
   for (const child of [...children]) {
     shell.transcript.remove(child)
@@ -1079,13 +1082,25 @@ export function repaintTranscriptWindow(shell: AppShell): void {
     shell.transcript.add(
       new TextRenderable(shell.renderer as CliRenderer, {
         content: ` ${collapseMarker(win.start)}`,
-        fg: "#565f89",
+        fg: UI.textDim,
       }),
     )
   }
   for (const row of win.rows) {
     shell.transcript.add(createStreamRowRenderable(shell, row))
   }
+}
+
+/** The landing state is the mark, the prompt box and the hint row — nothing else. */
+export const LANDING_MARK = "▓▒░ corbits" as const
+
+function clearLandingMark(shell: AppShell): void {
+  const bag = internals.get(shell)
+  const mark = bag?.landingMark
+  if (bag === undefined || mark === null || mark === undefined) return
+  bag.landingMark = null
+  shell.transcript.remove(mark)
+  mark.destroy()
 }
 
 /**
@@ -1218,7 +1233,7 @@ function createStructuredRowRenderable(
 
 export function setHeader(shell: AppShell, text: string): void {
   shell.baseTitle = text
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 export function setPendingQueue(shell: AppShell, count: number): void {
@@ -1231,12 +1246,12 @@ export function setPendingQueue(shell: AppShell, count: number): void {
     s = enqueue(s, `pad-${badgeCount(s) + 1}`)
   }
   shell.session = s
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 export function setShellRunState(shell: AppShell, run: RunState): void {
   shell.session = setRunState(shell.session, run)
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Submit prompt as queue (busy) or immediate user send (idle). */
@@ -1288,7 +1303,7 @@ export function submitPrompt(
     text: `${tag} +1 → pending ${badgeCount(shell.session)}`,
     meta: "queue",
   })
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Local interrupt mutation (no bridge re-entry). */
@@ -1301,7 +1316,7 @@ export function applyShellInterrupt(shell: AppShell): void {
     text: `interrupt — discarded ${had} pending`,
     meta: "stop",
   })
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Ctrl+C interrupt path: clear pending, flash, idle. */
@@ -1316,7 +1331,7 @@ export function interruptShell(shell: AppShell): void {
 
 export function clearShellInterruptFlash(shell: AppShell): void {
   shell.session = clearInterruptFlash(shell.session)
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 const OVERLAY_FRAME_ID = "inset-demo"
@@ -2040,7 +2055,7 @@ export function enterSubagentObserve(
     text: `Viewing ${session.agentId}: ${session.description}`,
     meta: "observe",
   })
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /** Leave observe; restore parent stream + focus lease. */
@@ -2071,7 +2086,7 @@ export function leaveSubagentObserve(shell: AppShell): void {
     text: `left observe (${agentId})`,
     meta: "observe",
   })
-  paintStatus(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -2367,7 +2382,7 @@ export function handleCtrlC(shell: AppShell, now = Date.now()): void {
 
 /**
  * Build the app shell frame on an OpenTUI renderer.
- * Mounts header / sticky transcript / overlay host / prompt+hint / status.
+ * Mounts sticky transcript / overlay host / model bar / prompt / hint row.
  */
 export function createAppShell(
   renderer: ShellRenderer,
@@ -2375,8 +2390,7 @@ export function createAppShell(
 ): AppShell {
   const title = options?.title ?? DEFAULT_TITLE
   const visibility = defaultVisibility(options?.visibility)
-  // Bordered input (3) + hint row (1) — request 4 so geometry keeps status on-screen.
-  const promptContentRows = options?.promptContentRows ?? 4
+  const promptContentRows = options?.promptContentRows ?? PROMPT_BASE_ROWS
   const wireKeys = options?.wireKeys !== false
   const mount = options?.mount !== false
   const run = options?.run ?? "busy"
@@ -2400,23 +2414,8 @@ export function createAppShell(
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    backgroundColor: "#1a1b26",
+    backgroundColor: UI.ground,
   })
-
-  const headerBox = new BoxRenderable(ctx, {
-    id: "shell-header",
-    width: "100%",
-    height: Math.max(1, layout.heights.header),
-    flexShrink: 0,
-    backgroundColor: "#3d59a1",
-    paddingLeft: 0,
-  })
-  const header = new TextRenderable(ctx, {
-    id: "shell-header-text",
-    content: ` ${sessionHeaderTitle(title, run)}`,
-    fg: "#c0caf5",
-  })
-  headerBox.add(header)
 
   // Optional chrome zones (off by default; setChromeZones turns them on).
   const goalBox = new BoxRenderable(ctx, {
@@ -2424,13 +2423,13 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
-    backgroundColor: "#292e42",
+    backgroundColor: UI.ground,
     visible: false,
   })
   const goalText = new TextRenderable(ctx, {
     id: "shell-goal-text",
     content: "",
-    fg: "#bb9af7",
+    fg: UI.text,
   })
   goalBox.add(goalText)
 
@@ -2439,13 +2438,13 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
-    backgroundColor: "#292e42",
+    backgroundColor: UI.ground,
     visible: false,
   })
   const taskText = new TextRenderable(ctx, {
     id: "shell-task-text",
     content: "",
-    fg: "#7dcfff",
+    fg: UI.inFlight,
   })
   taskBox.add(taskText)
 
@@ -2454,13 +2453,13 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
-    backgroundColor: "#292e42",
+    backgroundColor: UI.ground,
     visible: false,
   })
   const agentsText = new TextRenderable(ctx, {
     id: "shell-agents-text",
     content: "",
-    fg: "#9ece6a",
+    fg: UI.done,
   })
   agentsBox.add(agentsText)
 
@@ -2473,9 +2472,15 @@ export function createAppShell(
     stickyStart: "bottom",
     scrollY: true,
     focusable: true,
-    rootOptions: { backgroundColor: "#1a1b26" },
-    contentOptions: { backgroundColor: "#1a1b26" },
-    viewportOptions: { backgroundColor: "#1a1b26" },
+    rootOptions: { backgroundColor: UI.ground },
+    contentOptions: { backgroundColor: UI.ground },
+    viewportOptions: { backgroundColor: UI.ground },
+  })
+
+  const landingMark = new TextRenderable(ctx, {
+    id: "shell-landing-mark",
+    content: ` ${LANDING_MARK}`,
+    fg: UI.inFlightBright,
   })
 
   const overlayHost = new BoxRenderable(ctx, {
@@ -2485,21 +2490,21 @@ export function createAppShell(
     flexShrink: 0,
     flexDirection: "column",
     border: true,
-    borderColor: "#e0af68",
-    backgroundColor: "#1f2335",
+    borderColor: UI.action,
+    backgroundColor: UI.ground,
     visible: false,
   })
   const overlayTitle = new TextRenderable(ctx, {
     id: "shell-overlay-title",
     content: " overlay",
-    fg: "#e0af68",
+    fg: UI.action,
   })
   const overlayBody = new BoxRenderable(ctx, {
     id: "shell-overlay-body",
     width: "100%",
     flexGrow: 1,
     flexDirection: "column",
-    backgroundColor: "#1f2335",
+    backgroundColor: UI.ground,
   })
   overlayHost.add(overlayTitle)
   overlayHost.add(overlayBody)
@@ -2508,8 +2513,7 @@ export function createAppShell(
     id: "shell-model-bar",
     height: 1,
     content: "",
-    fg: "#565f89",
-    visible: false,
+    fg: UI.textDim,
   })
 
   const promptBox = new BoxRenderable(ctx, {
@@ -2518,7 +2522,7 @@ export function createAppShell(
     height: Math.max(1, layout.heights.prompt),
     flexShrink: 0,
     flexDirection: "column",
-    backgroundColor: "#1a1b26",
+    backgroundColor: UI.ground,
   })
   // Bordered input: top border + field + bottom border = 3 rows.
   const promptFrame = new BoxRenderable(ctx, {
@@ -2527,9 +2531,9 @@ export function createAppShell(
     height: 3,
     flexShrink: 0,
     border: true,
-    borderColor: "#414868",
-    focusedBorderColor: "#7aa2f7",
-    backgroundColor: "#24283b",
+    borderColor: UI.textFaint,
+    focusedBorderColor: UI.textDim,
+    backgroundColor: UI.ground,
     paddingLeft: 1,
     paddingRight: 1,
   })
@@ -2537,37 +2541,22 @@ export function createAppShell(
     id: "shell-prompt",
     width: "100%",
     placeholder: "message…",
-    backgroundColor: "#24283b",
-    focusedBackgroundColor: "#414868",
-    textColor: "#c0caf5",
-    cursorColor: "#7aa2f7",
-    placeholderColor: "#565f89",
+    backgroundColor: UI.ground,
+    focusedBackgroundColor: UI.ground,
+    textColor: UI.text,
+    cursorColor: UI.text,
+    placeholderColor: UI.textFaint,
   })
+  // The only always-on chrome besides the box: one dim, stateful key row.
   const hint = new TextRenderable(ctx, {
     id: "shell-prompt-hint",
-    height: 1,
-    content: ` ${PROMPT_HINT}`,
-    fg: "#565f89",
+    height: Math.max(1, layout.heights.hint),
+    content: "",
+    fg: UI.textDim,
   })
   promptFrame.add(prompt)
   promptBox.add(promptFrame)
-  promptBox.add(hint)
 
-  const statusBox = new BoxRenderable(ctx, {
-    id: "shell-status",
-    width: "100%",
-    height: Math.max(1, layout.heights.status),
-    flexShrink: 0,
-    backgroundColor: "#9ece6a",
-  })
-  const status = new TextRenderable(ctx, {
-    id: "shell-status-text",
-    content: " FOLLOW · BUSY · queue 0 · focus prompt · lines 0",
-    fg: "#1a1b26",
-  })
-  statusBox.add(status)
-
-  root.add(headerBox)
   root.add(goalBox)
   root.add(taskBox)
   root.add(agentsBox)
@@ -2575,7 +2564,7 @@ export function createAppShell(
   root.add(overlayHost)
   root.add(modelBar)
   root.add(promptBox)
-  root.add(statusBox)
+  root.add(hint)
 
   if (mount) {
     renderer.root.add(root)
@@ -2880,8 +2869,6 @@ export function createAppShell(
   const shell: AppShell = {
     renderer,
     root,
-    header,
-    headerBox,
     goalBox,
     goalText,
     taskBox,
@@ -2896,8 +2883,6 @@ export function createAppShell(
     modelBar,
     promptBox,
     hint,
-    status,
-    statusBox,
     layout,
     focus: createFocusState(),
     session,
@@ -2947,6 +2932,7 @@ export function createAppShell(
     overlayOnAccept: null,
     overlayOnToggleExpand: null,
     paletteCatalog: paletteCatalogOpt,
+    landingMark,
     chrome: { goal: "", task: "", agents: "" },
   })
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
@@ -2954,6 +2940,9 @@ export function createAppShell(
     setPaletteOnObserveRequest(shell, onObserveRequestOpt)
   }
   applyLayout(shell, layout)
+  // Added after the first layout pass so the scroll box sizes it against the
+  // resolved transcript height rather than the pre-layout placeholder.
+  transcript.add(landingMark)
   applyFocus(shell)
   return shell
 }

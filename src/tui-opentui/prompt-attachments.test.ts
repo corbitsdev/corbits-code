@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test"
 import type { AttachImageResult, PendingImageAttachment } from "../tui/image-attachments.js"
 import {
   ingestPathMentions,
-  promptHintWithAttachments,
   spliceMentionCompletion,
 } from "./prompt-attachments.js"
 
@@ -15,18 +14,6 @@ function attachment(name: string): PendingImageAttachment {
     data: new Uint8Array([1, 2, 3]),
   }
 }
-
-describe("promptHintWithAttachments", () => {
-  test("returns the base hint when nothing is attached", () => {
-    expect(promptHintWithAttachments("Enter queue", [])).toBe("Enter queue")
-  })
-
-  test("appends the attachment summary", () => {
-    expect(promptHintWithAttachments("Enter queue", [attachment("a.png")])).toBe(
-      "Enter queue · 1 image attached: a.png",
-    )
-  })
-})
 
 describe("ingestPathMentions", () => {
   test("leaves text untouched when there is no image path", async () => {

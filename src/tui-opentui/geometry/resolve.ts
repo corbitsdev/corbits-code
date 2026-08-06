@@ -27,14 +27,10 @@ export type OverlayInput = {
 };
 
 /**
- * Optional chrome visibility. Always-on zones (header, model_bar, prompt, status)
- * default to their idle budgets when omitted. Optional zones default to off (0).
+ * Optional chrome visibility. Always-on zones (model_bar, prompt, hint) default
+ * to their idle budgets when omitted. Optional zones default to off (0).
  */
 export type ZoneVisibility = {
-  /** Header rows (1–2). Default 2. */
-  readonly header?: 1 | 2;
-  /** Status rows (1–2). Default 2. */
-  readonly status?: 1 | 2;
   /** Model bar on (default true → 1 row). Pass false to start collapsed. */
   readonly modelBar?: boolean;
   /** Progress: false/omit = 0; true = 2; or explicit 1|2. */
@@ -123,12 +119,11 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
   const promptRows = clamp(promptRequested, PROMPT_BASE_ROWS, promptCap);
 
   const heights: MutableHeights = {
-    header: vis.header ?? ZONE_REGISTRY.header.idleDefault,
     progress: clamp(progressRows, 0, ZONE_REGISTRY.progress.max),
     progress_divider: progressDivider,
     model_bar: modelBar,
     prompt: promptRows,
-    status: vis.status ?? ZONE_REGISTRY.status.idleDefault,
+    hint: ZONE_REGISTRY.hint.idleDefault,
     goal: vis.goal ? 1 : 0,
     task: vis.task ? 1 : 0,
     agents: vis.agents ? 1 : 0,
@@ -168,10 +163,7 @@ function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {
   }
   // closed: hard floor 12; on tiny terminals attempt what remains after min chrome
   if (terminalRows < 24) {
-    const minChrome =
-      ZONE_REGISTRY.header.min +
-      PROMPT_BASE_ROWS +
-      ZONE_REGISTRY.status.min;
+    const minChrome = PROMPT_BASE_ROWS + ZONE_REGISTRY.hint.min;
     return Math.max(6, Math.min(IDLE_TRANSCRIPT_FLOOR, terminalRows - minChrome));
   }
   return IDLE_TRANSCRIPT_FLOOR;
@@ -229,16 +221,6 @@ function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | nu
       return "progress";
     }
 
-    if (id === "header" || id === "status") {
-      // Last resort: keep ≥ 1.
-      if (h > 1) {
-        heights[id] = 1;
-        if (!collapsed.includes(id)) collapsed.push(id);
-        return id;
-      }
-      continue;
-    }
-
     // Drop optional / shrinkable to 0.
     heights[id] = 0;
     if (!collapsed.includes(id)) collapsed.push(id);
@@ -294,9 +276,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     heights.progress_divider = 0;
     heights.model_bar = 0;
     heights.prompt = 0;
-    heights.status = 0;
-    // Keep a thin header when space allows.
-    if (heights.header > 1 && terminal.rows < 10) heights.header = 1;
+    // The hint row survives every mode: it carries the overlay's own keys.
     const chrome = sumChrome(heights);
     heights.overlay_host = Math.max(0, terminal.rows - chrome);
     const regions = assignRects(heights, terminal);

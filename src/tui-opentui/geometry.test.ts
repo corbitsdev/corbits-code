@@ -21,12 +21,11 @@ function idle80x24(overrides: Partial<GeometryInput> = {}) {
 describe("zone registry", () => {
   test("exports every constitution zone id", () => {
     const expected = [
-      "header",
       "progress",
       "progress_divider",
       "model_bar",
       "prompt",
-      "status",
+      "hint",
       "goal",
       "task",
       "agents",
@@ -42,19 +41,18 @@ describe("zone registry", () => {
     }
   });
 
-  test("idle defaults match constitution fixed chrome (header+model+prompt+status = 8)", () => {
-    expect(ZONE_REGISTRY.header.idleDefault).toBe(2);
+  test("idle defaults match fixed chrome (model+prompt+hint = 5)", () => {
     expect(ZONE_REGISTRY.model_bar.idleDefault).toBe(1);
     expect(ZONE_REGISTRY.prompt.idleDefault).toBe(3);
-    expect(ZONE_REGISTRY.status.idleDefault).toBe(2);
+    expect(ZONE_REGISTRY.hint.idleDefault).toBe(1);
     expect(ZONE_REGISTRY.progress.idleDefault).toBe(0);
     expect(ZONE_REGISTRY.goal.idleDefault).toBe(0);
   });
 
-  test("collapse order cuts temporary banners first and keeps header/status last", () => {
+  test("collapse order cuts temporary banners first and never cuts prompt or hint below base", () => {
     expect(COLLAPSE_ORDER[0]).toBe("command_banner");
-    expect(COLLAPSE_ORDER.at(-1)).toBe("status");
-    expect(COLLAPSE_ORDER.at(-2)).toBe("header");
+    expect(COLLAPSE_ORDER.at(-1)).toBe("prompt");
+    expect([...COLLAPSE_ORDER]).not.toContain("hint");
     expect(COLLAPSE_ORDER.indexOf("model_bar")).toBeLessThan(
       COLLAPSE_ORDER.indexOf("prompt"),
     );
@@ -64,18 +62,18 @@ describe("zone registry", () => {
 describe("resolveGeometry — 80×24 idle floor", () => {
   test("idle default chrome yields transcript ≥ 12", () => {
     const layout = idle80x24();
-    // header2 + model1 + prompt3 + status2 = 8 → transcript 16
-    expect(layout.chromeHeight).toBe(8);
-    expect(layout.transcriptHeight).toBe(16);
+    // model1 + prompt3 + hint1 = 5 → transcript 19
+    expect(layout.chromeHeight).toBe(5);
+    expect(layout.transcriptHeight).toBe(19);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
-    expect(layout.regions.transcript?.height).toBe(16);
+    expect(layout.regions.transcript?.height).toBe(19);
     expect(layout.overlayHeight).toBe(0);
     expect(layout.overlayMode).toBe("closed");
   });
 
   test("rects are full-width and y-stacked without gaps or overlap", () => {
     const layout = idle80x24();
-    const order = ["header", "transcript", "model_bar", "prompt", "status"] as const;
+    const order = ["transcript", "model_bar", "prompt", "hint"] as const;
     let y = 0;
     for (const id of order) {
       const r = layout.regions[id];
@@ -118,8 +116,7 @@ describe("resolveGeometry — collapse rules", () => {
     expect(layout.collapsed[0]).toBe("command_banner");
     // Always-on core chrome still present at min budgets.
     expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
-    expect(layout.heights.header).toBeGreaterThanOrEqual(1);
-    expect(layout.heights.status).toBeGreaterThanOrEqual(1);
+    expect(layout.heights.hint).toBe(1);
   });
 
   test("progress shrinks 2→1 before dropping when space is scarce", () => {
@@ -197,7 +194,7 @@ describe("resolveGeometry — prompt growth", () => {
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
   });
 
-  test("prompt growth is reclaimed before header/status when floor is threatened", () => {
+  test("prompt growth is reclaimed before the hint row when floor is threatened", () => {
     const layout = idle80x24({
       promptContentRows: 9, // 40% of 24 = 9
       visibility: {
@@ -216,8 +213,7 @@ describe("resolveGeometry — prompt growth", () => {
     if (layout.collapsed.includes("prompt")) {
       expect(layout.heights.prompt).toBe(PROMPT_BASE_ROWS);
     }
-    expect(layout.heights.header).toBeGreaterThanOrEqual(1);
-    expect(layout.heights.status).toBeGreaterThanOrEqual(1);
+    expect(layout.heights.hint).toBe(1);
   });
 
   test("prompt stays at base 3 by default", () => {
@@ -234,9 +230,9 @@ describe("resolveGeometry — overlay modes", () => {
     expect(layout.overlayHeight).toBeGreaterThan(0);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
     expect(layout.regions.overlay_host?.height).toBe(layout.overlayHeight);
-    // Prompt + status remain visible in inset mode.
+    // Prompt + hint remain visible in inset mode.
     expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
-    expect(layout.heights.status).toBeGreaterThanOrEqual(1);
+    expect(layout.heights.hint).toBe(1);
   });
 
   test("inset overlay body is capped by 70% and floor-safe max", () => {
@@ -254,7 +250,8 @@ describe("resolveGeometry — overlay modes", () => {
     expect(layout.overlayMode).toBe("full_shell");
     expect(layout.transcriptHeight).toBe(0);
     expect(layout.heights.prompt).toBe(0);
-    expect(layout.heights.status).toBe(0);
+    // The hint row survives: it carries the overlay's own keys.
+    expect(layout.heights.hint).toBe(1);
     expect(layout.overlayHeight).toBeGreaterThan(0);
     expect(layout.overlayHeight + layout.chromeHeight).toBe(24);
   });
@@ -272,8 +269,8 @@ describe("resolveGeometry — resize / residual", () => {
   test("120×40 idle still keeps floor and accrues residual to transcript", () => {
     const layout = resolveGeometry({ terminal: { columns: 120, rows: 40 } });
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
-    expect(layout.chromeHeight).toBe(8);
-    expect(layout.transcriptHeight).toBe(32);
+    expect(layout.chromeHeight).toBe(5);
+    expect(layout.transcriptHeight).toBe(35);
   });
 
   test("does not read process.stdout — pure input only", () => {

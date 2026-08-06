@@ -36,7 +36,7 @@ import {
   openPluginsOverlay,
   openResumeOverlay,
   openSettingsOverlay,
-  paintStatus,
+  paintChrome,
   setChromeZones,
   setShellRunState,
 } from "./shell.js"
@@ -71,7 +71,7 @@ appendStreamRow(shell, {
 bridge.play(FIXTURE_BUSY_SESSION)
 
 const stickyPoll = setInterval(() => {
-  paintStatus(shell)
+  paintChrome(shell)
 }, 120)
 
 function quit(): void {
@@ -286,7 +286,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
       quit()
     } else {
       shell.session = { ...shell.session, interruptFlash: false }
-      paintStatus(shell)
+      paintChrome(shell)
     }
   }
 })

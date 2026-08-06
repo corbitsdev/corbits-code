@@ -13,6 +13,7 @@
 import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core"
 
 import { isMcpToolName } from "../mcp/tool-name.js"
+import { UI } from "./theme.js"
 import {
   extractMcpRecord,
   extractMcpRecords,
@@ -40,13 +41,15 @@ export type McpStructuredView = {
   readonly cells: readonly (readonly McpCell[])[]
 }
 
+// Warning and danger both land on the action orange: a structured result has no
+// decision marker competing with it, and there is no red in the brand system.
 const TONE_FG: Record<McpTone, string> = {
-  plain: "#c0caf5",
-  muted: "#565f89",
-  accent: "#7aa2f7",
-  success: "#9ece6a",
-  warning: "#e0af68",
-  danger: "#f7768e",
+  plain: UI.text,
+  muted: UI.textDim,
+  accent: UI.inFlightBright,
+  success: UI.done,
+  warning: UI.actionDim,
+  danger: UI.action,
 }
 
 const NAME_FIELDS = ["name", "title", "identifier", "label", "key", "summary"]

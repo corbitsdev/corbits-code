@@ -11,7 +11,7 @@ import {
   visibleSlice,
 } from "./list-viewport"
 import { withTestRenderer } from "./harness"
-import { PROMPT_HINT, paintStreamRow } from "./stream"
+import { paintStreamRow } from "./stream"
 import {
   appendStreamRow,
   appendTranscript,
@@ -28,8 +28,14 @@ import {
   toggleShellFocus,
 } from "./shell"
 
+/** Last painted row: the hint line is the bottom-most chrome in every state. */
+function hintLine(frame: string): string {
+  const rows = frame.split("\n").filter((r) => r.trim().length > 0)
+  return rows.at(-1) ?? ""
+}
+
 describe("createAppShell", () => {
-  test("builds header / transcript / prompt / status with floor geometry", async () => {
+  test("builds transcript / prompt / hint with floor geometry", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -38,11 +44,9 @@ describe("createAppShell", () => {
           wireKeys: false,
         })
         try {
-          expect(shell.header).toBeDefined()
           expect(shell.transcript).toBeDefined()
           expect(shell.prompt).toBeDefined()
           expect(shell.hint).toBeDefined()
-          expect(shell.status).toBeDefined()
           expect(shell.transcript.stickyScroll).toBe(true)
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
             IDLE_TRANSCRIPT_FLOOR,
@@ -52,8 +56,7 @@ describe("createAppShell", () => {
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("test")
-          expect(frame).toContain("BUSY")
-          expect(frame).toContain("Enter queue")
+          expect(frame).toContain("enter send")
         } finally {
           shell.dispose()
         }
@@ -136,7 +139,7 @@ describe("createAppShell", () => {
           toggleShellFocus(shell)
           expect(focusOwner(shell.focus)).toBe("transcript")
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("focus transcript")
+          expect(h.captureCharFrame()).toContain("tab prompt")
         } finally {
           shell.dispose()
         }
@@ -285,7 +288,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("hint line shows locked product bindings", async () => {
+  test("hint line shows the keys that work right now", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -294,7 +297,9 @@ describe("product skin: stream + queue + overlay", () => {
         })
         try {
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain(PROMPT_HINT)
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("enter send")
+          expect(frame).toContain("/ commands")
         } finally {
           shell.dispose()
         }
@@ -341,7 +346,10 @@ describe("product skin: stream + queue + overlay", () => {
           expect(shell.pendingQueue).toBe(1)
           expect(shell.session.items[0]!.kind).toBe("steer")
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("steer")
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("steer")
+          expect(frame).toContain("queue 1")
         } finally {
           shell.dispose()
         }
@@ -369,9 +377,10 @@ describe("product skin: stream + queue + overlay", () => {
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
           await h.renderOnce()
-          const frame = h.captureCharFrame()
-          expect(frame).toContain("INTERRUPT")
-          expect(frame).toContain("queue 0")
+          const hintRow = hintLine(h.captureCharFrame())
+          expect(hintRow).toContain("interrupt")
+          // An empty queue is the default state, so it stays off the hint row.
+          expect(hintRow).not.toContain("queue")
         } finally {
           shell.dispose()
         }

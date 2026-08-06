@@ -22,7 +22,7 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   createAppShell,
-  paintStatus,
+  paintChrome,
   setChromeZones,
   setHeader,
   setPaletteCatalog,
@@ -235,7 +235,7 @@ export async function mountProductHost(
   })
 
   const stickyPoll = setInterval(() => {
-    if (!disposed) paintStatus(shell)
+    if (!disposed) paintChrome(shell)
   }, 200)
 
   function dispose(): void {

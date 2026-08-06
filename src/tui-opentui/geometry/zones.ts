@@ -4,12 +4,11 @@
 
 /** Constitution zone ids (snake_case matches the registry table). */
 export const ZONE_IDS = [
-  "header",
   "progress",
   "progress_divider",
   "model_bar",
   "prompt",
-  "status",
+  "hint",
   "goal",
   "task",
   "agents",
@@ -43,7 +42,6 @@ export type ZoneDeclaration = {
  * actual heights are assigned by the geometry resolver.
  */
 export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
-  header: { id: "header", min: 1, max: 2, idleDefault: 2, alwaysOn: true },
   progress: { id: "progress", min: 0, max: 2, idleDefault: 0, alwaysOn: false },
   progress_divider: {
     id: "progress_divider",
@@ -54,7 +52,7 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
   },
   model_bar: { id: "model_bar", min: 0, max: 1, idleDefault: 1, alwaysOn: true },
   prompt: { id: "prompt", min: 3, max: 3, idleDefault: 3, alwaysOn: true },
-  status: { id: "status", min: 1, max: 2, idleDefault: 2, alwaysOn: true },
+  hint: { id: "hint", min: 1, max: 1, idleDefault: 1, alwaysOn: true },
   goal: { id: "goal", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   agents: { id: "agents", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
@@ -127,17 +125,13 @@ export const COLLAPSE_ORDER = [
   "model_bar",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)
   "prompt",
-  // last resort
-  "header",
-  "status",
 ] as const satisfies readonly ZoneId[];
 
 /**
  * Top-to-bottom paint order for y-stacked rects.
- * Transcript is residual in the middle; bottom chrome is prompt stack + status.
+ * Transcript is residual in the middle; bottom chrome is prompt stack + hint.
  */
 export const PAINT_ORDER = [
-  "header",
   "goal",
   "task",
   "agents",
@@ -150,7 +144,7 @@ export const PAINT_ORDER = [
   "progress_divider",
   "model_bar",
   "prompt",
-  "status",
+  "hint",
 ] as const satisfies readonly ZoneId[];
 
 export function zoneDeclaration(id: ZoneId): ZoneDeclaration {

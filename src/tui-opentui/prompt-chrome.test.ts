@@ -89,10 +89,13 @@ describe("bare exit / quit at the prompt", () => {
 })
 
 describe("model bar", () => {
-  test("hidden until a label is published", async () => {
+  test("carries the session name before any model label", async () => {
     await withShell((shell) => {
       expect(shell.modelLabel).toBeNull()
-      expect(shell.modelBar.visible).toBe(false)
+      expect(shell.modelBar.visible).toBe(true)
+      expect(
+        shell.modelBar.content.chunks.map((c) => c.text).join(""),
+      ).toEndWith(shell.baseTitle)
     })
   })
 
@@ -106,19 +109,21 @@ describe("model bar", () => {
       expect(shell.modelLabel).toBe("anthropic · opus · high")
       expect(shell.modelBar.visible).toBe(true)
       const painted = shell.modelBar.content.chunks.map((c) => c.text).join("")
-      expect(painted).toEndWith("anthropic · opus · high")
+      expect(painted).toEndWith(
+        `${shell.baseTitle} · anthropic · opus · high`,
+      )
       expect(painted.startsWith(" ")).toBe(true)
     })
   })
 
-  test("empty segments hide the bar again", async () => {
+  test("empty segments fall back to the session name alone", async () => {
     await withShell((shell) => {
       setPromptModelLabel(shell, { model: "opus" })
-      expect(shell.modelBar.visible).toBe(true)
       setPromptModelLabel(shell, {})
       expect(shell.modelLabel).toBeNull()
-      expect(shell.modelBar.visible).toBe(false)
-      expect(shell.modelBar.content.chunks.map((c) => c.text).join("")).toBe("")
+      expect(
+        shell.modelBar.content.chunks.map((c) => c.text).join("").trim(),
+      ).toBe(shell.baseTitle)
     })
   })
 })
