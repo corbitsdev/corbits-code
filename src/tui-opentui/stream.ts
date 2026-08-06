@@ -5,6 +5,7 @@
 
 import { SyntaxStyle } from "@opentui/core"
 
+import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
 
 export type StreamRole = "user" | "assistant" | "tool" | "system"
@@ -30,6 +31,11 @@ export type StreamRow = {
    * instead of the row body, which would otherwise be a raw JSON dump.
    */
   readonly structured?: McpStructuredView
+  /**
+   * Rendered file-edit diff. Painted instead of the row body, which would
+   * otherwise be the edit tool's raw JSON arguments.
+   */
+  readonly diff?: DiffView
 }
 
 export type PaintedStreamLine = {
@@ -43,6 +49,17 @@ const ROLE_FG: Record<StreamRole, string> = {
   tool: "#7dcfff",
   system: "#565f89",
 }
+
+/**
+ * Diff body palette. Additions reuse the assistant tone and context the system
+ * tone so a diff reads as the same skin as every other transcript row;
+ * removals take the product danger red already used for error chrome.
+ */
+export const DIFF_FG = {
+  add: ROLE_FG.assistant,
+  del: "#f7768e",
+  context: ROLE_FG.system,
+} as const
 
 const ROLE_LABEL: Record<StreamRole, string> = {
   user: "you",
@@ -64,13 +81,18 @@ export function paintStreamRow(row: StreamRow): PaintedStreamLine {
 
 /** Whether this row's body should render as markdown rather than literal text. */
 export function isMarkdownRow(row: StreamRow): boolean {
-  if (row.structured !== undefined) return false
+  if (row.structured !== undefined || row.diff !== undefined) return false
   return row.markdown ?? row.role === "assistant"
 }
 
 /** Whether this row paints a structured table body instead of its text. */
 export function isStructuredRow(row: StreamRow): boolean {
   return row.structured !== undefined
+}
+
+/** Whether this row paints a diff body instead of its text. */
+export function isDiffRow(row: StreamRow): boolean {
+  return row.diff !== undefined
 }
 
 /** Gutter (label + meta) painted beside a markdown body. */

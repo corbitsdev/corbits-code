@@ -4,6 +4,7 @@
  * Pure format + port; shell wires the chord and overlay picker.
  */
 
+import { diffPlainText } from "./diff.js"
 import type { StreamRow } from "./stream.js"
 
 export type CopyKind = "message" | "tool" | "diff" | "system"
@@ -46,10 +47,12 @@ function oneLine(text: string, max = 56): string {
 }
 
 /**
- * Infer copy kind from a stream row role/meta.
- * Diffs are assistant/tool rows whose text looks like a unified diff.
+ * Infer copy kind from a stream row.
+ * Rows carrying a rendered edit diff win; otherwise assistant/tool rows whose
+ * text looks like a unified diff.
  */
 export function classifyCopy(row: StreamRow): CopyKind {
+  if (row.diff !== undefined) return "diff"
   if (row.role === "tool") return "tool"
   if (row.role === "system") return "system"
   const body = row.text
@@ -85,7 +88,8 @@ export function formatCopyText(row: StreamRow): CopyPayload {
       text = meta + row.text
       break
     case "diff":
-      text = row.text
+      // Rendered edit rows copy the diff itself, not the raw JSON arguments.
+      text = row.diff !== undefined ? diffPlainText(row.diff) : row.text
       break
     case "system":
       text = row.text

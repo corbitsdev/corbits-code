@@ -5,6 +5,7 @@
  * paint without a renderer. No OpenTUI or Ink deps.
  */
 
+import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 
@@ -60,16 +61,15 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
     case "thinking":
       return { role: "system", text: block.content ?? "", meta: "thinking" }
     case "tool_call": {
-      const text =
+      const args =
         block.content ??
         (block.arguments !== undefined && block.arguments.length > 0
           ? block.arguments
-          : "…")
-      return {
-        role: "tool",
-        text,
-        meta: block.name ?? "tool",
-      }
+          : undefined)
+      return toolCallRow({
+        name: block.name ?? "tool",
+        ...(args !== undefined ? { arguments: args } : {}),
+      })
     }
     case "tool_result":
       return toolResultRow({

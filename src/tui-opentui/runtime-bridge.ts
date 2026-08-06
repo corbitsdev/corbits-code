@@ -45,6 +45,7 @@ import {
   formatAttachmentSummary,
   type PendingImageAttachment,
 } from "../tui/image-attachments.js"
+import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 
@@ -207,11 +208,10 @@ function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
     case "assistant":
       return { role: "assistant", text: event.text }
     case "tool_call":
-      return {
-        role: "tool",
-        text: event.detail ?? "…",
-        meta: event.name,
-      }
+      return toolCallRow({
+        name: event.name,
+        ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+      })
     case "tool_result":
       return toolResultRow({
         name: event.name,

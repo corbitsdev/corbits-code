@@ -32,6 +32,7 @@ import {
   type PaletteOnObserveRequest,
 } from "./shell.js"
 import type { QueueKind } from "./session-queue.js"
+import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 
@@ -166,11 +167,10 @@ export function rowFromHistoryBlock(block: {
     case "thinking":
       return { role: "system", text: block.content ?? "", meta: "thinking" }
     case "tool_call":
-      return {
-        role: "tool",
-        text: block.content ?? "…",
-        meta: block.name ?? "tool",
-      }
+      return toolCallRow({
+        name: block.name ?? "tool",
+        ...(block.content !== undefined ? { arguments: block.content } : {}),
+      })
     case "tool_result":
       return toolResultRow({
         name: block.name ?? "tool",

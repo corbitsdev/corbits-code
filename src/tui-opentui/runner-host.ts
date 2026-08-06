@@ -33,6 +33,7 @@ import {
 import type { PromptActionBarModelLabelInput } from "../tui/components/prompt-action-bar-label.js"
 import type { ObserveSession } from "./residuals.js"
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 import type { QueueKind } from "./session-queue.js"
@@ -96,7 +97,7 @@ export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRo
     case "thinking":
       return { role: "system", text: entry.content, meta: "thinking" }
     case "tool":
-      return { role: "tool", text: entry.arguments, meta: entry.name }
+      return toolCallRow({ name: entry.name, arguments: entry.arguments })
     case "tool_result":
       return toolResultRow({
         name: entry.name,

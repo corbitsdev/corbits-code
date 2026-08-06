@@ -79,5 +79,15 @@
     "typescript": "5.9.3",
     "typescript-language-server": "^4.3.4",
     "ws": "^8.21.0"
+  },
+  "optionalDependencies": {
+    "@opentui/core-darwin-arm64": "0.5.1",
+    "@opentui/core-darwin-x64": "0.5.1",
+    "@opentui/core-linux-arm64": "0.5.1",
+    "@opentui/core-linux-arm64-musl": "0.5.1",
+    "@opentui/core-linux-x64": "0.5.1",
+    "@opentui/core-linux-x64-musl": "0.5.1",
+    "@opentui/core-win32-arm64": "0.5.1",
+    "@opentui/core-win32-x64": "0.5.1"
   }
 }

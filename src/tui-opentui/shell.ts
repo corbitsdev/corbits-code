@@ -14,8 +14,12 @@ import {
   ScrollBoxRenderable,
   TextRenderable,
   TextTableRenderable,
+  StyledText,
+  bold as boldChunk,
+  fg as fgChunk,
   type CliRenderer,
   type KeyEvent,
+  type TextChunk,
 } from "@opentui/core"
 
 import { isExitCommand } from "../tui/exit-command.js"
@@ -121,6 +125,7 @@ import {
   transcriptSyntaxStyle,
   type StreamRow,
 } from "./stream.js"
+import type { DiffLine, DiffView } from "./diff.js"
 import {
   beginYank,
   breakKillSequence,
@@ -979,7 +984,7 @@ export function repaintTranscriptWindow(shell: AppShell): void {
  * Build the paint node for one transcript row.
  * Markdown-bearing rows (assistant replies) get a MarkdownRenderable body next
  * to a plain gutter; structured rows (MCP results) get a TextTableRenderable;
- * every other role stays literal text.
+ * edit-tool rows get a coloured diff body; every other role stays literal text.
  */
 export function createStreamRowRenderable(
   shell: AppShell,
@@ -988,6 +993,10 @@ export function createStreamRowRenderable(
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
   const id = String(lineNumber).padStart(4, "0")
+
+  if (row.diff !== undefined) {
+    return createDiffRowRenderable(ctx, row, row.diff, id)
+  }
 
   if (row.structured !== undefined) {
     return createStructuredRowRenderable(ctx, row, row.structured, id)
@@ -1023,6 +1032,51 @@ export function createStreamRowRenderable(
       streaming: row.streaming === true,
     }),
   )
+  return wrapper
+}
+
+/** Map one diff line's segments to native text chunks. */
+function diffLineChunks(line: DiffLine): TextChunk[] {
+  return line.map((segment) => {
+    const chunk = fgChunk(segment.fg)(segment.text)
+    return segment.bold === true ? boldChunk(chunk) : chunk
+  })
+}
+
+/**
+ * Gutter + one text line per diff row. Diff bodies are pre-wrapped by
+ * `renderDiff`, so each line paints unwrapped to keep the +/- column aligned.
+ */
+function createDiffRowRenderable(
+  ctx: CliRenderer,
+  row: StreamRow,
+  view: DiffView,
+  id: string,
+): BoxRenderable {
+  const gutter = streamRowGutter(row)
+  const wrapper = new BoxRenderable(ctx, {
+    flexDirection: "row",
+    width: "100%",
+  })
+  wrapper.add(
+    new TextRenderable(ctx, {
+      content: ` ${id}${gutter.content}`,
+      fg: gutter.fg,
+      flexShrink: 0,
+    }),
+  )
+  const body = new BoxRenderable(ctx, {
+    flexDirection: "column",
+    flexGrow: 1,
+  })
+  for (const line of view.lines) {
+    body.add(
+      new TextRenderable(ctx, {
+        content: new StyledText(diffLineChunks(line)),
+      }),
+    )
+  }
+  wrapper.add(body)
   return wrapper
 }
 
