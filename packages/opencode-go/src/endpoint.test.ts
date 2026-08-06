@@ -247,6 +247,30 @@ describe("isOpenCodeGoURL", () => {
   test("matches zen/go bases", () => {
     expect(isOpenCodeGoURL("https://opencode.ai/zen/go/v1")).toBe(true);
     expect(isOpenCodeGoURL("https://opencode.ai/zen/go")).toBe(true);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/go/v1/")).toBe(true);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/go/")).toBe(true);
+    expect(isOpenCodeGoURL("https://api.opencode.ai/zen/go/v1")).toBe(true);
     expect(isOpenCodeGoURL("https://api.openai.com/v1")).toBe(false);
+  });
+
+  test("rejects host spoofs and path false positives", () => {
+    expect(isOpenCodeGoURL("https://not-opencode.ai/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://myopencode.ai/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://opencode.ai.evil.com/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies")).toBe(false);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/v1")).toBe(false);
+  });
+
+  test("rejects query-only embeds and path proxies", () => {
+    expect(
+      isOpenCodeGoURL("https://evil.com/?redirect=https://opencode.ai/zen/go/v1"),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoURL("https://evil.com/proxy/opencode.ai/zen/go/v1"),
+    ).toBe(false);
+    expect(isOpenCodeGoURL("not a url but mentions opencode.ai/zen/go")).toBe(false);
+    expect(isOpenCodeGoURL(undefined)).toBe(false);
+    expect(isOpenCodeGoURL("")).toBe(false);
   });
 });

@@ -71,4 +71,31 @@ describe("isOpenCodeGoProvider", () => {
       }),
     ).toBe(false);
   });
+
+  test("rejects spoofed Go-looking baseURLs", () => {
+    expect(
+      isOpenCodeGoProvider({
+        name: "spoof",
+        baseURL: "https://not-opencode.ai/zen/go/v1",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoProvider({
+        name: "spoof",
+        baseURL: "https://myopencode.ai/zen/go/v1",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoProvider({
+        name: "spoof",
+        baseURL: "https://opencode.ai/zen/goodies",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoProvider({
+        name: "spoof",
+        baseURL: "https://evil.com/?u=https://opencode.ai/zen/go/v1",
+      }),
+    ).toBe(false);
+  });
 });

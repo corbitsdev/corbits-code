@@ -764,8 +764,16 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...pickDefined(optional),
   };
   // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
+  // Fail open on save: keep the in-memory heal so startup is not bricked by a
+  // read-only or otherwise unwritable settings path.
   if (healOpenCodeGoProviders(settings)) {
-    await saveGlobalSettings(path, settings);
+    try {
+      await saveGlobalSettings(path, settings);
+    } catch {
+      process.stderr.write(
+        `settings: failed to persist OpenCode Go provider heal for ${path}; continuing with in-memory settings.\n`,
+      );
+    }
   }
   return settings;
 }
