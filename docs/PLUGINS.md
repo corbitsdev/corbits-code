@@ -308,12 +308,27 @@ shape.
 
 - A plugin path may point at a Claude Code marketplace: a directory with
   `.claude-plugin/marketplace.json` declaring `plugins: [{ name, source }]`.
-  `expandPluginPath` (`src/plugins/loader.ts`) resolves each `source` (relative
-  to the marketplace root) and loads it as its own plugin — one id, one enable
+  `expandPluginPath` (`src/plugins/loader.ts`) resolves each `source` relative
+  to the marketplace root and loads it as its own plugin — one id, one enable
   toggle per member. A path with no marketplace.json but a `plugins/` subtree
   (and no single-plugin markers at its root) expands the same way, so a plain
   checkout works too. Point `/plugins` add-by-path at the marketplace root and
   every member appears; enable the ones you want.
+
+#### Supported marketplace `source` forms
+
+| Form | Allowed? | Notes |
+|------|----------|--------|
+| `./plugins/<name>` | Yes | Under the marketplace root |
+| `../agents/<name>` (and other relative siblings) | Yes, when still under the contain root | Claude installs: contain root is `~/.claude/plugins`. Path/`pluginPaths` marketplaces: contain root is the **parent** of the marketplace directory (one-level siblings only) |
+| Absolute path (`/…`, `C:\…`) | No | Rejected; reported as skip reason `absolute` |
+| Relative escape outside the contain root | No | Rejected; reported as skip reason `outside-contain-root` |
+| Missing on-disk path | No | Reported as skip reason `missing`; other members still load |
+
+Skipped sources are never silent: Claude discovery logs them to stderr (and
+accepts `onExpandSkip` for tests/callers). Partial failure does not block other
+members. Each resolved member path is still subject to path-plugin trust when
+loaded via `pluginPaths`.
 
 ## Decisions (locked)
 

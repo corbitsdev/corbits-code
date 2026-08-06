@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { loadPluginsFromPaths } from "../../src/plugins/loader.js";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  expandPluginPath,
+  loadPluginsFromPaths,
+  type ExpandPluginPathSkip,
+} from "../../src/plugins/loader.js";
 
 test("a marketplace path expands to its declared member plugins", async () => {
   const mods = await loadPluginsFromPaths(["tests/fixtures/marketplace"], process.cwd());
@@ -22,4 +29,56 @@ test("a normal plugin directory is not expanded (no marketplace.json, no plugins
   const mods = await loadPluginsFromPaths(["tests/fixtures/plugins/example-commands"], process.cwd());
   expect(mods.length).toBe(1);
   expect(mods[0]!.manifest?.id).toBe("example-commands");
+});
+
+test("mixed catalog: relative sibling loads; absolute and escape are skipped", async () => {
+  const base = await mkdtemp(join(tmpdir(), "corbits-mkt-mixed-"));
+  try {
+    const root = join(base, "marketplace");
+    const sibling = join(base, "agents", "gamma");
+    const outside = join(base, "outside", "evil");
+    await mkdir(join(root, ".claude-plugin"), { recursive: true });
+    await mkdir(join(root, "plugins", "alpha"), { recursive: true });
+    await mkdir(sibling, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await writeFile(
+      join(root, "plugins", "alpha", "manifest.json"),
+      JSON.stringify({ id: "alpha", name: "alpha", kind: "command" }),
+    );
+    await writeFile(
+      join(sibling, "manifest.json"),
+      JSON.stringify({ id: "gamma", name: "gamma", kind: "command" }),
+    );
+    await writeFile(
+      join(outside, "manifest.json"),
+      JSON.stringify({ id: "evil", name: "evil", kind: "command" }),
+    );
+    await writeFile(
+      join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [
+          { name: "alpha", source: "./plugins/alpha" },
+          { name: "gamma", source: "../agents/gamma" },
+          { name: "evil-abs", source: outside },
+          { name: "evil-escape", source: "../../outside/evil" },
+        ],
+      }),
+    );
+
+    const skips: ExpandPluginPathSkip[] = [];
+    // Path-plugin expand: contain under parent of marketplace (one-level siblings).
+    const members = await expandPluginPath(root, {
+      onSkip: (s) => skips.push(s),
+    });
+    expect(members).toEqual([
+      join(root, "plugins", "alpha"),
+      sibling,
+    ]);
+    expect(skips.map((s) => s.reason).sort()).toEqual([
+      "absolute",
+      "outside-contain-root",
+    ]);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });

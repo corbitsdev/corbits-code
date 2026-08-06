@@ -209,4 +209,75 @@ describe("discoverClaudeInstalledPlugins", () => {
     // No data-only content → skipped; import path never runs (would throw).
     expect(modules).toEqual([]);
   });
+
+  test("resolves marketplace members with ../agents sources under ~/.claude/plugins", async () => {
+    // Real Claude marketplaces declare members as ../agents/<name> relative to the
+    // install root (sibling directory), still under ~/.claude/plugins. Those must load.
+    const home = await mkdtemp(join(tmpdir(), "claude-home-agents-src-"));
+    const pluginsRoot = join(home, ".claude", "plugins");
+    // installPath is the marketplace root; ../agents/x is a sibling under pluginsRoot.
+    const marketplaceRoot = join(pluginsRoot, "cache", "mkt", "bundle");
+    const agentDir = join(pluginsRoot, "cache", "mkt", "agents", "scout-agent");
+    await writeAgentPlugin(agentDir, "scout-agent");
+    await mkdir(join(marketplaceRoot, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [{ name: "scout-agent", source: "../agents/scout-agent" }],
+      }),
+    );
+    await mkdir(pluginsRoot, { recursive: true });
+    await writeFile(
+      join(pluginsRoot, "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }] },
+      }),
+    );
+
+    const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+    expect(modules.map((m) => m.manifest?.id)).toEqual(["scout-agent"]);
+    expect(modules[0]!.source).toBe("claude");
+    expect(modules[0]!.pluginPath).toBe(agentDir);
+  });
+
+  test("rejects absolute marketplace sources and escapes outside ~/.claude/plugins", async () => {
+    const home = await mkdtemp(join(tmpdir(), "claude-home-src-escape-"));
+    const pluginsRoot = join(home, ".claude", "plugins");
+    const marketplaceRoot = join(pluginsRoot, "cache", "mkt", "bundle");
+    const outside = join(home, "evil-plugin");
+    // Sibling of marketplace root, still under ~/.claude/plugins.
+    const good = join(pluginsRoot, "cache", "mkt", "plugins", "good-agent");
+    await writeAgentPlugin(outside, "evil-agent");
+    await writeAgentPlugin(good, "good-agent");
+    await mkdir(join(marketplaceRoot, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [
+          { name: "evil-abs", source: outside },
+          // Climb out of ~/.claude/plugins into $home/evil-plugin.
+          { name: "evil-escape", source: "../../../../../evil-plugin" },
+          { name: "good-agent", source: "../plugins/good-agent" },
+        ],
+      }),
+    );
+    await mkdir(pluginsRoot, { recursive: true });
+    await writeFile(
+      join(pluginsRoot, "installed_plugins.json"),
+      JSON.stringify({
+        version: 2,
+        plugins: { "bundle@mkt": [{ installPath: marketplaceRoot, version: "1.0.0" }] },
+      }),
+    );
+
+    const skips: Array<{ source: string; reason: string }> = [];
+    const modules = await discoverClaudeInstalledPlugins("/repo", {
+      home,
+      onExpandSkip: (skip) => skips.push({ source: skip.source, reason: skip.reason }),
+    });
+    expect(modules.map((m) => m.manifest?.id)).toEqual(["good-agent"]);
+    expect(skips.some((s) => s.reason === "absolute")).toBe(true);
+    expect(skips.some((s) => s.reason === "outside-contain-root")).toBe(true);
+  });
 });

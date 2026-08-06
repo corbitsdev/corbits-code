@@ -197,6 +197,11 @@ export async function loadPluginEntry(
 // a marketplace root, expand it to its member plugin directories so each loads
 // as its own plugin (one id, one enable toggle). A plain plugin directory is
 // returned unchanged as a single-element array.
+//
+// Marketplace `source` entries must be relative. Absolute sources are rejected.
+// Resolved paths must stay under `containRoot` when set; when omitted, path
+// plugins default to the parent of the marketplace root (one-level siblings
+// like `../agents/x` are allowed). Claude discovery passes `~/.claude/plugins`.
 async function pathExists(p: string): Promise<boolean> {
   try {
     await stat(p);
@@ -206,21 +211,89 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
-export async function expandPluginPath(path: string): Promise<string[]> {
-  // 1. Declared marketplace: trust its `source` list (relative to the root).
+/** Why a marketplace `source` entry was not expanded to a member path. */
+export type ExpandPluginPathSkipReason =
+  | "absolute"
+  | "outside-contain-root"
+  | "missing"
+  | "invalid-entry";
+
+export type ExpandPluginPathSkip = {
+  source: string;
+  reason: ExpandPluginPathSkipReason;
+  /** Absolute path after resolve, when known. */
+  resolved?: string;
+};
+
+export type ExpandPluginPathOptions = {
+  /**
+   * Resolved member directories must stay under this root (or equal it).
+   * Claude installs: `~/.claude/plugins`. Path/pluginPaths marketplaces omit
+   * this and get the parent of the marketplace root (sibling `../agents` ok).
+   */
+  containRoot?: string;
+  /** Called for each skipped marketplace source (never silent). */
+  onSkip?: (skip: ExpandPluginPathSkip) => void;
+};
+
+export async function expandPluginPath(
+  path: string,
+  opts: ExpandPluginPathOptions = {},
+): Promise<string[]> {
+  const marketplaceRoot = resolve(path);
+  const report = (skip: ExpandPluginPathSkip): void => {
+    opts.onSkip?.(skip);
+  };
+
+  // 1. Declared marketplace: relative `source` list, contained under containRoot
+  // (or parent of marketplace root for path plugins — one-level siblings).
   try {
-    const raw = await readFile(join(path, ".claude-plugin", "marketplace.json"), "utf8");
+    const raw = await readFile(
+      join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
+      "utf8",
+    );
     const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { plugins?: unknown }).plugins)) {
-      const dirs = ((parsed as { plugins: unknown[] }).plugins)
-        .map((p): string | undefined => {
-          if (typeof p !== "object" || p === null) return undefined;
-          const src = (p as { source?: unknown }).source;
-          return typeof src === "string" && src.length > 0 ? resolve(path, src) : undefined;
-        })
-        .filter((d): d is string => d !== undefined);
-      const existing = await Promise.all(dirs.map((d) => pathExists(d)));
-      const resolved = dirs.filter((_, i) => existing[i]);
+    if (
+      typeof parsed === "object"
+      && parsed !== null
+      && Array.isArray((parsed as { plugins?: unknown }).plugins)
+    ) {
+      const containRoot = resolve(
+        opts.containRoot ?? dirname(marketplaceRoot),
+      );
+      const candidates: string[] = [];
+      for (const p of (parsed as { plugins: unknown[] }).plugins) {
+        if (typeof p !== "object" || p === null) {
+          report({ source: "", reason: "invalid-entry" });
+          continue;
+        }
+        const src = (p as { source?: unknown }).source;
+        if (typeof src !== "string" || src.length === 0) {
+          report({ source: typeof src === "string" ? src : "", reason: "invalid-entry" });
+          continue;
+        }
+        // Absolute `source` would jump any relative contain check.
+        if (isAbsolute(src)) {
+          report({ source: src, reason: "absolute" });
+          continue;
+        }
+        const resolved = resolve(marketplaceRoot, src);
+        if (!pathIsInsideOrEqual(resolved, containRoot)) {
+          report({ source: src, reason: "outside-contain-root", resolved });
+          continue;
+        }
+        candidates.push(resolved);
+      }
+      const existing = await Promise.all(candidates.map((d) => pathExists(d)));
+      const resolved: string[] = [];
+      for (let i = 0; i < candidates.length; i++) {
+        const d = candidates[i]!;
+        if (existing[i]) {
+          resolved.push(d);
+        } else {
+          report({ source: d, reason: "missing", resolved: d });
+        }
+      }
       if (resolved.length > 0) return resolved;
     }
   } catch {
@@ -231,33 +304,41 @@ export async function expandPluginPath(path: string): Promise<string[]> {
   // Covers a marketplace checkout without a marketplace.json. We only expand
   // when the root carries no single-plugin markers, so a normal plugin dir that
   // happens to contain a `plugins/` folder is never mis-expanded.
-  const hasPluginsSubdir = await pathExists(join(path, "plugins"));
+  const hasPluginsSubdir = await pathExists(join(marketplaceRoot, "plugins"));
   const rootIsPlugin =
-    (await pathExists(join(path, "agents"))) ||
-    (await pathExists(join(path, "skills"))) ||
-    (await pathExists(join(path, "commands"))) ||
-    (await pathExists(join(path, "command"))) ||
-    (await pathExists(join(path, "manifest.json"))) ||
-    (await pathExists(join(path, ".claude-plugin", "plugin.json"))) ||
-    (await pathExists(join(path, "index.ts"))) ||
-    (await pathExists(join(path, "src", "index.ts")));
+    (await pathExists(join(marketplaceRoot, "agents"))) ||
+    (await pathExists(join(marketplaceRoot, "skills"))) ||
+    (await pathExists(join(marketplaceRoot, "commands"))) ||
+    (await pathExists(join(marketplaceRoot, "command"))) ||
+    (await pathExists(join(marketplaceRoot, "manifest.json"))) ||
+    (await pathExists(join(marketplaceRoot, ".claude-plugin", "plugin.json"))) ||
+    (await pathExists(join(marketplaceRoot, "index.ts"))) ||
+    (await pathExists(join(marketplaceRoot, "src", "index.ts")));
   if (hasPluginsSubdir && !rootIsPlugin) {
+    const containRoot = resolve(
+      opts.containRoot ?? dirname(marketplaceRoot),
+    );
     let entries: import("node:fs").Dirent[];
     try {
-      entries = await readdir(join(path, "plugins"), { withFileTypes: true });
+      entries = await readdir(join(marketplaceRoot, "plugins"), { withFileTypes: true });
     } catch {
-      return [path];
+      return [marketplaceRoot];
     }
     const dirs: string[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const child = join(path, "plugins", entry.name);
-      if (await pathExists(child)) dirs.push(child);
+      const child = join(marketplaceRoot, "plugins", entry.name);
+      if (!(await pathExists(child))) continue;
+      if (!pathIsInsideOrEqual(child, containRoot)) {
+        report({ source: child, reason: "outside-contain-root", resolved: child });
+        continue;
+      }
+      dirs.push(child);
     }
     if (dirs.length > 0) return dirs;
   }
 
-  return [path];
+  return [marketplaceRoot];
 }
 
 // Resolve a registered pluginPaths entry to the member plugin directories that
@@ -408,9 +489,15 @@ export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> 
 // need settings.plugins[id].enabled. Stamp source "claude" for search_agents.
 //
 // `home` is injectable for tests; defaults to the process home directory.
+// Marketplace member expansion uses containRoot=`~/.claude/plugins` so relative
+// sources like `../agents/<name>` resolve when still under that root; absolute
+// sources and escapes outside the root are rejected with skip reporting.
 export async function discoverClaudeInstalledPlugins(
   cwd: string,
-  opts: { home?: string } = {},
+  opts: {
+    home?: string;
+    onExpandSkip?: (skip: ExpandPluginPathSkip) => void;
+  } = {},
 ): Promise<PluginModule[]> {
   const home = opts.home ?? homedir();
   const registryPath = join(home, ".claude", "plugins", "installed_plugins.json");
@@ -436,6 +523,14 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
+  const onExpandSkip =
+    opts.onExpandSkip
+    ?? ((skip: ExpandPluginPathSkip) => {
+      const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
+      process.stderr.write(
+        `plugins: skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}\n`,
+      );
+    });
   const installPaths: Array<{ abs: string; registryKey: string }> = [];
   const seen = new Set<string>();
   for (const [registryKey, entries] of Object.entries(
@@ -461,9 +556,12 @@ export async function discoverClaudeInstalledPlugins(
   const results: PluginModule[] = [];
   for (const { abs: installPath, registryKey } of installPaths) {
     if (!(await pathExists(installPath))) continue;
-    // Expand marketplace roots the same way explicit pluginPaths do, but keep
-    // every expanded member under the install root (no absolute/.. source escape).
-    const dirs = await expandPluginPathContained(installPath);
+    // Expand marketplace roots under ~/.claude/plugins (not install root alone)
+    // so sibling sources like ../agents/<name> load; absolute/escape still out.
+    const dirs = await expandPluginPath(installPath, {
+      containRoot: pluginsRoot,
+      onSkip: onExpandSkip,
+    });
     for (const d of dirs) {
       // Data-only only: never import() JS at discovery. Enable-gate does not
       // re-run loaders; importing here would execute untrusted JS before enable.
@@ -514,47 +612,6 @@ function pathIsInsideOrEqual(abs: string, root: string): boolean {
   if (a === r) return true;
   const prefix = r.endsWith("/") ? r : `${r}/`;
   return a.startsWith(prefix);
-}
-
-/**
- * Like expandPluginPath, but drops marketplace `source` entries that resolve
- * outside the marketplace root (absolute paths or `../` escapes).
- */
-async function expandPluginPathContained(path: string): Promise<string[]> {
-  const root = resolve(path);
-  try {
-    const raw = await readFile(join(root, ".claude-plugin", "marketplace.json"), "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    if (typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { plugins?: unknown }).plugins)) {
-      const dirs = ((parsed as { plugins: unknown[] }).plugins)
-        .map((p): string | undefined => {
-          if (typeof p !== "object" || p === null) return undefined;
-          const src = (p as { source?: unknown }).source;
-          if (typeof src !== "string" || src.length === 0) return undefined;
-          // Relative sources only — absolute `source` would jump the contain check.
-          if (isAbsolute(src)) return undefined;
-          const resolved = resolve(root, src);
-          return pathIsInsideOrEqual(resolved, root) ? resolved : undefined;
-        })
-        .filter((d): d is string => d !== undefined);
-      if (dirs.length > 0) return dirs;
-    }
-  } catch {
-    // not a declared marketplace
-  }
-  // Heuristic: path/plugins/* children when present (same as expandPluginPath).
-  try {
-    const pluginsDir = join(root, "plugins");
-    const entries = await readdir(pluginsDir, { withFileTypes: true });
-    const children = entries
-      .filter((e) => e.isDirectory())
-      .map((e) => join(pluginsDir, e.name))
-      .filter((d) => pathIsInsideOrEqual(d, root));
-    if (children.length > 0) return children;
-  } catch {
-    // no plugins/ subtree
-  }
-  return [root];
 }
 
 /** True when a plugin id is probably a cache version dirname, not a product name. */
