@@ -32,6 +32,7 @@ import {
   type PaletteOnObserveRequest,
 } from "./shell.js"
 import type { QueueKind } from "./session-queue.js"
+import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
@@ -171,13 +172,11 @@ export function rowFromHistoryBlock(block: {
         meta: block.name ?? "tool",
       }
     case "tool_result":
-      return {
-        role: "tool",
-        text: block.content ?? (block.isError ? "error" : "ok"),
-        meta: block.isError
-          ? `${block.name ?? "tool"}!`
-          : (block.name ?? "tool"),
-      }
+      return toolResultRow({
+        name: block.name ?? "tool",
+        content: block.content ?? (block.isError ? "error" : "ok"),
+        isError: block.isError === true,
+      })
     case "error":
       return { role: "system", text: block.message ?? "error", meta: "error" }
     default:

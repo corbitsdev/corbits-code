@@ -24,9 +24,16 @@ import {
   type ModelCatalogRef,
 } from "./model-catalog.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
-import { appendStreamRow } from "./shell.js"
+import {
+  appendStreamRow,
+  clearShellExitHandler,
+  setPromptModelLabel,
+  setShellExitHandler,
+} from "./shell.js"
+import type { PromptActionBarModelLabelInput } from "../tui/components/prompt-action-bar-label.js"
 import type { ObserveSession } from "./residuals.js"
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 import type { QueueKind } from "./session-queue.js"
 
@@ -49,6 +56,12 @@ export type RunnerHostDeps = {
   /** Favorited provider+model pairs (settings.favoriteModels). */
   readonly favoriteModels?: readonly ModelCatalogRef[]
   readonly onModelSelect: (id: string) => void
+  /**
+   * Live `profile · model · effort` source for the model_bar zone. Read on
+   * mount and again after every model selection, so the label follows the
+   * same config the picker mutates.
+   */
+  readonly modelLabel?: () => PromptActionBarModelLabelInput
   readonly commands: readonly RegistryCommandSource[]
   readonly onCommand: (name: string) => void
   /** Live chrome snapshot source, read on mount and on every notify. */
@@ -85,11 +98,11 @@ export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRo
     case "tool":
       return { role: "tool", text: entry.arguments, meta: entry.name }
     case "tool_result":
-      return {
-        role: "tool",
-        text: entry.content,
-        meta: entry.isError ? `${entry.name}!` : entry.name,
-      }
+      return toolResultRow({
+        name: entry.name,
+        content: entry.content,
+        isError: entry.isError,
+      })
     case "report":
       return { role: "assistant", text: entry.content, meta: "report" }
   }
@@ -120,13 +133,18 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     recent: deps.recentModels ?? [],
     favorites: deps.favoriteModels ?? [],
   })
+  const readModelLabel = deps.modelLabel
+  const onModelSelect = (id: string): void => {
+    deps.onModelSelect(id)
+    if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
+  }
   const host = await mountProductHost({
     title: deps.title,
     eventEmitter: deps.eventEmitter,
     send: deps.send,
     interrupt: deps.interrupt,
     ...(deps.deliver !== undefined ? { deliver: deps.deliver } : {}),
-    ...(models.length > 0 ? { models, onModelSelect: deps.onModelSelect } : {}),
+    ...(models.length > 0 ? { models, onModelSelect } : {}),
     commands: buildCommandCatalog(deps.commands),
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
@@ -138,6 +156,8 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     host.setChrome(chromeFromSession(deps.chrome()))
   }
   const unsubscribeChrome = deps.subscribeChrome?.(pushChrome)
+
+  if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
 
   // The shell's Ctrl+C is the interrupt key, so quitting needs its own binding.
   const onKey = (key: KeyEvent): void => {
@@ -151,8 +171,13 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const dispose = (): void => {
     unsubscribeChrome?.()
     host.renderer.keyInput.off("keypress", onKey)
+    clearShellExitHandler(host.shell)
     host.dispose()
   }
+
+  // A bare `exit` / `quit` at the prompt routes through the same teardown as
+  // the Ctrl+D quit key, so finalize still runs.
+  setShellExitHandler(host.shell, dispose)
 
   const surfaceDeps: CommandSurfaceDeps = {
     ...(deps.surfaces ?? {}),

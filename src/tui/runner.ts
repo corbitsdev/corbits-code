@@ -1748,6 +1748,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     providers: config.providers,
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
+    modelLabel: () => ({
+      profile: config.providerName,
+      model: config.model,
+      ...(config.reasoningEffort !== undefined ? { effort: config.reasoningEffort } : {}),
+    }),
     onModelSelect: (id) => {
       const sep = id.indexOf(":");
       if (sep <= 0) return;

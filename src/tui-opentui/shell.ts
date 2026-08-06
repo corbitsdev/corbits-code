@@ -13,10 +13,17 @@ import {
   MarkdownRenderable,
   ScrollBoxRenderable,
   TextRenderable,
+  TextTableRenderable,
   type CliRenderer,
   type KeyEvent,
 } from "@opentui/core"
 
+import { isExitCommand } from "../tui/exit-command.js"
+import {
+  composePromptActionBarModelLabel,
+  type PromptActionBarModelLabelInput,
+} from "../tui/components/prompt-action-bar-label.js"
+import { stringWidth } from "../tui/view/height.js"
 import { listPathSuggestions } from "../tui/components/at-mention/list.js"
 import { parseAtState } from "../tui/components/at-mention/parse.js"
 import {
@@ -35,6 +42,10 @@ import {
   promptHintWithAttachments,
   spliceMentionCompletion,
 } from "./prompt-attachments.js"
+import {
+  viewToTableContent,
+  type McpStructuredView,
+} from "./mcp-view.js"
 import {
   createFocusState,
   focusOwner,
@@ -120,6 +131,21 @@ import {
   rotateYank,
   type KillRing,
 } from "./prompt-kill-ring.js"
+
+const shellExitHandlers = new WeakMap<AppShell, () => void>()
+
+/**
+ * Register the host's quit path (the same one Ctrl+D runs) so a bare `exit` /
+ * `quit` typed at the prompt tears down through finalize instead of a second,
+ * cleanup-skipping exit route.
+ */
+export function setShellExitHandler(shell: AppShell, onExit: () => void): void {
+  shellExitHandlers.set(shell, onExit)
+}
+
+export function clearShellExitHandler(shell: AppShell): void {
+  shellExitHandlers.delete(shell)
+}
 
 /** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
 export type ShellBridgeHooks = {
@@ -408,6 +434,7 @@ export type AppShell = {
   readonly overlayTitle: TextRenderable
   readonly overlayBody: BoxRenderable
   readonly prompt: InputRenderable
+  readonly modelBar: TextRenderable
   readonly promptBox: BoxRenderable
   readonly hint: TextRenderable
   readonly status: TextRenderable
@@ -426,6 +453,8 @@ export type AppShell = {
   streamLog: StreamRow[]
   /** Base title without BUSY/IDLE tag. */
   baseTitle: string
+  /** Composed `profile · model · effort` label for the model_bar zone. */
+  modelLabel: string | null
   /** Overlay list viewport (null when closed). */
   overlayList: ListViewportState | null
   /** Overlay item labels currently shown. */
@@ -692,6 +721,39 @@ function paintOverlayList(shell: AppShell): void {
 }
 
 /** Apply geometry heights to chrome regions including overlay host. */
+/**
+ * Right-align the model label in the always-on model_bar zone. Padding is
+ * recomputed on every layout pass because a resize changes the column budget
+ * without changing the label.
+ */
+function paintModelBar(shell: AppShell): void {
+  const label = shell.modelLabel
+  const rows = Math.max(0, shell.layout.heights.model_bar)
+  shell.modelBar.visible = rows > 0 && label !== null
+  shell.modelBar.height = rows > 0 ? rows : 1
+  if (label === null) {
+    shell.modelBar.content = ""
+    return
+  }
+  const pad = Math.max(0, shell.renderer.width - stringWidth(label) - 1)
+  shell.modelBar.content = `${" ".repeat(pad)}${label}`
+}
+
+/** Publish the `profile · model · effort` line above the prompt border. */
+export function setPromptModelLabel(
+  shell: AppShell,
+  input: PromptActionBarModelLabelInput,
+): void {
+  const label = composePromptActionBarModelLabel(input) ?? null
+  if (label === shell.modelLabel) return
+  shell.modelLabel = label
+  // The zone is off by default so shells with no model state (demo, smoke)
+  // don't spend a row on it; claim it only once there is something to paint.
+  const bag = internals.get(shell)
+  const visibility = { ...(bag?.visibility ?? defaultVisibility()), modelBar: label !== null }
+  relayout(shell, { visibility })
+}
+
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.layout = layout
   const h = layout.heights
@@ -726,6 +788,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     shell.overlayList = setListHeight(shell.overlayList, bodyH)
     paintOverlayList(shell)
   }
+
+  paintModelBar(shell)
 
   const promptH = Math.max(1, h.prompt)
   shell.promptBox.height = promptH
@@ -914,7 +978,8 @@ export function repaintTranscriptWindow(shell: AppShell): void {
 /**
  * Build the paint node for one transcript row.
  * Markdown-bearing rows (assistant replies) get a MarkdownRenderable body next
- * to a plain gutter; every other role stays literal text.
+ * to a plain gutter; structured rows (MCP results) get a TextTableRenderable;
+ * every other role stays literal text.
  */
 export function createStreamRowRenderable(
   shell: AppShell,
@@ -923,6 +988,10 @@ export function createStreamRowRenderable(
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
   const id = String(lineNumber).padStart(4, "0")
+
+  if (row.structured !== undefined) {
+    return createStructuredRowRenderable(ctx, row, row.structured, id)
+  }
 
   if (!isMarkdownRow(row)) {
     const painted = paintStreamRow(row)
@@ -957,6 +1026,37 @@ export function createStreamRowRenderable(
   return wrapper
 }
 
+/** Gutter + native table body for a structured (MCP result) row. */
+function createStructuredRowRenderable(
+  ctx: CliRenderer,
+  row: StreamRow,
+  view: McpStructuredView,
+  id: string,
+): BoxRenderable {
+  const gutter = streamRowGutter(row)
+  const wrapper = new BoxRenderable(ctx, {
+    flexDirection: "row",
+    width: "100%",
+  })
+  wrapper.add(
+    new TextRenderable(ctx, {
+      content: ` ${id}${gutter.content}`,
+      fg: gutter.fg,
+      flexShrink: 0,
+    }),
+  )
+  wrapper.add(
+    new TextTableRenderable(ctx, {
+      content: viewToTableContent(view),
+      columnWidthMode: "content",
+      columnGap: 2,
+      showBorders: false,
+      wrapMode: "none",
+      flexGrow: 1,
+    }),
+  )
+  return wrapper
+}
 
 export function setHeader(shell: AppShell, text: string): void {
   shell.baseTitle = text
@@ -990,6 +1090,17 @@ export function submitPrompt(
   const t = text.trim()
   const attachments = shell.pendingAttachments
   if (t.length === 0 && attachments.length === 0) return
+
+  // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being
+  // sent to the model. Attachments mean the operator meant it as a message.
+  if (attachments.length === 0 && isExitCommand(t)) {
+    const onExit = shellExitHandlers.get(shell)
+    if (onExit !== undefined) {
+      shell.prompt.value = ""
+      onExit()
+      return
+    }
+  }
 
   if (t.length > 0) recordSentMessage(shell, t)
   const hooks = getShellBridgeHooks(shell)
@@ -2079,6 +2190,14 @@ export function createAppShell(
   overlayHost.add(overlayTitle)
   overlayHost.add(overlayBody)
 
+  const modelBar = new TextRenderable(ctx, {
+    id: "shell-model-bar",
+    height: 1,
+    content: "",
+    fg: "#565f89",
+    visible: false,
+  })
+
   const promptBox = new BoxRenderable(ctx, {
     id: "shell-prompt-region",
     width: "100%",
@@ -2140,6 +2259,7 @@ export function createAppShell(
   root.add(agentsBox)
   root.add(transcript)
   root.add(overlayHost)
+  root.add(modelBar)
   root.add(promptBox)
   root.add(statusBox)
 
@@ -2440,6 +2560,7 @@ export function createAppShell(
     overlayTitle,
     overlayBody,
     prompt,
+    modelBar,
     promptBox,
     hint,
     status,
@@ -2451,6 +2572,7 @@ export function createAppShell(
     lineCount: 0,
     streamLog: [],
     baseTitle: title,
+    modelLabel: null,
     overlayList: null,
     overlayItems,
     overlayKind: null,

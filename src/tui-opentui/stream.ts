@@ -5,6 +5,8 @@
 
 import { SyntaxStyle } from "@opentui/core"
 
+import type { McpStructuredView } from "./mcp-view.js"
+
 export type StreamRole = "user" | "assistant" | "tool" | "system"
 
 export type StreamRow = {
@@ -23,6 +25,11 @@ export type StreamRow = {
    * block unstable so a half-received fence/table is not finalized early.
    */
   readonly streaming?: boolean
+  /**
+   * Structured cell grid (MCP record list / record detail). Painted as a table
+   * instead of the row body, which would otherwise be a raw JSON dump.
+   */
+  readonly structured?: McpStructuredView
 }
 
 export type PaintedStreamLine = {
@@ -57,7 +64,13 @@ export function paintStreamRow(row: StreamRow): PaintedStreamLine {
 
 /** Whether this row's body should render as markdown rather than literal text. */
 export function isMarkdownRow(row: StreamRow): boolean {
+  if (row.structured !== undefined) return false
   return row.markdown ?? row.role === "assistant"
+}
+
+/** Whether this row paints a structured table body instead of its text. */
+export function isStructuredRow(row: StreamRow): boolean {
+  return row.structured !== undefined
 }
 
 /** Gutter (label + meta) painted beside a markdown body. */

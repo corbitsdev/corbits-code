@@ -6,6 +6,7 @@
  * before painting the observe view. No renderer deps.
  */
 
+import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
 import {
   createStreamMapContext,
@@ -32,14 +33,12 @@ export function rowFromBridgeEvent(event: BridgeInboundEvent): StreamRow | null 
         text: event.detail ?? "…",
         meta: event.name,
       }
-    case "tool_result": {
-      const body = event.detail ?? (event.isError ? "error" : "ok")
-      return {
-        role: "tool",
-        text: body,
-        meta: event.isError ? `${event.name}!` : event.name,
-      }
-    }
+    case "tool_result":
+      return toolResultRow({
+        name: event.name,
+        content: event.detail ?? (event.isError ? "error" : "ok"),
+        isError: event.isError === true,
+      })
     case "system":
       return { role: "system", text: event.text }
     case "error":
