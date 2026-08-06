@@ -219,6 +219,39 @@ describe("path plugin trust across working directories", () => {
     }
   });
 
+  test("marketplace sibling ../agents member is trusted at its resolved path", async () => {
+    const base = await mkdtemp(join(tmpdir(), "corbits-mkt-sibling-"));
+    const home = join(base, "home");
+    try {
+      await mkdir(home, { recursive: true });
+      const root = join(base, "marketplace");
+      const sibling = join(base, "agents", "gamma");
+      await writeCommandPlugin(sibling, "gamma");
+      await mkdir(join(root, ".claude-plugin"), { recursive: true });
+      await writeFile(
+        join(root, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({
+          plugins: [{ name: "gamma", source: "../agents/gamma" }],
+        }),
+        "utf8",
+      );
+
+      const members = await expandPluginPath(root);
+      expect(members).toEqual([sibling]);
+      await trustPathPlugins(members, home);
+      const pathTrust = await loadPathTrust(home);
+      expect(isPathPluginTrusted(pathTrust, sibling)).toBe(true);
+      const mods = await loadPluginsFromPaths([root], base, {
+        isPluginTrusted: (p) => isPathPluginTrusted(pathTrust, p),
+      });
+      expect(mods.map((m) => m.manifest?.id)).toEqual(["gamma"]);
+      expect(mods[0]!.metadataOnly).toBeUndefined();
+      expect(mods[0]!.pluginPath).toBe(sibling);
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+
   test("revoked grant no longer loads code on subsequent discovery", async () => {
     const base = await mkdtemp(join(tmpdir(), "corbits-revoke-load-"));
     const home = join(base, "home");
