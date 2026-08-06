@@ -7,6 +7,7 @@
  * accept callbacks via {@link residualIdFromSelection}.
  */
 
+import { SHORTCUTS, SLASH_COMMANDS } from "../tui/keymap-table.js"
 import type { StreamRow } from "./stream.js"
 
 /** Host-owned residual row: stable id + display label. */
@@ -55,16 +56,12 @@ export function makeSettingsItems(): readonly string[] {
   ]
 }
 
+/** Help overlay rows derived from the shared keymap table, so they cannot
+ * drift from the interaction contract by hand-transcription. */
 export function makeHelpItems(): readonly string[] {
   return [
-    "Enter — queue mid-run (badge)",
-    "Alt+Enter — steer at tool boundary",
-    "Ctrl+C — interrupt run",
-    "Ctrl+O — command palette",
-    "Alt+C — copy active message / tool",
-    "Esc — close overlay / leave observe",
-    "Tab — toggle prompt ↔ transcript focus",
-    "/help /model /permissions — slash twins",
+    ...SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+    ...SLASH_COMMANDS.map((s) => `${s.keys} — ${s.description}`),
     "Close help",
   ]
 }
