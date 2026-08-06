@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Changed
+
+- **OOM shell-block messaging** — open-ended `find`/`rg`/`grep -r` hard-denies still block; agent-facing copy and prompts cite host safety / OOM risk and bounded `grep`/`search_files` tools as practical alternatives. (CL-5421)
+
 ### Fixed
 
 - Pure directory listing (`ls`, depth-bounded `tree` via `-L`/`--max-depth`, depth ≤ 10) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`, or over-deep `tree`) forces operator approval even inside the workspace. (CL-5422)

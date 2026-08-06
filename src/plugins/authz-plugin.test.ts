@@ -374,6 +374,18 @@ describe("authzPlugin", () => {
     expect(result.content).toMatch(/Open-ended shell search blocked/);
   });
 
+  test("open-ended block message cites OOM risk, not tool-routing purity", async () => {
+    const plugin = authzPlugin();
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const result = await handler(makeShellCall("find . -name '*.ts'"), new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/OOM the host/);
+    expect(result.content).toMatch(/walk huge trees/);
+    expect(result.content).toMatch(/Prefer the bounded grep\/search_files tools/);
+    expect(result.content).toMatch(/not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/);
+    expect(result.content).not.toMatch(/Do not use find/);
+  });
+
   async function evaluate(command: string): Promise<ToolResult> {
     const plugin = authzPlugin();
     const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;

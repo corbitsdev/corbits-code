@@ -75,9 +75,10 @@ const BLOCKED_PATTERNS: RegExp[] = [
 
 // Open-ended tree walks via the shell OOM the host: `find | tail` still forces
 // the full stream through the collector, and recursive grep/rg walks huge trees
-// before any pipe limit applies. Route those through the bounded tools instead.
-// (`git log | tail` and similar non-walk pipes are fine — the 512KB shell
-// output cap is the backstop for those.)
+// before any pipe limit applies. Hard-deny those shapes for host safety; the
+// bounded grep/search_files tools remain practical alternatives (timeout +
+// output caps). (`git log | tail` and similar non-walk pipes are fine — the
+// 512KB shell output cap is the backstop for those.)
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
   // `find` is almost always a full-tree walk — keep full CMD so
   // `… | find …` cannot bypass (find does not treat the pipe as search domain).
@@ -914,10 +915,14 @@ function subjectsHit(
 
 function openEndedSearchReason(command: string): string | undefined {
   if (!subjectsHit(command, isOpenEndedSearch)) return undefined;
+  // The patterns catch three command shapes only, so the message has to carry
+  // the general prohibition: fd, ls -R, and scripted walks are equally unbounded
+  // and would otherwise look like sanctioned ways to do the same thing.
   return (
-    `Open-ended shell search blocked — use the grep, search_files, or list_dir tools ` +
-    `(they time out and cap output). Do not use find, rg, or grep -r via the shell. ` +
-    `Command: ${command}`
+    `Open-ended shell search blocked — shell find, head-position rg, and recursive ` +
+    `grep -r can walk huge trees and OOM the host. Prefer the bounded grep/search_files ` +
+    `tools (timeout + output caps). Do not substitute another unbounded walk ` +
+    `(fd, ls -R, scripted os.walk). Command: ${command}`
   );
 }
 

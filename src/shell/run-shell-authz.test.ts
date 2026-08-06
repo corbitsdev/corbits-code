@@ -271,6 +271,16 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(expandShellSubjects(`env -S "find /"`).subjects).toContain("find /");
   });
 
+  test("open-ended block reason cites OOM risk rather than tool-routing purity", () => {
+    const reason = runShellAuthzBlockReason("find . -name '*.ts'");
+    expect(reason).toMatch(openEnded);
+    expect(reason).toMatch(/OOM the host/);
+    expect(reason).toMatch(/walk huge trees/);
+    expect(reason).toMatch(/Prefer the bounded grep\/search_files tools/);
+    expect(reason).toMatch(/not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/);
+    expect(reason).not.toMatch(/Do not use find/);
+  });
+
   test("G2: never-terminating watch inside quoted -S is hard-denied", () => {
     expect(runShellAuthzBlockReason(`env -S "watch ls"`)).toMatch(neverTerm);
     expect(expandShellSubjects(`env -S "watch ls"`).subjects).toContain("watch ls");

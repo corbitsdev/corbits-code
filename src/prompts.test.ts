@@ -51,6 +51,10 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
+  expect(facts).toMatch(/OOM the host/);
+  expect(facts).toMatch(/Prefer the bounded grep\/search_files tools/);
+  expect(facts).toMatch(/not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/);
+  expect(facts).not.toMatch(/Use grep, search_files, and list_dir\.$/m);
   expect(facts).toContain("operator approval");
   expect(facts).toContain("tool_search");
   expect(facts).toContain("plugins or integrations");
