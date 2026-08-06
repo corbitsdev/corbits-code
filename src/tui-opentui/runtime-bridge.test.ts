@@ -59,7 +59,7 @@ describe("attachSessionBridge", () => {
           // Sticky follows the tail; early user line may scroll off.
           expect(shell.lineCount).toBeGreaterThanOrEqual(4)
           expect(frame).toContain("I'll list the directory.")
-          expect(frame).toContain("bash")
+          expect(frame).toContain("Bash")
           expect(frame).toContain("AGENTS.md")
           expect(frame).toContain("Done")
           expect(shell.session.run).toBe("idle")

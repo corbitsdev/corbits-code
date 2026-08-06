@@ -130,6 +130,8 @@ describe("@ popup narrows as you type", () => {
       expect(shell.prompt.value).toBe("@z")
       expect(shell.overlayKind).toBeNull()
       expect(isMentionPopupOpen(shell)).toBe(false)
+      // Mirrors `/`: no empty-state message, not even a status flash.
+      expect(shell.statusFlash).toBeNull()
     })
   })
 

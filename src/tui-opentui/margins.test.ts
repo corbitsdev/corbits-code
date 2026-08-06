@@ -74,7 +74,7 @@ describe("top padding", () => {
     expect(resolveTopPadRows(0)).toBe(0)
   })
 
-  test("the first transcript row is not jammed under the top edge", async () => {
+  test("the top pad still holds its own blank row above a bottom-anchored transcript", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -85,9 +85,13 @@ describe("top padding", () => {
         try {
           appendStreamRow(shell, { role: "user", text: "first prompt" })
           await settle(h)
-          const rows = frameRows(h)
+          const rows = h.captureCharFrame().split("\n")
+          // Row 0 is still the top pad's own blank row: a single short row
+          // sits at the bottom of the transcript zone, against the prompt
+          // box, not immediately after the pad.
           expect(rows[0]?.trim()).toBe("")
-          expect(rows[1]).toContain("first prompt")
+          const contentIndex = rows.findIndex((r) => r.includes("first prompt"))
+          expect(contentIndex).toBeGreaterThan(1)
         } finally {
           shell.dispose()
         }

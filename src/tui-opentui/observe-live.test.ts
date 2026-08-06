@@ -389,7 +389,7 @@ describe("observe pure mappers", () => {
     })
     expect(
       rowFromBridgeEvent({ type: "tool_call", name: "bash", detail: "ls" }),
-    ).toEqual({ role: "tool", text: "ls", meta: "bash" })
+    ).toEqual({ role: "tool", text: "ls", meta: "bash", verb: "Bash", summary: "ls" })
     expect(
       rowFromBridgeEvent({
         type: "tool_result",
@@ -440,7 +440,7 @@ describe("observe pure mappers", () => {
       ]),
     ).toEqual([
       { role: "assistant", text: "Hello" },
-      { role: "tool", text: "a.ts", meta: "read_file" },
+      { role: "tool", text: "a.ts", meta: "read_file", verb: "Read", summary: "a.ts" },
       { role: "assistant", text: "done" },
     ])
   })

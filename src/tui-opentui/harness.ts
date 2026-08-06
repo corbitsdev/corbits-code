@@ -16,6 +16,7 @@
  * also set `option`.
  */
 
+import { getTreeSitterClient } from "@opentui/core"
 import type { KeyInput } from "@opentui/core/testing"
 import {
   createTestRenderer,
@@ -142,6 +143,10 @@ export async function createHarness(
     pressKey,
     destroy: () => {
       setup.renderer.destroy()
+      // renderer.destroy() tears down the process-global tree-sitter client
+      // once no renderers remain. Eagerly recreate it so the next test file's
+      // markdown/code highlighting doesn't hit the destroyed singleton.
+      getTreeSitterClient()
     },
   }
 }

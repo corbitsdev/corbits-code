@@ -25,6 +25,13 @@ export type TurnState = {
   readonly awaitingResponse: boolean
   readonly streamingType: "text" | "thinking" | "tool" | null
   readonly currentToolName: string | null
+  /**
+   * Text deltas seen so far this turn — the only live count available: usage
+   * totals only land on `inference.done`, well after the turn has finished
+   * streaming. Counts delta events, not a real tokenizer, so it is a proxy
+   * for "how much has arrived" rather than an exact token count.
+   */
+  readonly streamTokenCount: number
   readonly lastActivityAt: number
   /** Set while a provider rate limit is cooling down. */
   readonly quota: QuotaWait | null
@@ -43,6 +50,7 @@ export function initialTurnState(nowMs: number): TurnState {
     awaitingResponse: false,
     streamingType: null,
     currentToolName: null,
+    streamTokenCount: 0,
     lastActivityAt: nowMs,
     quota: null,
     activeToolCalls: [],
@@ -58,6 +66,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     awaitingResponse: true,
     streamingType: null,
     currentToolName: null,
+    streamTokenCount: 0,
     lastActivityAt: nowMs,
     activeToolCalls: [],
   }
@@ -175,6 +184,8 @@ const streaming = (
   isProcessing: true,
   awaitingResponse: false,
   streamingType: kind,
+  streamTokenCount:
+    kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount,
   lastActivityAt: nowMs,
 })
 

@@ -488,6 +488,7 @@ export function attachSessionBridge(
       awaitingResponse: turn.awaitingResponse,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
+      streamTokenCount: turn.streamTokenCount,
     }
     const label = resolveTurnLabel(input)
     // The bottom-left status slot rides the same re-entry as the landing mark,

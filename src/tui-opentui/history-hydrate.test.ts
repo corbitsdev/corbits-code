@@ -35,7 +35,7 @@ describe("rowFromHistoryBlock", () => {
         name: "grep",
         content: "pattern x",
       }),
-    ).toEqual({ role: "tool", text: "pattern x", meta: "grep" })
+    ).toEqual({ role: "tool", text: "pattern x", meta: "grep", verb: "Grep", summary: "pattern x" })
     expect(
       rowFromHistoryBlock({
         type: "tool_call",

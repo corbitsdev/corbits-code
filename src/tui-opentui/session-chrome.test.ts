@@ -66,9 +66,9 @@ describe("resolveTurnLabel", () => {
     expect(
       resolveTurnLabel({ ...base, streamingType: "thinking" }),
     ).toBe("thinking")
-    expect(resolveTurnLabel({ ...base, streamingType: "text" })).toBe(
-      "responding",
-    )
+    expect(
+      resolveTurnLabel({ ...base, streamingType: "text", streamTokenCount: 7 }),
+    ).toBe("streaming 7 tok")
     expect(
       resolveTurnLabel({
         ...base,
@@ -76,6 +76,18 @@ describe("resolveTurnLabel", () => {
         streamingType: null,
       }),
     ).toBe("working")
+  })
+
+  test("text phase with no count yet reads zero", () => {
+    expect(
+      resolveTurnLabel({
+        isProcessing: true,
+        status: "running",
+        awaitingResponse: false,
+        currentToolName: null,
+        streamingType: "text",
+      }),
+    ).toBe("streaming 0 tok")
   })
 })
 

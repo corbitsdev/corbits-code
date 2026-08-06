@@ -15,7 +15,7 @@ import {
   type AppShell,
 } from "./shell"
 import {
-  EXPAND_KEY,
+  EXPAND_HINT_LABEL,
   isCollapsibleRow,
   paintStreamRow,
   type RowLayout,
@@ -112,14 +112,14 @@ describe("tool arguments collapse to a human summary", () => {
     const collapsed = lines(row)
     expect(collapsed.length).toBe(1)
     expect(collapsed[0]).toContain("stack · 2 text nodes")
-    expect(collapsed[0]).toContain(`${EXPAND_KEY} expand`)
+    expect(collapsed[0]).toContain(`${EXPAND_HINT_LABEL} expand`)
     expect(collapsed[0]).not.toContain("{")
   })
 
   test("expanding renders the view, not pretty-printed JSON", () => {
     const row = toolCallRow({ name: "present", arguments: VIEW_ARGS })
     const expanded = lines({ ...row, expanded: true }).join("\n")
-    expect(expanded).toContain(`${EXPAND_KEY} collapse`)
+    expect(expanded).toContain(`${EXPAND_HINT_LABEL} collapse`)
     expect(expanded).toContain("yoooo")
     expect(expanded).toContain("what's up?")
     expect(expanded).not.toContain('"type"')
@@ -193,13 +193,13 @@ describe("reasoning collapses to one line", () => {
     const collapsed = lines(row)
     expect(collapsed.length).toBe(1)
     expect(collapsed[0]).toContain("12 seconds")
-    expect(collapsed[0]).toContain(`${EXPAND_KEY} expand`)
+    expect(collapsed[0]).toContain(`${EXPAND_HINT_LABEL} expand`)
     expect(collapsed[0]).not.toContain("token helper")
     expect(isCollapsibleRow(row)).toBe(true)
 
     const expanded = lines({ ...row, expanded: true })
     expect(expanded.length).toBeGreaterThan(1)
-    expect(expanded[0]).toContain(`${EXPAND_KEY} collapse`)
+    expect(expanded[0]).toContain(`${EXPAND_HINT_LABEL} collapse`)
     expect(expanded.join("\n")).toContain("token helper")
     for (const line of expanded.slice(1)) expect(line).toContain("┆")
   })

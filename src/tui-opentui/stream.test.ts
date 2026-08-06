@@ -3,11 +3,13 @@ import { stringWidth } from "../tui/view/height"
 import {
   agentVoicesIn,
   blockLabel,
+  isCollapsibleRow,
   isMultiAgent,
   paintStreamRow,
   rowGroupGap,
   streamRowGutter,
-  toolFamily,
+  toolRowLines,
+  toolSentenceLines,
   type RowLayout,
   type StreamRow,
 } from "./stream"
@@ -82,25 +84,12 @@ describe("stream paint", () => {
     expect(short.indexOf("ok")).toBe(long.indexOf("ok"))
   })
 
-  test("each tool family carries its own single-cell glyph", () => {
-    const families = [
-      "read_file",
-      "write_file",
-      "grep",
-      "bash",
-      "web_fetch",
-      "task",
-      "use_skill",
-      "mcp__linear__list_issues",
-      "wibble",
-    ]
-    const glyphs = families.map(
-      (name) => (lines({ role: "tool", text: "x", meta: name })[0] as string)[2],
-    )
-    expect(new Set(glyphs).size).toBe(families.length)
-    for (const glyph of glyphs) expect(stringWidth(glyph as string)).toBe(1)
-    expect(toolFamily("mcp__linear__list_issues")).toBe("mcp")
-    expect(toolFamily("wibble")).toBe("other")
+  test("a tool row leads with one success marker, not a per-type glyph", () => {
+    const names = ["read_file", "write_file", "grep", "bash", "web_fetch", "task"]
+    const rows = names.map((name) => lines({ role: "tool", text: "x", meta: name })[0] as string)
+    // Every row leads with the same mark regardless of tool name.
+    expect(new Set(rows.map((row) => row[0])).size).toBe(1)
+    expect(rows[0]?.startsWith("✓")).toBe(true)
   })
 
   test("a result continues its call instead of repeating the tool name", () => {
@@ -197,12 +186,86 @@ describe("stream paint", () => {
     expect(collapsed.length).toBe(1)
     expect(collapsed[0]).toContain('skill "style" loaded')
     expect(collapsed[0]).toContain("4 lines")
-    expect(collapsed[0]).toContain("e expand")
+    expect(collapsed[0]).toContain("Alt+E expand")
 
     const expanded = lines({ ...row, expanded: true }, WIDE)
     expect(expanded.length).toBe(5)
-    expect(expanded[0]).toContain("e collapse")
+    expect(expanded[0]).toContain("Alt+E collapse")
     expect(expanded.join("\n")).toContain("line")
+  })
+})
+
+describe("tool row sentence treatment", () => {
+  const flatten = (row: StreamRow): string =>
+    toolSentenceLines(row)
+      .flat()
+      .map((seg) => seg.text)
+      .join("")
+
+  test("reads as verb + coloured subject, not tool name + raw args", () => {
+    const row: StreamRow = { role: "tool", text: "{}", verb: "Read", summary: "package.json" }
+    const line = toolSentenceLines(row)[0]!
+    expect(flatten(row)).toContain("Read")
+    expect(flatten(row)).toContain("package.json")
+    const subjectSeg = line.find((seg) => seg.text.includes("package.json"))
+    expect(subjectSeg?.fg).toBe(UI.inFlightBright)
+    expect(subjectSeg?.fg).not.toBe(UI.text)
+  })
+
+  test("the arrow only appears on a row with expandable content", () => {
+    const plain: StreamRow = { role: "tool", text: "ok", verb: "Shell", summary: "pwd" }
+    const withDetail: StreamRow = {
+      role: "tool",
+      text: "{}",
+      verb: "Read",
+      summary: "a.ts",
+      detail: [[{ text: "line", fg: UI.text }]],
+    }
+    expect(isCollapsibleRow(plain)).toBe(false)
+    expect(flatten(plain)).not.toMatch(/[▸▾]/)
+    expect(isCollapsibleRow(withDetail)).toBe(true)
+    expect(flatten(withDetail)).toContain("▸")
+    expect(flatten({ ...withDetail, expanded: true })).toContain("▾")
+  })
+
+  test("a chained shell command keeps its && structure across lines", () => {
+    const row: StreamRow = {
+      role: "tool",
+      text: "{}",
+      verb: "Shell",
+      summary: "git status && git log --oneline -5 && pwd && date",
+    }
+    const rendered = toolSentenceLines(row).map((line) =>
+      line.map((seg) => seg.text).join(""),
+    )
+    expect(rendered.length).toBe(4)
+    expect(rendered[0]).toContain("git status")
+    expect(rendered[0]).toContain("&& \\")
+    expect(rendered[1]?.startsWith("    ")).toBe(true)
+    expect(rendered[3]).not.toContain("&&")
+  })
+
+  test("an expanded diff row shows +/- lines indented beneath the head", () => {
+    const row: StreamRow = {
+      role: "tool",
+      text: "{}",
+      verb: "Write",
+      summary: "notes.txt",
+      stat: "+1/-0",
+      diff: {
+        lines: [[{ text: "+ hello", fg: UI.done }]],
+        added: 1,
+        removed: 0,
+      },
+      expanded: true,
+    }
+    const collapsedLines = toolRowLines({ ...row, expanded: false })
+    expect(collapsedLines.length).toBe(1)
+    const expandedLines = toolRowLines(row)
+    expect(expandedLines.length).toBe(2)
+    const tail = expandedLines[1]!
+    expect(tail[0]?.text).toBe("  ")
+    expect(tail.map((s) => s.text).join("")).toContain("+ hello")
   })
 })
 

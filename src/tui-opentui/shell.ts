@@ -170,6 +170,7 @@ import {
   rowGroupGap,
   streamRowGutter,
   summaryHead,
+  toolRowLines,
   transcriptSyntaxStyle,
   type PaintedStreamLine,
   type RowLayout,
@@ -1157,14 +1158,17 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
 }
 
 /**
- * Color a meter cell: the ramp glyphs carry the pressure state (orange past
- * `CONTEXT_PRESSURE_THRESHOLD`, blue otherwise), the percent and cost read as
- * dim chrome the same as the workspace label.
+ * Color a meter cell: the ramp glyphs are always orange, so pressure reads as
+ * *intensity* rather than a hue swap — `actionDim` while quiet, so the run
+ * sits as chrome and leaves `action` free for the one thing awaiting a
+ * decision, and only the full `action` orange once past
+ * `CONTEXT_PRESSURE_THRESHOLD`, when the meter itself becomes worth noticing.
+ * The percent and cost read as dim chrome the same as the workspace label.
  */
 function meterChunks(shell: AppShell, cell: string): TextChunk[] {
   const ramp = cell.slice(1, 1 + RAMP_WIDTH)
   const rest = cell.slice(1 + RAMP_WIDTH)
-  const rampFg = shell.costContext?.pressured === true ? UI.action : UI.inFlight
+  const rampFg = shell.costContext?.pressured === true ? UI.action : UI.actionDim
   return [
     fgChunk(UI.textFaint)(" "),
     fgChunk(rampFg)(ramp),
@@ -1361,6 +1365,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     split === null ? transcriptH - padH - bottomPadH : Math.max(1, split.above)
   shell.transcript.height = transcriptBody > 0 ? transcriptBody : 1
   shell.transcript.visible = transcriptBody > 0
+  syncTranscriptSpacer(shell)
 
   const noticeH = Math.max(0, h.notice)
   shell.notice.height = noticeH > 0 ? noticeH : 1
@@ -1506,6 +1511,56 @@ type ShellInternals = {
 }
 
 const internals = new WeakMap<AppShell, ShellInternals>()
+
+/**
+ * Leading filler row inside the transcript's scroll content. Bottom-anchors a
+ * short transcript against the prompt box below: sized to the leftover
+ * viewport space so few rows sit at the foot of the zone instead of stranded
+ * at its top. Once rows fill the viewport the filler settles at zero and
+ * sticky-scroll behaves exactly as it did before this existed.
+ *
+ * A real child rather than padding: the content box's `minHeight: "100%"`
+ * (`@opentui/core`'s own default, so it never reads shorter than the
+ * viewport) means padding cannot be measured back out of `scrollHeight` —
+ * it always reads as the viewport height regardless of how little real
+ * content there is. A child's own height is unaffected by that floor, so
+ * `scrollHeight - spacer.height` reliably isolates the rows' real height.
+ *
+ * This does cost every row-index code path (`getChildren()`-based lookups
+ * below, and the two external tests noted at their call sites) one constant
+ * offset: index 0 is always the spacer, never a row.
+ */
+const transcriptSpacers = new WeakMap<AppShell, BoxRenderable>()
+
+/**
+ * Resize the transcript's leading filler to soak up leftover viewport space.
+ * Reads `scrollHeight` (content height, filler included) net of the filler's
+ * own last-applied height, so it stays correct regardless of wrapping,
+ * markdown, or windowed long-log rebuilds.
+ *
+ * Deliberately NOT called at row-mutation time: `scrollHeight` reflects the
+ * last completed layout, not the tree as it stands the instant a row lands —
+ * a row whose own box needs a layout pass to size itself (structured/tool/
+ * collapsible rows) reads back as shorter than it really is for one frame.
+ * Growing the filler on that stale reading would claim room the row still
+ * needs and bury it. Called from the render-frame hook instead, once that
+ * pass has actually run.
+ */
+function syncTranscriptSpacer(shell: AppShell): void {
+  const spacer = transcriptSpacers.get(shell)
+  if (spacer === undefined) return
+  // The landing screen already bottom-anchors its own mark against the box
+  // via the above/below split; a filler competing for the same content box
+  // would double-count that space and squeeze the mark.
+  if (isLanding(shell)) {
+    if (spacer.height !== 0) spacer.height = 0
+    return
+  }
+  const rowsHeight = Math.max(0, shell.transcript.scrollHeight - spacer.height)
+  const nextHeight = Math.max(0, shell.transcript.height - rowsHeight)
+  if (spacer.height !== nextHeight) spacer.height = nextHeight
+}
+
 
 export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   const bag = internals.get(shell)
@@ -1671,6 +1726,16 @@ export function streamRowCount(shell: AppShell): number {
 }
 
 /**
+ * Row-index code paths (below, and the two windowed-rebuild callers) treat
+ * `getChildren()` as a 1:1 array with `streamLog`. The leading bottom-anchor
+ * spacer (see `transcriptSpacers`) breaks that at index 0, so every consumer
+ * that needs the row-only view goes through here rather than the raw call.
+ */
+function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
+  return shell.transcript.getChildren().slice(1)
+}
+
+/**
  * Rewrite an already-appended transcript row in place.
  *
  * Streaming assistant and thinking bodies grow token by token; the bridge keeps
@@ -1691,7 +1756,7 @@ export function replaceStreamRowAt(
   if (index < 0 || index >= shell.streamLog.length) return
   shell.streamLog[index] = row
 
-  const children = shell.transcript.getChildren()
+  const children = transcriptRowChildren(shell)
   // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
   // the windowed rebuild, which derives every node from the log.
   if (mustWindow(shell.streamLog.length) || children.length !== shell.streamLog.length) {
@@ -1711,9 +1776,11 @@ export function replaceStreamRowAt(
       ;(stale as { destroy: () => void }).destroy()
     }
   }
+  // +1: index 0 in the transcript's own child list is the bottom-anchor
+  // spacer, not a row (see `transcriptRowChildren`).
   shell.transcript.add(
     createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
-    index,
+    index + 1,
   )
   paintChrome(shell)
 }
@@ -1734,6 +1801,10 @@ function retextStreamRow(
   label: string | null,
 ): boolean {
   if (row.diff !== undefined || row.structured !== undefined) return false
+  // A sentence-style tool row paints via styled lines (verb + coloured
+  // subject, and a diff/detail tail once expanded) rather than a single-fg
+  // TextRenderable, so it always rebuilds like diff/structured rows do.
+  if (row.role === "tool" && row.verb !== undefined) return false
   // Expanding swaps a text row for a styled-lines box: a different node shape
   // and a different height, so the caller must rebuild rather than re-text.
   if (isDetailRow(row)) return false
@@ -1783,7 +1854,8 @@ function retextStreamRowBody(
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell)
   shell.agentVoices = new Set(agentVoicesIn(shell.streamLog))
-  const children = shell.transcript.getChildren()
+  // The bottom-anchor spacer (index 0) stays; only row nodes get torn down.
+  const children = transcriptRowChildren(shell)
   for (const child of [...children]) {
     shell.transcript.remove(child)
     if (typeof (child as { destroy?: () => void }).destroy === "function") {
@@ -1898,6 +1970,10 @@ function buildRowNode(
   row: StreamRow,
   layout: RowLayout,
 ): TextRenderable | BoxRenderable {
+  if (row.role === "tool" && row.verb !== undefined) {
+    return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row))
+  }
+
   if (row.diff !== undefined) {
     return createStyledLinesRowRenderable(ctx, row, layout, row.diff.lines)
   }
@@ -3283,8 +3359,9 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
   if (mentionGenerations.get(shell) !== generation) return false
 
   if (suggestions.length === 0) {
+    // Mirrors `/`'s no-match contract: close the popup and leave the typed
+    // text standing, with no empty-state message.
     closeMentionPopup(shell)
-    setStatusFlash(shell, `no matches for @${at.prefix}`)
     return false
   }
 
@@ -3634,6 +3711,17 @@ export function createAppShell(
     contentOptions: { backgroundColor: UI.ground },
     viewportOptions: { backgroundColor: UI.ground },
   })
+
+  // Leading filler that bottom-anchors a short transcript; see
+  // `syncTranscriptSpacer`. Zero height until the first sync call.
+  const transcriptSpacer = new BoxRenderable(ctx, {
+    id: "shell-transcript-spacer",
+    width: "100%",
+    height: 0,
+    flexShrink: 0,
+    backgroundColor: UI.ground,
+  })
+  transcript.add(transcriptSpacer)
 
   const landingAbove = createLandingAbove(ctx)
   const landingBelowState = landingBelowContent({
@@ -4042,14 +4130,12 @@ export function createAppShell(
       return
     }
 
-    // Bare key, so it is live only while the transcript holds focus and can
-    // never shadow typing into the prompt.
+    // Alt+E, never bare: the prompt almost always holds focus, and a bare
+    // `e` would just type a letter into it instead of expanding a row.
     if (
+      (key.meta || key.option) &&
       !key.ctrl &&
-      !key.meta &&
-      !key.option &&
-      key.name === EXPAND_KEY &&
-      focusOwner(shell.focus) === "transcript"
+      key.name === EXPAND_KEY
     ) {
       if (toggleCollapsedRow(shell)) {
         key.preventDefault()
@@ -4115,6 +4201,10 @@ export function createAppShell(
   const onFrame = (): void => {
     if (disposed) return
     syncPromptRows(shell)
+    // Applied after a natural render, not at mutation time: a row's own box
+    // needs a layout pass to size itself, and claiming the padding first
+    // starves that pass of room to lay the row out in.
+    syncTranscriptSpacer(shell)
   }
 
   const onResize = (width: number, height: number): void => {
@@ -4228,6 +4318,7 @@ export function createAppShell(
     landingNowMs: 0,
     chrome: { goal: "", task: "", agents: "" },
   })
+  transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
   if (onObserveRequestOpt) {
     setPaletteOnObserveRequest(shell, onObserveRequestOpt)

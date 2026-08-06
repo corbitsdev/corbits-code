@@ -316,6 +316,11 @@ function key(name: string): KeyEvent {
   return { name, ctrl: false, meta: false, option: false, sequence: name } as KeyEvent
 }
 
+/** Alt+<name>, for the plugins surface's row actions (c/v/t/a/w). */
+function altKey(name: string): KeyEvent {
+  return { name, ctrl: false, meta: false, option: true, sequence: name } as KeyEvent
+}
+
 function charKey(seq: string): KeyEvent {
   return { name: seq, ctrl: false, meta: false, option: false, sequence: seq } as KeyEvent
 }
@@ -383,7 +388,7 @@ describe("plugins surface admin actions", () => {
       const { deps, calls } = pluginActionDeps()
       openCommandSurface(shell, "plugins", deps)
 
-      expect(runOverlayAction(shell, key("c"))).toBe(true)
+      expect(runOverlayAction(shell, altKey("c"))).toBe(true)
       expect(shell.overlayKind).toBe("plugin_credentials")
 
       acceptOverlaySelection(shell) // start editing the apiKey field
@@ -405,7 +410,7 @@ describe("plugins surface admin actions", () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps({ credentialValues: { apiKey: "saved-key" } })
       openCommandSurface(shell, "plugins", deps)
-      expect(runOverlayAction(shell, key("v"))).toBe(true)
+      expect(runOverlayAction(shell, altKey("v"))).toBe(true)
       await Promise.resolve()
       expect(calls.verify).toEqual([{ id: "exa", credentials: { apiKey: "saved-key" } }])
     })
@@ -415,7 +420,7 @@ describe("plugins surface admin actions", () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps()
       openCommandSurface(shell, "plugins", deps)
-      expect(runOverlayAction(shell, key("a"))).toBe(true)
+      expect(runOverlayAction(shell, altKey("a"))).toBe(true)
       for (const ch of "/tmp/my-plugin") runOverlayAction(shell, charKey(ch))
       acceptOverlaySelection(shell)
       await Promise.resolve()
@@ -427,7 +432,7 @@ describe("plugins surface admin actions", () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps()
       openCommandSurface(shell, "plugins", deps)
-      expect(runOverlayAction(shell, key("w"))).toBe(true)
+      expect(runOverlayAction(shell, altKey("w"))).toBe(true)
       moveOverlaySelection(shell, 1) // automatic, exa-search, back — pick exa-search
       acceptOverlaySelection(shell)
       await Promise.resolve()
@@ -444,7 +449,7 @@ describe("plugins surface admin actions", () => {
       expect(calls.setEnabled).toEqual([])
       expect(notes.length).toBeGreaterThan(0)
 
-      expect(runOverlayAction(shell, key("t"))).toBe(true)
+      expect(runOverlayAction(shell, altKey("t"))).toBe(true)
       await Promise.resolve()
       expect(calls.setEnabled).toEqual([{ id: "exa", enabled: true }])
     })

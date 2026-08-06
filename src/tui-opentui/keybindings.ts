@@ -20,6 +20,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Ctrl+C", description: "Interrupt current run or clear prompt; press twice to exit" },
   { keys: "Ctrl+O", description: "Open the command palette; press again to close it" },
   { keys: "Alt+C", description: "Copy mode: pick a message, tool output, or diff (press again to close)" },
+  { keys: "Alt+E", description: "Expand or collapse the newest collapsible row (tool call, diff, skill, reasoning)" },
   { keys: "Tab", description: "Toggle prompt ↔ transcript focus" },
   { keys: "Esc", description: "Close overlay / leave subagent observe" },
   { keys: "Ctrl+B / Ctrl+F", description: "Move cursor back / forward one character" },

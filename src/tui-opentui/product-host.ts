@@ -346,7 +346,10 @@ export async function mountProductHost(
         ...(onFavoriteToggle !== undefined
           ? {
               onAction: (itemId, key) => {
-                if (key.name !== "f" || key.ctrl || key.meta || key.option) return false
+                // Alt+F, never bare f — the palette filters as you type, so a
+                // bare letter narrows the list instead of toggling a favorite.
+                const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
+                if (name !== "f" || key.ctrl || !(key.meta || key.option)) return false
                 if (itemId.startsWith("connect:")) return false
                 onFavoriteToggle(itemId)
                 return true

@@ -40,7 +40,7 @@ describe("rowFromTranscriptEntry", () => {
     })
     expect(
       rowFromTranscriptEntry({ kind: "tool", callId: "c", name: "grep", arguments: "{}" }),
-    ).toEqual({ role: "tool", text: "{}", meta: "grep" })
+    ).toEqual({ role: "tool", text: "{}", meta: "grep", verb: "Grep" })
     expect(
       rowFromTranscriptEntry({
         kind: "tool_result",
@@ -210,7 +210,7 @@ describe("mountRunnerHost model picker", () => {
     })
     try {
       expect(host.openSurface("models")).toBe(true)
-      const fKey = { name: "f", ctrl: false, meta: false, option: false } as KeyEvent
+      const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])
     } finally {

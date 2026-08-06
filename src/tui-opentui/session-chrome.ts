@@ -23,12 +23,18 @@ export type TurnLabelInput = {
   readonly awaitingResponse: boolean
   readonly currentToolName: string | null
   readonly streamingType: "text" | "thinking" | "tool" | null
+  /** Text deltas seen so far this turn; read only while `streamingType` is `text`. */
+  readonly streamTokenCount?: number
 }
 
 /**
  * Single session-phase label accompanying the density ramp. Lowercase and
  * unpunctuated — the ramp's color and motion carry the state, so the word only
  * has to name it. Returns undefined when idle so the phase segment disappears.
+ *
+ * Text streaming carries a live count (`streaming 7 tok`) rather than the
+ * bare word: it is the one phase with something to count, and the count is
+ * what tells the operator the slot is not stalled.
  */
 export function resolveTurnLabel(input: TurnLabelInput): string | undefined {
   if (!input.isProcessing) return undefined
@@ -39,7 +45,9 @@ export function resolveTurnLabel(input: TurnLabelInput): string | undefined {
   if (input.currentToolName !== null) return input.currentToolName
   if (input.streamingType === "tool") return "tool"
   if (input.streamingType === "thinking") return "thinking"
-  if (input.streamingType === "text") return "responding"
+  if (input.streamingType === "text") {
+    return `streaming ${String(input.streamTokenCount ?? 0)} tok`
+  }
   return "working"
 }
 

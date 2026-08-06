@@ -189,10 +189,10 @@ function pluginDescription(entry: PluginEntry): ItemDescription {
       entry.originPath !== undefined
         ? `Loaded from ${entry.originPath} — outside this workspace. `
         : ""
-    return { what, impact: `${where}Trusting it runs its code in this session. Press t.`, tone: "consequence" }
+    return { what, impact: `${where}Trusting it runs its code in this session. Press Alt+T.`, tone: "consequence" }
   }
   if (!entry.enabled && pluginMissingCredential(entry)) {
-    return { what, impact: "Needs an API key before it can be enabled — press c." }
+    return { what, impact: "Needs an API key before it can be enabled — press Alt+C." }
   }
   return { what }
 }
@@ -735,8 +735,9 @@ function openWebProviderChooser(
 }
 
 /**
- * Discovered plugins. Enter toggles enablement (blocked pre-trust); c opens
- * credentials, v verifies, t trusts, a adds by path, w picks the web provider.
+ * Discovered plugins. Enter toggles enablement (blocked pre-trust); Alt+C
+ * opens credentials, Alt+V verifies, Alt+T trusts, Alt+A adds by path,
+ * Alt+W picks the web provider.
  */
 export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
   const plugins = deps.plugins
@@ -770,7 +771,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       const target = byId.get(id)
       if (target === undefined) return
       if (target.needsTrust === true) {
-        deps.notify(`${target.name} is untrusted — press t to trust it before enabling.`)
+        deps.notify(`${target.name} is untrusted — press Alt+T to trust it before enabling.`)
         openPluginsSurface(shell, deps)
         return
       }
@@ -780,10 +781,16 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       )
     },
     onAction: (id, key) => {
-      if (key.ctrl || key.meta || key.option) return false
+      // Alt+<key>, never bare — c/v/t/a/w read as ordinary letters the
+      // filter-as-you-type list would otherwise swallow. Alt+C never
+      // collides with the global copy-mode chord: this surface's overlay
+      // branch returns before that handler is reached (see shell.ts's
+      // top-level onKey), so exactly one of the two can ever fire.
+      if (key.ctrl || !(key.meta || key.option)) return false
       const target = byId.get(id)
       if (target === undefined) return false
-      switch (key.name) {
+      const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
+      switch (name) {
         case "c":
           if (target.credentials.length === 0) return false
           openCredentialsPane(shell, deps, plugins, target, {

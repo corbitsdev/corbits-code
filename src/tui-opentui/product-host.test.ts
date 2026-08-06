@@ -177,7 +177,7 @@ describe("rowFromHistoryBlock", () => {
         name: "bash",
         content: "ls",
       }),
-    ).toEqual({ role: "tool", text: "ls", meta: "bash" })
+    ).toEqual({ role: "tool", text: "ls", meta: "bash", verb: "Bash", summary: "ls" })
     expect(
       rowFromHistoryBlock({
         type: "tool_result",

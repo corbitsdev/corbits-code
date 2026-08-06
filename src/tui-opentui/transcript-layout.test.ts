@@ -8,7 +8,6 @@ import { withTestRenderer } from "./harness"
 import {
   appendStreamRow,
   createAppShell,
-  shellFocusTranscript,
   type AppShell,
 } from "./shell"
 import type { StreamRow } from "./stream"
@@ -178,7 +177,7 @@ describe("transcript turn layout", () => {
       (frame) => {
         const [call] = rowsContaining(frame, "legacy_token")
         const [result] = rowsContaining(frame, "42 matches")
-        expect(call).toContain("⌕")
+        expect(call).toContain("✓")
         expect(result).toContain("└")
         expect(result).not.toContain("grep")
         expect((result as string).indexOf("42 matches")).toBe(
@@ -202,13 +201,13 @@ describe("transcript turn layout", () => {
       80,
       (frame) => {
         expect(frame).toContain('skill "style" loaded')
-        expect(frame).toContain("e expand")
+        expect(frame).toContain("Alt+E expand")
         expect(frame).not.toContain("no emojis")
       },
     )
   })
 
-  test("the expand key opens a collapsed skill while the transcript has focus", async () => {
+  test("Alt+E expands the newest collapsed row; a bare e always just types", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -226,17 +225,20 @@ describe("transcript turn layout", () => {
           await h.renderOnce()
           expect(h.captureCharFrame()).not.toContain("no emojis")
 
-          // Typing into the prompt must stay typing.
+          // The prompt (which almost always holds focus) types a bare `e`
+          // rather than swallowing it as an expand chord.
           h.pressKey("e")
           await h.renderOnce()
           expect(h.captureCharFrame()).not.toContain("no emojis")
+          expect(shell.prompt.value).toBe("e")
 
-          shellFocusTranscript(shell)
-          h.pressKey("e")
+          // Alt+E expands regardless of which widget nominally has focus —
+          // the prompt still holds focus here, and it still fires.
+          h.pressKey("e", { meta: true })
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("no emojis")
-          expect(frame).toContain("e collapse")
+          expect(frame).toContain("Alt+E collapse")
         } finally {
           shell.dispose()
         }

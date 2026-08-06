@@ -12,6 +12,7 @@
  * renderer. `shell.ts` maps segments to chunks at paint time.
  */
 
+import { describeToolCall } from "../tui/tool-formatter.js"
 import { DIFF_FG, type StreamRow } from "./stream.js"
 import { toolArgsView } from "./tool-args.js"
 
@@ -470,11 +471,16 @@ export type ToolCallRowInput = {
 }
 
 /**
- * Build the transcript row for a tool call: a diff view when the call is a file
- * edit, otherwise a human summary of the arguments with the structured form
- * behind the expand key. Raw argument JSON stays on the row as `text` — it is
- * what the clipboard and any un-summarisable call still need — but it is not
- * what the transcript paints.
+ * Build the transcript row for a tool call: a diff view when the call is a
+ * file edit, otherwise a human summary of the arguments with the structured
+ * form behind the expand key. Raw argument JSON stays on the row as `text` —
+ * it is what the clipboard and any un-summarisable call still need — but it
+ * is not what the transcript paints.
+ *
+ * `verb` + `summary` read as a sentence ("Read path", "Shell command"): the
+ * verb comes from `describeToolCall`'s existing tool-name-to-display mapping
+ * rather than re-deriving one, and the subject is its argument summary (the
+ * command itself for a shell call, the path for a file tool).
  */
 export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const args = input.arguments ?? ""
@@ -486,14 +492,26 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
           .filter((part) => part !== undefined && part.length > 0)
           .join(" ")
       : input.name
+  const call = args.length > 0 ? describeToolCall(input.name, args) : null
   const summarised = diff === null && args.length > 0 ? toolArgsView(input.name, args) : null
+  // `summarised` (view/JSON-aware) wins when it has an opinion — it is what the
+  // existing collapse mechanism already renders for a view spec or a wide
+  // argument object. `call.summary` only fills the gap it leaves: a short
+  // literal call (e.g. a one-line shell command) that toolArgsView leaves
+  // alone because it already reads fine, but which still needs a subject to
+  // pair with its verb.
+  const summary = diff !== null
+    ? (diff.path ?? summarised?.summary ?? call?.summary)
+    : (summarised?.summary ?? call?.summary)
+  const stat = diff !== null ? `+${diff.added}/-${diff.removed}` : undefined
   return {
     role: "tool",
     text,
     meta,
     ...(diff !== null ? { diff } : {}),
-    ...(summarised !== null
-      ? { summary: summarised.summary, detail: summarised.detail }
-      : {}),
+    ...(call !== null ? { verb: call.display } : {}),
+    ...(summary !== undefined && summary.length > 0 ? { summary } : {}),
+    ...(stat !== undefined ? { stat } : {}),
+    ...(summarised !== null ? { detail: summarised.detail } : {}),
   }
 }

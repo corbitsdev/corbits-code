@@ -36,6 +36,26 @@ describe("turnStateFromEvent", () => {
     ).toBe("thinking")
   })
 
+  test("text deltas accumulate a live token count, thinking deltas do not", () => {
+    const s = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta" },
+      { type: "inference.text.delta" },
+      { type: "inference.thinking.delta" },
+    ])
+    expect(s.streamTokenCount).toBe(2)
+  })
+
+  test("a new submit resets the token count", () => {
+    const midTurn = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta" },
+    ])
+    expect(midTurn.streamTokenCount).toBe(1)
+    const next = turnStateOnSubmit(midTurn, 10)
+    expect(next.streamTokenCount).toBe(0)
+  })
+
   test("tool call tracks the current tool and clears on result", () => {
     const running = fold([
       { type: "inference.start" },

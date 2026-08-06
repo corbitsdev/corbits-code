@@ -81,6 +81,14 @@ export type StreamRow = {
   readonly thought?: Thought
   /** Whether a collapsible body is currently showing in full. */
   readonly expanded?: boolean
+  /**
+   * Leading verb of a tool row read as a sentence ("Read", "Created", "$" for
+   * a shell command). Present means the row paints verb + coloured subject
+   * (`summary`) instead of the legacy meta-column layout.
+   */
+  readonly verb?: string
+  /** Diff stat or line range painted dim after the subject, e.g. "+1/-0". */
+  readonly stat?: string
 }
 
 /**
@@ -97,11 +105,16 @@ export type RowLayout = {
 export const MAIN_AGENT = "agent"
 
 /**
- * Bare key that expands a collapsed body. One idiom across the product — the
- * approval overlay's collapsed payloads and the transcript's collapsed skill
- * bodies answer to the same key.
+ * Key name that expands a collapsed body — combined with Alt in the
+ * transcript so the prompt (which almost always holds focus) can never
+ * swallow it as a typed letter. The approval overlay's own collapsed
+ * payloads answer to the same key name but stay bare there: that overlay is
+ * modal and the prompt cannot have focus while it is open.
  */
 export const EXPAND_KEY = "e"
+
+/** Display label for the transcript/overlay row expand affordance. */
+export const EXPAND_HINT_LABEL = "Alt+E"
 
 /** Distinct writers in a transcript. Role labels are worth their columns only above one. */
 export function agentVoicesIn(rows: readonly StreamRow[]): ReadonlySet<string> {
@@ -156,8 +169,8 @@ const META_WIDTH = 12
  * user and the agent (three-accent limit), so a failed tool call is found by
  * its cross and the operator's own turn by its bubble bar.
  */
+const MARK_OK = "✓"
 const MARK_FAILED = "×"
-const MARK_NONE = " "
 
 /**
  * Glyphs are single-cell so nothing after them can slip out of the meta column.
@@ -169,52 +182,12 @@ const RESULT_CONNECTOR = "└"
 const AGENT_ICON = "●"
 
 /**
- * A tool is recognised by shape before it is read: one glyph per family, so a
- * column of calls can be scanned for "what kind of work" without parsing names.
+ * Blank columns where a per-tool-family glyph used to sit. A tool row leads
+ * with one success/failure marker now (not a glyph column keyed off tool
+ * type), but the width is kept so the meta column and the result connector
+ * beneath it still land on the same column.
  */
-const TOOL_ICON = {
-  read: "▤",
-  write: "◆",
-  search: "⌕",
-  shell: "❯",
-  network: "⇄",
-  task: "↳",
-  skill: "✦",
-  mcp: "◈",
-  other: "·",
-} as const
-
-type ToolFamily = keyof typeof TOOL_ICON
-
-/** MCP tools are namespaced by the server they came from. */
-const MCP_PREFIX = "mcp__"
-
-const FAMILY_WORDS: readonly (readonly [ToolFamily, readonly string[]])[] = [
-  ["skill", ["skill"]],
-  ["task", ["task", "agent", "delegate", "spawn"]],
-  ["read", ["read", "cat", "view", "open"]],
-  ["write", ["write", "edit", "patch", "apply", "create", "append"]],
-  ["search", ["grep", "search", "glob", "find", "list", "ls"]],
-  ["shell", ["bash", "shell", "exec", "run", "command", "process"]],
-  ["network", ["fetch", "http", "web", "curl", "download", "request"]],
-]
-
-/**
- * Display-only classification of a tool name. The meta column already carries
- * the exact name, so an unrecognised tool falling back to the neutral dot costs
- * nothing — this never gates behaviour.
- */
-export function toolFamily(name: string): ToolFamily {
-  const lower = name.toLowerCase()
-  if (lower.startsWith(MCP_PREFIX)) return "mcp"
-  // Tool rows carry the call's summary in `meta` (name plus diff stats), so
-  // only the leading word is the name.
-  const word = lower.split(" ")[0] ?? lower
-  for (const [family, words] of FAMILY_WORDS) {
-    if (words.some((needle) => word.includes(needle))) return family
-  }
-  return "other"
-}
+const TOOL_LEAD_GAP = "  "
 
 /** Thinking is coalesced chain-of-thought, not an answer — it paints faintest. */
 export function isThinkingRow(row: StreamRow): boolean {
@@ -254,19 +227,21 @@ export function blockLabel(
 }
 
 /**
- * Tool prefix: failure mark, family glyph, meta column. A result trades its
- * glyph for a connector and leaves the meta column blank, so the call and its
- * answer read as one block instead of the tool name twice. Writer identity is
- * painted once per block (see `blockLabel`), not repeated on every row.
+ * Tool prefix: a single success/failure mark, then either the sentence-row's
+ * bare lead (verb + coloured subject follow in the body) or the legacy meta
+ * column. A result trades the lead for a connector and leaves the meta column
+ * blank, so the call and its answer read as one block instead of the tool
+ * name twice. Writer identity is painted once per block (see `blockLabel`),
+ * not repeated on every row.
  */
 function toolPrefix(row: StreamRow): string {
-  const mark = row.failed === true ? MARK_FAILED : MARK_NONE
+  const mark = row.failed === true ? MARK_FAILED : MARK_OK
   if (row.result === true) {
     return `${mark} ${RESULT_CONNECTOR} ${" ".repeat(META_WIDTH)}`
   }
-  const glyph = TOOL_ICON[toolFamily(row.meta ?? "")]
+  if (row.verb !== undefined) return `${mark} `
   const meta = row.meta && row.meta.length > 0 ? fitMeta(row.meta) : ""
-  return `${mark} ${glyph} ${meta}`
+  return `${mark} ${TOOL_LEAD_GAP}${meta}`
 }
 
 /** Columns the operator's bubble may claim before it wraps. */
@@ -306,7 +281,13 @@ function thinkingLines(text: string, layout: RowLayout): string[] {
 
 /** Trailer that tells a collapsed row it has more behind it, and how to get there. */
 function expandHint(expanded: boolean): string {
-  return ` · ${EXPAND_KEY} ${expanded ? "collapse" : "expand"}`
+  return ` · ${EXPAND_HINT_LABEL} ${expanded ? "collapse" : "expand"}`
+}
+
+/** Small arrow affordance for a sentence-style tool row: absent, ▸, or ▾. */
+function toolArrow(row: StreamRow): string {
+  if (!isCollapsibleRow(row)) return ""
+  return row.expanded === true ? "▾" : "▸"
 }
 
 /**
@@ -354,6 +335,70 @@ function rowBody(row: StreamRow): string {
   const head = summaryHead(row, row.summary)
   if (row.expanded !== true || row.detail === undefined) return head
   return [head, ...detailPlainLines(row.detail)].join("\n")
+}
+
+/** Columns a sentence-row's expanded detail/diff is inset by beneath the head. */
+const TOOL_DETAIL_INDENT = 2
+
+/** Continuation line indent for a wrapped `&&`-chained shell command. */
+const CHAIN_INDENT = "    "
+
+/**
+ * A shell command's `&&` chain, one segment per line with the connector
+ * trailing each line but the last — legible whether the row is collapsed or
+ * expanded, since the chain itself is never what the expand key hides.
+ */
+function shellChainSegments(command: string): readonly string[] {
+  return command.includes(" && ") ? command.split(" && ") : [command]
+}
+
+/**
+ * The always-visible head of a sentence-style tool row: mark (painted by
+ * `toolPrefix`, not here) followed by verb + coloured subject, an optional
+ * dim stat, and the expand arrow on its last physical line. A shell command's
+ * `&&` chain spans several lines; every other tool call is one line.
+ */
+export function toolSentenceLines(row: StreamRow): StyledBodyLine[] {
+  const fg = rowFg(row)
+  const verb = row.verb ?? ""
+  const subject = row.summary ?? row.text
+  const segments = shellChainSegments(subject)
+  const lines: StyledBodyLine[] = segments.map((segment, i) => {
+    const lead: StyledBodyLine =
+      i === 0 ? [{ text: `${verb} `, fg }] : [{ text: CHAIN_INDENT, fg }]
+    const isLast = i === segments.length - 1
+    const body: StyledBodyLine = [{ text: segment, fg: UI.inFlightBright }]
+    const chain: StyledBodyLine = isLast ? [] : [{ text: " && \\", fg: UI.textDim }]
+    return [...lead, ...body, ...chain]
+  })
+  const last = lines[lines.length - 1] ?? []
+  const stat = row.stat !== undefined && row.stat.length > 0 ? [{ text: ` ${row.stat}`, fg: UI.textDim }] : []
+  const arrow = toolArrow(row)
+  const arrowSegment = arrow.length > 0 ? [{ text: ` ${arrow}`, fg: UI.textDim }] : []
+  lines[lines.length - 1] = [...last, ...stat, ...arrowSegment]
+  return lines
+}
+
+/** A styled body line, indented by `columns` for a row's expanded detail. */
+function indentStyledLine(line: StyledBodyLine, columns: number): StyledBodyLine {
+  return [{ text: " ".repeat(columns), fg: UI.text }, ...line]
+}
+
+/**
+ * Full painted body of a sentence-style tool row: the head, plus its diff or
+ * structured detail indented beneath once expanded. Collapsing hides only
+ * this tail — the head (and a shell chain's full structure) always shows.
+ */
+export function toolRowLines(row: StreamRow): StyledBodyLine[] {
+  const head = toolSentenceLines(row)
+  if (row.expanded !== true) return head
+  const tail =
+    row.diff !== undefined
+      ? row.diff.lines
+      : row.detail !== undefined
+        ? row.detail
+        : []
+  return [...head, ...tail.map((line) => indentStyledLine(line, TOOL_DETAIL_INDENT))]
 }
 
 /**
@@ -462,6 +507,7 @@ export function isDetailRow(row: StreamRow): boolean {
 export function isCollapsibleRow(row: StreamRow): boolean {
   if (row.skill !== undefined) return true
   if (row.summary !== undefined && row.detail !== undefined) return true
+  if (row.diff !== undefined) return true
   return isThinkingRow(row) && row.thought !== undefined && row.streaming !== true
 }
 

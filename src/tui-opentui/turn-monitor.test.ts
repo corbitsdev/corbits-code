@@ -67,7 +67,10 @@ describe("turn progress label", () => {
         expect(t.shell.turnPhase).toEndWith("thinking")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
-        expect(t.shell.turnPhase).toEndWith("responding")
+        expect(t.shell.turnPhase).toEndWith("streaming 1 tok")
+
+        t.bridge.handle({ type: "inference.text.delta", data: { token: " there" } })
+        expect(t.shell.turnPhase).toEndWith("streaming 2 tok")
 
         t.bridge.handle({
           type: "inference.tool_call.end",

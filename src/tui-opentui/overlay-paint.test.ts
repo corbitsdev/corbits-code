@@ -146,6 +146,26 @@ describe("overlay host never shares cells with the prompt border", () => {
       expect(/^[┌└├┬┐┘─┤┴]+$/.test(trimmed.trimEnd())) .toBe(true)
     }
   })
+
+  for (const size of [
+    { width: 80, height: 24 },
+    { width: 100, height: 30 },
+    { width: 60, height: 24 },
+  ] as const) {
+    test(`mention popup with matches clears the prompt border at ${size.width}x${size.height}`, async () => {
+      const { frame } = await paintOverlay((shell) => openMentionsOverlay(shell), size)
+
+      // Every border rule stays a border rule: no list text glued onto it, and
+      // the overlay host's own rules never share a row with the prompt box's.
+      const promptRuleRows = frameLine(frame, (l) => l.includes("─╮") || l.includes("─╯"))
+      for (const line of frame.split("\n")) {
+        const trimmed = line.trimStart()
+        if (!trimmed.startsWith("└") && !trimmed.startsWith("┌")) continue
+        expect(/^[┌└├┬┐┘─┤┴]+$/.test(trimmed.trimEnd())).toBe(true)
+      }
+      expect(promptRuleRows.length).toBeGreaterThan(0)
+    })
+  }
 })
 
 describe("every overlay kind paints clean rows", () => {

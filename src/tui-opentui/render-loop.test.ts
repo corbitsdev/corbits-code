@@ -106,12 +106,13 @@ describe("transcript append", () => {
       for (const text of ["one", "two", "three"]) {
         appendStreamRow(shell, { role: "system", text })
       }
-      const before = [...shell.transcript.getChildren()]
+      // Index 0 is the transcript's bottom-anchor spacer, not a row.
+      const before = shell.transcript.getChildren().slice(1)
       expect(before).toHaveLength(3)
 
       appendStreamRow(shell, { role: "system", text: "four" })
 
-      const after = [...shell.transcript.getChildren()]
+      const after = shell.transcript.getChildren().slice(1)
       expect(after).toHaveLength(4)
       // Same node objects: the append added one renderable rather than tearing
       // the window down and rebuilding every row.

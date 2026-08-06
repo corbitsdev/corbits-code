@@ -10,6 +10,7 @@ import { toolCallRow } from "./diff"
 import { withTestRenderer, type Harness } from "./harness"
 import { appendStreamRow, createAppShell } from "./shell"
 import { DIFF_FG } from "./stream"
+import { toolResultRow } from "./mcp-view"
 
 const WIDE = { width: 100, height: 30 } as const
 
@@ -49,7 +50,7 @@ describe("diff transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts)
       appendStreamRow(
         shell,
-        toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }),
+        { ...toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }), expanded: true },
       )
 
       await settle(h)
@@ -57,8 +58,9 @@ describe("diff transcript rows", () => {
       expect(frame).toContain("- const total = sum(a, b)")
       expect(frame).toContain("+ const total = product(a, b)")
       expect(frame).not.toContain("old_string")
-      // Summary rides the row gutter.
-      expect(frame).toContain("src/x.ts +1/-1")
+      // Summary rides the row's sentence head.
+      expect(frame).toContain("src/x.ts")
+      expect(frame).toContain("+1/-1")
     }, WIDE)
   })
 
@@ -67,7 +69,7 @@ describe("diff transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts)
       appendStreamRow(
         shell,
-        toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }),
+        { ...toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }), expanded: true },
       )
 
       await settle(h)
@@ -84,7 +86,7 @@ describe("diff transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts)
       appendStreamRow(
         shell,
-        toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }),
+        { ...toolCallRow({ name: "edit_file", arguments: EDIT_ARGS }), expanded: true },
       )
 
       await settle(h)
@@ -115,7 +117,6 @@ describe("diff transcript rows", () => {
       const frame = h.captureCharFrame()
       expect(frame).toContain("src/x.ts")
       expect(frame).not.toContain('{"path"')
-      expect(frame).toContain("e expand")
     }, WIDE)
   })
 
@@ -124,20 +125,74 @@ describe("diff transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts)
       appendStreamRow(
         shell,
-        toolCallRow({
-          name: "write_file",
-          arguments: JSON.stringify({
-            path: "new.ts",
-            content: "export const a = 1\nexport const b = 2",
+        {
+          ...toolCallRow({
+            name: "write_file",
+            arguments: JSON.stringify({
+              path: "new.ts",
+              content: "export const a = 1\nexport const b = 2",
+            }),
           }),
-        }),
+          expanded: true,
+        },
       )
 
       await settle(h)
       const frame = h.captureCharFrame()
       expect(frame).toContain("+ export const a = 1")
       expect(frame).toContain("+ export const b = 2")
-      expect(frame).toContain("new.ts +2/-0")
+      expect(frame).toContain("new.ts")
+      expect(frame).toContain("+2/-0")
+    }, WIDE)
+  })
+
+  test("a sentence-style call and its plain result paint as two legible rows, not one merged row", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(
+        shell,
+        toolCallRow({ name: "read_file", arguments: JSON.stringify({ path: "package.json" }) }),
+      )
+      appendStreamRow(shell, toolResultRow({ name: "read_file", content: "30 lines" }))
+
+      await settle(h)
+      const rows = h
+        .captureCharFrame()
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+      const callRow = rows.find((line) => line.includes("Read") && line.includes("package.json"))
+      const resultRow = rows.find((line) => line.includes("30 lines"))
+      expect(callRow).toBeDefined()
+      expect(resultRow).toBeDefined()
+      // Two distinct rows, not one row carrying both — a merged row would
+      // mean interleaved characters and neither string would appear intact.
+      expect(callRow).not.toBe(resultRow)
+      expect(callRow).toContain("package.json")
+      expect(resultRow).toContain("30 lines")
+    }, WIDE)
+  })
+
+  test("an edit_file call with an empty old_string (pure creation) still paints", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      const before = shell.streamLog.length
+      appendStreamRow(shell, {
+        ...toolCallRow({
+          name: "edit_file",
+          arguments: JSON.stringify({
+            path: "tmp/scratch.txt",
+            old_string: "",
+            new_string: "write path ok",
+          }),
+        }),
+        expanded: true,
+      })
+
+      await settle(h)
+      const frame = h.captureCharFrame()
+      expect(frame).toContain("scratch.txt")
+      expect(frame).toContain("+ write path ok")
+      expect(shell.streamLog.length).toBeGreaterThan(before)
     }, WIDE)
   })
 })
