@@ -623,3 +623,24 @@ describe("upload-shaped network shell commands force ask in auto mode", () => {
     expect(autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name).toBe("network-upload");
   });
 });
+
+describe("pure directory listing exemption", () => {
+  test("tree writing its output to a file does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("tree -L 2 -o /tmp/x /var"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("tree -L 2 -o /tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 --output=/tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 -H /tmp/x /var"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("tree -L 2 --fromfile /var"))?.effect).toBe("ask");
+  });
+
+  test("long-form recursive ls does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls --recursive=x /tmp"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("ls --recursive=x /tmp"))?.effect).toBe("ask");
+    expect(autoShellRuleForCall(shellCall("ls --recursive /tmp"))?.effect).toBe("ask");
+  });
+
+  test("a listing stage piped into a content reader does not auto-allow", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls .env | xargs cat"))).toBe(false);
+    expect(autoShellRuleForCall(shellCall("ls .env | xargs cat"))?.effect).toBe("ask");
+  });
+});

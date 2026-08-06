@@ -89,16 +89,26 @@ function parseTreeDepth(arg: string, next: string | undefined): number | undefin
   return undefined;
 }
 
+// GNU ls accepts any unambiguous abbreviation of a long option, so `--recu`
+// recurses just like `--recursive`; treat every prefix as recursive.
+const LS_RECURSIVE_LONG_FLAG = /^--r(e(c(u(r(s(i(v(e)?)?)?)?)?)?)?)?(=|$)/;
+
+// A listing command that writes a file is not a listing command: these tree
+// flags emit output to disk (or read a listing from one) and must go through
+// the normal write review instead of the pure-listing exemption.
+const TREE_FILE_IO_FLAG = /^(-o|--output|-H|--html|--fromfile)(=|$)/;
+
 function isBoundedDirectoryListing(program: string, args: readonly string[]): boolean {
   if (program === "ls") {
     for (const arg of args) {
-      if (arg === "--recursive") return false;
+      if (LS_RECURSIVE_LONG_FLAG.test(arg)) return false;
       if (arg.startsWith("--")) continue;
       if (arg.startsWith("-") && arg.includes("R")) return false;
     }
     return true;
   }
   if (program === "tree") {
+    if (args.some((arg) => TREE_FILE_IO_FLAG.test(arg))) return false;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
       const depth = parseTreeDepth(arg, args[i + 1]);
