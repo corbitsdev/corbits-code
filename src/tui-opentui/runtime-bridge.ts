@@ -21,8 +21,26 @@ import {
   clearShellBridgeHooks,
   paintStatus,
   setShellBridgeHooks,
+  setStatusFlash,
+  setTurnPhase,
   type AppShell,
 } from "./shell.js"
+import { resolveSessionSpinnerLabel } from "./session-chrome.js"
+import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
+import {
+  applyStallRecovery,
+  shouldAbortForStall,
+  STALL_TIMEOUT_MS,
+} from "./stall-watchdog.js"
+import {
+  clearQuotaWait,
+  initialTurnState,
+  turnStateFromEvent,
+  turnStateBlocked,
+  turnStateOnInterrupt,
+  turnStateOnSubmit,
+  type TurnState,
+} from "./turn-state.js"
 import {
   formatAttachmentSummary,
   type PendingImageAttachment,
@@ -68,6 +86,32 @@ export type SessionPort = {
 
 export type SessionPortHandlers = Partial<SessionPort>
 
+/**
+ * Timer wiring for the quota auto-retry and stall watchdog.
+ *
+ * Everything is injectable so tests drive the clock instead of waiting on it:
+ * `schedule` returns its own cancel, and `now` is the only time source.
+ */
+export type TurnMonitorOptions = {
+  readonly now?: () => number
+  /** Poll period for the retry countdown and the stall check. Default 250 ms. */
+  readonly tickMs?: number
+  readonly stallTimeoutMs?: number
+  /** Registers the periodic tick; returns an unsubscribe. */
+  readonly schedule?: (tick: () => void, intervalMs: number) => () => void
+}
+
+const DEFAULT_TICK_MS = 250
+
+function defaultSchedule(tick: () => void, intervalMs: number): () => void {
+  const handle = setInterval(tick, intervalMs)
+  // The monitor must never be the reason the process stays alive.
+  handle.unref?.()
+  return () => {
+    clearInterval(handle)
+  }
+}
+
 export type SessionBridge = {
   /** Apply a canonical or reactor-like event to the shell. */
   handle: (event: BridgeInboundEvent | ReactorLikeEvent) => void
@@ -81,6 +125,8 @@ export type SessionBridge = {
   ) => void
   interrupt: () => void
   dispose: () => void
+  /** Current derived turn phase (progress label, stall clock, quota window). */
+  readonly turn: TurnState
   readonly shell: AppShell
 }
 
@@ -189,6 +235,11 @@ type BridgeBag = {
   /** callId→name / delta bookkeeping for production-shaped events. */
   mapCtx: StreamMapContext
   disposed: boolean
+  turn: TurnState
+  /** Last prompt actually sent — replay source for the quota auto-retry. */
+  lastSentMessage: string
+  /** One auto-retry per rate-limit window. */
+  quotaFired: boolean
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>()
@@ -263,22 +314,58 @@ function applyInbound(
 export function attachSessionBridge(
   shell: AppShell,
   handlers?: SessionPortHandlers,
+  monitor?: TurnMonitorOptions,
 ): SessionBridge {
   const existing = bridges.get(shell)
   if (existing) {
     existing.disposed = true
   }
 
+  const now = monitor?.now ?? (() => Date.now())
+  const stallTimeoutMs = monitor?.stallTimeoutMs ?? STALL_TIMEOUT_MS
+
   const bag: BridgeBag = {
     port: resolvePort(handlers),
     deltaBuf: "",
     mapCtx: createStreamMapContext(),
     disposed: false,
+    turn: initialTurnState(now()),
+    lastSentMessage: "",
+    quotaFired: false,
   }
   bridges.set(shell, bag)
 
+  const paintPhase = (): void => {
+    // The gate overlay is the only "blocked" signal the shell sees; the gate
+    // wiring resolves approvals itself and emits no bridge event.
+    const gated =
+      shell.overlayKind === "permissions" || shell.overlayKind === "operator"
+    const turn = gated ? turnStateBlocked(bag.turn) : bag.turn
+    setTurnPhase(
+      shell,
+      resolveSessionSpinnerLabel({
+        isProcessing: turn.isProcessing,
+        status: turn.status,
+        awaitingResponse: turn.awaitingResponse,
+        currentToolName: turn.currentToolName,
+        streamingType: turn.streamingType,
+      }) ?? null,
+    )
+  }
+
+  const noteEvent = (event: { type: string; data?: unknown }): void => {
+    const before = bag.turn
+    bag.turn = turnStateFromEvent(bag.turn, event, now())
+    // A fresh rate-limit window re-arms the single auto-retry.
+    if (bag.turn.quota !== null && bag.turn.quota !== before.quota) {
+      bag.quotaFired = false
+    }
+    paintPhase()
+  }
+
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return
+    noteEvent(event)
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
       for (const mapped of mapProductionEvent(
@@ -308,7 +395,10 @@ export function attachSessionBridge(
       appendStreamRow(shell, { role: "user", text: userRowText(t, attached) })
       bag.port.sendImmediate(t, attachments)
       shell.session = setRunState(shell.session, "busy")
+      bag.lastSentMessage = t
+      bag.turn = turnStateOnSubmit(bag.turn, now())
       paintStatus(shell)
+      paintPhase()
       return
     }
 
@@ -329,7 +419,70 @@ export function attachSessionBridge(
     if (bag.disposed) return
     applyShellInterrupt(shell)
     bag.port.interrupt()
+    // Clearing the last prompt is what stops the quota loop from replaying a
+    // turn the operator (or the watchdog) deliberately stopped.
+    bag.lastSentMessage = ""
+    bag.turn = turnStateOnInterrupt(bag.turn, now())
+    paintPhase()
   }
+
+  const tick = (): void => {
+    if (bag.disposed) return
+    const nowMs = now()
+
+    const quota = bag.turn.quota
+    if (
+      shouldAutoRetryQuota({
+        quotaError: quota,
+        alreadyFired: bag.quotaFired,
+        nowMs,
+        lastSentMessage: bag.lastSentMessage,
+      })
+    ) {
+      bag.quotaFired = true
+      const replay = bag.lastSentMessage
+      bag.turn = clearQuotaWait(bag.turn)
+      setStatusFlash(shell, "rate limit cleared — resubmitting")
+      submit(replay, "immediate")
+      return
+    }
+
+    if (quota !== null) {
+      setStatusFlash(
+        shell,
+        `rate limited — retrying in ${quotaWaitSeconds(quota.retryAt, nowMs)}s`,
+      )
+      return
+    }
+
+    if (
+      shouldAbortForStall({
+        status: bag.turn.status,
+        awaitingResponse: bag.turn.awaitingResponse,
+        lastActivityAt: bag.turn.lastActivityAt,
+        nowMs,
+        stallTimeoutMs,
+        isProcessing: bag.turn.isProcessing,
+        streamingType: bag.turn.streamingType,
+      })
+    ) {
+      applyStallRecovery({
+        abort: doInterrupt,
+        notify: (message) => setStatusFlash(shell, message),
+      })
+      return
+    }
+
+    paintPhase()
+  }
+
+  const stopMonitor =
+    monitor === undefined
+      ? undefined
+      : (monitor.schedule ?? defaultSchedule)(
+          tick,
+          monitor.tickMs ?? DEFAULT_TICK_MS,
+        )
 
   setShellBridgeHooks(shell, {
     onSubmit: (text, kind, attachments) => {
@@ -349,9 +502,14 @@ export function attachSessionBridge(
     },
     submit,
     interrupt: doInterrupt,
+    get turn() {
+      return bag.turn
+    },
     dispose: () => {
       bag.disposed = true
+      stopMonitor?.()
       clearShellBridgeHooks(shell)
+      setTurnPhase(shell, null)
       bridges.delete(shell)
     },
   }

@@ -10,6 +10,7 @@ import {
   CliRenderEvents,
   InputRenderable,
   InputRenderableEvents,
+  MarkdownRenderable,
   ScrollBoxRenderable,
   TextRenderable,
   type CliRenderer,
@@ -102,8 +103,11 @@ import {
 } from "./session-queue.js"
 import {
   PROMPT_HINT,
+  isMarkdownRow,
   paintStreamRow,
   sessionHeaderTitle,
+  streamRowGutter,
+  transcriptSyntaxStyle,
   type StreamRow,
 } from "./stream.js"
 import {
@@ -445,6 +449,13 @@ export type AppShell = {
    */
   statusFlash: string | null
   /**
+   * Live turn phase ("Thinking…", "Running tool…", …) or null when idle.
+   * Lives on the status row rather than a chrome zone because the product host
+   * owns the goal/task/agents zones and overwrites them wholesale on every
+   * snapshot push, which would clobber a per-token progress line.
+   */
+  turnPhase: string | null
+  /**
    * Active subagent observe session (null when viewing parent).
    * Independent stream window; Esc restores parent lease.
    */
@@ -544,9 +555,11 @@ export function paintStatus(shell: AppShell): void {
     shell.statusFlash && shell.statusFlash.length > 0
       ? ` · ${shell.statusFlash}`
       : ""
+  const phase =
+    shell.turnPhase && shell.turnPhase.length > 0 ? ` · ${shell.turnPhase}` : ""
   const run = shell.session.run.toUpperCase()
   shell.status.content =
-    ` ${mode} · ${run} · queue ${shell.pendingQueue} · focus ${owner}${interrupt}${statusFlash} · lines ${shell.lineCount}`
+    ` ${mode} · ${run}${phase} · queue ${shell.pendingQueue} · focus ${owner}${interrupt}${statusFlash} · lines ${shell.lineCount}`
   shell.header.content = ` ${sessionHeaderTitle(shell.baseTitle, shell.session.run)}`
   shell.hint.content = ` ${promptHintWithAttachments(PROMPT_HINT, shell.pendingAttachments)}`
 }
@@ -597,6 +610,13 @@ function recordSentMessage(shell: AppShell, text: string): void {
 /** Set a non-destructive status flash and repaint (does not touch streamLog). */
 export function setStatusFlash(shell: AppShell, message: string | null): void {
   shell.statusFlash = message
+  paintStatus(shell)
+}
+
+/** Set the live turn phase label (null hides it). Repaints only on change. */
+export function setTurnPhase(shell: AppShell, phase: string | null): void {
+  if (shell.turnPhase === phase) return
+  shell.turnPhase = phase
   paintStatus(shell)
 }
 
@@ -856,14 +876,7 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   // Under collapse threshold: append one paint node (cheap).
   // Over threshold: rebuild the windowed paint tree only.
   if (!mustWindow(shell.streamLog.length)) {
-    const painted = paintStreamRow(row)
-    const id = String(shell.lineCount).padStart(4, "0")
-    shell.transcript.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${id}${painted.content}`,
-        fg: painted.fg,
-      }),
-    )
+    shell.transcript.add(createStreamRowRenderable(shell, row, shell.lineCount))
     paintStatus(shell)
     return
   }
@@ -892,17 +905,56 @@ export function repaintTranscriptWindow(shell: AppShell): void {
     )
   }
   for (let i = 0; i < win.rows.length; i++) {
-    const row = win.rows[i]!
-    const abs = win.start + i + 1
-    const painted = paintStreamRow(row)
-    const id = String(abs).padStart(4, "0")
     shell.transcript.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${id}${painted.content}`,
-        fg: painted.fg,
-      }),
+      createStreamRowRenderable(shell, win.rows[i]!, win.start + i + 1),
     )
   }
+}
+
+/**
+ * Build the paint node for one transcript row.
+ * Markdown-bearing rows (assistant replies) get a MarkdownRenderable body next
+ * to a plain gutter; every other role stays literal text.
+ */
+export function createStreamRowRenderable(
+  shell: AppShell,
+  row: StreamRow,
+  lineNumber: number,
+): TextRenderable | BoxRenderable {
+  const ctx = shell.renderer as CliRenderer
+  const id = String(lineNumber).padStart(4, "0")
+
+  if (!isMarkdownRow(row)) {
+    const painted = paintStreamRow(row)
+    return new TextRenderable(ctx, {
+      content: ` ${id}${painted.content}`,
+      fg: painted.fg,
+    })
+  }
+
+  const gutter = streamRowGutter(row)
+  const wrapper = new BoxRenderable(ctx, {
+    flexDirection: "row",
+    width: "100%",
+  })
+  wrapper.add(
+    new TextRenderable(ctx, {
+      content: ` ${id}${gutter.content}`,
+      fg: gutter.fg,
+      flexShrink: 0,
+    }),
+  )
+  wrapper.add(
+    new MarkdownRenderable(ctx, {
+      content: row.text,
+      syntaxStyle: transcriptSyntaxStyle(),
+      fg: gutter.fg,
+      flexGrow: 1,
+      // Native incremental block stability: only the trailing block is unstable.
+      streaming: row.streaming === true,
+    }),
+  )
+  return wrapper
 }
 
 
@@ -2407,6 +2459,7 @@ export function createAppShell(
     clipboard: createRecordingClipboard(),
     copyTargets: null,
     statusFlash: null,
+    turnPhase: null,
     observe: null,
     parentStreamLog: null,
     promptKillRing: emptyKillRing,

@@ -1,7 +1,9 @@
 /**
  * Transcript stream row model — product skin styling for fake / real streams.
- * Pure format helpers; shell paints via TextRenderable.
+ * Plain rows paint via TextRenderable; markdown-bearing rows via MarkdownRenderable.
  */
+
+import { SyntaxStyle } from "@opentui/core"
 
 export type StreamRole = "user" | "assistant" | "tool" | "system"
 
@@ -10,6 +12,17 @@ export type StreamRow = {
   readonly text: string
   /** Optional secondary label (tool name, timestamp, etc.). */
   readonly meta?: string
+  /**
+   * Force markdown on/off for this row. Defaults by role: only assistant
+   * text is authored as markdown — tool output, user echo and system chrome
+   * are literal and must not be reflowed or have markers concealed.
+   */
+  readonly markdown?: boolean
+  /**
+   * Row body is still being appended to. Markdown rows keep their trailing
+   * block unstable so a half-received fence/table is not finalized early.
+   */
+  readonly streaming?: boolean
 }
 
 export type PaintedStreamLine = {
@@ -40,6 +53,62 @@ export function paintStreamRow(row: StreamRow): PaintedStreamLine {
     content: ` ${label}${meta}  ${body}`,
     fg: ROLE_FG[row.role],
   }
+}
+
+/** Whether this row's body should render as markdown rather than literal text. */
+export function isMarkdownRow(row: StreamRow): boolean {
+  return row.markdown ?? row.role === "assistant"
+}
+
+/** Gutter (label + meta) painted beside a markdown body. */
+export function streamRowGutter(row: StreamRow): PaintedStreamLine {
+  const meta = row.meta && row.meta.length > 0 ? ` ${row.meta}` : ""
+  return {
+    content: ` ${ROLE_LABEL[row.role]}${meta}  `,
+    fg: ROLE_FG[row.role],
+  }
+}
+
+/**
+ * Markdown styling for transcript bodies, mapped onto the role palette so
+ * markdown rows read as the same product skin as plain rows.
+ * Native scope names: `markup.*` for markdown, the rest for fenced-code
+ * syntax highlighting.
+ */
+const MARKDOWN_STYLES = {
+  default: { fg: ROLE_FG.assistant },
+  conceal: { fg: ROLE_FG.system, dim: true },
+  "markup.heading": { fg: "#7aa2f7", bold: true },
+  "markup.strong": { fg: "#e0af68", bold: true },
+  "markup.italic": { fg: ROLE_FG.assistant, italic: true },
+  "markup.strikethrough": { fg: ROLE_FG.system },
+  "markup.raw": { fg: ROLE_FG.tool },
+  "markup.list": { fg: "#7aa2f7" },
+  "markup.quote": { fg: ROLE_FG.system, italic: true },
+  "markup.link": { fg: "#7dcfff", underline: true },
+  "markup.link.label": { fg: "#7dcfff" },
+  "markup.link.url": { fg: "#7dcfff", underline: true },
+  keyword: { fg: "#bb9af7" },
+  string: { fg: "#9ece6a" },
+  number: { fg: "#ff9e64" },
+  comment: { fg: ROLE_FG.system, italic: true },
+  function: { fg: "#7aa2f7" },
+  type: { fg: "#2ac3de" },
+  variable: { fg: "#c0caf5" },
+  punctuation: { fg: "#89ddff" },
+} as const
+
+let cachedSyntaxStyle: SyntaxStyle | null = null
+
+/**
+ * Shared transcript SyntaxStyle. Lazy because construction reaches into the
+ * native render lib, which is unavailable until a renderer exists.
+ */
+export function transcriptSyntaxStyle(): SyntaxStyle {
+  if (cachedSyntaxStyle === null) {
+    cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...MARKDOWN_STYLES })
+  }
+  return cachedSyntaxStyle
 }
 
 /** Hint line under the prompt (locked product bindings). */

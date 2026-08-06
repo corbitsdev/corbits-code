@@ -126,7 +126,12 @@ import {
   attachClipboardImage,
   setMentionSuggestionSource,
   setSentMessageHistory,
+  setShellRunState,
 } from "../tui-opentui/shell.js";
+import {
+  classifyAgentSendFailure,
+  shouldSettleUiAfterSendFailure,
+} from "../tui-opentui/session-chrome.js";
 import { ingestPathMentions } from "../tui-opentui/prompt-attachments.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { resolveAtMentions } from "./mention-resolution.js";
@@ -480,6 +485,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const recordRunError = (err: unknown): void => {
     runError = err instanceof Error ? err.message : String(err);
   };
+
+  // A send rejected because the operator interrupted is not a failure to
+  // report, and it must not settle a UI the interrupt path already settled.
+  let sendAborted = false;
+  const isCodexAuthError = (err: unknown): boolean =>
+    err instanceof Error && err.name === "CodexAuthError";
+  const isXaiAuthError = (err: unknown): boolean =>
+    err instanceof Error && err.name === "XaiAuthError";
 
   const activeProviderModel = `${config.providerName}:${config.model}`;
   // Goal governor is created after liveSource (evaluator closure); the gate
@@ -1443,6 +1456,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // mid-inference (the send signal only rejects the send promise). Close it,
   // drain the old stream, and rebuild a fresh agent so the next send works.
   const interrupt = (): void => {
+    sendAborted = true;
     void enqueueOp(async () => {
       try {
         // close() tears down stream consumers before the aborted cycle's
@@ -1607,6 +1621,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     appendStreamRow(host.shell, { role: "system", text, meta: "command" });
   };
 
+  /** Settle the shell after a rejected send so the run does not look live. */
+  const handleSendFailure = (err: unknown): void => {
+    const kind = classifyAgentSendFailure(
+      err,
+      sendAborted,
+      isCodexAuthError,
+      isXaiAuthError,
+    );
+    if (!shouldSettleUiAfterSendFailure(kind)) return;
+    recordRunError(err);
+    systemRow(err instanceof Error ? err.message : String(err));
+    setShellRunState(host.shell, "idle");
+  };
+
   // The permissions surface addresses grants by their position in the last
   // listing, so revoke resolves against the same snapshot the operator saw.
   let listedGrants: readonly ScopedApproval[] = [];
@@ -1634,7 +1662,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         systemRow(result.text);
         return;
       case "send":
-        void agentProxy.send(result.text).catch(recordRunError);
+        void agentProxy.send(result.text).catch(handleSendFailure);
         return;
       case "workflow":
         systemRow(workflowController.start(result.name));
@@ -1672,6 +1700,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     text: string,
     pending: readonly PendingImageAttachment[],
   ): Promise<void> => {
+    sendAborted = false;
     if (text.trim().length > 0) {
       void appendSentMessage(config.cwd, sessionId, text).catch((err: unknown) => {
         tuiLogger.debug("sent-message append failed: {error}", {
@@ -1707,7 +1736,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     send: createSubmitHandler({
       dispatchCommand: (name, args) => dispatchCommand(name, args),
       sendPrompt: (text, attachments) => {
-        void sendUserPrompt(text, attachments ?? []).catch(recordRunError);
+        void sendUserPrompt(text, attachments ?? []).catch(handleSendFailure);
       },
       onPromptSubmitted: () => {
         if (telemetryFirstRun && liveTelemetryIntent) {
@@ -1844,7 +1873,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   }
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {
-    void agentProxy.send(config.task.trim()).catch(recordRunError);
+    void agentProxy.send(config.task.trim()).catch(handleSendFailure);
   }
 
   // Hydrate a resumed session's transcript after first paint. Reading history and

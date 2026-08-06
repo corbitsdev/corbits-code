@@ -242,6 +242,8 @@ describe("product skin: stream + queue + overlay", () => {
             meta: "bash",
           })
           expect(shell.lineCount).toBe(3)
+          // Assistant rows are markdown; their blocks highlight asynchronously.
+          await new Promise((resolve) => setTimeout(resolve, 250))
           await h.renderOnce()
           const frame = h.captureCharFrame()
           // Sticky follows the tail — last roles stay in view.

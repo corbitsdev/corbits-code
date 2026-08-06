@@ -12,6 +12,7 @@ import { createLiveSessionPort } from "./live-session-port.js"
 import {
   attachSessionBridge,
   type SessionBridge,
+  type TurnMonitorOptions,
 } from "./runtime-bridge.js"
 import { openModelPickerOverlay } from "./overlays.js"
 import { wireGates } from "./gate-wire.js"
@@ -77,6 +78,8 @@ export type ProductHostConfig = {
    * `createTestRenderer`-backed renderer instead.
    */
   readonly createRenderer?: () => Promise<CliRenderer>
+  /** Clock/timer overrides for the quota-retry and stall watchdog (tests). */
+  readonly turnMonitor?: TurnMonitorOptions
 }
 
 export type ProductHost = {
@@ -211,7 +214,9 @@ export async function mountProductHost(
     interrupt: config.interrupt,
     ...(config.deliver !== undefined ? { deliver: config.deliver } : {}),
   })
-  const bridge = attachSessionBridge(shell, port)
+  // Empty options accept the defaults (real clock, 250 ms tick, 15 min stall)
+  // while still opting this host into the quota-retry / stall timers.
+  const bridge = attachSessionBridge(shell, port, config.turnMonitor ?? {})
 
   if (config.commands !== undefined && config.commands.length > 0) {
     setPaletteCatalog(shell, config.commands)
