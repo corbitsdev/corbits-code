@@ -8,13 +8,19 @@
  */
 
 import type { EventEmitter } from "node:events"
-import type { KeyEvent } from "@opentui/core"
+import type { CliRenderer, KeyEvent } from "@opentui/core"
 
 import type { SubAgentSession, SubAgentTranscriptEntry } from "../subagent/session-store.js"
 import { buildCommandCatalog, type RegistryCommandSource } from "./command-catalog.js"
+import {
+  openCommandSurface,
+  type CommandSurfaceDeps,
+  type CommandSurfaceKind,
+} from "./command-surfaces.js"
 import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
 import { buildModelCatalog, type ModelCatalogProvidersInput } from "./model-catalog.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
+import { appendStreamRow } from "./shell.js"
 import type { ObserveSession } from "./residuals.js"
 import type { StreamRow } from "./stream.js"
 import type { QueueKind } from "./session-queue.js"
@@ -35,10 +41,23 @@ export type RunnerHostDeps = {
   readonly subscribeChrome?: (notify: () => void) => () => void
   /** Live subagent sessions for the palette observe action. */
   readonly subAgentSessions: () => readonly SubAgentSession[]
+  /**
+   * Live data behind the command surfaces (settings, permissions, plugins).
+   * `notify` is supplied by the host itself.
+   */
+  readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels">
+  /** Renderer factory override for headless mounting in tests. */
+  readonly createRenderer?: () => Promise<CliRenderer>
 }
 
 /** Product host plus the runner-owned subscriptions torn down with it. */
-export type RunnerHost = ProductHost
+export type RunnerHost = ProductHost & {
+  /**
+   * Open a command surface. Returns false when the requested surface has no
+   * OpenTUI implementation, so the caller can report the gap.
+   */
+  readonly openSurface: (kind: CommandSurfaceKind) => boolean
+}
 
 /** Map a subagent transcript entry to a stream row. */
 export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRow {
@@ -92,6 +111,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
     onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
+    ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
   })
 
   const pushChrome = (): void => {
@@ -114,5 +134,16 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     host.dispose()
   }
 
-  return { ...host, dispose }
+  const surfaceDeps: CommandSurfaceDeps = {
+    ...(deps.surfaces ?? {}),
+    ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
+    notify: (text) =>
+      appendStreamRow(host.shell, { role: "system", text, meta: "command" }),
+  }
+
+  return {
+    ...host,
+    dispose,
+    openSurface: (kind) => openCommandSurface(host.shell, kind, surfaceDeps),
+  }
 }

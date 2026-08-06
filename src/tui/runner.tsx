@@ -101,7 +101,8 @@ import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
-import { createPermissionsAdmin } from "../permission/admin.js";
+import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin.js";
+import type { GrantScope } from "../permission/types.js";
 import {
   DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
   goalApprovalTimeoutMessage,
@@ -176,6 +177,13 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
   const message = err instanceof Error ? err.message : String(err);
   return { type: "error", message: `Could not load prior session transcript: ${message}` };
 }
+
+const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
+  session: "This session",
+  project: "This project",
+  global: "Global",
+  "provider-model": "Provider / model",
+};
 
 /**
  * Resolve the base for a local-settings read-modify-write.
@@ -724,8 +732,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
   }
+  let liveMaxConcurrentSubAgents = resolveMaxConcurrentSubAgents(config.settings);
   if (liveSessionMode === "orchestrator") {
-    configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
+    configureSubAgentConcurrency(liveMaxConcurrentSubAgents);
   }
   const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
   // The workflow controller is built below, after the toolset; the holder lets
@@ -1475,6 +1484,27 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     appendStreamRow(host.shell, { role: "system", text, meta: "command" });
   };
 
+  // The permissions surface addresses grants by their position in the last
+  // listing, so revoke resolves against the same snapshot the operator saw.
+  let listedGrants: readonly ScopedApproval[] = [];
+
+  // Absent file → fresh base; unreadable/invalid → skip the write rather than
+  // clobber a corrupt settings file with a minimal shell.
+  const persistGlobalSettings = async (
+    what: string,
+    apply: (base: Settings) => Settings,
+  ): Promise<void> => {
+    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+    if (base === null) {
+      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
+        what,
+        path: config.globalSettingsPath,
+      });
+      return;
+    }
+    await saveGlobalSettings(config.globalSettingsPath, apply(base));
+  };
+
   const applyCommandResult = (result: CommandResult): void => {
     switch (result.type) {
       case "message":
@@ -1491,8 +1521,23 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         return;
       case "noop":
         return;
-      default:
-        systemRow(`${result.type} is not available in this renderer yet`);
+      case "overlay":
+        if (!host.openSurface(result.overlay)) {
+          systemRow(`No surface for /${result.overlay}.`);
+        }
+        return;
+      case "modal":
+        // /model is the only modal reachable from a command; provider login is
+        // reached from the picker itself.
+        if (result.modal === "agent" && host.openSurface("models")) return;
+        systemRow(`${result.modal} is not available in this renderer yet`);
+        return;
+      case "view":
+        systemRow(`${result.view} is not available in this renderer yet`);
+        return;
+      case "paste-image":
+        systemRow("Image attachments are not available in this renderer yet.");
+        return;
     }
   };
 
@@ -1549,6 +1594,78 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       };
     },
     subAgentSessions: () => subAgentSessions.list(),
+    surfaces: {
+      permissions: {
+        list: async () => {
+          listedGrants = await permissionsAdmin.list();
+          return listedGrants.map((entry, index) => ({
+            id: String(index),
+            scopeLabel: GRANT_SCOPE_LABEL[entry.scope],
+            tool: entry.tool,
+            pattern: entry.pattern,
+            ...(entry.providerModel !== undefined ? { providerModel: entry.providerModel } : {}),
+          }));
+        },
+        revoke: async (id) => {
+          const entry = listedGrants[Number(id)];
+          if (entry !== undefined) await permissionsAdmin.revoke(entry);
+        },
+      },
+      plugins: {
+        list: () => {
+          const cfg = pluginsAdmin.getConfig();
+          return pluginsAdmin.list().map((p) => ({
+            id: p.id,
+            name: p.name,
+            enabled: cfg[p.id]?.enabled === true,
+            ...(p.needsTrust === true ? { needsTrust: true } : {}),
+          }));
+        },
+        setEnabled: async (id, enabled) => {
+          const existing = pluginsAdmin.getConfig()[id] ?? {};
+          await pluginsAdmin.saveConfig(id, { ...existing, enabled });
+        },
+      },
+      settings: {
+        read: () => ({
+          compactionMode: liveCompactionMode,
+          sessionMode: liveSessionMode ?? "orchestrator",
+          maxConcurrentSubAgents: liveMaxConcurrentSubAgents,
+          waitForApproval: resolveWaitForApproval(liveToolWatchdog),
+          telemetryEnabled: liveTelemetryIntent,
+        }),
+        setCompactionMode: (mode) => {
+          liveCompactionMode = mode;
+          void persistGlobalSettings("compaction mode", (base) => ({
+            ...base,
+            compactionMode: mode,
+          }));
+        },
+        setSessionMode: (mode) => {
+          liveSessionMode = mode;
+          void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
+        },
+        setMaxConcurrentSubAgents: (limit) => {
+          liveMaxConcurrentSubAgents = limit;
+          configureSubAgentConcurrency(limit);
+          void persistGlobalSettings("max concurrent sub-agents", (base) => ({
+            ...base,
+            maxConcurrentSubAgents: limit,
+          }));
+        },
+        setWaitForApproval: (value) => {
+          liveToolWatchdog.waitForApproval = value;
+          void persistGlobalSettings("wait-for-approval", (base) => ({
+            ...base,
+            tools: { ...base.tools, waitForApproval: value },
+          }));
+        },
+        setTelemetryEnabled: (enabled) => {
+          liveTelemetryIntent = enabled;
+          void onChangeTelemetryEnabled(enabled);
+        },
+      },
+    },
   });
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {

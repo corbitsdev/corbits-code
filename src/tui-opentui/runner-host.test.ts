@@ -1,7 +1,11 @@
+import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 
 import type { SubAgentSession } from "../subagent/session-store.js"
+import { createHarness } from "./harness.js"
+import { closeInsetOverlay } from "./shell.js"
 import {
+  mountRunnerHost,
   observeSessionFromSubAgents,
   rowFromTranscriptEntry,
 } from "./runner-host.js"
@@ -78,5 +82,50 @@ describe("observeSessionFromSubAgents", () => {
     ])
     expect(observed?.sessionId).toBe("b")
     expect(observed?.lines).toEqual([{ role: "assistant", text: "partial" }])
+  })
+})
+
+describe("mountRunnerHost command surfaces", () => {
+  test("routes settings and models, and reports surfaces with no data source", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      surfaces: {
+        settings: {
+          read: () => ({
+            compactionMode: "llm",
+            sessionMode: "orchestrator",
+            maxConcurrentSubAgents: 3,
+            waitForApproval: true,
+            telemetryEnabled: false,
+          }),
+          setCompactionMode: () => {},
+          setSessionMode: () => {},
+          setMaxConcurrentSubAgents: () => {},
+          setWaitForApproval: () => {},
+          setTelemetryEnabled: () => {},
+        },
+      },
+    })
+    try {
+      expect(host.openSurface("settings")).toBe(true)
+      expect(host.shell.overlayKind).toBe("settings")
+      closeInsetOverlay(host.shell)
+      // No model catalog was supplied, so the picker has nothing to open.
+      expect(host.openSurface("models")).toBe(false)
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
   })
 })

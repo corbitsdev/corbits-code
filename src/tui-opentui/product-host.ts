@@ -83,6 +83,8 @@ export type ProductHost = {
    * No-op (returns false) when observe is not active.
    */
   readonly pushObserveRow: (row: StreamRow) => boolean
+  /** Opens the model/provider picker; absent when no models were supplied. */
+  readonly openModels?: () => void
 }
 
 /** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
@@ -282,10 +284,11 @@ export async function mountProductHost(
     }
   }
 
+  let openModels: (() => void) | undefined
   if (config.models && config.models.length > 0 && config.onModelSelect) {
     const models = config.models
     const onSelect = config.onModelSelect
-    const openModels = (): void => {
+    openModels = (): void => {
       openModelPickerOverlay(shell, {
         items: models.map((m) => m.label),
         itemIds: models.map((m) => m.id),
@@ -315,5 +318,6 @@ export async function mountProductHost(
     },
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),
+    ...(openModels !== undefined ? { openModels } : {}),
   }
 }
