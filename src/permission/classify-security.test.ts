@@ -95,6 +95,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L10 /var"), "/repo")).toBe(true);
   });
 
   test("does not auto-allow unbounded recursive directory listing", () => {
@@ -103,6 +104,9 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo")).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
+    // Depth present but over the pure-listing cap still forces ask (OOM).
+    expect(isAutoAllowedShellCall(shellCall("tree -L 999999 /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=99 /var"), "/repo")).toBe(false);
   });
 
   test("auto mode forces ask for unbounded recursive listing even inside workspace", () => {
@@ -110,6 +114,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name).toBe("unbounded-listing");
     // Bounded forms stay free of the ask rule.
     expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
     expect(autoShellRuleForCall(shellCall("tree -L 2 packages"))).toBeUndefined();

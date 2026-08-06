@@ -260,7 +260,7 @@ const UNBOUNDED_LISTING_ASK_RULE: AutoShellRule = {
   name: "unbounded-listing",
   effect: "ask",
   reason:
-    "Unbounded recursive directory listing (ls -R, tree without -L / --max-depth) can walk huge trees and OOM the host. Use a shallow ls, tree -L N, or list_dir, or wait for explicit operator approval.",
+    "Unbounded recursive directory listing (ls -R, tree without a safe -L / --max-depth, or depth over 10) can walk huge trees and OOM the host. Use a shallow ls, tree -L N (N ≤ 10), or list_dir, or wait for explicit operator approval.",
   patterns: [],
 };
 
@@ -324,8 +324,7 @@ export function autoShellRuleForCall(
     if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
   }
 
-  // Recursive ls / unbounded tree — even inside the workspace — must ask so
-  // auto mode cannot OOM the host. Shallow pure listing stays free above.
+  // Even inside the workspace: unbounded listing must ask so auto mode cannot OOM.
   for (const subject of subjects) {
     if (commandHasUnboundedDirectoryListing(subject)) return UNBOUNDED_LISTING_ASK_RULE;
   }
