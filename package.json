@@ -33,7 +33,6 @@
     "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --external '@opentui/core-*' --outfile ./dist/corbits",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests ./evals",
-    "test:tui": "bun test --isolate --preload ./tests/setup/tui-preload.ts ./src/tui ./tests/unit/tui",
     "start": "bun run build && bun ./dist/index.js",
     "eval:capability": "bun scripts/eval-capability.ts",
     "tui:opentui-smoke": "bun ./src/tui-opentui/smoke.ts"

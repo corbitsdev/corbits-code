@@ -37,7 +37,7 @@ import { createGateRequestApproval } from "./request-approval.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
-import type { PluginsAdmin, PluginDescriptor } from "./components/plugins-manager.js";
+import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";

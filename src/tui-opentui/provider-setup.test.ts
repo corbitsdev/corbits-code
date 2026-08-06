@@ -158,13 +158,13 @@ describe("runProviderSetup", () => {
   })
 
   test("submits the entered values and resolves true", async () => {
-    let seen: ProviderFormValues | null = null
+    const seen: ProviderFormValues[] = []
     const { done, harness } = await mountSetup(async (values) => {
-      seen = { ...values }
+      seen.push({ ...values })
     })
     await fillAllFields(harness)
     expect(await done).toBe(true)
-    expect(seen).toEqual({
+    expect(seen[0]).toEqual({
       name: "openai",
       baseURL: "https://api.example.com",
       apiKey: "sk-key",

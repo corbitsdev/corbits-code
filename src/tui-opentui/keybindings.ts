@@ -6,8 +6,7 @@
  * src/tui-opentui/shell.ts's `onKey`/`onEnter` listeners, or a default
  * binding of the prompt's InputRenderable (see `defaultTextareaKeyBindings`
  * in @opentui/core — Ctrl+B/F/D, Alt+B/F, and arrow motion come from there,
- * not from shell.ts). Do not hand-transcribe from docs or from the Ink
- * renderer's src/tui/keymap-table.ts, which describes a different key handler.
+ * not from shell.ts). Do not hand-transcribe from docs.
  */
 
 export type ShellShortcut = {
