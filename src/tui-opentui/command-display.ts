@@ -476,3 +476,53 @@ export function middleEllipsis(text: string, max: number): string {
   const tail = Math.floor(keep / 2);
   return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
 }
+
+export type CommandDisplay = {
+  readonly lines: readonly string[];
+  // How many payloads were replaced by a placeholder. Zero when nothing was
+  // collapsed, which is what tells the caller whether to offer the expand key.
+  readonly payloadCount: number;
+};
+
+// A payload line is rendered through verbatimCommandLines so a bare CR inside
+// it shows as a visible ↵ instead of repainting the row the operator is
+// reading — the same Trojan-Source defence the verbatim block applies.
+function renderPayloadLine(line: string): string {
+  return verbatimCommandLines(line)
+    .map((l) => l.text)
+    .join(" ");
+}
+
+// Render an approval subject for the operator: every chain segment on its own
+// numbered line (so a second destructive command can never hide inside a wall
+// of text), with heredoc / multi-line quoted payloads collapsed to a
+// placeholder. When `expanded`, each placeholder keeps its line and the full
+// payload is printed underneath it — the placeholder never disappears, so the
+// collapsed and expanded views describe the same command.
+//
+// A single unchained segment is not numbered: the number exists to expose
+// chaining, and prefixing a lone command with "1)" only adds noise.
+export function formatCommandForApproval(
+  command: string,
+  opts?: { readonly expanded?: boolean },
+): CommandDisplay {
+  const segments = groupChainSegmentsForDisplay(command);
+  if (segments.length === 0) return { lines: [command], payloadCount: 0 };
+
+  const collapsed = segments.map(collapseSegmentPayloads);
+  const chained = segments.length > 1;
+  const lines: string[] = [];
+  let payloadCount = 0;
+
+  collapsed.forEach((segment, i) => {
+    payloadCount += segment.payloads.length;
+    lines.push(chained ? `${i + 1}) ${segment.display}` : segment.display);
+    if (opts?.expanded !== true) return;
+    for (const payload of segment.payloads) {
+      lines.push(`   ${payload.placeholder}`);
+      for (const line of payload.lines) lines.push(`     ${renderPayloadLine(line)}`);
+    }
+  });
+
+  return { lines, payloadCount };
+}

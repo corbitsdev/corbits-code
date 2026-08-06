@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createLiveSessionPort } from "./live-session-port"
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
 import type { QueueItem, QueueKind } from "./session-queue"
 
 type Call =
@@ -94,5 +95,35 @@ describe("createLiveSessionPort", () => {
       { op: "deliver", text: "mid", kind: "queue" },
       { op: "interrupt" },
     ])
+  })
+})
+
+describe("attachment passthrough", () => {
+  const image: PendingImageAttachment = {
+    id: "img-1",
+    name: "clipboard.png",
+    contentType: "image/png",
+    data: new Uint8Array([1]),
+  }
+
+  test("sendImmediate forwards attachments to the host send", () => {
+    const seen: Array<readonly PendingImageAttachment[] | undefined> = []
+    const port = createLiveSessionPort({
+      send: (_text, attachments) => seen.push(attachments),
+      interrupt: () => {},
+    })
+    port.sendImmediate("look", [image])
+    expect(seen).toEqual([[image]])
+  })
+
+  test("a queued item delivers its attachments at the boundary", () => {
+    const seen: Array<readonly PendingImageAttachment[] | undefined> = []
+    const port = createLiveSessionPort({
+      send: () => {},
+      interrupt: () => {},
+      deliver: (_text, _kind, attachments) => seen.push(attachments),
+    })
+    port.deliver({ ...item("later", "queue"), attachments: [image] })
+    expect(seen).toEqual([[image]])
   })
 })

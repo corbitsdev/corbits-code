@@ -23,7 +23,21 @@ import {
   setShellBridgeHooks,
   type AppShell,
 } from "./shell.js"
+import {
+  formatAttachmentSummary,
+  type PendingImageAttachment,
+} from "../tui/image-attachments.js"
 import type { StreamRow } from "./stream.js"
+
+/** Transcript echo for a user message, annotated with its attachments. */
+function userRowText(
+  text: string,
+  attachments: readonly PendingImageAttachment[],
+): string {
+  const summary = formatAttachmentSummary(attachments)
+  if (summary.length === 0) return text
+  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`
+}
 import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
@@ -40,7 +54,10 @@ export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext }
 /** Outbound actions the UI asks the session runtime to perform. */
 export type SessionPort = {
   /** Idle prompt submit — deliver now. */
-  sendImmediate: (text: string) => void
+  sendImmediate: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
   /** Mid-run queue or steer accepted by the shell. */
   enqueue: (text: string, kind: QueueKind) => void
   /** Hard interrupt current run. */
@@ -57,7 +74,11 @@ export type SessionBridge = {
   /** Replay a fixture sequence. */
   play: (events: readonly (BridgeInboundEvent | ReactorLikeEvent)[]) => void
   /** Operator paths — shell keys go through the same logic via exclusive hooks. */
-  submit: (text: string, kind: "queue" | "steer" | "immediate") => void
+  submit: (
+    text: string,
+    kind: "queue" | "steer" | "immediate",
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
   interrupt: () => void
   dispose: () => void
   readonly shell: AppShell
@@ -194,7 +215,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     shell.session = state
     appendStreamRow(shell, {
       role: "user",
-      text: item.text,
+      text: userRowText(item.text, item.attachments ?? []),
       meta: item.kind === "steer" ? "steer" : "queued",
     })
     bag.port.deliver(item)
@@ -276,14 +297,16 @@ export function attachSessionBridge(
   const submit = (
     text: string,
     kind: "queue" | "steer" | "immediate",
+    attachments?: readonly PendingImageAttachment[],
   ): void => {
     if (bag.disposed) return
     const t = text.trim()
-    if (t.length === 0) return
+    const attached = attachments ?? []
+    if (t.length === 0 && attached.length === 0) return
 
     if (kind === "immediate" || shell.session.run === "idle") {
-      appendStreamRow(shell, { role: "user", text: t })
-      bag.port.sendImmediate(t)
+      appendStreamRow(shell, { role: "user", text: userRowText(t, attached) })
+      bag.port.sendImmediate(t, attachments)
       shell.session = setRunState(shell.session, "busy")
       paintStatus(shell)
       return
@@ -291,8 +314,8 @@ export function attachSessionBridge(
 
     shell.session =
       kind === "steer"
-        ? enqueueSteer(shell.session, t)
-        : enqueue(shell.session, t)
+        ? enqueueSteer(shell.session, t, undefined, attachments)
+        : enqueue(shell.session, t, "queue", undefined, attachments)
     bag.port.enqueue(t, kind)
     appendStreamRow(shell, {
       role: "system",
@@ -309,8 +332,8 @@ export function attachSessionBridge(
   }
 
   setShellBridgeHooks(shell, {
-    onSubmit: (text, kind) => {
-      submit(text, kind)
+    onSubmit: (text, kind, attachments) => {
+      submit(text, kind, attachments)
     },
     onInterrupt: () => {
       doInterrupt()

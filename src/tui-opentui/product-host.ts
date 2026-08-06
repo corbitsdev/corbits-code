@@ -33,9 +33,18 @@ import {
 import type { QueueKind } from "./session-queue.js"
 import type { StreamRow } from "./stream.js"
 
-export type ProductHostSend = (text: string) => void
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
+
+export type ProductHostSend = (
+  text: string,
+  attachments?: readonly PendingImageAttachment[],
+) => void
 export type ProductHostInterrupt = () => void
-export type ProductHostDeliver = (text: string, kind: QueueKind) => void
+export type ProductHostDeliver = (
+  text: string,
+  kind: QueueKind,
+  attachments?: readonly PendingImageAttachment[],
+) => void
 
 export type ProductHostModelOption = {
   readonly id: string

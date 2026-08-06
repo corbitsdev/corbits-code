@@ -1,5 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { createSubmitHandler, routeSubmission, telemetryStartupNotice } from "./runner.js";
+import {
+  createSubmitHandler,
+  IMAGE_ONLY_PROMPT,
+  routeSubmission,
+  telemetryStartupNotice,
+  userInboundMessage,
+} from "./runner.js";
+import type { PendingImageAttachment } from "./image-attachments.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 
 type Dispatched = { name: string; args: string };
@@ -85,5 +92,54 @@ describe("telemetryStartupNotice", () => {
     expect(
       telemetryStartupNotice({ ...firstRun, telemetry: { ...firstRun.telemetry, noticeShown: true } }, {}),
     ).toBeUndefined();
+  });
+});
+
+describe("image attachment submits", () => {
+  const image: PendingImageAttachment = {
+    id: "img-1",
+    name: "clipboard.png",
+    contentType: "image/png",
+    data: new Uint8Array([1, 2, 3]),
+  };
+
+  function attachmentHarness() {
+    const sends: Array<{ text: string; attachments?: readonly PendingImageAttachment[] }> = [];
+    const submit = createSubmitHandler({
+      dispatchCommand: () => {},
+      sendPrompt: (text, attachments) => sends.push({ text, ...(attachments ? { attachments } : {}) }),
+    });
+    return { submit, sends };
+  }
+
+  test("sends an attachment-only submit that would otherwise be empty", () => {
+    const h = attachmentHarness();
+    h.submit("   ", [image]);
+    expect(h.sends).toEqual([{ text: "", attachments: [image] }]);
+  });
+
+  test("carries attachments alongside prompt text", () => {
+    const h = attachmentHarness();
+    h.submit("what is this", [image]);
+    expect(h.sends[0]?.text).toBe("what is this");
+    expect(h.sends[0]?.attachments).toEqual([image]);
+  });
+
+  test("still drops a truly empty submit", () => {
+    const h = attachmentHarness();
+    h.submit("", []);
+    expect(h.sends).toEqual([]);
+  });
+
+  test("builds an inbound message carrying the image bytes", () => {
+    const message = userInboundMessage("look", [image]);
+    expect(message.content).toBe("look");
+    expect(message.attachments).toEqual([
+      { name: "clipboard.png", contentType: "image/png", data: image.data },
+    ]);
+  });
+
+  test("substitutes a prompt when only an image was submitted", () => {
+    expect(userInboundMessage("", [image]).content).toBe(IMAGE_ONLY_PROMPT);
   });
 });

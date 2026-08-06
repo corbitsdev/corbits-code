@@ -16,6 +16,24 @@ import {
   type KeyEvent,
 } from "@opentui/core"
 
+import { listPathSuggestions } from "../tui/components/at-mention/list.js"
+import { parseAtState } from "../tui/components/at-mention/parse.js"
+import {
+  readClipboardImage,
+  type ClipboardImageResult,
+  type PendingImageAttachment,
+} from "../tui/image-attachments.js"
+import {
+  createSentHistoryBrowse,
+  sentHistoryOnEdit,
+  stepSentHistoryDown,
+  stepSentHistoryUp,
+  type SentHistoryBrowse,
+} from "../tui/sent-message-history.js"
+import {
+  promptHintWithAttachments,
+  spliceMentionCompletion,
+} from "./prompt-attachments.js"
 import {
   createFocusState,
   focusOwner,
@@ -101,7 +119,11 @@ import {
 
 /** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
 export type ShellBridgeHooks = {
-  onSubmit: (text: string, kind: "queue" | "steer" | "immediate") => void
+  onSubmit: (
+    text: string,
+    kind: "queue" | "steer" | "immediate",
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
   onInterrupt: () => void
   exclusive: boolean
 }
@@ -195,6 +217,35 @@ export function getPaletteOnCommand(
   shell: AppShell,
 ): PaletteOnCommand | undefined {
   return shellPaletteOnCommand.get(shell)
+}
+
+/**
+ * Clipboard image reader behind Ctrl+P. Injectable so tests (and non-macOS
+ * hosts) can supply their own source instead of shelling out to osascript.
+ */
+export type PromptImageSource = () => Promise<ClipboardImageResult>
+
+const shellPromptImageSource = new WeakMap<AppShell, PromptImageSource>()
+
+export function setPromptImageSource(
+  shell: AppShell,
+  source: PromptImageSource | undefined,
+): void {
+  if (source) shellPromptImageSource.set(shell, source)
+  else shellPromptImageSource.delete(shell)
+}
+
+/** Filesystem suggestions behind the @-mention overlay. */
+export type MentionSuggestionSource = (prefix: string) => Promise<readonly string[]>
+
+const shellMentionSource = new WeakMap<AppShell, MentionSuggestionSource>()
+
+export function setMentionSuggestionSource(
+  shell: AppShell,
+  source: MentionSuggestionSource | undefined,
+): void {
+  if (source) shellMentionSource.set(shell, source)
+  else shellMentionSource.delete(shell)
 }
 
 /**
@@ -411,6 +462,10 @@ export type AppShell = {
    * ./prompt-kill-ring.js).
    */
   promptKillRing: KillRing
+  /** Images attached with Ctrl+P, sent with the next prompt submit. */
+  pendingAttachments: PendingImageAttachment[]
+  /** Up/Down recall of messages already sent in this session. */
+  sentHistory: SentHistoryBrowse
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
 }
@@ -493,7 +548,50 @@ export function paintStatus(shell: AppShell): void {
   shell.status.content =
     ` ${mode} · ${run} · queue ${shell.pendingQueue} · focus ${owner}${interrupt}${statusFlash} · lines ${shell.lineCount}`
   shell.header.content = ` ${sessionHeaderTitle(shell.baseTitle, shell.session.run)}`
-  shell.hint.content = ` ${PROMPT_HINT}`
+  shell.hint.content = ` ${promptHintWithAttachments(PROMPT_HINT, shell.pendingAttachments)}`
+}
+
+/** Queue an image for the next submit and reflect it in the prompt hint. */
+export function addPendingAttachment(
+  shell: AppShell,
+  attachment: PendingImageAttachment,
+): void {
+  shell.pendingAttachments = [...shell.pendingAttachments, attachment]
+  paintStatus(shell)
+}
+
+export function clearPendingAttachments(shell: AppShell): void {
+  shell.pendingAttachments = []
+  paintStatus(shell)
+}
+
+/**
+ * Ctrl+P: read an image off the clipboard into the pending set.
+ * Resolves false (with a status flash) when nothing was attached.
+ */
+export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
+  const source = shellPromptImageSource.get(shell) ?? readClipboardImage
+  setStatusFlash(shell, "reading clipboard image…")
+  const result = await source()
+  if (!result.ok) {
+    setStatusFlash(shell, `image attach failed: ${result.reason}`)
+    return false
+  }
+  addPendingAttachment(shell, result.attachment)
+  setStatusFlash(shell, `attached ${result.attachment.name}`)
+  return true
+}
+
+/** Seed the Up/Down recall list (host replays persisted session messages). */
+export function setSentMessageHistory(
+  shell: AppShell,
+  sent: readonly string[],
+): void {
+  shell.sentHistory = createSentHistoryBrowse(sent)
+}
+
+function recordSentMessage(shell: AppShell, text: string): void {
+  shell.sentHistory = createSentHistoryBrowse([...shell.sentHistory.sent, text])
 }
 
 /** Set a non-destructive status flash and repaint (does not touch streamLog). */
@@ -638,6 +736,7 @@ type PriorOverlaySnapshot = {
   readonly paletteCommands: readonly PaletteCommand[]
   readonly itemIds: readonly string[]
   readonly onAccept: ((selection: OverlaySelection) => void) | null
+  readonly onToggleExpand: (() => void) | null
 }
 
 type ShellInternals = {
@@ -651,6 +750,8 @@ type ShellInternals = {
   overlayItemIds: readonly string[]
   /** Per-open accept callback; cleared on close without invoke (Esc path). */
   overlayOnAccept: ((selection: OverlaySelection) => void) | null
+  /** Per-open expand/collapse hook for the open primary overlay. */
+  overlayOnToggleExpand: (() => void) | null
   /**
    * Default palette catalog (static or lazy). Used when openPalette omits catalog.
    * Residual DEFAULT_PALETTE_COMMANDS when unset.
@@ -835,26 +936,31 @@ export function submitPrompt(
 ): void {
   const text = shell.prompt.value
   const t = text.trim()
-  if (t.length === 0) return
+  const attachments = shell.pendingAttachments
+  if (t.length === 0 && attachments.length === 0) return
 
+  if (t.length > 0) recordSentMessage(shell, t)
   const hooks = getShellBridgeHooks(shell)
   if (hooks?.exclusive) {
     shell.prompt.value = ""
+    clearPendingAttachments(shell)
     const resolved: "queue" | "steer" | "immediate" =
       shell.session.run === "idle" ? "immediate" : kind
-    hooks.onSubmit(text, resolved)
+    hooks.onSubmit(text, resolved, attachments)
     return
   }
 
   if (shell.session.run === "idle") {
     appendStreamRow(shell, { role: "user", text: t })
     shell.prompt.value = ""
+    clearPendingAttachments(shell)
     return
   }
 
   shell.session =
     kind === "steer" ? enqueueSteer(shell.session, t) : enqueue(shell.session, t)
   shell.prompt.value = ""
+  clearPendingAttachments(shell)
   const tag = kind === "steer" ? "steer" : "queue"
   appendStreamRow(shell, {
     role: "system",
@@ -933,6 +1039,12 @@ export type OpenListOverlayOpts = {
    * for this open. Not invoked on Esc / closeInsetOverlay.
    */
   readonly onAccept?: (selection: OverlaySelection) => void
+  /**
+   * Per-open expand/collapse hook. When set, the modal overlay claims a bare
+   * key for it (see OVERLAY_EXPAND_KEY) — no global binding is needed because
+   * the overlay owns the keyboard while it is open.
+   */
+  readonly onToggleExpand?: () => void
 }
 
 /**
@@ -962,6 +1074,7 @@ export function openListOverlay(
           paletteCommands: shell.paletteCommands,
           itemIds: bag.overlayItemIds,
           onAccept: bag.overlayOnAccept,
+          onToggleExpand: bag.overlayOnToggleExpand,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -985,17 +1098,21 @@ export function openListOverlay(
     if (!isPalette) {
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
+      bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
+      bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
     }
   }
 
   const cols = Math.max(20, shell.renderer.width || 80)
   const bodyText = opts?.body ?? ""
-  // Operator body gets more lines; list-only overlays keep body empty.
-  const maxBody = shell.overlayKind === "operator" ? 8 : 0
+  // Operator question and permission approval context get body lines; other
+  // list-only overlays keep the body empty.
+  const maxBody =
+    shell.overlayKind === "operator" || shell.overlayKind === "permissions" ? 8 : 0
   shell.overlayBodyLines =
     bodyText.length > 0
       ? wrapShellOverlayBody(bodyText, cols - 4, maxBody)
@@ -1103,6 +1220,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   if (bag && !prior) {
     bag.overlayItemIds = []
     bag.overlayOnAccept = null
+    bag.overlayOnToggleExpand = null
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -1124,6 +1242,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.overlayTitle.content = prior.title
     bag.overlayItemIds = prior.itemIds
     bag.overlayOnAccept = prior.onAccept
+    bag.overlayOnToggleExpand = prior.onToggleExpand
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -1153,6 +1272,38 @@ export function closeInsetOverlay(shell: AppShell): void {
   applyFocus(shell)
 }
 
+
+/**
+ * Bare key the modal overlay claims for its expand/collapse hook. Deliberately
+ * not in SHELL_SHORTCUTS: it is live only while an overlay that supplied
+ * `onToggleExpand` is open, so it never shadows a prompt binding.
+ */
+export const OVERLAY_EXPAND_KEY = "e"
+
+/** Replace the open overlay's body text in place (re-wrap + relayout). */
+export function setOverlayBody(
+  shell: AppShell,
+  text: string,
+  maxLines = 8,
+): void {
+  if (!shell.overlayList) return
+  const cols = Math.max(20, shell.renderer.width || 80)
+  shell.overlayBodyLines =
+    text.length > 0 ? wrapShellOverlayBody(text, cols - 4, maxLines) : []
+  const hostRows =
+    1 + shell.overlayBodyLines.length + shell.overlayList.height
+  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  paintOverlayList(shell)
+}
+
+/** Run the open overlay's expand/collapse hook; true when one was bound. */
+export function toggleOverlayExpand(shell: AppShell): boolean {
+  if (!shell.overlayList) return false
+  const hook = internals.get(shell)?.overlayOnToggleExpand ?? null
+  if (!hook) return false
+  hook()
+  return true
+}
 
 /** Move overlay selection (j/k / arrows). */
 export function moveOverlaySelection(shell: AppShell, delta: number): void {
@@ -1682,6 +1833,61 @@ export function openMentionsOverlay(
   })
 }
 
+/** Keys that only move the caret — they must not cancel history browsing. */
+const MOTION_KEYS: ReadonlySet<string> = new Set([
+  "up",
+  "down",
+  "left",
+  "right",
+  "home",
+  "end",
+  "pageup",
+  "pagedown",
+  "tab",
+  "escape",
+])
+
+const defaultMentionSource: MentionSuggestionSource = (prefix) =>
+  listPathSuggestions(prefix, process.cwd())
+
+/**
+ * Open path suggestions for the @token under the cursor and splice the
+ * accepted entry back into the prompt. Directory picks re-open one level
+ * down so the operator can drill in without typing the path.
+ * Returns false when the cursor is not inside an @token or nothing matched.
+ */
+export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean> {
+  const at = parseAtState(shell.prompt.value, shell.prompt.cursorOffset)
+  if (at === null) return false
+
+  const cursor = shell.prompt.cursorOffset
+  const source = shellMentionSource.get(shell) ?? defaultMentionSource
+  const suggestions = await source(at.prefix)
+  if (suggestions.length === 0) {
+    setStatusFlash(shell, `no matches for @${at.prefix}`)
+    return false
+  }
+
+  openMentionsOverlay(shell, {
+    items: [...suggestions],
+    onAccept: (selection) => {
+      const completion = suggestions[selection.index]
+      if (completion === undefined) return
+      const spliced = spliceMentionCompletion(
+        shell.prompt.value,
+        at.atStart,
+        cursor,
+        completion,
+      )
+      shell.prompt.value = spliced.value
+      shell.prompt.cursorOffset = spliced.cursor
+      shell.sentHistory = sentHistoryOnEdit(shell.sentHistory)
+      if (completion.endsWith("/")) void openAtMentionSuggestions(shell)
+    },
+  })
+  return true
+}
+
 /**
  * Build the app shell frame on an OpenTUI renderer.
  * Mounts header / sticky transcript / overlay host / prompt+hint / status.
@@ -1933,6 +2139,16 @@ export function createAppShell(
         pageOverlaySelection(shell, 1)
         return
       }
+      if (
+        key.name === OVERLAY_EXPAND_KEY &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.option &&
+        toggleOverlayExpand(shell)
+      ) {
+        key.preventDefault()
+        return
+      }
       if (shell.overlayKind === "copy") {
         if (key.name === "y" && !key.ctrl && !key.meta && !key.option) {
           key.preventDefault()
@@ -2033,6 +2249,59 @@ export function createAppShell(
         shell.prompt.insertText(rotated.text)
       }
       return
+    }
+
+    if (key.ctrl && !key.meta && !key.option && keyName === "p") {
+      key.preventDefault()
+      void attachClipboardImage(shell)
+      return
+    }
+
+    // Typing @ at a token boundary opens path suggestions. The overlay owns
+    // focus while open, so the @ is inserted here rather than left to the
+    // InputRenderable, which would race the focus change.
+    if (
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      key.sequence === "@" &&
+      focusOwner(shell.focus) === "prompt"
+    ) {
+      const before = shell.prompt.value.slice(0, shell.prompt.cursorOffset)
+      if (before.length === 0 || /\s$/.test(before)) {
+        key.preventDefault()
+        shell.prompt.insertText("@")
+        void openAtMentionSuggestions(shell)
+        return
+      }
+    }
+
+    if (
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      (key.name === "up" || key.name === "down") &&
+      focusOwner(shell.focus) === "prompt"
+    ) {
+      const stepped =
+        key.name === "up"
+          ? shell.prompt.cursorOffset === 0
+            ? stepSentHistoryUp(shell.sentHistory, shell.prompt.value)
+            : null
+          : stepSentHistoryDown(
+              shell.sentHistory,
+              shell.prompt.value,
+              shell.prompt.cursorOffset,
+            )
+      if (stepped !== null) {
+        key.preventDefault()
+        shell.sentHistory = stepped.browse
+        shell.prompt.value = stepped.value
+        shell.prompt.cursorOffset = stepped.cursor
+        return
+      }
+    } else if (!MOTION_KEYS.has(keyName)) {
+      shell.sentHistory = sentHistoryOnEdit(shell.sentHistory)
     }
 
     if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
@@ -2141,6 +2410,8 @@ export function createAppShell(
     observe: null,
     parentStreamLog: null,
     promptKillRing: emptyKillRing,
+    pendingAttachments: [],
+    sentHistory: createSentHistoryBrowse([]),
     dispose: () => {
       if (disposed) return
       disposed = true
@@ -2166,6 +2437,7 @@ export function createAppShell(
     priorOverlay: null,
     overlayItemIds: [],
     overlayOnAccept: null,
+    overlayOnToggleExpand: null,
     paletteCatalog: paletteCatalogOpt,
     chrome: { goal: "", task: "", agents: "" },
   })

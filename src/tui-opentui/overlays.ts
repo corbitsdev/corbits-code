@@ -96,8 +96,12 @@ export type OpenPermissionsOpts = {
   /** Stable ids aligned with `items` (e.g. ApprovalScope.id). */
   readonly itemIds?: readonly string[]
   readonly activeIndex?: number
+  /** Formatted approval context painted above the choices. */
+  readonly body?: string
   /** Per-open accept; host binds resolve(ApprovalOutcome). */
   readonly onAccept?: (selection: OverlaySelection) => void
+  /** Per-open expand/collapse of collapsed command payloads. */
+  readonly onToggleExpand?: () => void
 }
 
 export function openPermissionsOverlay(
@@ -111,7 +115,11 @@ export function openPermissionsOverlay(
     items,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-permissions",
+    ...(opts?.body !== undefined ? { body: opts.body } : {}),
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onToggleExpand !== undefined
+      ? { onToggleExpand: opts.onToggleExpand }
+      : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }

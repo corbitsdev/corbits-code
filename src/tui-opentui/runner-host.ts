@@ -18,20 +18,36 @@ import {
   type CommandSurfaceKind,
 } from "./command-surfaces.js"
 import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
-import { buildModelCatalog, type ModelCatalogProvidersInput } from "./model-catalog.js"
+import {
+  buildModelsFirstCatalog,
+  type ModelCatalogProvidersInput,
+  type ModelCatalogRef,
+} from "./model-catalog.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
 import { appendStreamRow } from "./shell.js"
 import type { ObserveSession } from "./residuals.js"
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
 import type { StreamRow } from "./stream.js"
 import type { QueueKind } from "./session-queue.js"
 
 export type RunnerHostDeps = {
   readonly title: string
   readonly eventEmitter: EventEmitter
-  readonly send: (text: string) => void
+  readonly send: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
   readonly interrupt: () => void
-  readonly deliver?: (text: string, kind: QueueKind) => void
+  readonly deliver?: (
+    text: string,
+    kind: QueueKind,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
   readonly providers: ModelCatalogProvidersInput
+  /** Recently used provider+model pairs, most recent first (settings.recentModels). */
+  readonly recentModels?: readonly ModelCatalogRef[]
+  /** Favorited provider+model pairs (settings.favoriteModels). */
+  readonly favoriteModels?: readonly ModelCatalogRef[]
   readonly onModelSelect: (id: string) => void
   readonly commands: readonly RegistryCommandSource[]
   readonly onCommand: (name: string) => void
@@ -99,7 +115,11 @@ export function observeSessionFromSubAgents(
 
 /** Mount the OpenTUI host for a live session. */
 export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost> {
-  const models = buildModelCatalog(deps.providers)
+  const models = buildModelsFirstCatalog({
+    providers: deps.providers,
+    recent: deps.recentModels ?? [],
+    favorites: deps.favoriteModels ?? [],
+  })
   const host = await mountProductHost({
     title: deps.title,
     eventEmitter: deps.eventEmitter,

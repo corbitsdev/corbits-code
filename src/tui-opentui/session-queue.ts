@@ -3,6 +3,8 @@
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  */
 
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
+
 export type QueueKind = "queue" | "steer"
 
 export type QueueItem = {
@@ -10,6 +12,8 @@ export type QueueItem = {
   readonly text: string
   readonly kind: QueueKind
   readonly enqueuedAt: number
+  /** Images attached to this message, delivered with it at the boundary. */
+  readonly attachments?: readonly PendingImageAttachment[]
 }
 
 export type RunState = "idle" | "busy"
@@ -57,14 +61,18 @@ export function enqueue(
   text: string,
   kind: QueueKind = "queue",
   now = Date.now(),
+  attachments?: readonly PendingImageAttachment[],
 ): SessionQueueState {
   const t = text.trim()
-  if (t.length === 0) return state
+  if (t.length === 0 && (attachments === undefined || attachments.length === 0)) {
+    return state
+  }
   const item: QueueItem = {
     id: `q${state.nextId}`,
     text: t,
     kind,
     enqueuedAt: now,
+    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
   }
   return {
     ...state,
@@ -79,8 +87,9 @@ export function enqueueSteer(
   state: SessionQueueState,
   text: string,
   now = Date.now(),
+  attachments?: readonly PendingImageAttachment[],
 ): SessionQueueState {
-  return enqueue(state, text, "steer", now)
+  return enqueue(state, text, "steer", now, attachments)
 }
 
 /**

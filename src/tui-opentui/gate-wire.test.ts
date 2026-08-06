@@ -8,6 +8,7 @@ import { withTestRenderer } from "./harness.js"
 import {
   acceptOverlaySelection,
   createAppShell,
+  toggleOverlayExpand,
 } from "./shell.js"
 import {
   approvalOutcomeFromSelection,
@@ -153,6 +154,50 @@ describe("permissionBodyFromRequest", () => {
       "run_shell\nRun shell command\nbun test\nagent: explore\nmega-chain",
     )
   })
+
+  test("a chained command stays visibly chained, one numbered line per segment", () => {
+    const body = permissionBodyFromRequest(
+      baseRequest({ subject: "npm install && rm -rf /tmp/cache; echo done" }),
+    )
+    expect(body.split("\n").slice(2)).toEqual([
+      "1) npm install",
+      "2) rm -rf /tmp/cache",
+      "3) echo done",
+    ])
+  })
+
+  test("bulk payloads collapse to a placeholder with an expand hint", () => {
+    const request = baseRequest({
+      subject: 'git commit -m "line one\nline two\nline three"',
+    })
+    const collapsed = permissionBodyFromRequest(request, { hint: true })
+    expect(collapsed).toContain("<message, 3 lines>")
+    expect(collapsed).not.toContain("line two")
+    expect(collapsed).toContain("e expand 1 collapsed payload")
+  })
+
+  test("expanding keeps the placeholder and reveals every payload line", () => {
+    const request = baseRequest({
+      subject: 'git commit -m "line one\nline two\nline three"',
+    })
+    const expanded = permissionBodyFromRequest(request, {
+      expanded: true,
+      hint: true,
+    })
+    expect(expanded).toContain("<message, 3 lines>")
+    expect(expanded).toContain("line one")
+    expect(expanded).toContain("line two")
+    expect(expanded).toContain("line three")
+    expect(expanded).toContain("e collapse payloads")
+  })
+
+  test("code-consuming segments are never collapsed", () => {
+    const body = permissionBodyFromRequest(
+      baseRequest({ subject: "bash -c 'echo one\necho two'" }),
+    )
+    expect(body).toContain("echo two")
+    expect(body).not.toContain("<text,")
+  })
 })
 
 describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
@@ -250,6 +295,49 @@ describe("wireGates", () => {
 
         acceptOverlaySelection(shell)
         expect(resolved).toEqual({ allow: false })
+
+        dispose()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission.gate paints the collapsed body and expands it on toggle", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 100, rows: 40 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const request: PermissionRequest = {
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: 'echo start && cat > notes.txt <<EOF\nalpha\nbeta\nEOF',
+        scopes: [],
+      }
+      try {
+        const dispose = wireGates(emitter, shell)
+        emitter.emit("permission.gate", { request, resolve: () => {} })
+
+        const collapsed = shell.overlayBodyLines.join("\n")
+        expect(collapsed).toContain("1) echo start")
+        expect(collapsed).toContain("<heredoc, 2 lines>")
+        expect(collapsed).not.toContain("alpha")
+
+        expect(toggleOverlayExpand(shell)).toBe(true)
+        const expanded = shell.overlayBodyLines.join("\n")
+        expect(expanded).toContain("<heredoc, 2 lines>")
+        expect(expanded).toContain("alpha")
+        expect(expanded).toContain("beta")
+
+        // Full text also lands in the scrollable transcript, which no
+        // overlay height cap can clip.
+        const streamed = shell.streamLog.map((r) => r.text).join("\n")
+        expect(streamed).toContain("alpha")
+
+        expect(toggleOverlayExpand(shell)).toBe(true)
+        expect(shell.overlayBodyLines.join("\n")).not.toContain("alpha")
 
         dispose()
       } finally {

@@ -6,6 +6,7 @@
 
 import type { EventEmitter } from "node:events"
 import type { OperatorResult } from "../agent/tools.js"
+import { formatCommandForApproval, middleEllipsis } from "./command-display.js"
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js"
 import type {
   ApprovalOutcome,
@@ -13,11 +14,19 @@ import type {
   PermissionRequest,
 } from "../permission/types.js"
 import type { AppShell, OverlaySelection } from "./shell.js"
-import { appendStreamRow } from "./shell.js"
+import { appendStreamRow, setOverlayBody } from "./shell.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
 export const PERMISSION_ONCE_ID = "__once__" as const
+
+/**
+ * Expand/collapse chord for collapsed payloads. Scoped to the open permission
+ * overlay rather than registered in SHELL_SHORTCUTS: the overlay is modal, so
+ * a bare letter is free there, and Ctrl+O (the Ink-era chord) is the command
+ * palette in this shell.
+ */
+export const PERMISSION_EXPAND_KEY = "e"
 
 export type PermissionGateChoices = {
   readonly items: readonly string[]
@@ -83,16 +92,39 @@ export function approvalOutcomeFromSelection(
   return choices.outcomes[selection.index] ?? { allow: false }
 }
 
-/** Compact multi-line body for stream / overlay context (no paint). */
+export type PermissionBodyOpts = {
+  /** Print collapsed payloads in full under their placeholder. */
+  readonly expanded?: boolean
+  /** Append the expand/collapse affordance line (overlay only). */
+  readonly hint?: boolean
+}
+
+/**
+ * Compact multi-line body for stream / overlay context (no paint).
+ * The subject is rendered through the approval formatter so a chained command
+ * shows one numbered line per segment and bulk payloads collapse to a
+ * placeholder the operator can expand before approving.
+ */
 export function permissionBodyFromRequest(
   request: PermissionRequest,
+  opts?: PermissionBodyOpts,
 ): string {
+  const display = formatCommandForApproval(request.subject, {
+    expanded: opts?.expanded === true,
+  })
+  const hint =
+    opts?.hint === true && display.payloadCount > 0
+      ? opts.expanded === true
+        ? `${PERMISSION_EXPAND_KEY} collapse payloads`
+        : `${PERMISSION_EXPAND_KEY} expand ${display.payloadCount} collapsed payload${display.payloadCount === 1 ? "" : "s"}`
+      : ""
   return [
     request.tool,
     request.action,
-    request.subject,
+    ...display.lines,
     request.agentLabel ? `agent: ${request.agentLabel}` : "",
     request.notice ?? "",
+    hint,
   ]
     .filter((l) => l.length > 0)
     .join("\n")
@@ -171,11 +203,36 @@ export function wireGates(
 ): () => void {
   function onPermission(ev: PermissionGateEvent): void {
     const choices = permissionChoicesFromRequest(ev.request)
-    const body = permissionBodyFromRequest(ev.request)
+    const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true })
+    // Nothing was collapsed → no expand affordance, so the overlay leaves the
+    // bare key unclaimed.
+    const collapsedAnything =
+      formatCommandForApproval(ev.request.subject).payloadCount > 0
+    let expanded = false
+
+    const onToggleExpand = (): void => {
+      expanded = !expanded
+      setOverlayBody(
+        shell,
+        permissionBodyFromRequest(ev.request, { expanded, hint: true }),
+      )
+      if (!expanded) return
+      // The overlay body is height-capped by geometry, so the authoritative
+      // copy of an expanded payload goes to the scrollable transcript — whole,
+      // untruncated. Collapsing must never hide text the operator cannot
+      // otherwise reach before approving.
+      appendStreamRow(shell, {
+        role: "system",
+        text: permissionBodyFromRequest(ev.request, { expanded: true }),
+        meta: "permission",
+      })
+    }
 
     openPermissionsOverlay(shell, {
       items: choices.items,
       itemIds: choices.itemIds,
+      body: collapsedBody,
+      ...(collapsedAnything ? { onToggleExpand } : {}),
       onAccept: (sel: OverlaySelection) => {
         ev.resolve(
           approvalOutcomeFromSelection(choices, {
@@ -185,10 +242,14 @@ export function wireGates(
         )
       },
     })
-    if (body.length > 0) {
+    // Collapsing runs first, so this cap rarely bites; when it does,
+    // middleEllipsis keeps the tail of the chain visible instead of clipping
+    // the last segments away entirely.
+    const streamBody = permissionBodyFromRequest(ev.request)
+    if (streamBody.length > 0) {
       appendStreamRow(shell, {
         role: "system",
-        text: body.slice(0, 500),
+        text: middleEllipsis(streamBody, 500),
         meta: "permission",
       })
     }

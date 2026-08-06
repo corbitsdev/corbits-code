@@ -17,6 +17,8 @@ import {
   globalSettingsPath,
   loadLocalSettings,
   loadGlobalSettingsWriteBase,
+  listFavoriteModels,
+  listRecentModels,
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
@@ -119,7 +121,20 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "../tui-opentui/runner-host.js";
-import { appendStreamRow } from "../tui-opentui/shell.js";
+import {
+  appendStreamRow,
+  attachClipboardImage,
+  setMentionSuggestionSource,
+  setSentMessageHistory,
+} from "../tui-opentui/shell.js";
+import { ingestPathMentions } from "../tui-opentui/prompt-attachments.js";
+import { listPathSuggestions } from "./components/at-mention/list.js";
+import { resolveAtMentions } from "./mention-resolution.js";
+import {
+  imageAttachmentFromPath,
+  type PendingImageAttachment,
+} from "./image-attachments.js";
+import { appendSentMessage, loadSentMessages } from "../session/sent-messages.js";
 import type { OperatorGateEvent } from "./gate-events.js";
 import {
   createLifecycleHookManager,
@@ -249,7 +264,7 @@ export function routeSubmission(raw: string): SubmissionRoute {
 
 export type SubmitHandlerDeps = {
   dispatchCommand: (name: string, args: string) => void;
-  sendPrompt: (text: string) => void;
+  sendPrompt: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
 };
@@ -258,16 +273,50 @@ export type SubmitHandlerDeps = {
  * Composer submit handler. Slash input is dispatched against the command
  * registry instead of being sent to the model.
  */
-export function createSubmitHandler(deps: SubmitHandlerDeps): (text: string) => void {
-  return (text) => {
+export function createSubmitHandler(
+  deps: SubmitHandlerDeps,
+): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+  return (text, attachments) => {
     const route = routeSubmission(text);
-    if (route.kind === "empty") return;
+    const hasAttachments = attachments !== undefined && attachments.length > 0;
+    if (route.kind === "empty" && !hasAttachments) return;
     if (route.kind === "command") {
       deps.dispatchCommand(route.name, route.args);
       return;
     }
     deps.onPromptSubmitted?.();
-    deps.sendPrompt(route.text);
+    deps.sendPrompt(route.kind === "prompt" ? route.text : "", attachments);
+  };
+}
+
+/** Text sent alongside an image when the operator attached one without a prompt. */
+export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
+
+/**
+ * Build the inbound message carrying image attachments. Plain text sends stay
+ * on the string overload; only attachment sends need the envelope.
+ */
+export function userInboundMessage(
+  text: string,
+  attachments: readonly PendingImageAttachment[],
+): InboundMessage {
+  return {
+    ref: { uid: 1, mailbox: "INBOX" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `<${crypto.randomUUID()}@local>`,
+      interchangeType: "conversation.message",
+    },
+    flags: [],
+    signatureStatus: "missing",
+    content: text.length > 0 ? text : IMAGE_ONLY_PROMPT,
+    attachments: attachments.map((a) => ({
+      name: a.name,
+      contentType: a.contentType,
+      data: a.data,
+    })),
   };
 }
 
@@ -1610,9 +1659,34 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         systemRow(`${result.view} is not available in this renderer yet`);
         return;
       case "paste-image":
-        systemRow("Image attachments are not available in this renderer yet.");
+        void attachClipboardImage(host.shell);
         return;
     }
+  };
+
+  /**
+   * Full user-prompt send path: inline image paths become attachments,
+   * @mentions are expanded, and the message is recorded for Up/Down recall.
+   */
+  const sendUserPrompt = async (
+    text: string,
+    pending: readonly PendingImageAttachment[],
+  ): Promise<void> => {
+    if (text.trim().length > 0) {
+      void appendSentMessage(config.cwd, sessionId, text).catch((err: unknown) => {
+        tuiLogger.debug("sent-message append failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    const ingested = await ingestPathMentions(text, config.cwd, imageAttachmentFromPath);
+    const resolved = await resolveAtMentions(ingested.text, config.cwd);
+    const attachments = [...pending, ...ingested.attachments];
+    if (attachments.length === 0) {
+      await agentProxy.send(resolved);
+      return;
+    }
+    await agentProxy.send(userInboundMessage(resolved, attachments));
   };
 
   const dispatchCommand = (name: string, args: string): void => {
@@ -1632,8 +1706,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     eventEmitter: emitter,
     send: createSubmitHandler({
       dispatchCommand: (name, args) => dispatchCommand(name, args),
-      sendPrompt: (text) => {
-        void agentProxy.send(text).catch(recordRunError);
+      sendPrompt: (text, attachments) => {
+        void sendUserPrompt(text, attachments ?? []).catch(recordRunError);
       },
       onPromptSubmitted: () => {
         if (telemetryFirstRun && liveTelemetryIntent) {
@@ -1643,6 +1717,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }),
     interrupt,
     providers: config.providers,
+    recentModels: listRecentModels(config.settings ?? { providers: {} }),
+    favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
     onModelSelect: (id) => {
       const sep = id.indexOf(":");
       if (sep <= 0) return;
@@ -1753,6 +1829,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     },
   });
+
+  setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
+
+  // Recall spans the whole session, including what was sent before a resume.
+  void loadSentMessages(config.cwd, sessionId)
+    .then((sent) => setSentMessageHistory(host.shell, sent))
+    .catch(() => undefined);
 
   // Consent by proceeding requires the disclosure to be on screen before the
   // first prompt activates the held telemetry instance.

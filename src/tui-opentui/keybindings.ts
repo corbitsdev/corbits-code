@@ -31,5 +31,8 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+D", description: "Kill next word" },
   { keys: "Ctrl+Y", description: "Yank last kill at cursor" },
   { keys: "Alt+Y", description: "Cycle yank to the next-older kill" },
+  { keys: "Ctrl+P", description: "Attach an image from the clipboard to the next message" },
+  { keys: "@", description: "Open file suggestions for the @mention being typed" },
+  { keys: "Up / Down", description: "Recall previously sent messages at the prompt edge" },
   { keys: "Arrow keys", description: "Move cursor left / right / up / down in prompt" },
 ] as const
