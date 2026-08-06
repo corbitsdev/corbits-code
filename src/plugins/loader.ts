@@ -612,7 +612,9 @@ export async function discoverClaudeInstalledPlugins(
     parsed = JSON.parse(raw);
   } catch {
     // Prefer collector when present; else one stderr line (default sink).
-    resolvePluginWarningHandler({ diagnostics: opts.diagnostics })(
+    resolvePluginWarningHandler(
+      opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
+    )(
       `failed to parse ${registryPath}`,
     );
     return [];
@@ -628,7 +630,9 @@ export async function discoverClaudeInstalledPlugins(
   const pluginsRoot = resolve(home, ".claude", "plugins");
   // Default expand-skip sink respects diagnostics when provided so discovery
   // can emit one summary; explicit onExpandSkip (tests) still wins.
-  const warnExpand = resolvePluginWarningHandler({ diagnostics: opts.diagnostics });
+  const warnExpand = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
+  );
   const onExpandSkip =
     opts.onExpandSkip
     ?? ((skip: ExpandPluginPathSkip) => {
