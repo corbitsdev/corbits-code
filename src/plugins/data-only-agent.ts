@@ -336,7 +336,10 @@ async function loadSkillText(
 ): Promise<string | undefined> {
   // resolveSkillBody prepends `<pluginDir>/skills` for each entry in pluginDirs.
   // Prepend the data-only plugin's own directory so its skills/ wins.
-  return resolveSkillBody(cwd, skillName, [pluginDir, ...extraPluginDirs]);
+  // Path-like refs (`./skills/style`) resolve under pluginDir only.
+  return resolveSkillBody(cwd, skillName, [pluginDir, ...extraPluginDirs], {
+    pluginRoot: pluginDir,
+  });
 }
 
 // Parse "Load the `style` skill" lines from the body. corbitsdev agents declare

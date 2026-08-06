@@ -5,6 +5,10 @@ import type { CommandDefinition, CommandPlugin } from "../tui/commands/registry.
 import { loadDataOnlyAgentPlugin } from "./data-only-agent.js";
 import { loadDataOnlyCommands } from "./data-only-commands.js";
 import { loadSkillCommands } from "./skill-commands.js";
+import {
+  pluginWarningSink,
+  type PluginLoadDiagnostics,
+} from "./diagnostics.js";
 
 // A data-only plugin needs no `index.ts`: its contents are markdown/data files.
 // This orchestrator unifies the per-kind data loaders (agents, commands, tagged
@@ -69,11 +73,17 @@ async function readClaudePluginManifest(dir: string): Promise<ClaudePluginManife
 
 export async function loadDataOnlyPlugin(
   pluginDir: string,
-  opts: { cwd?: string; onWarning?: (msg: string) => void } = {},
+  opts: {
+    cwd?: string;
+    onWarning?: (msg: string) => void;
+    diagnostics?: PluginLoadDiagnostics;
+  } = {},
 ): Promise<DataOnlyPlugin | null> {
   const cwd = opts.cwd ?? process.cwd();
+  // Prefer explicit onWarning; else collect into diagnostics; else stderr default.
   const onWarning =
-    opts.onWarning ?? ((msg: string) => process.stderr.write(`plugins: ${msg}\n`));
+    opts.onWarning
+    ?? pluginWarningSink(opts.diagnostics);
 
   const [nativeManifest, claudeManifest, agents, commands, skillCmds] = await Promise.all([
     readManifestJson(pluginDir),

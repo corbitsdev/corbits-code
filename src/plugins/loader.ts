@@ -7,10 +7,16 @@ import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
+  pluginWarningSink,
+  type PluginLoadDiagnostics,
+} from "./diagnostics.js";
+import {
   originRequiresTrust,
   type PluginOrigin,
   type ProjectTrustStore,
 } from "../trust/project-trust.js";
+
+export type { PluginLoadDiagnostics } from "./diagnostics.js";
 
 export type PluginModule = {
   // Self-description (id, name, kind, credential fields), when the module
@@ -103,11 +109,14 @@ export async function loadPluginEntry(
   opts: {
     cwd?: string;
     onWarning?: (msg: string) => void;
+    diagnostics?: PluginLoadDiagnostics;
     origin?: PluginOrigin;
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  const onWarning = opts.onWarning ?? ((msg: string) => process.stderr.write(`plugins: ${msg}\n`));
+  const onWarning =
+    opts.onWarning
+    ?? pluginWarningSink(opts.diagnostics);
   const origin = opts.origin;
   let target = entryPath;
   let pluginDir = entryPath;
@@ -129,7 +138,11 @@ export async function loadPluginEntry(
       // No JS entry — fall back to a data-only plugin (agents/*.md and/or
       // commands/*.md). Lets a plugin be pure data + skills, no index.ts.
       if (target === entryPath) {
-        const dataOnly = await loadDataOnlyPlugin(entryPath, { cwd, onWarning });
+        const dataOnly = await loadDataOnlyPlugin(entryPath, {
+          cwd,
+          onWarning,
+          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+        });
         if (dataOnly !== null) {
           const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
           if (dataOnly.agentPlugin !== undefined) mod.agentPlugin = dataOnly.agentPlugin;

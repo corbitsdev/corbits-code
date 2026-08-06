@@ -255,6 +255,32 @@ describe("loadDataOnlyAgentPlugin", () => {
     expect(agent.systemPromptRole).toContain("agent body");
   });
 
+  test("frontmatter relative skill path bundles under plugin root", async () => {
+    const dir = await makePlugin({
+      "agents/a.md": '---\nskills: ["./skills/style"]\n---\nagent body\n',
+      "skills/style/SKILL.md": "---\nname: style\n---\nRelative clean.\n",
+    });
+    const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
+    const agent = plugin!.agentPlugin.agents[0] as { systemPromptRole: string };
+    expect(agent.systemPromptRole).toContain("Bundled skill: ./skills/style");
+    expect(agent.systemPromptRole).toContain("Relative clean.");
+  });
+
+  test("frontmatter absolute skill path is rejected", async () => {
+    const dir = await makePlugin({
+      "agents/a.md": "---\nskills: [/etc/passwd]\n---\nbody\n",
+    });
+    const warnings: string[] = [];
+    const plugin = await loadDataOnlyAgentPlugin(dir, {
+      pluginId: "p",
+      onWarning: (m) => warnings.push(m),
+    });
+    expect(plugin).not.toBeNull();
+    const agent = plugin!.agentPlugin.agents[0] as { systemPromptRole: string };
+    expect(agent.systemPromptRole).not.toContain("Bundled skill");
+    expect(warnings.some((w) => w.includes("/etc/passwd"))).toBe(true);
+  });
+
   test("body 'Load the `X` skill' lines are auto-detected", async () => {
     const dir = await makePlugin({
       "agents/a.md":
