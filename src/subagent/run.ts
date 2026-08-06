@@ -38,6 +38,7 @@ import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 
 import { createPruningCompactor } from "../session/compactor.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
@@ -396,13 +397,19 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     orchestrator: params.orchestrator === true,
   });
 
+  // Family-gate wire schemas the same way main sessions do (kimi present rewrite).
+  // Sub-agent toolsets currently omit `present` (main-session only); normalize is
+  // still applied so a future present on leaf tools cannot reintroduce $ref cycles.
   const directorDef = defineDirector({
     id: `${ID_PREFIX}/subagent`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       new SubAgentDirector(
         agentCtx.systemPrompt,
-        [...agentCtx.toolDefinitions],
+        normalizeToolDefinitionsForProvider([...agentCtx.toolDefinitions], {
+          providerName: params.provider.providerName,
+          model: params.provider.model,
+        }),
         requestContinuation,
         maxTurns,
         DEFAULT_SUBAGENT_REPEAT_LIMIT,

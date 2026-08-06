@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { presentDefinition } from "./director.js";
 import { manageTasksDefinition } from "./tasks.js";
-import { normalizeToolDefinitionsForProvider } from "./tool-schema-normalize.js";
+import {
+  KIMI_PRESENT_INPUT_SCHEMA,
+  normalizeToolDefinitionsForProvider,
+  PRESENT_VIEW_PRIMITIVES_GUIDANCE,
+} from "./tool-schema-normalize.js";
 import { validateView } from "../tui/view/validate.js";
 
 /** True when any object in the schema tree carries a `$ref` key. */
@@ -33,6 +37,14 @@ describe("normalizeToolDefinitionsForProvider", () => {
     expect(schemaHasDefs(recursivePresent.inputSchema)).toBe(true);
   });
 
+  test("present description and kimi view description share primitives guidance (no dual prose drift)", () => {
+    expect(PRESENT_VIEW_PRIMITIVES_GUIDANCE.length).toBeGreaterThan(0);
+    expect(presentDefinition.description).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
+    const viewDesc = (KIMI_PRESENT_INPUT_SCHEMA.properties.view as { description: string })
+      .description;
+    expect(viewDesc).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
+  });
+
   test("kimi / moonshot present wire schema has no $ref cycle", () => {
     const out = normalizeToolDefinitionsForProvider(defs, {
       providerName: "moonshot",
@@ -42,19 +54,41 @@ describe("normalizeToolDefinitionsForProvider", () => {
     expect(present).toBeDefined();
     expect(schemaHasRef(present!.inputSchema)).toBe(false);
     expect(schemaHasDefs(present!.inputSchema)).toBe(false);
-    // Still advertises a freeform object view + required.
     const schema = present!.inputSchema as {
       type?: string;
       required?: string[];
-      properties?: { view?: { type?: string; additionalProperties?: boolean } };
+      properties?: {
+        view?: {
+          oneOf?: unknown[];
+          description?: string;
+        };
+      };
     };
     expect(schema.type).toBe("object");
     expect(schema.required).toEqual(["view"]);
-    expect(schema.properties?.view?.type).toBe("object");
-    expect(schema.properties?.view?.additionalProperties).toBe(true);
+    // Richer non-recursive shape: view is oneOf of primitives, not bare freeform.
+    expect(Array.isArray(schema.properties?.view?.oneOf)).toBe(true);
+    expect((schema.properties?.view?.oneOf ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(schema.properties?.view?.description).toContain("Primitives:");
     // Description + examples stay on the tool for model guidance.
     expect(present!.description).toBe(recursivePresent.description);
     expect(present!.description.length).toBeGreaterThan(0);
+  });
+
+  test("kimi advertise payload is the exact Moonshot wire shape (pinned fixture, no live Moonshot)", () => {
+    // This is the advertise payload Moonshot receives for tools.function.parameters
+    // on `present` after normalizeToolDefinitionsForProvider — recorded so the
+    // contract cannot drift without a deliberate fixture update.
+    const out = normalizeToolDefinitionsForProvider(defs, {
+      providerName: "moonshot",
+      model: "kimi-k2",
+    });
+    const present = out.find((d) => d.name === "present")!;
+    expect(present.inputSchema).toEqual(
+      structuredClone(KIMI_PRESENT_INPUT_SCHEMA) as typeof present.inputSchema,
+    );
+    // Stable JSON pin of the full wire schema object.
+    expect(JSON.stringify(present.inputSchema)).toBe(JSON.stringify(KIMI_PRESENT_INPUT_SCHEMA));
   });
 
   test("opencode-go + kimi-k3 rewrites present (model-id gate)", () => {

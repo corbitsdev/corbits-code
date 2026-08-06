@@ -66,6 +66,16 @@ describe("isKimiLeafProvider", () => {
     expect(detectModelFamily({ providerName: "opencode-go", model: "kimi-k3" })).toBe("kimi");
   });
 
+  // In-tree OpenCode Go kimi catalog ids (packages/opencode-go/src/models.ts).
+  // Gate keeps /^kimi/ model-id match — list them so a new Go kimi id is covered.
+  test("covers all in-tree OpenCode Go kimi model ids", () => {
+    const goKimiModelIds = ["kimi-k3", "kimi-k2.7-code", "kimi-k2.6"] as const;
+    for (const model of goKimiModelIds) {
+      expect(isKimiLeafProvider({ providerName: "opencode-go", model })).toBe(true);
+      expect(detectModelFamily({ providerName: "opencode-go", model })).toBe("kimi");
+    }
+  });
+
   test("rejects unrelated providers", () => {
     expect(isKimiLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe(false);
     expect(isKimiLeafProvider({ providerName: "opencode-go", model: "gpt-5.1" })).toBe(false);
