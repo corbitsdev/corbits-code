@@ -278,7 +278,7 @@ describe("collapsed tool results", () => {
       name: "mcp__linear__list_issues",
       arguments: JSON.stringify({ assignee: "me", limit: 30, orderBy: "updatedAt" }),
     })
-    expect(row.verb).toBe("Linear: list issues")
+    expect(row.verb).toBe("Linear: List Issues")
     expect(row.summary).toBe("")
     expect(detailText(row)).toContain("limit: 30")
     expect(isCollapsibleRow(row)).toBe(true)

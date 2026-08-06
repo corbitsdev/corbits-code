@@ -451,8 +451,8 @@ describe("buildRequests", () => {
     expect(reqs).toHaveLength(1);
     const req = reqs[0]!;
     expect(req.action).not.toContain("mcp__");
-    expect(req.scopes[0]?.label).toBe("Always allow Acme: list projects");
-    expect(req.scopes[0]?.hint).toBe("Acme: list projects");
+    expect(req.scopes[0]?.label).toBe("Always allow Acme: List Projects");
+    expect(req.scopes[0]?.hint).toBe("Acme: List Projects");
     // The raw identifier stays as the subject/pattern so approval matching is unaffected.
     expect(req.subject).toBe("mcp__acme__list_projects");
     expect(req.scopes[0]?.pattern).toBe("mcp__acme__list_projects");

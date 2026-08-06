@@ -44,7 +44,7 @@ describe("a call and its answer", () => {
     expect(rows.length).toBe(1)
     expect(rows[0]?.pending).toBeUndefined()
     // The subject stays the call; the answer adds only a certain count.
-    expect(rows[0]?.verb).toBe("Linear: list issues")
+    expect(rows[0]?.verb).toBe("Linear: List Issues")
     expect(rows[0]?.stat).toBe("2 results")
     expect(painted(rows[0]!)).not.toContain("└")
   })
@@ -110,7 +110,7 @@ describe("a run of identical calls", () => {
     expect(rows[0]?.coalesced).toBe(true)
     expect(rows[0]?.detail?.length).toBe(8)
     // The row says what the call was, never a total it cannot substantiate.
-    expect(rows[0]?.verb).toBe("Linear: list issues")
+    expect(rows[0]?.verb).toBe("Linear: List Issues")
     expect(rows[0]?.stat).toBeUndefined()
   })
 
@@ -176,7 +176,7 @@ describe("a live turn", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("Linear: list issues 2 results")
+          expect(frame).toContain("Linear: List Issues 2 results")
           expect(frame).not.toContain("└")
         } finally {
           bridge.dispose()

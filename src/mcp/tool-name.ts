@@ -24,13 +24,27 @@ function titleCase(word: string): string {
   return word.length === 0 ? word : word[0]!.toUpperCase() + word.slice(1);
 }
 
-// "mcp__linear__list_projects" -> "Linear: list projects". Falls back to the raw
+// Some servers suffix (or prefix) every tool name with their own name, a
+// pre-namespacing convention (Exa's "web_search_exa") that now just repeats
+// the server prefix we already show it under. Strips a leading/trailing word
+// that matches the server, case-insensitively, so it is not said twice.
+export function mcpToolWords(server: string, tool: string): string[] {
+  const words = tool.split("_").filter((word) => word.length > 0);
+  if (words.length > 1 && words[words.length - 1]!.toLowerCase() === server.toLowerCase()) {
+    words.pop();
+  } else if (words.length > 1 && words[0]!.toLowerCase() === server.toLowerCase()) {
+    words.shift();
+  }
+  return words;
+}
+
+// "mcp__linear__list_projects" -> "Linear: List Projects". Falls back to the raw
 // name only if it does not match the MCP shape (callers guard with isMcpToolName).
 export function humanizeMcpTool(name: string): string {
   const parsed = parseMcpToolName(name);
   if (parsed === null) return name;
   const server = titleCase(parsed.server);
-  const tool = parsed.tool.replace(/_/g, " ");
+  const tool = mcpToolWords(parsed.server, parsed.tool).map(titleCase).join(" ");
   return `${server}: ${tool}`;
 }
 

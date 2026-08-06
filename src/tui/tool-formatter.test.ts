@@ -19,7 +19,7 @@ describe("humanizeToolName", () => {
     expect(humanizeToolName("custom_tool")).not.toContain("_");
   });
   test("renders MCP tools as 'Server: tool name'", () => {
-    expect(humanizeToolName("mcp__acme__list_projects")).toBe("Acme: list projects");
+    expect(humanizeToolName("mcp__acme__list_projects")).toBe("Acme: List Projects");
     expect(humanizeToolName("mcp__acme__list_projects")).not.toContain("mcp__");
   });
 });

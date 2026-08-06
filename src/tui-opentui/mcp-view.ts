@@ -17,7 +17,7 @@
 
 import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core"
 
-import { isMcpToolName, parseMcpToolName } from "../mcp/tool-name.js"
+import { humanizeMcpTool, isMcpToolName, mcpToolWords, parseMcpToolName } from "../mcp/tool-name.js"
 import { UI } from "./theme.js"
 import {
   extractMcpRecord,
@@ -312,14 +312,12 @@ const MCP_TOOL_VERB_PREFIXES = [
  * `get_project` -> "project". Only used to name a count the payload could not
  * name itself, so a tool whose name carries no noun yields nothing.
  */
-function nounFromToolName(tool: string): string | undefined {
+function nounFromToolName(server: string, tool: string): string | undefined {
   const prefix = MCP_TOOL_VERB_PREFIXES.find((candidate) =>
     tool.startsWith(candidate),
   )
-  const rest = (prefix === undefined ? tool : tool.slice(prefix.length)).replace(
-    /_/g,
-    " ",
-  )
+  const stripped = prefix === undefined ? tool : tool.slice(prefix.length)
+  const rest = mcpToolWords(server, stripped).join(" ")
   return rest.length > 0 ? rest : undefined
 }
 
@@ -400,13 +398,18 @@ function toolCatalogueSummary(content: string): ResultSummary | null {
       ? `Found ${countNoun(cards.length, "tool")} across ${countNoun(servers.size, "server")}`
       : `Found ${countNoun(cards.length, "tool")}`
   const detail = cards.slice(0, MAX_DETAIL_LINES).map((card): StyledBodyLine => {
-    const description = cut(card[2] ?? "")
+    const rawName = card[1] ?? ""
+    const name = isMcpToolName(rawName) ? humanizeMcpTool(rawName) : rawName
+    // The catalogue text sometimes leads its description with the same
+    // "[server]" tag the humanised name already carries as its prefix; drop it
+    // so the server is not said twice.
+    const description = cut((card[2] ?? "").replace(/^\[[^\]]+\]\s*/, ""))
     return description.length > 0
       ? [
-          { text: card[1] ?? "", fg: UI.inFlightBright },
+          { text: name, fg: UI.inFlightBright },
           { text: `  ${description}`, fg: UI.textDim },
         ]
-      : [{ text: card[1] ?? "", fg: UI.inFlightBright }]
+      : [{ text: name, fg: UI.inFlightBright }]
   })
   return { summary, detail }
 }
@@ -417,7 +420,7 @@ function recordsSummary(toolName: string, records: McpRecords): string {
   const noun =
     records.label !== "items"
       ? records.label
-      : (parsed !== null ? nounFromToolName(parsed.tool) : undefined) ?? "items"
+      : (parsed !== null ? nounFromToolName(parsed.server, parsed.tool) : undefined) ?? "items"
   const owner = parsed === null ? "" : `${titleCase(parsed.server)} `
   return `Grabbed ${records.items.length} ${owner}${records.items.length === 1 ? singular(noun) : plural(noun)}`
 }
@@ -429,7 +432,7 @@ function recordSummary(
 ): string {
   const parsed = parseMcpToolName(toolName)
   const noun =
-    parsed !== null ? singular(nounFromToolName(parsed.tool) ?? "record") : "record"
+    parsed !== null ? singular(nounFromToolName(parsed.server, parsed.tool) ?? "record") : "record"
   const owner = parsed === null ? "" : `${titleCase(parsed.server)} `
   const title = firstScalar(record, TITLE_FIELDS)
   return `Read ${owner}${noun}${title === undefined ? "" : ` ${cut(title)}`}`
