@@ -23,6 +23,7 @@ import type { GoalGovernor } from "./goal.js";
 import { evidenceFromTurns } from "./goal-evaluator.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
+import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
@@ -147,12 +148,9 @@ export const presentDefinition: ToolDefinition = {
     "Render structured output for the user via a dynamic layout tree. " +
     "Use this (instead of markdown tables or raw dumps) when you want aligned columns, grouped records, status, or other composed blocks. " +
     "The `view` is a single root node tree built from generic layout primitives only — no fixed widget catalog. " +
-    "Primitives: text{text, tone?, bold?, dim?}; " +
-    "stack{children:[node], gap?:0|1}; row{children:[node], gap?:0|1}; " +
-    "box{border?, padding?, children:[node]}; divider; " +
-    "grid{columns?:[{align?}], rows: [ [cellNode, ...], ... ] } for aligned columns (cells are usually text nodes). " +
-    "tone is one of default|muted|success|warning|danger|accent. " +
-    "Keep it compact; the UI handles width and scrolling. Compose freely rather than targeting named shapes. " +
+    PRESENT_VIEW_PRIMITIVES_GUIDANCE +
+    " " +
+    "Keep it compact; the UI handles width and scrolling. " +
     'Example: {"view":{"type":"stack","children":[{"type":"text","text":"Build","bold":true},{"type":"row","gap":1,"children":[{"type":"text","text":"status:"},{"type":"text","text":"ok","tone":"success"}]}]}}',
   inputSchema: {
     type: "object",

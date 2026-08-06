@@ -75,6 +75,7 @@ import {
   advertisedTools,
   createActivatedToolTracker,
 } from "../agent/tool-search.js";
+import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
@@ -800,8 +801,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // here before the model can actually invoke it — merely being dispatchable in
   // the runner is not enough on those providers.
   const activatedToolNames = createActivatedToolTracker();
+  // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
   const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-    advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix);
+    normalizeToolDefinitionsForProvider(
+      advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix),
+      { providerName: config.providerName, model: config.model },
+    );
 
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
