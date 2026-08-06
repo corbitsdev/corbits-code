@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
@@ -118,5 +118,33 @@ describe("path-like skill refs", () => {
 
   test("path-like ref without pluginRoot returns undefined", async () => {
     expect(await resolveSkillBody(fixtureCwd, "./skills/style", [])).toBeUndefined();
+  });
+
+  test("rejects bare . and .. as invalid skill refs", async () => {
+    expect(await resolveSkillBody(fixtureCwd, ".", [], { pluginRoot })).toBeUndefined();
+    expect(await resolveSkillBody(fixtureCwd, "..", [], { pluginRoot })).toBeUndefined();
+    // Namespaced form still parses to bare . / ..
+    expect(await resolveSkillBody(fixtureCwd, "plugin:.", [], { pluginRoot })).toBeUndefined();
+    expect(await resolveSkillBody(fixtureCwd, "plugin:..", [], { pluginRoot })).toBeUndefined();
+  });
+
+  test("rejects symlink under pluginRoot that escapes outside", async () => {
+    // Outside skill body that must never load via a symlink escape.
+    const outsideDir = await mkdtemp(join(tmpdir(), "skill-outside-"));
+    await writeFile(join(outsideDir, "SKILL.md"), "escaped via symlink\n", "utf8");
+    const linkDir = join(pluginRoot, "skills", "escape-link");
+    try {
+      await symlink(outsideDir, linkDir, "dir");
+      expect(
+        await resolveSkillBody(fixtureCwd, "./skills/escape-link", [], { pluginRoot }),
+      ).toBeUndefined();
+      expect(
+        await resolveSkillBody(fixtureCwd, "./skills/escape-link/SKILL.md", [], {
+          pluginRoot,
+        }),
+      ).toBeUndefined();
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
   });
 });

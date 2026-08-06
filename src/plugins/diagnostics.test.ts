@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   createPluginLoadDiagnostics,
+  emitPluginWarningSummary,
   formatPluginWarningsSummary,
   pluginWarningSink,
 } from "./diagnostics.js";
@@ -47,6 +48,26 @@ describe("formatPluginWarningsSummary", () => {
     ]);
     expect(summary).toContain("1 skill missing");
     expect(summary).toContain("1 other warning");
+  });
+});
+
+describe("emitPluginWarningSummary", () => {
+  test("writes one summary line via custom sink", () => {
+    const diag = createPluginLoadDiagnostics();
+    diag.warnings.push(
+      'agent a: skill "style" referenced but not found in skill search path',
+      'agent a: skill "philosophy" referenced but not found in skill search path',
+    );
+    const lines: string[] = [];
+    emitPluginWarningSummary(diag, (line) => lines.push(line));
+    expect(lines).toEqual(["plugins: 2 skills missing: style, philosophy"]);
+  });
+
+  test("is a no-op when there are no warnings", () => {
+    const diag = createPluginLoadDiagnostics();
+    const lines: string[] = [];
+    emitPluginWarningSummary(diag, (line) => lines.push(line));
+    expect(lines).toEqual([]);
   });
 });
 

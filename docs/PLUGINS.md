@@ -248,6 +248,16 @@ shape.
 - **Data-only agent plugins** — a directory with `agents/*.md` (or flat `*.md`)
   and optional `skills/<name>/SKILL.md` needs no `index.ts`; `loadDataOnlyAgentPlugin`
   synthesizes the same `agentPlugin` shape after frontmatter validation.
+- **Skill refs on agent frontmatter / body.** A skill name is either:
+  - **Bare** — `style`, `philosophy`, or a namespaced `plugin:style`. Resolved by
+    searching the plugin's `skills/` dir first, then project-local fallbacks
+    (`.agents/skills`, `.claude/skills`, `.codex/skills`). Prefer bare names for
+    co-located skills; they are the portable, discoverable form.
+  - **Path-like** — `./skills/style`, `skills/style`, `../sibling-skill`, or any
+    ref containing `/` (including a trailing `SKILL.md`). Resolved only under the
+    plugin root (`pluginRoot`), with lexical containment plus a realpath check so
+    a symlink under the root cannot escape. Absolute paths, bare `.` / `..`, and
+    escapes outside the root are rejected (skill miss, not a crash).
 - An agent plugin is wired in only when `settings.plugins[id].enabled` is true
   (same gating as command plugins — no consent needed, since profiles are
   configuration data, not in-process code).

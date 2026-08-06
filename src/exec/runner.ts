@@ -89,7 +89,7 @@ import {
 } from "../session/runtime-assembly.js";
 import {
   createPluginLoadDiagnostics,
-  formatPluginWarningsSummary,
+  emitPluginWarningSummary,
 } from "../plugins/diagnostics.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
@@ -253,12 +253,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isRegisteredPathTrusted,
       diagnostics: pluginLoadDiag,
     });
-    {
-      const discoverySummary = formatPluginWarningsSummary(pluginLoadDiag.warnings);
-      if (discoverySummary !== undefined) {
-        logger.warn(discoverySummary);
-      }
-    }
+    emitPluginWarningSummary(pluginLoadDiag, (line) => logger.warn(line));
     // Metadata-only (untrusted) modules stay out of executable plugins.
     const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
     const pluginConfig = config.settings?.plugins ?? {};

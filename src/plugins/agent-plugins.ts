@@ -5,7 +5,30 @@ import { AgentProfileSchema } from "../agent/profiles.js";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { isPluginEnabled } from "./register.js";
+import {
+  pluginWarningSink,
+  type PluginLoadDiagnostics,
+} from "./diagnostics.js";
 import { type } from "arktype";
+
+export type ResolveAgentPluginProfilesOptions = {
+  onWarning?: (msg: string) => void;
+  diagnostics?: PluginLoadDiagnostics;
+};
+
+/**
+ * Resolve the warning sink for profile validation. Prefer diagnostics when
+ * provided; else an explicit onWarning; else silent drop (profiles are still
+ * skipped either way — matching historical default).
+ */
+function resolveAgentProfileWarningHandler(
+  opts: ResolveAgentPluginProfilesOptions | ((msg: string) => void),
+): (msg: string) => void {
+  if (typeof opts === "function") return opts;
+  if (opts.diagnostics !== undefined) return pluginWarningSink(opts.diagnostics);
+  if (opts.onWarning !== undefined) return opts.onWarning;
+  return () => {};
+}
 
 // Collect agent profiles from every enabled agent-kind plugin. Each profile is
 // validated against the AgentProfileSchema so a malformed entry is skipped
@@ -13,15 +36,15 @@ import { type } from "arktype";
 // consent) is sufficient: an agent profile is configuration data (tier,
 // capabilities, role prompt), not in-process code execution.
 //
-// `onWarning` is invoked with a human-readable diagnostic whenever a profile
-// is rejected, so JS-plugin authors get the same feedback loop data-only
-// plugin authors already enjoy. Optional; absent warnings are silently
-// dropped (the profile is still skipped either way).
+// Warnings fire whenever a profile is rejected so JS-plugin authors get the
+// same feedback loop data-only plugin authors already enjoy. Pass `diagnostics`
+// (preferred) or `onWarning`; a bare callback is still accepted for tests.
 export async function resolveAgentPluginProfiles(
   modules: PluginModule[],
   config: Record<string, PluginConfig>,
-  onWarning: (msg: string) => void = () => {},
+  opts: ResolveAgentPluginProfilesOptions | ((msg: string) => void) = {},
 ): Promise<AgentProfile[]> {
+  const onWarning = resolveAgentProfileWarningHandler(opts);
   const out: AgentProfile[] = [];
   for (const mod of modules) {
     if (mod.manifest?.kind !== "agent") continue;

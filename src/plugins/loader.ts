@@ -1,10 +1,11 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve } from "node:path";
 
 import type { WorkflowPlugin } from "../workflows/types.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
+import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
@@ -203,7 +204,9 @@ export async function loadPluginEntry(
     }
     return result;
   } catch (err) {
-    process.stderr.write(`plugins: failed to load "${target}": ${String(err)}\n`);
+    // Route through the same sink as skill/load warnings so a diagnostics
+    // collector can summarize instead of writing mid-frame stderr.
+    onWarning(`failed to load "${target}": ${String(err)}`);
     return null;
   }
 }
@@ -608,7 +611,10 @@ export async function discoverClaudeInstalledPlugins(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    process.stderr.write(`plugins: failed to parse ${registryPath}\n`);
+    // Prefer collector when present; else one stderr line (default sink).
+    resolvePluginWarningHandler({ diagnostics: opts.diagnostics })(
+      `failed to parse ${registryPath}`,
+    );
     return [];
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -620,7 +626,17 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
-  const onExpandSkip = opts.onExpandSkip ?? defaultExpandSkip;
+  // Default expand-skip sink respects diagnostics when provided so discovery
+  // can emit one summary; explicit onExpandSkip (tests) still wins.
+  const warnExpand = resolvePluginWarningHandler({ diagnostics: opts.diagnostics });
+  const onExpandSkip =
+    opts.onExpandSkip
+    ?? ((skip: ExpandPluginPathSkip) => {
+      const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
+      warnExpand(
+        `skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}`,
+      );
+    });
   const installPaths: Array<{ abs: string; registryKey: string }> = [];
   const seen = new Set<string>();
   for (const [registryKey, entries] of Object.entries(
@@ -698,17 +714,6 @@ export async function discoverClaudeInstalledPlugins(
     }
   }
   return results;
-}
-
-/** True when `abs` is the root or a path strictly under it (prefix + separator). */
-function pathIsInsideOrEqual(abs: string, root: string): boolean {
-  const a = resolve(abs);
-  const r = resolve(root);
-  if (a === r) return true;
-  // Use platform separator so Windows drive paths do not match on `/` alone.
-
-  const prefix = r.endsWith(sep) ? r : `${r}${sep}`;
-  return a.startsWith(prefix);
 }
 
 /** True when a plugin id is probably a cache version dirname, not a product name. */

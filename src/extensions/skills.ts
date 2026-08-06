@@ -1,5 +1,7 @@
+import { realpath } from "node:fs/promises";
 import { readdir, readFile } from "node:fs/promises";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
@@ -30,16 +32,6 @@ function parseSkillRef(ref: string): string {
 /** Path-like refs: `./x`, `../x`, or any ref containing `/`. Bare names stay bare. */
 export function isPathLikeSkillRef(name: string): boolean {
   return name.startsWith("./") || name.startsWith("../") || name.includes("/");
-}
-
-/** True when `abs` is the root or a path strictly under it (prefix + separator). */
-function pathIsInsideOrEqual(abs: string, root: string): boolean {
-  const a = resolve(abs);
-  const r = resolve(root);
-  if (a === r) return true;
-  // Platform separator so win32 paths (C:\foo) do not treat `/` as the only boundary.
-  const prefix = r.endsWith(sep) ? r : `${r}${sep}`;
-  return a.startsWith(prefix);
 }
 
 function frontmatterBlock(raw: string): string | undefined {
@@ -84,7 +76,8 @@ async function bodyFromSkillPath(path: string): Promise<string | undefined> {
 /**
  * Resolve a path-like skill ref against `pluginRoot`. Absolute refs and
  * escapes outside the root are rejected. Accepts a SKILL.md file path or a
- * directory that contains SKILL.md.
+ * directory that contains SKILL.md. When the candidate exists, both sides are
+ * realpath'd so a symlink under the root cannot escape to outside content.
  */
 async function resolvePathLikeSkillBody(
   pluginRoot: string,
@@ -95,16 +88,23 @@ async function resolvePathLikeSkillBody(
   const resolved = resolve(root, ref);
   if (!pathIsInsideOrEqual(resolved, root)) return undefined;
 
-  // File form: ref points at SKILL.md itself.
-  if (resolved.endsWith("SKILL.md") || resolved.endsWith(`${"/"}SKILL.md`)) {
-    if (!pathIsInsideOrEqual(resolved, root)) return undefined;
-    return bodyFromSkillPath(resolved);
-  }
-
-  // Directory form: ref points at a skill folder containing SKILL.md.
-  const skillMd = join(resolved, "SKILL.md");
+  // File form (…/SKILL.md) or directory form (…/skill-dir → …/skill-dir/SKILL.md).
+  const skillMd =
+    basename(resolved) === "SKILL.md" ? resolved : join(resolved, "SKILL.md");
   if (!pathIsInsideOrEqual(skillMd, root)) return undefined;
-  return bodyFromSkillPath(skillMd);
+
+  // Symlink escape bar: realpath both sides when the candidate exists.
+  try {
+    const [realSkill, realRoot] = await Promise.all([
+      realpath(skillMd),
+      realpath(root),
+    ]);
+    if (!pathIsInsideOrEqual(realSkill, realRoot)) return undefined;
+    return bodyFromSkillPath(realSkill);
+  } catch {
+    // Missing path (or unreadable root) → not a resolvable skill.
+    return undefined;
+  }
 }
 
 // Resolve a skill reference (e.g. scribe or gaas:scribe) to its body text — the
@@ -120,6 +120,8 @@ export async function resolveSkillBody(
   options?: ResolveSkillBodyOptions,
 ): Promise<string | undefined> {
   const name = parseSkillRef(ref);
+  // Bare `.` / `..` are not skill names and must not fall through to directory search.
+  if (name === "." || name === "..") return undefined;
   if (isPathLikeSkillRef(name)) {
     const pluginRoot = options?.pluginRoot;
     if (pluginRoot === undefined) return undefined;

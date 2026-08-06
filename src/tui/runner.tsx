@@ -47,7 +47,7 @@ import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type PluginOrigin } from "../plugins/loader.js";
 import {
   createPluginLoadDiagnostics,
-  formatPluginWarningsSummary,
+  emitPluginWarningSummary,
 } from "../plugins/diagnostics.js";
 import {
   isPluginTrusted,
@@ -235,12 +235,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     isRegisteredPathTrusted,
     diagnostics: pluginLoadDiag,
   });
-  {
-    const discoverySummary = formatPluginWarningsSummary(pluginLoadDiag.warnings);
-    if (discoverySummary !== undefined) {
-      process.stderr.write(`${discoverySummary}\n`);
-    }
-  }
+  emitPluginWarningSummary(pluginLoadDiag);
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -509,12 +504,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             origin: stub.origin,
             diagnostics: trustDiag,
           });
-          {
-            const trustSummary = formatPluginWarningsSummary(trustDiag.warnings);
-            if (trustSummary !== undefined) {
-              process.stderr.write(`${trustSummary}\n`);
-            }
-          }
+          emitPluginWarningSummary(trustDiag);
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -560,16 +550,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const profiles = await resolveAgentPluginProfiles(
           [agentMod],
           { [id]: { enabled: true } },
-          (msg) => {
-            verifyDiag.warnings.push(msg);
-          },
+          { diagnostics: verifyDiag },
         );
-        {
-          const verifySummary = formatPluginWarningsSummary(verifyDiag.warnings);
-          if (verifySummary !== undefined) {
-            process.stderr.write(`${verifySummary}\n`);
-          }
-        }
+        emitPluginWarningSummary(verifyDiag);
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
         // Check tier resolution so the user knows if the provider is configured.
         const unresolved = profiles.filter(
@@ -619,12 +602,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         origin: "path",
         diagnostics: addDiag,
       });
-      {
-        const addSummary = formatPluginWarningsSummary(addDiag.warnings);
-        if (addSummary !== undefined) {
-          process.stderr.write(`${addSummary}\n`);
-        }
-      }
+      emitPluginWarningSummary(addDiag);
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
@@ -702,16 +680,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const pluginAgentProfiles = await resolveAgentPluginProfiles(
     executablePlugins(),
     config.settings?.plugins ?? {},
-    (msg) => {
-      profileDiag.warnings.push(msg);
-    },
+    { diagnostics: profileDiag },
   );
-  {
-    const profileSummary = formatPluginWarningsSummary(profileDiag.warnings);
-    if (profileSummary !== undefined) {
-      process.stderr.write(`${profileSummary}\n`);
-    }
-  }
+  emitPluginWarningSummary(profileDiag);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 

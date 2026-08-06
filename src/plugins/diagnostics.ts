@@ -10,14 +10,6 @@ export function createPluginLoadDiagnostics(): PluginLoadDiagnostics {
   return { warnings: [] };
 }
 
-/** Push a warning into the collector (no-op sink when diag is undefined). */
-export function collectPluginWarning(
-  diag: PluginLoadDiagnostics | undefined,
-  msg: string,
-): void {
-  diag?.warnings.push(msg);
-}
-
 /**
  * Build an onWarning callback that records into `diag` when provided, else
  * falls back to the given sink (default: one stderr line per message).
@@ -77,4 +69,18 @@ export function formatPluginWarningsSummary(
 
   const n = warnings.length;
   return `plugins: ${n} warning${n === 1 ? "" : "s"} during load`;
+}
+
+/**
+ * Format + emit a diagnostics summary in one call. Default write is one stderr
+ * line; pass a custom sink for logger-backed callers (e.g. headless exec).
+ */
+export function emitPluginWarningSummary(
+  diag: PluginLoadDiagnostics,
+  write: (line: string) => void = (line) => {
+    process.stderr.write(`${line}\n`);
+  },
+): void {
+  const summary = formatPluginWarningsSummary(diag.warnings);
+  if (summary !== undefined) write(summary);
 }
