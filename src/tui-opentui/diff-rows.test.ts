@@ -103,7 +103,7 @@ describe("diff transcript rows", () => {
     }, WIDE)
   })
 
-  test("a non-edit tool call still paints literal arguments", async () => {
+  test("a non-edit tool call paints its summary, not its argument JSON", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts)
       appendStreamRow(
@@ -112,7 +112,10 @@ describe("diff transcript rows", () => {
       )
 
       await settle(h)
-      expect(h.captureCharFrame()).toContain('{"path":"src/x.ts"}')
+      const frame = h.captureCharFrame()
+      expect(frame).toContain("src/x.ts")
+      expect(frame).not.toContain('{"path"')
+      expect(frame).toContain("e expand")
     }, WIDE)
   })
 

@@ -8,7 +8,19 @@ import { SyntaxStyle } from "@opentui/core"
 import { stringWidth, wrapLines } from "../tui/view/height.js"
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
+import { thinkingScrollLine, thoughtPhrase, type Thought } from "./thinking.js"
 import { UI } from "./theme.js"
+
+/**
+ * One line of a pre-coloured body (an expanded tool call's structured
+ * arguments). Styled runs are painted as authored rather than re-parsed, so a
+ * body that already knows its own colours keeps them.
+ */
+export type StyledBodyLine = readonly {
+  readonly text: string
+  readonly fg: string
+  readonly bold?: boolean
+}[]
 
 export type StreamRole = "user" | "assistant" | "tool" | "system"
 
@@ -58,6 +70,15 @@ export type StreamRow = {
    * body is skill instructions, which collapse to a summary until expanded.
    */
   readonly skill?: string
+  /**
+   * Human summary of a tool call's arguments. Present means the row paints the
+   * summary instead of `text`, which is the raw argument JSON.
+   */
+  readonly summary?: string
+  /** Structured body a summarised call reveals when expanded. */
+  readonly detail?: readonly StyledBodyLine[]
+  /** Settled reasoning: what the row collapses to once thinking is done. */
+  readonly thought?: Thought
   /** Whether a collapsible body is currently showing in full. */
   readonly expanded?: boolean
 }
@@ -283,18 +304,56 @@ function thinkingLines(text: string, layout: RowLayout): string[] {
   return lines.map((line) => `${lead}${marker}${line}`)
 }
 
+/** Trailer that tells a collapsed row it has more behind it, and how to get there. */
+function expandHint(expanded: boolean): string {
+  return ` · ${EXPAND_KEY} ${expanded ? "collapse" : "expand"}`
+}
+
+/**
+ * Reasoning body. While it streams it is one row windowed onto the newest text;
+ * once it has settled it is the phrase it earned, with the full chain of thought
+ * behind the expand key. A row with no settled thought (a hydrated transcript,
+ * a fixture) keeps the plain block — there is no elapsed time to summarise.
+ */
+function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
+  const lead = " ".repeat(THINKING_INDENT)
+  if (row.streaming === true) {
+    const marker = `${THINKING_BAR} `
+    const columns = Math.max(1, layout.width - stringWidth(lead) - stringWidth(marker))
+    return [`${lead}${marker}${thinkingScrollLine(row.text, columns)}`]
+  }
+  if (row.thought === undefined) return thinkingLines(row.text, layout)
+  const expanded = row.expanded === true
+  const head = `${lead}${thoughtPhrase(row.thought.ms, row.thought.variant)}${expandHint(expanded)}`
+  return expanded ? [head, ...thinkingLines(row.text, layout)] : [head]
+}
+
 /** Body a collapsible row shows: the summary alone, or the full text plus the way back. */
 function collapsibleBody(row: StreamRow, skill: string): string {
   const lines = row.text.split("\n").length
   const summary = `skill "${skill}" loaded · ${lines} line${lines === 1 ? "" : "s"}`
   return row.expanded === true
-    ? `${summary} · ${EXPAND_KEY} collapse\n${row.text}`
-    : `${summary} · ${EXPAND_KEY} expand`
+    ? `${summary}${expandHint(true)}\n${row.text}`
+    : `${summary}${expandHint(false)}`
+}
+
+/** Plain-text rendering of a styled body, for text frames and the clipboard. */
+function detailPlainLines(detail: readonly StyledBodyLine[]): string[] {
+  return detail.map((line) => line.map((segment) => segment.text).join("").trimEnd())
+}
+
+/** The head line of a summarised tool call: what it did, and the way in. */
+export function summaryHead(row: StreamRow, summary: string): string {
+  return `${summary}${row.detail === undefined ? "" : expandHint(row.expanded === true)}`
 }
 
 /** The text a row paints, after collapsing anything that hides behind a summary. */
 function rowBody(row: StreamRow): string {
-  return row.skill === undefined ? row.text : collapsibleBody(row, row.skill)
+  if (row.skill !== undefined) return collapsibleBody(row, row.skill)
+  if (row.summary === undefined) return row.text
+  const head = summaryHead(row, row.summary)
+  if (row.expanded !== true || row.detail === undefined) return head
+  return [head, ...detailPlainLines(row.detail)].join("\n")
 }
 
 /**
@@ -312,15 +371,25 @@ export function paintStreamRow(
   }
   if (isThinkingRow(row)) {
     return {
-      content: thinkingLines(row.text, layout).join("\n"),
+      content: reasoningLines(row, layout).join("\n"),
       fg,
     }
   }
-  // A multi-line body (a shell result, an expanded skill) keeps every line on
-  // the body column instead of falling back under the prefix.
   const gutter = streamRowGutter(row, layout).content
-  const body = rowBody(row).split("\n").join(`\n${" ".repeat(stringWidth(gutter))}`)
-  return { content: `${gutter}${body}`, fg }
+  return { content: `${gutter}${indentBody(rowBody(row), gutter, layout)}`, fg }
+}
+
+/**
+ * A body laid out under its own column: wrapped to the columns left beside the
+ * prefix and indented onto them. Left to the renderer, a long line (raw tool
+ * arguments, a wide result) wraps to column 0 — outside the shell's gutter and
+ * outside the meta column — which breaks the one alignment the transcript has.
+ */
+function indentBody(text: string, gutter: string, layout: RowLayout): string {
+  const lead = stringWidth(gutter)
+  const columns = Math.max(1, layout.width - lead)
+  const lines = text.split("\n").flatMap((line) => wrapLines(line, columns))
+  return lines.join(`\n${" ".repeat(lead)}`)
 }
 
 /** Blank rows painted above a row that opens a new group. */
@@ -363,6 +432,7 @@ export function rowGroupGap(
 /** Whether this row's body should render as markdown rather than literal text. */
 export function isMarkdownRow(row: StreamRow): boolean {
   if (row.structured !== undefined || row.diff !== undefined) return false
+  if (isDetailRow(row)) return false
   // The operator's turn is a laid-out bubble, which a markdown body would
   // re-wrap and left-align out of the right gutter.
   if (row.role === "user") return false
@@ -377,6 +447,22 @@ export function isStructuredRow(row: StreamRow): boolean {
 /** Whether this row paints a diff body instead of its text. */
 export function isDiffRow(row: StreamRow): boolean {
   return row.diff !== undefined
+}
+
+/** Whether this row paints a styled structured body (an opened tool call). */
+export function isDetailRow(row: StreamRow): boolean {
+  return row.detail !== undefined && row.expanded === true
+}
+
+/**
+ * Whether the expand key has anything to do on this row. One idiom across the
+ * product: a loaded skill, a summarised tool call and settled reasoning all
+ * answer to the same key and say so on their collapsed line.
+ */
+export function isCollapsibleRow(row: StreamRow): boolean {
+  if (row.skill !== undefined) return true
+  if (row.summary !== undefined && row.detail !== undefined) return true
+  return isThinkingRow(row) && row.thought !== undefined && row.streaming !== true
 }
 
 /**

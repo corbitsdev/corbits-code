@@ -53,6 +53,7 @@ import {
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
+import type { Thought } from "./thinking.js"
 
 /** Transcript echo for a user message, annotated with its attachments. */
 function userRowText(
@@ -255,6 +256,8 @@ type OpenRowKind = "assistant" | "thinking"
 type OpenStreamRow = {
   readonly kind: OpenRowKind
   readonly index: number
+  /** Clock the row opened at, so settled reasoning can report how long it took. */
+  readonly startedAt: number
   text: string
 }
 
@@ -274,6 +277,9 @@ type BridgeBag = {
   lastSentMessage: string
   /** One auto-retry per rate-limit window. */
   quotaFired: boolean
+  now: () => number
+  /** Rotates the settled-reasoning phrasing so a long session does not repeat itself. */
+  thoughtVariant: number
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>()
@@ -304,10 +310,20 @@ function consumeEcho(bag: BridgeBag, text: string): boolean {
   return true
 }
 
-function openRowContent(kind: OpenRowKind, text: string, streaming: boolean): StreamRow {
-  return kind === "assistant"
-    ? { role: "assistant", text, streaming }
-    : { role: "system", text, meta: "thinking", streaming }
+function openRowContent(
+  kind: OpenRowKind,
+  text: string,
+  streaming: boolean,
+  thought?: Thought,
+): StreamRow {
+  if (kind === "assistant") return { role: "assistant", text, streaming }
+  return {
+    role: "system",
+    text,
+    meta: "thinking",
+    streaming,
+    ...(thought !== undefined ? { thought } : {}),
+  }
 }
 
 /** Finalize the open streaming row: it stops growing and stops being unstable. */
@@ -315,7 +331,13 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   const open = bag.openRow
   if (open === null) return
   bag.openRow = null
-  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false))
+  // Reasoning settles to a phrase and its elapsed time; the full chain of
+  // thought stays on the row, behind the expand key.
+  const thought =
+    open.kind === "thinking"
+      ? { ms: Math.max(0, bag.now() - open.startedAt), variant: bag.thoughtVariant++ }
+      : undefined
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought))
 }
 
 /**
@@ -336,7 +358,7 @@ function growOpenRow(
   }
   closeOpenRow(shell, bag)
   const index = streamRowCount(shell)
-  bag.openRow = { kind, index, text }
+  bag.openRow = { kind, index, text, startedAt: bag.now() }
   appendStreamRow(shell, openRowContent(kind, text, true))
 }
 
@@ -422,6 +444,8 @@ export function attachSessionBridge(
     turn: initialTurnState(now()),
     lastSentMessage: "",
     quotaFired: false,
+    now,
+    thoughtVariant: 0,
   }
   bridges.set(shell, bag)
 

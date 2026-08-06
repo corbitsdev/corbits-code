@@ -192,13 +192,14 @@ describe("stream paint", () => {
       result: true,
       skill: "style",
     }
-    const collapsed = lines(row)
+    const WIDE: RowLayout = { width: 96, multiAgent: false }
+    const collapsed = lines(row, WIDE)
     expect(collapsed.length).toBe(1)
     expect(collapsed[0]).toContain('skill "style" loaded')
     expect(collapsed[0]).toContain("4 lines")
     expect(collapsed[0]).toContain("e expand")
 
-    const expanded = lines({ ...row, expanded: true })
+    const expanded = lines({ ...row, expanded: true }, WIDE)
     expect(expanded.length).toBe(5)
     expect(expanded[0]).toContain("e collapse")
     expect(expanded.join("\n")).toContain("line")

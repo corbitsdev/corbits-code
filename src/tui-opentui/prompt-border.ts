@@ -103,11 +103,15 @@ export function composeRule(input: RuleInput): readonly RulePart[] {
   const onlyRole: RuleRole = labelCost > 0 ? "label" : "brand"
   const onlyCost = stringWidth(only)
   if (onlyCost > 0 && inner >= RULE_MARGIN * 2 + onlyCost) {
+    // A surviving label keeps its right-hand home; a surviving brand keeps its
+    // left-hand one, so a run never migrates across the rule as width changes.
+    const lead = onlyRole === "brand" ? RULE_MARGIN : inner - RULE_MARGIN - onlyCost
+    const trail = inner - lead - onlyCost
     return [
       { text: open, role: "rule" },
-      { text: dashes(inner - RULE_MARGIN - onlyCost), role: "rule" },
+      { text: dashes(lead), role: "rule" },
       { text: only, role: onlyRole },
-      { text: dashes(RULE_MARGIN), role: "rule" },
+      { text: dashes(trail), role: "rule" },
       { text: close, role: "rule" },
     ]
   }

@@ -17,12 +17,15 @@ export {
 } from "./zones.js";
 
 export {
+  BOTTOM_MARGIN_MIN_ROWS,
+  BOTTOM_MARGIN_ROWS,
   MARGIN_FULL_MIN_COLUMNS,
   MARGIN_MIN_COLUMNS,
   NARROW_SIDE_MARGIN,
   SIDE_MARGIN,
   TOP_PAD_MIN_TRANSCRIPT_ROWS,
   TOP_PAD_ROWS,
+  resolveBottomMarginRows,
   resolveContentWidth,
   resolveSideMargin,
   resolveTopPadRows,

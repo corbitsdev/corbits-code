@@ -5,10 +5,12 @@
  */
 import { describe, expect, test } from "bun:test"
 import {
+  BOTTOM_MARGIN_MIN_ROWS,
   MARGIN_FULL_MIN_COLUMNS,
   MARGIN_MIN_COLUMNS,
   NARROW_SIDE_MARGIN,
   SIDE_MARGIN,
+  resolveBottomMarginRows,
   resolveContentWidth,
   resolveSideMargin,
   resolveTopPadRows,
@@ -91,6 +93,67 @@ describe("top padding", () => {
         }
       },
       { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("bottom margin", () => {
+  test("holds at one row on tall terminals and yields below the threshold", () => {
+    expect(resolveBottomMarginRows(120)).toBe(1)
+    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS)).toBe(1)
+    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS - 1)).toBe(0)
+    expect(resolveBottomMarginRows(12)).toBe(0)
+    expect(resolveBottomMarginRows(0)).toBe(0)
+  })
+
+  test("zone heights still sum to the terminal height at several heights", () => {
+    for (const rows of [12, 18, 23, 24, 30, 60]) {
+      const layout = resolveGeometry({ terminal: { columns: 80, rows } })
+      const total = Object.values(layout.heights).reduce((a, b) => a + b, 0)
+      expect(total).toBe(rows)
+    }
+  })
+
+  test("the prompt box does not touch the terminal's last row on a tall terminal", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "check the bottom" })
+          await settle(h)
+          const rows = frameRows(h)
+          expect(rows[rows.length - 1]?.trim()).toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("collapses to zero on a short terminal so nothing else starves", async () => {
+    const rows = BOTTOM_MARGIN_MIN_ROWS - 1
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "short terminal" })
+          await settle(h)
+          expect(shell.bottomPad.height).toBe(1)
+          expect(shell.bottomPad.visible).toBe(false)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: rows },
     )
   })
 })

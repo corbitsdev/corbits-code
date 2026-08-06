@@ -48,3 +48,23 @@ export const TOP_PAD_MIN_TRANSCRIPT_ROWS = 6
 export function resolveTopPadRows(transcriptRows: number): number {
   return transcriptRows >= TOP_PAD_MIN_TRANSCRIPT_ROWS ? TOP_PAD_ROWS : 0
 }
+
+/**
+ * Blank row below the prompt box, so the last thing typed into never touches
+ * the terminal's final row. Carved out of the transcript residual by the
+ * shell, same as the top pad, never out of chrome.
+ */
+export const BOTTOM_MARGIN_ROWS = 1
+
+/**
+ * Below this terminal height the margin is not worth the row it costs — the
+ * same 24-row line the resolver already treats as "short terminal" for the
+ * transcript floor, so every yield point in the layout agrees on where a
+ * terminal stops being able to afford anything optional.
+ */
+export const BOTTOM_MARGIN_MIN_ROWS = 24
+
+/** Bottom margin rows affordable for a terminal of `terminalRows` rows. */
+export function resolveBottomMarginRows(terminalRows: number): number {
+  return terminalRows >= BOTTOM_MARGIN_MIN_ROWS ? BOTTOM_MARGIN_ROWS : 0
+}

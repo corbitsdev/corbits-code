@@ -42,10 +42,11 @@ describe("rowFromHistoryBlock", () => {
         name: "read_file",
         arguments: '{"path":"a.ts"}',
       }),
-    ).toEqual({
+    ).toMatchObject({
       role: "tool",
       text: '{"path":"a.ts"}',
       meta: "read_file",
+      summary: "a.ts",
     })
     expect(rowFromHistoryBlock({ type: "tool_call" })).toEqual({
       role: "tool",
@@ -103,10 +104,10 @@ describe("hydrateHistoryRows", () => {
       },
       { type: "error", message: "fail" },
     ])
-    expect(rows).toEqual([
+    expect(rows).toMatchObject([
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
-      { role: "tool", text: '{"path":"x"}', meta: "read_file" },
+      { role: "tool", text: '{"path":"x"}', meta: "read_file", summary: "x" },
       { role: "tool", text: "body", meta: "read_file", result: true },
       { role: "system", text: "fail", meta: "error" },
     ])

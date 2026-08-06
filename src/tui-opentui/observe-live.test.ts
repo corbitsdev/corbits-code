@@ -466,11 +466,13 @@ describe("observe pure mappers", () => {
         },
       },
     ])
-    expect(rows).toEqual([
+    // Argument JSON stays on the row; the summary is what the transcript paints.
+    expect(rows).toMatchObject([
       {
         role: "tool",
         text: JSON.stringify({ q: "observe" }),
         meta: "grep",
+        summary: "q: observe",
       },
       { role: "tool", text: "hits", meta: "grep", result: true },
     ])

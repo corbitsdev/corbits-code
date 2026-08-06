@@ -76,6 +76,7 @@ import {
 } from "./focus/index.js"
 import {
   PROMPT_IDLE_ROWS,
+  resolveBottomMarginRows,
   resolveGeometry,
   resolveTopPadRows,
   type GeometryLayout,
@@ -156,15 +157,19 @@ import {
   agentVoicesIn,
   blockLabel,
   EXPAND_KEY,
+  isCollapsibleRow,
+  isDetailRow,
   isMarkdownRow,
   MAIN_AGENT,
   paintStreamRow,
   rowGroupGap,
   streamRowGutter,
+  summaryHead,
   transcriptSyntaxStyle,
   type PaintedStreamLine,
   type RowLayout,
   type StreamRow,
+  type StyledBodyLine,
 } from "./stream.js"
 import { UI } from "./theme.js"
 import { middleEllipsis } from "./command-display.js"
@@ -174,7 +179,6 @@ import {
   DECISION_CHOICE_ROWS,
   wrapOverlayText,
 } from "./overlay-body.js"
-import type { DiffLine, DiffView } from "./diff.js"
 import {
   beginYank,
   breakKillSequence,
@@ -483,6 +487,8 @@ export type AppShell = {
   readonly root: BoxRenderable
   /** Blank rows above the first transcript row (0 on short terminals). */
   readonly topPad: BoxRenderable
+  /** Blank row below the prompt box (0 on short terminals). */
+  readonly bottomPad: BoxRenderable
   /** Optional chrome zones (constitution goal/task/agents). */
   readonly goalBox: BoxRenderable
   readonly goalText: TextRenderable
@@ -1072,7 +1078,11 @@ export function paintPromptBorder(shell: AppShell): void {
     branch: shell.workspace.branch,
     home: homedir(),
   }
-  const roomy = composeWorkspaceLabel({ ...workspaceInput, maxWidth: withBrand })
+  // A workspace that has lost its path is a branch floating with no context,
+  // which is worth less than the mark it displaced. So the mark yields not just
+  // when the label cannot fit at all, but when keeping it would starve the path.
+  const roomyRaw = composeWorkspaceLabel({ ...workspaceInput, maxWidth: withBrand })
+  const roomy = roomyRaw.startsWith("(") ? "" : roomyRaw
   const workspace =
     roomy.length > 0
       ? roomy
@@ -1153,12 +1163,16 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.agentsBox.height = agentsH > 0 ? agentsH : 1
   shell.agentsBox.visible = agentsH > 0
 
-  // The pad is taken out of the transcript residual, never out of chrome, so
-  // the resolver's row budget still sums to the terminal height.
+  // Both pads are taken out of the transcript residual, never out of chrome,
+  // so the resolver's row budget still sums to the terminal height.
   const transcriptH = Math.max(0, h.transcript)
   const padH = resolveTopPadRows(transcriptH)
   shell.topPad.height = padH > 0 ? padH : 1
   shell.topPad.visible = padH > 0
+
+  const bottomPadH = resolveBottomMarginRows(layout.terminal.rows)
+  shell.bottomPad.height = bottomPadH > 0 ? bottomPadH : 1
+  shell.bottomPad.visible = bottomPadH > 0
 
   const overlayH = Math.max(0, h.overlay_host)
 
@@ -1168,7 +1182,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // resolver took for the overlay host are handed back to the split.
   const bag = internals.get(shell)
   const landing = bag?.landing ?? null
-  const landingRows = transcriptH - padH + (landing === null ? 0 : overlayH)
+  const landingRows = transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH)
   const split =
     landing === null
       ? null
@@ -1191,7 +1205,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   }
 
   const transcriptBody =
-    split === null ? transcriptH - padH : Math.max(1, split.above)
+    split === null ? transcriptH - padH - bottomPadH : Math.max(1, split.above)
   shell.transcript.height = transcriptBody > 0 ? transcriptBody : 1
   shell.transcript.visible = transcriptBody > 0
 
@@ -1558,6 +1572,9 @@ function retextStreamRow(
   label: string | null,
 ): boolean {
   if (row.diff !== undefined || row.structured !== undefined) return false
+  // Expanding swaps a text row for a styled-lines box: a different node shape
+  // and a different height, so the caller must rebuild rather than re-text.
+  if (isDetailRow(row)) return false
   const layout = transcriptRowLayout(shell)
 
   if (label !== null) {
@@ -1720,7 +1737,14 @@ function buildRowNode(
   layout: RowLayout,
 ): TextRenderable | BoxRenderable {
   if (row.diff !== undefined) {
-    return createDiffRowRenderable(ctx, row, layout, row.diff)
+    return createStyledLinesRowRenderable(ctx, row, layout, row.diff.lines)
+  }
+
+  if (isDetailRow(row) && row.detail !== undefined) {
+    return createStyledLinesRowRenderable(ctx, row, layout, [
+      [{ text: summaryHead(row, row.summary ?? ""), fg: UI.text }],
+      ...row.detail,
+    ])
   }
 
   if (row.structured !== undefined) {
@@ -1775,8 +1799,8 @@ export function createStreamRowRenderable(
   return wrapper
 }
 
-/** Map one diff line's segments to native text chunks. */
-function diffLineChunks(line: DiffLine): TextChunk[] {
+/** Map one styled body line's segments to native text chunks. */
+function diffLineChunks(line: StyledBodyLine): TextChunk[] {
   return line.map((segment) => {
     const chunk = fgChunk(segment.fg)(segment.text)
     return segment.bold === true ? boldChunk(chunk) : chunk
@@ -1784,14 +1808,16 @@ function diffLineChunks(line: DiffLine): TextChunk[] {
 }
 
 /**
- * Gutter + one text line per diff row. Diff bodies are pre-wrapped by
- * `renderDiff`, so each line paints unwrapped to keep the +/- column aligned.
+ * Gutter + one text line per body row, for bodies that arrive already coloured
+ * and already laid out (a diff, an expanded tool call's structured arguments).
+ * Each line paints inside the body column, so a wrapped line lands under the
+ * body rather than in the shell's gutter.
  */
-function createDiffRowRenderable(
+function createStyledLinesRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
   layout: RowLayout,
-  view: DiffView,
+  lines: readonly StyledBodyLine[],
 ): BoxRenderable {
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
@@ -1803,7 +1829,7 @@ function createDiffRowRenderable(
     flexDirection: "column",
     flexGrow: 1,
   })
-  for (const line of view.lines) {
+  for (const line of lines) {
     body.add(
       new TextRenderable(ctx, {
         content: new StyledText(diffLineChunks(line)),
@@ -2375,13 +2401,14 @@ export const OVERLAY_EXPAND_KEY = EXPAND_KEY
 
 /**
  * Expand or collapse the newest transcript row that hides a body behind a
- * summary (a loaded skill). Same key as the overlay's collapsed payloads, so
- * the product has one expand idiom. False when there is nothing to expand.
+ * summary: a loaded skill, a summarised tool call, settled reasoning. Same key
+ * as the overlay's collapsed payloads, so the product has one expand idiom.
+ * False when there is nothing to expand.
  */
 export function toggleCollapsedRow(shell: AppShell): boolean {
   for (let i = shell.streamLog.length - 1; i >= 0; i--) {
     const row = shell.streamLog[i]
-    if (row === undefined || row.skill === undefined) continue
+    if (row === undefined || !isCollapsibleRow(row)) continue
     replaceStreamRowAt(shell, i, { ...row, expanded: row.expanded !== true })
     return true
   }
@@ -3286,6 +3313,15 @@ export function createAppShell(
     backgroundColor: UI.ground,
   })
 
+  // Same gutter, other end: keeps the prompt box off the terminal's last row.
+  const bottomPad = new BoxRenderable(ctx, {
+    id: "shell-bottom-pad",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    backgroundColor: UI.ground,
+  })
+
   // Optional chrome zones (off by default; setChromeZones turns them on).
   const goalBox = new BoxRenderable(ctx, {
     id: "shell-goal",
@@ -3455,6 +3491,7 @@ export function createAppShell(
   root.add(notice)
   root.add(promptBox)
   root.add(landingBelow)
+  root.add(bottomPad)
 
   if (mount) {
     renderer.root.add(root)
@@ -3835,6 +3872,7 @@ export function createAppShell(
     renderer,
     root,
     topPad,
+    bottomPad,
     goalBox,
     goalText,
     taskBox,

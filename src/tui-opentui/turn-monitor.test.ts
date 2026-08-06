@@ -337,3 +337,50 @@ describe("stall watchdog", () => {
     })
   })
 })
+
+describe("reasoning settles to a summary", () => {
+  test("a closed thinking row carries its elapsed time and a fresh phrasing", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        for (const burst of [12_000, 12_000]) {
+          t.bridge.handle({ type: "inference.start", data: {} })
+          t.bridge.handle({
+            type: "inference.thinking.delta",
+            data: { token: "weighing the call sites" },
+          })
+          t.advance(burst)
+          t.bridge.handle({ type: "inference.text.delta", data: { token: "done" } })
+        }
+
+        const thoughts = t.shell.streamLog
+          .filter((row) => row.meta === "thinking")
+          .map((row) => row.thought)
+        expect(thoughts).toHaveLength(2)
+        expect(thoughts[0]?.ms).toBe(12_000)
+        // Two identical-length thoughts in one session must not read alike.
+        expect(thoughts[0]?.variant).not.toBe(thoughts[1]?.variant)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("a live thinking row stays open and unsettled", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.handle({ type: "inference.start", data: {} })
+        t.bridge.handle({
+          type: "inference.thinking.delta",
+          data: { token: "still going" },
+        })
+        const live = t.shell.streamLog.find((row) => row.meta === "thinking")
+        expect(live?.streaming).toBe(true)
+        expect(live?.thought).toBeUndefined()
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+})

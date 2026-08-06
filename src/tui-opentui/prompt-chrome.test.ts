@@ -227,7 +227,7 @@ describe("narrow terminals degrade the rules instead of corrupting them", () => 
         branch: "a-very-long-branch-name-indeed",
       })
       expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+╮$/u)
-      expect(ruleOf(shell.promptBottomRule)).toBe("╰─ ▂█▃ corbits code ─╯")
+      expect(ruleOf(shell.promptBottomRule)).toBe("╰─ corbits code ─────╯")
     }, 22)
   })
 })

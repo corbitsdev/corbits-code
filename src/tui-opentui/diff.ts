@@ -13,6 +13,7 @@
  */
 
 import { DIFF_FG, type StreamRow } from "./stream.js"
+import { toolArgsView } from "./tool-args.js"
 
 export type DiffRowKind = "add" | "del" | "context"
 export type DiffRow = { readonly kind: DiffRowKind; readonly text: string }
@@ -469,8 +470,11 @@ export type ToolCallRowInput = {
 }
 
 /**
- * Build the transcript row for a tool call, attaching a diff view when the call
- * is a file edit. Every other tool keeps its literal argument text.
+ * Build the transcript row for a tool call: a diff view when the call is a file
+ * edit, otherwise a human summary of the arguments with the structured form
+ * behind the expand key. Raw argument JSON stays on the row as `text` — it is
+ * what the clipboard and any un-summarisable call still need — but it is not
+ * what the transcript paints.
  */
 export function toolCallRow(input: ToolCallRowInput): StreamRow {
   const args = input.arguments ?? ""
@@ -482,10 +486,14 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
           .filter((part) => part !== undefined && part.length > 0)
           .join(" ")
       : input.name
+  const summarised = diff === null && args.length > 0 ? toolArgsView(input.name, args) : null
   return {
     role: "tool",
     text,
     meta,
     ...(diff !== null ? { diff } : {}),
+    ...(summarised !== null
+      ? { summary: summarised.summary, detail: summarised.detail }
+      : {}),
   }
 }
