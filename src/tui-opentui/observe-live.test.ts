@@ -389,7 +389,15 @@ describe("observe pure mappers", () => {
     })
     expect(
       rowFromBridgeEvent({ type: "tool_call", name: "bash", detail: "ls" }),
-    ).toEqual({ role: "tool", text: "ls", meta: "bash", verb: "Bash", summary: "ls" })
+    ).toEqual({
+      role: "tool",
+      text: "ls",
+      meta: "bash",
+      verb: "Bash",
+      summary: "ls",
+      pending: true,
+      callKey: "bash Bash ls",
+    })
     expect(
       rowFromBridgeEvent({
         type: "tool_result",
@@ -397,7 +405,7 @@ describe("observe pure mappers", () => {
         detail: "out",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "out", meta: "bash", result: true, failed: true })
+    ).toEqual({ role: "tool", text: "out", meta: "bash", failed: true })
     expect(rowFromBridgeEvent({ type: "system", text: "s" })).toEqual({
       role: "system",
       text: "s",
@@ -440,7 +448,15 @@ describe("observe pure mappers", () => {
       ]),
     ).toEqual([
       { role: "assistant", text: "Hello" },
-      { role: "tool", text: "a.ts", meta: "read_file", verb: "Read", summary: "a.ts" },
+      {
+        role: "tool",
+        text: "a.ts",
+        meta: "read_file",
+        verb: "Read",
+        summary: "a.ts",
+        pending: true,
+        callKey: "read_file Read a.ts",
+      },
       { role: "assistant", text: "done" },
     ])
   })
@@ -466,15 +482,17 @@ describe("observe pure mappers", () => {
         },
       },
     ])
-    // Argument JSON stays on the row; the summary is what the transcript paints.
+    // The call and its answer are one row: the payload replaces the argument
+    // JSON on the row it opened, and no second row is appended.
     expect(rows).toMatchObject([
       {
         role: "tool",
-        text: JSON.stringify({ q: "observe" }),
+        text: "hits",
         meta: "grep",
+        verb: "Grep",
         summary: "q: observe",
       },
-      { role: "tool", text: "hits", meta: "grep", result: true },
     ])
+    expect(rows.length).toBe(1)
   })
 })

@@ -505,12 +505,18 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
     : (summarised?.summary ?? call?.summary)
   const stat = diff !== null ? `+${diff.added}/-${diff.removed}` : undefined
   const detail = summarised?.detail
+  const verb = call?.display
+  // Identity of the sentence this call paints, not of its arguments: two calls
+  // that read the same line are what a repeat looks like to the operator.
+  const callKey = `${input.name} ${verb ?? ""} ${summary ?? ""}`
   return {
     role: "tool",
     text,
     meta,
+    pending: true,
+    callKey,
     ...(diff !== null ? { diff } : {}),
-    ...(call !== null ? { verb: call.display } : {}),
+    ...(verb !== undefined ? { verb } : {}),
     // A summarised call may deliberately have no subject — its verb already
     // names the whole call — and that blank must survive, or the row falls
     // back to painting the raw arguments.

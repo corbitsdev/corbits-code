@@ -66,6 +66,7 @@ describe("mapProductionEvent", () => {
         type: "tool_call",
         name: "read_file",
         detail: JSON.stringify({ path: "a.ts" }),
+        callId: "c1",
       },
     ])
   })

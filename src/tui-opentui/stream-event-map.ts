@@ -17,12 +17,16 @@ export type BridgeInboundEvent =
       readonly type: "tool_call"
       readonly name: string
       readonly detail?: string
+      /** Runtime call id, when the source event carried one. */
+      readonly callId?: string
     }
   | {
       readonly type: "tool_result"
       readonly name: string
       readonly detail?: string
       readonly isError?: boolean
+      /** Call this result answers — how a result finds the row it resolves. */
+      readonly callId?: string
     }
   | { readonly type: "system"; readonly text: string }
   | { readonly type: "run"; readonly state: RunState }
@@ -129,10 +133,14 @@ function resolveToolName(
 function toolCallEvent(
   name: string,
   detail: string | undefined,
+  callId?: string,
 ): BridgeInboundEvent {
-  return detail !== undefined
-    ? { type: "tool_call", name, detail }
-    : { type: "tool_call", name }
+  return {
+    type: "tool_call",
+    name,
+    ...(detail !== undefined ? { detail } : {}),
+    ...(callId !== undefined ? { callId } : {}),
+  }
 }
 
 /**
@@ -196,7 +204,7 @@ export function mapProductionEvent(
       // Prefer painting at end with final arguments; early start is tracking only
       // when we have a callId. Without callId, emit immediately.
       if (ctx && callId) return []
-      return [toolCallEvent(name, undefined)]
+      return [toolCallEvent(name, undefined, callId)]
     }
 
     case "inference.tool_call.delta": {
@@ -222,7 +230,7 @@ export function mapProductionEvent(
           : streamed
       trackCall(ctx, callId, name, data.arguments !== undefined ? data.arguments : streamed)
       if (ctx && callId) ctx.emittedToolCalls.add(callId)
-      return [toolCallEvent(name, detail)]
+      return [toolCallEvent(name, detail, callId)]
     }
 
     case "tool.start": {
@@ -239,7 +247,7 @@ export function mapProductionEvent(
       // use-stream does not paint on tool.start; skip if tool_call already painted.
       if (ctx && callId && ctx.emittedToolCalls.has(callId)) return []
       if (ctx && callId) ctx.emittedToolCalls.add(callId)
-      return [toolCallEvent(name, undefined)]
+      return [toolCallEvent(name, undefined, callId)]
     }
 
     case "tool.done": {
@@ -261,6 +269,7 @@ export function mapProductionEvent(
         name,
         ...(detail !== undefined ? { detail } : {}),
         ...(isError ? { isError: true } : {}),
+        ...(callId !== undefined ? { callId } : {}),
       }
       return [out, { type: "tool.boundary" }]
     }

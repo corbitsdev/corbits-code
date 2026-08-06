@@ -43,6 +43,7 @@ import type { ObserveSession } from "./residuals.js"
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
+import { pushToolCall, pushToolResult } from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import type { QueueKind } from "./session-queue.js"
 
@@ -153,6 +154,33 @@ export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRo
 }
 
 /**
+ * A subagent transcript as rows. Tool entries are folded, not mapped one to
+ * one: a call and its result share a row, and a repeated call collapses onto
+ * the row it repeats.
+ */
+export function rowsFromTranscript(
+  entries: readonly SubAgentTranscriptEntry[],
+): StreamRow[] {
+  const rows: StreamRow[] = []
+  for (const entry of entries) {
+    if (entry.kind === "tool") {
+      pushToolCall(rows, { name: entry.name, arguments: entry.arguments })
+      continue
+    }
+    if (entry.kind === "tool_result") {
+      pushToolResult(rows, {
+        name: entry.name,
+        content: entry.content,
+        isError: entry.isError,
+      })
+      continue
+    }
+    rows.push(rowFromTranscriptEntry(entry))
+  }
+  return rows
+}
+
+/**
  * Pick the session the operator most likely wants to watch: the newest running
  * one, else the most recent session of any status. No sessions → null.
  */
@@ -166,7 +194,7 @@ export function observeSessionFromSubAgents(
     sessionId: picked.id,
     agentId: picked.agentId,
     description: picked.description,
-    lines: picked.entries.map(rowFromTranscriptEntry),
+    lines: rowsFromTranscript(picked.entries),
   }
 }
 

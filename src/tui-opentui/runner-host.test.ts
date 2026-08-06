@@ -65,7 +65,14 @@ describe("rowFromTranscriptEntry", () => {
     })
     expect(
       rowFromTranscriptEntry({ kind: "tool", callId: "c", name: "grep", arguments: "{}" }),
-    ).toEqual({ role: "tool", text: "{}", meta: "grep", verb: "Grep" })
+    ).toEqual({
+      role: "tool",
+      text: "{}",
+      meta: "grep",
+      verb: "Grep",
+      pending: true,
+      callKey: "grep Grep ",
+    })
     expect(
       rowFromTranscriptEntry({
         kind: "tool_result",
@@ -74,7 +81,7 @@ describe("rowFromTranscriptEntry", () => {
         content: "boom",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "boom", meta: "grep", result: true, failed: true })
+    ).toEqual({ role: "tool", text: "boom", meta: "grep", failed: true })
     expect(rowFromTranscriptEntry({ kind: "report", content: "done" })).toEqual({
       role: "assistant",
       text: "done",

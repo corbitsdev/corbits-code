@@ -8,6 +8,7 @@
 
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
+import { pushToolCall, pushToolResult } from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import {
   createStreamMapContext,
@@ -51,16 +52,39 @@ export function rowFromBridgeEvent(event: BridgeInboundEvent): StreamRow | null 
 /**
  * Map zero or more bridge events to paint rows (filters nulls).
  * Does not coalesce assistant.delta — those stay non-rows.
+ *
+ * Tool events are folded rather than mapped one-to-one: a call and its result
+ * are one row, and a repeat of a call collapses onto the row it repeats.
  */
 export function rowsFromBridgeEvents(
   events: readonly BridgeInboundEvent[],
 ): StreamRow[] {
   const rows: StreamRow[] = []
   for (const event of events) {
-    const row = rowFromBridgeEvent(event)
-    if (row) rows.push(row)
+    pushBridgeEvent(rows, event)
   }
   return rows
+}
+
+/** Fold one bridge event onto a row list, merging tool calls with their answers. */
+function pushBridgeEvent(rows: StreamRow[], event: BridgeInboundEvent): void {
+  if (event.type === "tool_call") {
+    pushToolCall(rows, {
+      name: event.name,
+      ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+    })
+    return
+  }
+  if (event.type === "tool_result") {
+    pushToolResult(rows, {
+      name: event.name,
+      content: event.detail ?? (event.isError ? "error" : "ok"),
+      isError: event.isError === true,
+    })
+    return
+  }
+  const row = rowFromBridgeEvent(event)
+  if (row) rows.push(row)
 }
 
 /**
@@ -85,7 +109,9 @@ export function mapChildStreamSequence(
 ): StreamRow[] {
   const rows: StreamRow[] = []
   for (const event of events) {
-    rows.push(...mapChildStreamEvent(event, ctx))
+    for (const mapped of mapProductionEvent(event, ctx)) {
+      pushBridgeEvent(rows, mapped)
+    }
   }
   return rows
 }
@@ -111,8 +137,7 @@ export function rowsFromBridgeEventsCoalesced(
       continue
     }
     flushDelta()
-    const row = rowFromBridgeEvent(event)
-    if (row) rows.push(row)
+    pushBridgeEvent(rows, event)
   }
   flushDelta()
   return rows

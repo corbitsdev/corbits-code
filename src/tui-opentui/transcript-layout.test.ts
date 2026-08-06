@@ -11,6 +11,9 @@ import {
   type AppShell,
 } from "./shell"
 import type { StreamRow } from "./stream"
+import { toolCallRow } from "./diff"
+import { toolResultRow } from "./mcp-view"
+import { mergeToolRows } from "./tool-rows"
 
 /** Frame rows that carry ink, paired with their index. */
 function inkRows(frame: string): readonly string[] {
@@ -146,7 +149,7 @@ describe("transcript turn layout", () => {
     }
   })
 
-  test("reasoning is an inset, marked block that stays out of the answer's column", async () => {
+  test("reasoning is an inset block that stays out of the answer's column", async () => {
     await paintRows(
       [
         { role: "user", text: "hi" },
@@ -155,11 +158,13 @@ describe("transcript turn layout", () => {
       ],
       80,
       (frame) => {
-        const thinking = inkRows(frame).filter((row) => row.includes("┆"))
-        expect(thinking.length).toBe(2)
         const gutter = resolveSideMargin(80)
+        const thinking = inkRows(frame).filter((row) => row.includes("scanning") || row.includes("call sites"))
+        expect(thinking.length).toBe(2)
         for (const row of thinking) {
-          expect(row.indexOf("┆")).toBeGreaterThan(gutter)
+          // Inset past the answer's column, and carrying no rail of its own.
+          expect(row.length - row.trimStart().length).toBeGreaterThan(gutter)
+          expect(row).not.toContain("┆")
         }
         const [answer] = rowsContaining(frame, "found it")
         expect((answer as string).indexOf("found it")).toBe(gutter)
@@ -167,24 +172,19 @@ describe("transcript turn layout", () => {
     )
   })
 
-  test("a tool call and its result read as one block", async () => {
-    await paintRows(
-      [
-        { role: "tool", text: '"legacy_token"', meta: "grep" },
-        { role: "tool", text: "42 matches", meta: "grep", result: true },
-      ],
-      80,
-      (frame) => {
-        const [call] = rowsContaining(frame, "legacy_token")
-        const [result] = rowsContaining(frame, "42 matches")
-        expect(call).toContain("✓")
-        expect(result).toContain("└")
-        expect(result).not.toContain("grep")
-        expect((result as string).indexOf("42 matches")).toBe(
-          (call as string).indexOf('"legacy_token"'),
-        )
-      },
+  test("a tool call and its result are one row", async () => {
+    const merged = mergeToolRows(
+      toolCallRow({ name: "grep", arguments: '{"pattern":"legacy_token"}' }),
+      toolResultRow({ name: "grep", content: "42 matches" }),
     )
+    await paintRows([merged], 80, (frame) => {
+      const rows = rowsContaining(frame, "legacy_token")
+      expect(rows.length).toBe(1)
+      expect(rows[0]).toContain("✓")
+      expect(rows[0]).not.toContain("└")
+      // The answer extends that one row rather than opening its own.
+      expect(rows[0]).toContain("42 matches")
+    })
   })
 
   test("a loaded skill stays one row until it is expanded", async () => {
@@ -194,7 +194,6 @@ describe("transcript turn layout", () => {
           role: "tool",
           text: 'Skill "style" — follow these instructions\n\nkeep it clean\nno emojis',
           meta: "use_skill",
-          result: true,
           skill: "style",
         },
       ],
@@ -219,7 +218,6 @@ describe("transcript turn layout", () => {
             role: "tool",
             text: 'Skill "style" — follow these instructions\n\nno emojis',
             meta: "use_skill",
-            result: true,
             skill: "style",
           })
           await h.renderOnce()

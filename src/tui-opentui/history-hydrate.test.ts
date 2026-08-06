@@ -35,7 +35,15 @@ describe("rowFromHistoryBlock", () => {
         name: "grep",
         content: "pattern x",
       }),
-    ).toEqual({ role: "tool", text: "pattern x", meta: "grep", verb: "Grep", summary: "pattern x" })
+    ).toEqual({
+      role: "tool",
+      text: "pattern x",
+      meta: "grep",
+      verb: "Grep",
+      summary: "pattern x",
+      pending: true,
+      callKey: "grep Grep pattern x",
+    })
     expect(
       rowFromHistoryBlock({
         type: "tool_call",
@@ -52,6 +60,8 @@ describe("rowFromHistoryBlock", () => {
       role: "tool",
       text: "…",
       meta: "tool",
+      pending: true,
+      callKey: "tool  ",
     })
   })
 
@@ -63,14 +73,14 @@ describe("rowFromHistoryBlock", () => {
         content: "ok",
         isError: false,
       }),
-    ).toEqual({ role: "tool", text: "ok", meta: "bash", result: true })
+    ).toEqual({ role: "tool", text: "ok", meta: "bash" })
     expect(
       rowFromHistoryBlock({
         type: "tool_result",
         name: "bash",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "error", meta: "bash", result: true, failed: true })
+    ).toEqual({ role: "tool", text: "error", meta: "bash", failed: true })
   })
 
   test("error and unknown", () => {
@@ -104,11 +114,11 @@ describe("hydrateHistoryRows", () => {
       },
       { type: "error", message: "fail" },
     ])
+    // The call and its result hydrate as the one row a live turn would paint.
     expect(rows).toMatchObject([
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
-      { role: "tool", text: '{"path":"x"}', meta: "read_file", summary: "x" },
-      { role: "tool", text: "body", meta: "read_file", result: true },
+      { role: "tool", text: "body", meta: "read_file", summary: "x", verb: "Read" },
       { role: "system", text: "fail", meta: "error" },
     ])
   })

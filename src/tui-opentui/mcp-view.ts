@@ -334,6 +334,11 @@ function plainLine(text: string, fg: string = UI.text): StyledBodyLine {
   return [{ text, fg }]
 }
 
+/** Bounded literal rendering of a tool payload, for a row's expanded body. */
+export function resultBodyLines(content: string): readonly StyledBodyLine[] {
+  return bodyLines(content)
+}
+
 function bodyLines(content: string): readonly StyledBodyLine[] {
   const lines = content.split("\n")
   const shown = lines.slice(0, MAX_DETAIL_LINES).map((line) => plainLine(line))
@@ -478,7 +483,6 @@ export function toolResultRow(input: ToolResultRowInput): StreamRow {
     role: "tool" as const,
     text: input.content,
     meta: input.name,
-    result: true,
   }
   if (failed) return { ...base, failed: true }
 

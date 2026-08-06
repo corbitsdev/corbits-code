@@ -21,7 +21,7 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream"
-import { thinkingScrollLine, thoughtPhrase } from "./thinking"
+import { thinkingScrollLine, thinkingSettledLine } from "./thinking"
 import { describeView, toolArgsView } from "./tool-args"
 
 const WIDE: RowLayout = { width: 96, multiAgent: false }
@@ -74,7 +74,6 @@ describe("tool bodies stay inside the gutter", () => {
     // to hard-wrap to column 0, outside both the gutter and the meta column.
     const row: StreamRow = {
       role: "tool",
-      result: true,
       meta: "bash",
       text: "the command printed a very long single line of output that has to wrap several times before it runs out of words to say",
     }
@@ -172,7 +171,8 @@ describe("reasoning collapses to one line", () => {
   test("while thinking it is a single row windowed onto the newest text", () => {
     const painted = lines({ role: "system", meta: "thinking", text, streaming: true })
     expect(painted.length).toBe(1)
-    expect(painted[0]).toContain("┆")
+    // Inset and dim is the whole of reasoning's chrome; it carries no rail.
+    expect(painted[0]).not.toContain("┆")
     expect(painted[0]?.trimEnd().endsWith("one commit")).toBe(true)
     expect((painted[0] as string).length).toBeLessThanOrEqual(WIDE.width)
   })
@@ -183,56 +183,39 @@ describe("reasoning collapses to one line", () => {
     expect(thinkingScrollLine("line one\nline two", 40)).toBe("line one line two")
   })
 
-  test("once done it settles to a phrase with its elapsed time", () => {
+  test("once done it keeps its own text rather than swapping in a phrase", () => {
     const row: StreamRow = {
       role: "system",
       meta: "thinking",
       text,
-      thought: { ms: 12_000, variant: 0 },
+      thought: { ms: 12_000 },
     }
     const collapsed = lines(row)
     expect(collapsed.length).toBe(1)
-    expect(collapsed[0]).toContain("12 seconds")
+    // The line the operator was reading stays put; nothing is substituted.
+    expect(collapsed[0]).toContain("the token helper is referenced")
     expect(collapsed[0]).toContain(`${EXPAND_HINT_LABEL} expand`)
-    expect(collapsed[0]).not.toContain("token helper")
     expect(isCollapsibleRow(row)).toBe(true)
 
     const expanded = lines({ ...row, expanded: true })
     expect(expanded.length).toBeGreaterThan(1)
     expect(expanded[0]).toContain(`${EXPAND_HINT_LABEL} collapse`)
-    expect(expanded.join("\n")).toContain("token helper")
-    for (const line of expanded.slice(1)) expect(line).toContain("┆")
+    expect(expanded.join("\n")).toContain("one commit")
+    // Railed body, then the tick that closes the panel and carries the time.
+    for (const line of expanded.slice(1, -1)) expect(line).toContain("┆")
+    expect(expanded[expanded.length - 1]?.trim()).toBe("╵ 12s")
+  })
+
+  test("a long chain of thought is cut, never wrapped onto a second row", () => {
+    expect(thinkingSettledLine("abc def", 20)).toBe("abc def")
+    expect(thinkingSettledLine("abcdefghij", 6)).toBe("abcde…")
+    expect(thinkingSettledLine("line one\nline two", 40)).toBe("line one line two")
   })
 
   test("a hydrated reasoning row with no elapsed time keeps its block", () => {
     const painted = lines({ role: "system", meta: "thinking", text: "a\nb" })
     expect(painted.length).toBe(2)
-    expect(painted.every((line) => line.includes("┆"))).toBe(true)
-  })
-})
-
-describe("settled reasoning phrasing", () => {
-  test("time bands do not read the same", () => {
-    const bands = [500, 6_000, 30_000, 90_000, 400_000].map((ms) => thoughtPhrase(ms, 0))
-    expect(new Set(bands).size).toBe(bands.length)
-    expect(thoughtPhrase(3_000, 0)).toBe("thought for 3 seconds")
-    expect(thoughtPhrase(120_000, 0)).toBe("tinkered for a couple of minutes")
-    expect(thoughtPhrase(60_000, 1)).toContain("a minute")
-  })
-
-  test("consecutive thoughts of the same length do not repeat a phrase", () => {
-    expect(thoughtPhrase(12_000, 0)).not.toBe(thoughtPhrase(12_000, 1))
-    // The rotation wraps rather than running out.
-    expect(thoughtPhrase(12_000, 0)).toBe(thoughtPhrase(12_000, 3))
-  })
-
-  test("no phrase claims an outcome it cannot know", () => {
-    for (const ms of [0, 1_000, 12_000, 30_000, 120_000, 600_000]) {
-      for (let variant = 0; variant < 3; variant++) {
-        const phrase = thoughtPhrase(ms, variant)
-        expect(phrase).not.toMatch(/solved|figured|cracked|nailed|brilliant|cool/i)
-        expect(phrase[0]).toBe(phrase[0]?.toLowerCase() as string)
-      }
-    }
+    expect(painted.every((line) => !line.includes("┆"))).toBe(true)
+    expect(painted.map((line) => line.trim())).toEqual(["a", "b"])
   })
 })

@@ -11,7 +11,6 @@ import {
   mountProductHost,
   operatorResultFromSelection,
   permissionChoices,
-  rowFromHistoryBlock,
   type ProductHostConfig,
 } from "./product-host.js"
 
@@ -149,57 +148,6 @@ describe("operatorResultFromSelection", () => {
     expect(operatorResultFromSelection({ index: 0 }, 0)).toEqual({
       kind: "cancel",
     })
-  })
-})
-
-describe("rowFromHistoryBlock", () => {
-  test("maps known block types to stream rows", () => {
-    expect(rowFromHistoryBlock({ type: "user", content: "hi" })).toEqual({
-      role: "user",
-      text: "hi",
-    })
-    expect(rowFromHistoryBlock({ type: "text", content: "yo" })).toEqual({
-      role: "assistant",
-      text: "yo",
-    })
-    expect(rowFromHistoryBlock({ type: "reply", content: "r" })).toEqual({
-      role: "assistant",
-      text: "r",
-    })
-    expect(rowFromHistoryBlock({ type: "thinking", content: "…" })).toEqual({
-      role: "system",
-      text: "…",
-      meta: "thinking",
-    })
-    expect(
-      rowFromHistoryBlock({
-        type: "tool_call",
-        name: "bash",
-        content: "ls",
-      }),
-    ).toEqual({ role: "tool", text: "ls", meta: "bash", verb: "Bash", summary: "ls" })
-    expect(
-      rowFromHistoryBlock({
-        type: "tool_result",
-        name: "bash",
-        content: "ok",
-        isError: false,
-      }),
-    ).toEqual({ role: "tool", text: "ok", meta: "bash", result: true })
-    expect(
-      rowFromHistoryBlock({
-        type: "tool_result",
-        name: "bash",
-        isError: true,
-      }),
-    ).toEqual({ role: "tool", text: "error", meta: "bash", result: true, failed: true })
-    expect(
-      rowFromHistoryBlock({ type: "error", message: "boom" }),
-    ).toEqual({ role: "system", text: "boom", meta: "error" })
-  })
-
-  test("unknown type → null", () => {
-    expect(rowFromHistoryBlock({ type: "unknown" })).toBeNull()
   })
 })
 

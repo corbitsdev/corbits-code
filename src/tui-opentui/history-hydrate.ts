@@ -8,6 +8,7 @@
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"
+import { pushToolCall, pushToolResult } from "./tool-rows.js"
 
 /**
  * Loose content-block shape from `history.hydrate` / turns-to-blocks.
@@ -61,11 +62,7 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
     case "thinking":
       return { role: "system", text: block.content ?? "", meta: "thinking" }
     case "tool_call": {
-      const args =
-        block.content ??
-        (block.arguments !== undefined && block.arguments.length > 0
-          ? block.arguments
-          : undefined)
+      const args = callArguments(block)
       return toolCallRow({
         name: block.name ?? "tool",
         ...(args !== undefined ? { arguments: args } : {}),
@@ -93,11 +90,43 @@ export function hydrateHistoryRows(blocks: unknown): StreamRow[] {
   const rows: StreamRow[] = []
   for (const raw of blocks) {
     const block = asHistoryBlock(raw)
-    if (!block) continue
-    const row = rowFromHistoryBlock(block)
-    if (row) rows.push(row)
+    if (block) pushHistoryBlock(rows, block)
   }
   return rows
+}
+
+/** Argument payload of a tool_call block, wherever the block carries it. */
+function callArguments(block: HistoryBlock): string | undefined {
+  if (block.content !== undefined) return block.content
+  return block.arguments !== undefined && block.arguments.length > 0
+    ? block.arguments
+    : undefined
+}
+
+/**
+ * Fold one block onto a row list. Tool blocks are not one row each: a call and
+ * the result answering it share a row, and a repeated call collapses onto the
+ * row it repeats — the same shape a live turn paints.
+ */
+function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
+  if (block.type === "tool_call") {
+    const args = callArguments(block)
+    pushToolCall(rows, {
+      name: block.name ?? "tool",
+      ...(args !== undefined ? { arguments: args } : {}),
+    })
+    return
+  }
+  if (block.type === "tool_result") {
+    pushToolResult(rows, {
+      name: block.name ?? "tool",
+      content: block.content ?? (block.isError ? "error" : "ok"),
+      isError: block.isError === true,
+    })
+    return
+  }
+  const row = rowFromHistoryBlock(block)
+  if (row) rows.push(row)
 }
 
 /**
@@ -108,8 +137,7 @@ export function rowsFromHistoryBlocks(
 ): StreamRow[] {
   const rows: StreamRow[] = []
   for (const block of blocks) {
-    const row = rowFromHistoryBlock(block)
-    if (row) rows.push(row)
+    pushHistoryBlock(rows, block)
   }
   return rows
 }

@@ -8,7 +8,11 @@ import { SyntaxStyle } from "@opentui/core"
 import { stringWidth, wrapLines } from "../tui/view/height.js"
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
-import { thinkingScrollLine, thoughtPhrase, type Thought } from "./thinking.js"
+import {
+  thinkingScrollLine,
+  thinkingSettledLine,
+  type Thought,
+} from "./thinking.js"
 import { UI } from "./theme.js"
 
 /**
@@ -56,10 +60,23 @@ export type StreamRow = {
    */
   readonly failed?: boolean
   /**
-   * Tool row that answers a call rather than opening one. Painted as a
-   * continuation of the call above it instead of repeating its name.
+   * Tool call whose result has not landed yet. The row is the call itself
+   * until then; the result resolves the marker and rewrites the subject in
+   * place rather than opening a row of its own.
    */
-  readonly result?: boolean
+  readonly pending?: boolean
+  /**
+   * Identity of the call a tool row opened — tool name plus the sentence it
+   * paints. A run of consecutive calls sharing one is a repeat, and collapses
+   * onto a single row.
+   */
+  readonly callKey?: string
+  /**
+   * Row standing for a run of repeated calls. Its subject stays the call the
+   * run repeats (never a total across them, which would be a claim the
+   * payloads do not support); each answer lands in the expanded body.
+   */
+  readonly coalesced?: boolean
   /**
    * Writer of a non-user row. Absent means the session's own agent; the paint
    * layer names writers only once a transcript carries more than one.
@@ -177,14 +194,14 @@ const META_WIDTH = 12
  */
 const MARK_OK = "✓"
 const MARK_FAILED = "×"
+/** A call still in flight has no verdict yet, and must not borrow one. */
+const MARK_PENDING = "·"
 
 /**
  * Glyphs are single-cell so nothing after them can slip out of the meta column.
  * Every one is verified against `stringWidth` by the row-shape tests.
  */
 const BUBBLE_BAR = "▍"
-const THINKING_BAR = "┆"
-const RESULT_CONNECTOR = "└"
 const AGENT_ICON = "●"
 
 /**
@@ -232,19 +249,21 @@ export function blockLabel(
   return `${AGENT_ICON} ${row.agent ?? MAIN_AGENT}`
 }
 
+/** Where a tool row stands: in flight, answered, or answered badly. */
+function toolMark(row: StreamRow): string {
+  if (row.failed === true) return MARK_FAILED
+  return row.pending === true ? MARK_PENDING : MARK_OK
+}
+
 /**
- * Tool prefix: a single success/failure mark, then either the sentence-row's
- * bare lead (verb + coloured subject follow in the body) or the legacy meta
- * column. A result trades the lead for a connector and leaves the meta column
- * blank, so the call and its answer read as one block instead of the tool
- * name twice. Writer identity is painted once per block (see `blockLabel`),
- * not repeated on every row.
+ * Tool prefix: a single in-flight/success/failure mark, then either the
+ * sentence-row's bare lead (verb + coloured subject follow in the body) or the
+ * legacy meta column. A call and its answer share one row, so there is no
+ * continuation to mark. Writer identity is painted once per block (see
+ * `blockLabel`), not repeated on every row.
  */
 function toolPrefix(row: StreamRow): string {
-  const mark = row.failed === true ? MARK_FAILED : MARK_OK
-  if (row.result === true) {
-    return `${mark} ${RESULT_CONNECTOR} ${" ".repeat(META_WIDTH)}`
-  }
+  const mark = toolMark(row)
   if (row.verb !== undefined) return `${mark} `
   const meta = row.meta && row.meta.length > 0 ? fitMeta(row.meta) : ""
   return `${mark} ${TOOL_LEAD_GAP}${meta}`
@@ -267,22 +286,22 @@ function userBubbleLines(text: string, width: number): string[] {
   return lines.map((line) => `${bar}${line}`)
 }
 
-/** Columns a reasoning block is inset by, so it reads as subordinate. */
+/**
+ * Columns a reasoning block is inset by. The inset plus the faintest text in
+ * the palette is the whole of reasoning's chrome — it carries no marker of its
+ * own, because a rail is a line of noise attached to the quietest thing on the
+ * screen and there is nothing above it for the rail to bind it to.
+ */
 const THINKING_INDENT = 2
 
-/**
- * Reasoning as a structured block rather than one dim line: indented, with a
- * marker down its left edge, so a long chain of thought is skimmable and
- * obviously not the answer.
- */
+/** Reasoning laid out as an indented block, for a row with no summary line. */
 function thinkingLines(text: string, layout: RowLayout): string[] {
-  const marker = `${THINKING_BAR} `
   const lead = " ".repeat(THINKING_INDENT)
-  const gutter = stringWidth(lead) + stringWidth(marker)
-  const lines = text
+  const columns = Math.max(1, layout.width - THINKING_INDENT)
+  return text
     .split("\n")
-    .flatMap((line) => wrapLines(line, Math.max(1, layout.width - gutter)))
-  return lines.map((line) => `${lead}${marker}${line}`)
+    .flatMap((line) => wrapLines(line, columns))
+    .map((line) => `${lead}${line}`)
 }
 
 /** Trailer that tells a collapsed row it has more behind it, and how to get there. */
@@ -296,32 +315,105 @@ function toolArrow(row: StreamRow): string {
   return row.expanded === true ? "▾" : "▸"
 }
 
+/** Elapsed reasoning time, compact enough to ride a panel's closing tick. */
+function elapsedLabel(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
 /**
- * Reasoning body. While it streams it is one row windowed onto the newest text;
- * once it has settled it is the phrase it earned, with the full chain of thought
- * behind the expand key. A row with no settled thought (a hydrated transcript,
- * a fixture) keeps the plain block — there is no elapsed time to summarise.
+ * Reasoning body. The same line serves the whole life of the row: while text
+ * arrives it is windowed onto the newest of it, and once the turn moves on it
+ * stops moving and keeps the opening of what it was thinking about. Nothing is
+ * substituted — the row goes quiet, and the rest is behind the expand key.
+ *
+ * A row with no settled thought (a hydrated transcript, a fixture) has no
+ * summary to collapse to and keeps the plain block.
  */
 function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   const lead = " ".repeat(THINKING_INDENT)
+  const columns = Math.max(1, layout.width - THINKING_INDENT)
   if (row.streaming === true) {
-    const marker = `${THINKING_BAR} `
-    const columns = Math.max(1, layout.width - stringWidth(lead) - stringWidth(marker))
-    return [`${lead}${marker}${thinkingScrollLine(row.text, columns, row.revealChars)}`]
+    return [`${lead}${thinkingScrollLine(row.text, columns, row.revealChars)}`]
   }
   if (row.thought === undefined) return thinkingLines(row.text, layout)
   const expanded = row.expanded === true
-  const head = `${lead}${thoughtPhrase(row.thought.ms, row.thought.variant)}${expandHint(expanded)}`
-  return expanded ? [head, ...thinkingLines(row.text, layout)] : [head]
+  const hint = expandHint(expanded)
+  const summary = thinkingSettledLine(
+    row.text,
+    Math.max(1, columns - stringWidth(hint)),
+  )
+  const head = `${lead}${summary}${hint}`
+  if (!expanded) return [head]
+  // Elapsed time lives here rather than on the summary line: it is worth
+  // knowing after the fact, and never worth displacing the reasoning itself.
+  const panel = expansionTextPanel(
+    row.text,
+    expansionColumns(THINKING_INDENT, layout),
+    elapsedLabel(row.thought.ms),
+  )
+  return [head, ...detailPlainLines(panel).map((line) => `${lead}${line}`)]
 }
 
-/** Body a collapsible row shows: the summary alone, or the full text plus the way back. */
-function collapsibleBody(row: StreamRow, skill: string): string {
+/**
+ * Revealed bodies are inset past the summary that revealed them, railed down
+ * their left edge, and closed by a tick. The rail earns its columns here in a
+ * way it does not on an always-visible reasoning line: it binds content that
+ * only exists because of the row above it, and it gives the closing tick
+ * something to close.
+ */
+const EXPANSION_INDENT = 2
+const EXPANSION_RAIL = "┆"
+const EXPANSION_END = "╵"
+
+const EXPANSION_LEAD = `${" ".repeat(EXPANSION_INDENT)}${EXPANSION_RAIL} `
+
+/** Columns a revealed body has left once its row prefix and rail are paid for. */
+export function expansionColumns(gutterWidth: number, layout: RowLayout): number {
+  return Math.max(1, layout.width - gutterWidth - stringWidth(EXPANSION_LEAD))
+}
+
+/**
+ * Revealed content as a detail panel beneath its summary. Lines arrive already
+ * laid out and keep whatever colours they were authored with. `trailer` rides
+ * the closing tick, for the one fact worth knowing about a panel only after
+ * having read it.
+ */
+export function expansionPanel(
+  body: readonly StyledBodyLine[],
+  trailer?: string,
+): StyledBodyLine[] {
+  const rail = { text: EXPANSION_LEAD, fg: UI.textFaint }
+  const end = `${" ".repeat(EXPANSION_INDENT)}${EXPANSION_END}`
+  const tail = trailer === undefined ? end : `${end} ${trailer}`
+  return [
+    ...body.map((line): StyledBodyLine => [rail, ...line]),
+    [{ text: tail, fg: UI.textFaint }],
+  ]
+}
+
+/**
+ * Plain revealed text as a panel: wrapped to the columns the panel actually
+ * owns, and painted quieter than the summary that revealed it.
+ */
+export function expansionTextPanel(
+  text: string,
+  columns: number,
+  trailer?: string,
+): StyledBodyLine[] {
+  const wrapped = text.split("\n").flatMap((line) => wrapLines(line, columns))
+  return expansionPanel(
+    wrapped.map((line) => [{ text: line, fg: UI.textDim }]),
+    trailer,
+  )
+}
+
+/** Summary a loaded skill collapses to: which skill, and how much it brought. */
+function skillSummary(row: StreamRow, skill: string): string {
   const lines = row.text.split("\n").length
   const summary = `skill "${skill}" loaded · ${lines} line${lines === 1 ? "" : "s"}`
-  return row.expanded === true
-    ? `${summary}${expandHint(true)}\n${row.text}`
-    : `${summary}${expandHint(false)}`
+  return `${summary}${expandHint(row.expanded === true)}`
 }
 
 /** Plain-text rendering of a styled body, for text frames and the clipboard. */
@@ -334,13 +426,49 @@ export function summaryHead(row: StreamRow, summary: string): string {
   return `${summary}${row.detail === undefined ? "" : expandHint(row.expanded === true)}`
 }
 
+/**
+ * Whether this row is a summary with its revealed body showing. Such rows
+ * paint as styled lines (the panel is quieter than its summary), which a
+ * single-colour text node cannot express.
+ */
+export function isExpansionRow(row: StreamRow): boolean {
+  if (row.expanded !== true) return false
+  return row.skill !== undefined || row.detail !== undefined
+}
+
+/**
+ * Head plus revealed panel for an expanded summary row, or null when the row
+ * reveals nothing. One layout for both kinds of revealed body — a loaded
+ * skill's instructions and a tool call's structured arguments.
+ */
+export function expandedRowLines(
+  row: StreamRow,
+  layout: RowLayout,
+): StyledBodyLine[] | null {
+  if (!isExpansionRow(row)) return null
+  const columns = expansionColumns(
+    stringWidth(streamRowGutter(row, layout).content),
+    layout,
+  )
+  if (row.skill !== undefined) {
+    return [
+      [{ text: skillSummary(row, row.skill), fg: UI.text }],
+      ...expansionTextPanel(row.text, columns),
+    ]
+  }
+  return [
+    [{ text: summaryHead(row, row.summary ?? ""), fg: UI.text }],
+    ...expansionPanel(row.detail ?? []),
+  ]
+}
+
 /** The text a row paints, after collapsing anything that hides behind a summary. */
-function rowBody(row: StreamRow): string {
-  if (row.skill !== undefined) return collapsibleBody(row, row.skill)
+function rowBody(row: StreamRow, layout: RowLayout): string {
+  const expanded = expandedRowLines(row, layout)
+  if (expanded !== null) return detailPlainLines(expanded).join("\n")
+  if (row.skill !== undefined) return skillSummary(row, row.skill)
   if (row.summary === undefined) return row.text
-  const head = summaryHead(row, row.summary)
-  if (row.expanded !== true || row.detail === undefined) return head
-  return [head, ...detailPlainLines(row.detail)].join("\n")
+  return summaryHead(row, row.summary)
 }
 
 /** Columns a sentence-row's expanded detail/diff is inset by beneath the head. */
@@ -348,6 +476,21 @@ const TOOL_DETAIL_INDENT = 2
 
 /** Continuation line indent for a wrapped `&&`-chained shell command. */
 const CHAIN_INDENT = "    "
+
+/**
+ * Cut a subject to the columns it may claim. A tool row is one line: a long
+ * URL or search query that wrapped would turn a scannable list into a wall,
+ * so the row loses the tail rather than the shape.
+ */
+function truncateLine(text: string, columns: number): string {
+  if (columns <= 0 || stringWidth(text) <= columns) return text
+  let out = ""
+  for (const char of text) {
+    if (stringWidth(out) + stringWidth(char) > columns - 1) break
+    out += char
+  }
+  return `${out}…`
+}
 
 /**
  * A shell command's `&&` chain, one segment per line with the connector
@@ -364,14 +507,25 @@ function shellChainSegments(command: string): readonly string[] {
  * dim stat, and the expand arrow on its last physical line. A shell command's
  * `&&` chain spans several lines; every other tool call is one line.
  */
-export function toolSentenceLines(row: StreamRow): StyledBodyLine[] {
+export function toolSentenceLines(
+  row: StreamRow,
+  columns?: number,
+): StyledBodyLine[] {
   const fg = rowFg(row)
   const verb = row.verb ?? ""
   const subject = row.summary ?? row.text
-  const segments = shellChainSegments(subject)
   // A verb that already names the whole call ("Linear: list issues") has no
   // subject to pair with, and a lone subject (a result sentence) has no verb.
   const head = verb.length === 0 ? "" : subject.length === 0 ? verb : `${verb} `
+  const stat =
+    row.stat !== undefined && row.stat.length > 0 ? ` ${row.stat}` : ""
+  const arrow = toolArrow(row)
+  const trailer = stat.length + (arrow.length > 0 ? arrow.length + 1 : 0)
+  const segments = shellChainSegments(
+    columns === undefined || subject.includes(" && ")
+      ? subject
+      : truncateLine(subject, columns - stringWidth(head) - trailer),
+  )
   const lines: StyledBodyLine[] = segments.map((segment, i) => {
     const lead: StyledBodyLine =
       i === 0 ? [{ text: head, fg }] : [{ text: CHAIN_INDENT, fg }]
@@ -381,10 +535,9 @@ export function toolSentenceLines(row: StreamRow): StyledBodyLine[] {
     return [...lead, ...body, ...chain]
   })
   const last = lines[lines.length - 1] ?? []
-  const stat = row.stat !== undefined && row.stat.length > 0 ? [{ text: ` ${row.stat}`, fg: UI.textDim }] : []
-  const arrow = toolArrow(row)
+  const statSegment = stat.length > 0 ? [{ text: stat, fg: UI.textDim }] : []
   const arrowSegment = arrow.length > 0 ? [{ text: ` ${arrow}`, fg: UI.textDim }] : []
-  lines[lines.length - 1] = [...last, ...stat, ...arrowSegment]
+  lines[lines.length - 1] = [...last, ...statSegment, ...arrowSegment]
   return lines
 }
 
@@ -398,8 +551,11 @@ function indentStyledLine(line: StyledBodyLine, columns: number): StyledBodyLine
  * structured detail indented beneath once expanded. Collapsing hides only
  * this tail — the head (and a shell chain's full structure) always shows.
  */
-export function toolRowLines(row: StreamRow): StyledBodyLine[] {
-  const head = toolSentenceLines(row)
+export function toolRowLines(
+  row: StreamRow,
+  columns?: number,
+): StyledBodyLine[] {
+  const head = toolSentenceLines(row, columns)
   if (row.expanded !== true) return head
   const tail =
     row.diff !== undefined
@@ -430,7 +586,7 @@ export function paintStreamRow(
     }
   }
   const gutter = streamRowGutter(row, layout).content
-  return { content: `${gutter}${indentBody(rowBody(row), gutter, layout)}`, fg }
+  return { content: `${gutter}${indentBody(rowBody(row, layout), gutter, layout)}`, fg }
 }
 
 /**
@@ -465,11 +621,12 @@ export function rowGroupGap(
   row: StreamRow,
 ): number {
   if (previous === undefined) return 0
-  // Thinking leads the answer it belongs to, so it takes the turn's gap rather
-  // than opening one of its own: the pair occupies the same rows whether or not
-  // the thinking line is there.
-  if (isThinkingRow(row)) return previous.role === "user" ? ROW_GROUP_GAP : 0
-  if (isThinkingRow(previous)) return 0
+  // Thinking leads the answer it belongs to, so the turn's single gap is spent
+  // below the reasoning line rather than above it: the settled phrase stays
+  // glued to the turn that produced it and the answer gets its breathing room,
+  // and the pair still costs exactly one gap either way.
+  if (isThinkingRow(row)) return 0
+  if (isThinkingRow(previous)) return ROW_GROUP_GAP
   if (previous.role !== row.role) return ROW_GROUP_GAP
   // A block is a contiguous run from one writer; a change of writer is a
   // fresh block even when the role stays the same (one agent's tool call
@@ -500,12 +657,13 @@ export function isStructuredRow(row: StreamRow): boolean {
 
 /**
  * Whether this row reads as a sentence — verb plus coloured subject, with an
- * arrow when there is something behind it. Calls earn it from their verb;
- * results earn it from the sentence their payload was summarised into.
+ * arrow when there is something behind it. Calls earn it from their verb; a
+ * result with no call to fold into earns it from the sentence its payload was
+ * summarised into.
  */
 export function isSentenceRow(row: StreamRow): boolean {
   if (row.role !== "tool") return false
-  return row.verb !== undefined || (row.result === true && row.summary !== undefined)
+  return row.verb !== undefined || row.summary !== undefined
 }
 
 /** Whether this row paints a diff body instead of its text. */

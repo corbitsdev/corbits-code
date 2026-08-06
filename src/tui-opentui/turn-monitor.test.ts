@@ -343,7 +343,7 @@ describe("stall watchdog", () => {
 })
 
 describe("reasoning settles to a summary", () => {
-  test("a closed thinking row carries its elapsed time and a fresh phrasing", async () => {
+  test("a closed thinking row carries its elapsed time", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
       try {
@@ -362,8 +362,7 @@ describe("reasoning settles to a summary", () => {
           .map((row) => row.thought)
         expect(thoughts).toHaveLength(2)
         expect(thoughts[0]?.ms).toBe(12_000)
-        // Two identical-length thoughts in one session must not read alike.
-        expect(thoughts[0]?.variant).not.toBe(thoughts[1]?.variant)
+        expect(thoughts[1]?.ms).toBe(12_000)
       } finally {
         t.bridge.dispose()
       }

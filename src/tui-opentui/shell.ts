@@ -162,15 +162,15 @@ import {
   agentVoicesIn,
   blockLabel,
   EXPAND_KEY,
+  expandedRowLines,
   isCollapsibleRow,
-  isDetailRow,
+  isExpansionRow,
   isMarkdownRow,
   isSentenceRow,
   MAIN_AGENT,
   paintStreamRow,
   rowGroupGap,
   streamRowGutter,
-  summaryHead,
   toolRowLines,
   toolSentenceLines,
   transcriptSyntaxStyle,
@@ -1646,19 +1646,13 @@ export function appendObserveStreamRow(shell: AppShell, row: StreamRow): boolean
 }
 
 /**
- * The scroll box keeps a column for its bar, so the transcript is one column
- * narrower than the content zone. Taken off the row budget rather than read off
- * the viewport, which is only resolved on the next frame.
- */
-const TRANSCRIPT_SCROLLBAR_COLUMNS = 1
-
-/**
  * Surface every row is laid out against: the transcript's own column budget
  * (rows right-align and wrap themselves) and whether writers need naming.
+ * The scroll bars are hidden, so the transcript owns the whole content zone.
  */
 export function transcriptRowLayout(shell: AppShell): RowLayout {
   return {
-    width: Math.max(1, shell.layout.contentWidth - TRANSCRIPT_SCROLLBAR_COLUMNS),
+    width: Math.max(1, shell.layout.contentWidth),
     multiAgent: shell.agentVoices.size > 1,
   }
 }
@@ -1724,6 +1718,19 @@ export function streamRowCount(shell: AppShell): number {
   return shell.observe !== null && shell.parentStreamLog !== null
     ? shell.parentStreamLog.length
     : shell.streamLog.length
+}
+
+/**
+ * Row at `index` on the log `appendStreamRow` currently targets. A tool result
+ * rewrites the call row it answers rather than appending its own, and needs to
+ * read that row back to fold into it.
+ */
+export function streamRowAt(shell: AppShell, index: number): StreamRow | undefined {
+  const log =
+    shell.observe !== null && shell.parentStreamLog !== null
+      ? shell.parentStreamLog
+      : shell.streamLog
+  return index >= 0 && index < log.length ? log[index] : undefined
 }
 
 /**
@@ -1808,7 +1815,7 @@ function retextStreamRow(
   if (isSentenceRow(row)) return false
   // Expanding swaps a text row for a styled-lines box: a different node shape
   // and a different height, so the caller must rebuild rather than re-text.
-  if (isDetailRow(row)) return false
+  if (isExpansionRow(row)) return false
   const layout = transcriptRowLayout(shell)
 
   if (label !== null) {
@@ -1846,6 +1853,7 @@ function retextStreamRowBody(
   const gutter = streamRowGutter(row, layout)
   gutterNode.content = gutter.content
   gutterNode.width = stringWidth(gutter.content)
+  bodyNode.width = markdownBodyColumns(gutter, layout)
   bodyNode.content = row.text
   bodyNode.streaming = row.streaming === true
   return true
@@ -1961,6 +1969,26 @@ function gutterNode(ctx: CliRenderer, gutter: PaintedStreamLine): TextRenderable
 }
 
 /**
+ * Columns a markdown body may paint into: the transcript budget less the
+ * row's own prefix. Pinned rather than left to `flexGrow`, which reports the
+ * body's intrinsic width to yoga and lets a wide table paint past the edge.
+ */
+function markdownBodyColumns(gutter: PaintedStreamLine, layout: RowLayout): number {
+  return Math.max(1, layout.width - stringWidth(gutter.content))
+}
+
+/**
+ * Markdown tables shrink to the row's column budget rather than overflowing:
+ * columns are fitted proportionally and cells wrap on word boundaries. A table
+ * still too wide for its narrowest fit is clipped by the body's pinned width,
+ * which keeps it inside the transcript instead of painting over the chrome.
+ */
+const TRANSCRIPT_TABLE_OPTIONS = {
+  wrapMode: "word",
+  columnFitter: "proportional",
+} as const
+
+/**
  * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
  * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
  * for structured rows (MCP results), a coloured diff body for edit-tool rows,
@@ -1971,26 +1999,29 @@ function buildRowNode(
   row: StreamRow,
   layout: RowLayout,
 ): TextRenderable | BoxRenderable {
-  if (row.structured !== undefined && isSentenceRow(row)) {
-    // The table is what the sentence hides; collapsed, the sentence is the row.
-    return row.expanded === true
-      ? createStructuredRowRenderable(ctx, row, layout, row.structured, toolSentenceLines(row))
-      : createStyledLinesRowRenderable(ctx, row, layout, toolSentenceLines(row))
-  }
-
   if (isSentenceRow(row)) {
-    return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row))
+    // The sentence is one line: it is cut to the columns beside the marker
+    // rather than wrapped, so a long URL or query cannot double the row.
+    const columns = Math.max(
+      1,
+      layout.width - stringWidth(streamRowGutter(row, layout).content),
+    )
+    if (row.structured !== undefined) {
+      // The table is what the sentence hides; collapsed, the sentence is the row.
+      return row.expanded === true
+        ? createStructuredRowRenderable(ctx, row, layout, row.structured, toolSentenceLines(row, columns))
+        : createStyledLinesRowRenderable(ctx, row, layout, toolSentenceLines(row, columns))
+    }
+    return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row, columns))
   }
 
   if (row.diff !== undefined) {
     return createStyledLinesRowRenderable(ctx, row, layout, row.diff.lines)
   }
 
-  if (isDetailRow(row) && row.detail !== undefined) {
-    return createStyledLinesRowRenderable(ctx, row, layout, [
-      [{ text: summaryHead(row, row.summary ?? ""), fg: UI.text }],
-      ...row.detail,
-    ])
+  const expanded = expandedRowLines(row, layout)
+  if (expanded !== null) {
+    return createStyledLinesRowRenderable(ctx, row, layout, expanded)
   }
 
   if (row.structured !== undefined) {
@@ -2010,7 +2041,9 @@ function buildRowNode(
       content: row.text,
       syntaxStyle: transcriptSyntaxStyle(),
       fg: gutter.fg,
-      flexGrow: 1,
+      width: markdownBodyColumns(gutter, layout),
+      flexShrink: 0,
+      tableOptions: TRANSCRIPT_TABLE_OPTIONS,
       // Native incremental block stability: only the trailing block is unstable.
       streaming: row.streaming === true,
     }),

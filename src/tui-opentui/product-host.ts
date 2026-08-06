@@ -33,8 +33,7 @@ import {
   type PaletteOnObserveRequest,
 } from "./shell.js"
 import type { QueueKind } from "./session-queue.js"
-import { toolCallRow } from "./diff.js"
-import { toolResultRow } from "./mcp-view.js"
+import { hydrateHistoryRows } from "./history-hydrate.js"
 import type { StreamRow } from "./stream.js"
 
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
@@ -170,40 +169,6 @@ export function operatorResultFromSelection(
   return { kind: "option", index: sel.index }
 }
 
-/** Map history hydrate blocks → stream rows (pure; testable). */
-export function rowFromHistoryBlock(block: {
-  type: string
-  content?: string
-  name?: string
-  message?: string
-  isError?: boolean
-}): StreamRow | null {
-  switch (block.type) {
-    case "user":
-      return { role: "user", text: block.content ?? "" }
-    case "text":
-    case "reply":
-      return { role: "assistant", text: block.content ?? "" }
-    case "thinking":
-      return { role: "system", text: block.content ?? "", meta: "thinking" }
-    case "tool_call":
-      return toolCallRow({
-        name: block.name ?? "tool",
-        ...(block.content !== undefined ? { arguments: block.content } : {}),
-      })
-    case "tool_result":
-      return toolResultRow({
-        name: block.name ?? "tool",
-        content: block.content ?? (block.isError ? "error" : "ok"),
-        isError: block.isError === true,
-      })
-    case "error":
-      return { role: "system", text: block.message ?? "error", meta: "error" }
-    default:
-      return null
-  }
-}
-
 /**
  * Mount the OpenTUI shell as the production interactive UI.
  * Caller owns session lifecycle (agent, MCP, hooks); host owns paint + input.
@@ -304,19 +269,9 @@ export async function mountProductHost(
   const disposeGates = wireGates(config.eventEmitter, shell)
 
   function onHistory(blocks: unknown): void {
-    if (disposed || !Array.isArray(blocks)) return
-    for (const raw of blocks) {
-      if (raw === null || typeof raw !== "object") continue
-      const row = rowFromHistoryBlock(
-        raw as {
-          type: string
-          content?: string
-          name?: string
-          message?: string
-          isError?: boolean
-        },
-      )
-      if (row) appendStreamRow(shell, row)
+    if (disposed) return
+    for (const row of hydrateHistoryRows(blocks)) {
+      appendStreamRow(shell, row)
     }
   }
 

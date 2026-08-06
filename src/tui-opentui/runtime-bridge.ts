@@ -26,6 +26,7 @@ import {
   setShellBridgeHooks,
   setStatusFlash,
   setTurnPhase,
+  streamRowAt,
   streamRowCount,
   type AppShell,
 } from "./shell.js"
@@ -52,6 +53,11 @@ import {
 } from "../tui/image-attachments.js"
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
+import {
+  canCoalesceCall,
+  coalesceCallRows,
+  mergeToolRows,
+} from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
 
@@ -229,17 +235,6 @@ function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
       return { role: "user", text: event.text }
     case "assistant":
       return { role: "assistant", text: event.text }
-    case "tool_call":
-      return toolCallRow({
-        name: event.name,
-        ...(event.detail !== undefined ? { arguments: event.detail } : {}),
-      })
-    case "tool_result":
-      return toolResultRow({
-        name: event.name,
-        content: event.detail ?? (event.isError ? "error" : "ok"),
-        isError: event.isError === true,
-      })
     case "system":
       return { role: "system", text: event.text }
     case "error":
@@ -285,8 +280,10 @@ type BridgeBag = {
   /** One auto-retry per rate-limit window. */
   quotaFired: boolean
   now: () => number
-  /** Rotates the settled-reasoning phrasing so a long session does not repeat itself. */
-  thoughtVariant: number
+  /** Transcript row each in-flight call occupies, so its result can resolve it. */
+  toolRows: Map<string, number>
+  /** Row of the newest in-flight call, for results that carry no call id. */
+  lastToolRow: number
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>()
@@ -340,11 +337,11 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   const open = bag.openRow
   if (open === null) return
   bag.openRow = null
-  // Reasoning settles to a phrase and its elapsed time; the full chain of
-  // thought stays on the row, behind the expand key.
+  // Reasoning stops scrolling and keeps its opening line; the elapsed time and
+  // the full chain of thought stay on the row, behind the expand key.
   const thought =
     open.kind === "thinking"
-      ? { ms: Math.max(0, bag.now() - open.startedAt), variant: bag.thoughtVariant++ }
+      ? { ms: Math.max(0, bag.now() - open.startedAt) }
       : undefined
   replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought))
 }
@@ -386,6 +383,59 @@ function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number):
   if (revealed === open.revealChars) return
   open.revealChars = revealed
   replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true, undefined, revealed))
+}
+
+/**
+ * Paint a tool call. A repeat of the call the previous row already painted
+ * collapses onto that row instead of opening a new one — a model that asks the
+ * same question sixteen times should cost the transcript one line, not sixteen.
+ */
+function applyToolCall(
+  shell: AppShell,
+  bag: BridgeBag,
+  event: Extract<BridgeInboundEvent, { type: "tool_call" }>,
+): void {
+  const row = toolCallRow({
+    name: event.name,
+    ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+  })
+  const count = streamRowCount(shell)
+  const tail = streamRowAt(shell, count - 1)
+  const index = canCoalesceCall(tail, row) ? count - 1 : count
+  if (tail !== undefined && index < count) {
+    replaceStreamRowAt(shell, index, coalesceCallRows(tail, row))
+  } else {
+    appendStreamRow(shell, row)
+  }
+  if (event.callId !== undefined) bag.toolRows.set(event.callId, index)
+  bag.lastToolRow = index
+}
+
+/**
+ * Fold a tool result into the row its call opened. A result whose call is not
+ * on the log (a bridge that saw only the answer) still gets a row of its own —
+ * losing it would be worse than an unpaired line.
+ */
+function applyToolResult(
+  shell: AppShell,
+  bag: BridgeBag,
+  event: Extract<BridgeInboundEvent, { type: "tool_result" }>,
+): void {
+  const result = toolResultRow({
+    name: event.name,
+    content: event.detail ?? (event.isError ? "error" : "ok"),
+    isError: event.isError === true,
+  })
+  const tracked =
+    event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined
+  if (event.callId !== undefined) bag.toolRows.delete(event.callId)
+  const index = tracked ?? bag.lastToolRow
+  const call = streamRowAt(shell, index)
+  if (call === undefined || call.pending !== true) {
+    appendStreamRow(shell, result)
+    return
+  }
+  replaceStreamRowAt(shell, index, mergeToolRows(call, result))
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
@@ -439,6 +489,18 @@ function applyInbound(
     return
   }
 
+  if (event.type === "tool_call") {
+    applyToolCall(shell, bag, event)
+    paintChrome(shell)
+    return
+  }
+
+  if (event.type === "tool_result") {
+    applyToolResult(shell, bag, event)
+    paintChrome(shell)
+    return
+  }
+
   const row = rowFromInbound(event)
   if (row) appendStreamRow(shell, row)
   paintChrome(shell)
@@ -471,7 +533,8 @@ export function attachSessionBridge(
     lastSentMessage: "",
     quotaFired: false,
     now,
-    thoughtVariant: 0,
+    toolRows: new Map(),
+    lastToolRow: -1,
   }
   bridges.set(shell, bag)
 

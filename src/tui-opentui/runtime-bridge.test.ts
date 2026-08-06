@@ -57,10 +57,12 @@ describe("attachSessionBridge", () => {
           await h.renderOnce()
           const frame = h.captureCharFrame()
           // Sticky follows the tail; early user line may scroll off.
-          expect(shell.lineCount).toBeGreaterThanOrEqual(4)
+          expect(shell.lineCount).toBeGreaterThanOrEqual(3)
           expect(frame).toContain("I'll list the directory.")
-          expect(frame).toContain("Bash")
-          expect(frame).toContain("AGENTS.md")
+          // The call and its output are one row: the command stays the subject
+          // and the listing sits behind the expand arrow.
+          expect(frame).toContain("Bash ls -la")
+          expect(frame).not.toContain("AGENTS.md")
           expect(frame).toContain("Done")
           expect(shell.session.run).toBe("idle")
         } finally {

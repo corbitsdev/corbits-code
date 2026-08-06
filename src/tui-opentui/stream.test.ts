@@ -13,6 +13,9 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream"
+import { toolCallRow } from "./diff"
+import { toolResultRow } from "./mcp-view"
+import { mergeToolRows } from "./tool-rows"
 import { UI } from "./theme"
 
 const SOLO: RowLayout = { width: 56, multiAgent: false }
@@ -92,17 +95,21 @@ describe("stream paint", () => {
     expect(rows[0]?.startsWith("✓")).toBe(true)
   })
 
-  test("a result continues its call instead of repeating the tool name", () => {
-    const call = lines({ role: "tool", text: '"legacy"', meta: "grep" })[0] as string
-    const result = lines({
-      role: "tool",
-      text: "42 matches",
-      meta: "grep",
-      result: true,
-    })[0] as string
-    expect(result).not.toContain("grep")
-    expect(result).toContain("└")
-    expect(result.indexOf("42 matches")).toBe(call.indexOf('"legacy"'))
+  test("an answered call is one row, with no continuation beneath it", () => {
+    const merged = mergeToolRows(
+      toolCallRow({ name: "grep", arguments: '{"pattern":"legacy"}' }),
+      toolResultRow({ name: "grep", content: "42 matches" }),
+    )
+    const painted = lines(merged)
+    expect(painted.length).toBe(1)
+    expect(painted[0]).not.toContain("└")
+    expect(painted[0]).toContain("✓")
+  })
+
+  test("a call in flight is marked as undecided, not as a success", () => {
+    const call = lines(toolCallRow({ name: "grep", arguments: '{"pattern":"x"}' }))[0] as string
+    expect(call).toContain("·")
+    expect(call).not.toContain("✓")
   })
 
   test("a failed tool call is marked and steps out of the live tool voice", () => {
@@ -118,7 +125,7 @@ describe("stream paint", () => {
     expect(bad.fg).not.toBe(UI.action)
   })
 
-  test("reasoning is a faint, inset, marked block", () => {
+  test("reasoning is a faint, inset block with no marker of its own", () => {
     const painted = paintStreamRow(
       {
         role: "system",
@@ -131,7 +138,8 @@ describe("stream paint", () => {
     const rows = painted.content.split("\n")
     expect(rows.length).toBe(2)
     for (const row of rows) {
-      expect(row.startsWith("  ┆ ")).toBe(true)
+      expect(row.startsWith("  ")).toBe(true)
+      expect(row).not.toContain("┆")
     }
     expect(paintStreamRow({ role: "assistant", text: "done" }, SOLO).fg).toBe(UI.text)
   })
@@ -144,7 +152,8 @@ describe("stream paint", () => {
     })
     expect(rows.length).toBeGreaterThan(1)
     for (const row of rows) {
-      expect(row.startsWith("  ┆ ")).toBe(true)
+      expect(row.startsWith("  ")).toBe(true)
+      expect(row).not.toContain("┆")
       expect(stringWidth(row)).toBeLessThanOrEqual(SOLO.width)
     }
   })
@@ -163,14 +172,13 @@ describe("stream paint", () => {
     )
   })
 
-  test("reasoning keeps one marker column across its lines", () => {
+  test("reasoning keeps one body column across its lines", () => {
     const rows = lines(
       { role: "system", meta: "thinking", text: "checking\nthen deciding", agent: "critic" },
       CREW,
     )
-    expect(rows[0]).toContain("┆")
-    const markers = new Set(rows.map((row) => row.indexOf("┆")))
-    expect(markers.size).toBe(1)
+    const columns = new Set(rows.map((row) => row.length - row.trimStart().length))
+    expect(columns).toEqual(new Set([2]))
   })
 
   test("a loaded skill collapses to a summary until it is expanded", () => {
@@ -178,7 +186,6 @@ describe("stream paint", () => {
       role: "tool",
       text: 'Skill "style" — follow these instructions\n\nline\nline',
       meta: "use_skill",
-      result: true,
       skill: "style",
     }
     const WIDE: RowLayout = { width: 96, multiAgent: false }
@@ -188,10 +195,13 @@ describe("stream paint", () => {
     expect(collapsed[0]).toContain("4 lines")
     expect(collapsed[0]).toContain("Alt+E expand")
 
+    // Summary, the four revealed lines railed beneath it, and the closing tick.
     const expanded = lines({ ...row, expanded: true }, WIDE)
-    expect(expanded.length).toBe(5)
+    expect(expanded.length).toBe(6)
     expect(expanded[0]).toContain("Alt+E collapse")
     expect(expanded.join("\n")).toContain("line")
+    for (const line of expanded.slice(1, -1)) expect(line).toContain("┆")
+    expect(expanded[expanded.length - 1]?.trim()).toBe("╵")
   })
 })
 

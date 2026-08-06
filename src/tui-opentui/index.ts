@@ -36,7 +36,6 @@ export {
   mountProductHost,
   operatorResultFromSelection,
   permissionChoices,
-  rowFromHistoryBlock,
   type ProductHost,
   type ProductHostConfig,
   type ProductHostDeliver,
