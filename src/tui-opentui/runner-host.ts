@@ -78,6 +78,8 @@ export type RunnerHostDeps = {
   readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels">
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>
+  /** First-run telemetry disclosure, shown on the landing screen. */
+  readonly telemetryNotice?: string
 }
 
 /** Product host plus the runner-owned subscriptions torn down with it. */
@@ -151,6 +153,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     chrome: chromeFromSession(deps.chrome()),
     onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
     ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
+    ...(deps.telemetryNotice !== undefined
+      ? { telemetryNotice: deps.telemetryNotice }
+      : {}),
   })
 
   const pushChrome = (): void => {

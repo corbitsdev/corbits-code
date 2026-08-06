@@ -26,6 +26,7 @@ import {
   stickyMode,
   submitPrompt,
   toggleShellFocus,
+  transcriptRowLayout,
 } from "./shell"
 
 /** Last painted row: the hint line is the bottom-most chrome in every state. */
@@ -56,7 +57,7 @@ describe("createAppShell", () => {
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("test")
-          expect(frame).toContain("enter send")
+          expect(frame).toContain("corbits code")
         } finally {
           shell.dispose()
         }
@@ -251,7 +252,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("stream rows paint distinct role labels", async () => {
+  test("stream rows paint each voice in its own place", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -271,15 +272,19 @@ describe("product skin: stream + queue + overlay", () => {
           await new Promise((resolve) => setTimeout(resolve, 250))
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          // Sticky follows the tail — last roles stay in view.
-          expect(frame).toContain("agent")
+          // Sticky follows the tail — the last rows stay in view.
           expect(frame).toContain("hi there")
-          expect(frame).toContain("tool")
           expect(frame).toContain("bash")
+          // One agent is answering, so no row spends columns naming it.
+          expect(frame).not.toContain("agent")
+          expect(frame).not.toContain(" tool ")
           // User row content is in the scroll buffer (pure paint covered in stream.test).
-          expect(paintStreamRow({ role: "user", text: "hello world" }).content).toContain(
-            "you",
-          )
+          expect(
+            paintStreamRow(
+              { role: "user", text: "hello world" },
+              transcriptRowLayout(shell),
+            ).content,
+          ).toContain("hello world")
         } finally {
           shell.dispose()
         }
@@ -298,7 +303,7 @@ describe("product skin: stream + queue + overlay", () => {
         try {
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("enter send")
+          expect(frame).toContain("corbits code")
           expect(frame).toContain("/ commands")
         } finally {
           shell.dispose()

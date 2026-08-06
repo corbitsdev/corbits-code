@@ -17,22 +17,32 @@ function state(overrides: Partial<HintState> = {}): HintState {
 }
 
 describe("composeHintLine", () => {
-  test("idle offers send, commands and file mentions", () => {
+  test("idle offers commands and file mentions", () => {
     expect(composeHintLine(state())).toBe(
-      "enter send    / commands    @ files",
+      "/ commands    @ files",
     )
   })
 
   test("running swaps file mentions for the stop key", () => {
     expect(composeHintLine(state({ run: "busy" }))).toBe(
-      "enter send    / commands    ^C stop",
+      "/ commands    ^C stop",
     )
   })
 
   test("live workers advertise the observe key", () => {
     expect(composeHintLine(state({ run: "busy", workers: true }))).toBe(
-      "enter send    alt+a workers    / commands    ^C stop",
+      "alt+a workers    / commands    ^C stop",
     )
+  })
+
+  test("never advertises enter to send", () => {
+    for (const surface of [
+      { kind: "prompt" },
+      { kind: "transcript" },
+      { kind: "observe" },
+    ] as const) {
+      expect(composeHintLine(state({ surface }))).not.toContain("enter send")
+    }
   })
 
   test("an open overlay shows its own keys", () => {
@@ -60,7 +70,7 @@ describe("composeHintLine", () => {
       }),
     )
     expect(line).toBe(
-      "enter send    / commands    ^C stop    working    queue 2    pinned    interrupt    1 image    copied 3 rows",
+      "/ commands    ^C stop    working    queue 2    pinned    interrupt    1 image    copied 3 rows",
     )
   })
 })

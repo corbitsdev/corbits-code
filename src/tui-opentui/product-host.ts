@@ -82,6 +82,8 @@ export type ProductHostConfig = {
   readonly createRenderer?: () => Promise<CliRenderer>
   /** Clock/timer overrides for the quota-retry and stall watchdog (tests). */
   readonly turnMonitor?: TurnMonitorOptions
+  /** First-run telemetry disclosure, shown on the landing screen. */
+  readonly telemetryNotice?: string
 }
 
 export type ProductHost = {
@@ -205,6 +207,9 @@ export async function mountProductHost(
     ...(config.onCommand !== undefined ? { onCommand: config.onCommand } : {}),
     ...(config.onObserveRequest !== undefined
       ? { onObserveRequest: config.onObserveRequest }
+      : {}),
+    ...(config.telemetryNotice !== undefined
+      ? { telemetryNotice: config.telemetryNotice }
       : {}),
   })
 

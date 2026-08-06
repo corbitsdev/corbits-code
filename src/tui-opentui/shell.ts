@@ -45,6 +45,7 @@ import {
 } from "../tui/sent-message-history.js"
 import { spliceMentionCompletion } from "./prompt-attachments.js"
 import { composeHintLine, type HintSurface } from "./hint-line.js"
+import { LOCKUP_GAP, lockupCells, lockupFits } from "./lockup.js"
 import {
   viewToTableContent,
   type McpStructuredView,
@@ -62,10 +63,22 @@ import {
 import {
   PROMPT_BASE_ROWS,
   resolveGeometry,
+  resolveTopPadRows,
   type GeometryLayout,
   type OverlayMode,
   type ZoneVisibility,
 } from "./geometry/index.js"
+import {
+  createLandingAbove,
+  createLandingBelow,
+  landingBelowContent,
+  landingSuggestionFor,
+  paintLandingBelow,
+  paintLandingMark,
+  splitLandingRows,
+  type LandingAbove,
+  type LandingBelowContent,
+} from "./landing.js"
 import {
   createListViewport,
   moveActive,
@@ -117,13 +130,26 @@ import {
   type SessionQueueState,
 } from "./session-queue.js"
 import {
+  agentVoicesIn,
+  EXPAND_KEY,
   isMarkdownRow,
+  MAIN_AGENT,
   paintStreamRow,
+  rowGroupGap,
   streamRowGutter,
   transcriptSyntaxStyle,
+  type PaintedStreamLine,
+  type RowLayout,
   type StreamRow,
 } from "./stream.js"
 import { UI } from "./theme.js"
+import { middleEllipsis } from "./command-display.js"
+import {
+  composeDecisionBody,
+  decisionChoiceRows,
+  DECISION_CHOICE_ROWS,
+  wrapOverlayText,
+} from "./overlay-body.js"
 import type { DiffLine, DiffView } from "./diff.js"
 import {
   beginYank,
@@ -419,11 +445,18 @@ export type AppShellOptions = {
    * Unset (demo/smoke) falls back to `makeObserveFixture()`.
    */
   readonly onObserveRequest?: PaletteOnObserveRequest
+  /**
+   * First-run telemetry disclosure for the landing screen. Omitted once the
+   * notice has been shown, so it is not permanent chrome.
+   */
+  readonly telemetryNotice?: string
 }
 
 export type AppShell = {
   readonly renderer: ShellRenderer
   readonly root: BoxRenderable
+  /** Blank rows above the first transcript row (0 on short terminals). */
+  readonly topPad: BoxRenderable
   /** Optional chrome zones (constitution goal/task/agents). */
   readonly goalBox: BoxRenderable
   readonly goalText: TextRenderable
@@ -451,6 +484,11 @@ export type AppShell = {
   lineCount: number
   /** Full stream log (windowed paint; never unbounded render tree). */
   streamLog: StreamRow[]
+  /**
+   * Distinct writers in the visible transcript. Rows carry a name and icon only
+   * once this holds more than one, so identity appears where it disambiguates.
+   */
+  agentVoices: Set<string>
   /** Session name shown on the model bar. */
   baseTitle: string
   /** Composed `profile · model · effort` label for the model_bar zone. */
@@ -463,6 +501,8 @@ export type AppShell = {
   overlayKind: PrimaryOverlayKind | null
   /** Optional long body lines painted above the list (operator question). */
   overlayBodyLines: readonly string[]
+  /** Palette role per body line, aligned with overlayBodyLines. */
+  overlayBodyFgs: readonly string[]
   /** Palette command ids aligned with overlayItems when kind is palette. */
   paletteCommands: readonly PaletteCommand[]
   /** Clipboard port for keyboard copy (tests inject recording port). */
@@ -484,6 +524,14 @@ export type AppShell = {
    * snapshot push, which would clobber a per-token progress line.
    */
   turnPhase: string | null
+  /**
+   * Clock and motion state for the bottom-left brand lockup. The bridge pushes
+   * both off its existing monitor tick (`setLockupFrame`); the shell never
+   * reads a clock of its own, so a shell without a bridge simply paints the
+   * settled mark.
+   */
+  lockupNowMs: number
+  lockupAnimating: boolean
   /**
    * Active subagent observe session (null when viewing parent).
    * Independent stream window; Esc restores parent lease.
@@ -589,7 +637,7 @@ function hintSurface(shell: AppShell): HintSurface {
 export function paintChrome(shell: AppShell): void {
   syncPending(shell)
   const bag = internals.get(shell)
-  shell.hint.content = ` ${composeHintLine({
+  const hint = composeHintLine({
     surface: hintSurface(shell),
     run: shell.session.run,
     workers: (bag?.chrome.agents.length ?? 0) > 0,
@@ -599,8 +647,59 @@ export function paintChrome(shell: AppShell): void {
     phase: shell.turnPhase,
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,
-  })}`
+  })
+  shell.hint.content = new StyledText([...hintRowChunks(shell, hint)])
+  syncLandingSuggestions(shell)
   paintModelBar(shell)
+}
+
+/**
+ * The hint row: the brand lockup, then the keys. The lockup is dropped whole
+ * rather than truncated when the row cannot seat both.
+ */
+function hintRowChunks(shell: AppShell, hint: string): readonly TextChunk[] {
+  const lead = fgChunk(UI.textDim)(" ")
+  if (!lockupFits(stringWidth(hint) + 1, shell.layout.contentWidth)) {
+    return [lead, fgChunk(UI.textDim)(hint)]
+  }
+  const cells = lockupCells({
+    nowMs: shell.lockupNowMs,
+    still: !shell.lockupAnimating,
+  })
+  return [
+    lead,
+    ...cells.map((cell) => fgChunk(cell.fg)(cell.char)),
+    fgChunk(UI.textDim)(`${LOCKUP_GAP}${hint}`),
+  ]
+}
+
+/** Withdraw or restore the landing starters as the prompt fills and empties. */
+function syncLandingSuggestions(shell: AppShell): void {
+  const bag = internals.get(shell)
+  if (!bag) return
+  const landing = bag.landing
+  const content = bag.landingBelow
+  if (landing === null || content === null) return
+  const visible = shell.prompt.value.length === 0
+  if (visible === bag.landingSuggestionsVisible) return
+  bag.landingSuggestionsVisible = visible
+  paintLandingBelow(landing.below, content, visible)
+}
+
+/**
+ * Advance the lockup's animation clock. Callers own the tick; the shell only
+ * repaints when the frame it would draw can actually differ.
+ */
+export function setLockupFrame(
+  shell: AppShell,
+  nowMs: number,
+  animating: boolean,
+): void {
+  const settled = !animating && !shell.lockupAnimating
+  shell.lockupNowMs = nowMs
+  if (settled && shell.lockupAnimating === animating) return
+  shell.lockupAnimating = animating
+  paintChrome(shell)
 }
 
 /** Queue an image for the next submit and reflect it in the prompt hint. */
@@ -737,24 +836,65 @@ function addOverlayRow(
   )
 }
 
+/**
+ * Overlays that ask a human to authorize something. They get the shaped,
+ * spaced treatment from overlay-body.ts; every other list overlay stays a
+ * plain one-row-per-item list.
+ */
+function isDecisionOverlay(kind: PrimaryOverlayKind | null): boolean {
+  return kind === "permissions" || kind === "operator"
+}
+
+/** Display rows one list item occupies for the open overlay kind. */
+function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
+  return isDecisionOverlay(kind) ? DECISION_CHOICE_ROWS : 1
+}
+
+/** Columns a body/choice row may paint into, inside border and leading space. */
+function overlayRowWidth(shell: AppShell): number {
+  return Math.max(8, Math.max(20, shell.layout.contentWidth) - 4)
+}
+
+/**
+ * Title row for the overlay host, fitted to the box interior. The title
+ * renderable is one row in the host's chrome budget, so a line that wrapped at
+ * a narrow width would spend a row nothing accounted for.
+ */
+function overlayTitleLine(title: string, interior: number): string {
+  const keys = [" · Esc cancel · Enter choose", " · Esc · Enter", ""]
+  for (const suffix of keys) {
+    const line = ` ${title}${suffix}`
+    if (line.length <= interior) return line
+  }
+  return ` ${middleEllipsis(title, Math.max(1, interior - 1))}`
+}
+
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList
   clearOverlayBody(shell)
   if (!list) return
 
-  for (const line of shell.overlayBodyLines) {
-    addOverlayRow(shell, ` ${line}`, UI.text)
-  }
+  shell.overlayBodyLines.forEach((line, i) => {
+    addOverlayRow(shell, ` ${line}`, shell.overlayBodyFgs[i] ?? UI.text)
+  })
 
+  const decision = isDecisionOverlay(shell.overlayKind)
+  const width = overlayRowWidth(shell)
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const label = shell.overlayItems[i] ?? `item ${i}`
     const active = i === list.activeIndex
-    addOverlayRow(
-      shell,
-      ` ${active ? ">" : " "} ${label}`,
-      active ? UI.text : UI.textDim,
-    )
+    if (!decision) {
+      addOverlayRow(
+        shell,
+        ` ${active ? ">" : " "} ${label}`,
+        active ? UI.text : UI.textDim,
+      )
+      continue
+    }
+    for (const row of decisionChoiceRows(label, active, width)) {
+      addOverlayRow(shell, ` ${row.text}`, row.fg)
+    }
   }
 }
 
@@ -772,7 +912,7 @@ function paintModelBar(shell: AppShell): void {
   const rows = Math.max(0, shell.layout.heights.model_bar)
   shell.modelBar.visible = rows > 0
   shell.modelBar.height = rows > 0 ? rows : 1
-  const pad = Math.max(0, shell.renderer.width - stringWidth(label) - 1)
+  const pad = Math.max(0, shell.layout.contentWidth - stringWidth(label) - 1)
   shell.modelBar.content = `${" ".repeat(pad)}${label}`
 }
 
@@ -788,8 +928,15 @@ export function setPromptModelLabel(
 }
 
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
+  // Rows lay themselves out against the column budget (right-aligned bubbles,
+  // pre-wrapped reasoning blocks), so a width change invalidates every painted
+  // row rather than just reflowing it.
+  const widthChanged = shell.layout.contentWidth !== layout.contentWidth
   shell.layout = layout
   const h = layout.heights
+
+  shell.root.paddingLeft = layout.sideMargin
+  shell.root.paddingRight = layout.sideMargin
 
   const goalH = Math.max(0, h.goal)
   shell.goalBox.height = goalH > 0 ? goalH : 1
@@ -803,9 +950,27 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.agentsBox.height = agentsH > 0 ? agentsH : 1
   shell.agentsBox.visible = agentsH > 0
 
+  // The pad is taken out of the transcript residual, never out of chrome, so
+  // the resolver's row budget still sums to the terminal height.
   const transcriptH = Math.max(0, h.transcript)
-  shell.transcript.height = transcriptH > 0 ? transcriptH : 1
-  shell.transcript.visible = transcriptH > 0
+  const padH = resolveTopPadRows(transcriptH)
+  shell.topPad.height = padH > 0 ? padH : 1
+  shell.topPad.visible = padH > 0
+
+  // The landing splits the transcript residual around the prompt box so the box
+  // sits on the terminal's middle row instead of at its foot.
+  const landing = internals.get(shell)?.landing ?? null
+  const split = landing === null ? null : splitLandingRows(transcriptH - padH)
+  if (landing !== null && split !== null) {
+    landing.above.box.height = Math.max(1, split.above)
+    landing.below.height = Math.max(0, split.below)
+    landing.below.visible = split.below > 0
+  }
+
+  const transcriptBody =
+    split === null ? transcriptH - padH : Math.max(1, split.above)
+  shell.transcript.height = transcriptBody > 0 ? transcriptBody : 1
+  shell.transcript.visible = transcriptBody > 0
 
   const overlayH = Math.max(0, h.overlay_host)
   shell.overlayHost.height = overlayH > 0 ? overlayH : 1
@@ -813,7 +978,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   if (overlayH > 0 && shell.overlayList) {
     const chrome = overlayChromeRows(shell.overlayBodyLines.length)
     const bodyH = Math.max(1, overlayH - chrome)
-    shell.overlayList = setListHeight(shell.overlayList, bodyH)
+    // The viewport counts items, not rows; a decision overlay spends several
+    // rows per item, so the row budget has to be divided back down.
+    const perItem = overlayRowsPerItem(shell.overlayKind)
+    shell.overlayList = setListHeight(
+      shell.overlayList,
+      Math.max(1, Math.floor(bodyH / perItem)),
+    )
     paintOverlayList(shell)
   }
 
@@ -826,6 +997,12 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const hintH = Math.max(1, h.hint)
   shell.hint.height = hintH
   shell.hint.visible = hintH > 0
+
+  // The landing owns the transcript's children until the first row lands, so a
+  // resize there must not rebuild them out from under it.
+  if (widthChanged && shell.streamLog.length > 0 && !isLanding(shell)) {
+    repaintTranscriptWindow(shell)
+  }
 
   paintChrome(shell)
 }
@@ -843,6 +1020,7 @@ type PriorOverlaySnapshot = {
   readonly kind: PrimaryOverlayKind | null
   readonly items: readonly string[]
   readonly bodyLines: readonly string[]
+  readonly bodyFgs: readonly string[]
   readonly list: ListViewportState
   readonly title: string
   readonly paletteCommands: readonly PaletteCommand[]
@@ -873,10 +1051,23 @@ type ShellInternals = {
     | (() => readonly PaletteCommand[])
     | null
   /**
-   * Landing mark shown while the transcript has no content. Dropped (not
+   * Landing composition shown while the transcript has no content: the mark
+   * above the prompt box, the disclosure and starters below it. Dropped (not
    * hidden) on the first row so it never occupies a transcript line later.
    */
-  landingMark: TextRenderable | null
+  landing: { readonly above: LandingAbove; readonly below: BoxRenderable } | null
+  /**
+   * The disclosure the landing is showing. Re-appended to the transcript when
+   * the landing tears down so consent-by-proceeding leaves a durable record
+   * rather than a screen the first prompt wipes.
+   */
+  landingNotice: string | null
+  /** What the rows below the box are painting, so they can be repainted. */
+  landingBelow: LandingBelowContent | null
+  /** Starters are offered only while the prompt is empty. */
+  landingSuggestionsVisible: boolean
+  /** Whether the last painted mark frame was a moving one. */
+  landingAnimating: boolean
   /** Chrome text content (empty = zone off). */
   chrome: {
     goal: string
@@ -965,16 +1156,55 @@ export function appendObserveStreamRow(shell: AppShell, row: StreamRow): boolean
   return true
 }
 
+/**
+ * The scroll box keeps a column for its bar, so the transcript is one column
+ * narrower than the content zone. Taken off the row budget rather than read off
+ * the viewport, which is only resolved on the next frame.
+ */
+const TRANSCRIPT_SCROLLBAR_COLUMNS = 1
+
+/**
+ * Surface every row is laid out against: the transcript's own column budget
+ * (rows right-align and wrap themselves) and whether writers need naming.
+ */
+export function transcriptRowLayout(shell: AppShell): RowLayout {
+  return {
+    width: Math.max(1, shell.layout.contentWidth - TRANSCRIPT_SCROLLBAR_COLUMNS),
+    multiAgent: shell.agentVoices.size > 1,
+  }
+}
+
+/**
+ * Record a row's writer. Returns true when the transcript has just gained a
+ * second voice — every earlier row now needs the label it was painted without.
+ */
+function noteAgentVoice(shell: AppShell, row: StreamRow): boolean {
+  if (row.role === "user") return false
+  const before = shell.agentVoices.size
+  shell.agentVoices.add(row.agent ?? MAIN_AGENT)
+  return before === 1 && shell.agentVoices.size === 2
+}
+
+/** Blank rows the row at `index` claims above itself. */
+function gapBefore(shell: AppShell, index: number): number {
+  const row = shell.streamLog[index]
+  if (row === undefined) return 0
+  return rowGroupGap(index > 0 ? shell.streamLog[index - 1] : undefined, row)
+}
+
 /** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell)
+  const gainedVoice = noteAgentVoice(shell, row)
   shell.streamLog.push(row)
   shell.lineCount = shell.streamLog.length
 
   // Under collapse threshold: append one paint node (cheap).
   // Over threshold: rebuild the windowed paint tree only.
-  if (!mustWindow(shell.streamLog.length)) {
-    shell.transcript.add(createStreamRowRenderable(shell, row))
+  if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
+    shell.transcript.add(
+      createStreamRowRenderable(shell, row, gapBefore(shell, shell.streamLog.length - 1)),
+    )
     paintChrome(shell)
     return
   }
@@ -1021,7 +1251,7 @@ export function replaceStreamRowAt(
   }
 
   const stale = children[index]
-  if (stale && retextStreamRow(stale, row)) {
+  if (stale && retextStreamRow(shell, stale, row)) {
     paintChrome(shell)
     return
   }
@@ -1031,7 +1261,10 @@ export function replaceStreamRowAt(
       ;(stale as { destroy: () => void }).destroy()
     }
   }
-  shell.transcript.add(createStreamRowRenderable(shell, row), index)
+  shell.transcript.add(
+    createStreamRowRenderable(shell, row, gapBefore(shell, index)),
+    index,
+  )
   paintChrome(shell)
 }
 
@@ -1043,12 +1276,17 @@ export function replaceStreamRowAt(
  * incremental rendering stable. Returns false when the node shape does not
  * match the row and the caller must rebuild it.
  */
-function retextStreamRow(node: BaseRenderable, row: StreamRow): boolean {
+function retextStreamRow(
+  shell: AppShell,
+  node: BaseRenderable,
+  row: StreamRow,
+): boolean {
   if (row.diff !== undefined || row.structured !== undefined) return false
+  const layout = transcriptRowLayout(shell)
 
   if (node instanceof TextRenderable) {
     if (isMarkdownRow(row)) return false
-    node.content = paintStreamRow(row).content
+    node.content = paintStreamRow(row, layout).content
     return true
   }
 
@@ -1060,7 +1298,9 @@ function retextStreamRow(node: BaseRenderable, row: StreamRow): boolean {
   ) {
     return false
   }
-  gutterNode.content = streamRowGutter(row).content
+  const gutter = streamRowGutter(row, layout)
+  gutterNode.content = gutter.content
+  gutterNode.width = stringWidth(gutter.content)
   bodyNode.content = row.text
   bodyNode.streaming = row.streaming === true
   return true
@@ -1069,6 +1309,7 @@ function retextStreamRow(node: BaseRenderable, row: StreamRow): boolean {
 /** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell)
+  shell.agentVoices = new Set(agentVoicesIn(shell.streamLog))
   const children = shell.transcript.getChildren()
   for (const child of [...children]) {
     shell.transcript.remove(child)
@@ -1086,21 +1327,89 @@ export function repaintTranscriptWindow(shell: AppShell): void {
       }),
     )
   }
-  for (const row of win.rows) {
-    shell.transcript.add(createStreamRowRenderable(shell, row))
+  win.rows.forEach((row, offset) => {
+    shell.transcript.add(
+      createStreamRowRenderable(shell, row, gapBefore(shell, win.start + offset)),
+    )
+  })
+}
+
+/**
+ * Tear the landing down on the first transcript row.
+ *
+ * The prompt box travels from the middle of the screen to the bottom, which is
+ * a jump; it happens on the same frame as the operator's own first row so it
+ * reads as the screen answering them rather than as the layout twitching.
+ */
+function clearLandingMark(shell: AppShell): void {
+  const bag = internals.get(shell)
+  const landing = bag?.landing
+  if (bag === undefined || landing === null || landing === undefined) return
+  bag.landing = null
+  shell.transcript.remove(landing.above.box)
+  landing.above.box.destroy()
+  shell.root.remove(landing.below)
+  landing.below.destroy()
+  relayout(shell)
+
+  const notice = bag.landingNotice
+  if (notice !== null) {
+    bag.landingNotice = null
+    appendStreamRow(shell, { role: "system", text: notice })
   }
 }
 
-/** The landing state is the mark, the prompt box and the hint row — nothing else. */
-export const LANDING_MARK = "▓▒░ corbits" as const
-
-function clearLandingMark(shell: AppShell): void {
+/**
+ * Repaint the landing mark for `nowMs`. `animating` runs the draw/fill/fade
+ * timeline; anything else holds the filled frame. No-op once the landing is
+ * gone, so the caller can drive it unconditionally.
+ *
+ * A still mark draws the same frame for every clock value, so repainting it
+ * only dirties renderables; the guard mirrors `setLockupFrame` and lets an idle
+ * session sit without touching the paint tree.
+ */
+export function paintLanding(
+  shell: AppShell,
+  nowMs: number,
+  animating: boolean,
+): void {
   const bag = internals.get(shell)
-  const mark = bag?.landingMark
-  if (bag === undefined || mark === null || mark === undefined) return
-  bag.landingMark = null
-  shell.transcript.remove(mark)
-  mark.destroy()
+  const landing = bag?.landing
+  if (bag === undefined || landing === null || landing === undefined) return
+  if (!animating && !bag.landingAnimating) return
+  bag.landingAnimating = animating
+  paintLandingMark(landing.above, nowMs, !animating)
+}
+
+/** True while the landing composition is still mounted. */
+export function isLanding(shell: AppShell): boolean {
+  return (internals.get(shell)?.landing ?? null) !== null
+}
+
+/**
+ * Fill the prompt from a landing starter. Returns false when the key selects
+ * nothing, the landing is gone, or the operator has already typed.
+ */
+export function applyLandingSuggestion(shell: AppShell, key: string): boolean {
+  if (!isLanding(shell) || shell.prompt.value.length > 0) return false
+  const suggestion = landingSuggestionFor(key)
+  if (suggestion === null) return false
+  shell.prompt.value = suggestion.prompt
+  return true
+}
+
+/**
+ * Prefix column beside a body the renderer owns. Width is pinned to the painted
+ * columns so an empty gutter — a lone agent's own prose — costs none, and the
+ * answer starts on the transcript's first column.
+ */
+function gutterNode(ctx: CliRenderer, gutter: PaintedStreamLine): TextRenderable {
+  return new TextRenderable(ctx, {
+    content: gutter.content,
+    fg: gutter.fg,
+    flexShrink: 0,
+    width: stringWidth(gutter.content),
+  })
 }
 
 /**
@@ -1112,37 +1421,39 @@ function clearLandingMark(shell: AppShell): void {
 export function createStreamRowRenderable(
   shell: AppShell,
   row: StreamRow,
+  marginTop = 0,
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
+  const layout = transcriptRowLayout(shell)
 
   if (row.diff !== undefined) {
-    return createDiffRowRenderable(ctx, row, row.diff)
+    const node = createDiffRowRenderable(ctx, row, layout, row.diff)
+    node.marginTop = marginTop
+    return node
   }
 
   if (row.structured !== undefined) {
-    return createStructuredRowRenderable(ctx, row, row.structured)
+    const node = createStructuredRowRenderable(ctx, row, layout, row.structured)
+    node.marginTop = marginTop
+    return node
   }
 
   if (!isMarkdownRow(row)) {
-    const painted = paintStreamRow(row)
+    const painted = paintStreamRow(row, layout)
     return new TextRenderable(ctx, {
       content: painted.content,
       fg: painted.fg,
+      marginTop,
     })
   }
 
-  const gutter = streamRowGutter(row)
+  const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
     flexDirection: "row",
     width: "100%",
+    marginTop,
   })
-  wrapper.add(
-    new TextRenderable(ctx, {
-      content: gutter.content,
-      fg: gutter.fg,
-      flexShrink: 0,
-    }),
-  )
+  wrapper.add(gutterNode(ctx, gutter))
   wrapper.add(
     new MarkdownRenderable(ctx, {
       content: row.text,
@@ -1171,20 +1482,15 @@ function diffLineChunks(line: DiffLine): TextChunk[] {
 function createDiffRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
+  layout: RowLayout,
   view: DiffView,
 ): BoxRenderable {
-  const gutter = streamRowGutter(row)
+  const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
     flexDirection: "row",
     width: "100%",
   })
-  wrapper.add(
-    new TextRenderable(ctx, {
-      content: gutter.content,
-      fg: gutter.fg,
-      flexShrink: 0,
-    }),
-  )
+  wrapper.add(gutterNode(ctx, gutter))
   const body = new BoxRenderable(ctx, {
     flexDirection: "column",
     flexGrow: 1,
@@ -1204,20 +1510,15 @@ function createDiffRowRenderable(
 function createStructuredRowRenderable(
   ctx: CliRenderer,
   row: StreamRow,
+  layout: RowLayout,
   view: McpStructuredView,
 ): BoxRenderable {
-  const gutter = streamRowGutter(row)
+  const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
     flexDirection: "row",
     width: "100%",
   })
-  wrapper.add(
-    new TextRenderable(ctx, {
-      content: gutter.content,
-      fg: gutter.fg,
-      flexShrink: 0,
-    }),
-  )
+  wrapper.add(gutterNode(ctx, gutter))
   wrapper.add(
     new TextTableRenderable(ctx, {
       content: viewToTableContent(view),
@@ -1342,23 +1643,37 @@ export function wrapShellOverlayBody(
   width: number,
   maxLines = 8,
 ): readonly string[] {
-  const w = Math.max(8, Math.floor(width))
-  const cap = Math.max(1, Math.floor(maxLines))
-  const lines: string[] = []
-  for (const raw of text.split("\n")) {
-    if (raw.length === 0) {
-      lines.push("")
-      if (lines.length >= cap) break
-      continue
-    }
-    let rest = raw
-    while (rest.length > 0 && lines.length < cap) {
-      lines.push(rest.slice(0, w))
-      rest = rest.slice(w)
-    }
-    if (lines.length >= cap) break
+  return wrapOverlayText(text, Math.max(8, Math.floor(width)), maxLines)
+}
+
+/**
+ * Context rows a decision overlay's body may occupy. The shaped body charges
+ * its header and its two rows of air on top of this, so the spacing never
+ * costs the operator a row of the command they are being asked to approve.
+ */
+const DECISION_CONTEXT_ROWS = 8
+
+/** Re-shape and store the open overlay's body rows for the current width. */
+function applyOverlayBodyText(
+  shell: AppShell,
+  text: string,
+  maxLines: number,
+): void {
+  const width = overlayRowWidth(shell)
+  if (text.length === 0) {
+    shell.overlayBodyLines = []
+    shell.overlayBodyFgs = []
+    return
   }
-  return lines.slice(0, cap)
+  if (isDecisionOverlay(shell.overlayKind)) {
+    const rows = composeDecisionBody(text, width, DECISION_CONTEXT_ROWS)
+    shell.overlayBodyLines = rows.map((r) => r.text)
+    shell.overlayBodyFgs = rows.map((r) => r.fg)
+    return
+  }
+  const lines = wrapOverlayText(text, width, maxLines)
+  shell.overlayBodyLines = lines
+  shell.overlayBodyFgs = lines.map(() => UI.text)
 }
 
 export type OpenListOverlayOpts = {
@@ -1405,6 +1720,7 @@ export function openListOverlay(
           kind: shell.overlayKind,
           items: shell.overlayItems,
           bodyLines: shell.overlayBodyLines,
+          bodyFgs: shell.overlayBodyFgs,
           list: shell.overlayList,
           title: String(shell.overlayTitle.content),
           paletteCommands: shell.paletteCommands,
@@ -1443,30 +1759,29 @@ export function openListOverlay(
     }
   }
 
-  const cols = Math.max(20, shell.renderer.width || 80)
   const bodyText = opts?.body ?? ""
   // Operator question and permission approval context get body lines; other
   // list-only overlays keep the body empty.
-  const maxBody =
-    shell.overlayKind === "operator" || shell.overlayKind === "permissions" ? 8 : 0
-  shell.overlayBodyLines =
-    bodyText.length > 0
-      ? wrapShellOverlayBody(bodyText, cols - 4, maxBody)
-      : []
+  applyOverlayBodyText(shell, bodyText, 0)
 
   const rows = shell.renderer.height || 24
   // Request ~30% of terminal for list rows; geometry will cap against floor.
-  const listH = Math.max(3, Math.floor(rows * 0.3))
-  const hostRows = overlayHostRows(shell.overlayBodyLines.length, listH)
+  const listRows = Math.max(3, Math.floor(rows * 0.3))
+  const perItem = overlayRowsPerItem(shell.overlayKind)
+  const listItems = Math.max(2, Math.floor(listRows / perItem))
+  const hostRows = overlayHostRows(
+    shell.overlayBodyLines.length,
+    listItems * perItem,
+  )
 
   shell.overlayList = createListViewport({
     count: labels.length,
-    height: listH,
+    height: listItems,
     activeIndex: opts?.activeIndex ?? 0,
   })
 
   const title = opts?.title ?? "permission"
-  shell.overlayTitle.content = ` ${title} · Esc cancel · Enter choose`
+  shell.overlayTitle.content = overlayTitleLine(title, overlayRowWidth(shell) + 2)
 
   const frameId = opts?.frameId ?? OVERLAY_FRAME_ID
   const focusTarget = isPalette ? "palette" : "overlay"
@@ -1555,6 +1870,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.overlayList = null
   shell.overlayKind = null
   shell.overlayBodyLines = []
+  shell.overlayBodyFgs = []
   shell.paletteCommands = []
   shell.copyTargets = null
   clearOverlayBody(shell)
@@ -1579,6 +1895,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.overlayItems = prior.items
     shell.overlayKind = prior.kind
     shell.overlayBodyLines = prior.bodyLines
+    shell.overlayBodyFgs = prior.bodyFgs
     shell.overlayList = prior.list
     shell.paletteCommands = prior.paletteCommands
     shell.overlayTitle.content = prior.title
@@ -1620,7 +1937,22 @@ export function closeInsetOverlay(shell: AppShell): void {
  * not in SHELL_SHORTCUTS: it is live only while an overlay that supplied
  * `onToggleExpand` is open, so it never shadows a prompt binding.
  */
-export const OVERLAY_EXPAND_KEY = "e"
+export const OVERLAY_EXPAND_KEY = EXPAND_KEY
+
+/**
+ * Expand or collapse the newest transcript row that hides a body behind a
+ * summary (a loaded skill). Same key as the overlay's collapsed payloads, so
+ * the product has one expand idiom. False when there is nothing to expand.
+ */
+export function toggleCollapsedRow(shell: AppShell): boolean {
+  for (let i = shell.streamLog.length - 1; i >= 0; i--) {
+    const row = shell.streamLog[i]
+    if (row === undefined || row.skill === undefined) continue
+    replaceStreamRowAt(shell, i, { ...row, expanded: row.expanded !== true })
+    return true
+  }
+  return false
+}
 
 /** Replace the open overlay's body text in place (re-wrap + relayout). */
 export function setOverlayBody(
@@ -1629,12 +1961,10 @@ export function setOverlayBody(
   maxLines = 8,
 ): void {
   if (!shell.overlayList) return
-  const cols = Math.max(20, shell.renderer.width || 80)
-  shell.overlayBodyLines =
-    text.length > 0 ? wrapShellOverlayBody(text, cols - 4, maxLines) : []
+  applyOverlayBodyText(shell, text, maxLines)
   const hostRows = overlayHostRows(
     shell.overlayBodyLines.length,
-    shell.overlayList.height,
+    shell.overlayList.height * overlayRowsPerItem(shell.overlayKind),
   )
   relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
   paintOverlayList(shell)
@@ -1917,6 +2247,17 @@ export function setChromeZones(
   shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
   shell.agentsText.content = agentsOn ? ` ${bag.chrome.agents}` : ""
+
+  // Only a zone appearing or disappearing changes the row budget; retitling a
+  // zone that is already on must not re-resolve and re-apply the whole layout.
+  if (
+    goalOn === bag.visibility.goal &&
+    taskOn === bag.visibility.task &&
+    agentsOn === bag.visibility.agents
+  ) {
+    paintChrome(shell)
+    return
+  }
 
   relayout(shell, {
     visibility: {
@@ -2393,7 +2734,9 @@ export function createAppShell(
   const promptContentRows = options?.promptContentRows ?? PROMPT_BASE_ROWS
   const wireKeys = options?.wireKeys !== false
   const mount = options?.mount !== false
-  const run = options?.run ?? "busy"
+  // A freshly mounted shell has nothing in flight; the runner sets busy when a
+  // turn starts. Defaulting to busy made the landing screen offer "^C stop".
+  const run = options?.run ?? "idle"
   const overlayItems = options?.overlayItems ?? [...DEFAULT_OVERLAY_ITEMS]
   const paletteCatalogOpt = options?.paletteCatalog ?? null
   const onCommandOpt = options?.onCommand
@@ -2414,6 +2757,18 @@ export function createAppShell(
     width: "100%",
     height: "100%",
     flexDirection: "column",
+    backgroundColor: UI.ground,
+    paddingLeft: layout.sideMargin,
+    paddingRight: layout.sideMargin,
+  })
+
+  // One optical gutter for the whole shell: every zone is a child of the padded
+  // root, so nothing can drift out of alignment with the rest.
+  const topPad = new BoxRenderable(ctx, {
+    id: "shell-top-pad",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
     backgroundColor: UI.ground,
   })
 
@@ -2477,11 +2832,13 @@ export function createAppShell(
     viewportOptions: { backgroundColor: UI.ground },
   })
 
-  const landingMark = new TextRenderable(ctx, {
-    id: "shell-landing-mark",
-    content: ` ${LANDING_MARK}`,
-    fg: UI.inFlightBright,
+  const landingAbove = createLandingAbove(ctx)
+  const landingBelowState = landingBelowContent({
+    rows: splitLandingRows(layout.heights.transcript).below,
+    columns: layout.contentWidth,
+    telemetryNotice: options?.telemetryNotice,
   })
+  const landingBelow = createLandingBelow(ctx, landingBelowState)
 
   const overlayHost = new BoxRenderable(ctx, {
     id: "shell-overlay-host",
@@ -2557,6 +2914,7 @@ export function createAppShell(
   promptFrame.add(prompt)
   promptBox.add(promptFrame)
 
+  root.add(topPad)
   root.add(goalBox)
   root.add(taskBox)
   root.add(agentsBox)
@@ -2565,6 +2923,7 @@ export function createAppShell(
   root.add(modelBar)
   root.add(promptBox)
   root.add(hint)
+  root.add(landingBelow)
 
   if (mount) {
     renderer.root.add(root)
@@ -2591,6 +2950,20 @@ export function createAppShell(
         leaveSubagentObserve(shell)
         return
       }
+    }
+
+    // Landing starters. Only while the prompt is untouched, so the digit goes
+    // back to being a digit the moment the operator starts typing.
+    if (
+      shell.overlayList === null &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      typeof key.name === "string" &&
+      applyLandingSuggestion(shell, key.name)
+    ) {
+      key.preventDefault()
+      return
     }
 
     if (shell.overlayList) {
@@ -2809,6 +3182,21 @@ export function createAppShell(
       return
     }
 
+    // Bare key, so it is live only while the transcript holds focus and can
+    // never shadow typing into the prompt.
+    if (
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      key.name === EXPAND_KEY &&
+      focusOwner(shell.focus) === "transcript"
+    ) {
+      if (toggleCollapsedRow(shell)) {
+        key.preventDefault()
+        return
+      }
+    }
+
     if (key.ctrl && (key.name === "o" || key.name === "O")) {
       // Ctrl+O reclaimed from tool-expand → command palette (Wave 6).
       key.preventDefault()
@@ -2869,6 +3257,7 @@ export function createAppShell(
   const shell: AppShell = {
     renderer,
     root,
+    topPad,
     goalBox,
     goalText,
     taskBox,
@@ -2889,17 +3278,21 @@ export function createAppShell(
     pendingQueue: badgeCount(session),
     lineCount: 0,
     streamLog: [],
+    agentVoices: new Set<string>(),
     baseTitle: title,
     modelLabel: null,
     overlayList: null,
     overlayItems,
     overlayKind: null,
     overlayBodyLines: [],
+    overlayBodyFgs: [],
     paletteCommands: [],
     clipboard: createRecordingClipboard(),
     copyTargets: null,
     statusFlash: null,
     turnPhase: null,
+    lockupNowMs: 0,
+    lockupAnimating: false,
     observe: null,
     parentStreamLog: null,
     promptKillRing: emptyKillRing,
@@ -2932,7 +3325,11 @@ export function createAppShell(
     overlayOnAccept: null,
     overlayOnToggleExpand: null,
     paletteCatalog: paletteCatalogOpt,
-    landingMark,
+    landing: { above: landingAbove, below: landingBelow },
+    landingNotice: options?.telemetryNotice ?? null,
+    landingBelow: landingBelowState,
+    landingSuggestionsVisible: true,
+    landingAnimating: false,
     chrome: { goal: "", task: "", agents: "" },
   })
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
@@ -2942,7 +3339,7 @@ export function createAppShell(
   applyLayout(shell, layout)
   // Added after the first layout pass so the scroll box sizes it against the
   // resolved transcript height rather than the pre-layout placeholder.
-  transcript.add(landingMark)
+  transcript.add(landingAbove.box)
   applyFocus(shell)
   return shell
 }

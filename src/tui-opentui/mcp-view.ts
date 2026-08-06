@@ -259,19 +259,36 @@ export type ToolResultRowInput = {
   readonly isError?: boolean
 }
 
+/** The tool a skill load arrives through; its result body is the whole skill. */
+const USE_SKILL_TOOL = "use_skill"
+
+/**
+ * Name of the skill a `use_skill` result loaded, read off the body the tool
+ * returns. Display-only: a body that does not announce a skill (an error, a
+ * future wording) simply does not collapse.
+ */
+function loadedSkillName(name: string, content: string): string | undefined {
+  if (name !== USE_SKILL_TOOL) return undefined
+  return /^Skill "([^"]+)"/.exec(content)?.[1]
+}
+
 /**
  * Build the transcript row for a tool result, attaching a structured view when
  * the result is a renderable MCP payload. Errors stay literal text.
  */
 export function toolResultRow(input: ToolResultRowInput): StreamRow {
-  const meta = input.isError === true ? `${input.name}!` : input.name
   const structured =
     input.isError === true ? null : mcpStructuredView(input.name, input.content)
+  const skill =
+    input.isError === true ? undefined : loadedSkillName(input.name, input.content)
   return {
     role: "tool",
     text: input.content,
-    meta,
+    meta: input.name,
+    result: true,
+    ...(input.isError === true ? { failed: true } : {}),
     ...(structured !== null ? { structured } : {}),
+    ...(skill !== undefined ? { skill } : {}),
   }
 }
 

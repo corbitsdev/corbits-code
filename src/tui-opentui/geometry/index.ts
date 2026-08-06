@@ -14,6 +14,18 @@ export {
 } from "./zones.js";
 
 export {
+  MARGIN_FULL_MIN_COLUMNS,
+  MARGIN_MIN_COLUMNS,
+  NARROW_SIDE_MARGIN,
+  SIDE_MARGIN,
+  TOP_PAD_MIN_TRANSCRIPT_ROWS,
+  TOP_PAD_ROWS,
+  resolveContentWidth,
+  resolveSideMargin,
+  resolveTopPadRows,
+} from "./margins.js";
+
+export {
   desiredHeights,
   resolveGeometry,
   type GeometryInput,

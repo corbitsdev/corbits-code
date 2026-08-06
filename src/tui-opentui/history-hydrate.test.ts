@@ -62,14 +62,14 @@ describe("rowFromHistoryBlock", () => {
         content: "ok",
         isError: false,
       }),
-    ).toEqual({ role: "tool", text: "ok", meta: "bash" })
+    ).toEqual({ role: "tool", text: "ok", meta: "bash", result: true })
     expect(
       rowFromHistoryBlock({
         type: "tool_result",
         name: "bash",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "error", meta: "bash!" })
+    ).toEqual({ role: "tool", text: "error", meta: "bash", result: true, failed: true })
   })
 
   test("error and unknown", () => {
@@ -107,7 +107,7 @@ describe("hydrateHistoryRows", () => {
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
       { role: "tool", text: '{"path":"x"}', meta: "read_file" },
-      { role: "tool", text: "body", meta: "read_file" },
+      { role: "tool", text: "body", meta: "read_file", result: true },
       { role: "system", text: "fail", meta: "error" },
     ])
   })

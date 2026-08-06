@@ -37,6 +37,7 @@ Do not reopen these product decisions. They match the plan’s locked table.
 | Command palette | **Ctrl+O** | Reclaim from today’s tool-expand chord |
 | Help / keymap | Palette entry + `/help` | Tables must match handlers |
 | Copy path | **Alt+C** (existing direction) | Message / tool / diff; not mouse-drag |
+| Expand a collapsed body | **e** | One idiom: collapsed approval payloads while the overlay owns focus, collapsed skill rows while the transcript does |
 | Esc | Pop focus stack | Overlay → prior focus; never silent no-op |
 | Wheel | Active scroll lease only | Transcript wheel off when modal owns lease |
 | Newline in prompt | **Shift+Enter** (Alt+Enter when idle if terminal maps it) | Mid-run Alt+Enter is steer, not newline |

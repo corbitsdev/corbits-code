@@ -20,7 +20,9 @@ import {
   applyShellInterrupt,
   clearShellBridgeHooks,
   paintChrome,
+  paintLanding,
   replaceStreamRowAt,
+  setLockupFrame,
   setShellBridgeHooks,
   setStatusFlash,
   setTurnPhase,
@@ -99,7 +101,11 @@ export type SessionPortHandlers = Partial<SessionPort>
  */
 export type TurnMonitorOptions = {
   readonly now?: () => number
-  /** Poll period for the retry countdown and the stall check. Default 250 ms. */
+  /**
+   * Poll period for the retry countdown and the stall check. Default 250 ms.
+   * While something is animating the monitor ticks faster than this; see
+   * `ANIMATION_TICK_MS`.
+   */
   readonly tickMs?: number
   readonly stallTimeoutMs?: number
   /** Registers the periodic tick; returns an unsubscribe. */
@@ -107,6 +113,17 @@ export type TurnMonitorOptions = {
 }
 
 const DEFAULT_TICK_MS = 250
+
+/**
+ * Poll period while something on this clock is animating.
+ *
+ * The ramp traverses in `RAMP_CYCLE_MS` (1200 ms) and the landing mark runs a
+ * 4.6 s timeline; at 250 ms that is 5 and 19 samples respectively, so the ramp
+ * head jumps three cells a frame and the mark strobes. ~12 fps is the coarsest
+ * cadence at which both read as motion, and it costs nothing when idle because
+ * the monitor stops entirely then.
+ */
+const ANIMATION_TICK_MS = 80
 
 function defaultSchedule(tick: () => void, intervalMs: number): () => void {
   const handle = setInterval(tick, intervalMs)
@@ -408,12 +425,42 @@ export function attachSessionBridge(
   }
   bridges.set(shell, bag)
 
+  const frozenTickMs = monitor?.tickMs ?? DEFAULT_TICK_MS
+  const animationTickMs = Math.min(frozenTickMs, ANIMATION_TICK_MS)
+
+  /**
+   * Current cadence, or null while the monitor is stopped. Every paint resolves
+   * this, so the loop speeds up on the frame a turn starts animating and stops
+   * on the frame it settles — one timer, never two.
+   */
+  let cadenceMs: number | null = null
+  let stopTick: (() => void) | undefined
+  const schedule = monitor?.schedule ?? defaultSchedule
+
+  const applyCadence = (next: number | null): void => {
+    if (monitor === undefined || cadenceMs === next) return
+    stopTick?.()
+    stopTick = undefined
+    cadenceMs = next
+    if (next !== null) {
+      stopTick = schedule(() => {
+        tick()
+      }, next)
+    }
+  }
+
   const paintPhase = (): void => {
     // The gate overlay is the only "blocked" signal the shell sees; the gate
     // wiring resolves approvals itself and emits no bridge event.
     const gated =
       shell.overlayKind === "permissions" || shell.overlayKind === "operator"
     const turn = gated ? turnStateBlocked(bag.turn) : bag.turn
+    // The landing mark rides this same re-entry: it animates through the
+    // draw/fill loop while a turn is live and holds its filled frame otherwise.
+    paintLanding(shell, now(), turn.isProcessing)
+    // The bottom-left lockup rides the same re-entry as the landing mark, so it
+    // keeps animating after the landing is gone without a timer of its own.
+    setLockupFrame(shell, now(), turn.isProcessing)
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
@@ -424,15 +471,23 @@ export function attachSessionBridge(
     const label = resolveTurnLabel(input)
     if (label === undefined) {
       setTurnPhase(shell, null)
+      // Nothing animates and nothing is being waited on, so the loop stops
+      // rather than repainting an unchanging frame forever. The next event
+      // re-enters here and re-arms it.
+      applyCadence(bag.turn.quota !== null ? frozenTickMs : null)
       return
     }
-    // The monitor tick already re-enters here every 250 ms, so reading the
-    // clock is all the animation the ramp needs — no second timer.
+    // The monitor tick re-enters here, so reading the clock is all the
+    // animation the ramp needs — no second timer.
     const ramp = rampFor({ phase: resolveRampPhase(input), nowMs: now() })
     setTurnPhase(shell, rampLine(ramp, label))
+    // A frozen ramp (blocked on a gate) still needs the stall and quota clocks,
+    // just not animation frames.
+    applyCadence(ramp.animating ? animationTickMs : frozenTickMs)
   }
 
-  const noteEvent = (event: { type: string; data?: unknown }): void => {
+  /** True when this event is what ended the turn. */
+  const noteEvent = (event: { type: string; data?: unknown }): boolean => {
     const before = bag.turn
     bag.turn = turnStateFromEvent(bag.turn, event, now())
     // A fresh rate-limit window re-arms the single auto-retry.
@@ -440,11 +495,24 @@ export function attachSessionBridge(
       bag.quotaFired = false
     }
     paintPhase()
+    return before.isProcessing && !bag.turn.isProcessing
+  }
+
+  /**
+   * A settled turn hands the session back to the operator. A chat session's
+   * terminator is `connector.reply`, which maps to no `run` event, so without
+   * this the shell would stay busy — offering the stop key and holding queued
+   * prompts — for the rest of the session.
+   */
+  const settleRun = (): void => {
+    if (shell.session.run === "idle") return
+    shell.session = setRunState(shell.session, "idle")
+    drainAtBoundary(shell, bag)
   }
 
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return
-    noteEvent(event)
+    const settled = noteEvent(event)
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
       for (const mapped of mapProductionEvent(
@@ -453,11 +521,13 @@ export function attachSessionBridge(
       )) {
         applyInbound(shell, bag, mapped)
       }
+      if (settled) settleRun()
       return
     }
     if (isBridgeInbound(event)) {
       applyInbound(shell, bag, event)
     }
+    if (settled) settleRun()
   }
 
   const submit = (
@@ -558,14 +628,6 @@ export function attachSessionBridge(
     paintPhase()
   }
 
-  const stopMonitor =
-    monitor === undefined
-      ? undefined
-      : (monitor.schedule ?? defaultSchedule)(
-          tick,
-          monitor.tickMs ?? DEFAULT_TICK_MS,
-        )
-
   setShellBridgeHooks(shell, {
     onSubmit: (text, kind, attachments) => {
       submit(text, kind, attachments)
@@ -589,7 +651,7 @@ export function attachSessionBridge(
     },
     dispose: () => {
       bag.disposed = true
-      stopMonitor?.()
+      applyCadence(null)
       clearShellBridgeHooks(shell)
       setTurnPhase(shell, null)
       bridges.delete(shell)

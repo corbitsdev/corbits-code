@@ -185,14 +185,14 @@ describe("rowFromHistoryBlock", () => {
         content: "ok",
         isError: false,
       }),
-    ).toEqual({ role: "tool", text: "ok", meta: "bash" })
+    ).toEqual({ role: "tool", text: "ok", meta: "bash", result: true })
     expect(
       rowFromHistoryBlock({
         type: "tool_result",
         name: "bash",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "error", meta: "bash!" })
+    ).toEqual({ role: "tool", text: "error", meta: "bash", result: true, failed: true })
     expect(
       rowFromHistoryBlock({ type: "error", message: "boom" }),
     ).toEqual({ role: "system", text: "boom", meta: "error" })

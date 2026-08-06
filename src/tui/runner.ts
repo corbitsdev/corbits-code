@@ -49,6 +49,7 @@ import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type Pl
 import {
   createPluginLoadDiagnostics,
   emitPluginWarningSummary,
+  formatPluginWarningsSummary,
 } from "../plugins/diagnostics.js";
 import {
   isPluginTrusted,
@@ -792,7 +793,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // the next session starts from.
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
-      return { ok: true, message: `Added ${descriptor.name}`, id: descriptor.id };
+      const warnings = formatPluginWarningsSummary(addDiagnostics.warnings);
+      return {
+        ok: true,
+        message:
+          warnings === undefined
+            ? `Added ${descriptor.name}`
+            : `Added ${descriptor.name} (${warnings})`,
+        id: descriptor.id,
+      };
     },
     revokeTrust: async (id) => {
       const mod = livePluginModules.find((m) => m.manifest?.id === id);
@@ -1745,6 +1754,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     }),
     interrupt,
+    // Consent by proceeding requires the disclosure to be on screen before the
+    // first prompt activates the held telemetry instance: the landing shows it,
+    // and the shell re-files it into the transcript when the landing clears.
+    ...(telemetryNotice !== undefined ? { telemetryNotice } : {}),
     providers: config.providers,
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
@@ -1871,11 +1884,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .then((sent) => setSentMessageHistory(host.shell, sent))
     .catch(() => undefined);
 
-  // Consent by proceeding requires the disclosure to be on screen before the
-  // first prompt activates the held telemetry instance.
-  if (telemetryNotice !== undefined) {
-    systemRow(telemetryNotice);
-  }
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {
     void agentProxy.send(config.task.trim()).catch(handleSendFailure);

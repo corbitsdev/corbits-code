@@ -46,7 +46,9 @@ function keySegments(state: HintState): readonly string[] {
     return ["↑↓ scroll", "tab prompt", "alt+c copy"]
   }
 
-  const keys = ["enter send"]
+  // No "enter send": the prompt box is a text field and enter is not a
+  // discovery problem. The row is for keys that are not already obvious.
+  const keys: string[] = []
   if (state.workers) keys.push("alt+a workers")
   keys.push("/ commands")
   keys.push(state.run === "busy" ? "^C stop" : "@ files")

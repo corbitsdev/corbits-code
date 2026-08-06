@@ -28,6 +28,12 @@ export type TurnState = {
   readonly lastActivityAt: number
   /** Set while a provider rate limit is cooling down. */
   readonly quota: QuotaWait | null
+  /**
+   * Tool calls streamed by the current cycle that have not reported a result.
+   * `connector.reply` closes a cycle but not the turn when tools are still out,
+   * so the settle decision needs the outstanding ids, not just the last name.
+   */
+  readonly activeToolCalls: readonly string[]
 }
 
 export function initialTurnState(nowMs: number): TurnState {
@@ -39,6 +45,7 @@ export function initialTurnState(nowMs: number): TurnState {
     currentToolName: null,
     lastActivityAt: nowMs,
     quota: null,
+    activeToolCalls: [],
   }
 }
 
@@ -52,6 +59,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     streamingType: null,
     currentToolName: null,
     lastActivityAt: nowMs,
+    activeToolCalls: [],
   }
 }
 
@@ -102,6 +110,59 @@ function toolName(data: unknown): string | null {
     return started.call.name
   }
   return null
+}
+
+const callIdData = type({ "callId?": "string", "name?": "string" })
+const toolStartCallData = type({
+  call: { "id?": "string", "callId?": "string", "name?": "string" },
+})
+const toolDoneData = type({
+  result: { "callId?": "string", "name?": "string" },
+})
+
+/**
+ * Stable handle for one outstanding tool call. Providers that stream a callId
+ * give a real one; the rest fall back to the name so at least the count is
+ * right, which is all the settle decision reads.
+ */
+function streamedCallId(data: unknown): string {
+  const parsed = callIdData(data)
+  if (!(parsed instanceof type.errors)) {
+    if (parsed.callId !== undefined) return parsed.callId
+    if (parsed.name !== undefined) return parsed.name
+  }
+  const started = toolStartCallData(data)
+  if (!(started instanceof type.errors)) {
+    const { id, callId, name } = started.call
+    return id ?? callId ?? name ?? "tool"
+  }
+  return "tool"
+}
+
+function resultCallId(data: unknown): string {
+  const parsed = toolDoneData(data)
+  if (parsed instanceof type.errors) return "tool"
+  return parsed.result.callId ?? parsed.result.name ?? "tool"
+}
+
+function withActiveCall(
+  active: readonly string[],
+  id: string,
+): readonly string[] {
+  return active.includes(id) ? active : [...active, id]
+}
+
+/**
+ * Drop one outstanding call. An unmatched id still consumes an entry: a
+ * mismatched pair would otherwise leave the turn permanently "working".
+ */
+function withoutActiveCall(
+  active: readonly string[],
+  id: string,
+): readonly string[] {
+  const index = active.indexOf(id)
+  if (index !== -1) return active.filter((_, i) => i !== index)
+  return active.slice(1)
 }
 
 const streaming = (
@@ -168,16 +229,32 @@ export function turnStateFromEvent(
     case "inference.thinking.delta":
       return streaming(state, "thinking", nowMs)
 
-    case "inference.tool_call.start":
     case "inference.tool_call.delta":
+      return runningTool(state, toolName(event.data), nowMs)
+
+    case "inference.tool_call.start":
     case "inference.tool_call.end":
-      return runningTool(state, toolName(event.data), nowMs)
+    case "tool.start": {
+      const running = runningTool(state, toolName(event.data), nowMs)
+      return {
+        ...running,
+        activeToolCalls: withActiveCall(
+          state.activeToolCalls,
+          streamedCallId(event.data),
+        ),
+      }
+    }
 
-    case "tool.start":
-      return runningTool(state, toolName(event.data), nowMs)
-
-    case "tool_call":
-      return runningTool(state, event.name ?? null, nowMs)
+    case "tool_call": {
+      const running = runningTool(state, event.name ?? null, nowMs)
+      return {
+        ...running,
+        activeToolCalls: withActiveCall(
+          state.activeToolCalls,
+          event.name ?? "tool",
+        ),
+      }
+    }
 
     // Tool finished: the model is being called again, so the awaiting-response
     // clock restarts rather than the tool clock continuing.
@@ -189,6 +266,12 @@ export function turnStateFromEvent(
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
+        activeToolCalls: withoutActiveCall(
+          state.activeToolCalls,
+          event.type === "tool.done"
+            ? resultCallId(event.data)
+            : (event.name ?? "tool"),
+        ),
       }
 
     case "inference.done":
@@ -197,6 +280,22 @@ export function turnStateFromEvent(
         awaitingResponse: false,
         streamingType: null,
         lastActivityAt: nowMs,
+      }
+
+    /**
+     * The turn's real terminator. `agent.send()` resolves on connector.reply,
+     * and a chat session emits no `reactor.done` until it closes — so without
+     * this the phase line would stay hot for the rest of the session. A reply
+     * with tools still outstanding only ends the cycle, not the turn.
+     */
+    case "connector.reply":
+      if (state.activeToolCalls.length > 0) {
+        return { ...state, awaitingResponse: false, lastActivityAt: nowMs }
+      }
+      return {
+        ...initialTurnState(nowMs),
+        status: "done",
+        quota: state.quota,
       }
 
     case "inference.error": {

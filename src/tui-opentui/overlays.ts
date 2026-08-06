@@ -8,6 +8,7 @@ import type {
   OverlaySelection,
   PrimaryOverlayKind,
 } from "./shell.js"
+import { wrapOverlayText } from "./overlay-body.js"
 import { openListOverlay } from "./shell.js"
 
 export type { OverlaySelection, PrimaryOverlayKind }
@@ -66,29 +67,13 @@ export function makeModelPickerItems(): readonly string[] {
   ]
 }
 
-/** Wrap overlay body text to terminal width (no paint). */
+/** Wrap overlay body text to terminal width on word boundaries (no paint). */
 export function wrapOverlayBody(
   text: string,
   width: number,
   maxLines = 8,
 ): readonly string[] {
-  const w = Math.max(1, Math.floor(width))
-  const cap = Math.max(1, Math.floor(maxLines))
-  const lines: string[] = []
-  for (const raw of text.split("\n")) {
-    if (raw.length === 0) {
-      lines.push("")
-      if (lines.length >= cap) break
-      continue
-    }
-    let rest = raw
-    while (rest.length > 0 && lines.length < cap) {
-      lines.push(rest.slice(0, w))
-      rest = rest.slice(w)
-    }
-    if (lines.length >= cap) break
-  }
-  return lines.slice(0, cap)
+  return wrapOverlayText(text, width, maxLines)
 }
 
 export type OpenPermissionsOpts = {

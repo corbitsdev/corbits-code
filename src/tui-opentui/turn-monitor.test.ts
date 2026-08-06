@@ -91,6 +91,110 @@ describe("turn progress label", () => {
     })
   })
 
+  /**
+   * The shape a real chat turn actually has. A chat session emits no
+   * `reactor.done` until it closes, so `connector.reply` is the only terminal
+   * event the shell ever sees — the regression this covers left the phase line
+   * counting for the rest of the session.
+   */
+  test("a full turn with a tool clears the phase on connector.reply", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.handle({
+          type: "message.received",
+          data: { message: { content: "list the root" } },
+        })
+        t.bridge.handle({ type: "inference.start", data: {} })
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "I'll " } })
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "look." } })
+        t.bridge.handle({
+          type: "inference.tool_call.start",
+          data: { name: "bash", callId: "c1" },
+        })
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "bash", callId: "c1", arguments: "ls" },
+        })
+        t.bridge.handle({ type: "inference.done", data: {} })
+
+        // The cycle's reply lands while bash is still out: the turn continues.
+        t.bridge.handle({ type: "connector.reply", data: { content: "" } })
+        expect(t.shell.turnPhase).not.toBeNull()
+
+        t.bridge.handle({
+          type: "tool.start",
+          data: { call: { id: "c1", name: "bash" } },
+        })
+        t.bridge.handle({
+          type: "tool.done",
+          data: { result: { callId: "c1", name: "bash", content: "AGENTS.md" } },
+        })
+
+        t.bridge.handle({ type: "inference.start", data: {} })
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "done." } })
+        t.bridge.handle({ type: "inference.done", data: {} })
+        t.bridge.handle({ type: "connector.reply", data: { content: "done." } })
+
+        expect(t.shell.turnPhase).toBeNull()
+        expect(t.bridge.turn.isProcessing).toBe(false)
+        expect(hintText(t.shell)).not.toContain("working")
+        // The session is handed back: the stop key gives way to file mentions.
+        expect(t.shell.session.run).toBe("idle")
+        expect(hintText(t.shell)).toContain("@ files")
+
+        // A later tick must not resurrect it.
+        t.advance(250)
+        t.tick()
+        expect(t.shell.turnPhase).toBeNull()
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("an interrupted turn clears the phase", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.handle({ type: "inference.start", data: {} })
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
+        expect(t.shell.turnPhase).not.toBeNull()
+
+        t.bridge.interrupt()
+        expect(t.shell.turnPhase).toBeNull()
+        t.advance(250)
+        t.tick()
+        expect(t.shell.turnPhase).toBeNull()
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("a reactor error clears the phase", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.handle({ type: "inference.start", data: {} })
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "bash", callId: "c1" },
+        })
+        expect(t.shell.turnPhase).not.toBeNull()
+
+        t.bridge.handle({
+          type: "reactor.error",
+          data: { fatal: true, error: "boom" },
+        })
+        expect(t.shell.turnPhase).toBeNull()
+        expect(t.bridge.turn.isProcessing).toBe(false)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   test("an open permission overlay freezes the ramp and reads blocked", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)

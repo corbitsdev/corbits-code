@@ -5,6 +5,7 @@ import {
   OVERLAY_TRANSCRIPT_FLOOR,
   PROMPT_BASE_ROWS,
   PROMPT_CAP_FRACTION,
+  SIDE_MARGIN,
   ZONE_IDS,
   ZONE_REGISTRY,
   resolveGeometry,
@@ -71,15 +72,17 @@ describe("resolveGeometry — 80×24 idle floor", () => {
     expect(layout.overlayMode).toBe("closed");
   });
 
-  test("rects are full-width and y-stacked without gaps or overlap", () => {
+  test("rects sit inside the gutter and y-stack without gaps or overlap", () => {
     const layout = idle80x24();
     const order = ["transcript", "model_bar", "prompt", "hint"] as const;
+    expect(layout.sideMargin).toBe(SIDE_MARGIN);
+    expect(layout.contentWidth).toBe(80 - SIDE_MARGIN * 2);
     let y = 0;
     for (const id of order) {
       const r = layout.regions[id];
       expect(r).toBeDefined();
-      expect(r!.x).toBe(0);
-      expect(r!.width).toBe(80);
+      expect(r!.x).toBe(layout.sideMargin);
+      expect(r!.width).toBe(layout.contentWidth);
       expect(r!.y).toBe(y);
       expect(r!.height).toBeGreaterThan(0);
       y += r!.height;

@@ -5,6 +5,7 @@
 
 import { SyntaxStyle } from "@opentui/core"
 
+import { stringWidth, wrapLines } from "../tui/view/height.js"
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
 import { UI } from "./theme.js"
@@ -37,6 +38,62 @@ export type StreamRow = {
    * otherwise be the edit tool's raw JSON arguments.
    */
   readonly diff?: DiffView
+  /**
+   * Tool call that came back an error. Carried as a flag rather than baked
+   * into `meta` so the paint layer can mark the row without parsing a label.
+   */
+  readonly failed?: boolean
+  /**
+   * Tool row that answers a call rather than opening one. Painted as a
+   * continuation of the call above it instead of repeating its name.
+   */
+  readonly result?: boolean
+  /**
+   * Writer of a non-user row. Absent means the session's own agent; the paint
+   * layer names writers only once a transcript carries more than one.
+   */
+  readonly agent?: string
+  /**
+   * Name of the skill a `use_skill` result loaded. Present only on rows whose
+   * body is skill instructions, which collapse to a summary until expanded.
+   */
+  readonly skill?: string
+  /** Whether a collapsible body is currently showing in full. */
+  readonly expanded?: boolean
+}
+
+/**
+ * What a row needs to know about the surface it paints onto: the transcript's
+ * column budget (right-aligned bubbles and wrapped bodies are computed, not
+ * delegated to the renderer) and whether writers have to be named at all.
+ */
+export type RowLayout = {
+  readonly width: number
+  readonly multiAgent: boolean
+}
+
+/** Writer of a row when none is named: the session's own agent. */
+export const MAIN_AGENT = "agent"
+
+/**
+ * Bare key that expands a collapsed body. One idiom across the product — the
+ * approval overlay's collapsed payloads and the transcript's collapsed skill
+ * bodies answer to the same key.
+ */
+export const EXPAND_KEY = "e"
+
+/** Distinct writers in a transcript. Role labels are worth their columns only above one. */
+export function agentVoicesIn(rows: readonly StreamRow[]): ReadonlySet<string> {
+  const voices = new Set<string>()
+  for (const row of rows) {
+    if (row.role === "user") continue
+    voices.add(row.agent ?? MAIN_AGENT)
+  }
+  return voices
+}
+
+export function isMultiAgent(rows: readonly StreamRow[]): boolean {
+  return agentVoicesIn(rows).size > 1
 }
 
 export type PaintedStreamLine = {
@@ -66,27 +123,239 @@ export const DIFF_FG = {
   context: UI.textDim,
 } as const
 
-const ROLE_LABEL: Record<StreamRole, string> = {
-  user: "you",
-  assistant: "agent",
-  tool: "tool",
-  system: "sys",
+/**
+ * Meta column (tool name, `queue`, `error`). Fixed so a tool call's argument
+ * and a tool result's payload start on the same column and can be scanned as
+ * one list rather than a ragged log.
+ */
+const META_WIDTH = 12
+
+/**
+ * The mark column carries what colour is not allowed to: cream is shared by the
+ * user and the agent (three-accent limit), so a failed tool call is found by
+ * its cross and the operator's own turn by its bubble bar.
+ */
+const MARK_FAILED = "×"
+const MARK_NONE = " "
+
+/**
+ * Glyphs are single-cell so nothing after them can slip out of the meta column.
+ * Every one is verified against `stringWidth` by the row-shape tests.
+ */
+const BUBBLE_BAR = "▍"
+const THINKING_BAR = "┆"
+const RESULT_CONNECTOR = "└"
+const AGENT_ICON = "●"
+
+/**
+ * A tool is recognised by shape before it is read: one glyph per family, so a
+ * column of calls can be scanned for "what kind of work" without parsing names.
+ */
+const TOOL_ICON = {
+  read: "▤",
+  write: "◆",
+  search: "⌕",
+  shell: "❯",
+  network: "⇄",
+  task: "↳",
+  skill: "✦",
+  mcp: "◈",
+  other: "·",
+} as const
+
+type ToolFamily = keyof typeof TOOL_ICON
+
+/** MCP tools are namespaced by the server they came from. */
+const MCP_PREFIX = "mcp__"
+
+const FAMILY_WORDS: readonly (readonly [ToolFamily, readonly string[]])[] = [
+  ["skill", ["skill"]],
+  ["task", ["task", "agent", "delegate", "spawn"]],
+  ["read", ["read", "cat", "view", "open"]],
+  ["write", ["write", "edit", "patch", "apply", "create", "append"]],
+  ["search", ["grep", "search", "glob", "find", "list", "ls"]],
+  ["shell", ["bash", "shell", "exec", "run", "command", "process"]],
+  ["network", ["fetch", "http", "web", "curl", "download", "request"]],
+]
+
+/**
+ * Display-only classification of a tool name. The meta column already carries
+ * the exact name, so an unrecognised tool falling back to the neutral dot costs
+ * nothing — this never gates behaviour.
+ */
+export function toolFamily(name: string): ToolFamily {
+  const lower = name.toLowerCase()
+  if (lower.startsWith(MCP_PREFIX)) return "mcp"
+  // Tool rows carry the call's summary in `meta` (name plus diff stats), so
+  // only the leading word is the name.
+  const word = lower.split(" ")[0] ?? lower
+  for (const [family, words] of FAMILY_WORDS) {
+    if (words.some((needle) => word.includes(needle))) return family
+  }
+  return "other"
 }
 
-/** Format a stream row for the transcript (prefix + body, role color). */
-export function paintStreamRow(row: StreamRow): PaintedStreamLine {
-  const label = ROLE_LABEL[row.role]
-  const meta = row.meta && row.meta.length > 0 ? ` ${row.meta}` : ""
-  const body = row.text
-  return {
-    content: ` ${label}${meta}  ${body}`,
-    fg: ROLE_FG[row.role],
+/** Thinking is coalesced chain-of-thought, not an answer — it paints faintest. */
+export function isThinkingRow(row: StreamRow): boolean {
+  return row.role === "system" && row.meta === "thinking"
+}
+
+function rowFg(row: StreamRow): string {
+  if (isThinkingRow(row)) return UI.textFaint
+  // A failed call steps out of the live tool voice; the cross carries the rest.
+  if (row.failed === true) return UI.textDim
+  return ROLE_FG[row.role]
+}
+
+/**
+ * Pad-only: a meta longer than the column (an edit summary carries its path and
+ * line counts) pushes the body rather than being truncated. Losing the column
+ * on those rows costs less than losing the information.
+ */
+function fitMeta(meta: string): string {
+  return meta.length >= META_WIDTH ? `${meta} ` : meta.padEnd(META_WIDTH)
+}
+
+/**
+ * Writer tag. Empty while one agent holds the transcript: with a single voice
+ * answering, a name on every row is chrome that says nothing, and position and
+ * treatment already separate the operator from the agent.
+ */
+function agentTag(row: StreamRow, layout: RowLayout): string {
+  if (!layout.multiAgent || row.role === "user") return ""
+  return `${AGENT_ICON} ${row.agent ?? MAIN_AGENT}  `
+}
+
+/**
+ * Tool prefix: failure mark, writer tag, family glyph, meta column. A result
+ * trades its glyph for a connector and leaves the meta column blank, so the
+ * call and its answer read as one block instead of the tool name twice.
+ */
+function toolPrefix(row: StreamRow, layout: RowLayout): string {
+  const mark = row.failed === true ? MARK_FAILED : MARK_NONE
+  const tag = agentTag(row, layout)
+  if (row.result === true) {
+    return `${mark} ${tag}${RESULT_CONNECTOR} ${" ".repeat(META_WIDTH)}`
   }
+  const glyph = TOOL_ICON[toolFamily(row.meta ?? "")]
+  const meta = row.meta && row.meta.length > 0 ? fitMeta(row.meta) : ""
+  return `${mark} ${tag}${glyph} ${meta}`
+}
+
+/** Columns the operator's bubble may claim before it wraps. */
+const BUBBLE_MAX_SHARE = 0.75
+
+/**
+ * The operator's turn as a block hugging the right gutter: a rectangle of
+ * wrapped lines whose longest line ends on the transcript's last column, with
+ * the bar down its left edge. Alignment is the signal, so the row needs no
+ * label and keeps the shared cream.
+ */
+function userBubbleLines(text: string, width: number): string[] {
+  const bar = `${BUBBLE_BAR} `
+  const barWidth = stringWidth(bar)
+  const body = Math.max(1, Math.min(width - barWidth, Math.ceil(width * BUBBLE_MAX_SHARE)))
+  const lines = text.split("\n").flatMap((line) => wrapLines(line, body))
+  const block = lines.reduce((widest, line) => Math.max(widest, stringWidth(line)), 0)
+  const indent = " ".repeat(Math.max(0, width - block - barWidth))
+  return lines.map((line) => `${indent}${bar}${line}`)
+}
+
+/** Columns a reasoning block is inset by, so it reads as subordinate. */
+const THINKING_INDENT = 2
+
+/**
+ * Reasoning as a structured block rather than one dim line: indented, with a
+ * marker down its left edge, so a long chain of thought is skimmable and
+ * obviously not the answer.
+ */
+function thinkingLines(text: string, layout: RowLayout, tag: string): string[] {
+  const marker = `${THINKING_BAR} `
+  const lead = `${" ".repeat(THINKING_INDENT)}${tag}`
+  const gutter = stringWidth(lead) + stringWidth(marker)
+  const lines = text
+    .split("\n")
+    .flatMap((line) => wrapLines(line, Math.max(1, layout.width - gutter)))
+  const continuation = " ".repeat(stringWidth(lead))
+  return lines.map(
+    (line, i) => `${i === 0 ? lead : continuation}${marker}${line}`,
+  )
+}
+
+/** Body a collapsible row shows: the summary alone, or the full text plus the way back. */
+function collapsibleBody(row: StreamRow, skill: string): string {
+  const lines = row.text.split("\n").length
+  const summary = `skill "${skill}" loaded · ${lines} line${lines === 1 ? "" : "s"}`
+  return row.expanded === true
+    ? `${summary} · ${EXPAND_KEY} collapse\n${row.text}`
+    : `${summary} · ${EXPAND_KEY} expand`
+}
+
+/** The text a row paints, after collapsing anything that hides behind a summary. */
+function rowBody(row: StreamRow): string {
+  return row.skill === undefined ? row.text : collapsibleBody(row, row.skill)
+}
+
+/**
+ * Format a stream row for the transcript. Content may span several lines: the
+ * operator's bubble and a reasoning block are laid out here rather than left to
+ * the renderer, which cannot right-align or inset a wrapped body.
+ */
+export function paintStreamRow(
+  row: StreamRow,
+  layout: RowLayout,
+): PaintedStreamLine {
+  const fg = rowFg(row)
+  if (row.role === "user") {
+    return { content: userBubbleLines(row.text, layout.width).join("\n"), fg }
+  }
+  if (isThinkingRow(row)) {
+    return {
+      content: thinkingLines(row.text, layout, agentTag(row, layout)).join("\n"),
+      fg,
+    }
+  }
+  // A multi-line body (a shell result, an expanded skill) keeps every line on
+  // the body column instead of falling back under the prefix.
+  const gutter = streamRowGutter(row, layout).content
+  const body = rowBody(row).split("\n").join(`\n${" ".repeat(stringWidth(gutter))}`)
+  return { content: `${gutter}${body}`, fg }
+}
+
+/** Blank rows painted above a row that opens a new group. */
+export const ROW_GROUP_GAP = 1
+
+/**
+ * Vertical rhythm between transcript rows. A turn boundary (a different voice,
+ * or a different tool call) earns a blank row so the eye can find it; a thinking
+ * row never does, so the coalesced line appearing or disappearing above an
+ * answer cannot shift what is already on screen.
+ */
+export function rowGroupGap(
+  previous: StreamRow | undefined,
+  row: StreamRow,
+): number {
+  if (previous === undefined) return 0
+  // Thinking leads the answer it belongs to, so it takes the turn's gap rather
+  // than opening one of its own: the pair occupies the same rows whether or not
+  // the thinking line is there.
+  if (isThinkingRow(row)) return previous.role === "user" ? ROW_GROUP_GAP : 0
+  if (isThinkingRow(previous)) return 0
+  if (previous.role !== row.role) return ROW_GROUP_GAP
+  // Same voice, different call: a result stays glued to the call it answers,
+  // but the next call starts its own block.
+  if (row.role === "tool" && (previous.meta ?? "") !== (row.meta ?? "")) {
+    return ROW_GROUP_GAP
+  }
+  return 0
 }
 
 /** Whether this row's body should render as markdown rather than literal text. */
 export function isMarkdownRow(row: StreamRow): boolean {
   if (row.structured !== undefined || row.diff !== undefined) return false
+  // The operator's turn is a laid-out bubble, which a markdown body would
+  // re-wrap and left-align out of the right gutter.
+  if (row.role === "user") return false
   return row.markdown ?? row.role === "assistant"
 }
 
@@ -100,13 +369,22 @@ export function isDiffRow(row: StreamRow): boolean {
   return row.diff !== undefined
 }
 
-/** Gutter (label + meta) painted beside a markdown body. */
-export function streamRowGutter(row: StreamRow): PaintedStreamLine {
-  const meta = row.meta && row.meta.length > 0 ? ` ${row.meta}` : ""
-  return {
-    content: ` ${ROLE_LABEL[row.role]}${meta}  `,
-    fg: ROLE_FG[row.role],
-  }
+/**
+ * Prefix painted beside a body the renderer owns (markdown, table, diff).
+ * Empty for a lone agent's own prose: with nothing to disambiguate, the answer
+ * starts on the first column.
+ */
+export function streamRowGutter(
+  row: StreamRow,
+  layout: RowLayout,
+): PaintedStreamLine {
+  const fg = rowFg(row)
+  if (row.role === "tool") return { content: toolPrefix(row, layout), fg }
+  const meta =
+    row.meta !== undefined && row.meta.length > 0 && !isThinkingRow(row)
+      ? fitMeta(row.meta)
+      : ""
+  return { content: `${agentTag(row, layout)}${meta}`, fg }
 }
 
 /**

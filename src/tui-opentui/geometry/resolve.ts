@@ -1,6 +1,7 @@
 // Pure geometry resolver: terminal size + zone visibility + overlay mode → rects.
 // Caller passes { columns, rows }; this module never reads process.stdout.
 
+import { resolveContentWidth, resolveSideMargin } from "./margins.js";
 import {
   COLLAPSE_ORDER,
   IDLE_TRANSCRIPT_FLOOR,
@@ -79,6 +80,10 @@ export type GeometryLayout = {
   readonly overlayMode: OverlayMode;
   /** Transcript floor applied for this resolution. */
   readonly transcriptFloor: number;
+  /** Gutter columns held on each side of every zone. */
+  readonly sideMargin: number;
+  /** Zone width after both gutters. */
+  readonly contentWidth: number;
 };
 
 type MutableHeights = Record<ZoneId, number>;
@@ -234,14 +239,16 @@ function assignRects(
   terminal: TerminalSize,
 ): Partial<Record<ZoneId, Rect>> {
   const regions: Partial<Record<ZoneId, Rect>> = {};
+  const x = resolveSideMargin(terminal.columns);
+  const width = resolveContentWidth(terminal.columns);
   let y = 0;
   for (const id of PAINT_ORDER) {
     const height = heights[id];
     if (height <= 0) continue;
     regions[id] = {
-      x: 0,
+      x,
       y,
-      width: terminal.columns,
+      width,
       height,
     };
     y += height;
@@ -290,6 +297,8 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       collapsed,
       overlayMode: mode,
       transcriptFloor: floor,
+      sideMargin: resolveSideMargin(terminal.columns),
+      contentWidth: resolveContentWidth(terminal.columns),
     };
   }
 
@@ -355,5 +364,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     collapsed,
     overlayMode: mode,
     transcriptFloor: floor,
+    sideMargin: resolveSideMargin(terminal.columns),
+    contentWidth: resolveContentWidth(terminal.columns),
   };
 }

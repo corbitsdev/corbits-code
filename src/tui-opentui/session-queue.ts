@@ -28,7 +28,7 @@ export type SessionQueueState = {
 }
 
 export function createSessionQueue(
-  run: RunState = "busy",
+  run: RunState = "idle",
 ): SessionQueueState {
   return {
     run,

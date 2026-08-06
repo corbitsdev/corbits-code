@@ -15,6 +15,7 @@ import type {
 } from "../permission/types.js"
 import type { AppShell, OverlaySelection } from "./shell.js"
 import { appendStreamRow, setOverlayBody } from "./shell.js"
+import { EXPAND_KEY } from "./stream.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
@@ -24,9 +25,10 @@ export const PERMISSION_ONCE_ID = "__once__" as const
  * Expand/collapse chord for collapsed payloads. Scoped to the open permission
  * overlay rather than registered in SHELL_SHORTCUTS: the overlay is modal, so
  * a bare letter is free there, and Ctrl+O (the Ink-era chord) is the command
- * palette in this shell.
+ * palette in this shell. Shared with the transcript's collapsed rows so the
+ * product has one expand idiom.
  */
-export const PERMISSION_EXPAND_KEY = "e"
+export const PERMISSION_EXPAND_KEY = EXPAND_KEY
 
 export type PermissionGateChoices = {
   readonly items: readonly string[]

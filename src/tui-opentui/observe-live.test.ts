@@ -397,7 +397,7 @@ describe("observe pure mappers", () => {
         detail: "out",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "out", meta: "bash!" })
+    ).toEqual({ role: "tool", text: "out", meta: "bash", result: true, failed: true })
     expect(rowFromBridgeEvent({ type: "system", text: "s" })).toEqual({
       role: "system",
       text: "s",
@@ -472,7 +472,7 @@ describe("observe pure mappers", () => {
         text: JSON.stringify({ q: "observe" }),
         meta: "grep",
       },
-      { role: "tool", text: "hits", meta: "grep" },
+      { role: "tool", text: "hits", meta: "grep", result: true },
     ])
   })
 })

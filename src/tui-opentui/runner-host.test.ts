@@ -47,7 +47,7 @@ describe("rowFromTranscriptEntry", () => {
         content: "boom",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "boom", meta: "grep!" })
+    ).toEqual({ role: "tool", text: "boom", meta: "grep", result: true, failed: true })
     expect(rowFromTranscriptEntry({ kind: "report", content: "done" })).toEqual({
       role: "assistant",
       text: "done",
