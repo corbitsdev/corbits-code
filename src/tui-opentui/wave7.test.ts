@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test"
 import { focusOwner } from "./focus/index.js"
 import { withTestRenderer } from "./harness.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import {
   makeHelpItems,
   makeMentionItems,
@@ -217,7 +218,21 @@ describe("Wave 7: subagent observe", () => {
 describe("Wave 7: residual fixtures", () => {
   test("catalogs are non-empty and stable", () => {
     expect(makeSettingsItems().length).toBeGreaterThan(3)
-    expect(makeHelpItems().some((l) => l.includes("Ctrl+O"))).toBe(true)
+    expect(makeHelpItems()).toContain("Ctrl+O — Open command palette")
+    expect(makeHelpItems()).toEqual([
+      ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+      "Close help",
+    ])
+    // Rows the interaction contract requires and the shell implements —
+    // regression guard for the rows that were previously dropped.
+    for (const keys of ["Enter", "Alt+Enter", "Tab"]) {
+      expect(SHELL_SHORTCUTS.some((s) => s.keys === keys)).toBe(true)
+    }
+    // Ctrl+O must describe the palette, never the Ink renderer's tool-expand
+    // binding (the two renderers disagree on this chord).
+    expect(makeHelpItems().some((l) => l.includes("Toggle expand tool output"))).toBe(
+      false,
+    )
     expect(makePluginsItems().some((l) => l.includes("plugin:"))).toBe(true)
     expect(makeResumeItems().length).toBeGreaterThan(2)
     expect(

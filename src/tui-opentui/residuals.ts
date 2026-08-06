@@ -7,7 +7,7 @@
  * accept callbacks via {@link residualIdFromSelection}.
  */
 
-import { SHORTCUTS, SLASH_COMMANDS } from "../tui/keymap-table.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import type { StreamRow } from "./stream.js"
 
 /** Host-owned residual row: stable id + display label. */
@@ -56,12 +56,11 @@ export function makeSettingsItems(): readonly string[] {
   ]
 }
 
-/** Help overlay rows derived from the shared keymap table, so they cannot
- * drift from the interaction contract by hand-transcription. */
+/** Help overlay rows derived from the OpenTUI shell's own keybinding
+ * catalog, so they cannot drift from what the shell actually implements. */
 export function makeHelpItems(): readonly string[] {
   return [
-    ...SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
-    ...SLASH_COMMANDS.map((s) => `${s.keys} — ${s.description}`),
+    ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
     "Close help",
   ]
 }
