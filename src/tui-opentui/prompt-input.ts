@@ -29,14 +29,19 @@ export type PromptInput = TextareaRenderable & { value: string }
 
 /**
  * Enter sends the message, so a literal newline needs a chord of its own.
- * Shift+Enter where the terminal reports the modifier, Ctrl+J (`linefeed`)
- * everywhere else.
+ * Shift+Enter or Ctrl+Enter where the terminal reports the modifier, Ctrl+J
+ * (`linefeed`) everywhere else — terminals that don't negotiate the kitty
+ * keyboard protocol can't report Shift+Enter at all, so the fallback chords
+ * are what make this work in practice. Alt+Enter is left alone; the shell
+ * claims it for the steer action before the widget ever sees it.
  */
 // Modifier-qualified entries lead: a first-match table would otherwise resolve
 // Shift+Enter against the bare `return` submit binding and send the message.
 export const PROMPT_KEY_BINDINGS = [
   { name: "return", shift: true, action: "newline" },
   { name: "kpenter", shift: true, action: "newline" },
+  { name: "return", ctrl: true, action: "newline" },
+  { name: "kpenter", ctrl: true, action: "newline" },
   { name: "linefeed", action: "newline" },
   { name: "return", action: "submit" },
   { name: "kpenter", action: "submit" },

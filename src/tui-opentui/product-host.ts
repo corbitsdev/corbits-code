@@ -181,6 +181,10 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
+        // Press events are all the click-to-expand rows need. The default
+        // enables DEC 1003, which reports one event per cell the pointer
+        // crosses — a constant input stream for nothing we read.
+        enableMouseMovement: false,
         // A plain terminal sends a bare CR for both Enter and Shift+Enter, so
         // the modifier only arrives once the kitty keyboard protocol is
         // negotiated. Empty object, not explicit flags: this matches what
