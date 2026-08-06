@@ -357,12 +357,13 @@ describe("reasoning settles to a summary", () => {
           t.bridge.handle({ type: "inference.text.delta", data: { token: "done" } })
         }
 
+        // Both bursts belong to one turn, so they share one row — and its
+        // elapsed time is the turn's thinking, not the last burst's.
         const thoughts = t.shell.streamLog
           .filter((row) => row.meta === "thinking")
           .map((row) => row.thought)
-        expect(thoughts).toHaveLength(2)
-        expect(thoughts[0]?.ms).toBe(12_000)
-        expect(thoughts[1]?.ms).toBe(12_000)
+        expect(thoughts).toHaveLength(1)
+        expect(thoughts[0]?.ms).toBe(24_000)
       } finally {
         t.bridge.dispose()
       }

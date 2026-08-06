@@ -11,8 +11,10 @@ import {
   createAppShell,
   handleCtrlC,
   isSlashPopupOpen,
+  noticeText,
   setShellExitHandler,
   setShellRunState,
+  setStatusFlash,
   type AppShell,
 } from "./shell"
 
@@ -165,6 +167,41 @@ describe("Ctrl+C exit", () => {
       expect(shell.session.run).not.toBe("busy")
       press("Ctrl+C")
       expect(exits).toBe(1)
+    })
+  })
+
+  test("the exit notice clears itself when the arming window lapses", async () => {
+    await withShell(async ({ shell }) => {
+      const lapse: (() => void)[] = []
+      handleCtrlC(shell, 0, {
+        schedule: (fn, ms) => {
+          expect(ms).toBe(CTRL_C_EXIT_WINDOW_MS)
+          lapse.push(fn)
+          return () => {}
+        },
+      })
+      expect(shell.statusFlash).toBe("press ctrl+c again to exit")
+      expect(noticeText(shell)).toContain("press ctrl+c again to exit")
+
+      lapse[0]?.()
+      expect(shell.statusFlash).toBeNull()
+      // The row has nothing left to say, so it is given back to the transcript.
+      expect(noticeText(shell)).toBe("")
+    })
+  })
+
+  test("a lapsed window never clears a flash set after it", async () => {
+    await withShell(async ({ shell }) => {
+      const lapse: (() => void)[] = []
+      handleCtrlC(shell, 0, {
+        schedule: (fn) => {
+          lapse.push(fn)
+          return () => {}
+        },
+      })
+      setStatusFlash(shell, "copied 3 lines")
+      lapse[0]?.()
+      expect(shell.statusFlash).toBe("copied 3 lines")
     })
   })
 

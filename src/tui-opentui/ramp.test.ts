@@ -70,7 +70,7 @@ describe("renderIndeterminateRamp", () => {
 })
 
 describe("rampFor", () => {
-  test("working animates in Summit Blue", () => {
+  test("working animates in the in-flight bronze", () => {
     const ramp = rampFor({ phase: "working", nowMs: 0 })
     expect(ramp.fg).toBe(UI.inFlight)
     expect(ramp.animating).toBe(true)

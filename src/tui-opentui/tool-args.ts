@@ -162,6 +162,70 @@ function jsonDetail(value: unknown): readonly StyledBodyLine[] {
 const INLINE_MAX = 60
 
 /**
+ * Argument a call is *about*, most-meaningful first. A row's subject is one
+ * value — the query, the command, the URL — because a transcript is scanned,
+ * and a serialised argument list spends the row's columns on a second argument
+ * that is then cut off mid-word ("numR…"). Everything else is behind the arrow.
+ */
+const SUBJECT_KEYS = [
+  "command",
+  "query",
+  "url",
+  // A search names what it searched for, not where: the path is the scope.
+  "pattern",
+  "path",
+  "file_path",
+  "prompt",
+  "description",
+  "name",
+] as const
+
+/** Columns a subject may claim before the paint layer cuts it to the row. */
+const SUBJECT_MAX = 96
+
+function flatten(value: string): string {
+  return value.replace(/\s+/g, " ").trim()
+}
+
+/**
+ * The one argument worth painting, or null when nothing scalar stands out.
+ * Falls back to the first scalar argument so an unknown tool still reads as a
+ * subject rather than as a key/value dump.
+ */
+function primarySubject(args: Record<string, unknown>): string | null {
+  for (const key of SUBJECT_KEYS) {
+    const value = args[key]
+    if (typeof value === "string" && flatten(value).length > 0) {
+      return flatten(value).slice(0, SUBJECT_MAX)
+    }
+  }
+  const first = Object.entries(args).find(
+    ([, value]) => typeof value === "string" && flatten(value).length > 0,
+  )
+  return first === undefined ? null : flatten(first[1] as string).slice(0, SUBJECT_MAX)
+}
+
+/**
+ * Whether the formatter fell back to serialising the whole argument object.
+ * Its per-tool cases (a shortened path, a task description) are better subjects
+ * than anything picked here, and they never lead with `key: `.
+ */
+function isArgumentList(args: Record<string, unknown>, summary: string): boolean {
+  return Object.keys(args).some((key) => summary.startsWith(`${key}: `))
+}
+
+/** The subject a summarised call paints: one argument, without its key. */
+function subjectFor(
+  name: string,
+  raw: string,
+  args: Record<string, unknown>,
+): string {
+  const { summary } = summarizeToolArgs(name, raw)
+  if (!isArgumentList(args, summary)) return summary
+  return primarySubject(args) ?? summary
+}
+
+/**
  * The summary/detail pair for a tool call's arguments, or null when the call
  * has nothing worth hiding — short literal arguments read better as themselves
  * than as a summary with an expand hint attached.
@@ -187,10 +251,13 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
 
   if (args === null && raw.length <= INLINE_MAX && !raw.includes("\n")) return null
 
-  const { summary } = summarizeToolArgs(name, raw)
-  if (summary.length === 0) return null
-  if (args === null) return withDetail(summary, jsonDetail(raw))
-  return withDetail(summary, scalarDetail(args) ?? jsonDetail(args))
+  if (args === null) {
+    const { summary } = summarizeToolArgs(name, raw)
+    return summary.length === 0 ? null : withDetail(summary, jsonDetail(raw))
+  }
+  const subject = subjectFor(name, raw, args)
+  if (subject.length === 0) return null
+  return withDetail(subject, scalarDetail(args) ?? jsonDetail(args))
 }
 
 /**
@@ -206,5 +273,8 @@ function withDetail(
     .map((line) => line.map((segment) => segment.text).join("").trim())
     .join("\n")
     .trim()
-  return plain === summary.trim() ? { summary } : { summary, detail }
+  // A one-argument call whose subject *is* that argument reveals nothing but
+  // the key it was already named by, so it earns no arrow.
+  const bare = plain.includes("\n") ? plain : plain.replace(/^[A-Za-z_][\w.-]*:\s*/, "")
+  return bare === summary.trim() ? { summary } : { summary, detail }
 }

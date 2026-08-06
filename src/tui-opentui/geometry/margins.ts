@@ -50,11 +50,14 @@ export function resolveTopPadRows(transcriptRows: number): number {
 }
 
 /**
- * Blank row below the prompt box, so the last thing typed into never touches
- * the terminal's final row. Carved out of the transcript residual by the
- * shell, same as the top pad, never out of chrome.
+ * Rows below the prompt box. Zero: the box sits on the terminal's last row.
+ *
+ * A blank row here reads as the interface floating rather than resting on the
+ * bottom edge — the box is the thing the operator types into, and it wants to
+ * be where the cursor already is. The side gutters still keep it off the left
+ * and right edges, which is where crowding actually shows.
  */
-export const BOTTOM_MARGIN_ROWS = 1
+export const BOTTOM_MARGIN_ROWS = 0
 
 /**
  * Below this terminal height the margin is not worth the row it costs — the

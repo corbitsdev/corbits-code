@@ -164,6 +164,7 @@ import {
   EXPAND_KEY,
   expandedRowLines,
   isCollapsibleRow,
+  splitTrailingArrow,
   isExpansionRow,
   isMarkdownRow,
   isSentenceRow,
@@ -726,12 +727,29 @@ export function paintChrome(shell: AppShell): void {
  * finds the visibility already correct and stops.
  */
 function syncNoticeRow(shell: AppShell, notice: string): void {
+  paintedNotice.set(shell, notice)
   const bag = internals.get(shell)
   if (bag === undefined) return
   const wanted = notice.length > 0
   if ((bag.visibility.notice ?? false) === wanted) return
   relayout(shell, { visibility: { ...bag.visibility, notice: wanted } })
 }
+
+/**
+ * Re-read the notice once the layout pass has run.
+ *
+ * `pinned` is derived from the scroll box's own numbers, and those describe the
+ * *last completed* layout: chrome painted at row-mutation time can read a
+ * transcript that is following its tail as pinned, for the one frame between a
+ * row landing and sticky-scroll re-applying. Repaints only when the wording
+ * actually changed, so a settled frame costs a string compare.
+ */
+function syncNoticeAfterLayout(shell: AppShell): void {
+  if (noticeText(shell) !== paintedNotice.get(shell)) paintChrome(shell)
+}
+
+/** Notice wording currently on the row, for the post-layout re-read. */
+const paintedNotice = new WeakMap<AppShell, string>()
 
 /** Withdraw or restore the landing starters as the prompt fills and empties. */
 function syncLandingSuggestions(shell: AppShell): void {
@@ -818,10 +836,61 @@ function recordSentMessage(shell: AppShell, text: string): void {
   shell.sentHistory = createSentHistoryBrowse([...shell.sentHistory.sent, text])
 }
 
-/** Set a non-destructive flash and repaint (does not touch streamLog). */
-export function setStatusFlash(shell: AppShell, message: string | null): void {
+/**
+ * How a timed flash arms its own expiry. Injectable so tests can lapse a
+ * window without waiting out its real duration; returns the cancel.
+ */
+export type FlashSchedule = (fn: () => void, ms: number) => () => void
+
+const defaultFlashSchedule: FlashSchedule = (fn, ms) => {
+  const timer = setTimeout(fn, ms)
+  // A pending flash must never be the reason the process stays alive.
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => {
+    clearTimeout(timer)
+  }
+}
+
+export type FlashOptions = {
+  /** Lifetime of the flash; omitted means it stays until something replaces it. */
+  readonly ttlMs?: number
+  readonly schedule?: FlashSchedule
+}
+
+/** Cancel for the flash currently counting down, per shell. */
+const flashTimers = new WeakMap<AppShell, () => void>()
+
+/**
+ * Set a non-destructive flash and repaint (does not touch streamLog).
+ *
+ * A flash with a `ttlMs` clears itself when its window lapses. Anything whose
+ * wording is only true for a moment ("press ctrl+c again to exit") must say so
+ * for exactly that moment: left on screen it becomes a claim about a keypress
+ * the operator never made, and it holds a transcript row hostage for it.
+ */
+export function setStatusFlash(
+  shell: AppShell,
+  message: string | null,
+  options?: FlashOptions,
+): void {
+  flashTimers.get(shell)?.()
+  flashTimers.delete(shell)
   shell.statusFlash = message
   paintChrome(shell)
+  const ttlMs = options?.ttlMs
+  if (message === null || ttlMs === undefined || ttlMs <= 0) return
+  const schedule = options?.schedule ?? defaultFlashSchedule
+  flashTimers.set(
+    shell,
+    schedule(() => {
+      flashTimers.delete(shell)
+      // Only this flash expires: a later one has its own window, and the row
+      // it is holding is not this one's to take back.
+      if (shell.statusFlash !== message) return
+      shell.statusFlash = null
+      paintChrome(shell)
+    }, ttlMs),
+  )
 }
 
 /** Set the live turn phase label (null hides it). Repaints only on change. */
@@ -1703,7 +1772,7 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
     const index = shell.streamLog.length - 1
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
+      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
     )
     paintChrome(shell)
     return
@@ -1787,7 +1856,7 @@ export function replaceStreamRowAt(
   // +1: index 0 in the transcript's own child list is the bottom-anchor
   // spacer, not a row (see `transcriptRowChildren`).
   shell.transcript.add(
-    createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
+    createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
     index + 1,
   )
   paintChrome(shell)
@@ -1884,7 +1953,7 @@ export function repaintTranscriptWindow(shell: AppShell): void {
   win.rows.forEach((row, offset) => {
     const index = win.start + offset
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
+      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
     )
   })
 }
@@ -1998,6 +2067,7 @@ function buildRowNode(
   ctx: CliRenderer,
   row: StreamRow,
   layout: RowLayout,
+  onToggle?: () => void,
 ): TextRenderable | BoxRenderable {
   if (isSentenceRow(row)) {
     // The sentence is one line: it is cut to the columns beside the marker
@@ -2009,10 +2079,29 @@ function buildRowNode(
     if (row.structured !== undefined) {
       // The table is what the sentence hides; collapsed, the sentence is the row.
       return row.expanded === true
-        ? createStructuredRowRenderable(ctx, row, layout, row.structured, toolSentenceLines(row, columns))
-        : createStyledLinesRowRenderable(ctx, row, layout, toolSentenceLines(row, columns))
+        ? createStructuredRowRenderable(
+            ctx,
+            row,
+            layout,
+            row.structured,
+            toolSentenceLines(row, columns),
+            onToggle,
+          )
+        : createStyledLinesRowRenderable(
+            ctx,
+            row,
+            layout,
+            toolSentenceLines(row, columns),
+            onToggle,
+          )
     }
-    return createStyledLinesRowRenderable(ctx, row, layout, toolRowLines(row, columns))
+    return createStyledLinesRowRenderable(
+      ctx,
+      row,
+      layout,
+      toolRowLines(row, columns),
+      onToggle,
+    )
   }
 
   if (row.diff !== undefined) {
@@ -2062,10 +2151,19 @@ export function createStreamRowRenderable(
   row: StreamRow,
   marginTop = 0,
   label: string | null = null,
+  index?: number,
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
   const layout = transcriptRowLayout(shell)
-  const node = buildRowNode(ctx, row, layout)
+  // Rows are only ever appended, so an index taken at build time stays the
+  // row's index for as long as its node lives.
+  const onToggle =
+    index === undefined || !isCollapsibleRow(row)
+      ? undefined
+      : () => {
+          toggleRowExpandedAt(shell, index)
+        }
+  const node = buildRowNode(ctx, row, layout, onToggle)
 
   if (label === null) {
     node.marginTop = marginTop
@@ -2097,6 +2195,7 @@ function createStyledLinesRowRenderable(
   row: StreamRow,
   layout: RowLayout,
   lines: readonly StyledBodyLine[],
+  onToggle?: () => void,
 ): BoxRenderable {
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
@@ -2109,13 +2208,46 @@ function createStyledLinesRowRenderable(
     flexGrow: 1,
   })
   for (const line of lines) {
-    body.add(
-      new TextRenderable(ctx, {
-        content: new StyledText(diffLineChunks(line)),
-      }),
-    )
+    body.add(bodyLineNode(ctx, line, onToggle))
   }
   wrapper.add(body)
+  return wrapper
+}
+
+/**
+ * One painted body line. A line ending in an expand arrow is split so the
+ * arrow is its own renderable and can answer a click; every other line is a
+ * single text node, as before.
+ */
+function bodyLineNode(
+  ctx: CliRenderer,
+  line: StyledBodyLine,
+  onToggle?: () => void,
+): TextRenderable | BoxRenderable {
+  const split = onToggle === undefined ? null : splitTrailingArrow(line)
+  if (split === null || onToggle === undefined) {
+    return new TextRenderable(ctx, { content: new StyledText(diffLineChunks(line)) })
+  }
+  const wrapper = new BoxRenderable(ctx, { flexDirection: "row", flexGrow: 1 })
+  wrapper.add(
+    new TextRenderable(ctx, {
+      content: new StyledText(diffLineChunks(split.body)),
+      flexShrink: 0,
+    }),
+  )
+  wrapper.add(
+    new TextRenderable(ctx, {
+      content: new StyledText(diffLineChunks([split.arrow])),
+      flexShrink: 0,
+      width: stringWidth(split.arrow.text),
+      onMouseDown: (event) => {
+        // The transcript scroll box drags on the same press; a toggle is not a
+        // scroll gesture, so the arrow keeps the event.
+        event.stopPropagation()
+        onToggle()
+      },
+    }),
+  )
   return wrapper
 }
 
@@ -2130,6 +2262,7 @@ function createStructuredRowRenderable(
   layout: RowLayout,
   view: McpStructuredView,
   head: readonly StyledBodyLine[] = [],
+  onToggle?: () => void,
 ): BoxRenderable {
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, {
@@ -2139,9 +2272,7 @@ function createStructuredRowRenderable(
   wrapper.add(gutterNode(ctx, gutter))
   const body = new BoxRenderable(ctx, { flexDirection: "column", flexGrow: 1 })
   for (const line of head) {
-    body.add(
-      new TextRenderable(ctx, { content: new StyledText(diffLineChunks(line)) }),
-    )
+    body.add(bodyLineNode(ctx, line, onToggle))
   }
   body.add(
     new TextTableRenderable(ctx, {
@@ -2740,6 +2871,20 @@ export const OVERLAY_EXPAND_KEY = EXPAND_KEY
  *
  * False when no row on the log can expand at all.
  */
+/**
+ * Expand or collapse exactly one transcript row — what a click on its arrow
+ * means. The key stays bulk (see `toggleCollapsedRow`): a pointer says *this
+ * one*, a key with nothing under it can only mean all of them.
+ *
+ * False when that row hides nothing.
+ */
+export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
+  const row = shell.streamLog[index]
+  if (row === undefined || !isCollapsibleRow(row)) return false
+  replaceStreamRowAt(shell, index, { ...row, expanded: row.expanded !== true })
+  return true
+}
+
 export function toggleCollapsedRow(shell: AppShell): boolean {
   const collapsible = shell.streamLog.flatMap((row, index) =>
     row !== undefined && isCollapsibleRow(row) ? [{ row, index }] : [],
@@ -3634,7 +3779,11 @@ const ctrlCArmedAt = new WeakMap<AppShell, number>()
  * explicit second confirmation), no modal. Quitting routes through the
  * registered exit handler so host finalize still runs.
  */
-export function handleCtrlC(shell: AppShell, now = Date.now()): void {
+export function handleCtrlC(
+  shell: AppShell,
+  now = Date.now(),
+  options?: FlashOptions,
+): void {
   const armedAt = ctrlCArmedAt.get(shell)
   if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
     ctrlCArmedAt.delete(shell)
@@ -3651,7 +3800,12 @@ export function handleCtrlC(shell: AppShell, now = Date.now()): void {
   } else if (shell.prompt.value.length > 0) {
     shell.prompt.value = ""
   }
-  setStatusFlash(shell, "press ctrl+c again to exit")
+  // The notice is exactly as true as the arming window is open, so it expires
+  // with it rather than waiting for some later flash to overwrite it.
+  setStatusFlash(shell, "press ctrl+c again to exit", {
+    ttlMs: CTRL_C_EXIT_WINDOW_MS,
+    ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
+  })
 }
 
 /**
@@ -4271,6 +4425,7 @@ export function createAppShell(
     // needs a layout pass to size itself, and claiming the padding first
     // starves that pass of room to lay the row out in.
     syncTranscriptSpacer(shell)
+    syncNoticeAfterLayout(shell)
   }
 
   const onResize = (width: number, height: number): void => {
@@ -4353,6 +4508,8 @@ export function createAppShell(
       }
       renderer.off(CliRenderEvents.FRAME, onFrame)
       renderer.off(CliRenderEvents.RESIZE, onResize)
+      flashTimers.get(shell)?.()
+      flashTimers.delete(shell)
       try {
         renderer.root.remove(root)
       } catch {

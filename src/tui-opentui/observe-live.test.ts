@@ -490,7 +490,7 @@ describe("observe pure mappers", () => {
         text: "hits",
         meta: "grep",
         verb: "Grep",
-        summary: "q: observe",
+        summary: "observe",
       },
     ])
     expect(rows.length).toBe(1)

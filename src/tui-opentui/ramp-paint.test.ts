@@ -123,11 +123,29 @@ describe("turn ramp paint", () => {
 })
 
 describe("palette", () => {
-  test("no gray sits on black — dim tones keep a warm bias", () => {
-    for (const hex of [UI.text, UI.textDim, UI.textFaint]) {
+  test("no gray sits on the ground — every tone keeps a warm bias", () => {
+    for (const [role, hex] of Object.entries(UI)) {
+      if (role === "name") continue
       const r = Number.parseInt(hex.slice(1, 3), 16)
       const b = Number.parseInt(hex.slice(5, 7), 16)
       expect(r).toBeGreaterThan(b)
     }
   })
+
+  test("chrome stays below the action orange so orange still reads as an event", () => {
+    const action = saturation(UI.action)
+    for (const hex of [UI.inFlight, UI.inFlightBright, UI.heading]) {
+      expect(saturation(hex)).toBeLessThan(action)
+    }
+  })
 })
+
+/** HSL saturation, 0..1 — the axis the chrome ramp is held below action orange on. */
+function saturation(hex: string): number {
+  const channels = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255)
+  const max = Math.max(...channels)
+  const min = Math.min(...channels)
+  if (max === min) return 0
+  const lightness = (max + min) / 2
+  return (max - min) / (lightness > 0.5 ? 2 - max - min : max + min)
+}

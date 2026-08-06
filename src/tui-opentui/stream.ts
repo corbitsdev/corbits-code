@@ -161,7 +161,7 @@ export type PaintedStreamLine = {
 /**
  * Transcript rows are text, so they take the element cream. Only the tool role
  * is tinted — it is machine output threaded through a human conversation, and
- * Summit Blue separates it without adding a second voice.
+ * the bronze separates it without adding a second voice.
  */
 const ROLE_FG: Record<StreamRole, string> = {
   user: UI.text,
@@ -309,10 +309,33 @@ function expandHint(expanded: boolean): string {
   return ` · ${EXPAND_HINT_LABEL} ${expanded ? "collapse" : "expand"}`
 }
 
+/**
+ * Arrow affordance of a sentence-style tool row. It is a hit target as well as
+ * a glyph — a click on it toggles that one row — so the paint layer needs to
+ * find it back in a finished line rather than re-deriving where it landed.
+ */
+export const ROW_ARROW = { collapsed: "▸", expanded: "▾" } as const
+
 /** Small arrow affordance for a sentence-style tool row: absent, ▸, or ▾. */
 function toolArrow(row: StreamRow): string {
   if (!isCollapsibleRow(row)) return ""
-  return row.expanded === true ? "▾" : "▸"
+  return row.expanded === true ? ROW_ARROW.expanded : ROW_ARROW.collapsed
+}
+
+/**
+ * A line's trailing arrow split off from the rest of it, or null when the line
+ * does not end in one. The arrow becomes its own renderable so the click that
+ * toggles a row lands on the glyph and nowhere else: rows are text people
+ * select and copy, and a whole-row hit target would toggle under every drag.
+ */
+export function splitTrailingArrow(
+  line: StyledBodyLine,
+): { readonly body: StyledBodyLine; readonly arrow: StyledBodyLine[number] } | null {
+  const last = line[line.length - 1]
+  if (last === undefined) return null
+  const glyph = last.text.trim()
+  if (glyph !== ROW_ARROW.collapsed && glyph !== ROW_ARROW.expanded) return null
+  return { body: line.slice(0, -1), arrow: last }
 }
 
 /** Elapsed reasoning time, compact enough to ride a panel's closing tick. */
@@ -717,7 +740,15 @@ export function streamRowGutter(
 const MARKDOWN_STYLES = {
   default: { fg: UI.text },
   conceal: { fg: UI.textFaint, dim: true },
-  "markup.heading": { fg: UI.inFlightBright, bold: true },
+  // Tree-sitter markdown tags headings by level, and SyntaxStyle matches whole
+  // scope names, so the unnumbered scope alone would never be hit.
+  "markup.heading": { fg: UI.heading, bold: true },
+  "markup.heading.1": { fg: UI.heading, bold: true },
+  "markup.heading.2": { fg: UI.heading, bold: true },
+  "markup.heading.3": { fg: UI.heading, bold: true },
+  "markup.heading.4": { fg: UI.heading, bold: true },
+  "markup.heading.5": { fg: UI.heading, bold: true },
+  "markup.heading.6": { fg: UI.heading, bold: true },
   "markup.strong": { fg: UI.text, bold: true },
   "markup.italic": { fg: UI.text, italic: true },
   "markup.strikethrough": { fg: UI.textFaint },

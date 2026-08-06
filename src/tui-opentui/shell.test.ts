@@ -19,6 +19,7 @@ import {
   createAppShell,
   interruptShell,
   isTranscriptFollowing,
+  noticeText,
   openInsetOverlay,
   setPendingQueue,
   shellFocusPrompt,
@@ -119,6 +120,37 @@ describe("createAppShell", () => {
           expect(Math.abs(shell.transcript.scrollTop - pinnedTop)).toBeLessThan(
             2,
           )
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("the notice says pinned only while the tail is off screen", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          for (let i = 0; i < 50; i++) {
+            appendStreamRow(shell, { role: "system", text: `seed-${i}` })
+          }
+          await h.renderOnce()
+          // Following the tail is the default state and says nothing.
+          expect(noticeText(shell)).not.toContain("pinned")
+
+          shell.transcript.scrollTop = 0
+          await h.renderOnce()
+          expect(noticeText(shell)).toContain("pinned")
+
+          shell.transcript.scrollTop =
+            shell.transcript.scrollHeight - shell.transcript.height
+          await h.renderOnce()
+          expect(noticeText(shell)).not.toContain("pinned")
         } finally {
           shell.dispose()
         }

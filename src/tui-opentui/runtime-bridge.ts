@@ -261,7 +261,30 @@ type OpenStreamRow = {
   revealChars: number
   /** Clock `revealChars` was last advanced from. */
   revealAt: number
+  /**
+   * Reasoning time this row already carried before the model came back to
+   * think again, so a folded row reports the turn's thinking, not the last
+   * fragment's.
+   */
+  readonly elapsedBefore: number
+  /**
+   * Reopened row: the turn already thought once here, and this row sits above
+   * the tool rows that followed. It grows in its settled form rather than
+   * scrolling — a line crawling in the middle of the transcript reads as
+   * something moving that the operator did not touch.
+   */
+  readonly folded: boolean
 }
+
+/** The one reasoning row a turn owns, once the turn has thought at all. */
+type TurnThinking = {
+  readonly index: number
+  readonly text: string
+  readonly ms: number
+}
+
+/** Blank line between the fragments a turn thought at different moments. */
+const THINKING_FRAGMENT_SEPARATOR = "\n\n"
 
 type BridgeBag = {
   port: SessionPort
@@ -284,6 +307,13 @@ type BridgeBag = {
   toolRows: Map<string, number>
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number
+  /**
+   * Reasoning row of the turn in progress, or null before it thinks. Mid-turn
+   * thinking folds back into it instead of opening a row between tool calls:
+   * a turn is one run of work, and reasoning that interleaves breaks the run
+   * into fragments that each read as half a sentence.
+   */
+  turnThinking: TurnThinking | null
 }
 
 const bridges = new WeakMap<AppShell, BridgeBag>()
@@ -332,6 +362,20 @@ function openRowContent(
   }
 }
 
+/** Total reasoning an open thinking row stands for, earlier fragments included. */
+function thoughtOf(bag: BridgeBag, open: OpenStreamRow): Thought {
+  return { ms: open.elapsedBefore + Math.max(0, bag.now() - open.startedAt) }
+}
+
+/** Repaint a folded reasoning row: settled in shape, still growing in text. */
+function paintFoldedRow(shell: AppShell, bag: BridgeBag, open: OpenStreamRow): void {
+  replaceStreamRowAt(
+    shell,
+    open.index,
+    openRowContent(open.kind, open.text, false, thoughtOf(bag, open)),
+  )
+}
+
 /** Finalize the open streaming row: it stops growing and stops being unstable. */
 function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   const open = bag.openRow
@@ -339,10 +383,10 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
   bag.openRow = null
   // Reasoning stops scrolling and keeps its opening line; the elapsed time and
   // the full chain of thought stay on the row, behind the expand key.
-  const thought =
-    open.kind === "thinking"
-      ? { ms: Math.max(0, bag.now() - open.startedAt) }
-      : undefined
+  const thought = open.kind === "thinking" ? thoughtOf(bag, open) : undefined
+  if (thought !== undefined) {
+    bag.turnThinking = { index: open.index, text: open.text, ms: thought.ms }
+  }
   replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought))
 }
 
@@ -359,14 +403,39 @@ function growOpenRow(
   const open = bag.openRow
   if (open !== null && open.kind === kind) {
     open.text += text
-    if (kind === "thinking") advanceOpenReveal(shell, open, bag.now())
+    if (open.folded) paintFoldedRow(shell, bag, open)
+    else if (kind === "thinking") advanceOpenReveal(shell, open, bag.now())
     else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true))
     return
   }
   closeOpenRow(shell, bag)
   const now = bag.now()
+  const folded = kind === "thinking" ? bag.turnThinking : null
+  if (folded !== null) {
+    bag.openRow = {
+      kind,
+      index: folded.index,
+      text: `${folded.text}${THINKING_FRAGMENT_SEPARATOR}${text}`,
+      startedAt: now,
+      revealChars: 0,
+      revealAt: now,
+      elapsedBefore: folded.ms,
+      folded: true,
+    }
+    paintFoldedRow(shell, bag, bag.openRow)
+    return
+  }
   const index = streamRowCount(shell)
-  bag.openRow = { kind, index, text, startedAt: now, revealChars: 0, revealAt: now }
+  bag.openRow = {
+    kind,
+    index,
+    text,
+    startedAt: now,
+    revealChars: 0,
+    revealAt: now,
+    elapsedBefore: 0,
+    folded: false,
+  }
   appendStreamRow(shell, openRowContent(kind, text, true, undefined, kind === "thinking" ? 0 : undefined))
 }
 
@@ -377,6 +446,9 @@ function growOpenRow(
  * a pause in arrival — capped either way by what has actually arrived.
  */
 function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number): void {
+  // A folded row is settled text above the turn's tool rows; it has no scroll
+  // line to advance.
+  if (open.folded) return
   const available = flattenReasoningText(open.text).length
   const revealed = advanceRevealChars(open.revealChars, available, nowMs - open.revealAt)
   open.revealAt = nowMs
@@ -473,9 +545,14 @@ function applyInbound(
 
   closeOpenRow(shell, bag)
 
+  // A new turn gets a new reasoning row; only within one turn does thinking
+  // fold back into the row it already owns.
+  if (event.type === "user") bag.turnThinking = null
+
   if (event.type === "user" && consumeEcho(bag, event.text)) return
 
   if (event.type === "run") {
+    if (event.state === "idle") bag.turnThinking = null
     shell.session = setRunState(shell.session, event.state)
     paintChrome(shell)
     if (event.state === "idle") {
@@ -535,6 +612,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     lastToolRow: -1,
+    turnThinking: null,
   }
   bridges.set(shell, bag)
 

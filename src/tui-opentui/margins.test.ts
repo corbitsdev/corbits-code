@@ -101,13 +101,27 @@ describe("top padding", () => {
   })
 })
 
-describe("bottom margin", () => {
-  test("holds at one row on tall terminals and yields below the threshold", () => {
-    expect(resolveBottomMarginRows(120)).toBe(1)
-    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS)).toBe(1)
-    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS - 1)).toBe(0)
-    expect(resolveBottomMarginRows(12)).toBe(0)
-    expect(resolveBottomMarginRows(0)).toBe(0)
+describe("bottom edge", () => {
+  test("the prompt box rests on the terminal's last row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 30 },
+          wireKeys: false,
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "check the bottom" })
+          await settle(h)
+          const rows = frameRows(h)
+          // The box is what the operator types into; it belongs where the
+          // cursor already is, not floating a row above it.
+          expect(rows[rows.length - 1]?.trim()).not.toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 30 },
+    )
   })
 
   test("zone heights still sum to the terminal height at several heights", () => {
@@ -118,26 +132,6 @@ describe("bottom margin", () => {
     }
   })
 
-  test("the prompt box does not touch the terminal's last row on a tall terminal", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "idle",
-        })
-        try {
-          appendStreamRow(shell, { role: "user", text: "check the bottom" })
-          await settle(h)
-          const rows = frameRows(h)
-          expect(rows[rows.length - 1]?.trim()).toBe("")
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
 
   test("collapses to zero on a short terminal so nothing else starves", async () => {
     const rows = BOTTOM_MARGIN_MIN_ROWS - 1

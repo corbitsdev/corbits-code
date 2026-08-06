@@ -293,8 +293,8 @@ describe("landing screen", () => {
         const ruleRow = painted.findIndex((row) =>
           row.includes(LOCKUP_WORDMARK),
         )
-        // Second from the bottom: the shell reserves a bottom margin row.
-        expect(ruleRow).toBe(SIZE.height - 2)
+        // The prompt box rests on the terminal's last row.
+        expect(ruleRow).toBe(SIZE.height - 1)
         const row = painted[ruleRow]!
         // Left end of the rule, inside the shell gutter, costing no row.
         expect(row.startsWith("  ╰─ ")).toBe(true)
