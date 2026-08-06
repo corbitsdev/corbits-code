@@ -68,15 +68,25 @@ export function restrictedPathArg(
 }
 
 // Programs that only print directory names / metadata. Outside-workspace path
-// arguments are fine for these — listing is not a content read. Content readers
-// (cat, head, xxd, …) still fail the restricted-path check below.
+// arguments and secret-file names are fine for these — listing is not a content
+// read. Content readers (cat, head, xxd, …) still fail restricted-path and
+// sensitive-path checks below.
 const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 
-function isPureDirectoryListingSegment(segment: string): boolean {
+// Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
+// Pipes between safe programs are evaluated segment-by-segment (see below).
+// Declared above pure-listing so the segment helper can reject redirects.
+const DANGEROUS_METACHARACTERS = /[&;<>`$(){}]|\\\n|\n/;
+
+// True when a shell segment only lists names/metadata (`ls`, `tree`) with no
+// redirects, pipes, or composition. Used to skip outside-workspace and
+// sensitive-path forced-ask for pure listing while content dumps stay locked.
+export function isPureDirectoryListingSegment(segment: string): boolean {
   const trimmed = segment.trim();
   // Redirects / composition mean the segment is not "names only" — e.g.
   // `ls > /dev/pts/0` must still hit path restriction + authz hard-deny.
-  if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
+  // Pipes are evaluated per stage by callers; a multi-stage string is never pure.
+  if (trimmed.includes("|") || DANGEROUS_METACHARACTERS.test(trimmed)) return false;
   const program = tokenize(trimmed)[0] ?? "";
   return PURE_DIRECTORY_LISTING_PROGRAMS.has(program);
 }
@@ -88,8 +98,8 @@ function isPureDirectoryListingSegment(segment: string): boolean {
 // Surfaces flag-glued path values (`--file=PATH`, `-fPATH`) and treats `~…`
 // as outside-workspace the same way the safe-shell path does.
 // Pure directory listing (`ls`, `tree`) is exempt: names/metadata only, even
-// outside the workspace. Chains are judged per segment so `ls /tmp && cat …`
-// still flags the content-reading half.
+// outside the workspace. Chains and pipelines are judged per segment so
+// `ls /tmp && cat …` / `ls /tmp | cat …` still flags the content-reading half.
 export function commandTargetsRestricted(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
@@ -97,13 +107,29 @@ export function commandTargetsRestricted(
   const segments = splitChainedCommand(command);
   const parts = segments.length > 0 ? segments : [command];
   for (const segment of parts) {
-    if (isPureDirectoryListingSegment(segment)) continue;
-    if (
-      pathLikeTokens(segment).some(
-        (token) => token.startsWith("~") || isRestricted(token, false),
-      )
-    ) {
-      return true;
+    for (const pipeSeg of segment.split("|")) {
+      if (isPureDirectoryListingSegment(pipeSeg)) continue;
+      if (
+        pathLikeTokens(pipeSeg).some(
+          (token) => token.startsWith("~") || isRestricted(token, false),
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// True when some non-pure-listing stage references a secret path. Pure `ls`/
+// `tree` of `.env` etc. is list-free; content readers stay dump-locked.
+export function commandHasSensitiveContentRead(command: string): boolean {
+  const segments = splitChainedCommand(command);
+  const parts = segments.length > 0 ? segments : [command];
+  for (const segment of parts) {
+    for (const pipeSeg of segment.split("|")) {
+      if (isPureDirectoryListingSegment(pipeSeg)) continue;
+      if (commandReferencesSensitivePath(pipeSeg) !== undefined) return true;
     }
   }
   return false;
@@ -143,9 +169,6 @@ const SAFE_SHELL_PROGRAMS = new Set([
 // gets this rule instead of the generic WRITE_FLAG/EXEC_FLAG checks below.
 const FIND_DANGEROUS_FLAG = /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fprint0|fls)$/;
 
-// Non-pipe metacharacters that cannot appear anywhere in an auto-allowed command.
-// Pipes between safe programs are evaluated segment-by-segment (see below).
-const DANGEROUS_METACHARACTERS = /[&;<>`$(){}]|\\\n|\n/;
 const WRITE_FLAG = /^(-o|--output)(=|$)/;
 
 // Flags on grep/rg that run an arbitrary binary on each matched file or before
@@ -157,10 +180,10 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // invariant: it stops `cat /etc/passwd`, `xxd ~/.aws/config`, and
 // `strings /proc/self/environ` from auto-reading any file on the host. Pure
 // directory listing (`ls`, `tree`) is the exception: names/metadata only, so
-// outside-workspace targets still auto-allow. Sensitive path names (`.env`,
-// keys) additionally never auto-allow; the permission gate asks so the operator
-// can approve legitimate shell uses (e.g. `--env-file`). Path-keyed secret
-// reads remain a hard deny in secret-guard.
+// outside-workspace targets and secret-file names still auto-allow (list free).
+// Content dumps of secrets never auto-allow; the permission gate asks so the
+// operator can approve legitimate shell uses (e.g. `--env-file`). Path-keyed
+// secret reads remain a hard deny in secret-guard.
 function realpathOr(path: string): string {
   try {
     return realpathSync(path);
@@ -210,7 +233,6 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
-  if (commandReferencesSensitivePath(trimmed)) return false;
   // Same metacharacter gate as isAutoAllowedShellCommand: this classifier also
   // runs standalone per pipeline/chain segment (see isAutoAllowedShellSegment),
   // so a segment carrying its own command substitution or redirect must not
@@ -222,6 +244,10 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
+  const pureListing = PURE_DIRECTORY_LISTING_PROGRAMS.has(program);
+  // Content dumps of secret paths never auto-allow. Pure directory listing is
+  // names only, so secret-file names (and outside-workspace targets) are fine.
+  if (!pureListing && commandReferencesSensitivePath(trimmed)) return false;
   const args = tokens.slice(1);
   if (program === "find") {
     if (args.some((token) => FIND_DANGEROUS_FLAG.test(token))) return false;
@@ -229,13 +255,10 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
     if (args.some((token) => WRITE_FLAG.test(token))) return false;
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
-  if (args.some((token) => isSensitivePath(token))) return false;
+  if (!pureListing && args.some((token) => isSensitivePath(token))) return false;
   // Pure directory listing may target outside-workspace paths (names only).
   // Content readers must stay inside the workspace.
-  if (
-    !PURE_DIRECTORY_LISTING_PROGRAMS.has(program) &&
-    args.some((token) => argEscapesWorkspace(token, realCwd))
-  ) {
+  if (!pureListing && args.some((token) => argEscapesWorkspace(token, realCwd))) {
     return false;
   }
   return true;
@@ -249,7 +272,8 @@ export function isAutoAllowedShellCommand(command: string, cwd: string = process
   // commands on later lines, so those go through the normal segment path
   // (buildRequests filters comment-only segments).
   if (!trimmed.includes("\n") && (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))) return true;
-  if (commandReferencesSensitivePath(trimmed)) return false;
+  // Sensitive-path and workspace checks run per pipe segment so pure listing of a
+  // secret path can auto-allow while a content dump in another segment still fails.
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).

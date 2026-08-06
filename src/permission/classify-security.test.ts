@@ -252,6 +252,73 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(asked).toBe(0);
   });
 
+  // List free, dump locked: pure directory listing of secret paths may auto-run
+  // (names/metadata only). Content readers of those same paths still force ask.
+  // Nested under the sensitive-path suite so the surrounding grant/headless cases
+  // stay one describe.
+  describe("list-free dump-locked (CL-5420)", () => {
+    test("auto-allows pure ls/tree of secret file names", () => {
+      expect(isAutoAllowedShellCall(shellCall("ls .env"))).toBe(true);
+      expect(isAutoAllowedShellCall(shellCall("ls -la .env.production"))).toBe(true);
+      expect(isAutoAllowedShellCall(shellCall("tree .ssh/"))).toBe(true);
+    });
+
+    test("still denies content dumps of secret files", () => {
+      expect(isAutoAllowedShellCall(shellCall("cat .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("head id_rsa"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("xxd server.pem"))).toBe(false);
+    });
+
+    test("auto-shell policy does not force sensitive-path ask for pure listing", () => {
+      expect(autoShellRuleForCall(shellCall("ls .env"))).toBeUndefined();
+      expect(autoShellRuleForCall(shellCall("ls -la .ssh/"))).toBeUndefined();
+      expect(autoShellRuleForCall(shellCall("tree .env"))).toBeUndefined();
+    });
+
+    test("auto-shell policy still forces ask for content dumps of secrets", () => {
+      expect(autoShellRuleForCall(shellCall("cat .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("head .env.production"))?.name).toBe("sensitive-path");
+    });
+
+    test("chained ls secret + cat secret still asks for the content half", () => {
+      expect(autoShellRuleForCall(shellCall("ls .env && cat .env"))?.name).toBe("sensitive-path");
+    });
+
+    test("gate auto-allows pure listing of secret paths without prompting", async () => {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return { allow: true };
+        },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+      });
+      const verdict = await gate.evaluate(shellCall("ls .env"));
+      expect(verdict.allowed).toBe(true);
+      expect(asked).toBe(0);
+    });
+
+    test("gate still prompts for content dumps of secret paths in auto mode", async () => {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return { allow: true };
+        },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+      });
+      const verdict = await gate.evaluate(shellCall("cat .env"));
+      expect(verdict.allowed).toBe(true);
+      expect(asked).toBe(1);
+    });
+  });
+
   test("auto mode + grant still re-prompts for secret-path shell", async () => {
     let asked = 0;
     const gate = createPermissionGate({

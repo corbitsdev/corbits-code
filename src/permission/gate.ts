@@ -8,10 +8,10 @@ import {
   isAutoAllowedShellSegment,
   callTargetsRestricted,
   commandTargetsRestricted,
+  commandHasSensitiveContentRead,
   MEGA_CHAIN_SEGMENT_THRESHOLD,
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
@@ -66,15 +66,18 @@ function hasExactFullCommandGrant(
   );
 }
 
-// One shell segment's forced-ask guard: a secret-path reference or a
+// One shell segment's forced-ask guard: a secret *content* reference or a
 // restricted target, either of which forces an operator decision no matter
-// what a grant would otherwise cover. Shared by evaluate() (which also needs
-// to know *which* guard tripped, to drive the anySecret behavior below) and
-// preGrantGuardReason (which only needs to know whether one tripped).
+// what a grant would otherwise cover. Pure directory listing of a secret path
+// is list-free (names only) and does not trip the secret guard. Shared by
+// evaluate() (which also needs to know *which* guard tripped, to drive the
+// anySecret behavior below) and preGrantGuardReason (which only needs to know
+// whether one tripped).
 type SegmentGuard = { kind: "secret" | "restricted" };
 
 function segmentGuard(segment: string, isRestricted: (path: string, isWrite: boolean) => boolean): SegmentGuard | undefined {
-  if (commandReferencesSensitivePath(segment) !== undefined) return { kind: "secret" };
+  // Content dumps of secret paths force ask; pure ls/tree of those paths does not.
+  if (commandHasSensitiveContentRead(segment)) return { kind: "secret" };
   if (commandTargetsRestricted(segment, isRestricted)) return { kind: "restricted" };
   return undefined;
 }
@@ -331,12 +334,13 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       call.name === "run_shell" && typeof call.arguments.command === "string"
         ? call.arguments.command
         : undefined;
-    // Full-command secret check: whole-call auto-allow and headless messaging.
+    // Full-command secret *content* check: whole-call auto-allow and headless
+    // messaging. Pure listing of a secret path is list-free and may auto-allow.
     // Per-segment secret checks below govern grants and segment auto-skip so a
     // safe pipeline tail (e.g. `| sort`) is not re-prompted when only an earlier
     // segment mentions a secret path.
     const shellReferencesSecret =
-      shellCmd !== undefined && commandReferencesSensitivePath(shellCmd) !== undefined;
+      shellCmd !== undefined && commandHasSensitiveContentRead(shellCmd);
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
@@ -393,7 +397,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           return { allowed: false, reason: blockReason };
         }
 
-        const fullReferencesSecret = commandReferencesSensitivePath(fullCommand) !== undefined;
+        const fullReferencesSecret = commandHasSensitiveContentRead(fullCommand);
         // Multi-segment: only an exact stored pattern for the full command may
         // short-circuit. Never glob-match the unsplit string — a grant like
         // `npm *` would otherwise swallow `npm i && curl evil`. Single-segment

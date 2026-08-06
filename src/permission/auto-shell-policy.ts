@@ -1,7 +1,6 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-authz.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { commandTargetsRestricted } from "./classify.js";
+import { commandHasSensitiveContentRead, commandTargetsRestricted } from "./classify.js";
 import { splitChainedCommand, tokenize } from "./command.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
@@ -227,9 +226,10 @@ const RECURSIVE_RM_ASK_RULE: AutoShellRule = {
 };
 
 // Shell commands that mention a secret file (`.env`, keys, certs, …) never run
-// unattended in auto mode. The operator can still approve them — secret-guard
-// only hard-denies path-keyed tools, not shell — so legitimate uses like
-// `--env-file=.env.staging` work after an explicit yes.
+// unattended in auto mode — except pure directory listing (`ls`, `tree`), which
+// only prints names/metadata. Content dumps still need an explicit yes so
+// workflows like `bun --env-file=.env.staging run …` work after approval.
+// secret-guard only hard-denies path-keyed tools, not shell.
 const SENSITIVE_PATH_ASK_RULE: AutoShellRule = {
   name: "sensitive-path",
   effect: "ask",
@@ -311,7 +311,10 @@ export function autoShellRuleForCall(
   }
 
   for (const subject of subjects) {
-    if (commandReferencesSensitivePath(subject) !== undefined) return SENSITIVE_PATH_ASK_RULE;
+    // Pure listing of a secret path is names only — do not force ask. Content
+    // readers that touch a secret path still ask. Chains: only non-listing
+    // segments that reference secrets trip the rule.
+    if (commandHasSensitiveContentRead(subject)) return SENSITIVE_PATH_ASK_RULE;
   }
 
   // Containment: a command whose path arguments resolve outside the workspace

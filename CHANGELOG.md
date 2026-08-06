@@ -9,6 +9,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 ### Fixed
 
 - Pure directory listing (`ls`, `tree`) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. (CL-5422)
+- Shell secret policy is list-free / dump-locked: pure `ls`/`tree` of secret paths (`.env`, keys, …) auto-allows; content dumps still force operator approval. (CL-5420)
 
 ### Planned
 
