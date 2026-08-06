@@ -915,12 +915,14 @@ function subjectsHit(
 
 function openEndedSearchReason(command: string): string | undefined {
   if (!subjectsHit(command, isOpenEndedSearch)) return undefined;
-  // find is always hard-denied in command position; head-position rg and
-  // recursive grep -r likewise — "narrow the shell command" would mislead.
+  // The patterns catch three command shapes only, so the message has to carry
+  // the general prohibition: fd, ls -R, and scripted walks are equally unbounded
+  // and would otherwise look like sanctioned ways to do the same thing.
   return (
     `Open-ended shell search blocked — shell find, head-position rg, and recursive ` +
     `grep -r can walk huge trees and OOM the host. Prefer the bounded grep/search_files ` +
-    `tools (timeout + output caps). Command: ${command}`
+    `tools (timeout + output caps). Do not substitute another unbounded walk ` +
+    `(fd, ls -R, scripted os.walk). Command: ${command}`
   );
 }
 

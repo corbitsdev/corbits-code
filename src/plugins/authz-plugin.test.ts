@@ -382,6 +382,7 @@ describe("authzPlugin", () => {
     expect(result.content).toMatch(/OOM the host/);
     expect(result.content).toMatch(/walk huge trees/);
     expect(result.content).toMatch(/Prefer the bounded grep\/search_files tools/);
+    expect(result.content).toMatch(/not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/);
     expect(result.content).not.toMatch(/Do not use find/);
   });
 
