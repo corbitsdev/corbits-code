@@ -809,7 +809,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         origin: "path",
         diagnostics: addDiag,
       });
-      emitPluginWarningSummary(addDiag);
+      // Collected, not emitted: `emitPluginWarningSummary` writes to stderr, and
+      // a raw write lands mid-frame and corrupts the rendered transcript. The
+      // warnings are folded into the result message below instead.
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
@@ -850,7 +852,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // the next session starts from.
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
-      const warnings = formatPluginWarningsSummary(addDiagnostics.warnings);
+      const warnings = formatPluginWarningsSummary(addDiag.warnings);
       return {
         ok: true,
         message:
