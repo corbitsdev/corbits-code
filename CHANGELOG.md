@@ -8,7 +8,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### Fixed
 
-- Pure directory listing (`ls`, `tree`) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. (CL-5422)
+- Pure directory listing (`ls`, bounded `tree -L N`) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`) does not auto-allow. (CL-5422)
 
 ### Planned
 

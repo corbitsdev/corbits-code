@@ -88,10 +88,21 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
 
   // Pure directory listing is names/metadata only — outside-workspace targets
   // still auto-allow. Content readers (cat, head, …) remain contained.
+  // tree requires an explicit depth bound (-L / --max-depth); unbounded tree
+  // walks are not pure listing (same OOM class as open-ended find/rg).
   test("auto-allows pure directory listing outside the workspace", () => {
     expect(isAutoAllowedShellCall(shellCall("ls /tmp"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo")).toBe(true);
+  });
+
+  test("does not auto-allow unbounded recursive directory listing", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls -R /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls -laR /tmp"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
   });
 
   test("still denies content reads outside the workspace", () => {
@@ -109,7 +120,16 @@ describe("pure directory listing — outside-workspace auto-shell policy", () =>
   test("does not force outside-workspace ask for pure ls/tree outside paths", () => {
     expect(autoShellRuleForCall(shellCall("ls /tmp"), isRestricted)).toBeUndefined();
     expect(autoShellRuleForCall(shellCall("ls -la ~"), isRestricted)).toBeUndefined();
-    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree -L 1 /var"), isRestricted)).toBeUndefined();
+  });
+
+  test("unbounded recursive listing outside still forces outside-workspace ask", () => {
+    expect(autoShellRuleForCall(shellCall("ls -R /tmp"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
   });
 
   test("still forces outside-workspace ask for content reads outside paths", () => {
