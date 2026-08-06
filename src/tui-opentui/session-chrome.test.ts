@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test"
 
 import {
   classifyAgentSendFailure,
+  classifySendFailureMessage,
   resolveRampPhase,
   resolveTurnLabel,
+  sendFailureText,
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js"
 
@@ -138,5 +140,29 @@ describe("classifyAgentSendFailure", () => {
     expect(classifyAgentSendFailure("xai", false, codex, xai)).toBe("xai_auth")
     expect(shouldSettleUiAfterSendFailure("codex_auth")).toBe(true)
     expect(shouldSettleUiAfterSendFailure("xai_auth")).toBe(true)
+  })
+})
+
+describe("sendFailureText", () => {
+  test("an expired subscription sign-in says what to press", () => {
+    const codex = sendFailureText(
+      'Codex profile "default" is not authorized. Log in again.',
+    )
+    expect(classifySendFailureMessage(
+      'Codex profile "default" is not authorized. Log in again.',
+    )).toBe("codex_auth")
+    expect(codex).toContain("sign-in expired")
+    expect(codex).toContain("/model")
+
+    const xai = sendFailureText('xAI profile "default" could not be refreshed (401).')
+    expect(xai).toContain("/model")
+    expect(xai).not.toContain("401")
+  })
+
+  test("an unclassified failure keeps its raw message", () => {
+    expect(sendFailureText("connection reset by peer")).toBe(
+      "connection reset by peer",
+    )
+    expect(classifySendFailureMessage("connection reset by peer")).toBe("error")
   })
 })

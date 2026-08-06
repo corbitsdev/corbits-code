@@ -60,14 +60,36 @@ export function rowsFromBridgeEvents(
   events: readonly BridgeInboundEvent[],
 ): StreamRow[] {
   const rows: StreamRow[] = []
+  const attempt: AttemptBoundary = { at: null }
   for (const event of events) {
-    pushBridgeEvent(rows, event)
+    pushBridgeEvent(rows, event, attempt)
   }
   return rows
 }
 
+/**
+ * Row index where the inference attempt in progress began. A failed attempt is
+ * re-streamed from scratch, so its rows are retracted rather than appended to.
+ */
+type AttemptBoundary = { at: number | null }
+
 /** Fold one bridge event onto a row list, merging tool calls with their answers. */
-function pushBridgeEvent(rows: StreamRow[], event: BridgeInboundEvent): void {
+function pushBridgeEvent(
+  rows: StreamRow[],
+  event: BridgeInboundEvent,
+  attempt: AttemptBoundary = { at: null },
+): void {
+  if (event.type === "attempt") {
+    if (event.action === "mark") attempt.at = rows.length
+    else if (event.action === "clear") attempt.at = null
+    else {
+      if (attempt.at !== null && attempt.at < rows.length) {
+        rows.length = attempt.at
+      }
+      attempt.at = null
+    }
+    return
+  }
   if (event.type === "tool_call") {
     pushToolCall(rows, {
       name: event.name,
@@ -108,9 +130,10 @@ export function mapChildStreamSequence(
   ctx: StreamMapContext = createStreamMapContext(),
 ): StreamRow[] {
   const rows: StreamRow[] = []
+  const attempt: AttemptBoundary = { at: null }
   for (const event of events) {
     for (const mapped of mapProductionEvent(event, ctx)) {
-      pushBridgeEvent(rows, mapped)
+      pushBridgeEvent(rows, mapped, attempt)
     }
   }
   return rows

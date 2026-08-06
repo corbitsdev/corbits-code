@@ -9,6 +9,12 @@
  * operator was reading is substituted out from under them.
  */
 
+import {
+  sliceTailToWidth,
+  sliceToWidth,
+  stringWidth,
+} from "../tui/view/height.js"
+
 /** What a settled reasoning row remembers about the thinking it finished. */
 export type Thought = {
   /** Wall time the reasoning took, in milliseconds. */
@@ -68,8 +74,7 @@ export function thinkingScrollLine(
       ? flat.length
       : Math.max(0, Math.min(flat.length, Math.floor(revealChars)))
   const visible = flat.slice(0, revealed)
-  if (visible.length <= columns) return visible
-  return visible.slice(visible.length - columns)
+  return sliceTailToWidth(visible, columns)
 }
 
 /** Marker that a settled reasoning line is holding back the rest of the text. */
@@ -84,6 +89,7 @@ const ELLIPSIS = "…"
 export function thinkingSettledLine(text: string, width: number): string {
   const flat = flattenReasoningText(text).trimEnd()
   const columns = Math.max(1, Math.floor(width))
-  if (flat.length <= columns) return flat
-  return `${flat.slice(0, Math.max(0, columns - ELLIPSIS.length)).trimEnd()}${ELLIPSIS}`
+  if (stringWidth(flat) <= columns) return flat
+  const room = Math.max(0, columns - stringWidth(ELLIPSIS))
+  return `${sliceToWidth(flat, room).trimEnd()}${ELLIPSIS}`
 }

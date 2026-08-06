@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test"
 import {
   applyStallRecovery,
   shouldAbortForStall,
+  shouldNoticeStall,
+  STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js"
@@ -86,5 +88,42 @@ describe("applyStallRecovery", () => {
       notify: (m) => calls.push(m),
     })
     expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE])
+  })
+})
+
+describe("shouldNoticeStall", () => {
+  const base = {
+    status: "running" as const,
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: STALL_NOTICE_MS,
+    stallTimeoutMs: STALL_TIMEOUT_MS,
+    stallNoticeMs: STALL_NOTICE_MS,
+    isProcessing: true,
+    streamingType: null,
+  }
+
+  test("speaks up long before the abort backstop", () => {
+    expect(STALL_NOTICE_MS).toBeLessThan(STALL_TIMEOUT_MS)
+    expect(shouldNoticeStall(base)).toBe(true)
+    expect(shouldAbortForStall(base)).toBe(false)
+  })
+
+  test("stays quiet before the notice threshold", () => {
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_NOTICE_MS - 1 })).toBe(false)
+  })
+
+  test("hands over to the abort once the run is aborted", () => {
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(false)
+  })
+
+  test("a long tool run is not stuck", () => {
+    expect(
+      shouldNoticeStall({
+        ...base,
+        awaitingResponse: false,
+        streamingType: "tool",
+      }),
+    ).toBe(false)
   })
 })

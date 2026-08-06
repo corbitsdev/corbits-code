@@ -18,6 +18,7 @@ import {
   type CommandSurfaceKind,
 } from "./command-surfaces.js"
 import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
+import { focusOwner } from "./focus/index.js"
 import {
   buildModelsFirstCatalog,
   describeModelCatalogOption,
@@ -274,11 +275,15 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   })
 
   // The shell's Ctrl+C is the interrupt key, so quitting needs its own binding.
+  // Shell convention: Ctrl+D quits only at an empty, focused prompt. With text
+  // in the buffer it stays the textarea's delete-character-under-cursor, so a
+  // mid-edit Ctrl+D can never drop the draft.
   const onKey = (key: KeyEvent): void => {
-    if (key.ctrl && key.name === "d") {
-      key.preventDefault()
-      dispose()
-    }
+    if (!key.ctrl || key.name !== "d") return
+    if (focusOwner(host.shell.focus) !== "prompt") return
+    if (host.shell.prompt.value !== "") return
+    key.preventDefault()
+    dispose()
   }
   host.renderer.keyInput.on("keypress", onKey)
 

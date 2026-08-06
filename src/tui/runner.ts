@@ -452,6 +452,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Bound after the cycle recorder exists (it needs the session workdir); the
   // crash guard is declared first so it covers every fallible step below.
   let flushPartialOnCrash: () => Promise<void> = async () => {};
+  // Bound once the host is mounted. Without this the crash path leaves the
+  // renderer alive, so the alternate screen, mouse reporting and raw mode are
+  // never disabled and the operator's terminal is left wedged.
+  let disposeHost: () => void = () => {};
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
@@ -2096,6 +2100,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   });
 
+  disposeHost = host.dispose;
+
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
 
   // Recall spans the whole session, including what was sent before a resume.
@@ -2247,6 +2253,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     status: runSink.getStatus(),
   });
   } catch (err) {
+    // Terminal first: state persistence below can await disk I/O, and every
+    // millisecond before this runs is a millisecond the operator is staring at
+    // a frozen alternate screen. Kept outside finalizeOnCrash because that
+    // short-circuits once the clean path has marked the run finalized, and a
+    // throw after that point still has to give the terminal back.
+    try {
+      disposeHost();
+    } catch (disposeErr: unknown) {
+      tuiLogger.warn("crash finalize: host dispose failed: {error}", {
+        error: disposeErr instanceof Error ? disposeErr.message : String(disposeErr),
+      });
+    }
     await finalizeOnCrash(err);
     throw err;
   }

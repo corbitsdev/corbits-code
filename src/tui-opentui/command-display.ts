@@ -6,6 +6,8 @@
 // grouping is coarser (pipes stay inline) and must never feed back into a
 // security decision.
 
+import { sliceTailToWidth, sliceToWidth, stringWidth } from "../tui/view/height.js";
+
 // `&` participates in a redirect when it opens a bash combined redirect
 // (`&>file`) or duplicates a fd (`2>&1`, `<&-`); only a lone `&` word is the
 // background operator. Mirrors the same rule in src/permission/command.ts.
@@ -465,16 +467,17 @@ export function collapseSegmentPayloads(segment: string): CollapsedSegment {
   return { display, payloads };
 }
 
-// Truncate to `max` characters keeping both the head and tail, so a set of
+// Truncate to `max` columns keeping both the head and tail, so a set of
 // strings that share a long common prefix (e.g. persistent Allow options that
 // differ only in their trailing grant note) stay visually distinguishable
 // instead of all clipping at the same point.
 export function middleEllipsis(text: string, max: number): string {
-  if (text.length <= max || max <= 1) return text.length <= max ? text : text.slice(0, max);
+  if (stringWidth(text) <= max) return text;
+  if (max <= 1) return sliceToWidth(text, max);
+  // The ellipsis is itself a column that has to come out of the budget.
   const keep = max - 1;
   const head = Math.ceil(keep / 2);
-  const tail = Math.floor(keep / 2);
-  return `${text.slice(0, head)}…${text.slice(text.length - tail)}`;
+  return `${sliceToWidth(text, head)}…${sliceTailToWidth(text, keep - head)}`;
 }
 
 export type CommandDisplay = {

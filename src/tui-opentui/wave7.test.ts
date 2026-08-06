@@ -219,7 +219,7 @@ describe("Wave 7: residual fixtures", () => {
   test("catalogs are non-empty and stable", () => {
     expect(makeSettingsItems().length).toBeGreaterThan(3)
     expect(makeHelpItems()).toContain(
-      "Ctrl+O — Open the command palette; press again to close it",
+      "Ctrl+O — open the command palette; press again to close it",
     )
     expect(makeHelpItems()).toEqual([
       ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),

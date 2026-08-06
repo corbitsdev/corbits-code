@@ -312,3 +312,61 @@ describe("bottom border cost run", () => {
     }
   })
 })
+
+/** Resolves true when the host exited, false when it is still alive. */
+async function exited(host: { waitUntilExit: () => Promise<void> }): Promise<boolean> {
+  return await Promise.race([
+    host.waitUntilExit().then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 25)),
+  ])
+}
+
+describe("mountRunnerHost quit key", () => {
+  const baseDeps = (harness: Awaited<ReturnType<typeof createHarness>>) => ({
+    title: "test",
+    eventEmitter: new EventEmitter(),
+    send: () => {},
+    interrupt: () => {},
+    providers: {},
+    onModelSelect: () => {},
+    commands: [],
+    onCommand: () => {},
+    chrome: () => ({ goal: null, agents: [] }),
+    subAgentSessions: () => [],
+    createRenderer: async () => harness.renderer,
+  })
+
+  test("Ctrl+D mid-edit keeps the draft and the app alive", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost(baseDeps(harness))
+    try {
+      for (const ch of "foo bar") harness.pressKey(ch)
+      await harness.renderOnce()
+      harness.pressKey("ARROW_LEFT")
+      harness.pressKey("d", { ctrl: true })
+      await harness.renderOnce()
+
+      // Ctrl+D falls through to the textarea's delete-under-cursor.
+      expect(host.shell.prompt.value).toBe("foo ba")
+      expect(await exited(host)).toBe(false)
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Ctrl+D at an empty prompt quits", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost(baseDeps(harness))
+    try {
+      expect(host.shell.prompt.value).toBe("")
+      harness.pressKey("d", { ctrl: true })
+      await harness.renderOnce()
+
+      expect(await exited(host)).toBe(true)
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+})

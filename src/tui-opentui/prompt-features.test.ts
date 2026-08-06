@@ -1,11 +1,12 @@
 /**
  * Integration: prompt-side features wired on the OpenTUI shell —
- * Ctrl+P image attach, sent-message recall, and @-mention suggestions.
+ * clipboard image attach, text paste, sent-message recall, and @-mention
+ * suggestions.
  */
 import { describe, expect, test } from "bun:test"
 
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
-import { withTestRenderer } from "./harness"
+import { withTestRenderer, type Harness } from "./harness"
 import {
   acceptOverlaySelection,
   attachClipboardImage,
@@ -70,34 +71,43 @@ describe("image attachments", () => {
     })
   })
 
-  test("Ctrl+P attaches through the wired key handler", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-          run: "idle",
-        })
-        try {
-          let resolveAttached: () => void = () => {}
-          const attached = new Promise<void>((r) => {
-            resolveAttached = r
+  // Raw control bytes, not a synthetic KeyEvent: a binding that never matches
+  // what the terminal actually writes looks correct in the catalog and fails
+  // silently in use.
+  for (const [chord, byte] of [
+    ["Ctrl+P", "\x10"],
+    ["Ctrl+V", "\x16"],
+  ] as const) {
+    test(`${chord} attaches through the wired key handler`, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: 24 },
+            wireKeys: true,
+            run: "idle",
           })
-          setPromptImageSource(shell, async () => {
-            queueMicrotask(resolveAttached)
-            return { ok: true, attachment: CLIP }
-          })
-          h.pressKey("p", { ctrl: true })
-          await attached
-          await h.renderOnce()
-          expect(shell.pendingAttachments).toHaveLength(1)
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
+          try {
+            let resolveAttached: () => void = () => {}
+            const attached = new Promise<void>((r) => {
+              resolveAttached = r
+            })
+            setPromptImageSource(shell, async () => {
+              queueMicrotask(resolveAttached)
+              return { ok: true, attachment: CLIP }
+            })
+            h.mockInput.pressKey(byte)
+            await attached
+            await h.renderOnce()
+            expect(shell.pendingAttachments).toHaveLength(1)
+            expect(shell.prompt.value).toBe("")
+          } finally {
+            shell.dispose()
+          }
+        },
+        { width: 80, height: 24 },
+      )
+    })
+  }
 
   test("submit hands pending attachments to the bridge and clears them", async () => {
     await withShell(async (shell) => {
@@ -131,6 +141,72 @@ describe("image attachments", () => {
       expect(texts).toEqual([""])
     })
   })
+})
+
+/**
+ * A pasted newline must never reach the bare-return submit binding: that would
+ * send half a message. The renderer negotiates bracketed paste (DEC 2004), so
+ * a real paste arrives as OpenTUI's own `paste` event rather than as keys —
+ * these drive the raw ESC[200~ … ESC[201~ bytes to prove it.
+ */
+describe("text paste", () => {
+  const pasteCase = (label: string, drive: (h: Harness) => Promise<void>, expected: string) => {
+    test(label, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: 24 },
+            wireKeys: true,
+            run: "idle",
+          })
+          try {
+            const submitted: string[] = []
+            setShellBridgeHooks(shell, {
+              onSubmit: (text) => submitted.push(text),
+              onInterrupt: () => {},
+              exclusive: true,
+            })
+            setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }))
+            shell.prompt.focus()
+            await drive(h)
+            await h.renderOnce()
+            expect(shell.prompt.value).toBe(expected)
+            expect(submitted).toEqual([])
+            expect(shell.pendingAttachments).toEqual([])
+          } finally {
+            shell.dispose()
+          }
+        },
+        { width: 80, height: 24 },
+      )
+    })
+  }
+
+  pasteCase(
+    "single-line paste lands verbatim",
+    async (h) => await h.mockInput.pasteBracketedText("hello world"),
+    "hello world",
+  )
+
+  pasteCase(
+    "multi-line paste keeps its newlines and does not submit",
+    async (h) => await h.mockInput.pasteBracketedText("first line\nsecond line\nthird line"),
+    "first line\nsecond line\nthird line",
+  )
+
+  // Terminals normalise pasted line endings differently; CRLF inside a
+  // bracketed paste must still be composed text, not a submit.
+  pasteCase(
+    "a CRLF paste does not submit on the carriage return",
+    async (h) => await h.mockInput.pasteBracketedText("first line\r\nsecond line"),
+    "first line\nsecond line",
+  )
+
+  pasteCase(
+    "a paste larger than one stdin chunk arrives intact",
+    async (h) => await h.mockInput.pasteBracketedText(`${"x".repeat(4000)}\nend`),
+    `${"x".repeat(4000)}\nend`,
+  )
 })
 
 describe("sent-message recall", () => {

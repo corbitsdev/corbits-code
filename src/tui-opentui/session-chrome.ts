@@ -76,3 +76,30 @@ export function classifyAgentSendFailure(
 export function shouldSettleUiAfterSendFailure(kind: SendFailureKind): boolean {
   return kind === "codex_auth" || kind === "xai_auth" || kind === "error"
 }
+
+// The stream carries a failure as a bare message string, so the auth errors are
+// recognised by the profile phrase their constructors always produce
+// (`Codex profile "default" is not authorized. …`).
+const CODEX_AUTH_MESSAGE = /\bcodex profile\b/i
+const XAI_AUTH_MESSAGE = /\bxai profile\b/i
+
+/** Same classification as `classifyAgentSendFailure`, from the message alone. */
+export function classifySendFailureMessage(message: string): SendFailureKind {
+  if (CODEX_AUTH_MESSAGE.test(message)) return "codex_auth"
+  if (XAI_AUTH_MESSAGE.test(message)) return "xai_auth"
+  return "error"
+}
+
+const AUTH_FAILURE_TEXT: Partial<Record<SendFailureKind, string>> = {
+  codex_auth: "your chatgpt sign-in expired — /model to sign in again",
+  xai_auth: "your x.ai sign-in expired — /model to sign in again",
+}
+
+/**
+ * Transcript body for a failed send. A recognised failure says what happened
+ * and what to press; anything else keeps the raw message rather than swallowing
+ * the only detail the operator has.
+ */
+export function sendFailureText(message: string): string {
+  return AUTH_FAILURE_TEXT[classifySendFailureMessage(message)] ?? message
+}

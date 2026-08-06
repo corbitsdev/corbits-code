@@ -69,6 +69,7 @@ import {
   type McpStructuredView,
 } from "./mcp-view.js"
 import {
+  canPopFocus,
   createFocusState,
   focusOwner,
   focusPrompt,
@@ -504,6 +505,26 @@ export type AppShellOptions = {
    * notice has been shown, so it is not permanent chrome.
    */
   readonly telemetryNotice?: string
+  /**
+   * Clipboard port for Alt+C. Defaults to an in-memory recorder so tests and
+   * demos never shell out; the product host injects the system clipboard.
+   */
+  readonly clipboard?: ClipboardPort
+  /**
+   * Mouse-reporting switch behind Alt+M. Absent means the shell has no
+   * renderer-level control (tests, demos) and reports the toggle unavailable.
+   */
+  readonly mouseCapture?: MouseCapturePort
+}
+
+/**
+ * Renderer-level DEC mouse reporting control. While reporting is on the
+ * terminal hands drags to us instead of selecting text, so the user needs a
+ * way to hand it back.
+ */
+export type MouseCapturePort = {
+  readonly get: () => boolean
+  readonly set: (enabled: boolean) => void
 }
 
 export type AppShell = {
@@ -574,6 +595,8 @@ export type AppShell = {
   paletteCommands: readonly PaletteCommand[]
   /** Clipboard port for keyboard copy (tests inject recording port). */
   clipboard: ClipboardPort
+  /** Mouse-reporting control for Alt+M, or null when the host has none. */
+  mouseCapture: MouseCapturePort | null
   /**
    * Frozen copy targets while the copy overlay is open (null when closed).
    * Confirm writes from this snapshot, not live streamLog.
@@ -633,6 +656,12 @@ export type AppShell = {
   sentHistory: SentHistoryBrowse
   /** Detach key/resize listeners and unmount root. */
   dispose: () => void
+  /**
+   * True once `dispose` has run. Paint entry points read this: a caller that
+   * outlives the shell — a poll timer, a resolved async continuation — would
+   * otherwise write into renderables whose native buffers are already freed.
+   */
+  disposed: boolean
 }
 
 export type PrimaryOverlayKind =
@@ -712,6 +741,7 @@ export function noticeText(shell: AppShell): string {
 
 /** Repaint the prompt borders and the transient notice row from live state. */
 export function paintChrome(shell: AppShell): void {
+  if (shell.disposed) return
   syncPending(shell)
   const notice = noticeText(shell)
   shell.notice.content = new StyledText([
@@ -1807,6 +1837,26 @@ export function streamRowAt(shell: AppShell, index: number): StreamRow | undefin
       ? shell.parentStreamLog
       : shell.streamLog
   return index >= 0 && index < log.length ? log[index] : undefined
+}
+
+/**
+ * Drop every row from `length` onward on the log `appendStreamRow` targets.
+ *
+ * A committed inference attempt that fails is re-streamed from scratch, so the
+ * transcript has to retract what the failed attempt already painted instead of
+ * letting the replay pile up underneath it.
+ */
+export function truncateStreamRows(shell: AppShell, length: number): void {
+  const log =
+    shell.observe !== null && shell.parentStreamLog !== null
+      ? shell.parentStreamLog
+      : shell.streamLog
+  if (length < 0 || length >= log.length) return
+  log.length = length
+  if (log !== shell.streamLog) return
+  shell.lineCount = shell.streamLog.length
+  repaintTranscriptWindow(shell)
+  paintChrome(shell)
 }
 
 /**
@@ -3188,6 +3238,10 @@ export function runPaletteAction(
       enterCopyMode(shell)
       return
     }
+    case "toggle_mouse": {
+      toggleMouseCapture(shell)
+      return
+    }
     case "help": {
       openHelpOverlay(shell)
       return
@@ -3305,7 +3359,7 @@ export function enterCopyMode(shell: AppShell): boolean {
   const labels = targets.map((t) => `${t.label}: ${t.preview}`)
   openListOverlay(shell, {
     kind: "copy",
-    title: "copy · Alt+C",
+    title: "copy · Enter copies the selected item",
     items: labels,
     activeIndex: targets.length - 1,
     frameId: "copy-mode",
@@ -3360,6 +3414,29 @@ export function copyAllTargets(shell: AppShell): boolean {
   )
   closeInsetOverlay(shell)
   return true
+}
+
+/**
+ * Alt+M: take DEC mouse reporting, or hand it back to the terminal.
+ * Reporting is off by default so drag-select and the terminal's own copy keep
+ * working; taking it enables click-to-expand and drag-scroll at that cost.
+ * Returns the new enabled state, or null when the host exposes no control.
+ */
+export function toggleMouseCapture(shell: AppShell): boolean | null {
+  const port = shell.mouseCapture
+  if (!port) {
+    setStatusFlash(shell, "mouse reporting is not controllable here")
+    return null
+  }
+  const next = !port.get()
+  port.set(next)
+  setStatusFlash(
+    shell,
+    next
+      ? "Mouse captured · click to expand, drag to scroll · Alt+M to select text again"
+      : "Mouse released · drag to select and copy as usual · Alt+M to click rows",
+  )
+  return next
 }
 
 /**
@@ -4101,6 +4178,14 @@ export function createAppShell(
         leaveSubagentObserve(shell)
         return
       }
+      // Transcript browse (entered with Tab) is the remaining poppable frame:
+      // Esc hands typing back to the prompt.
+      if (canPopFocus(shell.focus)) {
+        key.preventDefault()
+        shell.focus = popFocus(shell.focus)
+        applyFocus(shell)
+        return
+      }
     }
 
     // Landing starters. Only while the prompt is untouched, so the digit goes
@@ -4290,7 +4375,11 @@ export function createAppShell(
       return
     }
 
-    if (key.ctrl && !key.meta && !key.option && keyName === "p") {
+    // Ctrl+V is a real keypress (0x16), not the system paste: the terminal
+    // turns CMD+V into bracketed paste, which OpenTUI delivers as its own
+    // `paste` event and the InputRenderable inserts as text. Binding Ctrl+V
+    // here therefore cannot swallow an ordinary text paste.
+    if (key.ctrl && !key.meta && !key.option && (keyName === "p" || keyName === "v")) {
       key.preventDefault()
       void attachClipboardImage(shell)
       return
@@ -4413,6 +4502,13 @@ export function createAppShell(
       return
     }
 
+    if ((key.meta || key.option) && (key.name === "m" || key.name === "M") && !key.ctrl) {
+      // Alt+M: release mouse reporting so the terminal can drag-select.
+      key.preventDefault()
+      toggleMouseCapture(shell)
+      return
+    }
+
     if (key.ctrl && key.name === "c") {
       key.preventDefault()
       handleCtrlC(shell)
@@ -4507,7 +4603,8 @@ export function createAppShell(
     overlayBodyLines: [],
     overlayBodyFgs: [],
     paletteCommands: [],
-    clipboard: createRecordingClipboard(),
+    clipboard: options?.clipboard ?? createRecordingClipboard(),
+    mouseCapture: options?.mouseCapture ?? null,
     copyTargets: null,
     statusFlash: null,
     turnPhase: null,
@@ -4521,9 +4618,11 @@ export function createAppShell(
     promptKillRing: emptyKillRing,
     pendingAttachments: [],
     sentHistory: createSentHistoryBrowse([]),
+    disposed: false,
     dispose: () => {
       if (disposed) return
       disposed = true
+      shell.disposed = true
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey)
         prompt.onSubmit = undefined

@@ -120,7 +120,7 @@ src/
     onboarding.ts         First-run provider setup entry
     pick-session.ts       Resume picker (via runListModal)
     session-mode-prompt.ts  Session-mode prompt (via runListModal)
-    use-stream.ts         Event stream → typed content blocks / AgentStatus
+    turns-to-blocks.ts    Stored turns → typed content blocks (resume hydration)
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
     theme.ts              Colors
@@ -163,7 +163,7 @@ Plan approval is handled separately by `use-gates` (`pendingPlan`), independent 
 - **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
 - **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
 
-`src/tui/use-stream.ts` consumes `agent.stream()` events into typed content blocks and tracks the `AgentStatus` state machine (`idle` / `running` / `stopping` / `stopped` / `blocked` / `done` / `failed`).
+`src/tui-opentui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui-opentui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
 ### @file Mention Resolution
 

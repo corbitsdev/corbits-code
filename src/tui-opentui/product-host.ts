@@ -9,6 +9,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core"
 import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js"
 import type { OperatorResult } from "../agent/tools.js"
 import { createLiveSessionPort } from "./live-session-port.js"
+import { checkWidthContract, widthContractNotice } from "./width-contract.js"
 import {
   attachSessionBridge,
   type SessionBridge,
@@ -16,7 +17,23 @@ import {
 } from "./runtime-bridge.js"
 import { openModelPickerOverlay } from "./overlays.js"
 import { wireGates } from "./gate-wire.js"
-import { formatChromeZones, type ChromeLiveState } from "./chrome-state.js"
+import { createSystemClipboard } from "./system-clipboard.js"
+import {
+  annotateAgentTools,
+  formatChromeZones,
+  type ChromeLiveState,
+} from "./chrome-state.js"
+import {
+  grantApproval,
+  grantNotice,
+  hookNotice,
+  lifecycleHookEvent,
+  mcpNotice,
+  mcpServerState,
+  subAgentProgress,
+  RUNTIME_FLASH_MS,
+  type RuntimeNotice,
+} from "./runtime-notices.js"
 import type { PaletteCommand } from "./palette.js"
 import {
   appendObserveStreamRow,
@@ -27,6 +44,7 @@ import {
   setHeader,
   setPaletteCatalog,
   setPaletteOnCommand,
+  setStatusFlash,
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
@@ -96,6 +114,12 @@ export type ProductHostConfig = {
   readonly turnMonitor?: TurnMonitorOptions
   /** First-run telemetry disclosure, shown on the landing screen. */
   readonly telemetryNotice?: string
+  /**
+   * Take DEC mouse reporting. Default false: while it is on the terminal hands
+   * drags to us and cannot select text, which breaks copy with the mouse.
+   * Alt+M flips it at runtime for click-to-expand and drag-scroll.
+   */
+  readonly useMouse?: boolean
 }
 
 export type ProductHost = {
@@ -181,9 +205,11 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // Press events are all the click-to-expand rows need. The default
-        // enables DEC 1003, which reports one event per cell the pointer
-        // crosses — a constant input stream for nothing we read.
+        // Mouse reporting off by default: any of DEC 1000/1002/1003/1006 makes
+        // the terminal forward drags to us instead of selecting text, so the
+        // user cannot copy with the mouse. Alt+M takes the mouse when
+        // click-to-expand or drag-scroll is wanted.
+        useMouse: config.useMouse ?? false,
         enableMouseMovement: false,
         // A plain terminal sends a bare CR for both Enter and Shift+Enter, so
         // the modifier only arrives once the kitty keyboard protocol is
@@ -195,6 +221,13 @@ export async function mountProductHost(
 
   const shell = createAppShell(renderer, {
     title: config.title,
+    clipboard: createSystemClipboard(),
+    mouseCapture: {
+      get: () => renderer.useMouse,
+      set: (enabled: boolean) => {
+        renderer.useMouse = enabled
+      },
+    },
     ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
     run: "idle",
     ...(config.commands !== undefined ? { paletteCatalog: config.commands } : {}),
@@ -206,6 +239,14 @@ export async function mountProductHost(
       ? { telemetryNotice: config.telemetryNotice }
       : {}),
   })
+
+  // Announced in the transcript rather than logged: a log line is invisible
+  // behind a full-screen shell, and the operator is the only one who can fix a
+  // terminal setting.
+  const widthReport = checkWidthContract(renderer.widthMethod)
+  if (!widthReport.agrees) {
+    appendStreamRow(shell, { role: "system", text: widthContractNotice(widthReport) })
+  }
 
   const port = createLiveSessionPort({
     send: config.send,
@@ -223,9 +264,21 @@ export async function mountProductHost(
     setPaletteOnCommand(shell, config.onCommand)
   }
 
-  if (config.chrome) {
-    setChromeZones(shell, formatChromeZones(config.chrome))
+  // Live chrome is pushed by the caller; subagent progress annotates the copy
+  // the host last received rather than racing the caller for the zone.
+  let chromeState: ChromeLiveState | null = config.chrome ?? null
+  const subAgentTools = new Map<string, string>()
+  const paintChromeZones = (): void => {
+    if (chromeState === null) {
+      setChromeZones(shell, { goal: null, task: null, agents: null })
+      return
+    }
+    setChromeZones(
+      shell,
+      formatChromeZones(annotateAgentTools(chromeState, subAgentTools)),
+    )
   }
+  if (chromeState !== null) paintChromeZones()
 
   let disposed = false
   let resolveExit: (() => void) | undefined
@@ -233,9 +286,18 @@ export async function mountProductHost(
     resolveExit = resolve
   })
 
+  // The poll outlives the renderer whenever a caller tears the renderer down
+  // without disposing the host. Painting into freed buffers throws, and a host
+  // that can no longer paint has nothing left to keep fresh, so it stands down.
   const stickyPoll = setInterval(() => {
-    if (!disposed) paintChrome(shell)
+    if (disposed) return
+    try {
+      paintChrome(shell)
+    } catch {
+      clearInterval(stickyPoll)
+    }
   }, 200)
+  if (typeof stickyPoll.unref === "function") stickyPoll.unref()
 
   function dispose(): void {
     if (disposed) return
@@ -245,7 +307,14 @@ export async function mountProductHost(
     disposeGates()
     config.eventEmitter.off("history.hydrate", onHistory)
     config.eventEmitter.off("session.title", onTitle)
+    config.eventEmitter.off("hook", onHook)
+    config.eventEmitter.off("mcp.status", onMcpStatus)
+    config.eventEmitter.off("permission.grant", onPermissionGrant)
+    config.eventEmitter.off("subagent.progress", onSubAgentProgress)
     bridge.dispose()
+    // Cancels any flash still counting down: its expiry repaints, and after
+    // teardown that repaint reaches a destroyed text buffer.
+    setStatusFlash(shell, null)
     try {
       shell.dispose()
     } catch {
@@ -271,7 +340,55 @@ export async function mountProductHost(
     }
   }
 
-  const disposeGates = wireGates(config.eventEmitter, shell)
+  function show(notice: RuntimeNotice | null): void {
+    if (notice === null) return
+    if (notice.kind === "row") {
+      appendStreamRow(shell, { role: "system", text: notice.text })
+      return
+    }
+    setStatusFlash(shell, notice.text, { ttlMs: RUNTIME_FLASH_MS })
+  }
+
+  function onHook(event: unknown): void {
+    if (disposed) return
+    const parsed = lifecycleHookEvent(event)
+    if (parsed !== null) show(hookNotice(parsed))
+  }
+
+  function onMcpStatus(state: unknown): void {
+    if (disposed) return
+    const parsed = mcpServerState(state)
+    if (parsed !== null) show(mcpNotice(parsed))
+  }
+
+  function onPermissionGrant(payload: unknown): void {
+    if (disposed) return
+    const approval = grantApproval(payload)
+    if (approval !== null) show(grantNotice(approval))
+  }
+
+  function onSubAgentProgress(info: unknown): void {
+    if (disposed) return
+    const progress = subAgentProgress(info)
+    if (progress === null) return
+    subAgentTools.set(progress.description, progress.toolName)
+    paintChromeZones()
+  }
+
+  // The renderer already owns the alternate screen and raw mode by this point,
+  // but `dispose` has not been handed to any caller yet — a throw here would
+  // leave the terminal wedged with nobody able to restore it.
+  let disposeGates: () => void
+  try {
+    disposeGates = wireGates(config.eventEmitter, shell)
+  } catch (err: unknown) {
+    try {
+      renderer.destroy()
+    } catch {
+      // already destroyed
+    }
+    throw err
+  }
 
   function onHistory(blocks: unknown): void {
     if (disposed) return
@@ -337,6 +454,10 @@ export async function mountProductHost(
   config.eventEmitter.on("event", onEvent)
   config.eventEmitter.on("history.hydrate", onHistory)
   config.eventEmitter.on("session.title", onTitle)
+  config.eventEmitter.on("hook", onHook)
+  config.eventEmitter.on("mcp.status", onMcpStatus)
+  config.eventEmitter.on("permission.grant", onPermissionGrant)
+  config.eventEmitter.on("subagent.progress", onSubAgentProgress)
 
   return {
     shell,
@@ -345,8 +466,8 @@ export async function mountProductHost(
     waitUntilExit: () => exitPromise,
     dispose,
     setChrome: (state) => {
-      if (state) setChromeZones(shell, formatChromeZones(state))
-      else setChromeZones(shell, { goal: null, task: null, agents: null })
+      chromeState = state ?? null
+      paintChromeZones()
     },
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),

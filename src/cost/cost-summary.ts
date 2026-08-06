@@ -1,5 +1,5 @@
 // Pure formatting layer over the cost/token counters already tracked in
-// use-stream.ts. Kept free of Ink/React so the status bar segments and the
+// the stream layer. Kept free of renderer deps so the status bar segments and the
 // /cost command output can be unit tested without rendering anything.
 
 import { contextWindowFor } from "../provider/context-window.js";

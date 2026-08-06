@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   hydrateHistoryRows,
+  MISSING_ERROR_DETAIL,
   rowFromHistoryBlock,
   rowsFromHistoryBlocks,
 } from "./history-hydrate.js"
@@ -87,6 +88,16 @@ describe("rowFromHistoryBlock", () => {
     expect(
       rowFromHistoryBlock({ type: "error", message: "boom" }),
     ).toEqual({ role: "system", text: "boom", meta: "error" })
+    // A resumed error with no recorded message says so, rather than sitting
+    // in the transcript as the bare word "error".
+    expect(rowFromHistoryBlock({ type: "error" })).toEqual({
+      role: "system",
+      text: MISSING_ERROR_DETAIL,
+      meta: "error",
+    })
+    expect(MISSING_ERROR_DETAIL).toBe(
+      "this step failed and the details were not saved",
+    )
     expect(rowFromHistoryBlock({ type: "tasks" })).toBeNull()
     expect(rowFromHistoryBlock({ type: "plan" })).toBeNull()
     expect(rowFromHistoryBlock({ type: "view" })).toBeNull()

@@ -7,6 +7,11 @@
  * binding of the prompt's InputRenderable (see `defaultTextareaKeyBindings`
  * in @opentui/core — Ctrl+B/F/D, Alt+B/F, and arrow motion come from there,
  * not from shell.ts). Do not hand-transcribe from docs.
+ *
+ * The comment alone did not hold: two rows drifted into describing behavior the
+ * shell never had. `keybindings.test.ts` now drives every row's own chord
+ * through a live shell and asserts the effect it claims, so a row that stops
+ * being true fails rather than being read by an operator.
  */
 
 export type ShellShortcut = {
@@ -15,30 +20,35 @@ export type ShellShortcut = {
 }
 
 export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
-  { keys: "Enter", description: "Queue message mid-run (badge); normal send when idle" },
-  { keys: "Alt+Enter", description: "Steer at next tool boundary (only while busy)" },
-  { keys: "Ctrl+C", description: "Interrupt current run or clear prompt; press twice to exit" },
-  { keys: "Ctrl+O", description: "Open the command palette; press again to close it" },
-  { keys: "Alt+C", description: "Copy mode: pick a message, tool output, or diff (press again to close)" },
-  { keys: "Alt+E", description: "Expand or collapse the newest collapsible row (tool call, diff, skill, reasoning)" },
-  { keys: "Tab", description: "Toggle prompt ↔ transcript focus" },
-  { keys: "Esc", description: "Close overlay / leave subagent observe" },
-  { keys: "Ctrl+B / Ctrl+F", description: "Move cursor back / forward one character" },
-  { keys: "Ctrl+D", description: "Delete character under cursor" },
-  { keys: "Alt+B / Alt+F", description: "Move cursor back / forward one word" },
-  { keys: "Ctrl+K", description: "Kill from cursor to end of prompt" },
-  { keys: "Ctrl+U", description: "Kill from start of prompt to cursor" },
-  { keys: "Ctrl+W", description: "Kill previous word" },
-  { keys: "Alt+D", description: "Kill next word" },
-  { keys: "Ctrl+Y", description: "Yank last kill at cursor" },
-  { keys: "Alt+Y", description: "Cycle yank to the next-older kill" },
-  { keys: "Ctrl+P", description: "Attach an image from the clipboard to the next message" },
-  { keys: "?", description: "With the transcript focused, open this shortcut list; press again to close it" },
-  { keys: "@", description: "Open file suggestions for the @mention being typed" },
-  { keys: "/", description: "At an empty prompt, open the command list (Tab completes, Enter runs)" },
-  { keys: "Up / Down", description: "Recall previously sent messages at the prompt's first / last row" },
-  { keys: "Arrow keys", description: "Move cursor left / right / up / down in prompt" },
-  { keys: "Shift+Enter / Ctrl+J", description: "Insert a newline instead of sending" },
+  { keys: "Enter", description: "queue the message mid-run (badge); send straight through when idle" },
+  { keys: "Alt+Enter", description: "steer at the next tool boundary; does nothing unless a run is busy" },
+  { keys: "Ctrl+C", description: "interrupt the run, or clear the prompt when idle; press twice to exit" },
+  { keys: "Ctrl+O", description: "open the command palette; press again to close it" },
+  { keys: "Alt+C", description: "copy mode: pick a message, tool output, or diff; press again to close it" },
+  { keys: "Alt+M", description: "take the mouse for click-to-expand and drag-scroll; off by default so drag-select and copy work" },
+  { keys: "Alt+E", description: "expand or collapse every collapsible row (tool call, diff, skill, reasoning)" },
+  { keys: "Tab", description: "move focus between the prompt and the transcript" },
+  { keys: "Esc", description: "close the open overlay, or leave subagent observe" },
+  { keys: "Ctrl+B / Ctrl+F", description: "move the cursor back / forward one character" },
+  { keys: "Ctrl+D", description: "at an empty prompt, quit; with text in the buffer, delete the character under the cursor" },
+  { keys: "Alt+B / Alt+F", description: "move the cursor back / forward one word" },
+  { keys: "Ctrl+K", description: "kill from the cursor to the end of the line" },
+  { keys: "Ctrl+U", description: "kill from the start of the line to the cursor" },
+  { keys: "Ctrl+W", description: "kill the previous word" },
+  { keys: "Alt+D", description: "kill the next word" },
+  { keys: "Ctrl+Y", description: "yank the last kill at the cursor" },
+  { keys: "Alt+Y", description: "replace the text just yanked with the next-older kill" },
+  { keys: "Ctrl+V / Ctrl+P", description: "attach an image from the clipboard to the next message" },
+  { keys: "?", description: "with the transcript focused, open this shortcut list; press again to close it" },
+  { keys: "@", description: "at the start of a word, open file suggestions for the @mention being typed" },
+  { keys: "/", description: "at an empty prompt, open the command list (Tab completes, Enter runs)" },
+  { keys: "Up / Down", description: "recall previously sent messages, from the prompt's first / last row" },
+  { keys: "Arrow keys", description: "move the cursor left / right / up / down in the prompt" },
+  {
+    keys: "Ctrl+Enter / Ctrl+J",
+    description:
+      "insert a newline instead of sending (Shift+Enter also works on terminals that report the modifier)",
+  },
 ] as const
 
 /**
@@ -49,7 +59,8 @@ const PALETTE_CHORDS: Readonly<Record<string, string>> = {
   help: "?",
   mentions: "@",
   copy_active: "Alt+C",
-  "paste-image": "Ctrl+P",
+  toggle_mouse: "Alt+M",
+  "paste-image": "Ctrl+V / Ctrl+P",
 }
 
 /**

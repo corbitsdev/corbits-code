@@ -28,14 +28,22 @@ import {
   setTurnPhase,
   streamRowAt,
   streamRowCount,
+  truncateStreamRows,
   type AppShell,
 } from "./shell.js"
 import { rampFor, rampLine } from "./ramp.js"
-import { resolveRampPhase, resolveTurnLabel } from "./session-chrome.js"
+import {
+  resolveRampPhase,
+  resolveTurnLabel,
+  sendFailureText,
+} from "./session-chrome.js"
 import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
 import {
   applyStallRecovery,
   shouldAbortForStall,
+  shouldNoticeStall,
+  STALL_NOTICE_MESSAGE,
+  STALL_NOTICE_MS,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js"
 import {
@@ -115,6 +123,8 @@ export type TurnMonitorOptions = {
    */
   readonly tickMs?: number
   readonly stallTimeoutMs?: number
+  /** Silence after which the run says it looks stuck. Default 90 s. */
+  readonly stallNoticeMs?: number
   /** Registers the periodic tick; returns an unsubscribe. */
   readonly schedule?: (tick: () => void, intervalMs: number) => () => void
 }
@@ -238,7 +248,7 @@ function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
     case "system":
       return { role: "system", text: event.text }
     case "error":
-      return { role: "system", text: event.message, meta: "error" }
+      return { role: "system", text: sendFailureText(event.message), meta: "error" }
     default:
       return null
   }
@@ -307,6 +317,12 @@ type BridgeBag = {
   toolRows: Map<string, number>
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number
+  /**
+   * Row index where the inference attempt in progress began, or null when no
+   * boundary is armed. The mapper decides when to mark, clear and roll back;
+   * the row index is the bridge's to keep.
+   */
+  attemptRow: number | null
   /**
    * Reasoning row of the turn in progress, or null before it thinks. Mid-turn
    * thinking folds back into it instead of opening a row between tool calls:
@@ -510,6 +526,26 @@ function applyToolResult(
   replaceStreamRowAt(shell, index, mergeToolRows(call, result))
 }
 
+/**
+ * Retract everything the failed attempt painted, then forget the row
+ * bookkeeping that pointed into it — a rolled-back tool call has no row left
+ * to resolve, and a rolled-back reasoning row is no longer there to fold into.
+ */
+function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
+  const boundary = bag.attemptRow
+  bag.attemptRow = null
+  if (boundary === null || boundary >= streamRowCount(shell)) return
+  truncateStreamRows(shell, boundary)
+  for (const [callId, index] of [...bag.toolRows]) {
+    if (index >= boundary) bag.toolRows.delete(callId)
+  }
+  if (bag.lastToolRow >= boundary) bag.lastToolRow = -1
+  if (bag.turnThinking !== null && bag.turnThinking.index >= boundary) {
+    bag.turnThinking = null
+  }
+  paintChrome(shell)
+}
+
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
   for (;;) {
     const { state, item } = drainOne(shell.session)
@@ -544,6 +580,13 @@ function applyInbound(
   }
 
   closeOpenRow(shell, bag)
+
+  if (event.type === "attempt") {
+    if (event.action === "mark") bag.attemptRow = streamRowCount(shell)
+    else if (event.action === "clear") bag.attemptRow = null
+    else rollbackAttempt(shell, bag)
+    return
+  }
 
   // A new turn gets a new reasoning row; only within one turn does thinking
   // fold back into the row it already owns.
@@ -599,6 +642,7 @@ export function attachSessionBridge(
 
   const now = monitor?.now ?? (() => Date.now())
   const stallTimeoutMs = monitor?.stallTimeoutMs ?? STALL_TIMEOUT_MS
+  const stallNoticeMs = monitor?.stallNoticeMs ?? STALL_NOTICE_MS
 
   const bag: BridgeBag = {
     port: resolvePort(handlers),
@@ -612,6 +656,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     lastToolRow: -1,
+    attemptRow: null,
     turnThinking: null,
   }
   bridges.set(shell, bag)
@@ -805,22 +850,28 @@ export function attachSessionBridge(
       return
     }
 
-    if (
-      shouldAbortForStall({
-        status: bag.turn.status,
-        awaitingResponse: bag.turn.awaitingResponse,
-        lastActivityAt: bag.turn.lastActivityAt,
-        nowMs,
-        stallTimeoutMs,
-        isProcessing: bag.turn.isProcessing,
-        streamingType: bag.turn.streamingType,
-      })
-    ) {
+    const stallArgs = {
+      status: bag.turn.status,
+      awaitingResponse: bag.turn.awaitingResponse,
+      lastActivityAt: bag.turn.lastActivityAt,
+      nowMs,
+      stallTimeoutMs,
+      isProcessing: bag.turn.isProcessing,
+      streamingType: bag.turn.streamingType,
+    }
+
+    if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery({
         abort: doInterrupt,
         notify: (message) => setStatusFlash(shell, message),
       })
       return
+    }
+
+    // Notice only — the phase still paints below, because a ramp that stops
+    // moving is the very thing that reads as a hang.
+    if (shouldNoticeStall({ ...stallArgs, stallNoticeMs })) {
+      setStatusFlash(shell, STALL_NOTICE_MESSAGE)
     }
 
     paintPhase()

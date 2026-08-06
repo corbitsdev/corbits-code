@@ -270,3 +270,36 @@ describe("mountProductHost", () => {
     expect(host.shell.streamLog).toEqual([])
   })
 })
+
+describe("mount failure", () => {
+  test("destroys the renderer when gate wiring throws", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    let destroyed = 0
+    const realDestroy = harness.renderer.destroy.bind(harness.renderer)
+    harness.renderer.destroy = () => {
+      destroyed += 1
+      realDestroy()
+    }
+
+    // Gate wiring is the first thing to touch the emitter after the renderer
+    // owns the alternate screen; a throw there once leaked the renderer.
+    const emitter = new EventEmitter()
+    const realOn = emitter.on.bind(emitter)
+    emitter.on = ((event: string, listener: (...args: unknown[]) => void) => {
+      if (event === "permission.gate") throw new Error("gate wiring failed")
+      return realOn(event, listener)
+    }) as typeof emitter.on
+
+    const port = makeFakeSessionPort()
+    await expect(
+      mountProductHost({
+        title: "crash-on-mount",
+        eventEmitter: emitter,
+        send: port.send,
+        interrupt: port.interrupt,
+        createRenderer: async () => harness.renderer,
+      }),
+    ).rejects.toThrow("gate wiring failed")
+    expect(destroyed).toBe(1)
+  })
+})

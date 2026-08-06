@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  annotateAgentTools,
   chromeFromSession,
   formatAgentsLine,
   formatChromeZones,
@@ -318,3 +319,25 @@ describe("chromeFromSession", () => {
   })
 })
 
+
+describe("annotateAgentTools", () => {
+  const state: ChromeLiveState = {
+    agents: [
+      { agentId: "explore", description: "map callers", status: "running" },
+      { agentId: "review", description: "map callers", status: "done" },
+    ],
+  }
+
+  test("running agents pick up the live tool name", () => {
+    const tools = new Map([["map callers", "grep"]])
+    const next = annotateAgentTools(state, tools)
+    expect(next.agents?.[0]?.currentToolName).toBe("grep")
+    expect(next.agents?.[1]?.currentToolName).toBeUndefined()
+  })
+
+  test("unknown descriptions and empty maps leave the state alone", () => {
+    expect(annotateAgentTools(state, new Map())).toBe(state)
+    const next = annotateAgentTools(state, new Map([["other work", "grep"]]))
+    expect(next.agents?.[0]?.currentToolName).toBeUndefined()
+  })
+})

@@ -8,6 +8,8 @@
  * injects `listCommands()` results via `buildPaletteCatalog` / `openPalette` opts.
  */
 
+import { sliceToWidth, stringWidth } from "../tui/view/height.js"
+
 /** Residual product actions owned by the shell (open overlays / chrome toggles). */
 export type PaletteActionId =
   | "permissions"
@@ -17,6 +19,7 @@ export type PaletteActionId =
   | "toggle_task"
   | "toggle_agents"
   | "copy_active"
+  | "toggle_mouse"
   | "help"
   | "settings"
   | "plugins"
@@ -32,6 +35,7 @@ const RESIDUAL_ACTION_IDS = new Set<string>([
   "toggle_task",
   "toggle_agents",
   "copy_active",
+  "toggle_mouse",
   "help",
   "settings",
   "plugins",
@@ -164,6 +168,13 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
     keywords: ["copy", "clipboard", "yank"],
     dispatch: "residual",
     category: "edit",
+  },
+  {
+    id: "toggle_mouse",
+    label: "Toggle mouse capture (off by default so you can drag-select)",
+    keywords: ["mouse", "select", "selection", "copy", "drag"],
+    dispatch: "residual",
+    category: "view",
   },
   {
     id: "help",
@@ -336,8 +347,8 @@ export function paletteRowLayout(
   rows: readonly PaletteRowColumns[],
   width: number,
 ): PaletteRowLayout {
-  const categoryWidth = rows.reduce((n, r) => Math.max(n, r.category.length), 0)
-  const shortcutWidth = rows.reduce((n, r) => Math.max(n, r.shortcut.length), 0)
+  const categoryWidth = rows.reduce((n, r) => Math.max(n, stringWidth(r.category)), 0)
+  const shortcutWidth = rows.reduce((n, r) => Math.max(n, stringWidth(r.shortcut)), 0)
   const afterCategory =
     width - (categoryWidth > 0 ? categoryWidth + PALETTE_COL_GAP : 0)
   const showShortcut =
@@ -349,9 +360,20 @@ export function paletteRowLayout(
 
 function fitLabel(label: string, width: number): string {
   if (width <= 0) return ""
-  if (label.length <= width) return label.padEnd(width)
+  const columns = stringWidth(label)
+  // padEnd counts code units, so a label carrying a wide glyph has to be padded
+  // by the column shortfall rather than to a code-unit length.
+  if (columns <= width) return label + " ".repeat(width - columns)
   if (width === 1) return "…"
-  return `${label.slice(0, width - 1)}…`
+  // A wide glyph that will not fit the last column leaves the cut short, so the
+  // shortfall is padded back rather than shifting the chord column left.
+  const cut = `${sliceToWidth(label, width - 1)}…`
+  return cut + padTo(cut, width)
+}
+
+/** Spaces needed to carry `text` out to `width` columns. */
+function padTo(text: string, width: number): string {
+  return " ".repeat(Math.max(0, width - stringWidth(text)))
 }
 
 /**
@@ -368,10 +390,10 @@ export function formatPaletteRows(
   const labelWidth = Math.max(0, width - head - tail)
   return rows.map((row) => {
     const category = layout.showCategory
-      ? row.category.padEnd(layout.categoryWidth) + " ".repeat(PALETTE_COL_GAP)
+      ? row.category + padTo(row.category, layout.categoryWidth + PALETTE_COL_GAP)
       : ""
     const shortcut = layout.showShortcut
-      ? " ".repeat(PALETTE_COL_GAP) + row.shortcut.padStart(layout.shortcutWidth)
+      ? " ".repeat(PALETTE_COL_GAP) + padTo(row.shortcut, layout.shortcutWidth) + row.shortcut
       : ""
     return `${category}${fitLabel(row.label, labelWidth)}${shortcut}`
   })

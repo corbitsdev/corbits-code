@@ -13,6 +13,9 @@
  */
 
 import { describeToolCall } from "../tui/tool-formatter.js"
+// The one wrap implementation: a diff row soft-wraps by the same column rules
+// as every other row, so a wide glyph cannot overflow the gutter here alone.
+import { wrapRanges } from "../tui/view/height.js"
 import { DIFF_FG, type StreamRow } from "./stream.js"
 import { toolArgsView } from "./tool-args.js"
 
@@ -237,32 +240,6 @@ function sliceSegments(
     }
   }
   return out
-}
-
-type Range = { readonly start: number; readonly end: number }
-
-// Break on the last whitespace inside the window so wrapped code stays readable;
-// a window with no break point hard-splits rather than overflowing the gutter.
-function wrapRanges(line: string, width: number): Range[] {
-  const w = Math.max(1, width)
-  if (line.length <= w) return [{ start: 0, end: line.length }]
-  const ranges: Range[] = []
-  let pos = 0
-  while (line.length - pos > w) {
-    const windowEnd = pos + w
-    let breakAt = -1
-    for (let i = windowEnd; i > pos; i--) {
-      if (/\s/.test(line[i]!)) {
-        breakAt = i
-        break
-      }
-    }
-    const end = breakAt > pos ? breakAt : windowEnd
-    ranges.push({ start: pos, end })
-    pos = end
-  }
-  ranges.push({ start: pos, end: line.length })
-  return ranges
 }
 
 export type DiffRenderOptions = {

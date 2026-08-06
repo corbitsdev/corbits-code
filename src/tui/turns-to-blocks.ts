@@ -1,14 +1,57 @@
 import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
 
 import { applyManageTasks, parseManageTasksArgs, type Task } from "../agent/tasks.js";
-import { validateView } from "./view/index.js";
-import {
-  capStoredToolArguments,
-  capStoredToolResultContent,
-  type ContentBlockData,
-} from "./use-stream.js";
+import { validateView, type ViewNode } from "./view/index.js";
 
 type PlanBlockStep = { file: string; action: string; reason?: string };
+
+export type ContentBlockData =
+  | { type: "user"; content: string }
+  | { type: "thinking"; content: string }
+  | { type: "text"; content: string }
+  | { type: "tool_call"; callId?: string; name: string; arguments: string; startedAt?: number }
+  | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean; finishedAt?: number }
+  | { type: "reply"; content: string }
+  | { type: "tasks"; tasks: Task[] }
+  | { type: "plan"; steps: PlanBlockStep[] }
+  | { type: "view"; node: ViewNode }
+  | { type: "error"; message: string };
+
+// Ingress caps keep a single block from forcing a full-history wrap on every frame.
+export const MAX_STORED_TOOL_RESULT_CHARS = 48_000;
+export const MAX_STORED_TOOL_ARGUMENT_CHARS = 24_000;
+
+// Tool output pays off at the end (exit codes, error summaries, test totals),
+// so the kept window anchors on the tail. Arguments are head-anchored because
+// the meaningful prefix (command path, opening flags) comes first.
+type CapAnchor = "head" | "tail";
+
+function capWithOmissionSuffix(
+  content: string,
+  maxChars: number,
+  label: string,
+  anchor: CapAnchor = "head",
+): string {
+  if (content.length <= maxChars) return content;
+  const omitted = content.length - maxChars;
+  const marker = `\n\n… ${omitted} characters omitted from ${label}`;
+  // The tail anchor also inserts a "\n\n" separator between the marker and the
+  // kept content, so its budget must reserve those two characters. Otherwise the
+  // result overshoots maxChars by 2, and a second cap on the already-capped
+  // string would slice through the first marker.
+  const separator = anchor === "tail" ? "\n\n" : "";
+  const budget = maxChars - marker.length - separator.length;
+  const kept = anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
+  return anchor === "tail" ? `${marker}${separator}${kept}` : `${kept}${marker}`;
+}
+
+export function capStoredToolResultContent(content: string): string {
+  return capWithOmissionSuffix(content, MAX_STORED_TOOL_RESULT_CHARS, "stored tool output", "tail");
+}
+
+export function capStoredToolArguments(argumentsText: string): string {
+  return capWithOmissionSuffix(argumentsText, MAX_STORED_TOOL_ARGUMENT_CHARS, "stored tool arguments");
+}
 
 function textFromBlocks(blocks: RuntimeContentBlock[]): string {
   const parts: string[] = [];

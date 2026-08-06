@@ -643,3 +643,53 @@ describe("runProviderSetup", () => {
     expect(submits).toBe(0)
   })
 })
+
+/**
+ * Onboarding tells the user to paste, so paste is driven here as real
+ * bracketed-paste bytes (ESC[200~ … ESC[201~) through mock stdin. Asserting a
+ * handler is registered would pass while paste was broken.
+ */
+describe("runProviderSetup paste", () => {
+  /** Pick OpenAI, paste `key`, accept the default model, return what was saved. */
+  async function pasteKey(
+    key: string,
+  ): Promise<{ values: ProviderFormValues | null; frame: string }> {
+    let seen: ProviderFormValues | null = null
+    const { done, harness } = await mountSetup(async (values) => {
+      seen = values
+    })
+    try {
+      await pickRow(harness, PROVIDER_IDS, "openai")
+      await harness.mockInput.pasteBracketedText(key)
+      await harness.renderOnce()
+      const frame = harness.captureCharFrame()
+      harness.pressKey("Enter")
+      await harness.renderOnce()
+      harness.pressKey("Enter")
+      await harness.renderOnce()
+      await done
+      return { values: seen, frame }
+    } finally {
+      harness.destroy()
+    }
+  }
+
+  test("a pasted key lands in the field, never echoed in the clear", async () => {
+    const key = "sk-proj-pasted-key-0123456789"
+    const { values, frame } = await pasteKey(key)
+    expect(values?.apiKey).toBe(key)
+    expect(frame).not.toContain(key)
+  })
+
+  test("a key pasted with its trailing newline is not submitted early", async () => {
+    const { values } = await pasteKey("sk-trailing\n")
+    expect(values?.apiKey).toBe("sk-trailing")
+    expect(values?.model.length).toBeGreaterThan(0)
+  })
+
+  test("a key longer than the input default is not silently truncated", async () => {
+    const key = `sk-${"x".repeat(4000)}`
+    const { values } = await pasteKey(key)
+    expect(values?.apiKey).toBe(key)
+  })
+})

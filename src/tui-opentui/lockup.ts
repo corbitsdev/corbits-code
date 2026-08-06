@@ -24,6 +24,7 @@
 
 import { type MarkCell } from "./mark-anim.js"
 import { UI } from "./theme.js"
+import { stringWidth } from "../tui/view/height.js"
 
 export const LOCKUP_WORDMARK = "corbits code"
 
@@ -55,7 +56,7 @@ export function lockupLabel(phase: string | null | undefined): string {
 
 /** Columns the slot paints for a given state. */
 export function lockupWidth(phase: string | null | undefined): number {
-  return lockupLabel(phase).length
+  return stringWidth(lockupLabel(phase))
 }
 
 /**

@@ -565,6 +565,12 @@ const LOGIN_ROWS = 4
 const LIST_ROWS_MAX = 10
 const LIST_ROWS_MIN = 3
 const TELEMETRY_ROWS = 3
+/**
+ * Input capacity. The renderable defaults to 1000 characters and truncates a
+ * longer paste silently, which a first run would read as "paste is broken";
+ * long-lived service-account keys and JWT-shaped tokens clear that default.
+ */
+const FIELD_MAX_LENGTH = 16_384
 /** Ramp animation tick. Fast enough to read as motion at 30fps paint. */
 const RAMP_TICK_MS = 120
 
@@ -730,6 +736,7 @@ export async function runProviderSetup(
   const input = new InputRenderable(renderer, {
     id: "provider-setup-input",
     width: "100%",
+    maxLength: FIELD_MAX_LENGTH,
     placeholder: PROVIDER_FIELD_HINTS.apiKey,
     backgroundColor: UI.ground,
     focusedBackgroundColor: UI.ground,

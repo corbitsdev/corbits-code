@@ -34,6 +34,7 @@ import { BoxRenderable, TextRenderable } from "@opentui/core"
 import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js"
 import { renderMark } from "./mark-anim.js"
 import { UI } from "./theme.js"
+import { stringWidth } from "../tui/view/height.js"
 
 /**
  * Left gutter inside the shell's side margin (`resolveSideMargin`, applied to
@@ -151,7 +152,7 @@ export function wrapLanding(text: string, width: number): readonly string[] {
   let line = ""
   for (const word of text.split(/\s+/).filter((w) => w.length > 0)) {
     const candidate = line.length === 0 ? word : `${line} ${word}`
-    if (candidate.length <= width) {
+    if (stringWidth(candidate) <= width) {
       line = candidate
       continue
     }

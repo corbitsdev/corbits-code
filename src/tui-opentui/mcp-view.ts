@@ -17,6 +17,7 @@
 
 import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core"
 
+import { sliceToWidth, stringWidth } from "../tui/view/height.js"
 import { humanizeMcpTool, isMcpToolName, mcpToolWords, parseMcpToolName } from "../mcp/tool-name.js"
 import { UI } from "./theme.js"
 import {
@@ -323,9 +324,9 @@ function nounFromToolName(server: string, tool: string): string | undefined {
 
 function cut(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim()
-  return oneLine.length <= DETAIL_TEXT_MAX
+  return stringWidth(oneLine) <= DETAIL_TEXT_MAX
     ? oneLine
-    : `${oneLine.slice(0, DETAIL_TEXT_MAX - 1)}…`
+    : `${sliceToWidth(oneLine, DETAIL_TEXT_MAX - 1)}…`
 }
 
 function plainLine(text: string, fg: string = UI.text): StyledBodyLine {

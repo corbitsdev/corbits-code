@@ -78,6 +78,13 @@ export type StreamRow = {
    */
   readonly coalesced?: boolean
   /**
+   * Calls a coalesced row still awaits. A batch dispatches every call before
+   * any answer lands, so the run row cannot settle on its first result — it
+   * stays pending until this reaches zero, or the answers still in flight
+   * would find no row to fold into.
+   */
+  readonly outstanding?: number
+  /**
    * Writer of a non-user row. Absent means the session's own agent; the paint
    * layer names writers only once a transcript carries more than one.
    */
@@ -543,7 +550,10 @@ export function toolSentenceLines(
   const stat =
     row.stat !== undefined && row.stat.length > 0 ? ` ${row.stat}` : ""
   const arrow = toolArrow(row)
-  const trailer = stat.length + (arrow.length > 0 ? arrow.length + 1 : 0)
+  // Columns, not code units: the arrow is itself an ambiguous-width glyph and
+  // this number is subtracted from the same budget `stringWidth(head)` is.
+  const arrowWidth = stringWidth(arrow)
+  const trailer = stringWidth(stat) + (arrowWidth > 0 ? arrowWidth + 1 : 0)
   const segments = shellChainSegments(
     columns === undefined || subject.includes(" && ")
       ? subject

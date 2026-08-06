@@ -92,10 +92,15 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
     // One call's count on a row standing for eight of them would read as a
     // total across the run, which nothing here can substantiate.
     const { stat: _stat, ...run } = base
+    const remaining = Math.max(0, (call.outstanding ?? 1) - 1)
     return {
       ...run,
-      // The run's subject stays the call it repeats; the answers are the body.
+      // The run's subject stays the call it repeats, so the row keeps the
+      // call's own text rather than taking on this one answer's payload.
+      text: call.text,
       ...(call.stat !== undefined ? { stat: call.stat } : {}),
+      outstanding: remaining,
+      ...(remaining > 0 ? { pending: true } : {}),
       detail: appendRunLine(
         call.detail ?? [],
         failed ? "call failed" : (addendum ?? "answered"),
@@ -142,9 +147,11 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
   // A run's body is the answers it collected; the argument view, table and diff
   // belong to a single call, which this row no longer stands alone for.
   const { detail: _detail, structured: _structured, diff: _diff, ...call } = next
+  const inFlight = tail.outstanding ?? (tail.pending === true ? 1 : 0)
   return {
     ...call,
     coalesced: true,
+    outstanding: inFlight + 1,
     ...(tail.failed === true ? { failed: true } : {}),
     ...(answered.length > 0 ? { detail: answered } : {}),
   }

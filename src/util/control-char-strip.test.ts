@@ -26,4 +26,29 @@ describe("stripTerminalControlSequences", () => {
     const text = "no control sequences here, just [brackets] and text";
     expect(stripTerminalControlSequences(text)).toBe(text);
   });
+
+  test("removes bidirectional overrides and isolates (Trojan Source)", () => {
+    const text = "safe\u202eevil\u202c and \u2066iso\u2069late";
+    expect(stripTerminalControlSequences(text)).toBe("safeevil and isolate");
+  });
+
+  test("replaces line and paragraph separators with a space", () => {
+    const text = "a\u2028b\u2029c";
+    expect(stripTerminalControlSequences(text)).toBe("a b c");
+  });
+
+  test("removes an unterminated OSC sequence through end of text", () => {
+    const text = "before \x1b]8;;http://evil";
+    expect(stripTerminalControlSequences(text)).toBe("before ");
+  });
+
+  test("keeps an orphan ESC byte from leaking as visible text", () => {
+    const text = "a\x1bb\x1b";
+    expect(stripTerminalControlSequences(text)).toBe("a");
+  });
+
+  test("leaves markdown punctuation untouched", () => {
+    const text = "**bold** `code` [link](url) _em_ | table |";
+    expect(stripTerminalControlSequences(text)).toBe(text);
+  });
 });

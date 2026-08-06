@@ -261,6 +261,32 @@ export function formatAgentsLine(
   return compactLine("agents", parts.join(" · "))
 }
 
+/**
+ * Overlay live per-agent tool names onto the agents zone.
+ *
+ * The subagent store records what a worker was asked to do, never what it is
+ * doing right now — that arrives only as `subagent.progress`. Keying by
+ * description is what the emitter gives us: progress carries the worker's
+ * description and tool name, not its agent id.
+ */
+export function annotateAgentTools(
+  state: ChromeLiveState,
+  toolByDescription: ReadonlyMap<string, string>,
+): ChromeLiveState {
+  const agents = state.agents
+  if (agents === null || agents === undefined || toolByDescription.size === 0) {
+    return state
+  }
+  return {
+    ...state,
+    agents: agents.map((a) => {
+      if (a.status !== "running") return a
+      const tool = toolByDescription.get(a.description)
+      return tool === undefined ? a : { ...a, currentToolName: tool }
+    }),
+  }
+}
+
 function compactLine(prefix: string, body: string): string {
   const b = body.trim()
   if (b.length === 0) return `${prefix}:`

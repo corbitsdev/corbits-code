@@ -14,6 +14,7 @@
  */
 
 import { middleEllipsis } from "./command-display.js"
+import { prefixIndexForWidth, stringWidth } from "../tui/view/height.js"
 import { UI } from "./theme.js"
 
 /** House ordered-dither ramp, sparsest-first, leading the header. */
@@ -47,17 +48,23 @@ const FALLBACK_BREAKS = ["-", "_", ".", ":", "=", "&", "?"] as const
 
 function splitLongToken(token: string, width: number): [string, string] {
   const limit = Math.max(1, Math.floor(width))
+  // The cut is a column budget, so the search window is the code-unit index
+  // where that budget runs out — not the budget itself.
+  const window = prefixIndexForWidth(token, limit)
   for (const candidates of [PREFERRED_BREAKS, FALLBACK_BREAKS]) {
     let best = -1
     for (const ch of candidates) {
-      const idx = token.lastIndexOf(ch, limit - 1)
+      const idx = token.lastIndexOf(ch, Math.max(0, window - 1))
       if (idx > best) best = idx
     }
     // Keep the separator on the leading half, and require at least one
     // character before it so every break makes progress.
     if (best >= 1) return [token.slice(0, best + 1), token.slice(best + 1)]
   }
-  return [token.slice(0, limit), token.slice(limit)]
+  // A single glyph wider than the whole budget still has to make progress.
+  const cut =
+    window > 0 ? window : String.fromCodePoint(token.codePointAt(0) ?? 32).length
+  return [token.slice(0, cut), token.slice(cut)]
 }
 
 /**
@@ -71,7 +78,7 @@ export function wrapWords(text: string, width: number): string[] {
   if (trimmed.length === 0) return [""]
 
   const indent = text.slice(0, text.length - text.trimStart().length)
-  const usable = (pad: string): string => (pad.length > w - 2 ? "" : pad)
+  const usable = (pad: string): string => (stringWidth(pad) > w - 2 ? "" : pad)
 
   const out: string[] = []
   let pad = usable(indent)
@@ -85,8 +92,9 @@ export function wrapWords(text: string, width: number): string[] {
   for (const raw of trimmed.split(/\s+/)) {
     let word = raw
     for (;;) {
-      const room = w - pad.length - (line.length > 0 ? line.length + 1 : 0)
-      if (word.length <= room) {
+      const lineWidth = stringWidth(line)
+      const room = w - stringWidth(pad) - (lineWidth > 0 ? lineWidth + 1 : 0)
+      if (stringWidth(word) <= room) {
         line = line.length > 0 ? `${line} ${word}` : word
         break
       }
@@ -94,7 +102,7 @@ export function wrapWords(text: string, width: number): string[] {
         flush()
         continue
       }
-      const [head, rest] = splitLongToken(word, w - pad.length)
+      const [head, rest] = splitLongToken(word, w - stringWidth(pad))
       line = head
       flush()
       word = rest
@@ -155,11 +163,12 @@ export function composeDecisionBody(
   if (headIndex < 0) return []
 
   const rows: OverlayBodyRow[] = []
-  const headerWidth = width - HEADER_PREFIX.length
+  const prefixWidth = stringWidth(HEADER_PREFIX)
+  const headerWidth = width - prefixWidth
   const header = wrapWords(lines[headIndex] ?? "", headerWidth)
   header.forEach((line, i) => {
     rows.push({
-      text: i === 0 ? `${HEADER_PREFIX}${line}` : `${" ".repeat(HEADER_PREFIX.length)}${line}`,
+      text: i === 0 ? `${HEADER_PREFIX}${line}` : `${" ".repeat(prefixWidth)}${line}`,
       fg: UI.action,
     })
   })
@@ -210,8 +219,8 @@ export function decisionChoiceRows(
   width: number,
 ): OverlayBodyRow[] {
   const fg = active ? UI.text : UI.textDim
-  const inner = Math.max(1, width - CHOICE_INDENT.length)
-  const text = label.length > inner ? middleEllipsis(label, inner) : label
+  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT))
+  const text = stringWidth(label) > inner ? middleEllipsis(label, inner) : label
   return [
     {
       text: `${active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT}${text}`,

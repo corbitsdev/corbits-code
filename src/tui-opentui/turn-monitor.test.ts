@@ -8,7 +8,10 @@ import { describe, expect, test } from "bun:test"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js"
 import { createAppShell, noticeText } from "./shell.js"
 import { withTestRenderer } from "./harness.js"
-import { STALL_RECOVERY_MESSAGE } from "./stall-watchdog.js"
+import {
+  STALL_NOTICE_MESSAGE,
+  STALL_RECOVERY_MESSAGE,
+} from "./stall-watchdog.js"
 
 type Harness = Awaited<ReturnType<typeof setup>>
 
@@ -24,6 +27,7 @@ async function setup(h: { renderer: Parameters<typeof createAppShell>[0] }) {
   const bridge = attachSessionBridge(shell, port, {
     now: () => nowMs,
     stallTimeoutMs: 1_000,
+    stallNoticeMs: 400,
     schedule: (fn) => {
       tick = fn
       return () => {
@@ -294,6 +298,29 @@ describe("quota auto-retry", () => {
 })
 
 describe("stall watchdog", () => {
+  test("says the run looks stuck long before it aborts anything", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(300)
+        t.tick()
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+
+        t.advance(200)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+        // A notice, not a timeout: the run is still going.
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.turnPhase).not.toBeNull()
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   test("aborts and flashes after the stall timeout", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)

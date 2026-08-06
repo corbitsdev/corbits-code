@@ -229,3 +229,32 @@ describe("onboarding focus", () => {
     expect(seen).toEqual([])
   })
 })
+
+describe("esc from transcript browse", () => {
+  test("Esc while transcript-focused returns focus to the prompt", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, { title: "esc" })
+        try {
+          toggleShellFocus(shell)
+          await h.renderOnce()
+          expect(focusOwner(shell.focus)).toBe("transcript")
+
+          // ESC needs a disambiguation delay on the mock stdin path.
+          h.pressKey("Escape")
+          await new Promise((r) => setTimeout(r, 60))
+          await h.renderOnce()
+          expect(focusOwner(shell.focus)).toBe("prompt")
+          expect(focusedIds(shell)).toEqual([shell.prompt.id])
+
+          for (const ch of "back") h.pressKey(ch)
+          await h.renderOnce()
+          expect(shell.prompt.value).toBe("back")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})

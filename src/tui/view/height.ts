@@ -1,11 +1,76 @@
 export type RowRange = { start: number; end: number };
 
+/**
+ * East Asian Ambiguous characters count as one column, not two.
+ *
+ * This is a contract with the renderer, not a preference. The shell is built
+ * from Ambiguous glyphs — the box borders (U+2502, U+256D…), the em dash, the
+ * arrow, the ellipsis every truncation ends in — so if our table and OpenTUI's
+ * disagree here every border and truncation budget is off by the count of those
+ * glyphs on the line, and the error on a border rule scales with the terminal
+ * width rather than with the content.
+ *
+ * OpenTUI resolves Ambiguous as narrow under both of its width methods
+ * (`wcwidth` and `unicode`), which is why this is `true`. It is passed
+ * explicitly rather than left to Bun's default so the choice is visible and
+ * greppable, and `src/tui-opentui/width-contract.ts` measures a probe through
+ * OpenTUI's own table at startup so a divergence is caught rather than painted.
+ */
+export const AMBIGUOUS_IS_NARROW = true;
+
+/**
+ * Probe covering every Ambiguous glyph the shell paints, plus one unambiguously
+ * wide character so a table that reported everything as narrow would not pass.
+ */
+export const WIDTH_PROBE = "│╭—→…┆●▍あ";
+
 // Display width in terminal cells: emoji and CJK count as two columns, combining
 // marks and control characters as zero. The wrap and pad math is in columns, not
 // UTF-16 code units, so wide glyphs do not misalign tables or nudge the newest
 // line off-screen.
 export function stringWidth(text: string): number {
-  return Bun.stringWidth(text);
+  return Bun.stringWidth(text, { ambiguousIsNarrow: AMBIGUOUS_IS_NARROW });
+}
+
+/**
+ * Code-unit index ending the longest prefix of `text` that fits `width`
+ * columns. Walks by code point, so a wide glyph is kept whole: it is either
+ * fully inside the prefix or fully outside it, never half-painted.
+ */
+export function prefixIndexForWidth(text: string, width: number): number {
+  if (width <= 0) return 0;
+  let used = 0;
+  let i = 0;
+  while (i < text.length) {
+    const ch = String.fromCodePoint(text.codePointAt(i)!);
+    const cw = stringWidth(ch);
+    if (used + cw > width) return i;
+    used += cw;
+    i += ch.length;
+  }
+  return text.length;
+}
+
+/** Longest prefix of `text` that fits `width` columns. */
+export function sliceToWidth(text: string, width: number): string {
+  return text.slice(0, prefixIndexForWidth(text, width));
+}
+
+/** Longest suffix of `text` that fits `width` columns. */
+export function sliceTailToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let used = 0;
+  let start = text.length;
+  while (start > 0) {
+    const prev = text.codePointAt(start - 1)!;
+    const step = prev >= 0xdc00 && prev <= 0xdfff && start >= 2 ? 2 : 1;
+    const ch = text.slice(start - step, start);
+    const cw = stringWidth(ch);
+    if (used + cw > width) break;
+    used += cw;
+    start -= step;
+  }
+  return text.slice(start);
 }
 
 const SURROGATE_RE = /[\uD800-\uDFFF]/;
@@ -16,8 +81,8 @@ const SURROGATE_RE = /[\uD800-\uDFFF]/;
 // soft-wraps. A word longer than the width hard-breaks by character so no content
 // is lost. This is the single source of truth for wrapping: the event log slices
 // content by these ranges and renders one Text per row with no further wrapping,
-// so the painted row count is authoritative rather than an estimate that can
-// diverge from what Ink draws.
+// so the painted row count is authoritative: the rows we count are the rows we
+// hand the renderer, not an estimate of how it would reflow the text itself.
 export function wrapRanges(line: string, width: number): RowRange[] {
   const w = Math.max(1, width);
   const displayWidth = stringWidth(line);

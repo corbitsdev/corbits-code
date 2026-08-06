@@ -341,3 +341,94 @@ describe("attachSessionBridge", () => {
     )
   })
 })
+
+describe("failed sends", () => {
+  const errorRows = (shell: { streamLog: readonly { role: string; meta?: string; text: string }[] }) =>
+    shell.streamLog.filter((r) => r.meta === "error").map((r) => r.text)
+
+  test("a recognised auth expiry says what to press; anything else keeps its message", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: {
+                message: 'Codex profile "default" is not authorized. Log in again.',
+              },
+            },
+          })
+          bridge.handle({
+            type: "inference.error",
+            data: { error: { message: "socket hang up" } },
+          })
+
+          const rows = errorRows(shell)
+          expect(rows[0]).toContain("sign-in expired")
+          expect(rows[0]).toContain("/model")
+          expect(rows[1]).toBe("socket hang up")
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("committed inference retry", () => {
+  /**
+   * The reactor re-streams a committed attempt from a fresh inference.start
+   * after a same-source quota retry, so the transcript must retract the failed
+   * attempt rather than append the replay underneath it.
+   */
+  const COMMITTED_RETRY_EVENTS = [
+    { type: "inference.start", data: {} },
+    { type: "inference.text.delta", data: { token: "partial answer" } },
+    {
+      type: "inference.tool_call.end",
+      data: { name: "bash", callId: "c1", arguments: { command: "ls" } },
+    },
+    {
+      type: "inference.error",
+      data: { error: { category: "quota_exhausted", message: "rate limited" } },
+    },
+    { type: "inference.retry", data: { attempt: 1, delayMs: 0 } },
+    { type: "inference.start", data: {} },
+    { type: "inference.text.delta", data: { token: "final answer" } },
+    { type: "inference.done", data: {} },
+    { type: "reactor.done", data: {} },
+  ] as const
+
+  test("does not duplicate the failed attempt's text or strand its tool row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          for (const event of COMMITTED_RETRY_EVENTS) bridge.handle(event)
+
+          const text = shell.streamLog.map((r) => r.text).join("\n")
+          expect(text).toContain("final answer")
+          expect(text).not.toContain("partial answer")
+          expect(shell.streamLog.filter((r) => r.pending)).toEqual([])
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})

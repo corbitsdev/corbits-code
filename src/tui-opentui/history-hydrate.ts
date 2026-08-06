@@ -24,6 +24,9 @@ export type HistoryBlock = {
   readonly arguments?: string
 }
 
+/** Body for a resumed error the transcript recorded without its message. */
+export const MISSING_ERROR_DETAIL = "this step failed and the details were not saved"
+
 function asHistoryBlock(raw: unknown): HistoryBlock | null {
   if (raw === null || typeof raw !== "object") return null
   const o = raw as Record<string, unknown>
@@ -75,7 +78,11 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
         isError: block.isError === true,
       })
     case "error":
-      return { role: "system", text: block.message ?? "error", meta: "error" }
+      return {
+        role: "system",
+        text: block.message ?? MISSING_ERROR_DETAIL,
+        meta: "error",
+      }
     default:
       return null
   }

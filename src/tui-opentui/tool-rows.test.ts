@@ -186,4 +186,50 @@ describe("a live turn", () => {
       { width: 80, height: 24 },
     )
   })
+
+  test("folds every answer of a batched run into the one row it opened", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const ids = ["c1", "c2", "c3", "c4"]
+          // Every call is dispatched before any answer lands, which is what an
+          // ordinary parallel batch looks like on the wire.
+          bridge.play(
+            ids.map((callId) => ({
+              type: "inference.tool_call.end",
+              data: {
+                name: "mcp__linear__list_issues",
+                callId,
+                arguments: { team: "core" },
+              },
+            })),
+          )
+          expect(shell.streamLog.length).toBe(1)
+          expect(shell.streamLog[0]?.coalesced).toBe(true)
+          expect(shell.streamLog[0]?.pending).toBe(true)
+
+          bridge.play(
+            ids.map((callId) => ({
+              type: "tool.done",
+              data: { result: { callId, content: LINEAR_ISSUES } },
+            })),
+          )
+          expect(shell.streamLog.length).toBe(1)
+          expect(shell.streamLog[0]?.detail?.length).toBe(4)
+          // The run is answered only once its last outstanding call is.
+          expect(shell.streamLog[0]?.pending).toBeUndefined()
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
 })
