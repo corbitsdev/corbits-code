@@ -87,9 +87,22 @@ export type ProviderSetupConfig = {
 const MASK_CHAR = "●"
 const MASK_CAP = 16
 
-/** Bullet-render a secret for the read-only summary rows. */
+/**
+ * Bullet-render a secret for the read-only summary rows, capped so a long key
+ * does not blow out the row width.
+ */
 export function maskSecret(value: string): string {
-  return MASK_CHAR.repeat(Math.min(value.length, MASK_CAP))
+  return MASK_CHAR.repeat(Math.min([...value].length, MASK_CAP))
+}
+
+/**
+ * Bullet-render a secret for the live input echo.
+ *
+ * Uncapped, unlike `maskSecret`: the echo is what `secretFromMaskedEdit` reads
+ * back, so a capped echo would silently discard everything past the cap.
+ */
+export function maskEcho(value: string): string {
+  return MASK_CHAR.repeat([...value].length)
 }
 
 export function displayFieldValue(field: ProviderField, value: string): string {
@@ -113,9 +126,10 @@ export function providerFieldReady(
  * truncation, which is why the field is re-typed rather than patched.
  */
 export function secretFromMaskedEdit(secret: string, displayed: string): string {
-  const typed = [...displayed].filter((c) => c !== MASK_CHAR).join("")
-  const keptLength = displayed.length - typed.length
-  return secret.slice(0, keptLength) + typed
+  const chars = [...displayed]
+  const typed = chars.filter((c) => c !== MASK_CHAR)
+  const keptLength = chars.length - typed.length
+  return [...secret].slice(0, keptLength).join("") + typed.join("")
 }
 
 export function stepHeadline(fieldIndex: number): string {
@@ -297,7 +311,7 @@ export async function runProviderSetup(
 
   const showField = (): void => {
     const field = currentField()
-    input.value = displayFieldValue(field, values[field])
+    input.value = field === "apiKey" ? maskEcho(values[field]) : values[field]
     paint()
   }
 
@@ -377,7 +391,7 @@ export async function runProviderSetup(
     const field = currentField()
     if (field === "apiKey") {
       values.apiKey = secretFromMaskedEdit(values.apiKey, next)
-      const masked = maskSecret(values.apiKey)
+      const masked = maskEcho(values.apiKey)
       if (input.value !== masked) input.value = masked
     } else {
       values[field] = next

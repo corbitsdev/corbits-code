@@ -72,6 +72,8 @@ import {
   type CommandContext,
   type CommandResult,
 } from "./commands/registry.js";
+import { registerBuiltInCommands, setConfiguredTiers } from "./commands/built-in.js";
+import type { PluginModule } from "../plugins/loader.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
@@ -215,6 +217,80 @@ function buildCompactionContinuationMessage(): InboundMessage {
   };
 }
 
+/**
+ * Populate the slash-command registry for a session: built-ins first, then
+ * enabled plugin commands and workflows, then the hidden-command filter.
+ *
+ * Exported so the production wiring is testable — built-in registration used to
+ * ride on an import side effect and silently disappeared when its only importer
+ * was deleted.
+ */
+export type SubmissionRoute =
+  | { kind: "empty" }
+  | { kind: "command"; name: string; args: string }
+  | { kind: "prompt"; text: string };
+
+/**
+ * Decide what a submitted composer line is. A leading `/` means a slash command
+ * — it must never reach the model as a prompt, whether it was typed directly or
+ * picked from the palette.
+ */
+export function routeSubmission(raw: string): SubmissionRoute {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { kind: "empty" };
+  const body = trimmed.startsWith("/") ? trimmed.slice(1).trim() : trimmed;
+  if (!trimmed.startsWith("/")) return { kind: "prompt", text: trimmed };
+  if (body.length === 0) return { kind: "empty" };
+  const sep = body.search(/\s/);
+  return sep === -1
+    ? { kind: "command", name: body, args: "" }
+    : { kind: "command", name: body.slice(0, sep), args: body.slice(sep + 1).trim() };
+}
+
+export type SubmitHandlerDeps = {
+  dispatchCommand: (name: string, args: string) => void;
+  sendPrompt: (text: string) => void;
+  /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
+  onPromptSubmitted?: () => void;
+};
+
+/**
+ * Composer submit handler. Slash input is dispatched against the command
+ * registry instead of being sent to the model.
+ */
+export function createSubmitHandler(deps: SubmitHandlerDeps): (text: string) => void {
+  return (text) => {
+    const route = routeSubmission(text);
+    if (route.kind === "empty") return;
+    if (route.kind === "command") {
+      deps.dispatchCommand(route.name, route.args);
+      return;
+    }
+    deps.onPromptSubmitted?.();
+    deps.sendPrompt(route.text);
+  };
+}
+
+/** First-run telemetry disclosure to show before consent-by-proceeding applies. */
+export function telemetryStartupNotice(
+  globalSettings: Settings | null | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return telemetryFirstRunPending(globalSettings, env) ? TELEMETRY_NOTICE : undefined;
+}
+
+export function setUpCommandRegistry(
+  settings: Settings | undefined,
+  plugins: PluginModule[],
+): void {
+  const pluginConfig = settings?.plugins ?? {};
+  registerBuiltInCommands();
+  setConfiguredTiers(settings?.tiers ?? {});
+  registerWorkflowPlugins(plugins, pluginConfig);
+  registerCommandPlugins(plugins, pluginConfig);
+  setHiddenCommands(settings?.hiddenCommands ?? []);
+}
+
 export async function runTUI(initialConfig: Config): Promise<number> {
   let config = initialConfig;
   const inferenceDeps = await createInferenceDependencies();
@@ -255,9 +331,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const executablePlugins = () => livePluginModules.filter((m) => m.metadataOnly !== true);
   // Command plugins are wired in only when explicitly enabled in settings.
   const pluginConfig = config.settings?.plugins ?? {};
-  registerWorkflowPlugins(executablePlugins(), pluginConfig);
-  registerCommandPlugins(executablePlugins(), pluginConfig);
-  setHiddenCommands(config.settings?.hiddenCommands ?? []);
+  setUpCommandRegistry(config.settings, executablePlugins());
   // loadConfig already bootstrapped pricing metadata; re-read cache here so a
   // TUI-only entry (tests) still picks up the tool-home cache path.
   await seedPricingMetadataFromCache({
@@ -1421,7 +1495,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // `onboarded` above.
   const onChangeTelemetryEnabled = createTelemetryToggleHandler(trueGlobalSettingsPath);
   const telemetryFirstRun = telemetryFirstRunPending(globalSettingsForOnboarding);
-  const telemetryNotice = telemetryFirstRun ? TELEMETRY_NOTICE : undefined;
+  const telemetryNotice = telemetryStartupNotice(globalSettingsForOnboarding);
   // Tracks the user's intent (persisted opt-in, updated live by the settings
   // toggle) rather than the held instance's state, so the settings tab shows
   // On during the hold and an opt-out before the first action suppresses
@@ -1541,20 +1615,32 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }
   };
 
+  const dispatchCommand = (name: string, args: string): void => {
+    const command = getCommand(name);
+    if (command === undefined) {
+      systemRow(`Unknown command: ${name}`);
+      return;
+    }
+    applyCommandResult(command.handler(args, commandContext));
+  };
+
   // Mount OpenTUI before the initial task is sent so gate and stream listeners
   // are registered first. Ctrl+C stays with the shell (interrupt the run);
   // OpenTUI owns the alternate screen and mouse reporting itself.
   const host = await mountRunnerHost({
     title: runTaskTitle.length > 0 ? runTaskTitle : "Untitled session",
     eventEmitter: emitter,
-    send: (text) => {
-      const trimmed = text.trim();
-      if (trimmed.length === 0) return;
-      if (telemetryFirstRun && liveTelemetryIntent) {
-        void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
-      }
-      void agentProxy.send(trimmed).catch(recordRunError);
-    },
+    send: createSubmitHandler({
+      dispatchCommand: (name, args) => dispatchCommand(name, args),
+      sendPrompt: (text) => {
+        void agentProxy.send(text).catch(recordRunError);
+      },
+      onPromptSubmitted: () => {
+        if (telemetryFirstRun && liveTelemetryIntent) {
+          void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
+        }
+      },
+    }),
     interrupt,
     providers: config.providers,
     onModelSelect: (id) => {
@@ -1566,14 +1652,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
     commands: listCommands().map((c) => ({ name: c.name, description: c.description })),
     onCommand: (name) => {
-      const parts = name.trim().split(/\s+/);
-      const commandName = parts[0] ?? "";
-      const command = getCommand(commandName);
-      if (command === undefined) {
-        systemRow(`Unknown command: ${commandName}`);
+      const route = routeSubmission(name);
+      if (route.kind === "empty") return;
+      if (route.kind === "command") {
+        dispatchCommand(route.name, route.args);
         return;
       }
-      applyCommandResult(command.handler(parts.slice(1).join(" "), commandContext));
+      const [commandName = "", ...rest] = route.text.split(/\s+/);
+      dispatchCommand(commandName, rest.join(" "));
     },
     chrome: () => ({
       goal: goalGovernor.get(),
@@ -1667,6 +1753,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     },
   });
+
+  // Consent by proceeding requires the disclosure to be on screen before the
+  // first prompt activates the held telemetry instance.
+  if (telemetryNotice !== undefined) {
+    systemRow(telemetryNotice);
+  }
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {
     void agentProxy.send(config.task.trim()).catch(recordRunError);

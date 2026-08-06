@@ -1,8 +1,9 @@
 import { describe, it, expect } from "bun:test";
-import "./built-in.js";
 import { getCommand, listCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
-import { setConfiguredTiers } from "./built-in.js";
+import { registerBuiltInCommands, setConfiguredTiers } from "./built-in.js";
+
+registerBuiltInCommands();
 
 const makeCtx = (): CommandContext => ({
   signalClear: () => {},

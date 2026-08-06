@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { createHarness, type Harness } from "./harness.js"
 import {
   fieldSummaryLine,
+  maskEcho,
   maskSecret,
   providerFieldReady,
   runProviderSetup,
@@ -30,6 +31,24 @@ describe("provider setup pure helpers", () => {
   test("secrets render as capped bullets", () => {
     expect(maskSecret("sk-abc")).toBe("●●●●●●")
     expect(maskSecret("x".repeat(50))).toHaveLength(16)
+  })
+
+  test("keys of any length round-trip through the input echo", () => {
+    // Mirrors onInput: each keystroke folds the echo back into the secret,
+    // then the input is re-mirrored as bullets.
+    const typeKey = (key: string): string => {
+      let secret = ""
+      let display = ""
+      for (const ch of key) {
+        display = display + ch
+        secret = secretFromMaskedEdit(secret, display)
+        display = maskEcho(secret)
+      }
+      return secret
+    }
+    expect(typeKey("sk-abc")).toBe("sk-abc")
+    const long = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+    expect(typeKey(long)).toBe(long)
   })
 
   test("masked edits fold back into the real secret", () => {
@@ -170,6 +189,25 @@ describe("runProviderSetup", () => {
       apiKey: "sk-key",
       model: "gpt-4o",
     })
+  })
+
+  test("a full-length API key reaches onSubmit intact", async () => {
+    const key = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+    const seen: ProviderFormValues[] = []
+    const { done, harness } = await mountSetup(async (values) => {
+      seen.push({ ...values })
+    })
+    type(harness, "openai")
+    harness.pressKey("Enter")
+    type(harness, "https://api.example.com")
+    harness.pressKey("Enter")
+    type(harness, key)
+    harness.pressKey("Enter")
+    type(harness, "gpt-4o")
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    expect(await done).toBe(true)
+    expect(seen[0]?.apiKey).toBe(key)
   })
 
   test("the typed API key is never painted in the clear", async () => {
