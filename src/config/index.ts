@@ -592,7 +592,8 @@ export async function loadConfig(
 export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
   // Anthropic and Go anthropic-protocol bases must not be forced through the
   // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root).
-  // Go identity is flag or known provider id — always force subscription base.
+  // Go identity is flag, known provider id, or Go baseURL — always force
+  // subscription base.
   const go = isOpenCodeGoProvider(entry);
   const baseURL =
     entry.anthropic === true || go
@@ -648,10 +649,12 @@ export function buildProviderCatalog(
 ): ProviderCatalogEntry[] {
   if (settings !== null && Object.keys(settings.providers).length > 0) {
     return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => {
-      // Heal mis-seeded Go rows on load: known id/label or flag → pin baseURL + flag.
+      // Heal mis-seeded Go rows on load: known id/label, flag, or Go baseURL →
+      // pin baseURL + flag.
       const go = isOpenCodeGoProvider({
         name,
         ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
+        baseURL: p.baseURL,
       });
       return {
         name,

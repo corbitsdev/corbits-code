@@ -133,6 +133,7 @@ export function buildInferenceSourceForRef(
       ...(entry?.opencodeGo === true || providerSettings?.opencodeGo === true
         ? { opencodeGo: true as const }
         : {}),
+      ...(baseURL !== undefined ? { baseURL } : {}),
     })
   ) {
     return buildGoSource({

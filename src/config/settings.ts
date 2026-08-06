@@ -654,6 +654,44 @@ export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
   "env",
 ] as const satisfies readonly (keyof OptionalLocalSettingsFields)[];
 
+/**
+ * Hard-cutover heal: any provider that is Go by flag, known id/label, or
+ * `/zen/go` baseURL gets `opencodeGo: true` and the canonical Go baseURL.
+ * Mutates `settings.providers` only when at least one entry changes.
+ * Returns the names of providers that were mutated (empty when no-op).
+ */
+export function healOpenCodeGoProviders(settings: Settings): string[] {
+  const healed: string[] = [];
+  const next: Record<string, ProviderSettings> = {};
+  for (const [name, provider] of Object.entries(settings.providers)) {
+    const go = isOpenCodeGoProvider({
+      name,
+      ...(provider.opencodeGo === true ? { opencodeGo: true as const } : {}),
+      baseURL: provider.baseURL,
+    });
+    if (!go) {
+      next[name] = provider;
+      continue;
+    }
+    const needsFlag = provider.opencodeGo !== true;
+    const needsBase = provider.baseURL !== OPENCODE_GO_BASE_URL;
+    if (!needsFlag && !needsBase) {
+      next[name] = provider;
+      continue;
+    }
+    healed.push(name);
+    next[name] = {
+      ...provider,
+      baseURL: OPENCODE_GO_BASE_URL,
+      opencodeGo: true,
+    };
+  }
+  if (healed.length > 0) {
+    settings.providers = next;
+  }
+  return healed;
+}
+
 export async function loadSettings(path: string): Promise<Settings | null> {
   let raw: string;
   try {
@@ -722,10 +760,28 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
   };
-  return {
+  const settings: Settings = {
     providers: s.providers as Settings["providers"],
     ...pickDefined(optional),
   };
+  // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
+  // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
+  // Fail open on save: keep the in-memory heal so startup is not bricked by a
+  // read-only or otherwise unwritable settings path.
+  const healedIds = healOpenCodeGoProviders(settings);
+  if (healedIds.length > 0) {
+    process.stderr.write(
+      `settings: healed OpenCode Go providers (${healedIds.join(", ")}) in ${path}\n`,
+    );
+    try {
+      await saveGlobalSettings(path, settings);
+    } catch {
+      process.stderr.write(
+        `settings: failed to persist OpenCode Go provider heal for ${path}; continuing with in-memory settings.\n`,
+      );
+    }
+  }
+  return settings;
 }
 
 /** Diagnostic produced when settings fail open instead of crashing startup. */
@@ -1049,6 +1105,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const go = isOpenCodeGoProvider({
     ...(providerName !== undefined ? { name: providerName } : {}),
     ...(selected?.opencodeGo === true ? { opencodeGo: true as const } : {}),
+    ...(selected?.baseURL !== undefined ? { baseURL: selected.baseURL } : {}),
   });
   const baseURL = go ? OPENCODE_GO_BASE_URL : selected?.baseURL;
   const apiKey = selected?.apiKey;

@@ -38,7 +38,7 @@ export function isBareZenBaseURL(baseURL: string): boolean {
 
 /**
  * Resolve the billing product for a catalog/provider entry.
- * - OpenCode Go (flag or known id/label) → subscription
+ * - OpenCode Go (flag, known id/label, or Go baseURL) → subscription
  * - Zen by name or bare zen baseURL → credits
  */
 export function billingProductForProvider(

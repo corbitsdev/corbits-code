@@ -314,9 +314,3 @@ export function parseGoAPIError(args: {
 
   return undefined;
 }
-
-/** True when the URL or base looks like the OpenCode Go gateway. */
-export function isOpenCodeGoURL(urlOrBase: string | undefined): boolean {
-  if (urlOrBase === undefined || urlOrBase.length === 0) return false;
-  return /opencode\.ai\/zen\/go/i.test(urlOrBase);
-}
