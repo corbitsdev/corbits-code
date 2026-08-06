@@ -65,10 +65,11 @@ import {
   type ObserveSession,
 } from "./residuals.js"
 import {
-  copyStreamRow,
+  buildCopyTargets,
   createRecordingClipboard,
-  pickCopyRow,
+  streamLogMarkdown,
   type ClipboardPort,
+  type CopyTarget,
 } from "./copy-path.js"
 import {
   badgeCount,
@@ -341,6 +342,16 @@ export type AppShell = {
   /** Clipboard port for keyboard copy (tests inject recording port). */
   clipboard: ClipboardPort
   /**
+   * Frozen copy targets while the copy overlay is open (null when closed).
+   * Confirm writes from this snapshot, not live streamLog.
+   */
+  copyTargets: readonly CopyTarget[] | null
+  /**
+   * Short status-line flash (copy feedback, etc.). Cleared when replaced or
+   * set to null; never appended to the stream log.
+   */
+  statusFlash: string | null
+  /**
    * Active subagent observe session (null when viewing parent).
    * Independent stream window; Esc restores parent lease.
    */
@@ -367,6 +378,7 @@ export type PrimaryOverlayKind =
   | "plugins"
   | "resume"
   | "mentions"
+  | "copy"
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -424,12 +436,22 @@ export function paintStatus(shell: AppShell): void {
   syncPending(shell)
   const mode = stickyMode(shell)
   const owner = focusOwner(shell.focus)
-  const flash = shell.session.interruptFlash ? " · INTERRUPT" : ""
+  const interrupt = shell.session.interruptFlash ? " · INTERRUPT" : ""
+  const statusFlash =
+    shell.statusFlash && shell.statusFlash.length > 0
+      ? ` · ${shell.statusFlash}`
+      : ""
   const run = shell.session.run.toUpperCase()
   shell.status.content =
-    ` ${mode} · ${run} · queue ${shell.pendingQueue} · focus ${owner}${flash} · lines ${shell.lineCount}`
+    ` ${mode} · ${run} · queue ${shell.pendingQueue} · focus ${owner}${interrupt}${statusFlash} · lines ${shell.lineCount}`
   shell.header.content = ` ${sessionHeaderTitle(shell.baseTitle, shell.session.run)}`
   shell.hint.content = ` ${PROMPT_HINT}`
+}
+
+/** Set a non-destructive status flash and repaint (does not touch streamLog). */
+export function setStatusFlash(shell: AppShell, message: string | null): void {
+  shell.statusFlash = message
+  paintStatus(shell)
 }
 
 /** Apply focus state to OpenTUI focusables. */
@@ -1027,6 +1049,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.overlayKind = null
   shell.overlayBodyLines = []
   shell.paletteCommands = []
+  shell.copyTargets = null
   clearOverlayBody(shell)
   // Esc / dismiss: drop accept path without invoking callbacks.
   if (bag && !prior) {
@@ -1100,6 +1123,12 @@ export function pageOverlaySelection(shell: AppShell, dir: -1 | 1): void {
 /** Accept active overlay item → callback + system line + close (palette dispatches action). */
 export function acceptOverlaySelection(shell: AppShell): void {
   if (!shell.overlayList) return
+
+  if (shell.overlayKind === "copy") {
+    confirmCopySelection(shell)
+    return
+  }
+
   const idx = shell.overlayList.activeIndex
   const label = shell.overlayItems[idx] ?? `item ${idx}`
   const kind = shell.overlayKind ?? "demo"
@@ -1270,7 +1299,7 @@ export function runPaletteAction(
       return
     }
     case "copy_active": {
-      copyActiveMessage(shell)
+      enterCopyMode(shell)
       return
     }
     case "help": {
@@ -1350,28 +1379,90 @@ export function setChromeZones(
 }
 
 /**
- * Keyboard copy path (Alt+C): copy last non-system stream row (or active index).
+ * Enter copy mode (Alt+C / palette copy_active): freeze targets from the
+ * active streamLog, open inset overlay with the last target selected.
+ * Empty log → status flash only; no stream mutation.
+ */
+export function enterCopyMode(shell: AppShell): boolean {
+  // Single host: do not stack copy over another primary overlay.
+  if (shell.overlayList) return false
+
+  const targets = buildCopyTargets(shell.streamLog)
+  if (targets.length === 0) {
+    setStatusFlash(shell, "Nothing to copy")
+    return false
+  }
+
+  shell.copyTargets = targets
+  const labels = targets.map((t) => `${t.label}: ${t.preview}`)
+  openListOverlay(shell, {
+    kind: "copy",
+    title: "copy · Alt+C",
+    items: labels,
+    activeIndex: targets.length - 1,
+    frameId: "copy-mode",
+  })
+  return true
+}
+
+/** Write the frozen target at the active list index; status flash only. */
+export function confirmCopySelection(shell: AppShell): boolean {
+  const targets = shell.copyTargets
+  if (!targets || targets.length === 0 || !shell.overlayList) {
+    setStatusFlash(shell, "Nothing to copy")
+    closeInsetOverlay(shell)
+    return false
+  }
+  const idx = Math.max(
+    0,
+    Math.min(targets.length - 1, shell.overlayList.activeIndex),
+  )
+  const target = targets[idx]
+  if (!target) {
+    setStatusFlash(shell, "Nothing to copy")
+    closeInsetOverlay(shell)
+    return false
+  }
+  void shell.clipboard.writeText(target.text)
+  const preview =
+    target.text.length > 48
+      ? `${target.text.slice(0, 45).replace(/\s+/g, " ")}…`
+      : target.text
+  setStatusFlash(
+    shell,
+    `Copied ${target.label} (${target.text.length} chars): ${preview}`,
+  )
+  closeInsetOverlay(shell)
+  return true
+}
+
+/** Copy all frozen targets as markdown; status flash only. */
+export function copyAllTargets(shell: AppShell): boolean {
+  const targets = shell.copyTargets
+  if (!targets || targets.length === 0) {
+    setStatusFlash(shell, "Nothing to copy")
+    if (shell.overlayKind === "copy") closeInsetOverlay(shell)
+    return false
+  }
+  const text = streamLogMarkdown(targets)
+  void shell.clipboard.writeText(text)
+  setStatusFlash(
+    shell,
+    `Copied all (${targets.length} items, ${text.length} chars)`,
+  )
+  closeInsetOverlay(shell)
+  return true
+}
+
+/**
+ * Keyboard copy path (Alt+C): open the copy overlay (Ink parity).
+ * `activeIndex` is ignored — selection lives in the overlay list.
  */
 export function copyActiveMessage(
   shell: AppShell,
-  activeIndex?: number,
+  _activeIndex?: number,
 ): boolean {
-  const row = pickCopyRow(shell.streamLog, activeIndex)
-  const payload = copyStreamRow(row, shell.clipboard)
-  if (!payload) {
-    appendStreamRow(shell, {
-      role: "system",
-      text: "copy: nothing to copy",
-      meta: "copy",
-    })
-    return false
-  }
-  appendStreamRow(shell, {
-    role: "system",
-    text: payload.summary,
-    meta: "copy",
-  })
-  return true
+  return enterCopyMode(shell)
 }
 
 /**
@@ -1782,6 +1873,18 @@ export function createAppShell(
         pageOverlaySelection(shell, 1)
         return
       }
+      if (shell.overlayKind === "copy") {
+        if (key.name === "y" && !key.ctrl && !key.meta && !key.option) {
+          key.preventDefault()
+          confirmCopySelection(shell)
+          return
+        }
+        if (key.name === "a" && !key.ctrl && !key.meta && !key.option) {
+          key.preventDefault()
+          copyAllTargets(shell)
+          return
+        }
+      }
       if (key.name === "return" || key.name === "enter") {
         if (!key.meta && !key.option && !key.ctrl) {
           key.preventDefault()
@@ -1808,7 +1911,7 @@ export function createAppShell(
     if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
       // Alt+C: keyboard copy path (no mouse drag-select).
       key.preventDefault()
-      copyActiveMessage(shell)
+      enterCopyMode(shell)
       return
     }
 
@@ -1893,6 +1996,8 @@ export function createAppShell(
     overlayBodyLines: [],
     paletteCommands: [],
     clipboard: createRecordingClipboard(),
+    copyTargets: null,
+    statusFlash: null,
     observe: null,
     parentStreamLog: null,
     dispose: () => {
