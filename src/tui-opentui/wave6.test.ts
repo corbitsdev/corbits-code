@@ -15,9 +15,12 @@ import {
   acceptOverlaySelection,
   appendStreamRow,
   closeInsetOverlay,
-  copyActiveMessage,
+  confirmCopySelection,
   createAppShell,
+  enterCopyMode,
+  enterSubagentObserve,
   moveOverlaySelection,
+  openInsetOverlay,
   openPalette,
   setChromeZones,
 } from "./shell"
@@ -243,7 +246,7 @@ describe("Wave 6: chrome zones", () => {
 })
 
 describe("Wave 6: keyboard copy path", () => {
-  test("copyActiveMessage writes last non-system row", async () => {
+  test("enterCopyMode freezes targets and defaults to last", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -251,26 +254,28 @@ describe("Wave 6: keyboard copy path", () => {
           wireKeys: false,
         })
         try {
-          const clip = createRecordingClipboard()
-          // AppShell.clipboard is mutable for tests; cast via unknown.
-          ;(shell as unknown as { clipboard: typeof clip }).clipboard = clip
-
-          appendStreamRow(shell, { role: "user", text: "copy me please" })
+          appendStreamRow(shell, { role: "user", text: "first row" })
+          appendStreamRow(shell, { role: "assistant", text: "second row" })
           appendStreamRow(shell, {
             role: "system",
             text: "noise",
             meta: "sys",
           })
+          const n = shell.streamLog.length
 
-          const ok = copyActiveMessage(shell)
+          const ok = enterCopyMode(shell)
           expect(ok).toBe(true)
-          expect(clip.writes.length).toBe(1)
-          expect(clip.writes[0]).toBe("copy me please")
-          expect(
-            shell.streamLog.some(
-              (r) => r.role === "system" && r.text.startsWith("copied message"),
-            ),
-          ).toBe(true)
+          expect(shell.overlayKind).toBe("copy")
+          expect(shell.copyTargets?.length).toBe(2)
+          expect(shell.overlayList?.activeIndex).toBe(1)
+          expect(shell.streamLog.length).toBe(n)
+
+          // Live stream change must not alter frozen targets.
+          appendStreamRow(shell, { role: "user", text: "after open" })
+          expect(shell.copyTargets?.map((t) => t.text)).toEqual([
+            "first row",
+            "second row",
+          ])
         } finally {
           shell.dispose()
         }
@@ -279,7 +284,7 @@ describe("Wave 6: keyboard copy path", () => {
     )
   })
 
-  test("copy with empty log reports nothing", async () => {
+  test("confirm last target without navigation", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -287,11 +292,162 @@ describe("Wave 6: keyboard copy path", () => {
           wireKeys: false,
         })
         try {
-          const ok = copyActiveMessage(shell)
+          const clip = createRecordingClipboard()
+          ;(shell as unknown as { clipboard: typeof clip }).clipboard = clip
+
+          appendStreamRow(shell, { role: "user", text: "copy me please" })
+          appendStreamRow(shell, {
+            role: "system",
+            text: "noise",
+            meta: "sys",
+          })
+          const n = shell.streamLog.length
+
+          expect(enterCopyMode(shell)).toBe(true)
+          expect(confirmCopySelection(shell)).toBe(true)
+          expect(clip.writes).toEqual(["copy me please"])
+          expect(shell.streamLog.length).toBe(n)
+          expect(shell.streamLog.every((r) => r.meta !== "copy")).toBe(true)
+          expect(shell.overlayList).toBeNull()
+          expect(shell.statusFlash).toContain("Copied")
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("Copied")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("navigate up then confirm copies earlier target", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const clip = createRecordingClipboard()
+          ;(shell as unknown as { clipboard: typeof clip }).clipboard = clip
+
+          appendStreamRow(shell, { role: "user", text: "alpha" })
+          appendStreamRow(shell, { role: "assistant", text: "beta" })
+          appendStreamRow(shell, { role: "tool", text: "gamma", meta: "bash" })
+          const n = shell.streamLog.length
+
+          expect(enterCopyMode(shell)).toBe(true)
+          // Default last (gamma); up → beta; up → alpha
+          moveOverlaySelection(shell, -1)
+          moveOverlaySelection(shell, -1)
+          expect(confirmCopySelection(shell)).toBe(true)
+          expect(clip.writes).toEqual(["alpha"])
+          expect(shell.streamLog.length).toBe(n)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("empty log flashes without stream mutation", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const ok = enterCopyMode(shell)
           expect(ok).toBe(false)
-          expect(
-            shell.streamLog.some((r) => r.text.includes("nothing to copy")),
-          ).toBe(true)
+          expect(shell.streamLog.length).toBe(0)
+          expect(shell.overlayList).toBeNull()
+          expect(shell.statusFlash).toBe("Nothing to copy")
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("Nothing to copy")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Esc cancels without clipboard write", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const clip = createRecordingClipboard()
+          ;(shell as unknown as { clipboard: typeof clip }).clipboard = clip
+
+          appendStreamRow(shell, { role: "user", text: "leave me" })
+          const n = shell.streamLog.length
+          expect(enterCopyMode(shell)).toBe(true)
+          closeInsetOverlay(shell)
+          expect(clip.writes).toEqual([])
+          expect(shell.streamLog.length).toBe(n)
+          expect(shell.overlayList).toBeNull()
+          expect(shell.copyTargets).toBeNull()
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("does not open copy while another overlay is open", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "x" })
+          openInsetOverlay(shell, ["Allow", "Deny"])
+          expect(shell.overlayKind).toBe("demo")
+          expect(enterCopyMode(shell)).toBe(false)
+          expect(shell.overlayKind).toBe("demo")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("observe copy does not mutate parent snapshot", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const clip = createRecordingClipboard()
+          ;(shell as unknown as { clipboard: typeof clip }).clipboard = clip
+
+          appendStreamRow(shell, { role: "user", text: "parent only" })
+          enterSubagentObserve(shell, {
+            sessionId: "s1",
+            agentId: "explore",
+            description: "scan",
+            lines: [{ role: "assistant", text: "child line" }],
+          })
+          const parentSnap = shell.parentStreamLog?.slice() ?? []
+          const childLen = shell.streamLog.length
+
+          expect(enterCopyMode(shell)).toBe(true)
+          expect(confirmCopySelection(shell)).toBe(true)
+          expect(clip.writes).toEqual(["child line"])
+          expect(shell.streamLog.length).toBe(childLen)
+          expect(shell.parentStreamLog).toEqual(parentSnap)
         } finally {
           shell.dispose()
         }

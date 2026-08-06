@@ -1,7 +1,7 @@
 /**
  * Keyboard copy path — message / tool / diff without mouse drag-select.
  * Binding: Alt+C (interaction contract).
- * Pure format + port; shell wires the chord.
+ * Pure format + port; shell wires the chord and overlay picker.
  */
 
 import type { StreamRow } from "./stream.js"
@@ -13,6 +13,14 @@ export type CopyPayload = {
   readonly text: string
   /** Short status line for the transcript / flash. */
   readonly summary: string
+}
+
+/** One frozen selectable chunk for the copy overlay (Ink parity). */
+export type CopyTarget = {
+  readonly id: string
+  readonly label: string
+  readonly preview: string
+  readonly text: string
 }
 
 export type ClipboardPort = {
@@ -32,6 +40,11 @@ export function createRecordingClipboard(): ClipboardPort & {
   }
 }
 
+function oneLine(text: string, max = 56): string {
+  const collapsed = text.replace(/\s+/g, " ").trim()
+  return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed
+}
+
 /**
  * Infer copy kind from a stream row role/meta.
  * Diffs are assistant/tool rows whose text looks like a unified diff.
@@ -48,6 +61,18 @@ export function classifyCopy(row: StreamRow): CopyKind {
     return "diff"
   }
   return "message"
+}
+
+/** Human label for a stream row in the copy picker. */
+export function copyRowLabel(row: StreamRow): string {
+  const kind = classifyCopy(row)
+  if (kind === "tool") {
+    return row.meta && row.meta.length > 0 ? `${row.meta} output` : "tool output"
+  }
+  if (kind === "diff") return "edit diff"
+  if (row.role === "user") return "your message"
+  if (kind === "system") return "system"
+  return "assistant message"
 }
 
 /** Format clipboard text for a row (no ANSI; plain for paste). */
@@ -75,6 +100,31 @@ export function formatCopyText(row: StreamRow): CopyPayload {
     text,
     summary: `copied ${kind} (${text.length} chars): ${preview}`,
   }
+}
+
+/**
+ * Build frozen copy targets from a stream log (oldest first).
+ * Skips system rows — copy feedback and chrome noise are not selectable.
+ */
+export function buildCopyTargets(log: readonly StreamRow[]): CopyTarget[] {
+  const targets: CopyTarget[] = []
+  for (let i = 0; i < log.length; i++) {
+    const row = log[i]
+    if (!row || row.role === "system") continue
+    const payload = formatCopyText(row)
+    targets.push({
+      id: `row-${i}`,
+      label: copyRowLabel(row),
+      preview: oneLine(payload.text),
+      text: payload.text,
+    })
+  }
+  return targets
+}
+
+/** Portable markdown for "copy everything" (stream rows, not Ink ContentBlock). */
+export function streamLogMarkdown(targets: readonly CopyTarget[]): string {
+  return targets.map((t) => `## ${t.label}\n\n${t.text}`).join("\n\n")
 }
 
 /**

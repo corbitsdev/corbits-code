@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import {
+  buildCopyTargets,
   classifyCopy,
   copyStreamRow,
   createRecordingClipboard,
   formatCopyText,
   pickCopyRow,
+  streamLogMarkdown,
 } from "./copy-path"
 import type { StreamRow } from "./stream"
 
@@ -77,6 +79,41 @@ describe("pickCopyRow", () => {
 
   test("empty", () => {
     expect(pickCopyRow([])).toBeNull()
+  })
+})
+
+describe("buildCopyTargets", () => {
+  test("skips system and freezes oldest-first with last as default pick", () => {
+    const log: StreamRow[] = [
+      { role: "user", text: "first" },
+      { role: "system", text: "noise" },
+      { role: "assistant", text: "second" },
+      { role: "tool", text: "out", meta: "bash" },
+    ]
+    const targets = buildCopyTargets(log)
+    expect(targets.map((t) => t.text)).toEqual([
+      "first",
+      "second",
+      "[bash] out",
+    ])
+    expect(targets[0]?.label).toBe("your message")
+    expect(targets[2]?.label).toBe("bash output")
+    // Ink default: last target
+    expect(targets[targets.length - 1]?.text).toBe("[bash] out")
+  })
+
+  test("empty log", () => {
+    expect(buildCopyTargets([])).toEqual([])
+  })
+
+  test("streamLogMarkdown joins frozen targets", () => {
+    const md = streamLogMarkdown([
+      { id: "1", label: "your message", preview: "hi", text: "hi" },
+      { id: "2", label: "assistant message", preview: "yo", text: "yo" },
+    ])
+    expect(md).toContain("## your message")
+    expect(md).toContain("hi")
+    expect(md).toContain("## assistant message")
   })
 })
 
