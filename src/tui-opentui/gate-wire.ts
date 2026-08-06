@@ -14,7 +14,7 @@ import type {
   PermissionRequest,
 } from "../permission/types.js"
 import type { AppShell, OverlaySelection } from "./shell.js"
-import { appendStreamRow, setOverlayBody } from "./shell.js"
+import { appendStreamRow, onOverlayClosed, setOverlayBody } from "./shell.js"
 import { EXPAND_KEY } from "./stream.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
@@ -237,6 +237,25 @@ export function wireGates(
   emitter: EventEmitter,
   shell: AppShell,
 ): () => void {
+  // The shell has one overlay host, and opening onto a busy one is a no-op.
+  // Gates cannot be dropped that way — a lost ask_operator blocks the run with
+  // nothing on screen to answer — so a gate that arrives while another overlay
+  // is up waits here and opens as soon as the host frees up.
+  const pending: Array<() => void> = []
+
+  function openOrQueue(open: () => void): void {
+    if (shell.overlayList !== null) {
+      pending.push(open)
+      return
+    }
+    open()
+  }
+
+  const disposeClosed = onOverlayClosed(shell, () => {
+    const next = pending.shift()
+    if (next) next()
+  })
+
   function onPermission(ev: PermissionGateEvent): void {
     const choices = permissionChoicesFromRequest(ev.request)
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true })
@@ -264,7 +283,7 @@ export function wireGates(
       })
     }
 
-    openPermissionsOverlay(shell, {
+    openOrQueue(() => openPermissionsOverlay(shell, {
       items: choices.items,
       itemIds: choices.itemIds,
       body: collapsedBody,
@@ -277,12 +296,12 @@ export function wireGates(
         recordDecision(shell, ev.request, choices, gateSelection)
         ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
       },
-    })
+    }))
   }
 
   function onOperator(ev: OperatorGateEvent): void {
     const choices = operatorChoicesFromOptions(ev.options)
-    openOperatorOverlay(shell, {
+    openOrQueue(() => openOperatorOverlay(shell, {
       body: ev.question,
       choices: choices.items,
       itemIds: choices.itemIds,
@@ -294,7 +313,10 @@ export function wireGates(
           }),
         )
       },
-    })
+      // The ask_operator contract offers a free-form answer, so the overlay
+      // must be able to send one back rather than only an option index.
+      onTextAnswer: (text: string) => ev.resolve(operatorCustomResult(text)),
+    }))
   }
 
   emitter.on("permission.gate", onPermission)
@@ -303,5 +325,7 @@ export function wireGates(
   return () => {
     emitter.off("permission.gate", onPermission)
     emitter.off("operator.gate", onOperator)
+    disposeClosed()
+    pending.length = 0
   }
 }

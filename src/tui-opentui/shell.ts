@@ -995,8 +995,35 @@ function overlayZoneRows(shell: AppShell): number {
   return internals.get(shell)?.overlayDescribe ? DESCRIPTION_ZONE_ROWS : 0
 }
 
+/**
+ * Free-text answer field an overlay can offer alongside (or instead of) its
+ * choices. `active` is whether keystrokes are going into it rather than into
+ * list navigation — the row is painted either way, so the affordance is on
+ * screen rather than behind a chord nobody knows about.
+ */
+type OverlayAnswerState = {
+  text: string
+  active: boolean
+  readonly onSubmit: (text: string) => void
+}
+
+function overlayAnswerState(shell: AppShell): OverlayAnswerState | null {
+  return internals.get(shell)?.overlayAnswer ?? null
+}
+
+/** The answer field costs one row of host chrome whenever it is offered. */
+function overlayAnswerRows(shell: AppShell): number {
+  return overlayAnswerState(shell) === null ? 0 : 1
+}
+
 function overlayChromeRows(shell: AppShell, bodyLineCount: number): number {
-  return OVERLAY_HOST_BORDER_ROWS + 1 + bodyLineCount + overlayZoneRows(shell)
+  return (
+    OVERLAY_HOST_BORDER_ROWS +
+    1 +
+    bodyLineCount +
+    overlayZoneRows(shell) +
+    overlayAnswerRows(shell)
+  )
 }
 
 /**
@@ -1087,13 +1114,59 @@ function overlayRowWidth(shell: AppShell): number {
  * renderable is one row in the host's chrome budget, so a line that wrapped at
  * a narrow width would spend a row nothing accounted for.
  */
-function overlayTitleLine(title: string, interior: number): string {
-  const keys = [" · Esc cancel · Enter choose", " · Esc · Enter", ""]
-  for (const suffix of keys) {
+function overlayTitleLine(
+  title: string,
+  interior: number,
+  hints: readonly string[] = DEFAULT_OVERLAY_HINTS,
+): string {
+  const suffixes = [...hints.map((h) => ` · ${h}`), ""]
+  for (const suffix of suffixes) {
     const line = ` ${title}${suffix}`
     if (line.length <= interior) return line
   }
   return ` ${middleEllipsis(title, Math.max(1, interior - 1))}`
+}
+
+const DEFAULT_OVERLAY_HINTS = [
+  "Esc cancel · Enter choose",
+  "Esc · Enter",
+] as const
+
+/**
+ * Key hints for the open overlay, longest first — the title line falls back to
+ * shorter ones as the terminal narrows.
+ *
+ * Never promises "Enter choose" when there is nothing to choose: an overlay
+ * with no rows says what the operator can actually do instead.
+ */
+function overlayHints(shell: AppShell): readonly string[] {
+  const answer = overlayAnswerState(shell)
+  const hasChoices = shell.overlayItems.length > 0
+  if (answer === null) {
+    if (hasChoices) return DEFAULT_OVERLAY_HINTS
+    return ["Esc dismiss"]
+  }
+  if (answer.active) {
+    return hasChoices
+      ? ["Esc back to choices · Enter send", "Esc back · Enter send"]
+      : ["Esc cancel · Enter send", "Esc · Enter"]
+  }
+  return [
+    "Esc cancel · Enter choose · Tab type an answer",
+    "Esc · Enter · Tab type",
+    "Esc · Enter",
+  ]
+}
+
+/** Re-compose the open overlay's title line for the current hints and width. */
+function refreshOverlayTitle(shell: AppShell): void {
+  const bag = internals.get(shell)
+  if (!bag) return
+  shell.overlayTitle.content = overlayTitleLine(
+    bag.overlayTitleText,
+    overlayInteriorWidth(shell),
+    overlayHints(shell),
+  )
 }
 
 /** Interior columns of the overlay box, inside its border. */
@@ -1231,7 +1304,30 @@ function paintOverlayList(shell: AppShell): void {
       addOverlayRow(shell, ` ${row.text}`, row.fg)
     }
   }
+  paintAnswerRow(shell)
   paintDescriptionZone(shell, list)
+}
+
+/** Cursor cell shown at the end of the answer field while it has the keys. */
+const ANSWER_CURSOR = "▌"
+
+/**
+ * Paint the free-text answer field, when the open overlay offers one. Always
+ * on screen so "you may type instead of picking" is visible rather than folk
+ * knowledge; dim and labelled with its key until it is taking keystrokes.
+ */
+function paintAnswerRow(shell: AppShell): void {
+  const answer = overlayAnswerState(shell)
+  if (answer === null) return
+  const width = overlayRowWidth(shell)
+  if (!answer.active) {
+    addOverlayRow(shell, ` Tab  type your own answer`, UI.textDim)
+    return
+  }
+  const label = "answer> "
+  const room = Math.max(1, width - label.length - ANSWER_CURSOR.length)
+  const tail = answer.text.length > room ? answer.text.slice(-room) : answer.text
+  addOverlayRow(shell, ` ${label}${tail}${ANSWER_CURSOR}`, UI.text)
 }
 
 /**
@@ -1554,6 +1650,8 @@ type PriorOverlaySnapshot = {
   readonly onCycle: ((itemId: string, direction: -1 | 1) => void) | null
   readonly describe: ((itemId: string) => ItemDescription | null) | null
   readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null
+  readonly answer: OverlayAnswerState | null
+  readonly titleText: string
 }
 
 type ShellInternals = {
@@ -1575,6 +1673,12 @@ type ShellInternals = {
   overlayDescribe: ((itemId: string) => ItemDescription | null) | null
   /** Per-open bare-key claim for the open primary overlay. */
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
+  /** Per-open free-text answer field, when the overlay opted into one. */
+  overlayAnswer: OverlayAnswerState | null
+  /** Bare title of the open overlay, so its key hints can be re-composed. */
+  overlayTitleText: string
+  /** Fired once the shell has no overlay open, so queued gates can re-open. */
+  overlayClosedListeners: Set<() => void>
   /**
    * Default palette catalog (static or lazy). Used when openPalette omits catalog.
    * Residual DEFAULT_PALETTE_COMMANDS when unset.
@@ -2541,6 +2645,17 @@ export type OpenListOverlayOpts = {
    * prompt typing.
    */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean
+  /**
+   * Per-open free-text answer. When set the overlay paints an answer field the
+   * operator can Tab into and type into, and submitting it closes the overlay
+   * through this callback instead of the selection path.
+   */
+  readonly onTextAnswer?: (text: string) => void
+  /**
+   * Open with the answer field already taking keystrokes. Used when there is
+   * nothing to choose, so the overlay is never a chooser with an empty list.
+   */
+  readonly textAnswerActive?: boolean
 }
 
 /**
@@ -2575,6 +2690,8 @@ export function openListOverlay(
           onCycle: bag.overlayOnCycle,
           describe: bag.overlayDescribe,
           onAction: bag.overlayOnAction,
+          answer: bag.overlayAnswer,
+          titleText: bag.overlayTitleText,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -2611,6 +2728,18 @@ export function openListOverlay(
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
     }
+    if (!isPalette) {
+      bag.overlayAnswer =
+        opts?.onTextAnswer === undefined
+          ? null
+          : {
+              text: "",
+              // With nothing to choose, typing is the only way to answer, so
+              // the field takes the keys immediately.
+              active: opts.textAnswerActive ?? labels.length === 0,
+              onSubmit: opts.onTextAnswer,
+            }
+    }
   }
 
   const bodyText = opts?.body ?? ""
@@ -2623,7 +2752,9 @@ export function openListOverlay(
   // shrinks the viewport to whatever survived — so a longer list scrolls
   // instead of growing, and a short one leaves no dead rows below it.
   const perItem = overlayRowsPerItem(shell.overlayKind)
-  const listItems = Math.max(1, labels.length)
+  // An empty list charges no rows: a chooser with nothing to choose must not
+  // reserve a blank band the operator can neither read nor act on.
+  const listItems = labels.length
   const hostRows = overlayHostRows(
     shell,
     shell.overlayBodyLines.length,
@@ -2632,12 +2763,12 @@ export function openListOverlay(
 
   shell.overlayList = createListViewport({
     count: labels.length,
-    height: listItems,
+    height: Math.max(1, listItems),
     activeIndex: opts?.activeIndex ?? 0,
   })
 
-  const title = opts?.title ?? "permission"
-  shell.overlayTitle.content = overlayTitleLine(title, overlayRowWidth(shell) + 2)
+  if (bag) bag.overlayTitleText = opts?.title ?? "permission"
+  refreshOverlayTitle(shell)
 
   const frameId = opts?.frameId ?? OVERLAY_FRAME_ID
   const focusTarget = isPalette ? "palette" : "overlay"
@@ -2783,6 +2914,86 @@ export function handlePaletteFilterKey(
 }
 
 /**
+ * Move the open overlay's free-text field in or out of taking keystrokes.
+ * Returns false when the overlay offers no such field.
+ */
+export function setOverlayAnswerActive(
+  shell: AppShell,
+  active: boolean,
+): boolean {
+  const answer = overlayAnswerState(shell)
+  if (answer === null || shell.overlayList === null) return false
+  if (answer.active === active) return false
+  answer.active = active
+  refreshOverlayTitle(shell)
+  paintOverlayList(shell)
+  return true
+}
+
+/**
+ * Esc inside a live answer field means "back to the choices", not "abandon the
+ * question" — but only when there are choices to go back to.
+ */
+export function exitOverlayAnswerMode(shell: AppShell): boolean {
+  const answer = overlayAnswerState(shell)
+  if (answer === null || !answer.active) return false
+  if (shell.overlayItems.length === 0) return false
+  return setOverlayAnswerActive(shell, false)
+}
+
+/**
+ * Keys the free-text answer field claims while it is taking input. Printable
+ * characters and backspace edit the answer; Enter submits it and closes the
+ * overlay through the per-open `onTextAnswer` callback.
+ */
+export function handleOverlayAnswerKey(
+  shell: AppShell,
+  key: KeyEvent,
+): boolean {
+  const answer = overlayAnswerState(shell)
+  if (answer === null || shell.overlayList === null) return false
+
+  if (
+    key.name === "tab" &&
+    !key.ctrl &&
+    !key.meta &&
+    !key.option &&
+    !answer.active
+  ) {
+    return setOverlayAnswerActive(shell, true)
+  }
+  if (!answer.active) return false
+  if (key.ctrl || key.meta || key.option) return false
+
+  if (key.name === "return" || key.name === "enter") {
+    if (answer.text.length === 0) return true
+    const text = answer.text
+    const submit = answer.onSubmit
+    appendStreamRow(shell, {
+      role: "system",
+      text: `answered: ${text}`,
+      meta: "overlay",
+    })
+    closeInsetOverlay(shell)
+    submit(text)
+    return true
+  }
+  if (key.name === "backspace") {
+    if (answer.text.length > 0) {
+      answer.text = answer.text.slice(0, -1)
+      paintOverlayList(shell)
+    }
+    return true
+  }
+
+  const seq = typeof key.sequence === "string" ? key.sequence : ""
+  if (seq.length !== 1 || seq < " ") return false
+  answer.text += seq
+  paintOverlayList(shell)
+  return true
+}
+
+/**
  * Palette title as a rule broken by the title, left-ish. The overlay host's own
  * border is asserted elsewhere to be unbroken box-drawing, so the titled rule is
  * a row inside the box rather than text written into the border itself.
@@ -2864,6 +3075,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCycle = null
     bag.overlayDescribe = null
     bag.overlayOnAction = null
+    bag.overlayAnswer = null
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -2890,6 +3102,8 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCycle = prior.onCycle
     bag.overlayDescribe = prior.describe
     bag.overlayOnAction = prior.onAction
+    bag.overlayAnswer = prior.answer
+    bag.overlayTitleText = prior.titleText
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -2917,6 +3131,31 @@ export function closeInsetOverlay(shell: AppShell): void {
 
   relayout(shell, { overlayMode: "closed" })
   applyFocus(shell)
+  notifyOverlayClosed(shell)
+}
+
+/**
+ * Subscribe to "the shell now has no overlay open". The single overlay host
+ * drops any open request that arrives while it is busy, so callers that must
+ * not lose one (gate wiring) queue on this instead.
+ */
+export function onOverlayClosed(
+  shell: AppShell,
+  listener: () => void,
+): () => void {
+  const bag = internals.get(shell)
+  if (!bag) return () => undefined
+  bag.overlayClosedListeners.add(listener)
+  return () => {
+    bag.overlayClosedListeners.delete(listener)
+  }
+}
+
+function notifyOverlayClosed(shell: AppShell): void {
+  const bag = internals.get(shell)
+  if (!bag) return
+  // Copied: a listener may re-open an overlay and unsubscribe mid-iteration.
+  for (const listener of [...bag.overlayClosedListeners]) listener()
 }
 
 
@@ -3064,6 +3303,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
     confirmCopySelection(shell)
     return
   }
+  // Nothing to choose: Enter must not synthesize a phantom row and resolve the
+  // gate with it. The answer field (when offered) already claimed Enter.
+  if (shell.overlayItems.length === 0) return
 
   const idx = shell.overlayList.activeIndex
   const label = shell.overlayItems[idx] ?? `item ${idx}`
@@ -4168,6 +4410,10 @@ export function createAppShell(
     if (disposed) return
 
     if (key.name === "escape") {
+      if (exitOverlayAnswerMode(shell)) {
+        key.preventDefault()
+        return
+      }
       if (shell.overlayList) {
         key.preventDefault()
         closeInsetOverlay(shell)
@@ -4218,6 +4464,12 @@ export function createAppShell(
       // Same reason as the `/` popup: the `@` popup narrows as you type, so it
       // claims printable keys ahead of the overlay's j/k navigation.
       if (handleMentionPopupKey(shell, key)) {
+        key.preventDefault()
+        return
+      }
+      // A live answer field owns every printable key, so an operator typing a
+      // free-form answer is not navigating the choice list instead.
+      if (handleOverlayAnswerKey(shell, key)) {
         key.preventDefault()
         return
       }
@@ -4652,6 +4904,9 @@ export function createAppShell(
     overlayOnCycle: null,
     overlayDescribe: null,
     overlayOnAction: null,
+    overlayAnswer: null,
+    overlayTitleText: "",
+    overlayClosedListeners: new Set(),
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
     landing: { above: landingAbove, below: landingBelow },

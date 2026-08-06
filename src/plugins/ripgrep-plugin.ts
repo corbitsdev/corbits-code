@@ -7,7 +7,8 @@ import {
   runBoundedSearchFiles,
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
-import { runRg, type RgLimits } from "./rg-run.js";
+import { createRgCollector } from "./rg-output.js";
+import { MAX_OUTPUT_BYTES, runRg, type RgLimits } from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -35,6 +36,15 @@ function partialContent(stdout: string, maxResults: number, notice: string): str
   return `${capped}\n... ${notice}`;
 }
 
+// The fallback walker collects its whole result in memory before returning, so
+// the byte cap has to be applied here. Without this the cap simply does not
+// exist on a host without ripgrep, and an unbounded grep reaches the model.
+function boundedContent(content: string, maxResults: number, maxOutputBytes: number): string {
+  const breach = createRgCollector(maxOutputBytes).push(content);
+  if (breach?.kind !== "partial") return capLines(content, maxResults);
+  return partialContent(breach.stdout, maxResults, breach.notice);
+}
+
 function str(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -57,6 +67,7 @@ function searchLocation(path: string, fallbackCwd: string): { cwd: string; targe
 }
 
 export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
+  const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "grep") {
@@ -86,7 +97,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
             };
             if (glob !== undefined) boundedArgs.glob = glob;
             const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
-            return { callId: call.id, content: capLines(content, maxResults) };
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,
@@ -122,7 +133,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
               signal,
               rgCwd,
             );
-            return { callId: call.id, content: capLines(content, maxResults) };
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,

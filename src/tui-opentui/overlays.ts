@@ -118,22 +118,38 @@ export type OpenOperatorOpts = {
   readonly activeIndex?: number
   /** Per-open accept; host binds OperatorResult mapping. */
   readonly onAccept?: (selection: OverlaySelection) => void
+  /** Per-open free-text answer; host binds the custom OperatorResult. */
+  readonly onTextAnswer?: (text: string) => void
 }
+
+/**
+ * Line appended to the question when the operator can neither pick nor type.
+ * The overlay must always say what its one available action is rather than
+ * offering "Enter choose" against an empty list.
+ */
+const NO_WAY_TO_ANSWER =
+  "No options were offered and this question takes no typed answer. Press Esc to dismiss it."
 
 export function openOperatorOverlay(
   shell: AppShell,
   opts?: OpenOperatorOpts,
 ): void {
   const fixture = makeOperatorQuestion()
+  const choices = opts?.choices ?? fixture.choices
+  const body = opts?.body ?? fixture.body
+  const stranded = choices.length === 0 && opts?.onTextAnswer === undefined
   openListOverlay(shell, {
     kind: "operator",
     title: "operator question",
-    body: opts?.body ?? fixture.body,
-    items: opts?.choices ?? fixture.choices,
+    body: stranded ? `${body}\n\n${NO_WAY_TO_ANSWER}` : body,
+    items: choices,
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-operator",
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts?.onTextAnswer !== undefined
+      ? { onTextAnswer: opts.onTextAnswer }
+      : {}),
   })
 }
 

@@ -42,7 +42,7 @@ export function createRgCollector(maxOutputBytes: number): RgCollector {
     return settle({
       kind: "partial",
       stdout: truncateToWholeLines(stdout, maxOutputBytes),
-      notice: `ripgrep output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
+      notice: `search output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
     });
   };
 

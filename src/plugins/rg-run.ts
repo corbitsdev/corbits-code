@@ -5,7 +5,7 @@ import { createRgCollector, type RgOutcome } from "./rg-output.js";
 const RG_TIMEOUT_MS = 10_000;
 // Cap collected stdout so a runaway pattern cannot OOM the process before the
 // line-cap post-processing runs.
-const MAX_OUTPUT_BYTES = 512_000;
+export const MAX_OUTPUT_BYTES = 512_000;
 
 export type RgResult = RgOutcome | { kind: "unavailable" };
 

@@ -4,11 +4,16 @@
 import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest } from "../permission/types.js"
-import { withTestRenderer } from "./harness.js"
+import type { KeyEvent } from "@opentui/core"
+import { withTestRenderer, type Harness } from "./harness.js"
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js"
 import {
   acceptOverlaySelection,
   createAppShell,
+  exitOverlayAnswerMode,
+  handleOverlayAnswerKey,
+  moveOverlaySelection,
+  setOverlayAnswerActive,
   toggleOverlayExpand,
   type AppShell,
 } from "./shell.js"
@@ -477,5 +482,178 @@ describe("permission overlay height", () => {
     // Capped means the viewport holds fewer items than exist, not that rows
     // spill outside the host.
     expect(capped).toBeLessThan(await hostRowsFor(rows, 1) + 40)
+  })
+})
+
+describe("operator question overlay", () => {
+  const emitOperator = (
+    shell: AppShell,
+    options: readonly string[],
+    onResolve: (result: unknown) => void,
+  ): void => {
+    const emitter = new EventEmitter()
+    wireGates(emitter, shell)
+    emitter.emit("operator.gate", {
+      question: "Scope for this run is still <SCOPE>. What should it be?",
+      options: [...options],
+      resolve: onResolve,
+    })
+  }
+
+  const keyOf = (seq: string, name?: string): KeyEvent =>
+    ({
+      name: name ?? seq,
+      sequence: seq,
+      ctrl: false,
+      meta: false,
+      option: false,
+    }) as unknown as KeyEvent
+
+  const withOperator = async (
+    rows: number,
+    options: readonly string[],
+    body: (
+      h: Harness,
+      shell: AppShell,
+      resolved: () => unknown,
+    ) => void | Promise<void>,
+  ): Promise<void> => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 96, rows },
+          run: "idle",
+        })
+        let resolved: unknown = undefined
+        try {
+          emitOperator(shell, options, (r) => {
+            resolved = r
+          })
+          await body(h, shell, () => resolved)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 96, height: rows },
+    )
+  }
+
+  const frameOf = async (
+    h: Harness,
+  ): Promise<string> => {
+    await h.renderOnce()
+    await h.renderOnce()
+    return h.captureCharFrame()
+  }
+
+  for (const rows of [24, 60]) {
+    test(`several options render and resolve by index at ${rows} rows`, async () => {
+      await withOperator(rows, ["repo only", "docs too", "everything"], (h, shell, resolved) => {
+        expect(shell.overlayKind).toBe("operator")
+        expect(shell.overlayItems).toEqual(["repo only", "docs too", "everything"])
+        moveOverlaySelection(shell, 1)
+        acceptOverlaySelection(shell)
+        expect(resolved()).toEqual({ kind: "option", index: 1 })
+        void h
+      })
+    })
+
+    test(`a single option still renders a choosable row at ${rows} rows`, async () => {
+      await withOperator(rows, ["only this"], (h, shell, resolved) => {
+        expect(shell.overlayItems).toEqual(["only this"])
+        acceptOverlaySelection(shell)
+        expect(resolved()).toEqual({ kind: "option", index: 0 })
+        void h
+      })
+    })
+
+    test(`no options opens straight into the answer field at ${rows} rows`, async () => {
+      await withOperator(rows, [], async (h, shell, resolved) => {
+        expect(shell.overlayKind).toBe("operator")
+        expect(shell.overlayItems).toEqual([])
+        const frame = await frameOf(h)
+        // Never offer a chooser with nothing to choose.
+        expect(frame).not.toContain("Enter choose")
+        expect(frame).toContain("Enter send")
+        expect(frame).toContain("answer>")
+        // Enter with nothing typed must not resolve the gate at all.
+        acceptOverlaySelection(shell)
+        expect(resolved()).toBeUndefined()
+      })
+    })
+  }
+
+  test("the answer field is advertised on screen next to the choices", async () => {
+    await withOperator(40, ["repo only", "everything"], async (h) => {
+      const frame = await frameOf(h)
+      expect(frame).toContain("Tab type an answer")
+      expect(frame).toContain("type your own answer")
+    })
+  })
+
+  test("a typed answer round-trips as a custom OperatorResult", async () => {
+    await withOperator(40, ["repo only", "everything"], (h, shell, resolved) => {
+      expect(setOverlayAnswerActive(shell, true)).toBe(true)
+      for (const ch of "src and docs") {
+        expect(handleOverlayAnswerKey(shell, keyOf(ch))).toBe(true)
+      }
+      expect(handleOverlayAnswerKey(shell, keyOf("x", "backspace"))).toBe(true)
+      expect(handleOverlayAnswerKey(shell, keyOf("", "return"))).toBe(true)
+      expect(resolved()).toEqual({ kind: "custom", text: "src and doc" })
+      // Submitting closes the overlay, so the host is free for the next gate.
+      expect(shell.overlayList).toBeNull()
+      void h
+    })
+  })
+
+  test("Esc in the answer field returns to the choices instead of cancelling", async () => {
+    await withOperator(40, ["repo only"], (h, shell, resolved) => {
+      setOverlayAnswerActive(shell, true)
+      expect(exitOverlayAnswerMode(shell)).toBe(true)
+      expect(shell.overlayList).not.toBeNull()
+      expect(resolved()).toBeUndefined()
+      void h
+    })
+  })
+
+  test("a gate arriving while another overlay is open opens once that one closes", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 96, rows: 40 },
+          run: "idle",
+        })
+        const emitter = new EventEmitter()
+        let approved: unknown = undefined
+        let answered: unknown = undefined
+        try {
+          wireGates(emitter, shell)
+          emitter.emit("permission.gate", {
+            request: baseRequest(),
+            resolve: (o: unknown) => {
+              approved = o
+            },
+          })
+          emitter.emit("operator.gate", {
+            question: "Scope for this run?",
+            options: ["repo only"],
+            resolve: (r: unknown) => {
+              answered = r
+            },
+          })
+          expect(shell.overlayKind).toBe("permissions")
+
+          acceptOverlaySelection(shell)
+          expect(approved).toEqual({ allow: false })
+          // The queued question is not lost: it takes the host as it frees up.
+          expect(shell.overlayKind).toBe("operator")
+          acceptOverlaySelection(shell)
+          expect(answered).toEqual({ kind: "option", index: 0 })
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 96, height: 40 },
+    )
   })
 })
