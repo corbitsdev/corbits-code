@@ -37,6 +37,15 @@ describe("billingProductForProvider", () => {
     ).toBe("subscription");
   });
 
+  test("custom name with Go baseURL only is subscription", () => {
+    expect(
+      billingProductForProvider({
+        name: "go/personal",
+        baseURL: "https://opencode.ai/zen/go/v1",
+      }),
+    ).toBe("subscription");
+  });
+
   test("zen name or bare zen baseURL is credits", () => {
     expect(billingProductForProvider({ name: "zen" })).toBe("credits");
     expect(

@@ -1,4 +1,5 @@
 import { OPENCODE_GO_DISPLAY_NAME, OPENCODE_GO_PROVIDER_ID } from "./constants.js";
+import { isOpenCodeGoURL } from "./errors.js";
 
 /**
  * True when this catalog/settings name is the first-class OpenCode Go provider.
@@ -11,11 +12,17 @@ export function isOpenCodeGoProviderId(name: string | undefined): boolean {
 }
 
 /**
- * True when a provider entry is OpenCode Go — explicit flag or known id/label.
+ * True when a provider entry is OpenCode Go — explicit flag, known id/label, or
+ * a `/zen/go` baseURL. URL identity wins even for odd names (hard cutover).
  */
 export function isOpenCodeGoProvider(entry: {
   name?: string;
   opencodeGo?: boolean;
+  baseURL?: string;
 }): boolean {
-  return entry.opencodeGo === true || isOpenCodeGoProviderId(entry.name);
+  return (
+    entry.opencodeGo === true ||
+    isOpenCodeGoProviderId(entry.name) ||
+    isOpenCodeGoURL(entry.baseURL)
+  );
 }

@@ -42,15 +42,19 @@ export function buildProviderEntry(
     return { ok: false, error: "Provider API key is required" };
   }
   // Protocol flags are not form fields — preserve catalog flags on edit unless
-  // the submission explicitly re-asserts them (Connect path). Known Go ids and
-  // display labels always pin even when the flag was dropped from disk.
+  // the submission explicitly re-asserts them (Connect path). Known Go ids,
+  // display labels, and Go baseURLs (submission or existing) pin even when the
+  // flag was dropped from disk.
   const anthropic = submission.anthropic === true || existing?.anthropic === true;
+  const identityBaseURL =
+    submission.baseURL.length > 0 ? submission.baseURL : existing?.baseURL;
   const opencodeGo = isOpenCodeGoProvider({
     name: submission.name,
     opencodeGo:
       submission.opencodeGo === true ||
       existing?.opencodeGo === true ||
       isOpenCodeGoProviderId(submission.originalName),
+    ...(identityBaseURL !== undefined ? { baseURL: identityBaseURL } : {}),
   });
   // Never persist bare Zen PAYG baseURL for a Go subscription provider.
   const baseURL = opencodeGo ? OPENCODE_GO_BASE_URL : submission.baseURL;

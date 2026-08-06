@@ -654,6 +654,43 @@ export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
   "env",
 ] as const satisfies readonly (keyof OptionalLocalSettingsFields)[];
 
+/**
+ * Hard-cutover heal: any provider that is Go by flag, known id/label, or
+ * `/zen/go` baseURL gets `opencodeGo: true` and the canonical Go baseURL.
+ * Returns whether any provider entry changed.
+ */
+export function healOpenCodeGoProviders(settings: Settings): boolean {
+  let changed = false;
+  const next: Record<string, ProviderSettings> = {};
+  for (const [name, provider] of Object.entries(settings.providers)) {
+    const go = isOpenCodeGoProvider({
+      name,
+      ...(provider.opencodeGo === true ? { opencodeGo: true as const } : {}),
+      baseURL: provider.baseURL,
+    });
+    if (!go) {
+      next[name] = provider;
+      continue;
+    }
+    const needsFlag = provider.opencodeGo !== true;
+    const needsBase = provider.baseURL !== OPENCODE_GO_BASE_URL;
+    if (!needsFlag && !needsBase) {
+      next[name] = provider;
+      continue;
+    }
+    changed = true;
+    next[name] = {
+      ...provider,
+      baseURL: OPENCODE_GO_BASE_URL,
+      opencodeGo: true,
+    };
+  }
+  if (changed) {
+    settings.providers = next;
+  }
+  return changed;
+}
+
 export async function loadSettings(path: string): Promise<Settings | null> {
   let raw: string;
   try {
@@ -722,10 +759,15 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
   };
-  return {
+  const settings: Settings = {
     providers: s.providers as Settings["providers"],
     ...pickDefined(optional),
   };
+  // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
+  if (healOpenCodeGoProviders(settings)) {
+    await saveGlobalSettings(path, settings);
+  }
+  return settings;
 }
 
 /** Diagnostic produced when settings fail open instead of crashing startup. */
@@ -1049,6 +1091,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const go = isOpenCodeGoProvider({
     ...(providerName !== undefined ? { name: providerName } : {}),
     ...(selected?.opencodeGo === true ? { opencodeGo: true as const } : {}),
+    ...(selected?.baseURL !== undefined ? { baseURL: selected.baseURL } : {}),
   });
   const baseURL = go ? OPENCODE_GO_BASE_URL : selected?.baseURL;
   const apiKey = selected?.apiKey;

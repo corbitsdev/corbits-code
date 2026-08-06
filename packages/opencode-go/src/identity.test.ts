@@ -27,9 +27,48 @@ describe("isOpenCodeGoProvider", () => {
     expect(isOpenCodeGoProvider({ name: "OpenCode Go" })).toBe(true);
   });
 
-  test("false without flag or known name", () => {
+  test("true on Go baseURL even with a custom name", () => {
+    expect(
+      isOpenCodeGoProvider({
+        name: "go/personal",
+        baseURL: "https://opencode.ai/zen/go/v1",
+      }),
+    ).toBe(true);
+    expect(
+      isOpenCodeGoProvider({
+        name: "go/personal",
+        baseURL: "https://opencode.ai/zen/go",
+      }),
+    ).toBe(true);
+  });
+
+  test("URL wins over a zen name when baseURL is Go", () => {
+    expect(
+      isOpenCodeGoProvider({
+        name: "zen",
+        baseURL: "https://opencode.ai/zen/go/v1",
+      }),
+    ).toBe(true);
+  });
+
+  test("false without flag, known name, or Go baseURL", () => {
     expect(isOpenCodeGoProvider({ name: "zen" })).toBe(false);
     expect(isOpenCodeGoProvider({})).toBe(false);
     expect(isOpenCodeGoProvider({ opencodeGo: false, name: "zen" })).toBe(false);
+  });
+
+  test("bare Zen baseURL is not Go", () => {
+    expect(
+      isOpenCodeGoProvider({
+        name: "custom-zen",
+        baseURL: "https://opencode.ai/zen/v1",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoProvider({
+        name: "zen",
+        baseURL: "https://opencode.ai/zen",
+      }),
+    ).toBe(false);
   });
 });

@@ -3,9 +3,11 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
 import {
   isLocalSettings,
   isSettings,
+  healOpenCodeGoProviders,
   loadLocalSettings,
   loadLocalSettingsWriteBase,
   loadSettings,
@@ -287,7 +289,81 @@ describe("validators", () => {
   });
 });
 
+describe("healOpenCodeGoProviders", () => {
+  test("pins flag and canonical baseURL for custom name with Go URL", () => {
+    const settings: Settings = {
+      providers: {
+        "go/personal": {
+          baseURL: "https://opencode.ai/zen/go/v1",
+          apiKey: "sk-go",
+          models: ["kimi-k2.7-code"],
+        },
+      },
+    };
+    expect(healOpenCodeGoProviders(settings)).toBe(true);
+    expect(settings.providers["go/personal"]?.opencodeGo).toBe(true);
+    expect(settings.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+  });
+
+  test("leaves bare Zen providers alone", () => {
+    const settings: Settings = {
+      providers: {
+        zen: {
+          baseURL: "https://opencode.ai/zen/v1",
+          apiKey: "sk-zen",
+          models: ["claude-sonnet-4-5"],
+        },
+      },
+    };
+    expect(healOpenCodeGoProviders(settings)).toBe(false);
+    expect(settings.providers.zen?.opencodeGo).toBeUndefined();
+    expect(settings.providers.zen?.baseURL).toBe("https://opencode.ai/zen/v1");
+  });
+
+  test("is a no-op when already pinned", () => {
+    const settings: Settings = {
+      providers: {
+        "opencode-go": {
+          baseURL: OPENCODE_GO_BASE_URL,
+          apiKey: "sk-go",
+          models: ["kimi-k2.7-code"],
+          opencodeGo: true,
+        },
+      },
+    };
+    expect(healOpenCodeGoProviders(settings)).toBe(false);
+  });
+});
+
 describe("loaders", () => {
+  test("loadSettings heals Go-by-URL providers onto disk", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          providers: {
+            "go/personal": {
+              baseURL: "https://opencode.ai/zen/go",
+              apiKey: "sk-go",
+              models: ["kimi-k2.7-code"],
+            },
+          },
+        }),
+      );
+      const loaded = await loadSettings(path);
+      expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
+      expect(loaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+      // Hard cutover: rewritten on disk, not only in memory.
+      const reloaded = await loadSettings(path);
+      expect(reloaded?.providers["go/personal"]?.opencodeGo).toBe(true);
+      expect(reloaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loadSettings returns null for a missing file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
