@@ -20,6 +20,8 @@ import {
   createAppShell,
   enterSubagentObserve,
   leaveSubagentObserve,
+  runPaletteAction,
+  setPaletteOnObserveRequest,
 } from "./shell.js"
 
 function liveChildSession(
@@ -290,6 +292,82 @@ describe("live subagent observe", () => {
               (r) => r.role === "tool" && r.text === "6 hits",
             ),
           ).toBe(true)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("palette observe action asks the host for a live session", () => {
+  test("uses the host-supplied session instead of the fixture", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          run: "idle",
+        })
+        try {
+          setPaletteOnObserveRequest(shell, () =>
+            liveChildSession([{ role: "system", text: "host seed" }], {
+              agentId: "worker",
+              description: "host-supplied task",
+            }),
+          )
+
+          runPaletteAction(shell, "observe")
+
+          expect(shell.observe?.sessionId).toBe("live-child-1")
+          expect(shell.observe?.agentId).toBe("worker")
+          expect(
+            shell.streamLog.some((r) => r.text === "host seed"),
+          ).toBe(true)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("reports no session available instead of entering observe", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          run: "idle",
+        })
+        try {
+          setPaletteOnObserveRequest(shell, () => null)
+
+          runPaletteAction(shell, "observe")
+
+          expect(shell.observe).toBeNull()
+          expect(
+            shell.streamLog.some((r) =>
+              r.text.includes("no subagent session to observe"),
+            ),
+          ).toBe(true)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("falls back to the fixture when no host handler is set", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          run: "idle",
+        })
+        try {
+          runPaletteAction(shell, "observe")
+          expect(shell.observe?.sessionId).toBe("child-1")
         } finally {
           shell.dispose()
         }

@@ -187,6 +187,32 @@ export function getPaletteOnCommand(
   return shellPaletteOnCommand.get(shell)
 }
 
+/**
+ * Injectable handler for the palette "observe" action. Host resolves a live
+ * `ObserveSession` (or `null` when no subagent is running). Demo/smoke keep
+ * using `makeObserveFixture()` by leaving this unset.
+ */
+export type PaletteOnObserveRequest = () => ObserveSession | null
+
+const shellPaletteOnObserveRequest = new WeakMap<
+  AppShell,
+  PaletteOnObserveRequest
+>()
+
+export function setPaletteOnObserveRequest(
+  shell: AppShell,
+  handler: PaletteOnObserveRequest | undefined,
+): void {
+  if (handler) shellPaletteOnObserveRequest.set(shell, handler)
+  else shellPaletteOnObserveRequest.delete(shell)
+}
+
+export function getPaletteOnObserveRequest(
+  shell: AppShell,
+): PaletteOnObserveRequest | undefined {
+  return shellPaletteOnObserveRequest.get(shell)
+}
+
 /** Dispatch accept to per-open callback, then shell-level kind hooks. */
 function dispatchOverlayAccept(
   shell: AppShell,
@@ -292,6 +318,12 @@ export type AppShellOptions = {
    * Residual openers never hit this path.
    */
   readonly onCommand?: PaletteOnCommand
+  /**
+   * Invoked when the palette "observe" action runs. Returns the live
+   * `ObserveSession` to enter, or `null` when no subagent is running.
+   * Unset (demo/smoke) falls back to `makeObserveFixture()`.
+   */
+  readonly onObserveRequest?: PaletteOnObserveRequest
 }
 
 export type AppShell = {
@@ -1323,7 +1355,18 @@ export function runPaletteAction(
       return
     }
     case "observe": {
-      enterSubagentObserve(shell, makeObserveFixture())
+      const onObserveRequest = getPaletteOnObserveRequest(shell)
+      const session = onObserveRequest
+        ? onObserveRequest()
+        : makeObserveFixture()
+      if (session) enterSubagentObserve(shell, session)
+      else {
+        appendStreamRow(shell, {
+          role: "system",
+          text: "no subagent session to observe",
+          meta: "observe",
+        })
+      }
       return
     }
   }
@@ -1641,6 +1684,7 @@ export function createAppShell(
   const overlayItems = options?.overlayItems ?? [...DEFAULT_OVERLAY_ITEMS]
   const paletteCatalogOpt = options?.paletteCatalog ?? null
   const onCommandOpt = options?.onCommand
+  const onObserveRequestOpt = options?.onObserveRequest
 
   const terminal = terminalOf(renderer, options?.terminal)
   const layout = resolveGeometry({
@@ -2029,6 +2073,9 @@ export function createAppShell(
     chrome: { goal: "", task: "", agents: "" },
   })
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
+  if (onObserveRequestOpt) {
+    setPaletteOnObserveRequest(shell, onObserveRequestOpt)
+  }
   applyLayout(shell, layout)
   applyFocus(shell)
   return shell

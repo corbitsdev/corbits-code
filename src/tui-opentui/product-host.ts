@@ -18,6 +18,7 @@ import { wireGates } from "./gate-wire.js"
 import { formatChromeZones, type ChromeLiveState } from "./chrome-state.js"
 import type { PaletteCommand } from "./palette.js"
 import {
+  appendObserveStreamRow,
   appendStreamRow,
   createAppShell,
   paintStatus,
@@ -27,6 +28,7 @@ import {
   setPaletteOnCommand,
   type AppShell,
   type OverlaySelection,
+  type PaletteOnObserveRequest,
 } from "./shell.js"
 import type { QueueKind } from "./session-queue.js"
 import type { StreamRow } from "./stream.js"
@@ -54,6 +56,12 @@ export type ProductHostConfig = {
   readonly onCommand?: (name: string) => void
   /** Optional initial chrome snapshot. */
   readonly chrome?: ChromeLiveState | null
+  /**
+   * Resolves the live subagent session for the palette "observe" action.
+   * Unset falls back to the shell's demo fixture — production must supply
+   * this to view real subagent sessions.
+   */
+  readonly onObserveRequest?: PaletteOnObserveRequest
 }
 
 export type ProductHost = {
@@ -64,6 +72,11 @@ export type ProductHost = {
   readonly dispose: () => void
   readonly setChrome: (state: ChromeLiveState | null) => void
   readonly setTitle: (title: string) => void
+  /**
+   * Push a live row into the currently open observe view.
+   * No-op (returns false) when observe is not active.
+   */
+  readonly pushObserveRow: (row: StreamRow) => boolean
 }
 
 /** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
@@ -169,6 +182,9 @@ export async function mountProductHost(
     run: "idle",
     ...(config.commands !== undefined ? { paletteCatalog: config.commands } : {}),
     ...(config.onCommand !== undefined ? { onCommand: config.onCommand } : {}),
+    ...(config.onObserveRequest !== undefined
+      ? { onObserveRequest: config.onObserveRequest }
+      : {}),
   })
 
   const port = createLiveSessionPort({
@@ -290,5 +306,6 @@ export async function mountProductHost(
       else setChromeZones(shell, { goal: null, task: null, agents: null })
     },
     setTitle: (title) => setHeader(shell, title),
+    pushObserveRow: (row) => appendObserveStreamRow(shell, row),
   }
 }
