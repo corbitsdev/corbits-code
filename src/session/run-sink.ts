@@ -27,6 +27,7 @@ export type RunSink = {
   getRunError: () => string | undefined;
   getTurnCount: () => number;
   getTokenUsage: () => TokenUsage;
+  getLastTurnUsage: () => TokenUsage;
   getToolCallCount: () => number;
   // The full turn history — including tool results — is retained only when a
   // lifecycle hook is configured to consume it; null otherwise so a hookless
@@ -124,6 +125,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     getRunError: () => runError,
     getTurnCount: () => turnCollector.getTurnCount(),
     getTokenUsage: () => turnCollector.getTokenUsage(),
+    getLastTurnUsage: () => turnCollector.getLastTurnUsage(),
     getToolCallCount: () => turnCollector.getToolCallCount(),
     getTurnCollector: () => (hasConfiguredHooks() ? turnCollector : null),
     reset: () => {

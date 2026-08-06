@@ -13,6 +13,7 @@
  */
 
 import { stringWidth } from "../tui/view/height.js"
+import { renderRamp } from "./ramp.js"
 
 /** Rounded box drawing, all single-cell. */
 export const BORDER = {
@@ -25,10 +26,11 @@ export const BORDER = {
 } as const
 
 /**
- * `rule` is frame, `label` is metadata, `brand` is the lockup's reserved run.
- * The shell paints each role differently; nothing else distinguishes them.
+ * `rule` is frame, `label` is metadata, `brand` is the lockup's reserved run,
+ * `meter` is the cost/context run. The shell paints each role differently;
+ * nothing else distinguishes them.
  */
-export type RuleRole = "rule" | "label" | "brand"
+export type RuleRole = "rule" | "label" | "brand" | "meter"
 
 export type RulePart = {
   readonly text: string
@@ -38,16 +40,24 @@ export type RulePart = {
 export type RuleInput = {
   readonly width: number
   readonly corners: readonly [string, string]
-  /** Left-hand run (the lockup). Dropped first when the rule cannot seat both. */
+  /** Left-hand run (the lockup). Dropped first when the rule cannot seat everything. */
   readonly brand?: string
+  /**
+   * Cost/context run, richest form (context ramp + percent + cost). Sits
+   * between the brand and the label. Dropped before the label but after the
+   * brand: it is a live gauge, not the operator's own workspace.
+   */
+  readonly meter?: string
+  /** `meter` with the cost suffix already stripped — tried once `meter` no longer fits. */
+  readonly meterCompact?: string
   /** Right-aligned label. Dropped last: it is information, the mark is not. */
   readonly label?: string
 }
 
-/** Rule cells held between a corner and the nearest label. */
+/** Rule cells held between a corner and the nearest run, and the minimum flexible fill. */
 const RULE_MARGIN = 1
 
-/** Rule cells held between the brand run and the label. */
+/** Rule cells held between the meter run and the label. */
 const RULE_GAP = 1
 
 function widthOf(parts: readonly RulePart[]): number {
@@ -60,10 +70,102 @@ function dashes(count: number): string {
   return BORDER.horizontal.repeat(Math.max(0, count))
 }
 
+function padCell(text: string): string {
+  return text.length > 0 ? ` ${text} ` : ""
+}
+
+type RightBlock = {
+  readonly parts: readonly RulePart[]
+  readonly cost: number
+}
+
+/** The meter and label, in that order, joined by a fixed dash run when both survive. */
+function buildRightBlock(meterCell: string, labelCell: string): RightBlock {
+  const parts: RulePart[] = []
+  if (meterCell.length > 0) parts.push({ text: meterCell, role: "meter" })
+  if (meterCell.length > 0 && labelCell.length > 0) {
+    parts.push({ text: dashes(RULE_GAP), role: "rule" })
+  }
+  if (labelCell.length > 0) parts.push({ text: labelCell, role: "label" })
+  return { parts, cost: widthOf(parts) }
+}
+
+/** Corner, margin, brand, flexible fill, then the right block, margin, corner. */
+function layoutWithBrand(
+  open: string,
+  close: string,
+  inner: number,
+  brandCell: string,
+  brandCost: number,
+  block: RightBlock,
+): RulePart[] | null {
+  if (brandCost === 0 || block.cost === 0) return null
+  if (inner < RULE_MARGIN * 2 + RULE_GAP + brandCost + block.cost) return null
+  const fill = inner - RULE_MARGIN * 2 - brandCost - block.cost
+  return [
+    { text: open, role: "rule" },
+    { text: dashes(RULE_MARGIN), role: "rule" },
+    { text: brandCell, role: "brand" },
+    { text: dashes(fill), role: "rule" },
+    ...block.parts,
+    { text: dashes(RULE_MARGIN), role: "rule" },
+    { text: close, role: "rule" },
+  ]
+}
+
+/** The right block alone, right-aligned: flexible fill on its left, a bare margin on its right. */
+function layoutRightOnly(
+  open: string,
+  close: string,
+  inner: number,
+  block: RightBlock,
+): RulePart[] | null {
+  if (block.cost === 0) return null
+  if (inner < RULE_MARGIN * 2 + block.cost) return null
+  const lead = inner - RULE_MARGIN - block.cost
+  return [
+    { text: open, role: "rule" },
+    { text: dashes(lead), role: "rule" },
+    ...block.parts,
+    { text: dashes(RULE_MARGIN), role: "rule" },
+    { text: close, role: "rule" },
+  ]
+}
+
+/** The brand alone, left-aligned: a bare margin on its left, flexible fill on its right. */
+function layoutBrandOnly(
+  open: string,
+  close: string,
+  inner: number,
+  brandCell: string,
+  brandCost: number,
+): RulePart[] | null {
+  if (brandCost === 0) return null
+  if (inner < RULE_MARGIN * 2 + brandCost) return null
+  const trail = inner - RULE_MARGIN - brandCost
+  return [
+    { text: open, role: "rule" },
+    { text: dashes(RULE_MARGIN), role: "rule" },
+    { text: brandCell, role: "brand" },
+    { text: dashes(trail), role: "rule" },
+    { text: close, role: "rule" },
+  ]
+}
+
+function plainRule(open: string, close: string, inner: number): RulePart[] {
+  return [
+    { text: open, role: "rule" },
+    { text: dashes(inner), role: "rule" },
+    { text: close, role: "rule" },
+  ]
+}
+
 /**
- * Compose one border rule. Labels are dropped, never truncated mid-glyph: a
- * half-written label corrupts the frame, a missing one just reads as a plain
- * rule. The brand goes before the label because the label carries information.
+ * Compose one border rule. Runs are dropped whole, never truncated mid-glyph:
+ * a half-written label corrupts the frame, a missing one just reads as a
+ * plain rule. Drop order, most to least expendable: brand, then the meter's
+ * cost suffix, then the meter's context reading, then the label — the
+ * operator's own workspace path survives everything else.
  */
 export function composeRule(input: RuleInput): readonly RulePart[] {
   const width = Math.max(0, Math.floor(input.width))
@@ -73,54 +175,29 @@ export function composeRule(input: RuleInput): readonly RulePart[] {
     return [{ text: (open + close).slice(0, width), role: "rule" }]
   }
 
-  const label = input.label?.trim() ?? ""
-  const brand = input.brand ?? ""
   const inner = width - 2
-
-  const labelCell = label.length > 0 ? ` ${label} ` : ""
-  const brandCell = brand.length > 0 ? ` ${brand} ` : ""
-  const labelCost = stringWidth(labelCell)
+  const brandCell = padCell(input.brand?.trim() ?? "")
   const brandCost = stringWidth(brandCell)
+  const labelCell = padCell(input.label?.trim() ?? "")
+  const meterFullCell = padCell(input.meter?.trim() ?? "")
+  const meterCompactCell = padCell(input.meterCompact?.trim() ?? "")
 
-  const withBoth =
-    brandCost > 0 &&
-    labelCost > 0 &&
-    inner >= RULE_MARGIN * 2 + RULE_GAP + brandCost + labelCost
-  if (withBoth) {
-    const fill = inner - RULE_MARGIN * 2 - brandCost - labelCost
-    return [
-      { text: open, role: "rule" },
-      { text: dashes(RULE_MARGIN), role: "rule" },
-      { text: brandCell, role: "brand" },
-      { text: dashes(fill), role: "rule" },
-      { text: labelCell, role: "label" },
-      { text: dashes(RULE_MARGIN), role: "rule" },
-      { text: close, role: "rule" },
-    ]
-  }
+  const withCost = buildRightBlock(meterFullCell, labelCell)
+  const withoutCost = buildRightBlock(meterCompactCell, labelCell)
+  const withoutContext = buildRightBlock("", labelCell)
 
-  const only = labelCost > 0 ? labelCell : brandCell
-  const onlyRole: RuleRole = labelCost > 0 ? "label" : "brand"
-  const onlyCost = stringWidth(only)
-  if (onlyCost > 0 && inner >= RULE_MARGIN * 2 + onlyCost) {
-    // A surviving label keeps its right-hand home; a surviving brand keeps its
-    // left-hand one, so a run never migrates across the rule as width changes.
-    const lead = onlyRole === "brand" ? RULE_MARGIN : inner - RULE_MARGIN - onlyCost
-    const trail = inner - lead - onlyCost
-    return [
-      { text: open, role: "rule" },
-      { text: dashes(lead), role: "rule" },
-      { text: only, role: onlyRole },
-      { text: dashes(trail), role: "rule" },
-      { text: close, role: "rule" },
-    ]
-  }
-
-  return [
-    { text: open, role: "rule" },
-    { text: dashes(inner), role: "rule" },
-    { text: close, role: "rule" },
+  const stages: Array<() => RulePart[] | null> = [
+    () => layoutWithBrand(open, close, inner, brandCell, brandCost, withCost),
+    () => layoutRightOnly(open, close, inner, withCost),
+    () => layoutRightOnly(open, close, inner, withoutCost),
+    () => layoutRightOnly(open, close, inner, withoutContext),
+    () => layoutBrandOnly(open, close, inner, brandCell, brandCost),
   ]
+  for (const stage of stages) {
+    const result = stage()
+    if (result !== null) return result
+  }
+  return plainRule(open, close, inner)
 }
 
 /** Flatten a rule to plain text — what the shape tests read. */
@@ -136,6 +213,54 @@ export function isPlainRule(parts: readonly RulePart[]): boolean {
 /** Total columns a composed rule occupies. */
 export function ruleWidth(parts: readonly RulePart[]): number {
   return widthOf(parts)
+}
+
+/**
+ * Fraction of the context window at which the meter turns from its resting
+ * color to `UI.action`. Proactive compaction fires at `COMPACTION_WINDOW_FRACTION`
+ * (0.6, see `src/provider/context-window.ts`); this sits a good way below it so
+ * the operator sees pressure building — and can act on it — before compaction
+ * silently rewrites the conversation out from under them.
+ */
+export const CONTEXT_PRESSURE_THRESHOLD = 0.5
+
+export type CostContextInput = {
+  /** 0–100, or null when the model's context window is unknown. */
+  readonly contextPercentUsed: number | null
+  /** Already formatted (e.g. `$0.42`); omitted or empty hides the cost suffix. */
+  readonly costLabel?: string | null
+}
+
+export type CostContextMeter = {
+  /** Density-ramp glyphs, `RAMP_WIDTH` cells, fill proportional to `percent`. */
+  readonly ramp: string
+  readonly percentLabel: string
+  readonly costLabel: string | null
+  /** True once `percent` has crossed `CONTEXT_PRESSURE_THRESHOLD`. */
+  readonly pressured: boolean
+}
+
+/**
+ * Resolve the border meter's content from live cost/context state. Null when
+ * there is nothing to show — an unknown context window is worse than useless
+ * as a percentage, so the run is omitted rather than showing `--%`.
+ */
+export function composeCostContextMeter(input: CostContextInput): CostContextMeter | null {
+  if (input.contextPercentUsed === null) return null
+  const percent = Math.max(0, Math.min(100, Math.round(input.contextPercentUsed)))
+  const cost = input.costLabel?.trim() ?? ""
+  return {
+    ramp: renderRamp(percent / 100),
+    percentLabel: `${String(percent)}%`,
+    costLabel: cost.length > 0 ? cost : null,
+    pressured: percent / 100 >= CONTEXT_PRESSURE_THRESHOLD,
+  }
+}
+
+/** `ramp percent%` or, with cost included, `ramp percent% · cost`. */
+export function costContextText(meter: CostContextMeter, includeCost: boolean): string {
+  const base = `${meter.ramp} ${meter.percentLabel}`
+  return includeCost && meter.costLabel !== null ? `${base} · ${meter.costLabel}` : base
 }
 
 /** Replace the operator's home directory with `~`. */

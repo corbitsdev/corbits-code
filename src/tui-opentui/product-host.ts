@@ -28,6 +28,7 @@ import {
   setPaletteCatalog,
   setPaletteOnCommand,
   type AppShell,
+  type ItemDescription,
   type OverlaySelection,
   type PaletteOnObserveRequest,
 } from "./shell.js"
@@ -65,6 +66,16 @@ export type ProductHostConfig = {
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[]
   readonly onModelSelect?: (id: string) => void
+  /** Description-zone source for the model picker, keyed by row id. */
+  readonly describeModel?: (itemId: string) => ItemDescription | null
+  /**
+   * Selecting a "connect →" row (id `connect:<provider>`) calls this instead
+   * of `onModelSelect`. Caller runs the connect flow and, on success, updates
+   * `models`/`describeModel` via `setModels` and reopens the picker.
+   */
+  readonly onConnectProvider?: (providerName: string) => void
+  /** `f` on a focused model/provider row; absent rows (connect →) are skipped by the caller. */
+  readonly onFavoriteToggle?: (itemId: string) => void
   /** Command palette catalog (registry-backed). */
   readonly commands?: readonly PaletteCommand[]
   readonly onCommand?: (name: string) => void
@@ -103,6 +114,11 @@ export type ProductHost = {
   readonly pushObserveRow: (row: StreamRow) => boolean
   /** Opens the model/provider picker; absent when no models were supplied. */
   readonly openModels?: () => void
+  /** Swap the picker's rows/descriptions in place (e.g. after a provider connects). */
+  readonly setModels?: (
+    models: readonly ProductHostModelOption[],
+    describeModel?: (itemId: string) => ItemDescription | null,
+  ) => void
 }
 
 /** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
@@ -305,22 +321,49 @@ export async function mountProductHost(
     }
   }
 
+  let currentModels = config.models ?? []
+  let currentDescribeModel = config.describeModel
   let openModels: (() => void) | undefined
-  if (config.models && config.models.length > 0 && config.onModelSelect) {
-    const models = config.models
+  if (config.onModelSelect) {
     const onSelect = config.onModelSelect
+    const onConnect = config.onConnectProvider
+    const onFavoriteToggle = config.onFavoriteToggle
     openModels = (): void => {
       openModelPickerOverlay(shell, {
-        items: models.map((m) => m.label),
-        itemIds: models.map((m) => m.id),
+        items: currentModels.map((m) => m.label),
+        itemIds: currentModels.map((m) => m.id),
         onAccept: (sel) => {
-          const id = sel.id ?? models[sel.index]?.id
-          if (id) onSelect(id)
+          const id = sel.id ?? currentModels[sel.index]?.id
+          if (!id) return
+          const providerName = id.startsWith("connect:") ? id.slice("connect:".length) : null
+          if (providerName !== null) {
+            onConnect?.(providerName)
+            return
+          }
+          onSelect(id)
         },
+        ...(currentDescribeModel !== undefined ? { describe: currentDescribeModel } : {}),
+        ...(onFavoriteToggle !== undefined
+          ? {
+              onAction: (itemId, key) => {
+                if (key.name !== "f" || key.ctrl || key.meta || key.option) return false
+                if (itemId.startsWith("connect:")) return false
+                onFavoriteToggle(itemId)
+                return true
+              },
+            }
+          : {}),
       })
     }
     ;(shell as AppShell & { __openModels?: () => void }).__openModels =
       openModels
+  }
+  const setModels = (
+    models: readonly ProductHostModelOption[],
+    describeModel?: (itemId: string) => ItemDescription | null,
+  ): void => {
+    currentModels = models
+    currentDescribeModel = describeModel
   }
 
   config.eventEmitter.on("event", onEvent)
@@ -339,6 +382,6 @@ export async function mountProductHost(
     },
     setTitle: (title) => setHeader(shell, title),
     pushObserveRow: (row) => appendObserveStreamRow(shell, row),
-    ...(openModels !== undefined ? { openModels } : {}),
+    ...(openModels !== undefined ? { openModels, setModels } : {}),
   }
 }

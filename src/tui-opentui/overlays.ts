@@ -5,9 +5,11 @@
 
 import type {
   AppShell,
+  ItemDescription,
   OverlaySelection,
   PrimaryOverlayKind,
 } from "./shell.js"
+import type { KeyEvent } from "@opentui/core"
 import { wrapOverlayText } from "./overlay-body.js"
 import { openListOverlay } from "./shell.js"
 
@@ -142,6 +144,10 @@ export type OpenModelPickerOpts = {
   readonly activeIndex?: number
   /** Per-open accept; host binds model switch. */
   readonly onAccept?: (selection: OverlaySelection) => void
+  /** Description-zone source, keyed by the focused row's id. */
+  readonly describe?: (itemId: string) => ItemDescription | null
+  /** Bare-key claim on the focused row (e.g. `f` to toggle favorite). */
+  readonly onAction?: (itemId: string, key: KeyEvent) => boolean
 }
 
 export function openModelPickerOverlay(
@@ -156,5 +162,7 @@ export function openModelPickerOverlay(
     frameId: "overlay-model",
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
+    ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
   })
 }

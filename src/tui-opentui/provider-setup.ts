@@ -548,6 +548,12 @@ export type ProviderSetupConfig = {
   readonly startLogin?: OAuthLoginStarter
   /** Sign-in deadline override, in milliseconds. */
   readonly loginTimeoutMs?: number
+  /**
+   * Skip the provider pick-list and start directly on that provider's
+   * apiKey/login step — the inline "connect →" path from the model picker
+   * already knows which provider it wants.
+   */
+  readonly initialProviderId?: string
 }
 
 const SUMMARY_SLOTS = CUSTOM_STEPS.length
@@ -604,6 +610,17 @@ export async function runProviderSetup(
   // Bumped on every start and every abandon, so a late resolution from a
   // cancelled or superseded attempt can never move the screen.
   let loginAttempt = 0
+
+  if (config.initialProviderId !== undefined) {
+    const preselected = choices.find((c) => c.id === config.initialProviderId)
+    if (preselected !== undefined) {
+      choice = preselected
+      stepIndex = 1
+      values.name = preselected.label
+      values.baseURL = preselected.baseURL
+      values.model = preselected.defaultModel
+    }
+  }
 
   const margin = resolveSideMargin(renderer.width || 80)
 

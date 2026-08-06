@@ -56,10 +56,14 @@ import { composeNoticeLine } from "./notice-line.js"
 import { lockupCells, lockupText, lockupWidth } from "./lockup.js"
 import {
   BORDER,
+  composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
+  costContextText,
+  type CostContextMeter,
   type RulePart,
 } from "./prompt-border.js"
+import { RAMP_WIDTH } from "./ramp.js"
 import {
   viewToTableContent,
   type McpStructuredView,
@@ -100,6 +104,7 @@ import {
   createListViewport,
   moveActive,
   page as pageList,
+  setCount as setListCount,
   setHeight as setListHeight,
   visibleSlice,
   type ListViewportState,
@@ -178,6 +183,7 @@ import {
   decisionChoiceRows,
   DECISION_CHOICE_ROWS,
   wrapOverlayText,
+  wrapWords,
 } from "./overlay-body.js"
 import {
   beginYank,
@@ -233,6 +239,19 @@ export function getShellBridgeHooks(
   shell: AppShell,
 ): ShellBridgeHooks | undefined {
   return shellBridgeHooks.get(shell)
+}
+
+/**
+ * What the focused overlay row is, and what choosing it costs. Painted in the
+ * fixed description zone under every overlay list that opts in via `describe`.
+ */
+export type ItemDescription = {
+  /** What the focused thing is. One line. */
+  readonly what: string
+  /** What choosing it costs or changes. One line. Omit when there is nothing true to say. */
+  readonly impact?: string
+  /** "consequence" paints impact in UI.action — billing, trust, anything that spends or extends reach. */
+  readonly tone?: "plain" | "consequence"
 }
 
 /**
@@ -580,6 +599,12 @@ export type AppShell = {
   /** Clock reading when `lockupPhase` last changed — the fade's origin. */
   lockupChangedMs: number
   /**
+   * Cost/context meter carried by the bottom border, or null when the active
+   * session has nothing to report (context window unknown). Pushed by the
+   * host whenever the run sink's usage changes — no timer of its own.
+   */
+  costContext: CostContextMeter | null
+  /**
    * Active subagent observe session (null when viewing parent).
    * Independent stream window; Esc restores parent lease.
    */
@@ -617,6 +642,8 @@ export type PrimaryOverlayKind =
   | "resume"
   | "mentions"
   | "copy"
+  | "hooks"
+  | "plugin_credentials"
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -854,8 +881,18 @@ function clearOverlayBody(shell: AppShell): void {
  */
 const OVERLAY_HOST_BORDER_ROWS = 2
 
-function overlayChromeRows(bodyLineCount: number): number {
-  return OVERLAY_HOST_BORDER_ROWS + 1 + bodyLineCount
+/** Content lines the description zone paints below the rule (what, impact). */
+const DESCRIPTION_ZONE_LINES = 2
+/** Rule row plus the fixed two content lines — charged whenever `describe` is set. */
+const DESCRIPTION_ZONE_ROWS = 1 + DESCRIPTION_ZONE_LINES
+
+/** Rows the open overlay's description zone spends, or 0 when it has none. */
+function overlayZoneRows(shell: AppShell): number {
+  return internals.get(shell)?.overlayDescribe ? DESCRIPTION_ZONE_ROWS : 0
+}
+
+function overlayChromeRows(shell: AppShell, bodyLineCount: number): number {
+  return OVERLAY_HOST_BORDER_ROWS + 1 + bodyLineCount + overlayZoneRows(shell)
 }
 
 /**
@@ -895,8 +932,12 @@ function floatOverlayHost(
 
 
 /** Total host rows needed to show `listRows` list rows under `bodyLineCount` body lines. */
-function overlayHostRows(bodyLineCount: number, listRows: number): number {
-  return overlayChromeRows(bodyLineCount) + listRows
+function overlayHostRows(
+  shell: AppShell,
+  bodyLineCount: number,
+  listRows: number,
+): number {
+  return overlayChromeRows(shell, bodyLineCount) + listRows
 }
 
 function addOverlayRow(
@@ -987,6 +1028,72 @@ function paintPaletteList(shell: AppShell, list: ListViewportState): void {
   }
 }
 
+/** Below this overlay width the description zone has no room to say anything legible. */
+const DESCRIPTION_ZONE_MIN_WIDTH = 16
+/** Below this overlay width the zone keeps `what` only and drops `impact`. */
+const DESCRIPTION_ZONE_IMPACT_MIN_WIDTH = 32
+
+/** Stable id for the focused row: `itemIds[index]` when supplied, else its label. */
+function activeOverlayItemId(shell: AppShell, list: ListViewportState): string {
+  const bag = internals.get(shell)
+  return (
+    bag?.overlayItemIds[list.activeIndex] ??
+    shell.overlayItems[list.activeIndex] ??
+    String(list.activeIndex)
+  )
+}
+
+/**
+ * Shape a description into its fixed two content rows.
+ *
+ * `what`'s wrapped lines fill the budget first; `impact` gets whatever is
+ * left, so a `what` that wraps to both lines quietly drops `impact` the same
+ * way a narrow overlay does — one budget, one degrade path. `null` (no
+ * description for this item, or width too narrow to say anything) renders
+ * two blank rows rather than collapsing the zone: the reservation is fixed
+ * whenever `describe` is set, whether or not this item has anything to say.
+ */
+export function describeZoneLines(
+  desc: ItemDescription | null,
+  width: number,
+): { readonly lines: readonly string[]; readonly fgs: readonly string[] } {
+  const lines: string[] = []
+  const fgs: string[] = []
+  if (desc !== null && width >= DESCRIPTION_ZONE_MIN_WIDTH) {
+    for (const line of wrapWords(desc.what, width)) {
+      if (lines.length >= DESCRIPTION_ZONE_LINES) break
+      lines.push(line)
+      fgs.push(UI.textDim)
+    }
+    if (desc.impact !== undefined && width >= DESCRIPTION_ZONE_IMPACT_MIN_WIDTH) {
+      const impactFg = desc.tone === "consequence" ? UI.action : UI.textFaint
+      for (const line of wrapWords(desc.impact, width)) {
+        if (lines.length >= DESCRIPTION_ZONE_LINES) break
+        lines.push(line)
+        fgs.push(impactFg)
+      }
+    }
+  }
+  while (lines.length < DESCRIPTION_ZONE_LINES) {
+    lines.push("")
+    fgs.push(UI.textFaint)
+  }
+  return { lines, fgs }
+}
+
+/** Paint the fixed rule + two-line description zone under the list, when `describe` is set. */
+function paintDescriptionZone(shell: AppShell, list: ListViewportState): void {
+  const describe = internals.get(shell)?.overlayDescribe
+  if (!describe) return
+  const width = overlayRowWidth(shell)
+  const desc = describe(activeOverlayItemId(shell, list))
+  addOverlayRow(shell, ` ${"─".repeat(Math.max(0, width))}`, UI.textFaint)
+  const { lines, fgs } = describeZoneLines(desc, width)
+  lines.forEach((line, i) => {
+    addOverlayRow(shell, line.length > 0 ? ` ${line}` : "", fgs[i] ?? UI.textFaint)
+  })
+}
+
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList
   clearOverlayBody(shell)
@@ -998,6 +1105,7 @@ function paintOverlayList(shell: AppShell): void {
 
   if (shell.overlayKind === "palette" && shell.paletteCommands.length > 0) {
     paintPaletteList(shell, list)
+    paintDescriptionZone(shell, list)
     return
   }
 
@@ -1019,6 +1127,7 @@ function paintOverlayList(shell: AppShell): void {
       addOverlayRow(shell, ` ${row.text}`, row.fg)
     }
   }
+  paintDescriptionZone(shell, list)
 }
 
 /**
@@ -1029,18 +1138,38 @@ function paintOverlayList(shell: AppShell): void {
 function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
   const chunks: TextChunk[] = []
   for (const part of parts) {
-    if (part.role !== "brand") {
-      chunks.push(
-        fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
-      )
+    if (part.role === "brand") {
+      const cells = lockupCells(lockupFrameInput(shell))
+      chunks.push(fgChunk(UI.textFaint)(" "))
+      for (const cell of cells) chunks.push(fgChunk(cell.fg)(cell.char))
+      chunks.push(fgChunk(UI.textFaint)(" "))
       continue
     }
-    const cells = lockupCells(lockupFrameInput(shell))
-    chunks.push(fgChunk(UI.textFaint)(" "))
-    for (const cell of cells) chunks.push(fgChunk(cell.fg)(cell.char))
-    chunks.push(fgChunk(UI.textFaint)(" "))
+    if (part.role === "meter") {
+      chunks.push(...meterChunks(shell, part.text))
+      continue
+    }
+    chunks.push(
+      fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
+    )
   }
   return chunks
+}
+
+/**
+ * Color a meter cell: the ramp glyphs carry the pressure state (orange past
+ * `CONTEXT_PRESSURE_THRESHOLD`, blue otherwise), the percent and cost read as
+ * dim chrome the same as the workspace label.
+ */
+function meterChunks(shell: AppShell, cell: string): TextChunk[] {
+  const ramp = cell.slice(1, 1 + RAMP_WIDTH)
+  const rest = cell.slice(1 + RAMP_WIDTH)
+  const rampFg = shell.costContext?.pressured === true ? UI.action : UI.inFlight
+  return [
+    fgChunk(UI.textFaint)(" "),
+    fgChunk(rampFg)(ramp),
+    fgChunk(UI.textDim)(rest),
+  ]
 }
 
 /** The status slot's state, as the lockup renderer wants it. */
@@ -1088,10 +1217,14 @@ export function paintPromptBorder(shell: AppShell): void {
       ? roomy
       : composeWorkspaceLabel({ ...workspaceInput, maxWidth: alone })
   const brand = lockupText(lockupCells(lockupFrameInput(shell)))
+  const meter = shell.costContext
   const bottom = composeRule({
     width,
     corners: [BORDER.bottomLeft, BORDER.bottomRight],
     ...(roomy.length > 0 || workspace.length === 0 ? { brand } : {}),
+    ...(meter !== null
+      ? { meter: costContextText(meter, true), meterCompact: costContextText(meter, false) }
+      : {}),
     ...(workspace.length > 0 ? { label: workspace } : {}),
   })
   shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom))
@@ -1118,6 +1251,26 @@ export function setPromptWorkspace(
   if (cwd === shell.workspace.cwd && branch === shell.workspace.branch) return
   shell.workspace = { cwd, branch }
   paintPromptBorder(shell)
+}
+
+/**
+ * Publish the cost/context meter carried by the bottom border. Driven by
+ * usage changes (a completed turn), not a timer: the percentage does not move
+ * between turns, so there is nothing to animate on the idle tick.
+ */
+export function setPromptCostContext(
+  shell: AppShell,
+  input: { readonly contextPercentUsed: number | null; readonly costLabel?: string | null },
+): void {
+  const meter = composeCostContextMeter(input)
+  if (meterEquals(meter, shell.costContext)) return
+  shell.costContext = meter
+  paintPromptBorder(shell)
+}
+
+function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): boolean {
+  if (a === null || b === null) return a === b
+  return a.ramp === b.ramp && a.percentLabel === b.percentLabel && a.costLabel === b.costLabel
 }
 
 /**
@@ -1188,7 +1341,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
       ? null
       : landingSplitFor(
           landingRows,
-          overlayH > 0 ? overlayHostRows(shell.overlayBodyLines.length, 1) : 0,
+          overlayH > 0 ? overlayHostRows(shell, shell.overlayBodyLines.length, 1) : 0,
           padH,
         )
   if (bag !== undefined && landing !== null && split !== null) {
@@ -1236,7 +1389,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.overlayHost.height = hostH > 0 ? hostH : 1
   shell.overlayHost.visible = hostH > 0
   if (hostH > 0 && shell.overlayList) {
-    const chrome = overlayChromeRows(shell.overlayBodyLines.length)
+    const chrome = overlayChromeRows(shell, shell.overlayBodyLines.length)
     const bodyH = Math.max(1, hostH - chrome)
     // The viewport counts items, not rows; a decision overlay spends several
     // rows per item, so the row budget has to be divided back down.
@@ -1290,6 +1443,9 @@ type PriorOverlaySnapshot = {
   readonly itemIds: readonly string[]
   readonly onAccept: ((selection: OverlaySelection) => void) | null
   readonly onToggleExpand: (() => void) | null
+  readonly onCycle: ((itemId: string, direction: -1 | 1) => void) | null
+  readonly describe: ((itemId: string) => ItemDescription | null) | null
+  readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null
 }
 
 type ShellInternals = {
@@ -1305,6 +1461,12 @@ type ShellInternals = {
   overlayOnAccept: ((selection: OverlaySelection) => void) | null
   /** Per-open expand/collapse hook for the open primary overlay. */
   overlayOnToggleExpand: (() => void) | null
+  /** Per-open ← → cycle hook for the open primary overlay (settings inline cycling). */
+  overlayOnCycle: ((itemId: string, direction: -1 | 1) => void) | null
+  /** Per-open description-zone source; null keeps the zone off (no rows charged). */
+  overlayDescribe: ((itemId: string) => ItemDescription | null) | null
+  /** Per-open bare-key claim for the open primary overlay. */
+  overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
   /**
    * Default palette catalog (static or lazy). Used when openPalette omits catalog.
    * Residual DEFAULT_PALETTE_COMMANDS when unset.
@@ -2030,6 +2192,28 @@ export type OpenListOverlayOpts = {
    * the overlay owns the keyboard while it is open.
    */
   readonly onToggleExpand?: () => void
+  /**
+   * Per-open ← → cycle hook. When set, the overlay claims Left/Right for it
+   * instead of leaving them unbound — settings-style inline value cycling.
+   * Scoped to this open only, the way `onToggleExpand` and `typeToFilter` are.
+   */
+  readonly onCycle?: (itemId: string, direction: -1 | 1) => void
+  /**
+   * Description-zone source. Called with the focused item's id on every move
+   * (falling back to its label when no `itemIds` were supplied). Returning
+   * null renders the zone blank, not collapsed — the fixed two-line zone is
+   * charged to the row budget whenever this is set, whether or not the current
+   * item has anything to say.
+   */
+  readonly describe?: (itemId: string) => ItemDescription | null
+  /**
+   * Per-open bare-key claim, checked for any key the list's own navigation
+   * (arrows, expand, accept) leaves unclaimed. Returns true when the key was
+   * used, so the shell can `preventDefault` it and stop. Scoped to this open
+   * only — never reachable while no list overlay is open, so it cannot shadow
+   * prompt typing.
+   */
+  readonly onAction?: (itemId: string, key: KeyEvent) => boolean
 }
 
 /**
@@ -2061,6 +2245,9 @@ export function openListOverlay(
           itemIds: bag.overlayItemIds,
           onAccept: bag.overlayOnAccept,
           onToggleExpand: bag.overlayOnToggleExpand,
+          onCycle: bag.overlayOnCycle,
+          describe: bag.overlayDescribe,
+          onAction: bag.overlayOnAction,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -2085,11 +2272,17 @@ export function openListOverlay(
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
+      bag.overlayOnCycle = opts?.onCycle ?? null
+      bag.overlayDescribe = opts?.describe ?? null
+      bag.overlayOnAction = opts?.onAction ?? null
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
+      bag.overlayOnCycle = opts?.onCycle ?? null
+      bag.overlayDescribe = opts?.describe ?? null
+      bag.overlayOnAction = opts?.onAction ?? null
     }
   }
 
@@ -2104,6 +2297,7 @@ export function openListOverlay(
   const perItem = overlayRowsPerItem(shell.overlayKind)
   const listItems = Math.max(2, Math.floor(listRows / perItem))
   const hostRows = overlayHostRows(
+    shell,
     shell.overlayBodyLines.length,
     listItems * perItem,
   )
@@ -2339,6 +2533,9 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayItemIds = []
     bag.overlayOnAccept = null
     bag.overlayOnToggleExpand = null
+    bag.overlayOnCycle = null
+    bag.overlayDescribe = null
+    bag.overlayOnAction = null
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -2362,6 +2559,9 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayItemIds = prior.itemIds
     bag.overlayOnAccept = prior.onAccept
     bag.overlayOnToggleExpand = prior.onToggleExpand
+    bag.overlayOnCycle = prior.onCycle
+    bag.overlayDescribe = prior.describe
+    bag.overlayOnAction = prior.onAction
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -2370,7 +2570,7 @@ export function closeInsetOverlay(shell: AppShell): void {
       })
     }
     const listH = prior.list.height
-    const hostRows = overlayHostRows(prior.bodyLines.length, listH)
+    const hostRows = overlayHostRows(shell, prior.bodyLines.length, listH)
     relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
     applyFocus(shell)
     paintOverlayList(shell)
@@ -2424,10 +2624,30 @@ export function setOverlayBody(
   if (!shell.overlayList) return
   applyOverlayBodyText(shell, text, maxLines)
   const hostRows = overlayHostRows(
+    shell,
     shell.overlayBodyLines.length,
     shell.overlayList.height * overlayRowsPerItem(shell.overlayKind),
   )
   relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  paintOverlayList(shell)
+}
+
+/**
+ * Replace the open overlay's item labels (and optionally ids) in place,
+ * keeping the active row's position. Cycling a value redraws the row it
+ * changed rather than closing and reopening the overlay, which would lose
+ * the cursor and retrigger the open animation for a one-key edit.
+ */
+export function setOverlayItems(
+  shell: AppShell,
+  items: readonly string[],
+  itemIds?: readonly string[],
+): void {
+  if (!shell.overlayList) return
+  shell.overlayItems = items
+  const bag = internals.get(shell)
+  if (bag && itemIds) bag.overlayItemIds = [...itemIds]
+  shell.overlayList = setListCount(shell.overlayList, items.length)
   paintOverlayList(shell)
 }
 
@@ -2445,6 +2665,33 @@ export function moveOverlaySelection(shell: AppShell, delta: number): void {
   if (!shell.overlayList) return
   shell.overlayList = moveActive(shell.overlayList, delta)
   paintOverlayList(shell)
+}
+
+/**
+ * Cycle the focused row's value in place, for overlays that opted in via
+ * `onCycle` (settings inline cycling). No-op when the open overlay did not
+ * supply a cycle hook, so Left/Right stay unclaimed everywhere else.
+ */
+export function cycleOverlaySelection(shell: AppShell, direction: -1 | 1): boolean {
+  const list = shell.overlayList
+  if (!list) return false
+  const onCycle = internals.get(shell)?.overlayOnCycle
+  if (!onCycle) return false
+  onCycle(activeOverlayItemId(shell, list), direction)
+  return true
+}
+
+/**
+ * Run the open overlay's bare-key claim, for overlays that opted in via
+ * `onAction`. No-op when the open overlay did not supply one, so the key
+ * falls through unclaimed everywhere else.
+ */
+export function runOverlayAction(shell: AppShell, key: KeyEvent): boolean {
+  const list = shell.overlayList
+  if (!list) return false
+  const onAction = internals.get(shell)?.overlayOnAction
+  if (!onAction) return false
+  return onAction(activeOverlayItemId(shell, list), key)
 }
 
 /** Page overlay selection (PgUp/PgDn). */
@@ -2902,6 +3149,10 @@ export type OpenResidualListOpts = {
   readonly activeIndex?: number
   /** Per-open accept; host binds toggle / resume / mention insert. */
   readonly onAccept?: (selection: OverlaySelection) => void
+  /** Per-open ← → cycle hook (settings inline value cycling). */
+  readonly onCycle?: (itemId: string, direction: -1 | 1) => void
+  /** Per-open description-zone source. */
+  readonly describe?: (itemId: string) => ItemDescription | null
 }
 
 export function openSettingsOverlay(
@@ -2916,6 +3167,8 @@ export function openSettingsOverlay(
     frameId: "overlay-settings",
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts?.onCycle !== undefined ? { onCycle: opts.onCycle } : {}),
+    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
   })
 }
 
@@ -3569,6 +3822,18 @@ export function createAppShell(
         moveOverlaySelection(shell, 1)
         return
       }
+      // Left/Right only mean something to an overlay that opted into cycling
+      // (settings). Everywhere else they fall through unclaimed.
+      if (
+        (key.name === "left" || key.name === "right") &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.option &&
+        cycleOverlaySelection(shell, key.name === "left" ? -1 : 1)
+      ) {
+        key.preventDefault()
+        return
+      }
       if (key.name === "pageup") {
         key.preventDefault()
         pageOverlaySelection(shell, -1)
@@ -3600,6 +3865,10 @@ export function createAppShell(
           copyAllTargets(shell)
           return
         }
+      }
+      if (runOverlayAction(shell, key)) {
+        key.preventDefault()
+        return
       }
       if (key.name === "return" || key.name === "enter") {
         if (!key.meta && !key.option && !key.ctrl) {
@@ -3913,6 +4182,7 @@ export function createAppShell(
     lockupAnimating: false,
     lockupPhase: null,
     lockupChangedMs: 0,
+    costContext: null,
     observe: null,
     parentStreamLog: null,
     promptKillRing: emptyKillRing,
@@ -3945,6 +4215,9 @@ export function createAppShell(
     overlayItemIds: [],
     overlayOnAccept: null,
     overlayOnToggleExpand: null,
+    overlayOnCycle: null,
+    overlayDescribe: null,
+    overlayOnAction: null,
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
     landing: { above: landingAbove, below: landingBelow },

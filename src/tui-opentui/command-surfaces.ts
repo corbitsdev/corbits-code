@@ -8,16 +8,18 @@
  * surfaces stay testable without a live runner.
  */
 
+import type { KeyEvent } from "@opentui/core"
+
 import type { SessionMode } from "../config/session-mode.js"
-import { SESSION_MODES } from "../config/session-mode.js"
+import { maskEcho, maskSecret } from "./provider-setup.js"
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js"
 import {
   closeInsetOverlay,
   openHelpOverlay,
   openListOverlay,
-  openPluginsOverlay,
   openSettingsOverlay,
   type AppShell,
+  type ItemDescription,
   type OverlaySelection,
 } from "./shell.js"
 
@@ -30,20 +32,47 @@ export type GrantEntry = {
   readonly providerModel?: string
 }
 
-/** A discovered plugin with its live enablement state. */
+/** One credential field a plugin's manifest asks for (mirrors PluginCredentialField). */
+export type PluginCredentialFieldEntry = {
+  readonly key: string
+  readonly label: string
+  readonly description?: string
+  readonly secret?: boolean
+}
+
+/** A discovered plugin with its live enablement, trust, and credential state. */
 export type PluginEntry = {
   readonly id: string
   readonly name: string
+  readonly kind?: string
+  readonly description?: string
   readonly enabled: boolean
   readonly needsTrust?: boolean
+  readonly canRevokeTrust?: boolean
+  readonly credentials: readonly PluginCredentialFieldEntry[]
+  readonly credentialValues: Readonly<Record<string, string>>
+  readonly agentProfiles?: readonly { readonly id: string; readonly tier?: string; readonly description?: string }[]
+  /** Absolute path an untrusted path-origin plugin was discovered at. */
+  readonly originPath?: string
 }
 
+/** Result of a verify/addPath admin action, reported via `deps.notify`. */
+export type PluginActionResult = { readonly ok: boolean; readonly message: string }
+
+/** A web-search candidate the plugins surface can hand to `setWebProvider`. */
+export type WebProviderChoice = { readonly id: string; readonly name: string }
+
 export type CompactionMode = "llm" | "pruning"
+
+/** Where a session-mode write lands: every repo, or just this one. */
+export type SessionModeScope = "global" | "local"
 
 /** Live values behind the settings surface, re-read on every open. */
 export type SettingsSnapshot = {
   readonly compactionMode: CompactionMode
   readonly sessionMode: SessionMode
+  /** Which scope `sessionMode` currently reflects — a local override wins over global. */
+  readonly sessionModeScope: SessionModeScope
   readonly maxConcurrentSubAgents: number
   readonly waitForApproval: boolean
   readonly telemetryEnabled: boolean
@@ -57,20 +86,61 @@ export type PermissionsSurfaceDeps = {
 export type PluginsSurfaceDeps = {
   readonly list: () => readonly PluginEntry[]
   readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void
+  /** Persists credential values for the plugin (does not enable/verify it). */
+  readonly saveCredentials: (
+    id: string,
+    credentials: Record<string, string>,
+  ) => Promise<void> | void
+  readonly verify: (
+    id: string,
+    credentials: Record<string, string>,
+  ) => Promise<PluginActionResult>
+  readonly addPath: (path: string) => Promise<PluginActionResult>
+  readonly webProviders: () => readonly WebProviderChoice[]
+  readonly currentWebProvider: () => string | undefined
+  readonly setWebProvider: (id: string | undefined) => Promise<void> | void
+}
+
+/** Discovered lifecycle hook, live enablement, and enough to describe what it runs. */
+export type HookEntry = {
+  readonly id: string
+  readonly name: string
+  readonly type: "typescript" | "shell"
+  readonly path: string
+  readonly enabled: boolean
+  /** What the hook fires on, from a cheap static check — see runner wiring. */
+  readonly runsOn: string
+}
+
+export type HooksSurfaceDeps = {
+  readonly list: () => readonly HookEntry[]
+  readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void
+}
+
+/** Live summary for the settings surface's hooks row (owned by another surface). */
+export type HooksSurfaceSummary = {
+  readonly discovered: number
+  readonly off: number
 }
 
 export type SettingsSurfaceDeps = {
   readonly read: () => SettingsSnapshot
   readonly setCompactionMode: (mode: CompactionMode) => void
-  readonly setSessionMode: (mode: SessionMode) => void
+  /** Writes to the given scope: "local" persists to `.corbits/settings.json` in cwd. */
+  readonly setSessionMode: (mode: SessionMode, scope: SessionModeScope) => void
   readonly setMaxConcurrentSubAgents: (limit: number) => void
   readonly setWaitForApproval: (value: boolean) => void
   readonly setTelemetryEnabled: (value: boolean) => void
+  /** Live counts for the hooks row summary. Omitted while hooks discovery is unbuilt. */
+  readonly hooksSummary?: () => HooksSurfaceSummary
+  /** Opens the hooks surface. Omitted while it is unbuilt (row still shows, Enter no-ops). */
+  readonly openHooks?: () => void
 }
 
 export type CommandSurfaceDeps = {
   readonly permissions?: PermissionsSurfaceDeps
   readonly plugins?: PluginsSurfaceDeps
+  readonly hooks?: HooksSurfaceDeps
   readonly settings?: SettingsSurfaceDeps
   /** Opens the host's model/provider picker (owned by the product host). */
   readonly openModels?: () => void
@@ -84,6 +154,7 @@ export type CommandSurfaceKind =
   | "settings"
   | "permissions"
   | "plugins"
+  | "hooks"
   | "models"
 
 const CLOSE_ID = "__close__"
@@ -97,28 +168,33 @@ export function grantRowLabel(entry: GrantEntry): string {
   return `${entry.scopeLabel} · ${entry.tool} ${entry.pattern}${suffix}`
 }
 
-export function pluginRowLabel(entry: PluginEntry): string {
-  const state = entry.needsTrust === true ? "needs trust" : entry.enabled ? "enabled" : "disabled"
-  return `${entry.name} — ${state}`
+function pluginMissingCredential(entry: PluginEntry): boolean {
+  return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0)
 }
 
-/** Top-level settings rows, showing each setting's live value. */
-export function settingsRows(snapshot: SettingsSnapshot): readonly ResidualCatalogEntry[] {
-  return [
-    { id: "permissions", label: "Permissions — revoke remembered approvals" },
-    {
-      id: "compaction",
-      label: `Compaction — ${snapshot.compactionMode === "llm" ? "Summarize" : "Drop"}`,
-    },
-    { id: "session-mode", label: `Session mode — ${snapshot.sessionMode}` },
-    { id: "subagents", label: `Sub-agents — max ${snapshot.maxConcurrentSubAgents}` },
-    {
-      id: "wait-for-approval",
-      label: `Tools — wait-for-approval budget ${snapshot.waitForApproval ? "on" : "off"}`,
-    },
-    { id: "telemetry", label: `Telemetry — ${snapshot.telemetryEnabled ? "on" : "off"}` },
-    { id: CLOSE_ID, label: "Close settings" },
-  ]
+export function pluginRowLabel(entry: PluginEntry): string {
+  const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled"
+  const blocker =
+    entry.needsTrust !== true && !entry.enabled && pluginMissingCredential(entry)
+      ? "needs api key"
+      : entry.kind
+  return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`
+}
+
+/** Description-zone content for the focused plugin row. */
+function pluginDescription(entry: PluginEntry): ItemDescription {
+  const what = entry.description ?? `${entry.kind ?? "plugin"} plugin.`
+  if (entry.needsTrust === true) {
+    const where =
+      entry.originPath !== undefined
+        ? `Loaded from ${entry.originPath} — outside this workspace. `
+        : ""
+    return { what, impact: `${where}Trusting it runs its code in this session. Press t.`, tone: "consequence" }
+  }
+  if (!entry.enabled && pluginMissingCredential(entry)) {
+    return { what, impact: "Needs an API key before it can be enabled — press c." }
+  }
+  return { what }
 }
 
 function payload(entries: readonly ResidualCatalogEntry[]): {
@@ -138,95 +214,270 @@ function selectedId(
   )
 }
 
-/** Open a one-of-N chooser and re-enter the settings menu on any exit. */
-function openChoice(
-  shell: AppShell,
-  deps: CommandSurfaceDeps,
-  title: string,
-  entries: readonly ResidualCatalogEntry[],
-  apply: (id: string) => void,
-): void {
-  const rows = [...entries, { id: BACK_ID, label: "Back" }]
-  openListOverlay(shell, {
-    kind: "settings",
-    title,
-    frameId: "overlay-settings",
-    ...payload(rows),
-    onAccept: (selection) => {
-      const id = selectedId(selection, rows)
-      if (id !== undefined && id !== BACK_ID) apply(id)
-      openSettingsSurface(shell, deps)
-    },
-  })
+/** One option in a cycled field, as drawn inline: `label` bracketed when active. */
+type CycleOption<T extends string> = { readonly id: T; readonly label: string }
+
+/** Render a cycled field's current state: `label  ‹ label ›  label`. */
+function cycleField<T extends string>(
+  options: readonly CycleOption<T>[],
+  activeId: T,
+): string {
+  return options.map((o) => (o.id === activeId ? `‹ ${o.label} ›` : o.label)).join("  ")
 }
 
-/** Settings menu, re-opened after every change so values stay current. */
-export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const settings = deps.settings
-  if (settings === undefined) {
-    openSettingsOverlay(shell)
-    return
+/** Step `current` to the next/previous option in `options`, wrapping. */
+function cycleValue<T>(options: readonly T[], current: T, direction: -1 | 1): T {
+  const idx = options.indexOf(current)
+  const base = idx < 0 ? 0 : idx
+  const next = options[(base + direction + options.length) % options.length]
+  return next ?? current
+}
+
+const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
+  { id: "llm", label: "summarize" },
+  { id: "pruning", label: "drop" },
+]
+const SESSION_MODE_OPTIONS: readonly CycleOption<SessionMode>[] = [
+  { id: "single", label: "single" },
+  { id: "orchestrator", label: "orchestrator" },
+]
+const SESSION_SCOPE_OPTIONS: readonly CycleOption<SessionModeScope>[] = [
+  { id: "global", label: "everywhere" },
+  { id: "local", label: "this repo" },
+]
+const ON_OFF_OPTIONS: readonly CycleOption<"on" | "off">[] = [
+  { id: "on", label: "on" },
+  { id: "off", label: "off" },
+]
+const SETTINGS_NAME_WIDTH = 16
+
+/** One inline-cycled settings row: label, live value, description, and its cycle step. */
+type SettingsCycleRow = {
+  readonly id: string
+  readonly value: string
+  readonly describe: ItemDescription
+  readonly cycle: (direction: -1 | 1) => void
+}
+
+/** Cycled rows shown above the divider, in mockup order. */
+function settingsCycleRows(
+  snapshot: SettingsSnapshot,
+  settings: SettingsSurfaceDeps,
+): readonly SettingsCycleRow[] {
+  return [
+    {
+      id: "compaction",
+      value: `${"compaction".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(COMPACTION_OPTIONS, snapshot.compactionMode)}`,
+      describe: {
+        what: "how the transcript is trimmed once the context fills.",
+        impact:
+          "summarize spends a model call and keeps the thread; drop is instant and loses the middle of the session.",
+      },
+      cycle: (dir) =>
+        settings.setCompactionMode(
+          cycleValue(COMPACTION_OPTIONS.map((o) => o.id), snapshot.compactionMode, dir),
+        ),
+    },
+    {
+      id: "session-mode",
+      value: `${"session mode".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_MODE_OPTIONS, snapshot.sessionMode)}`,
+      describe: {
+        what: "single agent works in-session; orchestrator delegates through a worker fleet.",
+        impact: "orchestrator can run sub-agents concurrently and costs more per turn.",
+        tone: "consequence",
+      },
+      cycle: (dir) =>
+        settings.setSessionMode(
+          cycleValue(SESSION_MODE_OPTIONS.map((o) => o.id), snapshot.sessionMode, dir),
+          snapshot.sessionModeScope,
+        ),
+    },
+    {
+      id: "session-scope",
+      value: `${"  scope".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope)}`,
+      describe: {
+        what: "whether the session mode above applies to every repo or just this one.",
+        impact: "this repo writes a local override that takes precedence over the global default.",
+      },
+      cycle: (dir) =>
+        settings.setSessionMode(
+          snapshot.sessionMode,
+          cycleValue(SESSION_SCOPE_OPTIONS.map((o) => o.id), snapshot.sessionModeScope, dir),
+        ),
+    },
+    {
+      id: "subagents",
+      value: `${"sub-agents".padEnd(SETTINGS_NAME_WIDTH)}‹ ${snapshot.maxConcurrentSubAgents} ›`,
+      describe: {
+        what: "the most sub-agents an orchestrator session runs at once.",
+        impact: "raising the cap runs more work in parallel and spends more tokens per turn.",
+        tone: "consequence",
+      },
+      cycle: (dir) =>
+        settings.setMaxConcurrentSubAgents(
+          cycleValue(SUBAGENT_LIMIT_CHOICES, snapshot.maxConcurrentSubAgents, dir),
+        ),
+    },
+    {
+      id: "wait-for-approval",
+      value: `${"approval wait".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off")}`,
+      describe: {
+        what: "whether a tool's time budget pauses while waiting on your approval.",
+        impact: "off counts the wait against the tool's timeout, so a slow approval can time it out.",
+        tone: "consequence",
+      },
+      cycle: () => settings.setWaitForApproval(!snapshot.waitForApproval),
+    },
+    {
+      id: "telemetry",
+      value: `${"telemetry".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off")}`,
+      describe: {
+        what: "anonymous usage data shared to help improve corbits.",
+        impact: "off stops all telemetry from this session.",
+        tone: "consequence",
+      },
+      cycle: () => settings.setTelemetryEnabled(!snapshot.telemetryEnabled),
+    },
+  ]
+}
+
+/** One navigation row: opens a full sub-surface instead of cycling in place. */
+type SettingsNavRow = {
+  readonly id: string
+  readonly value: string
+  readonly describe: ItemDescription
+}
+
+/**
+ * Nav rows other than permissions, which is the only one with an async source
+ * (`permissions.list()`). Plugins and hooks read synchronously, so keeping
+ * them out of a promise chain means a settings open with no permissions dep
+ * paints in the same tick it was requested — callers that open and immediately
+ * assert on `shell.overlayKind` depend on that.
+ */
+function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
+  const rows: SettingsNavRow[] = []
+  if (deps.plugins) {
+    const entries = deps.plugins.list()
+    const enabled = entries.filter((e) => e.enabled).length
+    const needsKey = entries.filter((e) => e.needsTrust === true).length
+    const suffix = needsKey > 0 ? ` · ${needsKey} needs a key` : ""
+    rows.push({
+      id: "plugins",
+      value: `${"plugins".padEnd(SETTINGS_NAME_WIDTH)}${enabled} enabled${suffix}`,
+      describe: {
+        what: "discovered plugins and whether each is enabled.",
+        impact: "disabling a plugin removes its tools and commands immediately.",
+        tone: "consequence",
+      },
+    })
   }
+  if (deps.settings?.hooksSummary) {
+    const summary = deps.settings.hooksSummary()
+    const suffix = summary.off > 0 ? ` · ${summary.off} off` : ""
+    rows.push({
+      id: "hooks",
+      value: `${"hooks".padEnd(SETTINGS_NAME_WIDTH)}${summary.discovered} discovered${suffix}`,
+      describe: {
+        what: "lifecycle hooks discovered for this session.",
+        impact: "a hook that is off does not run, even when its trigger fires.",
+      },
+    })
+  }
+  return rows
+}
+
+function permissionsNavRow(count: number): SettingsNavRow {
+  return {
+    id: "permissions",
+    value: `${"permissions".padEnd(SETTINGS_NAME_WIDTH)}${count} remembered`,
+    describe: {
+      what: "remembered tool approvals from earlier in this session.",
+      impact: "revoking one means the next matching tool call asks again.",
+    },
+  }
+}
+
+/** Render the menu from a fully-resolved row set — the part every open path shares. */
+function renderSettingsMenu(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  settings: SettingsSurfaceDeps,
+  navRows: readonly SettingsNavRow[],
+): void {
+  // Cycling re-enters openSettingsSurface to refresh every row's closures
+  // against the just-written value; closing first forces a real reopen (a
+  // second open of the same primary kind while one is showing is a no-op)
+  // while the captured index keeps the cursor where the operator left it.
+  const activeIndex = shell.overlayList?.activeIndex ?? 0
   closeInsetOverlay(shell)
   const snapshot = settings.read()
-  const rows = settingsRows(snapshot)
+  const cycleRows = settingsCycleRows(snapshot, settings)
+  const byId = new Map<string, SettingsCycleRow>(cycleRows.map((r) => [r.id, r]))
+  const descById = new Map<string, ItemDescription>([
+    ...cycleRows.map((r) => [r.id, r.describe] as const),
+    ...navRows.map((r) => [r.id, r.describe] as const),
+  ])
+  const ids = [...cycleRows.map((r) => r.id), ...navRows.map((r) => r.id)]
+  const items = [...cycleRows.map((r) => r.value), ...navRows.map((r) => r.value)]
+
   openSettingsOverlay(shell, {
-    ...payload(rows),
+    items,
+    itemIds: ids,
+    activeIndex: Math.min(activeIndex, Math.max(0, items.length - 1)),
+    describe: (id) => descById.get(id) ?? null,
+    onCycle: (id, direction) => {
+      const row = byId.get(id)
+      if (!row) return
+      row.cycle(direction)
+      openSettingsSurface(shell, deps)
+    },
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
+      const id = residualIdFromSelection(selection, ids)
       switch (id) {
         case "permissions":
           openPermissionsSurface(shell, deps)
           return
-        case "compaction":
-          openChoice(
-            shell,
-            deps,
-            "compaction",
-            [
-              { id: "llm", label: "Summarize — LLM handoff at the context threshold" },
-              { id: "pruning", label: "Drop — delete older turns, no inference call" },
-            ],
-            (choice) => settings.setCompactionMode(choice === "pruning" ? "pruning" : "llm"),
-          )
+        case "plugins":
+          openPluginsSurface(shell, deps)
           return
-        case "session-mode":
-          openChoice(
-            shell,
-            deps,
-            "session mode",
-            SESSION_MODES.map((mode) => ({ id: mode, label: mode })),
-            (choice) => {
-              if (choice === "single" || choice === "orchestrator") {
-                settings.setSessionMode(choice)
-              }
-            },
-          )
-          return
-        case "subagents":
-          openChoice(
-            shell,
-            deps,
-            "sub-agents",
-            SUBAGENT_LIMIT_CHOICES.map((n) => ({ id: String(n), label: `max ${n}` })),
-            (choice) => {
-              const limit = Number(choice)
-              if (Number.isFinite(limit)) settings.setMaxConcurrentSubAgents(limit)
-            },
-          )
-          return
-        case "wait-for-approval":
-          settings.setWaitForApproval(!snapshot.waitForApproval)
-          openSettingsSurface(shell, deps)
-          return
-        case "telemetry":
-          settings.setTelemetryEnabled(!snapshot.telemetryEnabled)
+        case "hooks":
+          if (deps.settings?.openHooks) {
+            deps.settings.openHooks()
+            return
+          }
+          deps.notify("Hooks administration is not available in this session.")
           openSettingsSurface(shell, deps)
           return
         default:
           return
       }
     },
+  })
+}
+
+/**
+ * Settings menu, re-opened after every change so values stay current.
+ *
+ * Permissions is the only nav row with an async source; without that dep the
+ * whole open resolves synchronously, so a caller that opens and immediately
+ * inspects the shell (no permissions admin wired) sees it painted.
+ */
+export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+  const settings = deps.settings
+  if (settings === undefined) {
+    openSettingsOverlay(shell)
+    return
+  }
+  if (deps.permissions === undefined) {
+    renderSettingsMenu(shell, deps, settings, settingsSyncNavRows(deps))
+    return
+  }
+  void deps.permissions.list().then((entries) => {
+    renderSettingsMenu(shell, deps, settings, [
+      permissionsNavRow(entries.length),
+      ...settingsSyncNavRows(deps),
+    ])
   })
 }
 
@@ -274,11 +525,223 @@ export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps
   )
 }
 
-/** Discovered plugins; Enter toggles enablement (and records trust upstream). */
+/** Live edit state for the open credentials pane. */
+type CredentialPaneState = {
+  values: Record<string, string>
+  editing: number | null
+  buffer: string
+}
+
+/** Bullet-render a field's row label: masked live echo while editing, saved summary otherwise. */
+function credentialRowLabel(
+  field: PluginCredentialFieldEntry,
+  saved: string,
+  isEditing: boolean,
+  buffer: string,
+): string {
+  if (isEditing) {
+    const shown = field.secret === true ? maskEcho(buffer) : buffer
+    return `${field.label}: ${shown}▏`
+  }
+  if (saved.length === 0) return `${field.label}: (unset)`
+  return `${field.label}: ${field.secret === true ? maskSecret(saved) : saved}`
+}
+
+/**
+ * Credential entry pane for one plugin. Enter starts/commits an inline edit;
+ * s saves; v saves then verifies. A secret field is never echoed in the
+ * clear — the buffer is displayed only through `maskEcho`/`maskSecret`, and
+ * every keystroke mutates the real value directly (append/backspace), so
+ * there is no masked-display round-trip to get wrong.
+ */
+function openCredentialsPane(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  plugins: PluginsSurfaceDeps,
+  entry: PluginEntry,
+  state: CredentialPaneState,
+): void {
+  closeInsetOverlay(shell)
+  const fields = entry.credentials
+  const rows: ResidualCatalogEntry[] = fields.map((f, i) => ({
+    id: f.key,
+    label: credentialRowLabel(f, state.values[f.key] ?? "", state.editing === i, state.buffer),
+  }))
+  rows.push({ id: BACK_ID, label: "Back to plugin" })
+  openListOverlay(shell, {
+    kind: "plugin_credentials",
+    title: `${entry.name} · credentials`,
+    frameId: "overlay-plugin-credentials",
+    activeIndex: Math.min(state.editing ?? 0, rows.length - 1),
+    ...payload(rows),
+    describe: (id) => {
+      if (id === BACK_ID) return { what: "Return to the plugin row." }
+      const field = fields.find((f) => f.key === id)
+      if (field === undefined) return null
+      return {
+        what: field.description ?? field.label,
+        impact: "Enter edits this field. s saves. v saves then verifies.",
+      }
+    },
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows)
+      if (id === undefined || id === BACK_ID) {
+        openPluginsSurface(shell, deps)
+        return
+      }
+      const idx = fields.findIndex((f) => f.key === id)
+      if (idx < 0) return
+      if (state.editing === idx) {
+        state.values = { ...state.values, [id]: state.buffer }
+        state.editing = null
+        state.buffer = ""
+      } else {
+        state.editing = idx
+        state.buffer = state.values[id] ?? ""
+      }
+      openCredentialsPane(shell, deps, plugins, entry, state)
+    },
+    onAction: (_id, key) => {
+      if (state.editing === null) {
+        if (key.ctrl || key.meta || key.option) return false
+        if (key.name === "s") {
+          void Promise.resolve(plugins.saveCredentials(entry.id, state.values)).then(
+            () => deps.notify(`Saved credentials for ${entry.name}.`),
+            (err: unknown) => deps.notify(`Save failed: ${errorText(err)}`),
+          )
+          return true
+        }
+        if (key.name === "v") {
+          void Promise.resolve(plugins.saveCredentials(entry.id, state.values))
+            .then(() => plugins.verify(entry.id, state.values))
+            .then(
+              (result) =>
+                deps.notify(`${entry.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
+              (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
+            )
+          return true
+        }
+        return false
+      }
+      if (key.name === "backspace") {
+        state.buffer = state.buffer.slice(0, -1)
+        openCredentialsPane(shell, deps, plugins, entry, state)
+        return true
+      }
+      const seq = typeof key.sequence === "string" ? key.sequence : ""
+      if (seq.length === 1 && seq >= " " && !key.ctrl && !key.meta && !key.option) {
+        state.buffer += seq
+        openCredentialsPane(shell, deps, plugins, entry, state)
+        return true
+      }
+      return false
+    },
+  })
+}
+
+/** Single-field free-text prompt, used for "add plugin by path". */
+function openTextPromptPane(
+  shell: AppShell,
+  opts: {
+    readonly title: string
+    readonly what: string
+    readonly onSubmit: (value: string) => void
+  },
+  buffer: { value: string },
+): void {
+  closeInsetOverlay(shell)
+  openListOverlay(shell, {
+    kind: "plugin_credentials",
+    title: opts.title,
+    frameId: "overlay-plugin-textprompt",
+    items: [buffer.value.length === 0 ? "▏" : `${buffer.value}▏`],
+    itemIds: ["value"],
+    describe: () => ({ what: opts.what, impact: "Enter accepts. Esc cancels." }),
+    onAccept: () => opts.onSubmit(buffer.value.trim()),
+    onAction: (_id, key) => {
+      if (key.ctrl || key.meta || key.option) return false
+      if (key.name === "backspace") {
+        buffer.value = buffer.value.slice(0, -1)
+        openTextPromptPane(shell, opts, buffer)
+        return true
+      }
+      const seq = typeof key.sequence === "string" ? key.sequence : ""
+      if (seq.length === 1 && seq >= " ") {
+        buffer.value += seq
+        openTextPromptPane(shell, opts, buffer)
+        return true
+      }
+      return false
+    },
+  })
+}
+
+function openAddPathPane(shell: AppShell, deps: CommandSurfaceDeps, plugins: PluginsSurfaceDeps): void {
+  openTextPromptPane(
+    shell,
+    {
+      title: "add plugin by path",
+      what: "Absolute or relative path to a plugin file or directory.",
+      onSubmit: (path) => {
+        if (path.length === 0) {
+          deps.notify("Enter a path first.")
+          return
+        }
+        void plugins.addPath(path).then(
+          (result) => {
+            deps.notify(result.message)
+            openPluginsSurface(shell, deps)
+          },
+          (err: unknown) => deps.notify(`Add failed: ${errorText(err)}`),
+        )
+      },
+    },
+    { value: "" },
+  )
+}
+
+function openWebProviderChooser(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  plugins: PluginsSurfaceDeps,
+): void {
+  closeInsetOverlay(shell)
+  const providers = plugins.webProviders()
+  const current = plugins.currentWebProvider()
+  const AUTO_ID = "__auto__"
+  const rows: ResidualCatalogEntry[] = [
+    { id: AUTO_ID, label: current === undefined ? "‹ automatic ›" : "automatic" },
+    ...providers.map((p) => ({ id: p.id, label: p.id === current ? `‹ ${p.name} ›` : p.name })),
+    { id: BACK_ID, label: "Back to plugins" },
+  ]
+  openListOverlay(shell, {
+    kind: "plugins",
+    title: "web search provider",
+    frameId: "overlay-plugin-web",
+    ...payload(rows),
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows)
+      if (id === undefined || id === BACK_ID) {
+        openPluginsSurface(shell, deps)
+        return
+      }
+      const chosen = id === AUTO_ID ? undefined : id
+      void Promise.resolve(plugins.setWebProvider(chosen)).then(
+        () => openPluginsSurface(shell, deps),
+        (err: unknown) => deps.notify(`Set provider failed: ${errorText(err)}`),
+      )
+    },
+  })
+}
+
+/**
+ * Discovered plugins. Enter toggles enablement (blocked pre-trust); c opens
+ * credentials, v verifies, t trusts, a adds by path, w picks the web provider.
+ */
 export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
   const plugins = deps.plugins
   if (plugins === undefined) {
-    openPluginsOverlay(shell)
+    deps.notify("Plugin administration is not available in this session.")
     return
   }
   closeInsetOverlay(shell)
@@ -291,16 +754,111 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     rows.push({ id: CLOSE_ID, label: "No plugins discovered" })
   }
   rows.push({ id: CLOSE_ID, label: "Close plugins" })
-  openPluginsOverlay(shell, {
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  openListOverlay(shell, {
+    kind: "plugins",
+    title: "plugins",
+    frameId: "overlay-plugins",
     ...payload(rows),
+    describe: (id) => {
+      const target = byId.get(id)
+      return target === undefined ? null : pluginDescription(target)
+    },
     onAccept: (selection) => {
       const id = selectedId(selection, rows)
       if (id === undefined || id === CLOSE_ID) return
-      const target = entries.find((e) => e.id === id)
+      const target = byId.get(id)
       if (target === undefined) return
+      if (target.needsTrust === true) {
+        deps.notify(`${target.name} is untrusted — press t to trust it before enabling.`)
+        openPluginsSurface(shell, deps)
+        return
+      }
       void Promise.resolve(plugins.setEnabled(target.id, !target.enabled)).then(
         () => openPluginsSurface(shell, deps),
         (err: unknown) => deps.notify(`Plugin update failed: ${errorText(err)}`),
+      )
+    },
+    onAction: (id, key) => {
+      if (key.ctrl || key.meta || key.option) return false
+      const target = byId.get(id)
+      if (target === undefined) return false
+      switch (key.name) {
+        case "c":
+          if (target.credentials.length === 0) return false
+          openCredentialsPane(shell, deps, plugins, target, {
+            values: { ...target.credentialValues },
+            editing: null,
+            buffer: "",
+          })
+          return true
+        case "v":
+          void plugins.verify(target.id, { ...target.credentialValues }).then(
+            (result) =>
+              deps.notify(`${target.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
+            (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
+          )
+          return true
+        case "t":
+          if (target.needsTrust !== true) return false
+          void Promise.resolve(plugins.setEnabled(target.id, true)).then(
+            () => openPluginsSurface(shell, deps),
+            (err: unknown) => deps.notify(`Trust failed: ${errorText(err)}`),
+          )
+          return true
+        case "a":
+          openAddPathPane(shell, deps, plugins)
+          return true
+        case "w":
+          openWebProviderChooser(shell, deps, plugins)
+          return true
+        default:
+          return false
+      }
+    },
+  })
+}
+
+function hookRowLabel(entry: HookEntry): string {
+  return `${entry.name} — ${entry.enabled ? "enabled" : "disabled"}`
+}
+
+/** Discovered lifecycle hooks; Enter toggles enablement. */
+export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+  const hooks = deps.hooks
+  if (hooks === undefined) {
+    deps.notify("Hook administration is not available in this session.")
+    return
+  }
+  closeInsetOverlay(shell)
+  const entries = hooks.list()
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.id, label: hookRowLabel(e) }))
+  if (rows.length === 0) {
+    rows.push({ id: CLOSE_ID, label: "No hooks discovered" })
+  }
+  rows.push({ id: CLOSE_ID, label: "Close hooks" })
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  openListOverlay(shell, {
+    kind: "hooks",
+    title: "hooks",
+    frameId: "overlay-hooks",
+    ...payload(rows),
+    describe: (id) => {
+      const target = byId.get(id)
+      if (target === undefined) return null
+      return {
+        what: `${target.runsOn} — ${target.path}`,
+        impact: target.enabled ? "Enter turns this hook off." : "Enter turns this hook on.",
+      }
+    },
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows)
+      if (id === undefined || id === CLOSE_ID) return
+      const target = byId.get(id)
+      if (target === undefined) return
+      void Promise.resolve(hooks.setEnabled(target.id, !target.enabled)).then(
+        () => openHooksSurface(shell, deps),
+        (err: unknown) => deps.notify(`Hook update failed: ${errorText(err)}`),
       )
     },
   })
@@ -332,6 +890,9 @@ export function openCommandSurface(
       return true
     case "plugins":
       openPluginsSurface(shell, deps)
+      return true
+    case "hooks":
+      openHooksSurface(shell, deps)
       return true
     case "models":
       if (deps.openModels === undefined) return false

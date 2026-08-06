@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import {
   buildModelCatalog,
   buildModelsFirstCatalog,
+  connectRowId,
+  describeModelCatalogOption,
   modelOptionId,
   type ModelCatalogProvider,
 } from "./model-catalog"
@@ -169,7 +171,7 @@ describe("buildModelsFirstCatalog", () => {
 
     const recent = list.find((r) => r.section === "recent")
     expect(recent?.warning).toMatch(/Go model on Zen path/)
-    expect(recent?.label).toContain("Go model on Zen path")
+    expect(recent?.label).not.toContain("Go model on Zen path")
 
     const goRow = list.find((r) => r.id === "opencode-go:kimi-k2.7-code")
     expect(goRow?.warning).toBeUndefined()
@@ -193,5 +195,48 @@ describe("buildModelsFirstCatalog", () => {
       favorites: [],
     })
     expect(list[0]?.label).toBe("custom / m1")
+  })
+
+  test("appends a not-connected connect row for each unconnected provider", () => {
+    const list = buildModelsFirstCatalog({
+      providers: [xai],
+      recent: [],
+      favorites: [],
+      unconnected: [
+        { name: "openai", label: "OpenAI", modelCount: 4, authKind: "key" },
+      ],
+    })
+
+    const row = list.find((r) => r.section === "unconnected")
+    expect(row?.id).toBe(connectRowId("openai"))
+    expect(row?.label).toBe("OpenAI — connect →")
+  })
+})
+
+describe("describeModelCatalogOption", () => {
+  test("describes an unconnected provider's connect row", () => {
+    const description = describeModelCatalogOption(
+      { id: connectRowId("openai"), label: "OpenAI — connect →", section: "unconnected" },
+      { unconnected: [{ name: "openai", label: "OpenAI", modelCount: 4, authKind: "key" }] },
+    )
+    expect(description?.what).toMatch(/not set up yet/i)
+    expect(description?.impact).toMatch(/4 models become available/)
+  })
+
+  test("surfaces the Go-on-Zen billing warning as a consequence-toned impact, not the label", () => {
+    const description = describeModelCatalogOption(
+      { id: "zen:kimi-k2.7-code", label: "OpenCode Zen / kimi-k2.7-code", warning: "Go model on Zen path" },
+      { pricing: null },
+    )
+    expect(description?.tone).toBe("consequence")
+    expect(description?.impact).toMatch(/Zen credits/)
+  })
+
+  test("reports pricing as unknown rather than inventing a number", () => {
+    const description = describeModelCatalogOption(
+      { id: "xai:grok-4", label: "xAI / grok-4" },
+      { pricing: null },
+    )
+    expect(description?.impact).toMatch(/pricing unknown/i)
   })
 })

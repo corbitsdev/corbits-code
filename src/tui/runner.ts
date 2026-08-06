@@ -1,4 +1,5 @@
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
+import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import {
   createAgent,
@@ -22,6 +23,7 @@ import {
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
+  pushRecentModel,
   resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
@@ -29,11 +31,15 @@ import {
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
   markLastChangelogVersion,
+  toggleFavoriteModel,
+  type ModelRef,
   type Settings,
   type LocalSettings,
   type PluginConfig,
   type ProviderTier,
 } from "../config/settings.js";
+import { providerChoices } from "../tui-opentui/provider-setup.js";
+import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { createGateRequestApproval } from "./request-approval.js";
 import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
@@ -85,6 +91,9 @@ import { loadStartupChangelogMarkdown } from "../changelog/index.js";
 import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
+import { getActivePricingCache } from "../cost/cost-visibility.js";
+import { createFaremeter, formatCost } from "../cost/faremeter.js";
+import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -477,10 +486,58 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   try {
   const emitter = createTUIEventEmitter();
+  const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
+    Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [id, v.enabled]),
+  );
   const hookManager = createLifecycleHookManager({
     hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     onEvent: (event) => emitter.emit("hook", event),
+    initialEnabled: initialHookEnabled,
   });
+  // Cheap static check, not a real parser: a shell hook always receives the
+  // lifecycle name as $1, so it can react to either; a TypeScript hook's
+  // exports tell us which of postTurn/postRun it actually implements.
+  const hookRunsOn = new Map<string, string>();
+  for (const status of hookManager.getStatuses()) {
+    if (status.type === "shell") {
+      hookRunsOn.set(status.id, "runs postTurn and postRun (receives the lifecycle name as $1)");
+      continue;
+    }
+    try {
+      const source = await readFile(status.path, "utf8");
+      const hasPostTurn = /export\s+(async\s+)?function\s+postTurn\b/.test(source);
+      const hasPostRun = /export\s+(async\s+)?function\s+postRun\b/.test(source);
+      hookRunsOn.set(
+        status.id,
+        hasPostTurn && hasPostRun
+          ? "runs postTurn and postRun"
+          : hasPostTurn
+            ? "runs postTurn"
+            : hasPostRun
+              ? "runs postRun"
+              : "no postTurn/postRun export found — see file",
+      );
+    } catch {
+      hookRunsOn.set(status.id, "could not read hook file — see file");
+    }
+  }
+  let liveHookConfig: Record<string, { enabled: boolean }> = { ...(config.settings?.hooks ?? {}) };
+  const persistHookSettings = async (): Promise<void> => {
+    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+    if (base === null) {
+      tuiLogger.warn("Skipping hook settings write: unreadable global settings at {path}", {
+        path: config.globalSettingsPath,
+      });
+      return;
+    }
+    const next: Settings = { ...base, hooks: liveHookConfig };
+    await saveGlobalSettings(config.globalSettingsPath, next);
+  };
+  const setHookEnabled = async (id: string, enabled: boolean): Promise<void> => {
+    hookManager.setEnabled(id, enabled);
+    liveHookConfig = { ...liveHookConfig, [id]: { enabled } };
+    await persistHookSettings();
+  };
   let runError: string | undefined;
 
   const recordRunError = (err: unknown): void => {
@@ -860,6 +917,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(toolWatchdogFromSettings(config.settings) ?? {}),
   };
   const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
+  // A local override wins on read; the settings surface's scope switch mirrors
+  // that back so the operator sees which file a change would land in.
+  let liveSessionModeScope: SessionModeScope = localSettingsForMode?.sessionMode !== undefined ? "local" : "global";
   let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
   if (liveSessionMode === undefined) {
     const picked = await promptSessionModeIfUnset(config.globalSettingsPath);
@@ -1608,6 +1668,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const commandContext: CommandContext = {
     signalClear: newSession,
     getMCPServers: () => connectedMcpServers.map((s) => ({ name: s.name, tools: [] })),
+    getCostSummary: (): CostSummary => {
+      const usage = runSink.getTokenUsage();
+      const lastTurnUsage = runSink.getLastTurnUsage();
+      const pricingCache = getActivePricingCache();
+      const faremeter = createFaremeter({ modelId: config.model, pricingCache });
+      faremeter.addUsage(usage);
+      const totalCost = faremeter.getTotalCost();
+      return buildCostSummary({
+        modelId: config.model,
+        baseURL: config.baseURL,
+        pricingCache,
+        totalCost,
+        formattedCost: formatCost(totalCost),
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        cacheReadTokens: usage.cacheRead,
+        contextTokens: lastTurnUsage.input + lastTurnUsage.cacheRead + lastTurnUsage.cacheWrite,
+      });
+    },
     startWorkflow: (name) => workflowController.start(name),
     renameSession: (name) => {
       const trimmed = name.trim();
@@ -1663,6 +1742,23 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       return;
     }
     await saveGlobalSettings(config.globalSettingsPath, apply(base));
+  };
+
+  const localSettingsFile = localSettingsPath(config.cwd);
+  // Same fail-open shape as persistGlobalSettings, against the per-repo file.
+  const persistLocalSettings = async (
+    what: string,
+    apply: (base: LocalSettings) => LocalSettings,
+  ): Promise<void> => {
+    const base = await loadLocalSettingsWriteBase(localSettingsFile);
+    if (base === null) {
+      tuiLogger.warn("Skipping {what} write: unreadable local settings at {path}", {
+        what,
+        path: localSettingsFile,
+      });
+      return;
+    }
+    await saveLocalSettings(localSettingsFile, apply(base));
   };
 
   const applyCommandResult = (result: CommandResult): void => {
@@ -1763,17 +1859,69 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     providers: config.providers,
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
+    unconnectedProviders: providerChoices()
+      .filter((choice) => !choice.custom)
+      .filter((choice) => !config.providers.some((p) => p.name === choice.id))
+      .map((choice) => ({
+        name: choice.id,
+        label: choice.label,
+        modelCount: choice.models.length,
+        authKind: choice.oauth !== null ? ("oauth" as const) : ("key" as const),
+      })),
+    onConnectProvider: (providerName) => {
+      // Live inline connect (CL-5499) needs a text-input-capable overlay that
+      // does not exist in shell.ts's list-overlay kit yet — see AGENTS report.
+      systemRow(
+        `Connecting ${providerName} from the running session isn't wired up yet — run /model after restarting, or reconnect via onboarding.`,
+      );
+    },
     modelLabel: () => ({
       profile: config.providerName,
       model: config.model,
       ...(config.reasoningEffort !== undefined ? { effort: config.reasoningEffort } : {}),
     }),
+    readCostSummary: () => commandContext.getCostSummary?.(),
     onModelSelect: (id) => {
       const sep = id.indexOf(":");
       if (sep <= 0) return;
-      config = { ...config, providerName: id.slice(0, sep), model: id.slice(sep + 1) };
+      const provider = id.slice(0, sep);
+      const model = id.slice(sep + 1);
+      config = { ...config, providerName: provider, model };
       const bundle = buildSessionSources();
       agentProxy.setSources(bundle.sources, bundle.defaultSource);
+
+      const ref: ModelRef = { provider, model };
+      void (async () => {
+        const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
+          providers: {},
+        };
+        const next = pushRecentModel({ ...onDisk, defaultProvider: provider }, ref);
+        await saveGlobalSettings(trueGlobalSettingsPath, next);
+        config = { ...config, settings: next };
+        host.refreshModels(listRecentModels(next), listFavoriteModels(next));
+      })().catch((err: unknown) => {
+        tuiLogger.debug("model selection persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    },
+    onFavoriteToggle: (id) => {
+      const sep = id.indexOf(":");
+      if (sep <= 0) return;
+      const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
+      void (async () => {
+        const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
+          providers: {},
+        };
+        const next = toggleFavoriteModel(onDisk, ref);
+        await saveGlobalSettings(trueGlobalSettingsPath, next);
+        config = { ...config, settings: next };
+        host.refreshModels(listRecentModels(next), listFavoriteModels(next));
+      })().catch((err: unknown) => {
+        tuiLogger.debug("favorite toggle persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     },
     commands: listCommands().map((c) => ({ name: c.name, description: c.description })),
     onCommand: (name) => {
@@ -1825,22 +1973,56 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       plugins: {
         list: () => {
           const cfg = pluginsAdmin.getConfig();
-          return pluginsAdmin.list().map((p) => ({
-            id: p.id,
-            name: p.name,
-            enabled: cfg[p.id]?.enabled === true,
-            ...(p.needsTrust === true ? { needsTrust: true } : {}),
-          }));
+          return pluginsAdmin.list().map((p) => {
+            const mod = livePluginModules.find((m) => m.manifest?.id === p.id);
+            return {
+              id: p.id,
+              name: p.name,
+              enabled: cfg[p.id]?.enabled === true,
+              credentials: p.credentials,
+              credentialValues: cfg[p.id]?.credentials ?? {},
+              ...(p.kind !== undefined ? { kind: p.kind } : {}),
+              ...(p.description !== undefined ? { description: p.description } : {}),
+              ...(p.needsTrust === true ? { needsTrust: true } : {}),
+              ...(p.canRevokeTrust === true ? { canRevokeTrust: true } : {}),
+              ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
+              ...(p.needsTrust === true && mod?.pluginPath !== undefined
+                ? { originPath: mod.pluginPath }
+                : {}),
+            };
+          });
         },
         setEnabled: async (id, enabled) => {
           const existing = pluginsAdmin.getConfig()[id] ?? {};
           await pluginsAdmin.saveConfig(id, { ...existing, enabled });
         },
+        saveCredentials: async (id, credentials) => {
+          const existing = pluginsAdmin.getConfig()[id] ?? {};
+          await pluginsAdmin.saveConfig(id, { ...existing, credentials });
+        },
+        verify: (id, credentials) => pluginsAdmin.verify(id, credentials),
+        addPath: (path) => pluginsAdmin.addPath(path),
+        webProviders: () => webPluginCandidates.map((c) => ({ id: c.id, name: c.name })),
+        currentWebProvider: () => pluginsAdmin.getWebOverride(),
+        setWebProvider: (id) => pluginsAdmin.setWebOverride(id),
+      },
+      hooks: {
+        list: () =>
+          hookManager.getStatuses().map((status) => ({
+            id: status.id,
+            name: status.name,
+            type: status.type,
+            path: status.path,
+            enabled: status.enabled,
+            runsOn: hookRunsOn.get(status.id) ?? "see file",
+          })),
+        setEnabled: (id, enabled) => setHookEnabled(id, enabled),
       },
       settings: {
         read: () => ({
           compactionMode: liveCompactionMode,
           sessionMode: liveSessionMode ?? "orchestrator",
+          sessionModeScope: liveSessionModeScope,
           maxConcurrentSubAgents: liveMaxConcurrentSubAgents,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
@@ -1852,8 +2034,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             compactionMode: mode,
           }));
         },
-        setSessionMode: (mode) => {
+        setSessionMode: (mode, scope) => {
           liveSessionMode = mode;
+          liveSessionModeScope = scope;
+          if (scope === "local") {
+            void persistLocalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
+            return;
+          }
+          // A stale local override would keep outranking this write on the next
+          // resolve (resolveSessionMode prefers local), so switching back to
+          // "everywhere" clears it rather than leaving it to shadow the global value.
+          void persistLocalSettings("session mode", (base) => {
+            const { sessionMode: _drop, ...rest } = base;
+            return rest;
+          });
           void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
         },
         setMaxConcurrentSubAgents: (limit) => {
@@ -1875,6 +2069,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           liveTelemetryIntent = enabled;
           void onChangeTelemetryEnabled(enabled);
         },
+        hooksSummary: () => {
+          const statuses = hookManager.getStatuses();
+          return {
+            discovered: statuses.length,
+            off: statuses.filter((s) => !s.enabled).length,
+          };
+        },
+        openHooks: () => dispatchCommand("hooks", ""),
       },
     },
   });

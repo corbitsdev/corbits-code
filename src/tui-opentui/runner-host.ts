@@ -20,17 +20,23 @@ import {
 import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
 import {
   buildModelsFirstCatalog,
+  describeModelCatalogOption,
+  type ModelCatalogOption,
   type ModelCatalogProvidersInput,
   type ModelCatalogRef,
+  type ModelCatalogUnconnectedProvider,
 } from "./model-catalog.js"
+import type { ItemDescription } from "./shell.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
 import {
   appendStreamRow,
   clearShellExitHandler,
+  setPromptCostContext,
   setPromptModelLabel,
   setPromptWorkspace,
   setShellExitHandler,
 } from "./shell.js"
+import type { CostSummary } from "../cost/cost-summary.js"
 import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
 import type { PromptActionBarModelLabelInput } from "../tui/components/prompt-action-bar-label.js"
 import type { ObserveSession } from "./residuals.js"
@@ -58,7 +64,13 @@ export type RunnerHostDeps = {
   readonly recentModels?: readonly ModelCatalogRef[]
   /** Favorited provider+model pairs (settings.favoriteModels). */
   readonly favoriteModels?: readonly ModelCatalogRef[]
+  /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
+  readonly unconnectedProviders?: readonly ModelCatalogUnconnectedProvider[]
   readonly onModelSelect: (id: string) => void
+  /** Selecting a "connect →" row; runner owns the actual connect flow. */
+  readonly onConnectProvider?: (providerName: string) => void
+  /** `f` on a focused model row; runner owns the favorite persist + refresh. */
+  readonly onFavoriteToggle?: (id: string) => void
   /** Working directory carried by the prompt box's bottom border. */
   readonly cwd?: string
   /** Branch lookup override for tests; defaults to a real `git rev-parse`. */
@@ -69,6 +81,12 @@ export type RunnerHostDeps = {
    * same config the picker mutates.
    */
   readonly modelLabel?: () => PromptActionBarModelLabelInput
+  /**
+   * Live cost/context source for the bottom border's meter. Read on mount and
+   * again after every completed inference turn, so the meter tracks usage
+   * without a timer of its own.
+   */
+  readonly readCostSummary?: () => CostSummary | undefined
   readonly commands: readonly RegistryCommandSource[]
   readonly onCommand: (name: string) => void
   /** Live chrome snapshot source, read on mount and on every notify. */
@@ -95,6 +113,15 @@ export type RunnerHost = ProductHost & {
    * OpenTUI implementation, so the caller can report the gap.
    */
   readonly openSurface: (kind: CommandSurfaceKind) => boolean
+  /**
+   * Recompute the models-first catalog from fresh recent/favorite refs and
+   * push it into the already-open host — the picker's Recent/Favorites
+   * sections would otherwise never reflect a same-session selection.
+   */
+  readonly refreshModels: (
+    recentModels: readonly ModelCatalogRef[],
+    favoriteModels: readonly ModelCatalogRef[],
+  ) => void
 }
 
 /** Map a subagent transcript entry to a stream row. */
@@ -137,11 +164,17 @@ export function observeSessionFromSubAgents(
 
 /** Mount the OpenTUI host for a live session. */
 export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost> {
-  const models = buildModelsFirstCatalog({
+  let catalog: readonly ModelCatalogOption[] = buildModelsFirstCatalog({
     providers: deps.providers,
     recent: deps.recentModels ?? [],
     favorites: deps.favoriteModels ?? [],
+    unconnected: deps.unconnectedProviders ?? [],
   })
+  const describeModel = (itemId: string): ItemDescription | null =>
+    describeModelCatalogOption(
+      catalog.find((o) => o.id === itemId) ?? { id: itemId, label: itemId },
+      { unconnected: deps.unconnectedProviders ?? [] },
+    )
   const readModelLabel = deps.modelLabel
   const onModelSelect = (id: string): void => {
     deps.onModelSelect(id)
@@ -155,7 +188,15 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     send: deps.send,
     interrupt: deps.interrupt,
     ...(deps.deliver !== undefined ? { deliver: deps.deliver } : {}),
-    ...(models.length > 0 ? { models, onModelSelect } : {}),
+    ...(deps.onConnectProvider !== undefined
+      ? { onConnectProvider: deps.onConnectProvider }
+      : {}),
+    ...(deps.onFavoriteToggle !== undefined
+      ? { onFavoriteToggle: deps.onFavoriteToggle }
+      : {}),
+    models: catalog,
+    onModelSelect,
+    describeModel,
     commands: buildCommandCatalog(deps.commands),
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
@@ -172,6 +213,22 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const unsubscribeChrome = deps.subscribeChrome?.(pushChrome)
 
   if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
+
+  const pushCostContext = (): void => {
+    const summary = deps.readCostSummary?.()
+    if (summary === undefined) return
+    setPromptCostContext(host.shell, {
+      contextPercentUsed: summary.contextPercentUsed,
+      costLabel: summary.costHiddenReason === null ? summary.formattedCost : null,
+    })
+  }
+  pushCostContext()
+  // Every completed inference turn changes both cost and context usage;
+  // nothing else needs a fresher read than that.
+  const onCostEvent = (event: { type: string }): void => {
+    if (event.type === "inference.done") pushCostContext()
+  }
+  deps.eventEmitter.on("event", onCostEvent)
 
   const stopBranchWatch = watchGitBranch({
     cwd,
@@ -190,6 +247,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
 
   const dispose = (): void => {
     stopBranchWatch()
+    deps.eventEmitter.off("event", onCostEvent)
     unsubscribeChrome?.()
     host.renderer.keyInput.off("keypress", onKey)
     clearShellExitHandler(host.shell)
@@ -207,9 +265,23 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       appendStreamRow(host.shell, { role: "system", text, meta: "command" }),
   }
 
+  const refreshModels = (
+    recentModels: readonly ModelCatalogRef[],
+    favoriteModels: readonly ModelCatalogRef[],
+  ): void => {
+    catalog = buildModelsFirstCatalog({
+      providers: deps.providers,
+      recent: recentModels,
+      favorites: favoriteModels,
+      unconnected: deps.unconnectedProviders ?? [],
+    })
+    host.setModels?.(catalog, describeModel)
+  }
+
   return {
     ...host,
     dispose,
     openSurface: (kind) => openCommandSurface(host.shell, kind, surfaceDeps),
+    refreshModels,
   }
 }

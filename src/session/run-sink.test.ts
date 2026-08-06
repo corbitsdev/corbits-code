@@ -77,6 +77,27 @@ describe("createRunSink", () => {
     expect(runSink.getTokenUsage()).toEqual({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   });
 
+  test("getLastTurnUsage reports the latest turn alone, not the running sum", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+    });
+
+    runSink.sink(event("inference.done", {
+      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+      usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { provider: "test", model: "test" },
+    }));
+    runSink.sink(event("inference.done", {
+      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+      usage: { input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 },
+      source: { provider: "test", model: "test" },
+    }));
+
+    expect(runSink.getTokenUsage()).toEqual({ input: 250, output: 30, cacheRead: 5, cacheWrite: 0, thinking: 0 });
+    expect(runSink.getLastTurnUsage()).toEqual({ input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 });
+  });
+
   // Regression: exec finish metrics must not dereference getTurnCollector()
   // when hooks are absent — that path returns null and crashed evals with
   // "null is not an object (evaluating 'turnCollector.getTurnCount')".

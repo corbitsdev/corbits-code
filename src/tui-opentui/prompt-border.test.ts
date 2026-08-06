@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test"
 
 import {
   BORDER,
+  CONTEXT_PRESSURE_THRESHOLD,
   abbreviateHome,
+  composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
+  costContextText,
   isPlainRule,
   ruleText,
   ruleWidth,
@@ -78,6 +81,104 @@ describe("composeRule", () => {
     })
     expect(isPlainRule(parts)).toBe(true)
     expect(ruleText(parts)).toBe("╰────────╯")
+  })
+
+  test("brand, meter and label all seat when the rule is wide enough", () => {
+    const parts = composeRule({
+      width: 60,
+      corners: BOTTOM,
+      brand: "corbits code",
+      meter: "██████████ 68% · $0.42",
+      meterCompact: "██████████ 68%",
+      label: "~/x",
+    })
+    expect(ruleText(parts)).toBe(
+      "╰─ corbits code ──────────── ██████████ 68% · $0.42 ─ ~/x ─╯",
+    )
+    expect(ruleWidth(parts)).toBe(60)
+    expect(parts.some((p) => p.role === "meter")).toBe(true)
+    expect(parts.some((p) => p.role === "label")).toBe(true)
+    expect(parts.some((p) => p.role === "brand")).toBe(true)
+  })
+
+  test("drop order under narrowing: brand goes first, then cost, then context, then the label survives longest", () => {
+    const base = {
+      corners: BOTTOM,
+      brand: "corbits code",
+      meter: "██████████ 68% · $0.42",
+      meterCompact: "██████████ 68%",
+      label: "~/x",
+    }
+
+    // Wide enough for everything.
+    const wide = composeRule({ ...base, width: 60 })
+    expect(wide.some((p) => p.role === "brand")).toBe(true)
+    expect(ruleText(wide)).toContain("$0.42")
+
+    // Too narrow for the brand: it drops first, meter (with cost) and label remain.
+    const noBrand = composeRule({ ...base, width: 34 })
+    expect(noBrand.some((p) => p.role === "brand")).toBe(false)
+    expect(ruleText(noBrand)).toContain("$0.42")
+    expect(ruleText(noBrand)).toContain("~/x")
+
+    // Too narrow for the cost suffix too: the compact meter and label remain.
+    const noCost = composeRule({ ...base, width: 26 })
+    expect(noCost.some((p) => p.role === "brand")).toBe(false)
+    expect(ruleText(noCost)).not.toContain("$0.42")
+    expect(ruleText(noCost)).toContain("68%")
+    expect(ruleText(noCost)).toContain("~/x")
+
+    // Too narrow for the meter at all: only the label remains.
+    const labelOnly = composeRule({ ...base, width: 14 })
+    expect(labelOnly.some((p) => p.role === "meter")).toBe(false)
+    expect(ruleText(labelOnly)).toContain("~/x")
+
+    // Too narrow for anything: plain rule.
+    const plain = composeRule({ ...base, width: 5 })
+    expect(isPlainRule(plain)).toBe(true)
+  })
+
+  test("the rule stays exactly the requested width with a meter present, at every size", () => {
+    for (const width of [120, 80, 60, 48, 40, 20, 10, 3]) {
+      const parts = composeRule({
+        width,
+        corners: BOTTOM,
+        brand: "corbits code",
+        meter: "██████████ 68% · $0.42",
+        meterCompact: "██████████ 68%",
+        label: "~/abklabs/corbits-code (migration/opentui-tui)",
+      })
+      expect(ruleWidth(parts)).toBe(width)
+    }
+  })
+})
+
+describe("composeCostContextMeter", () => {
+  test("null when the context window is unknown", () => {
+    expect(composeCostContextMeter({ contextPercentUsed: null })).toBeNull()
+  })
+
+  test("carries the ramp, percent and cost", () => {
+    const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })
+    expect(meter).not.toBeNull()
+    expect(meter!.percentLabel).toBe("68%")
+    expect(meter!.costLabel).toBe("$0.42")
+    expect(meter!.ramp.length).toBeGreaterThan(0)
+  })
+
+  test("drops the cost suffix when told to, keeping the ramp and percent", () => {
+    const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })!
+    expect(costContextText(meter, true)).toContain("$0.42")
+    expect(costContextText(meter, false)).not.toContain("$0.42")
+    expect(costContextText(meter, false)).toContain("68%")
+  })
+
+  test("turns pressured past the threshold, not before it", () => {
+    const thresholdPercent = CONTEXT_PRESSURE_THRESHOLD * 100
+    const below = composeCostContextMeter({ contextPercentUsed: thresholdPercent - 1 })!
+    const atOrAbove = composeCostContextMeter({ contextPercentUsed: thresholdPercent })!
+    expect(below.pressured).toBe(false)
+    expect(atOrAbove.pressured).toBe(true)
   })
 })
 

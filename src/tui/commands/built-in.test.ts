@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { getCommand, listCommands } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 import { registerBuiltInCommands, setConfiguredTiers } from "./built-in.js";
+import { buildCostSummary } from "../../cost/cost-summary.js";
 
 registerBuiltInCommands();
 
@@ -123,5 +124,34 @@ describe("tier commands", () => {
     expect(names).not.toContain("clever");
 
     setConfiguredTiers({});
+  });
+});
+
+describe("/cost command", () => {
+  it("reports unavailable when the session supplies no summary", () => {
+    const result = getCommand("cost")!.handler("", makeCtx());
+    expect(result).toEqual({
+      type: "message",
+      text: "Cost tracking is not available in this session.",
+    });
+  });
+
+  it("formats the summary the session supplies", () => {
+    const ctx = makeCtx();
+    ctx.getCostSummary = () =>
+      buildCostSummary({
+        modelId: "claude-x",
+        pricingCache: null,
+        totalCost: 0.42,
+        formattedCost: "$0.4200",
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 10,
+        contextTokens: 160,
+      });
+    const result = getCommand("cost")!.handler("", ctx);
+    expect(result.type).toBe("message");
+    expect((result as { text: string }).text).toContain("Model: claude-x");
+    expect((result as { text: string }).text).toContain("Cost: $0.4200");
   });
 });

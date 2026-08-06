@@ -84,6 +84,11 @@ export type Settings = {
   // plugin can be registered from anywhere on disk, not just by dropping it
   // into .corbits/plugins/.
   pluginPaths?: string[];
+  // Per-hook enable/disable state, keyed by LifecycleHook.id (its discovered file
+  // path). Absent entry means enabled (matches discovery's default). Written by
+  // the /hooks UI; discovery re-seeds each hook's initial LifecycleHookStatus from
+  // this on every launch.
+  hooks?: Record<string, { enabled: boolean }>;
   // When true, also discover plugins listed in ~/.claude/plugins/installed_plugins.json
   // (Claude Code marketplace installs under the cache). Default false — opt-in so
   // Corbits Code never silently imports a large third-party plugin set. Discovered
@@ -449,6 +454,7 @@ const SettingsSchema = type({
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
   "pluginPaths?": "string[]",
+  "hooks?": type({ "[string]": type({ enabled: "boolean" }) }),
   "discoverClaudePlugins?": "boolean",
   "web?": "string",
   "hiddenCommands?": "string[]",
@@ -626,6 +632,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "workflowProfiles",
   "plugins",
   "pluginPaths",
+  "hooks",
   "discoverClaudePlugins",
   "web",
   "hiddenCommands",
@@ -729,6 +736,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] | undefined,
     plugins: s.plugins as Settings["plugins"] | undefined,
     pluginPaths: s.pluginPaths as string[] | undefined,
+    hooks: s.hooks as Settings["hooks"] | undefined,
     discoverClaudePlugins: s.discoverClaudePlugins === true ? true : undefined,
     web: s.web as string | undefined,
     hiddenCommands: s.hiddenCommands as string[] | undefined,

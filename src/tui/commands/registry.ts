@@ -27,7 +27,7 @@ export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
   | { type: "view"; view: "tasks" }
-  | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" }
+  | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" | "hooks" }
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "paste-image" }

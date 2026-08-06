@@ -10,8 +10,13 @@
  */
 
 import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../provider/billing-product.js"
+import { getActivePricingCache } from "../cost/cost-visibility.js"
+import { lookupModelPricing, type PricingCache } from "../cost/pricing-fetcher.js"
+import { contextWindowFor } from "../provider/context-window.js"
+import { modelReasoningCapability } from "../provider/reasoning-effort.js"
+import type { ItemDescription } from "./shell.js"
 
-export type ModelCatalogSection = "recent" | "favorites" | "provider"
+export type ModelCatalogSection = "recent" | "favorites" | "provider" | "unconnected"
 
 /** Picker row — superset of ProductHostModelOption (`id`, `label`). */
 export type ModelCatalogOption = {
@@ -124,6 +129,16 @@ const GO_ON_ZEN_WARNING = "Go model on Zen path — billed as Zen credits"
 /** Default recent-section cap (mirrors config/settings.js DEFAULT_RECENT_MODELS_SHOWN). */
 const DEFAULT_RECENT_MAX = 5
 
+/** Known-but-unconfigured provider, surfaced as a "connect →" row. */
+export type ModelCatalogUnconnectedProvider = {
+  readonly name: string
+  readonly label?: string
+  /** How many models become selectable once this provider is connected. */
+  readonly modelCount: number
+  /** "key" prompts for an API key; "oauth" runs the authorize-link flow. */
+  readonly authKind: "key" | "oauth"
+}
+
 export type BuildModelsFirstCatalogArgs = {
   readonly providers: ModelCatalogProvidersInput
   readonly recent?: readonly ModelCatalogRef[]
@@ -136,6 +151,8 @@ export type BuildModelsFirstCatalogArgs = {
    * billing-product detector; override in tests.
    */
   readonly isGoModelOnZenPath?: (model: string, provider: ModelCatalogProvider) => boolean
+  /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
+  readonly unconnected?: readonly ModelCatalogUnconnectedProvider[]
 }
 
 function providerLabelOf(p: ModelCatalogProvider): string {
@@ -178,7 +195,7 @@ export function buildModelsFirstCatalog(
     const label = `${providerLabelOf(provider)} / ${model}`
     out.push({
       id,
-      label: warning !== undefined ? `${label} — ${warning}` : label,
+      label,
       section,
       ...(warning !== undefined ? { warning } : {}),
     })
@@ -207,5 +224,96 @@ export function buildModelsFirstCatalog(
     }
   }
 
+  for (const provider of args.unconnected ?? []) {
+    const id = connectRowId(provider.name)
+    if (seen.has(id)) continue
+    seen.add(id)
+    const label = provider.label !== undefined && provider.label.trim().length > 0
+      ? provider.label.trim()
+      : provider.name
+    out.push({ id, label: `${label} — connect →`, section: "unconnected" })
+  }
+
   return out
+}
+
+/** Stable id for an unconnected-provider "connect" row. */
+export function connectRowId(providerName: string): string {
+  return `connect:${providerName}`
+}
+
+/** Provider name a connect-row id refers to, or null when `id` is not a connect row. */
+export function providerFromConnectRowId(id: string): string | null {
+  return id.startsWith("connect:") ? id.slice("connect:".length) : null
+}
+
+function formatPrice(perToken: number): string {
+  const perMtok = perToken * 1_000_000
+  return `$${perMtok % 1 === 0 ? perMtok.toFixed(0) : perMtok.toFixed(2)}`
+}
+
+/** Rough per-Mtok multiplier over the "standard" $3 input tier, for decision-relevant framing. */
+const STANDARD_INPUT_PER_MTOK = 3
+
+function pricingImpact(pricing: PricingCache | null, model: string): string {
+  const price = lookupModelPricing(pricing, model)
+  if (price === null) return "Pricing unknown for this model."
+  const inputPerMtok = price.inputPricePerToken * 1_000_000
+  const ratio = inputPerMtok / STANDARD_INPUT_PER_MTOK
+  const ratioText =
+    ratio >= 1.5
+      ? ` — roughly ${Math.round(ratio)}x the standard tier`
+      : ratio <= 0.67
+        ? ` — a fraction of the standard tier`
+        : ""
+  return `${formatPrice(price.inputPricePerToken)} / ${formatPrice(price.outputPricePerToken)} per Mtok${ratioText}.`
+}
+
+function whatLine(model: string): string {
+  const reasoning = modelReasoningCapability(model)
+  const context = contextWindowFor(model)
+  const contextText = context > 0 ? `${Math.round(context / 1000)}k context` : "context length unknown"
+  const tierText = reasoning === true ? "deep reasoning" : reasoning === false ? "standard tier" : "tier unknown"
+  return `${tierText}. ${contextText}.`
+}
+
+/**
+ * Description-zone content for a picker row. `pricing` defaults to the live
+ * models.dev cache; override in tests. Unconnected "connect →" rows and rows
+ * with a billing warning override the plain what/impact pair.
+ */
+export function describeModelCatalogOption(
+  option: ModelCatalogOption,
+  args?: {
+    readonly pricing?: PricingCache | null
+    readonly unconnected?: readonly ModelCatalogUnconnectedProvider[]
+  },
+): ItemDescription | null {
+  const providerName = providerFromConnectRowId(option.id)
+  if (providerName !== null) {
+    const provider = (args?.unconnected ?? []).find((p) => p.name === providerName)
+    const count = provider?.modelCount ?? 0
+    return {
+      what: "Not set up yet. Connecting asks for an API key and stores it in your global settings.",
+      impact: `${count} model${count === 1 ? "" : "s"} become available. Nothing is sent until you send a message.`,
+      tone: "plain",
+    }
+  }
+
+  const model = option.id.slice(option.id.indexOf(":") + 1)
+  const pricing = args?.pricing !== undefined ? args.pricing : getActivePricingCache()
+
+  if (option.warning !== undefined) {
+    return {
+      what: whatLine(model),
+      impact: "A Go model reached over the Zen path. Billed as Zen credits, not your Go subscription.",
+      tone: "consequence",
+    }
+  }
+
+  return {
+    what: whatLine(model),
+    impact: pricingImpact(pricing, model),
+    tone: "plain",
+  }
 }

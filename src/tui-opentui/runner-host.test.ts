@@ -1,9 +1,11 @@
 import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 
+import type { KeyEvent } from "@opentui/core"
+
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
-import { closeInsetOverlay } from "./shell.js"
+import { closeInsetOverlay, runOverlayAction } from "./shell.js"
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -105,6 +107,7 @@ describe("mountRunnerHost command surfaces", () => {
           read: () => ({
             compactionMode: "llm",
             sessionMode: "orchestrator",
+            sessionModeScope: "global",
             maxConcurrentSubAgents: 3,
             waitForApproval: true,
             telemetryEnabled: false,
@@ -121,8 +124,95 @@ describe("mountRunnerHost command surfaces", () => {
       expect(host.openSurface("settings")).toBe(true)
       expect(host.shell.overlayKind).toBe("settings")
       closeInsetOverlay(host.shell)
-      // No model catalog was supplied, so the picker has nothing to open.
-      expect(host.openSurface("models")).toBe(false)
+      // onModelSelect is wired even with an empty catalog, since the "not
+      // connected" section can populate the picker on its own.
+      expect(host.openSurface("models")).toBe(true)
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+})
+
+describe("mountRunnerHost model picker", () => {
+  test("lists a connect row for each unconnected provider, described in the connect copy", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      unconnectedProviders: [
+        { name: "openai", label: "OpenAI", modelCount: 4, authKind: "key" },
+      ],
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.openSurface("models")).toBe(true)
+      expect(host.shell.overlayItems).toContain("OpenAI — connect →")
+      expect(host.shell.overlayItems.some((i) => i.includes("Go model on Zen path"))).toBe(
+        false,
+      )
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("refreshModels moves a selected pair into the Recent section", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4", "grok-3"] } },
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      host.refreshModels([{ provider: "xai", model: "grok-4" }], [])
+      closeInsetOverlay(host.shell)
+      expect(host.openSurface("models")).toBe(true)
+      expect(host.shell.overlayItems[0]).toBe("xai / grok-4")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("f toggles favorite on the focused row via onFavoriteToggle", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const toggled: string[] = []
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      onFavoriteToggle: (id) => toggled.push(id),
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.openSurface("models")).toBe(true)
+      const fKey = { name: "f", ctrl: false, meta: false, option: false } as KeyEvent
+      expect(runOverlayAction(host.shell, fKey)).toBe(true)
+      expect(toggled).toEqual(["xai:grok-4"])
     } finally {
       host.dispose()
       harness.destroy()

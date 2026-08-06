@@ -127,6 +127,12 @@ export function registerBuiltInCommands(): void {
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "plugins" }),
   });
 
+  registerCommand({
+    name: "hooks",
+    description: "List discovered lifecycle hooks and enable or disable them",
+    handler: (_args, _ctx) => ({ type: "overlay", overlay: "hooks" }),
+  });
+
   // Models-first connect: providers are connected from /model (Ctrl+A / c), not a
   // standalone /login picker. Keep codex/xai login modals reachable only via
   // Connect or re-auth on an expired profile.
