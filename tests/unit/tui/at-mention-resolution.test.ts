@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveAtMentions } from "../../../src/tui/mention-resolution.js";
+import { mintPathGrant } from "../../../src/permission/path-grants.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -21,9 +23,10 @@ describe("resolveAtMentions", () => {
   test("inlines small relative files", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @src/small.ts", dir);
-      expect(resolved).toContain("`src/small.ts`:");
-      expect(resolved).toContain("export const value = 1;");
+      const { text, grants } = await resolveAtMentions("read @src/small.ts", dir);
+      expect(text).toContain("`src/small.ts`:");
+      expect(text).toContain("export const value = 1;");
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -32,9 +35,10 @@ describe("resolveAtMentions", () => {
   test("does not inline sensitive files", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @.env", dir);
-      expect(resolved).toContain("@.env (blocked: sensitive path)");
-      expect(resolved).not.toContain("API_KEY=secret");
+      const { text, grants } = await resolveAtMentions("read @.env", dir);
+      expect(text).toContain("@.env (blocked: sensitive path)");
+      expect(text).not.toContain("API_KEY=secret");
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -43,9 +47,10 @@ describe("resolveAtMentions", () => {
   test("does not inline oversized files", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @large.txt", dir);
-      expect(resolved).toContain("@large.txt (blocked: file is too large");
-      expect(resolved.length).toBeLessThan(500);
+      const { text, grants } = await resolveAtMentions("read @large.txt", dir);
+      expect(text).toContain("@large.txt (blocked: file is too large");
+      expect(text.length).toBeLessThan(500);
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -58,11 +63,12 @@ describe("resolveAtMentions", () => {
       await writeFile(join(dir, "two.txt"), "b".repeat(180_000));
       await writeFile(join(dir, "three.txt"), "c".repeat(180_000));
 
-      const resolved = await resolveAtMentions("read @one.txt @two.txt @three.txt", dir);
-      expect(resolved).toContain("`one.txt`:");
-      expect(resolved).toContain("`two.txt`:");
-      expect(resolved).toContain("@three.txt (blocked: total @mention content is too large");
-      expect(resolved.length).toBeLessThan(400_500);
+      const { text, grants } = await resolveAtMentions("read @one.txt @two.txt @three.txt", dir);
+      expect(text).toContain("`one.txt`:");
+      expect(text).toContain("`two.txt`:");
+      expect(text).toContain("@three.txt (blocked: total @mention content is too large");
+      expect(text.length).toBeLessThan(400_500);
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -75,13 +81,13 @@ describe("resolveAtMentions", () => {
         await writeFile(join(dir, `small-${i}.txt`), `file ${i}\n`);
       }
 
-      const resolved = await resolveAtMentions(
+      const { text } = await resolveAtMentions(
         "read @small-0.txt @small-1.txt @small-2.txt @small-3.txt @small-4.txt @small-5.txt",
         dir,
       );
-      expect(resolved).toContain("`small-4.txt`:");
-      expect(resolved).toContain("@small-5.txt (blocked: too many @mentions");
-      expect(resolved).not.toContain("file 5");
+      expect(text).toContain("`small-4.txt`:");
+      expect(text).toContain("@small-5.txt (blocked: too many @mentions");
+      expect(text).not.toContain("file 5");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -91,9 +97,10 @@ describe("resolveAtMentions", () => {
     const dir = await fixture();
     try {
       const absolutePath = join(dir, "src", "small.ts");
-      const resolved = await resolveAtMentions(`read @${absolutePath}`, dir);
-      expect(resolved).toContain(`\`${absolutePath}\`:`);
-      expect(resolved).toContain("export const value = 1;");
+      const { text, grants } = await resolveAtMentions(`read @${absolutePath}`, dir);
+      expect(text).toContain(`\`${absolutePath}\`:`);
+      expect(text).toContain("export const value = 1;");
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -102,56 +109,139 @@ describe("resolveAtMentions", () => {
   test("inlines parent-directory paths", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @../src/small.ts", join(dir, "src"));
-      expect(resolved).toContain("`../src/small.ts`:");
-      expect(resolved).toContain("export const value = 1;");
+      const { text, grants } = await resolveAtMentions("read @../src/small.ts", join(dir, "src"));
+      expect(text).toContain("`../src/small.ts`:");
+      expect(text).toContain("export const value = 1;");
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("blocks symlinks that resolve outside the workspace", async () => {
+  test("expands symlinked outside-workspace files and mints a read grant", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
       await writeFile(join(outside, "outside.txt"), "outside content\n");
       await symlink(outside, join(dir, "escape"));
 
-      const resolved = await resolveAtMentions("read @escape/outside.txt", dir);
-      expect(resolved).toContain("@escape/outside.txt (blocked: outside workspace)");
-      expect(resolved).not.toContain("outside content");
+      const { text, grants } = await resolveAtMentions("read @escape/outside.txt", dir);
+      expect(text).toContain("outside content");
+      expect(grants.length).toBe(1);
+      expect(grants[0]?.kind).toBe("file");
+      expect(grants[0]?.mode).toBe("read");
+      expect(grants[0]?.path).toBe(realpathSync(join(outside, "outside.txt")));
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
     }
   });
 
-  test("blocks absolute paths outside the workspace", async () => {
+  test("expands absolute outside-workspace paths and mints a read grant", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
       const outsideFile = join(outside, "outside.txt");
       await writeFile(outsideFile, "outside content\n");
 
-      const resolved = await resolveAtMentions(`read @${outsideFile}`, dir);
-      expect(resolved).toContain(`@${outsideFile} (blocked: outside workspace)`);
-      expect(resolved).not.toContain("outside content");
+      const { text, grants } = await resolveAtMentions(`read @${outsideFile}`, dir);
+      expect(text).toContain("outside content");
+      expect(grants.length).toBe(1);
+      expect(grants[0]).toEqual({
+        path: realpathSync(outsideFile),
+        mode: "read",
+        kind: "file",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
     }
   });
 
-  test("blocks parent-traversal paths that escape the workspace", async () => {
+  test("expands parent-traversal outside-workspace paths and mints a read grant", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
       await writeFile(join(outside, "outside.txt"), "outside content\n");
       const traversal = `../../${outside.split("/").pop() ?? ""}/outside.txt`;
 
-      const resolved = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
-      expect(resolved).toContain(`@${traversal} (blocked: outside workspace)`);
-      expect(resolved).not.toContain("outside content");
+      const { text, grants } = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
+      expect(text).toContain("outside content");
+      expect(grants.length).toBe(1);
+      expect(grants[0]?.kind).toBe("file");
+      expect(grants[0]?.path).toBe(realpathSync(join(outside, "outside.txt")));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("does not re-mint grants for paths covered by existingGrants", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideFile = join(outside, "outside.txt");
+      await writeFile(outsideFile, "outside content\n");
+
+      const { text, grants } = await resolveAtMentions(`read @${outsideFile}`, dir, {
+        existingGrants: [mintPathGrant(outsideFile, "file")],
+      });
+      expect(text).toContain("outside content");
+      expect(grants).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("mints a dir grant for outside-workspace directories", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      await writeFile(join(outside, "a.txt"), "a\n");
+      await mkdir(join(outside, "sub"));
+
+      const { text, grants } = await resolveAtMentions(`read @${outside}`, dir);
+      expect(text).toContain("directory - ");
+      expect(grants.length).toBe(1);
+      expect(grants[0]?.kind).toBe("dir");
+      expect(grants[0]?.path).toBe(realpathSync(outside));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("still blocks sensitive outside-workspace paths", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideEnv = join(outside, ".env");
+      await writeFile(outsideEnv, "API_KEY=secret\n");
+
+      const { text, grants } = await resolveAtMentions(`read @${outsideEnv}`, dir);
+      expect(text).toContain("(blocked: sensitive path)");
+      expect(text).not.toContain("API_KEY=secret");
+      expect(grants).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("does not grant when total content limit blocks the read", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      await writeFile(join(dir, "one.txt"), "a".repeat(180_000));
+      await writeFile(join(dir, "two.txt"), "b".repeat(180_000));
+      const outsideFile = join(outside, "big.txt");
+      await writeFile(outsideFile, "c".repeat(180_000));
+
+      const { grants } = await resolveAtMentions(`read @one.txt @two.txt @${outsideFile}`, dir);
+      // First two inlined in-workspace (no grant); third blocked by total cap
+      // before any grant is minted (mint happens just before readFile).
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
@@ -172,9 +262,10 @@ describe("resolveAtMentions", () => {
       await execFileAsync("git", ["worktree", "add", "-b", "sibling", worktree], { cwd: repo });
       await writeFile(join(worktree, "shared.ts"), "export const shared = true;\n");
 
-      const resolved = await resolveAtMentions(`read @${join(worktree, "shared.ts")}`, repo);
-      expect(resolved).toContain(`\`${join(worktree, "shared.ts")}\`:`);
-      expect(resolved).toContain("export const shared = true;");
+      const { text, grants } = await resolveAtMentions(`read @${join(worktree, "shared.ts")}`, repo);
+      expect(text).toContain(`\`${join(worktree, "shared.ts")}\`:`);
+      expect(text).toContain("export const shared = true;");
+      expect(grants).toEqual([]);
     } finally {
       await execFileAsync("git", ["worktree", "remove", "--force", worktree]).catch(() => {});
       await rm(repo, { recursive: true, force: true });
@@ -187,9 +278,10 @@ describe("resolveAtMentions", () => {
     try {
       await symlink(join(dir, ".env"), join(dir, "looks-safe.txt"));
 
-      const resolved = await resolveAtMentions("read @looks-safe.txt", dir);
-      expect(resolved).toContain("@looks-safe.txt (blocked: sensitive path)");
-      expect(resolved).not.toContain("API_KEY=secret");
+      const { text, grants } = await resolveAtMentions("read @looks-safe.txt", dir);
+      expect(text).toContain("@looks-safe.txt (blocked: sensitive path)");
+      expect(text).not.toContain("API_KEY=secret");
+      expect(grants).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

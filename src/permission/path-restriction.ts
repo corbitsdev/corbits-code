@@ -3,6 +3,10 @@ import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import type { RootsProvider } from "./worktree-roots.js";
 import { projectSessionsRoot } from "../session/project-key.js";
+import {
+  isPathCoveredByReadGrant,
+  type PathGrant,
+} from "./path-grants.js";
 
 // Paths the agent should not touch without explicit operator approval, even
 // though the read tools are otherwise allow-tier and write/edit auto-allow in
@@ -10,7 +14,8 @@ import { projectSessionsRoot } from "../session/project-key.js";
 //
 //   - anything outside the session workspace (the primary cwd and its
 //     registered worktrees) — autonomy is scoped to the workspace boundary, not
-//     the whole filesystem. Restricted for both reads and writes.
+//     the whole filesystem. Restricted for both reads and writes, unless the
+//     operator has registered a project path grant (read-only) for that path.
 //   - writes under the session state root (global
 //     ~/.corbits/projects/<project-key>/… and legacy in-repo .agent-state) —
 //     the agent should not rewrite its own session history without operator
@@ -24,9 +29,11 @@ import { projectSessionsRoot } from "../session/project-key.js";
 // files (.env, keys, certs); shell commands that only mention those paths
 // require operator approval instead of a hard deny. Results are cached per
 // resolved path and access mode because the gate consults this on every tool
-// call with a path argument.
+// call with a path argument. Call invalidate() after path grants change so
+// mid-session grants take effect.
 export type PathRestriction = {
   isRestricted: (path: string, isWrite: boolean) => boolean;
+  invalidate: () => void;
 };
 
 const LEGACY_STATE_DIR = ".agent-state";
@@ -72,6 +79,9 @@ const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
 // allowlist rather than rejected outright: the raw path alone can't tell a
 // legitimate sibling worktree from a genuinely foreign directory, and both
 // resolve to `../something` from inside a worktree checkout.
+//
+// Path grants are not part of this allowlist — grants only relax isRestricted
+// for reads; resolveWorkspacePath stays a pure workspace-boundary check.
 export function resolveWorkspacePath(
   cwd: string,
   path: string,
@@ -105,10 +115,15 @@ function underRoot(abs: string, root: string): boolean {
 //
 // `home` is injectable so tests can pin the global state root without
 // mutating process env.
+//
+// `getReadGrants` supplies operator-registered read-only path grants for this
+// project. Grants are consulted only for reads (`!isWrite`); writes under a
+// granted tree still ask.
 export function createPathRestriction(
   cwd: string,
   rootsProvider: RootsProvider = () => [],
   home: string = homedir(),
+  getReadGrants: () => readonly PathGrant[] = () => [],
 ): PathRestriction {
   const legacyStateDir = resolve(cwd, LEGACY_STATE_DIR);
   const globalStateDir = projectSessionsRoot(cwd, home);
@@ -118,6 +133,9 @@ export function createPathRestriction(
     underRoot(abs, legacyStateDir) || underRoot(abs, globalStateDir);
 
   return {
+    invalidate: () => {
+      cache.clear();
+    },
     isRestricted: (path: string, isWrite: boolean): boolean => {
       const abs = resolve(cwd, path);
       const cacheKey = `${isWrite ? "w" : "r"}:${abs}`;
@@ -132,8 +150,17 @@ export function createPathRestriction(
       }
 
       const outsideWorkspace = resolveWorkspacePath(cwd, path, rootsProvider) === undefined;
-      cache.set(cacheKey, outsideWorkspace);
-      return outsideWorkspace;
+      if (!outsideWorkspace) {
+        cache.set(cacheKey, false);
+        return false;
+      }
+      // Read grants expand the outside-workspace allow surface for reads only.
+      if (!isWrite && isPathCoveredByReadGrant(abs, getReadGrants())) {
+        cache.set(cacheKey, false);
+        return false;
+      }
+      cache.set(cacheKey, true);
+      return true;
     },
   };
 }

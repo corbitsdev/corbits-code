@@ -1,5 +1,6 @@
 import type { Approval, GrantScope } from "./types.js";
 import type { PermissionGate } from "./gate.js";
+import type { PathGrant } from "./path-grants.js";
 import {
   loadProjectApprovals,
   loadGlobalApprovals,
@@ -14,6 +15,9 @@ export type ScopedApproval = { scope: GrantScope; tool: string; pattern: string;
 export type PermissionsAdmin = {
   list: () => Promise<ScopedApproval[]>;
   revoke: (entry: ScopedApproval) => Promise<void>;
+  // Forward mid-session read-only path grants (e.g. minted by an @mention) into
+  // the live permission gate so reads under them stop prompting immediately.
+  addPathGrants: (grants: readonly PathGrant[]) => void;
 };
 
 function toApproval(entry: ScopedApproval): Approval {
@@ -64,5 +68,9 @@ export function createPermissionsAdmin(gate: PermissionGate, cwd: string): Permi
     await reseed();
   };
 
-  return { list, revoke };
+  const addPathGrants = (grants: readonly PathGrant[]): void => {
+    gate.addPathGrants(grants);
+  };
+
+  return { list, revoke, addPathGrants };
 }

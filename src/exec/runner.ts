@@ -46,6 +46,7 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { getProjectPathGrantsForCwd } from "../permission/path-grants.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type {
   ApprovalOutcome,
@@ -285,6 +286,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       approvals: seededApprovals,
       cwd: config.cwd,
       rootsProvider: createWorktreeRootsProvider(config.cwd),
+      getInitialPathGrants: () => getProjectPathGrantsForCwd(config.settings, config.cwd),
       providerName: config.providerName,
       model: config.model,
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>

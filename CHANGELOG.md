@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Added
+
+- `@<outside-path>` mentions auto-register a read-only project path grant in global settings, keyed by project identity, so subsequent reads (and reads of files under a granted directory) no longer prompt. Sensitive paths remain hard-blocked. (CL-5479)
+
 ### Planned
 
 - Drop native model tiers; HITL vs free-reign Auto; project `@`-path grants in global settings (CL-5479)

@@ -156,6 +156,12 @@ export type Settings = {
   recentModels?: ModelRef[];
   // Operator-starred provider+model pairs for the models-first picker.
   favoriteModels?: ModelRef[];
+  // Read-only outside-workspace path grants, keyed by projectKeyFor(cwd).
+  // Global settings only — never written under the git worktree.
+  projectPathGrants?: Record<
+    string,
+    Array<{ path: string; mode: "read"; kind: "file" | "dir" }>
+  >;
 };
 
 function modelRefKey(ref: ModelRef): string {
@@ -479,6 +485,13 @@ const SettingsSchema = type({
   }),
   "recentModels?": ModelRefSchema.array(),
   "favoriteModels?": ModelRefSchema.array(),
+  "projectPathGrants?": type({
+    "[string]": type({
+      path: "string",
+      mode: "'read'",
+      kind: "'file' | 'dir'",
+    }).array(),
+  }),
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -642,6 +655,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "otel",
   "recentModels",
   "favoriteModels",
+  "projectPathGrants",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -721,6 +735,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     otel: s.otel as Settings["otel"] | undefined,
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
+    projectPathGrants: s.projectPathGrants as Settings["projectPathGrants"] | undefined,
   };
   return {
     providers: s.providers as Settings["providers"],

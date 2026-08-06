@@ -12,6 +12,15 @@ import { findImagePathMentions, imageAttachmentFromPath, type PendingImageAttach
 import { isExitCommand } from "../exit-command.js";
 import { CodexAuthError } from "../../auth/codex/session.js";
 import { XaiAuthError } from "../../auth/xai/session.js";
+import {
+  loadGlobalSettingsWriteBase,
+  saveGlobalSettings,
+} from "../../config/settings.js";
+import { projectKeyFor } from "../../session/project-key.js";
+import {
+  addProjectPathGrant,
+  getProjectPathGrantsForCwd,
+} from "../../permission/path-grants.js";
 import type { ScrollController } from "./use-scroll.js";
 import type { GateController } from "./use-gates.js";
 import type { SubAgentSessionStore } from "../../subagent/index.js";
@@ -50,6 +59,10 @@ export type UseMessagePipelineArgs = {
   forceRender: Dispatch<SetStateAction<number>>;
   sendMessageRef: { current: (message: OutboundUserMessage) => void };
   requestStopRef: { current: () => void };
+  // Path to the global settings file. Used to read existing project path
+  // grants before @mention resolution and to persist any new grants the
+  // resolver mints. Optional only for tests that don't exercise grants.
+  globalSettingsPath?: string;
 };
 
 export type MessagePipelineController = {
@@ -103,6 +116,7 @@ export function useMessagePipeline({
   forceRender,
   sendMessageRef,
   requestStopRef,
+  globalSettingsPath,
 }: UseMessagePipelineArgs): MessagePipelineController {
   // One controller per in-flight send so Ctrl+C / double-Esc can abort the
   // active run. Aborting rejects the send promise; the reactor's current cycle
@@ -292,7 +306,30 @@ export function useMessagePipeline({
       attachments.push(result.attachment);
       text = text.replace(mention.raw, `[Attached image: ${result.attachment.name}]`);
     }
-    return { text: await resolveAtMentions(text, cwd), attachments };
+    // Load existing project grants so the resolver skips re-minting paths the
+    // operator has already granted. Persist any newly minted grants back to the
+    // global settings file and forward them to the live gate so subsequent reads
+    // stop prompting without a restart. Skipped when globalSettingsPath is not
+    // provided (tests that don't exercise grants).
+    const baseSettings =
+      globalSettingsPath !== undefined ? await loadGlobalSettingsWriteBase(globalSettingsPath) : null;
+    const existing =
+      baseSettings !== null ? getProjectPathGrantsForCwd(baseSettings, cwd) : [];
+    const { text: resolvedText, grants } = await resolveAtMentions(text, cwd, {
+      existingGrants: existing,
+    });
+    if (grants.length > 0) {
+      gates.addPathGrants(grants);
+      if (baseSettings !== null && globalSettingsPath !== undefined) {
+        const projectKey = projectKeyFor(cwd);
+        const next = grants.reduce(
+          (s, g) => addProjectPathGrant(s, projectKey, g),
+          baseSettings,
+        );
+        await saveGlobalSettings(globalSettingsPath, next);
+      }
+    }
+    return { text: resolvedText, attachments };
   };
 
   const handleSend = (message: string) => {

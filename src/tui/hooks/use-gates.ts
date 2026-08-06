@@ -4,6 +4,7 @@ import type { Approval, ApprovalOutcome, PermissionRequest } from "../../permiss
 import type { OperatorResult } from "../../agent/tools.js";
 import type { PlanStep } from "../use-stream.js";
 import { goalApprovalTimeoutMessage } from "../../permission/goal-approval-timeout.js";
+import type { PathGrant } from "../../permission/path-grants.js";
 
 
 export type PlanGateEvent = {
@@ -57,6 +58,8 @@ export type GateController = {
   selectOperator: (id: number, result: OperatorResult) => void;
   resolvePermission: (id: number, outcome: ApprovalOutcome) => void;
   resetGates: () => void;
+  /** Forward mid-session @mention path grants into the live permission gate. */
+  addPathGrants: (grants: readonly PathGrant[]) => void;
 };
 
 // Fired synchronously by the permission gate right after a grant is minted
@@ -73,6 +76,8 @@ export type UseGatesArgs = {
   eventEmitter: EventEmitter;
   setGatePending: (pending: boolean) => void;
   activationBlocked?: boolean;
+  /** Delegates to PermissionGate.addPathGrants when wired by the runner. */
+  addPathGrants?: (grants: readonly PathGrant[]) => void;
 };
 
 type PlanQueueEntry = {
@@ -136,6 +141,7 @@ export function useGates({
   eventEmitter,
   setGatePending,
   activationBlocked = false,
+  addPathGrants: addPathGrantsArg,
 }: UseGatesArgs): GateController {
   const [activeApproval, setActiveApproval] = useState<ActiveApproval | null>(null);
   const [queuedApprovals, setQueuedApprovals] = useState<readonly QueuedApprovalSummary[]>([]);
@@ -360,5 +366,6 @@ export function useGates({
     selectOperator: settleOperator,
     resolvePermission: settlePermission,
     resetGates: drainQueue,
+    addPathGrants: addPathGrantsArg ?? (() => {}),
   };
 }

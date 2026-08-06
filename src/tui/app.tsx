@@ -542,6 +542,7 @@ export function App({
     eventEmitter,
     setGatePending: state.setGatePending,
     activationBlocked: approvalActivationBlocked,
+    ...(permissionsAdmin !== undefined ? { addPathGrants: permissionsAdmin.addPathGrants } : {}),
   });
 
   useEffect(() => {
@@ -789,6 +790,7 @@ if (workPrimary && !wasWorkPrimary.current) {
     forceRender,
     sendMessageRef,
     requestStopRef,
+    globalSettingsPath,
   });
 
   const { getCostSummary, commandContext } = useCommandContext({

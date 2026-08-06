@@ -18,6 +18,7 @@ import { evaluateApprovals } from "./authz-grants.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
+import type { PathGrant } from "./path-grants.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import {
   createMcpToolPermissionRegistry,
@@ -218,6 +219,10 @@ export type PermissionGateOptions = {
   // already knows about — so a worktree created mid-session is picked up
   // without a restart.
   rootsProvider?: RootsProvider;
+  // Seed live read-only path grants (from global settings projectPathGrants).
+  // The gate owns a mutable copy; mid-session @mention grants append via
+  // addPathGrants so the restriction cache is invalidated without restart.
+  getInitialPathGrants?: () => readonly PathGrant[];
   // Tiers learned from connected MCP servers (tools/list annotations). Tests may
   // inject a shared registry; production gates create one when omitted.
   mcpTiers?: McpToolPermissionRegistry;
@@ -260,6 +265,9 @@ export type PermissionGate = {
   // glob; a `run_shell` pattern that is not a single real command is dropped
   // rather than minted.
   preApprove: (tool: string, pattern: string) => void;
+  // Append mid-session project path grants (e.g. from an @mention) to the live
+  // list and invalidate the path-restriction cache so the next read honors them.
+  addPathGrants: (grants: readonly PathGrant[]) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
 };
@@ -268,9 +276,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
+  const livePathGrants: PathGrant[] = [...(options.getInitialPathGrants?.() ?? [])];
   const pathRestriction = createPathRestriction(
     resolvedCwd,
     options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd),
+    undefined,
+    () => livePathGrants,
   );
   const isRestricted = pathRestriction.isRestricted;
   let auto = options.auto;
@@ -592,6 +603,16 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     mcpTiers.removeToolsForServer(serverName);
   };
 
+  const addPathGrants = (grants: readonly PathGrant[]): void => {
+    if (grants.length === 0) return;
+    for (const g of grants) {
+      if (!livePathGrants.some((x) => x.path === g.path && x.kind === g.kind && x.mode === g.mode)) {
+        livePathGrants.push(g);
+      }
+    }
+    pathRestriction.invalidate();
+  };
+
   return {
     evaluate,
     getApprovals: () => approvals,
@@ -604,6 +625,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       auto = value;
     },
     preApprove,
+    addPathGrants,
     registerMcpClient,
     unregisterMcpServer,
   };

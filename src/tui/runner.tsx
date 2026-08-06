@@ -91,6 +91,7 @@ import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin } from "../permission/admin.js";
+import { getProjectPathGrantsForCwd } from "../permission/path-grants.js";
 import {
   DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
   goalApprovalTimeoutMessage,
@@ -349,6 +350,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     approvals: seededApprovals,
     cwd: config.cwd,
     rootsProvider: createWorktreeRootsProvider(config.cwd),
+    getInitialPathGrants: () => getProjectPathGrantsForCwd(config.settings, config.cwd),
     providerName: config.providerName,
     model: config.model,
     requestApproval: createGateRequestApproval({
