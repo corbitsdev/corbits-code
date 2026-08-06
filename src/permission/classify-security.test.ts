@@ -95,6 +95,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L10 /var"), "/repo")).toBe(true);
   });
 
   test("does not auto-allow unbounded recursive directory listing", () => {
@@ -103,6 +104,9 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo")).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
+    // Depth present but over the pure-listing cap still forces ask (OOM).
+    expect(isAutoAllowedShellCall(shellCall("tree -L 999999 /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=99 /var"), "/repo")).toBe(false);
   });
 
   test("auto mode forces ask for unbounded recursive listing even inside workspace", () => {
@@ -110,6 +114,7 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name).toBe("unbounded-listing");
     // Bounded forms stay free of the ask rule.
     expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
     expect(autoShellRuleForCall(shellCall("tree -L 2 packages"))).toBeUndefined();
@@ -299,6 +304,14 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       expect(isAutoAllowedShellCall(shellCall("cat .env"))).toBe(false);
       expect(isAutoAllowedShellCall(shellCall("head id_rsa"))).toBe(false);
       expect(isAutoAllowedShellCall(shellCall("xxd server.pem"))).toBe(false);
+      // Utility-agnostic dump lock: any non-pure-listing reference forces ask.
+      expect(isAutoAllowedShellCall(shellCall("base64 .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("od .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("strings id_rsa"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("awk '{print}' .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("sed -n '1,5p' .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("grep KEY .env"))).toBe(false);
+      expect(isAutoAllowedShellCall(shellCall("wc -l .env"))).toBe(false);
     });
 
     test("auto-shell policy does not force sensitive-path ask for pure listing", () => {
@@ -310,10 +323,25 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     test("auto-shell policy still forces ask for content dumps of secrets", () => {
       expect(autoShellRuleForCall(shellCall("cat .env"))?.name).toBe("sensitive-path");
       expect(autoShellRuleForCall(shellCall("head .env.production"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("base64 .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("od .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("strings id_rsa"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("awk '{print}' .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("sed -n '1,5p' .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("grep KEY .env"))?.name).toBe("sensitive-path");
+      // Composition is not pure listing; secret token still forces ask.
+      expect(autoShellRuleForCall(shellCall("cat .env | wc -l"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("ls .env && cat .env"))?.name).toBe("sensitive-path");
+      // Unbounded listing of a secret path still forces ask (not pure).
+      // Sensitive-path wins over unbounded-listing when both apply — still ask.
+      expect(autoShellRuleForCall(shellCall("ls -R .env"))?.name).toBe("sensitive-path");
+      expect(autoShellRuleForCall(shellCall("tree .env"))?.name).toBe("sensitive-path");
     });
 
-    test("chained ls secret + cat secret still asks for the content half", () => {
-      expect(autoShellRuleForCall(shellCall("ls .env && cat .env"))?.name).toBe("sensitive-path");
+    test("names-only pipes of secret listing stay free of sensitive-path ask", () => {
+      // Pipe stages only move listing output (names), not secret file contents.
+      expect(autoShellRuleForCall(shellCall("ls .env | sort"))).toBeUndefined();
+      expect(autoShellRuleForCall(shellCall("ls .env | wc -l"))).toBeUndefined();
     });
 
     test("gate auto-allows pure listing of secret paths without prompting", async () => {

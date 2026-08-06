@@ -78,11 +78,23 @@ const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 // Declared above pure-listing so the segment helper can reject redirects.
 const DANGEROUS_METACHARACTERS = /[&;<>`$(){}]|\\\n|\n/;
 
-// Unbounded recursive listing can OOM the host the same way open-ended find/rg
-// can. Pure-listing auto-allow is only for shallow name dumps:
-// - ls: no -R / --recursive (including clustered short flags like -laR)
-// - tree: walks recursively by default; require an explicit depth bound (-L N
-//   or --max-depth=N). Without a bound, tree is not pure listing.
+// Cap accepted tree depth so `tree -L 999999 /` cannot auto-allow an OOM walk.
+const MAX_PURE_TREE_DEPTH = 10;
+
+// Recursive ls / unbounded or over-deep tree can OOM the host — pure-listing
+// auto-allow is only for shallow name dumps.
+function parseTreeDepth(arg: string, next: string | undefined): number | undefined {
+  if (arg === "-L" || arg === "--max-depth") {
+    if (next !== undefined && /^\d+$/.test(next)) return Number(next);
+    return undefined;
+  }
+  const short = /^-L(\d+)$/.exec(arg);
+  if (short !== null) return Number(short[1]);
+  const long = /^--max-depth=(\d+)$/.exec(arg);
+  if (long !== null) return Number(long[1]);
+  return undefined;
+}
+
 function isBoundedDirectoryListing(program: string, args: readonly string[]): boolean {
   if (program === "ls") {
     for (const arg of args) {
@@ -95,13 +107,11 @@ function isBoundedDirectoryListing(program: string, args: readonly string[]): bo
   if (program === "tree") {
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
-      if (arg === "-L" || arg === "--max-depth") {
-        const depth = args[i + 1];
-        if (depth !== undefined && /^\d+$/.test(depth)) return true;
-        continue;
-      }
-      if (/^-L\d+$/.test(arg)) return true;
-      if (/^--max-depth=\d+$/.test(arg)) return true;
+      const depth = parseTreeDepth(arg, args[i + 1]);
+      if (depth === undefined) continue;
+      // `-L` / `--max-depth` consume the next token when separate.
+      if (arg === "-L" || arg === "--max-depth") i++;
+      return depth >= 0 && depth <= MAX_PURE_TREE_DEPTH;
     }
     return false;
   }
@@ -124,9 +134,10 @@ export function isPureDirectoryListingSegment(segment: string): boolean {
   return isBoundedDirectoryListing(program, tokens.slice(1));
 }
 
-// True when some stage is a directory listing program without a recursion bound
-// (`ls -R`, bare `tree`, …). Same OOM class as open-ended find/rg — auto mode
-// must not rubber-stamp these even inside the workspace.
+// True when some stage is a directory listing program without a safe recursion
+// bound (`ls -R`, bare `tree`, over-deep `tree -L`, …). Same OOM class as
+// open-ended find/rg — auto mode must not rubber-stamp these even inside the
+// workspace.
 export function commandHasUnboundedDirectoryListing(command: string): boolean {
   const segments = splitChainedCommand(command);
   const parts = segments.length > 0 ? segments : [command];
@@ -173,8 +184,9 @@ export function commandTargetsRestricted(
   return false;
 }
 
-// True when some non-pure-listing stage references a secret path. Pure `ls`/
-// `tree` of `.env` etc. is list-free; content readers stay dump-locked.
+// True when some non-pure-listing stage references a secret path (read or
+// otherwise — fail-closed: rm/touch/cat of .env all force ask). Pure `ls`/
+// `tree` of `.env` etc. is list-free; content dumps stay dump-locked.
 export function commandHasSensitiveContentRead(command: string): boolean {
   const segments = splitChainedCommand(command);
   const parts = segments.length > 0 ? segments : [command];
@@ -296,9 +308,8 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
-  // One definition of pure listing (program + bounds + no composition). Listing
-  // programs that fail pure (recursive ls, unbounded tree, …) never auto-allow —
-  // they can OOM the host the same way open-ended find/rg can.
+  // Listing programs that fail pure (recursive ls, over-deep tree, …) never
+  // auto-allow — they can OOM the host the same way open-ended find/rg can.
   const pureListing = isPureDirectoryListingSegment(trimmed);
   if (PURE_DIRECTORY_LISTING_PROGRAMS.has(program) && !pureListing) return false;
   // Content dumps of secret paths never auto-allow. Pure directory listing is

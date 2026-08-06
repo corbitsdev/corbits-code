@@ -8,8 +8,8 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### Fixed
 
-- Pure directory listing (`ls`, bounded `tree -L N`) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`) forces operator approval even inside the workspace. (CL-5422)
-- Shell secret policy is list-free / dump-locked: pure `ls` / bounded `tree` of secret paths (`.env`, keys, …) auto-allows; content dumps still force operator approval. (CL-5420)
+- Pure directory listing (`ls`, depth-bounded `tree` via `-L`/`--max-depth`, depth ≤ 10) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`, or over-deep `tree`) forces operator approval even inside the workspace. (CL-5422)
+- Shell secret policy is list-free / dump-locked: pure `ls` / depth-capped `tree` of secret paths (`.env`, keys, …) auto-allows; content dumps still force operator approval. (CL-5420)
 
 ### Planned
 
