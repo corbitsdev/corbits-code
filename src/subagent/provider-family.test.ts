@@ -61,8 +61,14 @@ describe("isKimiLeafProvider", () => {
     expect(isKimiLeafProvider({ providerName: "openai-compat", model: "kimi-k2" })).toBe(true);
   });
 
+  test("matches OpenCode Go + kimi-k3 via model id", () => {
+    expect(isKimiLeafProvider({ providerName: "opencode-go", model: "kimi-k3" })).toBe(true);
+    expect(detectModelFamily({ providerName: "opencode-go", model: "kimi-k3" })).toBe("kimi");
+  });
+
   test("rejects unrelated providers", () => {
     expect(isKimiLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe(false);
+    expect(isKimiLeafProvider({ providerName: "opencode-go", model: "gpt-5.1" })).toBe(false);
   });
 });
 

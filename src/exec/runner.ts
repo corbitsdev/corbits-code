@@ -40,6 +40,7 @@ import {
   advertisedTools,
   createActivatedToolTracker,
 } from "../agent/tool-search.js";
+import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
@@ -362,8 +363,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode);
     const activatedToolNames = createActivatedToolTracker();
+    // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
     const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-      advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix);
+      normalizeToolDefinitionsForProvider(
+        advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix),
+        { providerName: config.providerName, model: config.model },
+      );
 
     const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
