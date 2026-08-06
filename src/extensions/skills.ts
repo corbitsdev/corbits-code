@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
@@ -37,7 +37,8 @@ function pathIsInsideOrEqual(abs: string, root: string): boolean {
   const a = resolve(abs);
   const r = resolve(root);
   if (a === r) return true;
-  const prefix = r.endsWith("/") ? r : `${r}/`;
+  // Platform separator so win32 paths (C:\foo) do not treat `/` as the only boundary.
+  const prefix = r.endsWith(sep) ? r : `${r}${sep}`;
   return a.startsWith(prefix);
 }
 

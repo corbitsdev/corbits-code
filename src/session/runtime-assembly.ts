@@ -23,6 +23,7 @@ import {
   discoverRepoPlugins,
   discoverUserPlugins,
   loadPluginsFromPaths,
+  type PluginLoadDiagnostics,
   type PluginModule,
 } from "../plugins/loader.js";
 import {
@@ -118,24 +119,30 @@ export type DiscoverSessionPluginsArgs = {
   discoverClaudePlugins?: boolean;
   isProjectPluginTrusted: (pluginPath: string) => boolean;
   isRegisteredPathTrusted: (pluginPath: string) => boolean;
+  /** When set, skill/load warnings collect here for one end-of-batch summary. */
+  diagnostics?: PluginLoadDiagnostics;
 };
 
 /** Discover + dedupe plugins from repo, user, optional Claude, and registered paths. */
 export async function discoverSessionPlugins(
   args: DiscoverSessionPluginsArgs,
 ): Promise<PluginModule[]> {
+  const diag =
+    args.diagnostics !== undefined ? { diagnostics: args.diagnostics } : {};
   const claudePlugins =
     args.discoverClaudePlugins === true
-      ? await discoverClaudeInstalledPlugins(args.cwd)
+      ? await discoverClaudeInstalledPlugins(args.cwd, diag)
       : [];
   return dedupePluginModules([
-    ...(await discoverRepoPlugins(args.cwd)),
+    ...(await discoverRepoPlugins(args.cwd, diag)),
     ...(await discoverUserPlugins(args.cwd, {
       isPluginTrusted: args.isProjectPluginTrusted,
+      ...diag,
     })),
     ...claudePlugins,
     ...(await loadPluginsFromPaths([...(args.pluginPaths ?? [])], args.cwd, {
       isPluginTrusted: args.isRegisteredPathTrusted,
+      ...diag,
     })),
   ]);
 }

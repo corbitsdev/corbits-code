@@ -1,13 +1,14 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
+
 import type { WorkflowPlugin } from "../workflows/types.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
-  pluginWarningSink,
+  resolvePluginWarningHandler,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 import {
@@ -114,9 +115,9 @@ export async function loadPluginEntry(
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  const onWarning =
-    opts.onWarning
-    ?? pluginWarningSink(opts.diagnostics);
+  // Prefer diagnostics collector when provided so batch discovery can summarize;
+  // explicit onWarning is for tests / one-off sinks; default is stderr per line.
+  const onWarning = resolvePluginWarningHandler(opts);
   const origin = opts.origin;
   let target = entryPath;
   let pluginDir = entryPath;
@@ -138,10 +139,13 @@ export async function loadPluginEntry(
       // No JS entry — fall back to a data-only plugin (agents/*.md and/or
       // commands/*.md). Lets a plugin be pure data + skills, no index.ts.
       if (target === entryPath) {
+        // Pass diagnostics when present so loadDataOnlyPlugin prefers the
+        // collector over a pre-bound onWarning sink.
         const dataOnly = await loadDataOnlyPlugin(entryPath, {
           cwd,
-          onWarning,
-          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+          ...(opts.diagnostics !== undefined
+            ? { diagnostics: opts.diagnostics }
+            : { onWarning }),
         });
         if (dataOnly !== null) {
           const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
@@ -431,12 +435,14 @@ export async function expandExistingPluginMembers(
 // Scan a plugins root directory and return all loaded plugin modules.
 // `cwd` is forwarded to loadPluginEntry for skill resolution in data-only plugins.
 // When `isTrusted` is set and origin requires trust, untrusted paths load
-// metadata-only (no import).
+// metadata-only (no import). Pass `diagnostics` to collect skill/load warnings
+// for a single end-of-batch summary instead of per-line stderr.
 async function scanPluginsDir(
   dir: string,
   cwd: string,
   origin: PluginOrigin,
   isTrusted?: (pluginPath: string) => boolean,
+  diagnostics?: PluginLoadDiagnostics,
 ): Promise<PluginModule[]> {
   let entries: string[];
   try {
@@ -456,7 +462,11 @@ async function scanPluginsDir(
         if (meta !== null) results.push(meta);
         continue;
       }
-      const plugin = await loadPluginEntry(d, { cwd, origin });
+      const plugin = await loadPluginEntry(d, {
+        cwd,
+        origin,
+        ...(diagnostics !== undefined ? { diagnostics } : {}),
+      });
       if (plugin !== null) results.push(plugin);
     }
   }
@@ -471,13 +481,16 @@ async function scanPluginsDir(
 // still load fully (backward compatible for tests/callers that do not pass trust).
 export async function discoverUserPlugins(
   cwd: string,
-  opts: { isPluginTrusted?: (pluginPath: string) => boolean } = {},
+  opts: {
+    isPluginTrusted?: (pluginPath: string) => boolean;
+    diagnostics?: PluginLoadDiagnostics;
+  } = {},
 ): Promise<PluginModule[]> {
   const projectDir = join(cwd, SETTINGS_DIR_NAME, "plugins");
   const userDir = join(homedir(), SETTINGS_DIR_NAME, "plugins");
   const [project, user] = await Promise.all([
-    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted),
-    scanPluginsDir(userDir, cwd, "user"),
+    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted, opts.diagnostics),
+    scanPluginsDir(userDir, cwd, "user", undefined, opts.diagnostics),
   ]);
   return [...project, ...user];
 }
@@ -515,7 +528,10 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
 export async function loadPluginsFromPaths(
   paths: string[],
   cwd: string,
-  opts: { isPluginTrusted?: (pluginPath: string) => boolean } = {},
+  opts: {
+    isPluginTrusted?: (pluginPath: string) => boolean;
+    diagnostics?: PluginLoadDiagnostics;
+  } = {},
 ): Promise<PluginModule[]> {
   const resolved = await Promise.all(
     paths.map(async (p) => {
@@ -537,7 +553,11 @@ export async function loadPluginsFromPaths(
         if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
           return readPluginMetadataOnly(abs, "path");
         }
-        return loadPluginEntry(p, { cwd, origin: "path" });
+        return loadPluginEntry(p, {
+          cwd,
+          origin: "path",
+          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+        });
       }),
   );
   return loaded.filter((m): m is PluginModule => m !== null);
@@ -548,10 +568,13 @@ export async function loadPluginsFromPaths(
 // Repo plugins resolve skills against the session cwd, not the repo root,
 // so project-local skills stay in scope when Corbits Code is invoked from a
 // different working directory. Product-shipped plugins are auto-trusted.
-export async function discoverRepoPlugins(cwd: string): Promise<PluginModule[]> {
+export async function discoverRepoPlugins(
+  cwd: string,
+  opts: { diagnostics?: PluginLoadDiagnostics } = {},
+): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;
   const pluginsDir = join(repoRoot, "plugins");
-  return scanPluginsDir(pluginsDir, cwd, "repo");
+  return scanPluginsDir(pluginsDir, cwd, "repo", undefined, opts.diagnostics);
 }
 
 // Claude Code records marketplace installs in
@@ -570,6 +593,7 @@ export async function discoverClaudeInstalledPlugins(
   opts: {
     home?: string;
     onExpandSkip?: (skip: ExpandPluginPathSkip) => void;
+    diagnostics?: PluginLoadDiagnostics;
   } = {},
 ): Promise<PluginModule[]> {
   const home = opts.home ?? homedir();
@@ -635,7 +659,10 @@ export async function discoverClaudeInstalledPlugins(
       // re-run loaders; importing here would execute untrusted JS before enable.
       // Claude marketplace layouts are markdown agents/commands; JS plugins
       // stay on explicit pluginPaths (user-opted load path).
-      const dataOnly = await loadDataOnlyPlugin(d, { cwd });
+      const dataOnly = await loadDataOnlyPlugin(d, {
+        cwd,
+        ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+      });
       if (dataOnly === null) continue;
       const plugin: PluginModule = {
         dir: d,
@@ -679,6 +706,7 @@ function pathIsInsideOrEqual(abs: string, root: string): boolean {
   const r = resolve(root);
   if (a === r) return true;
   // Use platform separator so Windows drive paths do not match on `/` alone.
+
   const prefix = r.endsWith(sep) ? r : `${r}${sep}`;
   return a.startsWith(prefix);
 }

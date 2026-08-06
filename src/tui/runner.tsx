@@ -46,6 +46,10 @@ import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type PluginOrigin } from "../plugins/loader.js";
 import {
+  createPluginLoadDiagnostics,
+  formatPluginWarningsSummary,
+} from "../plugins/diagnostics.js";
+import {
   isPluginTrusted,
   loadProjectTrust,
   trustPlugin,
@@ -218,6 +222,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
+  const pluginLoadDiag = createPluginLoadDiagnostics();
   const pluginModules = await discoverSessionPlugins({
     cwd: config.cwd,
     ...(config.settings?.pluginPaths !== undefined
@@ -228,7 +233,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       : {}),
     isProjectPluginTrusted,
     isRegisteredPathTrusted,
+    diagnostics: pluginLoadDiag,
   });
+  {
+    const discoverySummary = formatPluginWarningsSummary(pluginLoadDiag.warnings);
+    if (discoverySummary !== undefined) {
+      process.stderr.write(`${discoverySummary}\n`);
+    }
+  }
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -491,10 +503,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           } else {
             projectTrust = await trustPlugin(config.cwd, stub.pluginPath);
           }
+          const trustDiag = createPluginLoadDiagnostics();
           const full = await loadPluginEntry(stub.pluginPath, {
             cwd: config.cwd,
             origin: stub.origin,
+            diagnostics: trustDiag,
           });
+          {
+            const trustSummary = formatPluginWarningsSummary(trustDiag.warnings);
+            if (trustSummary !== undefined) {
+              process.stderr.write(`${trustSummary}\n`);
+            }
+          }
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -536,11 +556,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // that each profile's tier resolves to a configured provider.
       const agentMod = livePluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
       if (agentMod !== undefined) {
+        const verifyDiag = createPluginLoadDiagnostics();
         const profiles = await resolveAgentPluginProfiles(
           [agentMod],
           { [id]: { enabled: true } },
-          (msg) => process.stderr.write(`plugins: ${msg}\n`),
+          (msg) => {
+            verifyDiag.warnings.push(msg);
+          },
         );
+        {
+          const verifySummary = formatPluginWarningsSummary(verifyDiag.warnings);
+          if (verifySummary !== undefined) {
+            process.stderr.write(`${verifySummary}\n`);
+          }
+        }
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
         // Check tier resolution so the user knows if the provider is configured.
         const unresolved = profiles.filter(
@@ -584,7 +613,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (path.length === 0) return { ok: false, message: "Enter a path" };
       const abs = isAbsolute(path) ? path : resolvePath(config.cwd, path);
       // Explicit add-by-path is user consent to load that absolute path.
-      const mod = await loadPluginEntry(abs, { cwd: config.cwd, origin: "path" });
+      const addDiag = createPluginLoadDiagnostics();
+      const mod = await loadPluginEntry(abs, {
+        cwd: config.cwd,
+        origin: "path",
+        diagnostics: addDiag,
+      });
+      {
+        const addSummary = formatPluginWarningsSummary(addDiag.warnings);
+        if (addSummary !== undefined) {
+          process.stderr.write(`${addSummary}\n`);
+        }
+      }
       if (mod === null) return { ok: false, message: `Could not load a plugin at ${path}` };
       if (mod.manifest === undefined) {
         return { ok: false, message: "Plugin has no manifest (needs id/name/kind)" };
@@ -658,11 +698,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   };
 
   const profilesDir = join(config.cwd, ".agents", "agents");
+  const profileDiag = createPluginLoadDiagnostics();
   const pluginAgentProfiles = await resolveAgentPluginProfiles(
     executablePlugins(),
     config.settings?.plugins ?? {},
-    (msg) => process.stderr.write(`plugins: ${msg}\n`),
+    (msg) => {
+      profileDiag.warnings.push(msg);
+    },
   );
+  {
+    const profileSummary = formatPluginWarningsSummary(profileDiag.warnings);
+    if (profileSummary !== undefined) {
+      process.stderr.write(`${profileSummary}\n`);
+    }
+  }
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 

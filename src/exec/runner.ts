@@ -87,6 +87,10 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
+import {
+  createPluginLoadDiagnostics,
+  formatPluginWarningsSummary,
+} from "../plugins/diagnostics.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -236,6 +240,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       { onMigrated: reportPathTrustMigration },
     );
     const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
+    const pluginLoadDiag = createPluginLoadDiagnostics();
     const pluginModules = await discoverSessionPlugins({
       cwd: config.cwd,
       ...(config.settings?.pluginPaths !== undefined
@@ -246,7 +251,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
         : {}),
       isProjectPluginTrusted,
       isRegisteredPathTrusted,
+      diagnostics: pluginLoadDiag,
     });
+    {
+      const discoverySummary = formatPluginWarningsSummary(pluginLoadDiag.warnings);
+      if (discoverySummary !== undefined) {
+        logger.warn(discoverySummary);
+      }
+    }
     // Metadata-only (untrusted) modules stay out of executable plugins.
     const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
     const pluginConfig = config.settings?.plugins ?? {};

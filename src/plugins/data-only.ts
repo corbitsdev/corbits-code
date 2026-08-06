@@ -6,7 +6,7 @@ import { loadDataOnlyAgentPlugin } from "./data-only-agent.js";
 import { loadDataOnlyCommands } from "./data-only-commands.js";
 import { loadSkillCommands } from "./skill-commands.js";
 import {
-  pluginWarningSink,
+  resolvePluginWarningHandler,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 
@@ -80,10 +80,8 @@ export async function loadDataOnlyPlugin(
   } = {},
 ): Promise<DataOnlyPlugin | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer explicit onWarning; else collect into diagnostics; else stderr default.
-  const onWarning =
-    opts.onWarning
-    ?? pluginWarningSink(opts.diagnostics);
+  // Prefer diagnostics collector; else explicit onWarning; else stderr default.
+  const onWarning = resolvePluginWarningHandler(opts);
 
   const [nativeManifest, claudeManifest, agents, commands, skillCmds] = await Promise.all([
     readManifestJson(pluginDir),

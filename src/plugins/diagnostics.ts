@@ -35,6 +35,20 @@ export function pluginWarningSink(
 }
 
 /**
+ * Resolve the warning sink for a load call. Prefer a diagnostics collector when
+ * provided (so batch callers can emit one summary); else an explicit onWarning;
+ * else one stderr line per message.
+ */
+export function resolvePluginWarningHandler(opts: {
+  diagnostics?: PluginLoadDiagnostics;
+  onWarning?: (msg: string) => void;
+}): (msg: string) => void {
+  if (opts.diagnostics !== undefined) return pluginWarningSink(opts.diagnostics);
+  if (opts.onWarning !== undefined) return opts.onWarning;
+  return pluginWarningSink(undefined);
+}
+
+/**
  * One-line summary for a batch of load warnings. Skill-miss messages are
  * collapsed to `N skills missing: a, b, c`; mixed warnings get a count line.
  * Returns undefined when there is nothing to report.
