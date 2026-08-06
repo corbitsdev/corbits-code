@@ -329,8 +329,11 @@ shape.
 Skipped sources are never silent: `expandPluginPath` reports every skip (default:
 stderr; Claude discovery also accepts `onExpandSkip` for tests/callers; path /
 `pluginPaths` expansion uses the same default). Partial failure does not block
-other members. Each resolved member path is still subject to path-plugin trust
-when loaded via `pluginPaths`.
+other members. When a `marketplace.json` catalog is present and every member is
+skipped (or none survive on disk), expansion returns an empty list — it does not
+fall through to the layout heuristic or treat the marketplace root as a single
+plugin. Each resolved member path is still subject to path-plugin trust when
+loaded via `pluginPaths`.
 
 ## Decisions (locked)
 

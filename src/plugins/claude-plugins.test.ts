@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { symlinkSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverClaudeInstalledPlugins } from "./loader.js";
@@ -180,6 +181,34 @@ describe("discoverClaudeInstalledPlugins", () => {
 
     const modules = await discoverClaudeInstalledPlugins("/repo", { home });
     expect(modules).toEqual([]);
+  });
+
+  test("rejects installPath symlink under plugins root that realpaths outside", async () => {
+    // Lexical path is under ~/.claude/plugins; realpath lands outside — same
+    // both-sides realpath check as marketplace expand.
+    const home = await mkdtemp(join(tmpdir(), "claude-home-install-symlink-"));
+    const outsideBase = await mkdtemp(join(tmpdir(), "claude-home-install-out-"));
+    try {
+      const pluginsRoot = join(home, ".claude", "plugins");
+      const outside = join(outsideBase, "evil-plugin");
+      const linkPath = join(pluginsRoot, "cache", "escape-link");
+      await writeAgentPlugin(outside, "evil-agent");
+      await mkdir(join(pluginsRoot, "cache"), { recursive: true });
+      symlinkSync(outside, linkPath);
+      await writeFile(
+        join(pluginsRoot, "installed_plugins.json"),
+        JSON.stringify({
+          version: 2,
+          plugins: { "evil@x": [{ installPath: linkPath }] },
+        }),
+      );
+
+      const modules = await discoverClaudeInstalledPlugins("/repo", { home });
+      expect(modules).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+      await rm(outsideBase, { recursive: true, force: true });
+    }
   });
 
   test("does not import JS entry points at discovery (data-only only)", async () => {

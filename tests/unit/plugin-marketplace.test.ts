@@ -142,8 +142,8 @@ test("symlink under contain root that points outside is rejected", async () => {
     const members = await expandPluginPath(root, {
       onSkip: (s) => skips.push(s),
     });
-    // No valid members → expand falls back to marketplace root itself.
-    expect(members).toEqual([root]);
+    // Catalog fully rejected → empty (no fallthrough to [marketplaceRoot]).
+    expect(members).toEqual([]);
     expect(skips.map((s) => s.reason)).toEqual(["outside-contain-root"]);
   } finally {
     await rm(base, { recursive: true, force: true });
@@ -166,8 +166,49 @@ test("path expand reports skips via onSkip (never silent when callback set)", as
       }),
     );
     const skips: ExpandPluginPathSkip[] = [];
-    await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
+    const members = await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
+    expect(members).toEqual([]);
     expect(skips.map((s) => s.reason).sort()).toEqual(["absolute", "missing"]);
+    // `missing` keeps the original relative source string (not only absolute path).
+    const missing = skips.find((s) => s.reason === "missing");
+    expect(missing?.source).toBe("./plugins/missing");
+    expect(missing?.resolved).toBe(join(root, "plugins", "missing"));
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("default expand path reports skips to stderr (non-silent without onSkip)", async () => {
+  const base = await mkdtemp(join(tmpdir(), "corbits-mkt-stderr-"));
+  try {
+    const root = join(base, "marketplace");
+    await mkdir(join(root, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(root, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        plugins: [
+          { name: "abs", source: "/tmp/not-a-plugin" },
+          { name: "gone", source: "./plugins/missing" },
+        ],
+      }),
+    );
+    const writes: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ..._rest: unknown[]) => {
+      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const members = await expandPluginPath(root);
+      expect(members).toEqual([]);
+      expect(writes.some((w) => w.includes("skipped marketplace source"))).toBe(true);
+      expect(writes.some((w) => w.includes("absolute"))).toBe(true);
+      expect(writes.some((w) => w.includes("missing"))).toBe(true);
+      // Default reporter uses the original relative source string for missing.
+      expect(writes.some((w) => w.includes("./plugins/missing"))).toBe(true);
+    } finally {
+      process.stderr.write = origWrite;
+    }
   } finally {
     await rm(base, { recursive: true, force: true });
   }

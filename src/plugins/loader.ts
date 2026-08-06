@@ -1,6 +1,6 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, parse, resolve, sep } from "node:path";
 import type { WorkflowPlugin } from "../workflows/types.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
@@ -250,8 +250,14 @@ function defaultExpandSkip(skip: ExpandPluginPathSkip): void {
 /**
  * Containment check with symlink safety. Lexical reject first; when both the
  * candidate and the contain root exist, realpath both and re-check so a symlink
- * under the root that points outside is refused. Missing paths keep the lexical
- * result (not-yet-created members still expand if they resolve under the root).
+ * under the root that points outside is refused.
+ *
+ * Soft-allow when one realpath fails: a missing candidate (create-later member)
+ * still expands if it is lexically under the root — the existence filter later
+ * drops absent paths. Fail-closed only when both realpaths succeed and the
+ * resolved target escapes (symlink-out case). A realpath failure on an existing
+ * candidate while the root resolves is treated as soft-allow too (permission /
+ * race); tightening that would break create-later members that race with mkdir.
  */
 async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
   if (!pathIsInsideOrEqual(abs, root)) return false;
@@ -260,7 +266,7 @@ async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
   try {
     realAbs = await realpath(abs);
   } catch {
-    // Candidate missing or broken link — keep lexical allow.
+    // Candidate missing or unresolvable — keep lexical allow (create-later).
   }
   try {
     realRoot = await realpath(root);
@@ -271,6 +277,18 @@ async function pathContainedUnder(abs: string, root: string): Promise<boolean> {
     return pathIsInsideOrEqual(realAbs, realRoot);
   }
   return true;
+}
+
+/**
+ * Default contain root for path/pluginPaths marketplaces: parent of the
+ * marketplace directory (siblings like `../agents/x` stay allowed). Refuse the
+ * parent when it is the filesystem root — that would make every absolute path
+ * "inside" and defeat containment; fall back to the marketplace root itself.
+ */
+function defaultContainRoot(marketplaceRoot: string): string {
+  const parent = dirname(marketplaceRoot);
+  if (resolve(parent) === parse(parent).root) return marketplaceRoot;
+  return parent;
 }
 
 export async function expandPluginPath(
@@ -296,9 +314,9 @@ export async function expandPluginPath(
       && Array.isArray((parsed as { plugins?: unknown }).plugins)
     ) {
       const containRoot = resolve(
-        opts.containRoot ?? dirname(marketplaceRoot),
+        opts.containRoot ?? defaultContainRoot(marketplaceRoot),
       );
-      const candidates: string[] = [];
+      const candidates: Array<{ source: string; resolved: string }> = [];
       for (const p of (parsed as { plugins: unknown[] }).plugins) {
         if (typeof p !== "object" || p === null) {
           report({ source: "", reason: "invalid-entry" });
@@ -319,19 +337,24 @@ export async function expandPluginPath(
           report({ source: src, reason: "outside-contain-root", resolved });
           continue;
         }
-        candidates.push(resolved);
+        candidates.push({ source: src, resolved });
       }
-      const existing = await Promise.all(candidates.map((d) => pathExists(d)));
-      const resolved: string[] = [];
+      const existing = await Promise.all(
+        candidates.map((c) => pathExists(c.resolved)),
+      );
+      const surviving: string[] = [];
       for (let i = 0; i < candidates.length; i++) {
-        const d = candidates[i]!;
+        const c = candidates[i]!;
         if (existing[i]) {
-          resolved.push(d);
+          surviving.push(c.resolved);
         } else {
-          report({ source: d, reason: "missing", resolved: d });
+          // `source` is the original relative string (same shape as other reasons).
+          report({ source: c.source, reason: "missing", resolved: c.resolved });
         }
       }
-      if (resolved.length > 0) return resolved;
+      // Declared marketplace with zero surviving members: return [] — do not
+      // fall through to the layout heuristic or [marketplaceRoot].
+      return surviving;
     }
   } catch {
     // not a declared marketplace — fall through to the layout heuristic
@@ -353,7 +376,7 @@ export async function expandPluginPath(
     (await pathExists(join(marketplaceRoot, "src", "index.ts")));
   if (hasPluginsSubdir && !rootIsPlugin) {
     const containRoot = resolve(
-      opts.containRoot ?? dirname(marketplaceRoot),
+      opts.containRoot ?? defaultContainRoot(marketplaceRoot),
     );
     let entries: import("node:fs").Dirent[];
     try {
@@ -576,7 +599,9 @@ export async function discoverClaudeInstalledPlugins(
       if (!isAbsolute(installPath)) continue;
       const abs = resolve(installPath);
       // Contain under ~/.claude/plugins only (registry is home-scoped).
-      if (!pathIsInsideOrEqual(abs, pluginsRoot)) continue;
+      // Same realpath both-sides check as expand so a symlink under the root
+      // that points outside is refused (not lexical-only).
+      if (!(await pathContainedUnder(abs, pluginsRoot))) continue;
       if (seen.has(abs)) continue;
       seen.add(abs);
       installPaths.push({ abs, registryKey });
@@ -640,7 +665,8 @@ function pathIsInsideOrEqual(abs: string, root: string): boolean {
   const a = resolve(abs);
   const r = resolve(root);
   if (a === r) return true;
-  const prefix = r.endsWith("/") ? r : `${r}/`;
+  // Use platform separator so Windows drive paths do not match on `/` alone.
+  const prefix = r.endsWith(sep) ? r : `${r}${sep}`;
   return a.startsWith(prefix);
 }
 
