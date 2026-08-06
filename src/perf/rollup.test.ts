@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +25,12 @@ import {
   sessionTotals,
   spanDurationNs,
 } from "./rollup.js";
+
+// The span store is process-wide, so a perf test cannot assume the tests that
+// ran before it in this process left it empty. Reset on both edges.
+beforeEach(() => {
+  clear();
+});
 
 afterEach(() => {
   clear();

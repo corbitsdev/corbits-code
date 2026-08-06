@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
+  EMPTY_PLAN_DETAIL,
+  EMPTY_TASKS_DETAIL,
+  EMPTY_VIEW_DETAIL,
   hydrateHistoryRows,
   MISSING_ERROR_DETAIL,
   rowFromHistoryBlock,
@@ -98,9 +101,79 @@ describe("rowFromHistoryBlock", () => {
     expect(MISSING_ERROR_DETAIL).toBe(
       "this step failed and the details were not saved",
     )
-    expect(rowFromHistoryBlock({ type: "tasks" })).toBeNull()
-    expect(rowFromHistoryBlock({ type: "plan" })).toBeNull()
-    expect(rowFromHistoryBlock({ type: "view" })).toBeNull()
+    expect(rowFromHistoryBlock({ type: "who-knows" })).toBeNull()
+  })
+
+  test("view hydrates as an assistant row carrying the view text", () => {
+    const row = rowFromHistoryBlock({
+      type: "view",
+      node: {
+        type: "stack",
+        children: [
+          { type: "text", text: "Deploy summary" },
+          { type: "text", text: "3 services updated" },
+        ],
+      },
+    })
+    expect(row?.role).toBe("assistant")
+    expect(row?.markdown).toBe(false)
+    expect(row?.text).toContain("Deploy summary")
+    expect(row?.text).toContain("3 services updated")
+  })
+
+  test("view with no paintable tree still says something", () => {
+    expect(rowFromHistoryBlock({ type: "view" })).toEqual({
+      role: "assistant",
+      text: EMPTY_VIEW_DETAIL,
+      markdown: false,
+    })
+    expect(rowFromHistoryBlock({ type: "view", node: { type: "bogus" } })).toEqual({
+      role: "assistant",
+      text: EMPTY_VIEW_DETAIL,
+      markdown: false,
+    })
+  })
+
+  test("plan hydrates as a system row listing its steps", () => {
+    expect(
+      rowFromHistoryBlock({
+        type: "plan",
+        steps: [
+          { file: "src/a.ts", action: "edit", reason: "wire the gate" },
+          { file: "src/b.ts", action: "create" },
+        ],
+      }),
+    ).toEqual({
+      role: "system",
+      text: "- edit src/a.ts — wire the gate\n- create src/b.ts",
+      meta: "plan",
+    })
+    expect(rowFromHistoryBlock({ type: "plan", steps: [] })).toEqual({
+      role: "system",
+      text: EMPTY_PLAN_DETAIL,
+      meta: "plan",
+    })
+  })
+
+  test("tasks hydrates as a system row listing task titles", () => {
+    expect(
+      rowFromHistoryBlock({
+        type: "tasks",
+        tasks: [
+          { id: "1", title: "Fix hydrate", status: "done" },
+          { id: "2", title: "Ship it", status: "todo" },
+        ],
+      }),
+    ).toEqual({
+      role: "system",
+      text: "- Fix hydrate (done)\n- Ship it (todo)",
+      meta: "tasks",
+    })
+    expect(rowFromHistoryBlock({ type: "tasks" })).toEqual({
+      role: "system",
+      text: EMPTY_TASKS_DETAIL,
+      meta: "tasks",
+    })
   })
 })
 
@@ -129,6 +202,7 @@ describe("hydrateHistoryRows", () => {
     expect(rows).toMatchObject([
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
+      { role: "system", text: EMPTY_TASKS_DETAIL, meta: "tasks" },
       { role: "tool", text: "body", meta: "read_file", summary: "x", verb: "Read" },
       { role: "system", text: "fail", meta: "error" },
     ])

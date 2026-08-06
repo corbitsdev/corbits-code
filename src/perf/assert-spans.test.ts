@@ -16,7 +16,7 @@
  * - full observer pipeline → snapshot → rollup → assertions
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import {
   assertLessThan,
@@ -32,6 +32,12 @@ import {
 import { ALLOWED_TAG_KEYS, clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
 import { rollupByPhase, rollupByTurn, type TurnSummary } from "./rollup.js";
+
+// The span store is process-wide, so a perf test cannot assume the tests that
+// ran before it in this process left it empty. Reset on both edges.
+beforeEach(() => {
+  clear();
+});
 
 afterEach(() => {
   clear();

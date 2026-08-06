@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { dirname, basename } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
@@ -8,6 +7,7 @@ import {
   runBoundedSearchFiles,
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
+import { runRg, type RgLimits } from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -17,103 +17,8 @@ import {
 // built-in posix tool otherwise, so behavior degrades gracefully on hosts
 // without ripgrep.
 
-const RG_TIMEOUT_MS = 10_000;
 const DEFAULT_GREP_MAX = 500;
 const DEFAULT_SEARCH_MAX = 1000;
-// Cap collected stdout so a runaway pattern cannot OOM the process before the
-// line-cap post-processing runs.
-const MAX_OUTPUT_BYTES = 512_000;
-
-type RgResult =
-  | { kind: "output"; stdout: string }
-  | { kind: "no-match" }
-  | { kind: "unavailable" }
-  | { kind: "error"; message: string }
-  | { kind: "partial"; stdout: string; notice: string };
-
-type RgLimits = {
-  timeoutMs?: number;
-  maxOutputBytes?: number;
-};
-
-function runRg(
-  rgArgs: string[],
-  cwd: string,
-  signal: AbortSignal,
-  limits: RgLimits = {},
-): Promise<RgResult> {
-  const timeoutMs = limits.timeoutMs ?? RG_TIMEOUT_MS;
-  const maxOutputBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
-  return new Promise((resolve) => {
-    const child = spawn("rg", rgArgs, {
-      cwd,
-      signal,
-      // Process-group leader so timeout kills any grandchildren.
-      detached: process.platform !== "win32",
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (result: RgResult): void => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    const killTree = (): void => {
-      if (child.pid === undefined) return;
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL");
-        else process.kill(-child.pid, "SIGKILL");
-      } catch {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // already dead
-        }
-      }
-    };
-
-    const timer = setTimeout(() => {
-      killTree();
-      finish({
-        kind: "partial",
-        stdout,
-        notice: `ripgrep timed out after ${timeoutMs}ms — showing partial results; narrow path/glob`,
-      });
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      if (settled) return;
-      stdout += String(chunk);
-      if (stdout.length > maxOutputBytes) {
-        killTree();
-        clearTimeout(timer);
-        finish({
-          kind: "partial",
-          stdout,
-          notice: `ripgrep output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
-        });
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      // ENOENT means rg is not installed: signal a fallback, not an error.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") finish({ kind: "unavailable" });
-      else finish({ kind: "error", message: err.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (settled) return;
-      if (code === 0) finish({ kind: "output", stdout });
-      else if (code === 1) finish({ kind: "no-match" });
-      else finish({ kind: "error", message: stderr.trim() || `ripgrep exited with code ${code}` });
-    });
-  });
-}
 
 function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);

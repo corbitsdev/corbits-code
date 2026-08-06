@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   OPEN_SPAN_CAPACITY,
   RING_CAPACITY,
@@ -10,6 +10,12 @@ import {
   start,
   type PerfSpan,
 } from "./index.js";
+
+// The span store is process-wide, so a perf test cannot assume the tests that
+// ran before it in this process left it empty. Reset on both edges.
+beforeEach(() => {
+  clear();
+});
 
 afterEach(() => {
   clear();
