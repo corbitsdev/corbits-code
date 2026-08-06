@@ -78,17 +78,50 @@ const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 // Declared above pure-listing so the segment helper can reject redirects.
 const DANGEROUS_METACHARACTERS = /[&;<>`$(){}]|\\\n|\n/;
 
+// Unbounded recursive listing can OOM the host the same way open-ended find/rg
+// can. Pure-listing auto-allow is only for shallow name dumps:
+// - ls: no -R / --recursive (including clustered short flags like -laR)
+// - tree: walks recursively by default; require an explicit depth bound (-L N
+//   or --max-depth=N). Without a bound, tree is not pure listing.
+function isBoundedDirectoryListing(program: string, args: readonly string[]): boolean {
+  if (program === "ls") {
+    for (const arg of args) {
+      if (arg === "--recursive") return false;
+      if (arg.startsWith("--")) continue;
+      if (arg.startsWith("-") && arg.includes("R")) return false;
+    }
+    return true;
+  }
+  if (program === "tree") {
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "-L" || arg === "--max-depth") {
+        const depth = args[i + 1];
+        if (depth !== undefined && /^\d+$/.test(depth)) return true;
+        continue;
+      }
+      if (/^-L\d+$/.test(arg)) return true;
+      if (/^--max-depth=\d+$/.test(arg)) return true;
+    }
+    return false;
+  }
+  return false;
+}
+
 // True when a shell segment only lists names/metadata (`ls`, `tree`) with no
-// redirects, pipes, or composition. Used to skip outside-workspace and
-// sensitive-path forced-ask for pure listing while content dumps stay locked.
+// redirects, pipes, composition, or unbounded recursion. Used to skip
+// outside-workspace and sensitive-path forced-ask for pure listing while
+// content dumps stay locked.
 export function isPureDirectoryListingSegment(segment: string): boolean {
   const trimmed = segment.trim();
   // Redirects / composition mean the segment is not "names only" — e.g.
   // `ls > /dev/pts/0` must still hit path restriction + authz hard-deny.
   // Pipes are evaluated per stage by callers; a multi-stage string is never pure.
   if (trimmed.includes("|") || DANGEROUS_METACHARACTERS.test(trimmed)) return false;
-  const program = tokenize(trimmed)[0] ?? "";
-  return PURE_DIRECTORY_LISTING_PROGRAMS.has(program);
+  const tokens = tokenize(trimmed);
+  const program = tokens[0] ?? "";
+  if (!PURE_DIRECTORY_LISTING_PROGRAMS.has(program)) return false;
+  return isBoundedDirectoryListing(program, tokens.slice(1));
 }
 
 // Whether a shell command reads through a restricted path. Tokenised so a bare
@@ -244,7 +277,11 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   const tokens = tokenize(trimmed);
   const program = tokens[0] ?? "";
   if (!SAFE_SHELL_PROGRAMS.has(program)) return false;
-  const pureListing = PURE_DIRECTORY_LISTING_PROGRAMS.has(program);
+  // One definition of pure listing (program + bounds + no composition). Listing
+  // programs that fail pure (recursive ls, unbounded tree, …) never auto-allow —
+  // they can OOM the host the same way open-ended find/rg can.
+  const pureListing = isPureDirectoryListingSegment(trimmed);
+  if (PURE_DIRECTORY_LISTING_PROGRAMS.has(program) && !pureListing) return false;
   // Content dumps of secret paths never auto-allow. Pure directory listing is
   // names only, so secret-file names (and outside-workspace targets) are fine.
   if (!pureListing && commandReferencesSensitivePath(trimmed)) return false;

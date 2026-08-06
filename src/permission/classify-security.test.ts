@@ -88,10 +88,21 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
 
   // Pure directory listing is names/metadata only — outside-workspace targets
   // still auto-allow. Content readers (cat, head, …) remain contained.
+  // tree requires an explicit depth bound (-L / --max-depth); unbounded tree
+  // walks are not pure listing (same OOM class as open-ended find/rg).
   test("auto-allows pure directory listing outside the workspace", () => {
     expect(isAutoAllowedShellCall(shellCall("ls /tmp"), "/repo")).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo")).toBe(true);
+  });
+
+  test("does not auto-allow unbounded recursive directory listing", () => {
+    expect(isAutoAllowedShellCall(shellCall("ls -R /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls -laR /tmp"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
   });
 
   test("still denies content reads outside the workspace", () => {
@@ -109,7 +120,16 @@ describe("pure directory listing — outside-workspace auto-shell policy", () =>
   test("does not force outside-workspace ask for pure ls/tree outside paths", () => {
     expect(autoShellRuleForCall(shellCall("ls /tmp"), isRestricted)).toBeUndefined();
     expect(autoShellRuleForCall(shellCall("ls -la ~"), isRestricted)).toBeUndefined();
-    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("tree -L 1 /var"), isRestricted)).toBeUndefined();
+  });
+
+  test("unbounded recursive listing outside still forces outside-workspace ask", () => {
+    expect(autoShellRuleForCall(shellCall("ls -R /tmp"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
+    expect(autoShellRuleForCall(shellCall("tree /var"), isRestricted)?.name).toBe(
+      "outside-workspace",
+    );
   });
 
   test("still forces outside-workspace ask for content reads outside paths", () => {
@@ -256,11 +276,11 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
   // (names/metadata only). Content readers of those same paths still force ask.
   // Nested under the sensitive-path suite so the surrounding grant/headless cases
   // stay one describe.
-  describe("list-free dump-locked (CL-5420)", () => {
+  describe("list-free dump-locked", () => {
     test("auto-allows pure ls/tree of secret file names", () => {
       expect(isAutoAllowedShellCall(shellCall("ls .env"))).toBe(true);
       expect(isAutoAllowedShellCall(shellCall("ls -la .env.production"))).toBe(true);
-      expect(isAutoAllowedShellCall(shellCall("tree .ssh/"))).toBe(true);
+      expect(isAutoAllowedShellCall(shellCall("tree -L 1 .ssh/"))).toBe(true);
     });
 
     test("still denies content dumps of secret files", () => {
@@ -272,7 +292,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     test("auto-shell policy does not force sensitive-path ask for pure listing", () => {
       expect(autoShellRuleForCall(shellCall("ls .env"))).toBeUndefined();
       expect(autoShellRuleForCall(shellCall("ls -la .ssh/"))).toBeUndefined();
-      expect(autoShellRuleForCall(shellCall("tree .env"))).toBeUndefined();
+      expect(autoShellRuleForCall(shellCall("tree -L 1 .env"))).toBeUndefined();
     });
 
     test("auto-shell policy still forces ask for content dumps of secrets", () => {
