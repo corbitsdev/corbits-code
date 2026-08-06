@@ -4,12 +4,16 @@
  * Hosts open overlays with the returned items/itemIds and resolve via these helpers.
  */
 
+import type { EventEmitter } from "node:events"
 import type { OperatorResult } from "../agent/tools.js"
+import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js"
 import type {
   ApprovalOutcome,
   ApprovalScope,
   PermissionRequest,
 } from "../permission/types.js"
+import type { AppShell, OverlaySelection } from "./shell.js"
+import { appendStreamRow } from "./shell.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
@@ -144,4 +148,74 @@ export function operatorCancelResult(): OperatorResult {
 
 export function operatorCustomResult(text: string): OperatorResult {
   return { kind: "custom", text }
+}
+
+type PermissionGateEvent = {
+  request: PermissionRequest
+  resolve: (outcome: ApprovalOutcome) => void
+}
+
+type OperatorGateEvent = {
+  question: string
+  options: string[]
+  resolve: (result: OperatorResult) => void
+}
+
+/**
+ * Subscribe the permission/operator gate events to the shell's overlays.
+ * Returns a dispose function that removes exactly the listeners this call added.
+ */
+export function wireGates(
+  emitter: EventEmitter,
+  shell: AppShell,
+): () => void {
+  function onPermission(ev: PermissionGateEvent): void {
+    const choices = permissionChoicesFromRequest(ev.request)
+    const body = permissionBodyFromRequest(ev.request)
+
+    openPermissionsOverlay(shell, {
+      items: choices.items,
+      itemIds: choices.itemIds,
+      onAccept: (sel: OverlaySelection) => {
+        ev.resolve(
+          approvalOutcomeFromSelection(choices, {
+            index: sel.index,
+            ...(sel.id !== undefined ? { id: sel.id } : {}),
+          }),
+        )
+      },
+    })
+    if (body.length > 0) {
+      appendStreamRow(shell, {
+        role: "system",
+        text: body.slice(0, 500),
+        meta: "permission",
+      })
+    }
+  }
+
+  function onOperator(ev: OperatorGateEvent): void {
+    const choices = operatorChoicesFromOptions(ev.options)
+    openOperatorOverlay(shell, {
+      body: ev.question,
+      choices: choices.items,
+      itemIds: choices.itemIds,
+      onAccept: (sel: OverlaySelection) => {
+        ev.resolve(
+          operatorResultFromSelection(ev.options, {
+            index: sel.index,
+            ...(sel.id !== undefined ? { id: sel.id } : {}),
+          }),
+        )
+      },
+    })
+  }
+
+  emitter.on("permission.gate", onPermission)
+  emitter.on("operator.gate", onOperator)
+
+  return () => {
+    emitter.off("permission.gate", onPermission)
+    emitter.off("operator.gate", onOperator)
+  }
 }

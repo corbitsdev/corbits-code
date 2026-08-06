@@ -13,11 +13,8 @@ import {
   attachSessionBridge,
   type SessionBridge,
 } from "./runtime-bridge.js"
-import {
-  openModelPickerOverlay,
-  openOperatorOverlay,
-  openPermissionsOverlay,
-} from "./overlays.js"
+import { openModelPickerOverlay } from "./overlays.js"
+import { wireGates } from "./gate-wire.js"
 import { formatChromeZones, type ChromeLiveState } from "./chrome-state.js"
 import type { PaletteCommand } from "./palette.js"
 import {
@@ -67,17 +64,6 @@ export type ProductHost = {
   readonly dispose: () => void
   readonly setChrome: (state: ChromeLiveState | null) => void
   readonly setTitle: (title: string) => void
-}
-
-type PermissionGateEvent = {
-  request: PermissionRequest
-  resolve: (outcome: ApprovalOutcome) => void
-}
-
-type OperatorGateEvent = {
-  question: string
-  options: string[]
-  resolve: (result: OperatorResult) => void
 }
 
 /** Build permission overlay rows + ApprovalOutcome table (pure; testable). */
@@ -218,8 +204,7 @@ export async function mountProductHost(
     disposed = true
     clearInterval(stickyPoll)
     config.eventEmitter.off("event", onEvent)
-    config.eventEmitter.off("permission.gate", onPermission)
-    config.eventEmitter.off("operator.gate", onOperator)
+    disposeGates()
     config.eventEmitter.off("history.hydrate", onHistory)
     config.eventEmitter.off("session.title", onTitle)
     bridge.dispose()
@@ -248,47 +233,7 @@ export async function mountProductHost(
     }
   }
 
-  function onPermission(ev: PermissionGateEvent): void {
-    if (disposed) return
-    const { items, itemIds, outcomes } = permissionChoices(ev.request)
-    const body = [
-      ev.request.tool,
-      ev.request.action,
-      ev.request.subject,
-      ev.request.agentLabel ? `agent: ${ev.request.agentLabel}` : "",
-      ev.request.notice ?? "",
-    ]
-      .filter((l) => l.length > 0)
-      .join("\n")
-
-    openPermissionsOverlay(shell, {
-      items,
-      itemIds,
-      onAccept: (sel: OverlaySelection) => {
-        const outcome = outcomes[sel.index] ?? { allow: false }
-        ev.resolve(outcome)
-      },
-    })
-    if (body.length > 0) {
-      appendStreamRow(shell, {
-        role: "system",
-        text: body.slice(0, 500),
-        meta: "permission",
-      })
-    }
-  }
-
-  function onOperator(ev: OperatorGateEvent): void {
-    if (disposed) return
-    openOperatorOverlay(shell, {
-      body: ev.question,
-      choices: ev.options,
-      itemIds: ev.options.map((_, i) => String(i)),
-      onAccept: (sel: OverlaySelection) => {
-        ev.resolve(operatorResultFromSelection(sel, ev.options.length))
-      },
-    })
-  }
+  const disposeGates = wireGates(config.eventEmitter, shell)
 
   function onHistory(blocks: unknown): void {
     if (disposed || !Array.isArray(blocks)) return
@@ -331,8 +276,6 @@ export async function mountProductHost(
   }
 
   config.eventEmitter.on("event", onEvent)
-  config.eventEmitter.on("permission.gate", onPermission)
-  config.eventEmitter.on("operator.gate", onOperator)
   config.eventEmitter.on("history.hydrate", onHistory)
   config.eventEmitter.on("session.title", onTitle)
 

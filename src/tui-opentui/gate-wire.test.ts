@@ -1,8 +1,14 @@
 /**
  * Pure gate-wire unit tests — no renderer.
  */
+import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest } from "../permission/types.js"
+import { withTestRenderer } from "./harness.js"
+import {
+  acceptOverlaySelection,
+  createAppShell,
+} from "./shell.js"
 import {
   approvalOutcomeFromSelection,
   operatorCancelResult,
@@ -13,6 +19,7 @@ import {
   PERMISSION_ONCE_ID,
   permissionBodyFromRequest,
   permissionChoicesFromRequest,
+  wireGates,
 } from "./gate-wire.js"
 
 const baseRequest = (
@@ -190,6 +197,94 @@ describe("operatorChoicesFromOptions / operatorResultFromSelection", () => {
     expect(operatorCustomResult("typed")).toEqual({
       kind: "custom",
       text: "typed",
+    })
+  })
+})
+
+describe("wireGates", () => {
+  test("subscribes exactly permission.gate and operator.gate; dispose removes both", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        const dispose = wireGates(emitter, shell)
+        expect(emitter.listenerCount("permission.gate")).toBe(1)
+        expect(emitter.listenerCount("operator.gate")).toBe(1)
+
+        dispose()
+        expect(emitter.listenerCount("permission.gate")).toBe(0)
+        expect(emitter.listenerCount("operator.gate")).toBe(0)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission.gate opens overlay and resolves selection through onAccept", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolved: unknown
+      const request: PermissionRequest = {
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: "bun test",
+        scopes: [],
+      }
+      try {
+        const dispose = wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request,
+          resolve: (outcome: unknown) => {
+            resolved = outcome
+          },
+        })
+        expect(shell.overlayKind).toBe("permissions")
+        expect(shell.overlayItems).toEqual(["Reject", "Accept once"])
+
+        acceptOverlaySelection(shell)
+        expect(resolved).toEqual({ allow: false })
+
+        dispose()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("operator.gate opens overlay and resolves selection through onAccept", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolved: unknown
+      try {
+        const dispose = wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: (result: unknown) => {
+            resolved = result
+          },
+        })
+        expect(shell.overlayKind).toBe("operator")
+        expect(shell.overlayItems).toEqual(["Cancel", "Continue"])
+
+        acceptOverlaySelection(shell)
+        expect(resolved).toEqual({ kind: "option", index: 0 })
+
+        dispose()
+      } finally {
+        shell.dispose()
+      }
     })
   })
 })
