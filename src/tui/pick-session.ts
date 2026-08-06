@@ -1,13 +1,17 @@
-import { render } from "ink";
-
 import { COMMAND_NAME } from "../branding.js";
 import { listSessions, type SessionSummary } from "../session/index.js";
-import { SessionResumePicker } from "./components/session-resume-picker.js";
+import { runListModal } from "../tui-opentui/list-modal.js";
+import { formatRelativeTime } from "./format-relative-time.js";
 
 // Interrupted (cancelled) sessions are prime resume candidates alongside
 // in-progress ones; only done/failed runs need --force to reopen.
 export function isResumableByDefault(session: Pick<SessionSummary, "status">): boolean {
   return session.status === "running" || session.status === "cancelled";
+}
+
+export function sessionResumeLabel(session: SessionSummary): string {
+  const title = session.task.trim().length > 0 ? session.task.trim() : "Untitled session";
+  return `${title} · ${formatRelativeTime(session.startedAt)} · ${session.status}`;
 }
 
 export async function pickSession(
@@ -27,25 +31,16 @@ export async function pickSession(
     return null;
   }
 
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (value: SessionSummary | null): void => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
-    const { waitUntilExit } = render(
-      <SessionResumePicker
-        sessions={sessions}
-        onSelect={(session) => settle(session)}
-        onCancel={() => settle(null)}
-      />,
-      { exitOnCtrlC: true },
-    );
-    void waitUntilExit().then(() => {
-      // Only treat as cancel when the user did not already select a session.
-      settle(null);
-    });
+  const picked = await runListModal({
+    title: "Resume conversation",
+    kind: "resume",
+    heading: ["Choose a previous session in this repo"],
+    options: sessions.map((session) => ({
+      id: session.sessionId,
+      label: sessionResumeLabel(session),
+    })),
   });
+
+  if (picked === null) return null;
+  return sessions.find((session) => session.sessionId === picked) ?? null;
 }
