@@ -8,6 +8,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### Planned
 
+- Drop native model tiers; HITL vs free-reign Auto; project `@`-path grants in global settings (CL-5479)
 - Local context estimate for compaction when providers omit usage (CL-4345)
 - Image age → rehydratable attachment URI (CL-4349)
 - Always-return subagent salvage without a default wall-clock death clock (CL-4401)
