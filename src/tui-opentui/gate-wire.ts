@@ -184,6 +184,40 @@ export function operatorCustomResult(text: string): OperatorResult {
   return { kind: "custom", text }
 }
 
+/** Label of the choice a selection lands on, or null when it maps to nothing. */
+function chosenLabel(
+  choices: PermissionGateChoices,
+  selection: GateSelection,
+): string | null {
+  if (selection.id !== undefined) {
+    const byId = choices.itemIds.indexOf(selection.id)
+    if (byId >= 0) return choices.items[byId] ?? null
+  }
+  return choices.items[selection.index] ?? null
+}
+
+/**
+ * Write the ask and the answer to the transcript, once the operator has
+ * decided. Deferred rather than emitted at gate time: while the overlay is up
+ * it is already showing this text directly below the row, and printing it
+ * twice reads as two separate requests. Scrollback still ends up complete.
+ */
+function recordDecision(
+  shell: AppShell,
+  request: PermissionRequest,
+  choices: PermissionGateChoices,
+  selection: GateSelection,
+): void {
+  // Collapsing runs first, so this cap rarely bites; when it does,
+  // middleEllipsis keeps the tail of the chain visible instead of clipping the
+  // last segments away entirely.
+  const body = middleEllipsis(permissionBodyFromRequest(request), 500)
+  const label = chosenLabel(choices, selection)
+  const text = label === null ? body : `${body}\n→ ${label}`
+  if (text.length === 0) return
+  appendStreamRow(shell, { role: "system", text, meta: "permission" })
+}
+
 type PermissionGateEvent = {
   request: PermissionRequest
   resolve: (outcome: ApprovalOutcome) => void
@@ -236,25 +270,14 @@ export function wireGates(
       body: collapsedBody,
       ...(collapsedAnything ? { onToggleExpand } : {}),
       onAccept: (sel: OverlaySelection) => {
-        ev.resolve(
-          approvalOutcomeFromSelection(choices, {
-            index: sel.index,
-            ...(sel.id !== undefined ? { id: sel.id } : {}),
-          }),
-        )
+        const gateSelection = {
+          index: sel.index,
+          ...(sel.id !== undefined ? { id: sel.id } : {}),
+        }
+        recordDecision(shell, ev.request, choices, gateSelection)
+        ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
       },
     })
-    // Collapsing runs first, so this cap rarely bites; when it does,
-    // middleEllipsis keeps the tail of the chain visible instead of clipping
-    // the last segments away entirely.
-    const streamBody = permissionBodyFromRequest(ev.request)
-    if (streamBody.length > 0) {
-      appendStreamRow(shell, {
-        role: "system",
-        text: middleEllipsis(streamBody, 500),
-        meta: "permission",
-      })
-    }
   }
 
   function onOperator(ev: OperatorGateEvent): void {

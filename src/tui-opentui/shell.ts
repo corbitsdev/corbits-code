@@ -903,7 +903,9 @@ export function setTurnPhase(shell: AppShell, phase: string | null): void {
 /** Apply focus state to OpenTUI focusables. */
 export function applyFocus(shell: AppShell): void {
   const owner = focusOwner(shell.focus)
-  if (owner === "overlay" || owner === "palette") {
+  // Observe is a read-only child view: the parent prompt must not swallow the
+  // keystrokes, so it is blurred exactly as an overlay blurs it.
+  if (owner === "overlay" || owner === "palette" || owner === "observe") {
     if (typeof shell.prompt.blur === "function") {
       shell.prompt.blur()
     }
@@ -1662,8 +1664,12 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
     // The landing owns the screen until the first transcript row lands, so
     // holding rows back for a transcript that does not exist would only clip
-    // whatever the operator opened over it.
-    ...(isLanding(shell) ? { transcriptFloor: 0 } : {}),
+    // whatever the operator opened over it. An open overlay is the exception:
+    // it asks for exactly as many rows as it has content, and without the floor
+    // a long list would claim the whole screen instead of scrolling.
+    ...(isLanding(shell) && overlayMode === "closed"
+      ? { transcriptFloor: 0 }
+      : {}),
   })
   applyLayout(shell, layout)
   return layout
@@ -1923,7 +1929,7 @@ function retextStreamRowBody(
   gutterNode.content = gutter.content
   gutterNode.width = stringWidth(gutter.content)
   bodyNode.width = markdownBodyColumns(gutter, layout)
-  bodyNode.content = row.text
+  bodyNode.content = markdownContent(row)
   bodyNode.streaming = row.streaming === true
   return true
 }
@@ -2058,6 +2064,20 @@ const TRANSCRIPT_TABLE_OPTIONS = {
 } as const
 
 /**
+ * Markdown source for a row, with a half-arrived heading marker withheld.
+ *
+ * A trailing `####` with nothing after it yet is not a heading — it is literal
+ * text, and that is what the parser makes of it, so the row paints the bare
+ * markers for one delta and drops them the moment the title's first character
+ * lands. Holding that line back until it has content keeps a line's
+ * classification from flipping under text that is already on screen.
+ */
+function markdownContent(row: StreamRow): string {
+  if (row.streaming !== true) return row.text
+  return row.text.replace(/(^|\n)#{1,6}[ \t]*$/, "$1")
+}
+
+/**
  * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
  * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
  * for structured rows (MCP results), a coloured diff body for edit-tool rows,
@@ -2127,7 +2147,7 @@ function buildRowNode(
   wrapper.add(gutterNode(ctx, gutter))
   wrapper.add(
     new MarkdownRenderable(ctx, {
-      content: row.text,
+      content: markdownContent(row),
       syntaxStyle: transcriptSyntaxStyle(),
       fg: gutter.fg,
       width: markdownBodyColumns(gutter, layout),
@@ -2551,11 +2571,12 @@ export function openListOverlay(
   // list-only overlays keep the body empty.
   applyOverlayBodyText(shell, bodyText, 0)
 
-  const rows = shell.renderer.height || 24
-  // Request ~30% of terminal for list rows; geometry will cap against floor.
-  const listRows = Math.max(3, Math.floor(rows * 0.3))
+  // Ask for exactly what the content needs. The resolver caps the request
+  // against OVERLAY_MAX_FRACTION and the transcript floor, and applyLayout
+  // shrinks the viewport to whatever survived — so a longer list scrolls
+  // instead of growing, and a short one leaves no dead rows below it.
   const perItem = overlayRowsPerItem(shell.overlayKind)
-  const listItems = Math.max(2, Math.floor(listRows / perItem))
+  const listItems = Math.max(1, labels.length)
   const hostRows = overlayHostRows(
     shell,
     shell.overlayBodyLines.length,
@@ -2906,10 +2927,14 @@ export function setOverlayBody(
 ): void {
   if (!shell.overlayList) return
   applyOverlayBodyText(shell, text, maxLines)
+  // Ask for the whole list again, not the height it currently has: a body that
+  // shrank should hand its rows back to the choices rather than leave the
+  // viewport stuck at the size an earlier, taller body forced it to.
   const hostRows = overlayHostRows(
     shell,
     shell.overlayBodyLines.length,
-    shell.overlayList.height * overlayRowsPerItem(shell.overlayKind),
+    Math.max(1, shell.overlayItems.length) *
+      overlayRowsPerItem(shell.overlayKind),
   )
   relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
   paintOverlayList(shell)
@@ -3387,7 +3412,7 @@ export function enterSubagentObserve(
     text: `Viewing ${session.agentId}: ${session.description}`,
     meta: "observe",
   })
-  paintChrome(shell)
+  applyFocus(shell)
 }
 
 /** Leave observe; restore parent stream + focus lease. */
@@ -3418,7 +3443,7 @@ export function leaveSubagentObserve(shell: AppShell): void {
     text: `left observe (${agentId})`,
     meta: "observe",
   })
-  paintChrome(shell)
+  applyFocus(shell)
 }
 
 /**

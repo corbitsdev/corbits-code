@@ -145,11 +145,12 @@ describe("decisionChoiceRows", () => {
     expect(decisionChoiceRows(LABEL, false, 40)).toHaveLength(DECISION_CHOICE_ROWS)
   })
 
-  test("the active choice is marked; the spare row is the gap when unused", () => {
+  test("the active choice is marked, and choices are single-spaced", () => {
     const rows = decisionChoiceRows("Reject", true, 60)
     expect(rows[0]?.text).toBe(`${DECISION_ACTIVE_MARK} Reject`)
     expect(rows[0]?.fg).toBe(UI.text)
-    expect(rows[1]?.text).toBe("")
+    // One row per choice: the list reads as one list, not three statements.
+    expect(rows).toHaveLength(1)
   })
 
   test("an inactive choice is dim and unmarked", () => {
@@ -159,7 +160,7 @@ describe("decisionChoiceRows", () => {
   })
 
   for (const width of WIDTHS) {
-    test(`a long label wraps on a word boundary at ${width} columns`, () => {
+    test(`a long label stays inside ${width} columns`, () => {
       const rows = decisionChoiceRows(LABEL, false, width)
       for (const row of rows) expect(row.text.length).toBeLessThanOrEqual(width)
       expect(rows[0]?.text.endsWith("-")).toBe(false)

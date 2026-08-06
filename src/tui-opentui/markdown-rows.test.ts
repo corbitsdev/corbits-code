@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { withTestRenderer, type Harness } from "./harness"
-import { appendStreamRow, createAppShell } from "./shell"
+import { appendStreamRow, createAppShell, replaceStreamRowAt } from "./shell"
 import { isMarkdownRow } from "./stream"
 
 const WIDE = { width: 80, height: 24 } as const
@@ -68,6 +68,27 @@ describe("markdown transcript rows", () => {
     }, WIDE)
   })
 
+  test("### heading conceals its marker with no preceding blank line", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, {
+        role: "assistant",
+        text: [
+          "### What the site is",
+          "It's a product storefront + brand hub. Nav covers:",
+          "",
+          "**Hardware:** boards and enclosures.",
+        ].join("\n"),
+      })
+
+      const frame = await settle(h)
+      expect(frame).toContain("What the site is")
+      expect(frame).not.toContain("###")
+      expect(frame).toContain("Hardware:")
+      expect(frame).not.toContain("**Hardware:**")
+    }, WIDE)
+  })
+
   test("tool and system rows stay literal", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts)
@@ -93,6 +114,34 @@ describe("markdown transcript rows", () => {
       expect(frame).toContain("Done")
       expect(frame).not.toContain("## Done")
       expect(frame).toContain("const partial =")
+    }, WIDE)
+  })
+
+  test("a half-arrived heading marker never paints as literal text", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, {
+        role: "assistant",
+        streaming: true,
+        text: ["Some body text.", "", "#### "].join("\n"),
+      })
+
+      // `####` on its own is not yet a heading, so the parser reads it as
+      // literal text and the row paints the bare markers until the title's
+      // first character lands. Held back instead, so the line's classification
+      // cannot flip under text already on screen.
+      const frame = await settle(h)
+      expect(frame).toContain("Some body text.")
+      expect(frame).not.toContain("####")
+
+      replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+        role: "assistant",
+        streaming: true,
+        text: ["Some body text.", "", "#### Title"].join("\n"),
+      })
+      const next = await settle(h)
+      expect(next).toContain("Title")
+      expect(next).not.toContain("#### Title")
     }, WIDE)
   })
 })

@@ -22,8 +22,11 @@ export const DECISION_DITHER = "░▒▓"
 /** Marker on the active choice. Solid: the densest cell of the same ramp. */
 export const DECISION_ACTIVE_MARK = "█"
 
-/** Display rows every choice occupies, wrapped or not. */
-export const DECISION_CHOICE_ROWS = 2
+/**
+ * Display rows every choice occupies, wrapped or not. One: the choices are a
+ * single list, and a blank row between them reads as unrelated statements.
+ */
+export const DECISION_CHOICE_ROWS = 1
 
 /** Narrowest line this module will shape text into. */
 const MIN_WRAP_WIDTH = 4
@@ -197,9 +200,9 @@ export function composeDecisionBody(
 }
 
 /**
- * Shape one choice into its fixed row pair: the label (marked when active) and
- * a continuation row that doubles as the gap to the next choice. Fixed height
- * keeps the list viewport's index arithmetic a simple multiple.
+ * Shape one choice into its single row: the label, marked when active, and
+ * ellipsized in the middle when it will not fit. Fixed height keeps the list
+ * viewport's index arithmetic a simple multiple.
  */
 export function decisionChoiceRows(
   label: string,
@@ -207,17 +210,12 @@ export function decisionChoiceRows(
   width: number,
 ): OverlayBodyRow[] {
   const fg = active ? UI.text : UI.textDim
-  const inner = width - CHOICE_INDENT.length
-  const wrapped = wrapWords(label, inner)
-  const first = wrapped[0] ?? ""
-  const overflow = wrapped.slice(1).join(" ")
-  const second =
-    overflow.length > 0 ? middleEllipsis(overflow, Math.max(1, inner)) : ""
+  const inner = Math.max(1, width - CHOICE_INDENT.length)
+  const text = label.length > inner ? middleEllipsis(label, inner) : label
   return [
     {
-      text: `${active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT}${first}`,
+      text: `${active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT}${text}`,
       fg,
     },
-    { text: second.length > 0 ? `${CHOICE_INDENT}${second}` : "", fg },
   ]
 }

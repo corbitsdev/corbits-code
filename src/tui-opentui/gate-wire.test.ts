@@ -5,10 +5,12 @@ import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest } from "../permission/types.js"
 import { withTestRenderer } from "./harness.js"
+import { OVERLAY_MAX_FRACTION } from "./geometry/index.js"
 import {
   acceptOverlaySelection,
   createAppShell,
   toggleOverlayExpand,
+  type AppShell,
 } from "./shell.js"
 import {
   approvalOutcomeFromSelection,
@@ -374,5 +376,106 @@ describe("wireGates", () => {
         shell.dispose()
       }
     })
+  })
+
+  test("gate content reaches the transcript only after the operator decides", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 96, rows: 30 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const request: PermissionRequest = {
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: "ls -la ~/.corbits/projects",
+        scopes: [],
+      }
+      try {
+        const dispose = wireGates(emitter, shell)
+        emitter.emit("permission.gate", { request, resolve: () => {} })
+
+        // The overlay is showing this text; a transcript copy directly above it
+        // reads as a second, unrelated request.
+        expect(
+          shell.streamLog.filter((r) => r.meta === "permission"),
+        ).toHaveLength(0)
+
+        acceptOverlaySelection(shell)
+
+        const recorded = shell.streamLog
+          .filter((r) => r.meta === "permission")
+          .map((r) => r.text)
+          .join("\n")
+        expect(recorded).toContain("ls -la ~/.corbits/projects")
+        expect(recorded).toContain("Reject")
+
+        dispose()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+})
+
+describe("permission overlay height", () => {
+  const openGate = (shell: AppShell, scopeCount: number): void => {
+    const emitter = new EventEmitter()
+    wireGates(emitter, shell)
+    emitter.emit("permission.gate", {
+      request: {
+        tool: "run_shell",
+        action: "Run shell command",
+        subject: "ls -la ~/.corbits/projects 2>/dev/null | head -40",
+        scopes: Array.from({ length: scopeCount }, (_, i) => ({
+          id: `s${i}`,
+          label: `Always allow scope ${i}`,
+          pattern: `p${i}`,
+        })),
+      },
+      resolve: () => {},
+    })
+  }
+
+  const hostRowsFor = async (
+    rows: number,
+    scopeCount: number,
+  ): Promise<number> => {
+    let height = -1
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 96, rows },
+          run: "idle",
+        })
+        try {
+          openGate(shell, scopeCount)
+          height = shell.layout.heights.overlay_host
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 96, height: rows },
+    )
+    return height
+  }
+
+  test("tracks item count, not terminal height", async () => {
+    const short = await hostRowsFor(30, 1)
+    const tall = await hostRowsFor(60, 1)
+    expect(short).toBe(tall)
+
+    // Two extra choices cost exactly two extra rows: the choices are
+    // single-spaced, so the list is one row per item.
+    expect(await hostRowsFor(60, 3)).toBe(tall + 2)
+  })
+
+  test("caps rather than growing, and the list scrolls inside the cap", async () => {
+    const rows = 40
+    const capped = await hostRowsFor(rows, 40)
+    expect(capped).toBeLessThanOrEqual(Math.floor(rows * OVERLAY_MAX_FRACTION))
+    // Capped means the viewport holds fewer items than exist, not that rows
+    // spill outside the host.
+    expect(capped).toBeLessThan(await hostRowsFor(rows, 1) + 40)
   })
 })
