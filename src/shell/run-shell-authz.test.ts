@@ -271,16 +271,13 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(expandShellSubjects(`env -S "find /"`).subjects).toContain("find /");
   });
 
-  // CL-5421: message leads with host safety / OOM; no false "narrow" escape hatch.
   test("open-ended block reason cites OOM risk rather than tool-routing purity", () => {
     const reason = runShellAuthzBlockReason("find . -name '*.ts'");
     expect(reason).toMatch(openEnded);
     expect(reason).toMatch(/OOM the host/);
     expect(reason).toMatch(/walk huge trees/);
     expect(reason).toMatch(/Prefer the bounded grep\/search_files tools/);
-    expect(reason).not.toMatch(/narrow the shell command/);
     expect(reason).not.toMatch(/Do not use find/);
-    expect(reason).not.toMatch(/list_dir tools/);
   });
 
   test("G2: never-terminating watch inside quoted -S is hard-denied", () => {

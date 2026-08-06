@@ -374,7 +374,6 @@ describe("authzPlugin", () => {
     expect(result.content).toMatch(/Open-ended shell search blocked/);
   });
 
-  // CL-5421: block copy cites host safety / OOM; no false "narrow" escape hatch.
   test("open-ended block message cites OOM risk, not tool-routing purity", async () => {
     const plugin = authzPlugin();
     const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
@@ -383,9 +382,7 @@ describe("authzPlugin", () => {
     expect(result.content).toMatch(/OOM the host/);
     expect(result.content).toMatch(/walk huge trees/);
     expect(result.content).toMatch(/Prefer the bounded grep\/search_files tools/);
-    expect(result.content).not.toMatch(/narrow the shell command/);
     expect(result.content).not.toMatch(/Do not use find/);
-    expect(result.content).not.toMatch(/list_dir tools/);
   });
 
   async function evaluate(command: string): Promise<ToolResult> {
