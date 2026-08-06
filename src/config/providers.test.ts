@@ -185,4 +185,87 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
     expect(result.entry.opencodeGo).toBeUndefined();
   });
+
+  test("demotes sticky opencodeGo when edit submits bare Zen URL for a custom name", () => {
+    // Healed row: custom name, flag + canonical Go base. User restores PAYG Zen
+    // without delete/recreate — URL wins demotion.
+    const catalog: ProviderCatalogEntry[] = [
+      {
+        name: "go/personal",
+        baseURL: OPENCODE_GO_BASE_URL,
+        apiKey: "sk-go-existing",
+        models: ["kimi-k2.7-code"],
+        opencodeGo: true,
+      },
+    ];
+    const result = buildProviderEntry(
+      {
+        name: "go/personal",
+        originalName: "go/personal",
+        baseURL: "https://opencode.ai/zen/v1",
+        models: ["claude-sonnet-4-5"],
+        // Form draft may still re-assert the flag; URL demotes anyway.
+        opencodeGo: true,
+      },
+      catalog,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
+    expect(result.entry.opencodeGo).toBeUndefined();
+  });
+
+  test("demotes sticky pin when edit submits a non-Go URL", () => {
+    const catalog: ProviderCatalogEntry[] = [
+      {
+        name: "go/personal",
+        baseURL: OPENCODE_GO_BASE_URL,
+        apiKey: "sk-go-existing",
+        models: ["kimi-k2.7-code"],
+        opencodeGo: true,
+      },
+    ];
+    const result = buildProviderEntry(
+      {
+        name: "go/personal",
+        originalName: "go/personal",
+        baseURL: "https://api.openai.com/v1",
+        models: ["gpt-4o"],
+      },
+      catalog,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.baseURL).toBe("https://api.openai.com/v1");
+    expect(result.entry.opencodeGo).toBeUndefined();
+  });
+
+  test("known Go id still pins when form submits bare Zen (name identity)", () => {
+    // First-class opencode-go row cannot demote by URL alone — rename or delete.
+    const catalog: ProviderCatalogEntry[] = [
+      {
+        name: "opencode-go",
+        baseURL: OPENCODE_GO_BASE_URL,
+        apiKey: "sk-go-existing",
+        models: ["kimi-k2.7-code"],
+        opencodeGo: true,
+      },
+    ];
+    const result = buildProviderEntry(
+      {
+        name: "opencode-go",
+        originalName: "opencode-go",
+        baseURL: "https://opencode.ai/zen/v1",
+        models: ["kimi-k2.7-code"],
+      },
+      catalog,
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    expect(result.entry.opencodeGo).toBe(true);
+  });
 });

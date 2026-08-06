@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { OPENCODE_GO_DISPLAY_NAME, OPENCODE_GO_PROVIDER_ID } from "./constants.js";
-import { isOpenCodeGoProvider, isOpenCodeGoProviderId } from "./identity.js";
+import {
+  isOpenCodeGoProvider,
+  isOpenCodeGoProviderId,
+  isOpenCodeGoURL,
+} from "./identity.js";
 
 describe("isOpenCodeGoProviderId", () => {
   test("matches stable id and display name", () => {
@@ -97,5 +101,34 @@ describe("isOpenCodeGoProvider", () => {
         baseURL: "https://evil.com/?u=https://opencode.ai/zen/go/v1",
       }),
     ).toBe(false);
+  });
+
+  test("private host needs flag or known name (URL alone is not enough)", () => {
+    expect(
+      isOpenCodeGoProvider({
+        name: "go-proxy",
+        baseURL: "https://go.internal.example/zen/go/v1",
+      }),
+    ).toBe(false);
+    expect(
+      isOpenCodeGoProvider({
+        name: "go-proxy",
+        baseURL: "https://go.internal.example/zen/go/v1",
+        opencodeGo: true,
+      }),
+    ).toBe(true);
+    expect(
+      isOpenCodeGoProvider({
+        name: "opencode-go",
+        baseURL: "https://go.internal.example/zen/go/v1",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("isOpenCodeGoURL (identity export)", () => {
+  test("is exported from identity and matches public Go bases", () => {
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/go/v1")).toBe(true);
+    expect(isOpenCodeGoURL("https://go.internal.example/zen/go/v1")).toBe(false);
   });
 });

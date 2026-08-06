@@ -253,6 +253,12 @@ describe("isOpenCodeGoURL", () => {
     expect(isOpenCodeGoURL("https://api.openai.com/v1")).toBe(false);
   });
 
+  test("matches path segments case-insensitively", () => {
+    expect(isOpenCodeGoURL("https://opencode.ai/Zen/Go/v1")).toBe(true);
+    expect(isOpenCodeGoURL("https://opencode.ai/ZEN/GO")).toBe(true);
+    expect(isOpenCodeGoURL("https://opencode.ai/zen/GO/v1/")).toBe(true);
+  });
+
   test("rejects host spoofs and path false positives", () => {
     expect(isOpenCodeGoURL("https://not-opencode.ai/zen/go/v1")).toBe(false);
     expect(isOpenCodeGoURL("https://myopencode.ai/zen/go/v1")).toBe(false);
@@ -260,6 +266,13 @@ describe("isOpenCodeGoURL", () => {
     expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies")).toBe(false);
     expect(isOpenCodeGoURL("https://opencode.ai/zen/goodies/v1")).toBe(false);
     expect(isOpenCodeGoURL("https://opencode.ai/zen/v1")).toBe(false);
+  });
+
+  test("rejects private / non-public hosts (intentional FN; use flag or known name)", () => {
+    // Product surface is public-host only — no host allowlist env.
+    expect(isOpenCodeGoURL("https://go.internal.example/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://localhost:8080/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("http://10.0.0.5/zen/go/v1")).toBe(false);
   });
 
   test("rejects query-only embeds and path proxies", () => {

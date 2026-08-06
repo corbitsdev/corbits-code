@@ -314,25 +314,3 @@ export function parseGoAPIError(args: {
 
   return undefined;
 }
-
-/**
- * True when the URL or base is the OpenCode Go gateway.
- * Parses host + path (same shape as bare Zen checks): host must be
- * `opencode.ai` or a subdomain, and path must start with `/zen/go` as a
- * segment (not `/zen/goodies` or a query-embedded substring).
- */
-export function isOpenCodeGoURL(urlOrBase: string | undefined): boolean {
-  if (urlOrBase === undefined || urlOrBase.length === 0) return false;
-  const trimmed = urlOrBase.trim();
-  if (trimmed.length === 0) return false;
-  try {
-    const url = new URL(trimmed);
-    if (url.hostname !== "opencode.ai" && !url.hostname.endsWith(".opencode.ai")) {
-      return false;
-    }
-    const path = url.pathname.replace(/\/+$/, "") || "/";
-    return path === "/zen/go" || path.startsWith("/zen/go/");
-  } catch {
-    return false;
-  }
-}

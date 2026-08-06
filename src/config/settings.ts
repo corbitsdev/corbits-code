@@ -657,10 +657,11 @@ export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
 /**
  * Hard-cutover heal: any provider that is Go by flag, known id/label, or
  * `/zen/go` baseURL gets `opencodeGo: true` and the canonical Go baseURL.
- * Returns whether any provider entry changed.
+ * Mutates `settings.providers` only when at least one entry changes.
+ * Returns the names of providers that were mutated (empty when no-op).
  */
-export function healOpenCodeGoProviders(settings: Settings): boolean {
-  let changed = false;
+export function healOpenCodeGoProviders(settings: Settings): string[] {
+  const healed: string[] = [];
   const next: Record<string, ProviderSettings> = {};
   for (const [name, provider] of Object.entries(settings.providers)) {
     const go = isOpenCodeGoProvider({
@@ -678,17 +679,17 @@ export function healOpenCodeGoProviders(settings: Settings): boolean {
       next[name] = provider;
       continue;
     }
-    changed = true;
+    healed.push(name);
     next[name] = {
       ...provider,
       baseURL: OPENCODE_GO_BASE_URL,
       opencodeGo: true,
     };
   }
-  if (changed) {
+  if (healed.length > 0) {
     settings.providers = next;
   }
-  return changed;
+  return healed;
 }
 
 export async function loadSettings(path: string): Promise<Settings | null> {
@@ -764,9 +765,14 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     ...pickDefined(optional),
   };
   // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
+  // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
   // Fail open on save: keep the in-memory heal so startup is not bricked by a
   // read-only or otherwise unwritable settings path.
-  if (healOpenCodeGoProviders(settings)) {
+  const healedIds = healOpenCodeGoProviders(settings);
+  if (healedIds.length > 0) {
+    process.stderr.write(
+      `settings: healed OpenCode Go providers (${healedIds.join(", ")}) in ${path}\n`,
+    );
     try {
       await saveGlobalSettings(path, settings);
     } catch {

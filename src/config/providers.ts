@@ -2,6 +2,7 @@ import {
   OPENCODE_GO_BASE_URL,
   isOpenCodeGoProvider,
   isOpenCodeGoProviderId,
+  isOpenCodeGoURL,
 } from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
 
@@ -43,17 +44,23 @@ export function buildProviderEntry(
   }
   // Protocol flags are not form fields — preserve catalog flags on edit unless
   // the submission explicitly re-asserts them (Connect path). Known Go ids,
-  // display labels, and Go baseURLs (submission or existing) pin even when the
-  // flag was dropped from disk.
+  // display labels, and Go baseURLs pin even when the flag was dropped from disk.
+  // Hard cutover both ways: an explicit non-Go submission baseURL demotes the
+  // sticky opencodeGo pin so a healed row can return to bare Zen without
+  // delete/recreate. Known first-class Go id/label still pins via name identity.
   const anthropic = submission.anthropic === true || existing?.anthropic === true;
-  const identityBaseURL =
-    submission.baseURL.length > 0 ? submission.baseURL : existing?.baseURL;
+  const submittedBase = submission.baseURL.length > 0 ? submission.baseURL : undefined;
+  const demoteByURL =
+    submittedBase !== undefined && !isOpenCodeGoURL(submittedBase);
+  const stickyGoFlag =
+    !demoteByURL &&
+    (submission.opencodeGo === true ||
+      existing?.opencodeGo === true ||
+      isOpenCodeGoProviderId(submission.originalName));
+  const identityBaseURL = submittedBase ?? existing?.baseURL;
   const opencodeGo = isOpenCodeGoProvider({
     name: submission.name,
-    opencodeGo:
-      submission.opencodeGo === true ||
-      existing?.opencodeGo === true ||
-      isOpenCodeGoProviderId(submission.originalName),
+    ...(stickyGoFlag ? { opencodeGo: true as const } : {}),
     ...(identityBaseURL !== undefined ? { baseURL: identityBaseURL } : {}),
   });
   // Never persist bare Zen PAYG baseURL for a Go subscription provider.
