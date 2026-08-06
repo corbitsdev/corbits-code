@@ -4,15 +4,23 @@
  * Three parts, split across the prompt box so the box lands in the vertical
  * middle of the terminal:
  *
- *   above   the animated dither mark, bottom-left of its zone
+ *   above   the animated dither mark, bottom-left of its zone, with the two
+ *           way-in keys set beside its shoulder
  *   ────    the prompt box and its hint row (owned by the shell)
  *   below   the telemetry disclosure, then a few selectable starter prompts
+ *
+ * The mark is the screen. Beside it sit exactly two lines — the command menu
+ * and the shortcut sheet — because those two are the only doors an operator
+ * needs on a screen where nothing has happened yet; every other key is behind
+ * one of them, and listing keys here would trade the one legible thing on the
+ * screen for a reference card nobody reads twice.
  *
  * The disclosure sits directly under the box rather than at the bottom edge
  * because it has to be read, not discovered.
  *
- * Layout math is pure (`splitLandingRows`, `wrapLanding`) so the composition is
- * testable without a renderer, and the mark repaints off an injected clock.
+ * Layout math is pure (`splitLandingRows`, `resolveMarkGrid`, `wrapLanding`) so
+ * the composition is testable without a renderer, and the mark repaints off an
+ * injected clock.
  */
 
 import {
@@ -23,7 +31,7 @@ import {
 } from "@opentui/core"
 import { BoxRenderable, TextRenderable } from "@opentui/core"
 
-import { MARK_ROWS } from "./mark-shape.js"
+import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js"
 import { renderMark } from "./mark-anim.js"
 import { UI } from "./theme.js"
 
@@ -36,6 +44,51 @@ export const LANDING_MARGIN = 1
 
 /** One blank row between the mark and the prompt box. */
 const MARK_GAP_ROWS = 1
+
+/** Columns of air between the mark's right edge and the hint block. */
+export const LANDING_HERO_GAP = 3
+
+/**
+ * The two doors off the landing screen. Every other key lives behind one of
+ * them, so this list never grows.
+ */
+export const LANDING_HINTS: readonly {
+  readonly key: string
+  readonly rest: string
+}[] = [
+  { key: "ctrl+o", rest: "for commands" },
+  { key: "?", rest: "for shortcuts" },
+]
+
+/** Columns the hint block needs, its longest line deciding. */
+export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
+  (widest, hint) => Math.max(widest, hint.key.length + 1 + hint.rest.length),
+  0,
+)
+
+/** Largest first: the landing takes the best-reading mark its zone can seat. */
+const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL]
+
+/**
+ * The mark grid that fits the zone above the prompt box, or null when even the
+ * compact grid would push the box off screen.
+ *
+ * Rows are the binding constraint on a short terminal and columns on a narrow
+ * one, so both are checked: the mark degrades through the tiers and then
+ * disappears, and the prompt box never moves to make room for it.
+ */
+export function resolveMarkGrid(
+  aboveRows: number,
+  columns: number,
+): MarkGrid | null {
+  const width = Math.max(0, columns) - LANDING_MARGIN
+  for (const grid of MARK_TIERS) {
+    if (grid.rows + MARK_GAP_ROWS > aboveRows) continue
+    if (grid.cols + LANDING_HERO_GAP + LANDING_HINT_WIDTH > width) continue
+    return grid
+  }
+  return null
+}
 
 export type LandingSuggestion = {
   /** The key that fills the prompt with this prompt. */
@@ -177,20 +230,32 @@ export function landingBelowRows(
   return rows
 }
 
-function markChunks(nowMs: number, still: boolean): readonly TextChunk[][] {
-  return renderMark({ nowMs, still }).map((row) =>
+function markChunks(
+  grid: MarkGrid,
+  nowMs: number,
+  still: boolean,
+): readonly TextChunk[][] {
+  return renderMark({ nowMs, still, grid }).map((row) =>
     row.map((cell) => fgChunk(cell.fg)(cell.char)),
   )
 }
 
 export type LandingAbove = {
   readonly box: BoxRenderable
+  readonly hero: BoxRenderable
+  readonly markColumn: BoxRenderable
   readonly markRows: readonly TextRenderable[]
+  /** The grid currently painted, or null while the mark is suppressed. */
+  grid: MarkGrid | null
 }
 
 /**
  * The mark, bottom-anchored in its zone so it sits directly on the prompt box
- * rather than floating in the middle of the empty space above it.
+ * rather than floating in the middle of the empty space above it, with the
+ * hint block beside its shoulder.
+ *
+ * Rows are allocated for the largest tier once and hidden from the top down as
+ * smaller tiers are selected, so a resize never rebuilds the subtree.
  */
 export function createLandingAbove(ctx: CliRenderer): LandingAbove {
   const box = new BoxRenderable(ctx, {
@@ -202,8 +267,24 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
     paddingLeft: LANDING_MARGIN,
     backgroundColor: UI.ground,
   })
+  const hero = new BoxRenderable(ctx, {
+    id: "shell-landing-hero",
+    width: "100%",
+    height: MARK_LARGE.rows,
+    flexShrink: 0,
+    flexDirection: "row",
+    backgroundColor: UI.ground,
+  })
+  const markColumn = new BoxRenderable(ctx, {
+    id: "shell-landing-mark",
+    width: MARK_LARGE.cols,
+    flexShrink: 0,
+    flexDirection: "column",
+    justifyContent: "flex-end",
+    backgroundColor: UI.ground,
+  })
   const markRows: TextRenderable[] = []
-  for (let row = 0; row < MARK_ROWS; row++) {
+  for (let row = 0; row < MARK_LARGE.rows; row++) {
     const line = new TextRenderable(ctx, {
       id: `shell-landing-mark-${row}`,
       height: 1,
@@ -211,8 +292,11 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
       fg: UI.action,
     })
     markRows.push(line)
-    box.add(line)
+    markColumn.add(line)
   }
+  hero.add(markColumn)
+  hero.add(createHintBlock(ctx))
+  box.add(hero)
   box.add(
     new TextRenderable(ctx, {
       id: "shell-landing-mark-gap",
@@ -221,9 +305,56 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
       fg: UI.ground,
     }),
   )
-  const above: LandingAbove = { box, markRows }
+  const above: LandingAbove = {
+    box,
+    hero,
+    markColumn,
+    markRows,
+    grid: MARK_SMALL,
+  }
+  fitLandingMark(above, MARK_SMALL)
   paintLandingMark(above, 0, true)
   return above
+}
+
+/** The two doors, key emphasized and the rest dim. */
+function createHintBlock(ctx: CliRenderer): BoxRenderable {
+  const block = new BoxRenderable(ctx, {
+    id: "shell-landing-hints",
+    flexGrow: 1,
+    flexDirection: "column",
+    paddingLeft: LANDING_HERO_GAP,
+    backgroundColor: UI.ground,
+  })
+  LANDING_HINTS.forEach((hint, index) => {
+    block.add(
+      new TextRenderable(ctx, {
+        id: `shell-landing-hint-${index}`,
+        height: 1,
+        content: new StyledText([
+          fgChunk(UI.text)(hint.key),
+          fgChunk(UI.textDim)(` ${hint.rest}`),
+        ]),
+      }),
+    )
+  })
+  return block
+}
+
+/**
+ * Seat the mark in `grid`, or suppress it entirely when `grid` is null. The
+ * hint block stays either way: it is the way off the screen, not decoration.
+ */
+export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
+  above.grid = grid
+  const rows = grid?.rows ?? LANDING_HINTS.length
+  above.hero.height = rows
+  above.markColumn.visible = grid !== null
+  above.markColumn.width = grid?.cols ?? 0
+  // Extra rows are hidden from the top so the ridgeline keeps its floor.
+  above.markRows.forEach((line, index) => {
+    line.visible = grid !== null && index >= MARK_LARGE.rows - grid.rows
+  })
 }
 
 /**
@@ -235,9 +366,12 @@ export function paintLandingMark(
   nowMs: number,
   still: boolean,
 ): void {
-  const chunks = markChunks(nowMs, still)
+  const grid = above.grid
+  if (grid === null) return
+  const chunks = markChunks(grid, nowMs, still)
+  const offset = MARK_LARGE.rows - grid.rows
   above.markRows.forEach((line, index) => {
-    const row = chunks[index]
+    const row = chunks[index - offset]
     if (row !== undefined) line.content = new StyledText([...row])
   })
 }

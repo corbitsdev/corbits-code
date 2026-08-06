@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js"
-import { createAppShell } from "./shell.js"
+import { createAppShell, noticeText } from "./shell.js"
 import { withTestRenderer } from "./harness.js"
 import { STALL_RECOVERY_MESSAGE } from "./stall-watchdog.js"
 
@@ -40,14 +40,6 @@ async function setup(h: { renderer: Parameters<typeof createAppShell>[0] }) {
     },
     tick: () => tick?.(),
   }
-}
-
-/** The hint row holds a StyledText; join its chunks for assertions. */
-function hintText(shell: { hint: { content: unknown } }): string {
-  const content = shell.hint.content
-  if (typeof content === "string") return content
-  const { chunks } = content as { chunks?: readonly { text?: string }[] }
-  return (chunks ?? []).map((c) => c.text ?? "").join("")
 }
 
 const quotaEvent = (retryAfterMs: number) => ({
@@ -138,10 +130,10 @@ describe("turn progress label", () => {
 
         expect(t.shell.turnPhase).toBeNull()
         expect(t.bridge.turn.isProcessing).toBe(false)
-        expect(hintText(t.shell)).not.toContain("working")
-        // The session is handed back: the stop key gives way to file mentions.
+        expect(noticeText(t.shell)).not.toContain("working")
+        // The session is handed back and the transient row empties with it.
         expect(t.shell.session.run).toBe("idle")
-        expect(hintText(t.shell)).toContain("@ files")
+        expect(noticeText(t.shell)).toBe("")
 
         // A later tick must not resurrect it.
         t.advance(250)
@@ -209,7 +201,9 @@ describe("turn progress label", () => {
         t.advance(1_000)
         expect(t.shell.turnPhase).toBe(frozen)
 
-        expect(hintText(t.shell)).toContain("blocked")
+        // The word never reaches the row: only the frozen ramp does.
+        expect(noticeText(t.shell)).not.toContain("blocked")
+        expect(noticeText(t.shell)).toMatch(/[░▒▓█]/u)
       } finally {
         t.bridge.dispose()
       }

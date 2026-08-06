@@ -178,10 +178,8 @@ describe("operator question overlay", () => {
           expect(frame).toMatch(/destructive|working tree|git reset/i)
           // Choice visible
           expect(frame).toMatch(/Cancel|Allow/)
-          // Hint row still present (not overpainted away)
-          expect(frame).toContain("esc close")
-          expect(shell.hint.height).toBeGreaterThanOrEqual(1)
-          expect(shell.layout.heights.hint).toBe(1)
+          // The overlay carries its own keys now that there is no hint strip.
+          expect(frame).toContain("Esc cancel")
 
           // Esc restore: closeInsetOverlay is the Esc path (same as key handler).
           closeInsetOverlay(shell)

@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
 import {
-  LOCKUP_GAP,
   LOCKUP_MARK_COLS,
   LOCKUP_WIDTH,
   LOCKUP_WORDMARK,
   lockupCells,
-  lockupFits,
   lockupText,
 } from "./lockup"
 import { MARK_PERIOD_SECONDS } from "./mark-anim"
@@ -48,14 +46,5 @@ describe("brand lockup", () => {
       frames.add(lockupText(lockupCells({ nowMs, still: false })))
     }
     expect(frames.size).toBeGreaterThan(2)
-  })
-
-  test("the hint text outranks the lockup on a narrow row", () => {
-    const hint = 20
-    expect(lockupFits(hint, hint + LOCKUP_WIDTH + LOCKUP_GAP.length)).toBe(true)
-    expect(
-      lockupFits(hint, hint + LOCKUP_WIDTH + LOCKUP_GAP.length - 1),
-    ).toBe(false)
-    expect(lockupFits(hint, 10)).toBe(false)
   })
 })

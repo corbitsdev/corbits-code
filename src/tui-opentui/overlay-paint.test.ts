@@ -1,5 +1,5 @@
 /**
- * Frame-level regression: an open overlay and the model bar must never write
+ * Frame-level regression: an open overlay and the prompt border must never write
  * into the same terminal cells. Asserting "the overlay opened" is not enough —
  * the earlier bug painted correct state into overlapping rects, so these tests
  * read the painted characters back out of the headless renderer.
@@ -65,6 +65,9 @@ async function paintOverlay(
         profile: "xai/thegreataxios",
         model: "grok-4.5",
       })
+      // An overlay always opens over a live session; the landing splits the
+      // transcript around the prompt box and is a different layout entirely.
+      appendStreamRow(shell, { role: "assistant", text: "session underway" })
       open(shell)
       await h.renderOnce()
       const frame = h.captureCharFrame()
@@ -96,7 +99,7 @@ const SIZES = [
   { width: 120, height: 40 },
 ] as const
 
-describe("overlay host never shares cells with the model bar", () => {
+describe("overlay host never shares cells with the prompt border", () => {
   for (const size of SIZES) {
     test(`model picker paints clean rows at ${size.width}x${size.height}`, async () => {
       const { frame, interior } = await paintOverlay(
@@ -123,11 +126,10 @@ describe("overlay host never shares cells with the model bar", () => {
         expect(row.includes("thegreataxios")).toBe(false)
       }
 
-      // The model bar keeps its own row, outside the overlay box.
+      // The label rides the prompt box's top border, outside the overlay box.
       const barRows = frameLine(frame, (l) => l.includes(MODEL_LABEL))
       expect(barRows).toHaveLength(1)
-      expect(barRows[0]?.trim()).toEndWith(MODEL_LABEL)
-      expect(barRows[0]?.includes("│")).toBe(false)
+      expect(barRows[0]?.trim()).toEndWith(`${MODEL_LABEL} ─╮`)
     })
   }
 
@@ -189,7 +191,7 @@ describe("every overlay kind paints clean rows", () => {
 
       const barRows = frameLine(frame, (l) => l.includes(MODEL_LABEL))
       expect(barRows).toHaveLength(1)
-      expect(barRows[0]?.trim()).toEndWith(MODEL_LABEL)
+      expect(barRows[0]?.trim()).toEndWith(`${MODEL_LABEL} ─╮`)
     })
   }
 })

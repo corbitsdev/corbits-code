@@ -56,9 +56,8 @@ Budgets are validated against **80×24** as the hard floor and **120×40** as th
 |---|---|---|---|---|---|---|
 | **progress** | In-flight phase / workflow line | 0 when idle; 1–2 when active or workflow chip | 0 | 2 | **0** when inactive and no workflow chip. Shown only while agent is active or a workflow chip needs it. | Shell |
 | **progress_divider** | Hairline above prompt stack | 0–1 | 0 | 1 | Present only when the prompt stack is painted as a distinct block. Prefer absorbing into prompt chrome if a hairline is free on OpenTUI. | Shell |
-| **model_bar** | Session · profile · model · effort above prompt, dim and right-aligned | 1 | 0 | 1 | Collapse to 0 only under extreme starve (see §3.3); restore as soon as space allows. | Shell |
+| **notice** | Transient state above the prompt: queue depth, interrupt latch, pinned scroll, a flash, the live turn's density ramp | 0 | 0 | 1 | Present only while a segment is off its default. Never a permanent strip and never a filled bar. | Shell |
 | **prompt** | Bordered input (content + borders) | 3 base | 3 | Cap: **≤ 40% of terminal rows**, and never so large that transcript falls below floor when only prompt grows | Content growth **scrolls inside** the prompt box. Cap fraction is of full terminal height. Multi-line paste must not steal the log permanently. | Shell + prompt |
-| **hint** | Stateful key hints under the prompt | 1 | 1 | 1 | Exactly one dim row showing the keys that work in the current state. State (queue depth, interrupt latch, pinned scroll) appears only when it is not at its default. Never a filled bar. | Shell |
 | **goal** | Goal / acceptance strip | 0 default | 0 | **1** collapsed; expanded dense detail → **modal** | Default collapsed or hidden. Implementing phase may show a compact 1-row chip. Full criteria lists are modal, not an unbounded strip. | Zone registry consumer |
 | **task** | Work checklist strip | 0 default | 0 | **1** collapsed; expand → **modal** or temporary expand capped at **proposed 5** content rows then modal | Default off or 1-row summary. Full checklist is not a permanent multi-row tenant. | Zone registry consumer |
 | **agents** | Orchestrator agents strip | 0 in single-agent; 0–1 collapsed in orchestrator | 0 | **1** collapsed; observe/expand → modal or dedicated region under overlay host | Single-agent sessions pay **0**. Orchestrator default is a thin strip, never a permanent multi-row roster. | Zone registry consumer |
@@ -68,9 +67,9 @@ Budgets are validated against **80×24** as the hard floor and **120×40** as th
 | **transcript** | Event log (residual) | **≥ 12** on 80×24 idle | **12** on 24-row idle; **proposed ≥ 8** when overlay open on 24-row | Remaining height | Always residual after higher-priority zones. Optional chrome may not push idle transcript below floor. | Geometry owner |
 | **overlay_host** | Single modal / blocking surface | 0 when closed | 0 | Layout-owned region: **proposed ≤ 70% of terminal rows**, and never eliminates the prompt stack entirely on 24-row | One primary blocking overlay at a time. Open replaces or stacks with a single Esc path back to prompt. Height is measured for the active surface inside the host box (list kit + wrap measure), not a per-surface magic constant table outside the host. | Overlay host |
 
-**Proposed (not yet paint-proven) defaults** are marked **proposed**. Locked floors: progress 0 or 1–2, model bar 1, prompt exactly 3 (capped growth), hint 1, optional strips 0–1 collapsed, transcript ≥ 12 on 80×24 idle.
+**Proposed (not yet paint-proven) defaults** are marked **proposed**. Locked floors: progress 0 or 1–2, prompt exactly 3 (capped growth), notice 0–1, optional strips 0–1 collapsed, transcript ≥ 12 on 80×24 idle.
 
-There is no titlebar and no status strip. The prompt box is the product: it is anchored at the bottom in every state, and the only permanent chrome around it is the dim model bar above and the dim hint row below. No zone paints a full-width background fill.
+There is no titlebar, no status strip and no key-hint row. The prompt box is the product: it is anchored at the bottom in every state and it is the *only* permanent chrome. Its border carries the metadata — the model label right-aligned in the top rule, the brand lockup at the left of the bottom rule and the working directory with git branch at its right — so both cost zero rows and the rule breaks around each label. Keys are discoverable from the landing screen and the command palette. No zone paints a full-width background fill.
 
 ### 3.3 Chrome priority when space is scarce
 
@@ -81,10 +80,10 @@ When `terminal.rows` cannot host all desired chrome without violating the transc
 3. Expanded `goal` / `task` / `agents` — force collapsed (0–1) or push dense content to modal.
 4. `progress` — if idle, already 0; if active, prefer 1 row over 2.
 5. `progress_divider` — drop if still short.
-6. `model_bar` — last fixed chrome to shrink (0 only under extreme starve).
+6. `notice` — last transient chrome to shrink (0 as soon as it has nothing to say).
 7. `prompt` — never below 3; growth reclaims only via internal scroll (already capped).
 
-`hint` is never collapsed: one row, in every mode, including full-shell modal, where it carries the overlay's own keys.
+In full-shell modal mode the overlay carries its own keys in its title row; no chrome row survives for it.
 
 **Overlays:** opening a blocking overlay may shrink the transcript below the idle floor, but must leave a **proposed ≥ 8** row transcript (or hide transcript entirely only in full-shell modal mode, where the overlay owns the residual box and the prompt remains reachable on Esc). Full-shell modal mode is explicit (e.g. model picker, settings), not the default for thin permission prompts.
 
@@ -94,15 +93,14 @@ Example idle layout that satisfies the floor:
 
 | Zone | Rows |
 |---|---|
-| model_bar | 1 |
+| notice | 0 |
 | prompt | 3 |
-| hint | 1 |
 | optional strips | 0 |
 | progress | 0 |
-| **subtotal chrome** | **5** |
-| **transcript residual** | **19** (≥ 12) |
+| **subtotal chrome** | **3** |
+| **transcript residual** | **21** (≥ 12) |
 
-With progress (2) + thin agents strip (1): chrome 8 → transcript 16. Goal+task+agents all expanded as multi-row strips is **out of constitution** — those expansions must modalize or collapse under §3.3.
+With progress (2) + thin agents strip (1): chrome 6 → transcript 18. Goal+task+agents all expanded as multi-row strips is **out of constitution** — those expansions must modalize or collapse under §3.3.
 
 ### 3.5 Today vs target (Ink reference only)
 
@@ -134,7 +132,7 @@ The **app shell geometry resolver** is the only module allowed to turn terminal 
 
 | Output | Meaning |
 |---|---|
-| Region rects | `{ x, y, width, height }` for transcript, prompt stack, hint, overlay host, and each active optional strip |
+| Region rects | `{ x, y, width, height }` for transcript, prompt stack, notice, overlay host, and each active optional strip |
 | Transcript residual height | Explicit; not re-derived in leaves |
 | Scroll lease region | Which rect currently owns wheel/page keys (focus tree decides *who*; geometry provides *where*) |
 
@@ -178,7 +176,7 @@ Prompt base row count stays stable across resize; only wrap width and internal s
 
 ### 4.5 Overlay host modes
 
-| Mode | Transcript | Prompt / hint | Use |
+| Mode | Transcript | Prompt box | Use |
 |---|---|---|---|
 | **Closed** | Residual full | Visible | Default session |
 | **Inset** | Shrinks; ≥ overlay floor | Visible | Permission, operator question, thin confirms |
@@ -227,7 +225,7 @@ Full corpus and harness mapping live in `docs/plans/tui-layout-scroll-platform.m
 |---|---|
 | **Starved chrome** | Goal + tasks + agents + active progress on 24 rows → transcript still ≥ floor; expand/collapse works via §3.3 |
 | **Permission list** | Host measures list; keep-active-visible; wheel on list lease; close restores prompt rect/focus |
-| **Operator question** | Long question + many choices fit host box; no overpaint into the hint row |
+| **Operator question** | Long question + many choices fit host box; no overpaint into the prompt border |
 | **Prompt expand** | Multi-line paste; internal scroll; transcript does not vanish |
 | **Stream follow** | Transcript residual stable under append; no layout thrash |
 | **Resize mid-session** | 80×24 ↔ 120×40; resolver re-runs; no ghost lines; prompt base stable |

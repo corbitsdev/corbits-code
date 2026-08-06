@@ -60,12 +60,14 @@ describe("commandItemsFromRegistry", () => {
         label: "/tasks — Show work list",
         keywords: ["tasks", "slash", "command"],
         dispatch: "command",
+        category: "command",
       },
       {
         id: "clear",
         label: "/clear — Clear screen",
         keywords: ["clear", "slash", "command"],
         dispatch: "command",
+        category: "session",
       },
     ])
   })

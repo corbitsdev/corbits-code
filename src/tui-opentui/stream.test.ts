@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { stringWidth } from "../tui/view/height"
 import {
   agentVoicesIn,
+  blockLabel,
   isMultiAgent,
   paintStreamRow,
   rowGroupGap,
@@ -19,30 +20,31 @@ const lines = (row: StreamRow, layout: RowLayout = SOLO): string[] =>
   paintStreamRow(row, layout).content.split("\n")
 
 describe("stream paint", () => {
-  test("one voice needs no labels: the operator is found by alignment", () => {
+  test("one voice needs no labels: the operator is found by the bar", () => {
     const you = lines({ role: "user", text: "hi" })[0] as string
     const agent = lines({ role: "assistant", text: "hello" })[0] as string
 
     expect(you).not.toContain("you")
     expect(agent).not.toContain("agent")
     expect(agent.startsWith("hello")).toBe(true)
+    expect(you.startsWith("▍")).toBe(true)
     expect(you.trimEnd().endsWith("hi")).toBe(true)
-    expect(stringWidth(you)).toBe(SOLO.width)
   })
 
-  test("the operator's bubble ends on the transcript's last column", () => {
+  test("the operator's bubble starts on the transcript's first column", () => {
     for (const width of [40, 56, 100]) {
       const painted = lines(
         { role: "user", text: "find the legacy token before the release" },
         { width, multiAgent: false },
       )
-      const widest = Math.max(...painted.map(stringWidth))
-      expect(widest).toBe(width)
-      for (const line of painted) expect(stringWidth(line)).toBeLessThanOrEqual(width)
+      for (const line of painted) {
+        expect(line.indexOf("▍")).toBe(0)
+        expect(stringWidth(line)).toBeLessThanOrEqual(width)
+      }
     }
   })
 
-  test("a long operator message wraps as one right-aligned block", () => {
+  test("a long operator message wraps as one left-aligned block", () => {
     const text =
       "please find every call site of the legacy token helper and tell me which of them still run in production"
     for (const width of [40, 56, 80, 120]) {
@@ -51,7 +53,7 @@ describe("stream paint", () => {
       // One rectangle: every line's bar sits on the same column.
       const bars = new Set(painted.map((line) => line.indexOf("▍")))
       expect(bars.size).toBe(1)
-      expect(Math.max(...painted.map(stringWidth))).toBe(width)
+      for (const line of painted) expect(stringWidth(line)).toBeLessThanOrEqual(width)
     }
   })
 
@@ -158,27 +160,26 @@ describe("stream paint", () => {
     }
   })
 
-  test("a second agent brings back icons and names", () => {
+  test("a second agent's row paints no icon or name inline", () => {
+    // Writer identity is a block-level header (see `blockLabel`), not baked
+    // into the row body, so a lone row never carries "●" itself.
     const solo = lines({ role: "assistant", text: "on it" })[0] as string
     const crew = lines({ role: "assistant", text: "on it", agent: "critic" }, CREW)[0] as string
     expect(solo).not.toContain("●")
-    expect(crew.startsWith("● critic")).toBe(true)
-    // Unnamed rows are the session's own agent.
-    expect(lines({ role: "assistant", text: "on it" }, CREW)[0]).toContain("● agent")
-    // The operator stays a right-aligned bubble either way.
+    expect(crew).not.toContain("●")
+    expect(crew.startsWith("on it")).toBe(true)
+    // The operator stays a left-aligned bubble either way.
     expect(lines({ role: "user", text: "go" }, CREW)[0]).toBe(
       lines({ role: "user", text: "go" })[0],
     )
   })
 
-  test("reasoning stays under its owner when several agents write", () => {
+  test("reasoning keeps one marker column across its lines", () => {
     const rows = lines(
       { role: "system", meta: "thinking", text: "checking\nthen deciding", agent: "critic" },
       CREW,
     )
-    expect(rows[0]).toContain("● critic")
     expect(rows[0]).toContain("┆")
-    // The block keeps one marker column across its lines.
     const markers = new Set(rows.map((row) => row.indexOf("┆")))
     expect(markers.size).toBe(1)
   })
@@ -259,8 +260,37 @@ describe("row gutter", () => {
     expect(streamRowGutter({ role: "assistant", text: "hi" }, SOLO).content).toBe("")
   })
 
-  test("a named agent's markdown body is offset by its tag", () => {
+  test("writer identity never lands in the per-row gutter, multi-agent or not", () => {
     expect(streamRowGutter({ role: "assistant", text: "hi", agent: "critic" }, CREW).content)
-      .toBe("● critic  ")
+      .toBe("")
+  })
+})
+
+describe("block labels", () => {
+  const you = { role: "user", text: "go" } as const
+  const corbits = { role: "assistant", text: "on it" } as const
+  const critic = { role: "assistant", text: "reviewing", agent: "critic" } as const
+
+  test("single-agent transcripts never label a row", () => {
+    expect(blockLabel(undefined, corbits, SOLO)).toBeNull()
+    expect(blockLabel(you, corbits, SOLO)).toBeNull()
+  })
+
+  test("the operator's own turn is never labelled", () => {
+    expect(blockLabel(corbits, you, CREW)).toBeNull()
+  })
+
+  test("a block's first row is labelled with its writer", () => {
+    expect(blockLabel(undefined, corbits, CREW)).toBe("● agent")
+    expect(blockLabel(you, critic, CREW)).toBe("● critic")
+  })
+
+  test("a run from the same writer labels only its first row", () => {
+    const secondFromCorbits = { role: "assistant", text: "still going" } as const
+    expect(blockLabel(corbits, secondFromCorbits, CREW)).toBeNull()
+  })
+
+  test("a change of writer relabels even without a role change", () => {
+    expect(blockLabel(corbits, critic, CREW)).toBe("● critic")
   })
 })

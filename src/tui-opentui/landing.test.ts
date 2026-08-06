@@ -12,19 +12,23 @@ import {
   applyLandingSuggestion,
   createAppShell,
   paintChrome,
+  setPromptWorkspace,
   isLanding,
   paintLanding,
 } from "./shell"
+import { openOperatorOverlay } from "./overlays"
 import {
+  LANDING_HINTS,
   LANDING_SUGGESTIONS,
   landingBelowContent,
   landingBelowRows,
   landingSuggestionFor,
+  resolveMarkGrid,
   splitLandingRows,
   wrapLanding,
 } from "./landing"
 import { LOCKUP_WORDMARK } from "./lockup"
-import { MARK_ROWS } from "./mark-shape"
+import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape"
 import { UI } from "./theme"
 
 const SIZE = { width: 80, height: 24 } as const
@@ -90,6 +94,18 @@ describe("landing layout math", () => {
     expect(text.some((line) => line.includes("telemetry"))).toBe(false)
   })
 
+  test("the mark degrades through its tiers and then disappears", () => {
+    // Roomy: the hero grid, which is the only size that reads unambiguously.
+    expect(resolveMarkGrid(20, 96)).toBe(MARK_LARGE)
+    // A row short of the hero, a tier down rather than a clipped hero.
+    expect(resolveMarkGrid(12, 96)).toBe(MARK_MID)
+    expect(resolveMarkGrid(9, 96)).toBe(MARK_SMALL)
+    // Narrow enough that the mark would crowd the hints: the hints win.
+    expect(resolveMarkGrid(20, 50)).toBe(MARK_SMALL)
+    expect(resolveMarkGrid(20, 30)).toBeNull()
+    expect(resolveMarkGrid(3, 96)).toBeNull()
+  })
+
   test("every starter is reachable by its key", () => {
     for (const item of LANDING_SUGGESTIONS) {
       expect(landingSuggestionFor(item.key)).toBe(item)
@@ -111,8 +127,10 @@ describe("landing screen", () => {
       try {
         await settle(h)
         const painted = rows(h)
-        const top = painted.findIndex((row) => row.includes("┌"))
-        const bottom = painted.findIndex((row) => row.includes("└"))
+        // Either corner set: the prompt border's glyphs are the box owner's
+        // business, the box's position is what this asserts.
+        const top = painted.findIndex((row) => /[┌╭]/.test(row))
+        const bottom = painted.findIndex((row) => /[└╰]/.test(row))
         expect(top).toBeGreaterThan(0)
         // The box straddles the terminal's middle row (within the half row an
         // odd-height box on an even-height terminal cannot avoid).
@@ -120,8 +138,19 @@ describe("landing screen", () => {
 
         // Mark above, bottom-anchored against the box; disclosure below it.
         const mark = markRows(h)
-        expect(mark).toHaveLength(MARK_ROWS)
-        expect(painted.indexOf(mark[MARK_ROWS - 1] as string)).toBeLessThan(top)
+        // Whichever tier this terminal seats, the mark is whole: a clipped
+        // grid would read as a different shape.
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          mark.length,
+        )
+        expect(painted.indexOf(mark.at(-1) as string)).toBeLessThan(top)
+        // The two doors sit beside the mark, not under it.
+        for (const hint of LANDING_HINTS) {
+          const row = painted.find((line) => line.includes(hint.rest))
+          expect(row).toBeDefined()
+          expect(row).toContain(hint.key)
+          expect(row!.indexOf(hint.key)).toBeGreaterThan(0)
+        }
         const noticeRow = painted.findIndex((row) => row.includes("telemetry"))
         expect(noticeRow).toBeGreaterThan(bottom)
         for (const item of LANDING_SUGGESTIONS) {
@@ -240,7 +269,7 @@ describe("landing screen", () => {
     }, SIZE)
   })
 
-  test("the brand lockup sits bottom-left on the hint row, session-long", async () => {
+  test("the brand lockup sits in the prompt box's bottom border, session-long", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -248,53 +277,119 @@ describe("landing screen", () => {
       })
       try {
         await settle(h)
-        // On the landing the hint row still sits under the prompt box, with the
-        // disclosure below it; the lockup travels with the hint row, not the
-        // screen edge, so it is directly beneath the box.
+        // The lockup rides the box's bottom rule, so it is on the rule itself
+        // rather than on a row of its own beneath it.
         const landingPainted = rows(h)
         const landingRow = landingPainted.findIndex((row) =>
           row.includes(LOCKUP_WORDMARK),
         )
-        expect(landingRow).toBe(
-          landingPainted.findIndex((row) => row.includes("└")) + 1,
-        )
+        expect(landingRow).toBeGreaterThanOrEqual(0)
+        expect(landingPainted[landingRow]).toContain("╰")
 
         // It outlives the landing: this is session chrome, not a splash.
         appendStreamRow(shell, { role: "user", text: "first prompt" })
         await settle(h)
         const painted = rows(h)
-        const hintRow = painted.findIndex((row) => row.includes(LOCKUP_WORDMARK))
-        expect(hintRow).toBe(SIZE.height - 1)
-        // Left of the hint keys, inside the shell gutter, and costing no row.
-        const row = painted[hintRow]!
-        expect(row.indexOf(LOCKUP_WORDMARK)).toBeLessThan(
-          row.indexOf("/ commands"),
+        const ruleRow = painted.findIndex((row) =>
+          row.includes(LOCKUP_WORDMARK),
         )
-        expect(row.startsWith("  ")).toBe(true)
+        expect(ruleRow).toBe(SIZE.height - 1)
+        const row = painted[ruleRow]!
+        // Left end of the rule, inside the shell gutter, costing no row.
+        expect(row.startsWith("  ╰─ ")).toBe(true)
+        expect(row.trimEnd().endsWith("╯")).toBe(true)
       } finally {
         shell.dispose()
       }
     }, SIZE)
   })
 
-  test("a narrow row drops the lockup and keeps the keys", async () => {
+  test("a narrow rule drops the lockup and keeps the workspace", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
           terminal: { columns: 34, rows: 20 },
           wireKeys: false,
+          cwd: "/src/corbits-code",
         })
         try {
+          setPromptWorkspace(shell, { branch: "migration/opentui-tui" })
           await settle(h)
           const frame = h.captureCharFrame()
+          // The workspace is information and the mark is not: the mark goes.
           expect(frame).not.toContain(LOCKUP_WORDMARK)
-          expect(frame).toContain("/ commands")
+          expect(frame).toContain("(migration/opentui-tui) ─╯")
         } finally {
           shell.dispose()
         }
       },
       { width: 34, height: 20 },
     )
+  })
+
+  test("an overlay covers the landing instead of moving it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 30 },
+          wireKeys: false,
+          run: "idle",
+          telemetryNotice: NOTICE,
+        })
+        try {
+          await settle(h)
+          const before = rows(h)
+          const anchors = ["message", "telemetry", LANDING_SUGGESTIONS[0]!.label]
+          const was = anchors.map((text) =>
+            before.findIndex((row) => row.includes(text)),
+          )
+          expect(was.every((index) => index > 0)).toBe(true)
+
+          openOperatorOverlay(shell)
+          await settle(h)
+          const after = rows(h)
+          // Every landing anchor is on the row it was on: the overlay covers
+          // the composition, it does not push it around.
+          expect(
+            anchors.map((text) => after.findIndex((row) => row.includes(text))),
+          ).toEqual(was)
+          expect(h.captureCharFrame()).toContain("operator")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 100, height: 30 },
+    )
+  })
+
+  test("a short or narrow terminal shrinks the mark, never the prompt box", async () => {
+    for (const size of [
+      { width: 100, height: 30 },
+      { width: 80, height: 24 },
+      { width: 60, height: 20 },
+    ]) {
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: size.width, rows: size.height },
+          wireKeys: false,
+          run: "idle",
+          telemetryNotice: NOTICE,
+        })
+        try {
+          await settle(h)
+          const painted = rows(h)
+          // The prompt field is on screen at every size, and the mark fits
+          // above it rather than overrunning it.
+          const field = painted.findIndex((row) => row.includes("message"))
+          expect(field).toBeGreaterThan(0)
+          expect(field).toBeLessThan(size.height)
+          expect(markRows(h).length).toBeLessThan(field)
+          expect(h.captureCharFrame()).toContain(LANDING_HINTS[0]!.rest)
+        } finally {
+          shell.dispose()
+        }
+      }, size)
+    }
   })
 
   test("no titlebar, status strip or counter row survives", async () => {
@@ -341,7 +436,7 @@ describe("landing screen", () => {
         expect(frame).toContain("telemetry")
         // The prompt box is back at the foot of the screen.
         const painted = rows(h)
-        expect(painted.findIndex((row) => row.includes("└"))).toBeGreaterThan(
+        expect(painted.findIndex((row) => /[└╰]/.test(row))).toBeGreaterThan(
           SIZE.height - 4,
         )
       } finally {

@@ -56,6 +56,8 @@ export type ProductHostModelOption = {
 
 export type ProductHostConfig = {
   readonly title: string
+  /** Working directory carried by the prompt box's bottom border. */
+  readonly cwd?: string
   readonly eventEmitter: EventEmitter
   readonly send: ProductHostSend
   readonly interrupt: ProductHostInterrupt
@@ -202,6 +204,7 @@ export async function mountProductHost(
 
   const shell = createAppShell(renderer, {
     title: config.title,
+    ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
     run: "idle",
     ...(config.commands !== undefined ? { paletteCatalog: config.commands } : {}),
     ...(config.onCommand !== undefined ? { onCommand: config.onCommand } : {}),

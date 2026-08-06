@@ -28,8 +28,10 @@ import {
   appendStreamRow,
   clearShellExitHandler,
   setPromptModelLabel,
+  setPromptWorkspace,
   setShellExitHandler,
 } from "./shell.js"
+import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
 import type { PromptActionBarModelLabelInput } from "../tui/components/prompt-action-bar-label.js"
 import type { ObserveSession } from "./residuals.js"
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
@@ -57,8 +59,12 @@ export type RunnerHostDeps = {
   /** Favorited provider+model pairs (settings.favoriteModels). */
   readonly favoriteModels?: readonly ModelCatalogRef[]
   readonly onModelSelect: (id: string) => void
+  /** Working directory carried by the prompt box's bottom border. */
+  readonly cwd?: string
+  /** Branch lookup override for tests; defaults to a real `git rev-parse`. */
+  readonly fetchBranch?: FetchBranch
   /**
-   * Live `profile · model · effort` source for the model_bar zone. Read on
+   * Live `profile · model · effort` source for the top border label. Read on
    * mount and again after every model selection, so the label follows the
    * same config the picker mutates.
    */
@@ -141,8 +147,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     deps.onModelSelect(id)
     if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
   }
+  const cwd = deps.cwd ?? process.cwd()
   const host = await mountProductHost({
     title: deps.title,
+    cwd,
     eventEmitter: deps.eventEmitter,
     send: deps.send,
     interrupt: deps.interrupt,
@@ -165,6 +173,12 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
 
   if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
 
+  const stopBranchWatch = watchGitBranch({
+    cwd,
+    onBranch: (branch) => setPromptWorkspace(host.shell, { branch }),
+    ...(deps.fetchBranch !== undefined ? { fetchBranch: deps.fetchBranch } : {}),
+  })
+
   // The shell's Ctrl+C is the interrupt key, so quitting needs its own binding.
   const onKey = (key: KeyEvent): void => {
     if (key.ctrl && key.name === "d") {
@@ -175,6 +189,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   host.renderer.keyInput.on("keypress", onKey)
 
   const dispose = (): void => {
+    stopBranchWatch()
     unsubscribeChrome?.()
     host.renderer.keyInput.off("keypress", onKey)
     clearShellExitHandler(host.shell)

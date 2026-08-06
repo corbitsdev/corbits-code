@@ -48,18 +48,14 @@ async function paintRows(
 }
 
 describe("transcript turn layout", () => {
-  test("the operator's turn paints flush to the right gutter, never into it", async () => {
+  test("the operator's turn paints flush to the left gutter, bar first", async () => {
     await paintRows([{ role: "user", text: "find the legacy token" }], 80, (frame) => {
       const [row] = rowsContaining(frame, "find the legacy token")
       expect(row).toBeDefined()
       const painted = row as string
       const gutter = resolveSideMargin(80)
-      // The gutter stays empty, and the bubble reaches the column beside it.
-      expect(painted.slice(80 - gutter).trim()).toBe("")
-      expect(painted.trimEnd().length).toBeGreaterThan(80 - gutter - 3)
-      expect(painted.trimEnd().length).toBeLessThanOrEqual(80 - gutter)
-      // Right-aligned: the turn starts well past the middle of the screen.
-      expect(painted.indexOf("▍")).toBeGreaterThan(40)
+      // Left-aligned: the bar sits right at the shared gutter, like an answer.
+      expect(painted.indexOf("▍")).toBe(gutter)
     })
   })
 
@@ -81,7 +77,7 @@ describe("transcript turn layout", () => {
     )
   })
 
-  test("a second agent brings icons and names back to the transcript", async () => {
+  test("a second agent brings labels back, once per block and sharing a left edge", async () => {
     await paintRows(
       [
         { role: "user", text: "hi" },
@@ -90,32 +86,62 @@ describe("transcript turn layout", () => {
       ],
       80,
       (frame) => {
-        expect(frame).toContain("● critic")
-        // Relabelling is retroactive: the first answer is named too.
-        expect(frame).toContain("● agent")
-        // The operator keeps the right gutter regardless.
+        const gutter = resolveSideMargin(80)
+        const [corbitsLabel] = rowsContaining(frame, "● agent")
+        const [criticLabel] = rowsContaining(frame, "● critic")
+        expect(corbitsLabel).toBeDefined()
+        expect(criticLabel).toBeDefined()
+        // One label per block, and both labels share the transcript's left edge.
+        expect((corbitsLabel as string).indexOf("●")).toBe(gutter)
+        expect((criticLabel as string).indexOf("●")).toBe(gutter)
+        expect(rowsContaining(frame, "on it").some((row) => row.includes("●"))).toBe(false)
+        expect(rowsContaining(frame, "reviewing").some((row) => row.includes("●"))).toBe(false)
+        // The operator keeps the left gutter regardless.
         const [mine] = rowsContaining(frame, "hi")
-        expect((mine as string).indexOf("▍")).toBeGreaterThan(40)
+        expect((mine as string).indexOf("▍")).toBe(gutter)
       },
     )
   })
 
-  test("a long operator turn wraps as one right-aligned block", async () => {
+  test("a run from the same agent across a tool call keeps one left edge, relabelled per block", async () => {
+    await paintRows(
+      [
+        { role: "user", text: "hi" },
+        { role: "assistant", text: "delegating", agent: "corbits" },
+        { role: "assistant", text: "on it", agent: "auth-core" },
+        { role: "assistant", text: "patching now", agent: "auth-core" },
+        { role: "tool", text: "session.ts", meta: "edit", agent: "auth-core" },
+      ],
+      80,
+      (frame) => {
+        const gutter = resolveSideMargin(80)
+        const labels = inkRows(frame).filter((row) => row.trim() === "● auth-core")
+        // The message block and the tool block are two distinct blocks (a
+        // role change opens a new one), so the label repeats once per block —
+        // never once per row.
+        expect(labels.length).toBe(2)
+        for (const label of labels) expect(label.indexOf("●")).toBe(gutter)
+        expect(rowsContaining(frame, "patching now").some((row) => row.includes("●"))).toBe(
+          false,
+        )
+      },
+    )
+  })
+
+  test("a long operator turn wraps as one left-aligned block", async () => {
     const text =
       "please find every call site of the legacy token helper and tell me which of them still run in production today"
     for (const columns of [50, 64, 80, 120]) {
       await paintRows([{ role: "user", text }], columns, (frame) => {
         const block = inkRows(frame).filter((row) => row.includes("▍"))
         expect(block.length).toBeGreaterThan(1)
-        // One rectangle: every line hangs off the same bar column.
+        // One rectangle: every line hangs off the same bar column, at the gutter.
+        const gutter = resolveSideMargin(columns)
         const bars = new Set(block.map((row) => row.indexOf("▍")))
         expect(bars.size).toBe(1)
-        const gutter = resolveSideMargin(columns)
-        const widest = Math.max(...block.map((row) => row.trimEnd().length))
-        expect(widest).toBeLessThanOrEqual(columns - gutter)
-        expect(widest).toBeGreaterThan(columns - gutter - 3)
+        expect([...bars][0]).toBe(gutter)
         for (const row of block) {
-          expect(row.slice(columns - gutter).trim()).toBe("")
+          expect(row.trimEnd().length).toBeLessThanOrEqual(columns - gutter)
         }
       })
     }

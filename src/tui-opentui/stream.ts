@@ -217,48 +217,52 @@ function fitMeta(meta: string): string {
 }
 
 /**
- * Writer tag. Empty while one agent holds the transcript: with a single voice
- * answering, a name on every row is chrome that says nothing, and position and
- * treatment already separate the operator from the agent.
+ * Block label shown once above the first row of a run of consecutive rows
+ * from the same writer. `rowGroupGap` already treats a change of writer (or
+ * role) as a turn boundary, so a block is exactly a gap-free run and needs no
+ * separate bookkeeping: the label repeats only where the gap does.
  */
-function agentTag(row: StreamRow, layout: RowLayout): string {
-  if (!layout.multiAgent || row.role === "user") return ""
-  return `${AGENT_ICON} ${row.agent ?? MAIN_AGENT}  `
+export function blockLabel(
+  previous: StreamRow | undefined,
+  row: StreamRow,
+  layout: RowLayout,
+): string | null {
+  if (!layout.multiAgent || row.role === "user") return null
+  if (previous !== undefined && rowGroupGap(previous, row) === 0) return null
+  return `${AGENT_ICON} ${row.agent ?? MAIN_AGENT}`
 }
 
 /**
- * Tool prefix: failure mark, writer tag, family glyph, meta column. A result
- * trades its glyph for a connector and leaves the meta column blank, so the
- * call and its answer read as one block instead of the tool name twice.
+ * Tool prefix: failure mark, family glyph, meta column. A result trades its
+ * glyph for a connector and leaves the meta column blank, so the call and its
+ * answer read as one block instead of the tool name twice. Writer identity is
+ * painted once per block (see `blockLabel`), not repeated on every row.
  */
-function toolPrefix(row: StreamRow, layout: RowLayout): string {
+function toolPrefix(row: StreamRow): string {
   const mark = row.failed === true ? MARK_FAILED : MARK_NONE
-  const tag = agentTag(row, layout)
   if (row.result === true) {
-    return `${mark} ${tag}${RESULT_CONNECTOR} ${" ".repeat(META_WIDTH)}`
+    return `${mark} ${RESULT_CONNECTOR} ${" ".repeat(META_WIDTH)}`
   }
   const glyph = TOOL_ICON[toolFamily(row.meta ?? "")]
   const meta = row.meta && row.meta.length > 0 ? fitMeta(row.meta) : ""
-  return `${mark} ${tag}${glyph} ${meta}`
+  return `${mark} ${glyph} ${meta}`
 }
 
 /** Columns the operator's bubble may claim before it wraps. */
 const BUBBLE_MAX_SHARE = 0.75
 
 /**
- * The operator's turn as a block hugging the right gutter: a rectangle of
- * wrapped lines whose longest line ends on the transcript's last column, with
- * the bar down its left edge. Alignment is the signal, so the row needs no
- * label and keeps the shared cream.
+ * The operator's turn as a block hugging the left gutter, same as an answer,
+ * with the bar down its left edge. The bar (not alignment) is what makes a
+ * user turn findable now that both voices share cream and the left edge; the
+ * body sits two columns past it so the boundary reads even at a glance.
  */
 function userBubbleLines(text: string, width: number): string[] {
   const bar = `${BUBBLE_BAR} `
   const barWidth = stringWidth(bar)
   const body = Math.max(1, Math.min(width - barWidth, Math.ceil(width * BUBBLE_MAX_SHARE)))
   const lines = text.split("\n").flatMap((line) => wrapLines(line, body))
-  const block = lines.reduce((widest, line) => Math.max(widest, stringWidth(line)), 0)
-  const indent = " ".repeat(Math.max(0, width - block - barWidth))
-  return lines.map((line) => `${indent}${bar}${line}`)
+  return lines.map((line) => `${bar}${line}`)
 }
 
 /** Columns a reasoning block is inset by, so it reads as subordinate. */
@@ -269,17 +273,14 @@ const THINKING_INDENT = 2
  * marker down its left edge, so a long chain of thought is skimmable and
  * obviously not the answer.
  */
-function thinkingLines(text: string, layout: RowLayout, tag: string): string[] {
+function thinkingLines(text: string, layout: RowLayout): string[] {
   const marker = `${THINKING_BAR} `
-  const lead = `${" ".repeat(THINKING_INDENT)}${tag}`
+  const lead = " ".repeat(THINKING_INDENT)
   const gutter = stringWidth(lead) + stringWidth(marker)
   const lines = text
     .split("\n")
     .flatMap((line) => wrapLines(line, Math.max(1, layout.width - gutter)))
-  const continuation = " ".repeat(stringWidth(lead))
-  return lines.map(
-    (line, i) => `${i === 0 ? lead : continuation}${marker}${line}`,
-  )
+  return lines.map((line) => `${lead}${marker}${line}`)
 }
 
 /** Body a collapsible row shows: the summary alone, or the full text plus the way back. */
@@ -311,7 +312,7 @@ export function paintStreamRow(
   }
   if (isThinkingRow(row)) {
     return {
-      content: thinkingLines(row.text, layout, agentTag(row, layout)).join("\n"),
+      content: thinkingLines(row.text, layout).join("\n"),
       fg,
     }
   }
@@ -325,11 +326,16 @@ export function paintStreamRow(
 /** Blank rows painted above a row that opens a new group. */
 export const ROW_GROUP_GAP = 1
 
+/** Writer of a row for gap/grouping purposes; the operator has no writer. */
+function gapWriter(row: StreamRow): string | null {
+  return row.role === "user" ? null : row.agent ?? MAIN_AGENT
+}
+
 /**
  * Vertical rhythm between transcript rows. A turn boundary (a different voice,
- * or a different tool call) earns a blank row so the eye can find it; a thinking
- * row never does, so the coalesced line appearing or disappearing above an
- * answer cannot shift what is already on screen.
+ * a different writer, or a different tool call) earns a blank row so the eye
+ * can find it; a thinking row never does, so the coalesced line appearing or
+ * disappearing above an answer cannot shift what is already on screen.
  */
 export function rowGroupGap(
   previous: StreamRow | undefined,
@@ -342,6 +348,10 @@ export function rowGroupGap(
   if (isThinkingRow(row)) return previous.role === "user" ? ROW_GROUP_GAP : 0
   if (isThinkingRow(previous)) return 0
   if (previous.role !== row.role) return ROW_GROUP_GAP
+  // A block is a contiguous run from one writer; a change of writer is a
+  // fresh block even when the role stays the same (one agent's tool call
+  // followed by another agent's, say).
+  if (gapWriter(previous) !== gapWriter(row)) return ROW_GROUP_GAP
   // Same voice, different call: a result stays glued to the call it answers,
   // but the next call starts its own block.
   if (row.role === "tool" && (previous.meta ?? "") !== (row.meta ?? "")) {
@@ -372,19 +382,20 @@ export function isDiffRow(row: StreamRow): boolean {
 /**
  * Prefix painted beside a body the renderer owns (markdown, table, diff).
  * Empty for a lone agent's own prose: with nothing to disambiguate, the answer
- * starts on the first column.
+ * starts on the first column. Writer identity is a block-level header, not a
+ * per-row prefix — see `blockLabel`.
  */
 export function streamRowGutter(
   row: StreamRow,
   layout: RowLayout,
 ): PaintedStreamLine {
   const fg = rowFg(row)
-  if (row.role === "tool") return { content: toolPrefix(row, layout), fg }
+  if (row.role === "tool") return { content: toolPrefix(row), fg }
   const meta =
     row.meta !== undefined && row.meta.length > 0 && !isThinkingRow(row)
       ? fitMeta(row.meta)
       : ""
-  return { content: `${agentTag(row, layout)}${meta}`, fg }
+  return { content: meta, fg }
 }
 
 /**

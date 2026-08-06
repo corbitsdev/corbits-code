@@ -363,9 +363,9 @@ describe("Wave 6: keyboard copy path", () => {
           expect(ok).toBe(false)
           expect(shell.streamLog.length).toBe(0)
           expect(shell.overlayList).toBeNull()
-          expect(shell.statusFlash).toBe("Nothing to copy")
+          expect(shell.statusFlash).toBe("nothing to copy")
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("Nothing to copy")
+          expect(h.captureCharFrame()).toContain("nothing to copy")
         } finally {
           shell.dispose()
         }

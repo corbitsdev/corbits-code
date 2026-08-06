@@ -14,7 +14,7 @@
  * drive it deterministically. There is no timer in this module.
  */
 
-import { MARK_COLS, MARK_COVERAGE, MARK_ROWS } from "./mark-shape.js"
+import { MARK_SMALL, type MarkGrid } from "./mark-shape.js"
 import { UI } from "./theme.js"
 
 /** One full loop of the draw/fill/fade timeline. */
@@ -78,10 +78,11 @@ export function markWave(
   row: number,
   seconds: number,
   still: boolean,
+  grid: MarkGrid = MARK_SMALL,
 ): number {
   if (still) return STILL_WAVE
-  const u = col / MARK_COLS
-  const v = row / MARK_ROWS
+  const u = col / grid.cols
+  const v = row / grid.rows
   return 0.5 + 0.5 * Math.sin((u + v) * 5.0 - seconds * 1.6)
 }
 
@@ -95,9 +96,12 @@ export function ditherTone(
   row: number,
   seconds: number,
   still: boolean,
+  grid: MarkGrid = MARK_SMALL,
 ): string {
   const threshold = ((BAYER4[row & 3]?.[col & 3] ?? 0) + 0.5) / 16
-  return markWave(col, row, seconds, still) > threshold ? UI.action : UI.actionDim
+  return markWave(col, row, seconds, still, grid) > threshold
+    ? UI.action
+    : UI.actionDim
 }
 
 /** Sparsest to densest. Index 0 is an empty cell. */
@@ -108,8 +112,8 @@ const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as cons
 
 /**
  * Coverage is raised to this power before it picks a ramp glyph. The mark is a
- * thin ridgeline, so at five rows most cells are partially covered; the gamma
- * lifts them far enough up the ramp for the silhouette to read.
+ * thin ridgeline, so most cells it touches are only partially covered; the
+ * gamma lifts them far enough up the ramp for the silhouette to read.
  */
 const DENSITY_GAMMA = 0.6
 
@@ -122,6 +126,8 @@ export type MarkInput = {
   readonly nowMs: number
   /** Hold the mark still: idle session, or reduced motion. */
   readonly still: boolean
+  /** Which baked rasterization to composite. Defaults to the compact grid. */
+  readonly grid?: MarkGrid
 }
 
 /**
@@ -131,19 +137,20 @@ export type MarkInput = {
  * thins out through the ramp toward empty rather than blending to black.
  */
 export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
+  const shape = input.grid ?? MARK_SMALL
   const seconds = input.nowMs / 1000
   const { drawProg, fillProg, alpha } = markFrame(seconds, input.still)
-  const revealed = drawProg * MARK_COLS
-  const fillLine = MARK_ROWS * (1 - fillProg)
+  const revealed = drawProg * shape.cols
+  const fillLine = shape.rows * (1 - fillProg)
 
   const grid: MarkCell[][] = []
-  for (let row = 0; row < MARK_ROWS; row++) {
+  for (let row = 0; row < shape.rows; row++) {
     const cells: MarkCell[] = []
     // 1 once the row is wholly below the fill line, 0 once wholly above it.
     const rowFill = clamp01(row + 1 - fillLine)
-    for (let col = 0; col < MARK_COLS; col++) {
-      const coverage = MARK_COVERAGE[row]?.[col] ?? 0
-      const fg = ditherTone(col, row, seconds, input.still)
+    for (let col = 0; col < shape.cols; col++) {
+      const coverage = shape.coverage[row]?.[col] ?? 0
+      const fg = ditherTone(col, row, seconds, input.still, shape)
       const reveal = clamp01(revealed - col)
       if (coverage === 0 || reveal === 0) {
         cells.push({ char: RAMP[0], fg })
@@ -163,7 +170,7 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
 
 /**
  * The row the fill is currently crossing, drawn with eighth blocks so the
- * bottom-up sweep reads as continuous motion across only five rows.
+ * bottom-up sweep reads as continuous motion even across a handful of rows.
  */
 function fillEdgeChar(
   rowFill: number,

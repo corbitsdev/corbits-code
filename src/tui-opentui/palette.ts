@@ -51,6 +51,48 @@ export function isResidualActionId(id: string): id is PaletteActionId {
  */
 export type PaletteDispatch = "residual" | "command"
 
+/**
+ * Grouping shown in the palette's first column.
+ *
+ * The command registry (`src/tui/commands/built-in.ts`) carries no category
+ * field, and `RegistryCommandSource` only forwards name + description, so there
+ * is no grouping to read. These are the smallest set that covers what the
+ * registered commands and residual openers actually are; anything unmapped
+ * falls back to `command` rather than being guessed into a group.
+ */
+export type PaletteCategory =
+  | "session"
+  | "model"
+  | "config"
+  | "view"
+  | "agent"
+  | "edit"
+  | "command"
+
+/** Registry command name → category. Names come from built-in.ts registrations. */
+const REGISTRY_CATEGORIES: Readonly<Record<string, PaletteCategory>> = {
+  clear: "session",
+  new: "session",
+  rename: "session",
+  cost: "session",
+  goal: "session",
+  model: "model",
+  fast: "model",
+  standard: "model",
+  clever: "model",
+  settings: "config",
+  permissions: "config",
+  plugins: "config",
+  mcp: "config",
+  help: "view",
+  changelog: "view",
+  "paste-image": "edit",
+}
+
+export function categoryForCommandName(name: string): PaletteCategory {
+  return REGISTRY_CATEGORIES[name] ?? "command"
+}
+
 export type PaletteCommand = {
   /** Residual action id or registry command name. */
   readonly id: string
@@ -62,6 +104,8 @@ export type PaletteCommand = {
    * action; registry-built items set `"command"` explicitly.
    */
   readonly dispatch?: PaletteDispatch
+  /** Dim prefix column. Defaults to `command` when omitted. */
+  readonly category?: PaletteCategory
 }
 
 /** Minimal registry shape — matches `listCommands()` entries without importing them. */
@@ -77,78 +121,91 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
     label: "Open permissions",
     keywords: ["allow", "deny", "tool", "approve"],
     dispatch: "residual",
+    category: "config",
   },
   {
     id: "operator",
     label: "Ask operator question",
     keywords: ["confirm", "choice", "prompt"],
     dispatch: "residual",
+    category: "session",
   },
   {
     id: "model_picker",
     label: "Switch model / provider",
     keywords: ["model", "provider", "anthropic", "openai"],
     dispatch: "residual",
+    category: "model",
   },
   {
     id: "toggle_goal",
     label: "Toggle goal chrome",
     keywords: ["goal", "chrome", "zone"],
     dispatch: "residual",
+    category: "view",
   },
   {
     id: "toggle_task",
     label: "Toggle task chrome",
     keywords: ["task", "work", "chrome"],
     dispatch: "residual",
+    category: "view",
   },
   {
     id: "toggle_agents",
     label: "Toggle agents strip",
     keywords: ["agents", "strip", "workers"],
     dispatch: "residual",
+    category: "view",
   },
   {
     id: "copy_active",
     label: "Copy active message / tool",
     keywords: ["copy", "clipboard", "yank"],
     dispatch: "residual",
+    category: "edit",
   },
   {
     id: "help",
     label: "Show keymap help",
     keywords: ["keys", "bindings", "help"],
     dispatch: "residual",
+    category: "view",
   },
   {
     id: "settings",
     label: "Open settings",
     keywords: ["config", "preferences", "options"],
     dispatch: "residual",
+    category: "config",
   },
   {
     id: "plugins",
     label: "Manage plugins",
     keywords: ["mcp", "extension", "plugin"],
     dispatch: "residual",
+    category: "config",
   },
   {
     id: "resume",
     label: "Resume prior session",
     keywords: ["history", "session", "picker"],
     dispatch: "residual",
+    category: "session",
   },
   {
     id: "mentions",
     label: "Insert file mention",
     keywords: ["@", "path", "file", "mention"],
     dispatch: "residual",
+    category: "edit",
   },
   {
     id: "observe",
     label: "Observe subagent session",
     keywords: ["child", "worker", "observe", "agents"],
     dispatch: "residual",
+    category: "agent",
   },
 ]
 
@@ -164,6 +221,7 @@ export function commandsToPaletteItems(
     label: `/${c.name} — ${c.description}`,
     keywords: [c.name, "slash", "command"],
     dispatch: "command" as const,
+    category: categoryForCommandName(c.name),
   }))
 }
 
@@ -237,4 +295,84 @@ export function paletteLabels(
   commands: readonly PaletteCommand[],
 ): readonly string[] {
   return commands.map((c) => c.label)
+}
+
+/** One palette row before it is fitted to a width. */
+export type PaletteRowColumns = {
+  readonly category: string
+  readonly label: string
+  /** Empty when the entry has no chord. */
+  readonly shortcut: string
+}
+
+export function paletteRowColumns(
+  cmd: PaletteCommand,
+  shortcutOf: (id: string) => string | undefined,
+): PaletteRowColumns {
+  return {
+    category: cmd.category ?? "command",
+    label: cmd.label,
+    shortcut: shortcutOf(cmd.id) ?? "",
+  }
+}
+
+/** Columns the label must keep before a side column is dropped. */
+const PALETTE_LABEL_MIN = 28
+const PALETTE_COL_GAP = 2
+
+export type PaletteRowLayout = {
+  readonly showCategory: boolean
+  readonly showShortcut: boolean
+  readonly categoryWidth: number
+  readonly shortcutWidth: number
+}
+
+/**
+ * Which columns survive at `width`. The shortcut goes first because it is
+ * redundant — the row it labels is right there and can be selected instead.
+ * The category goes second; the label alone is never dropped.
+ */
+export function paletteRowLayout(
+  rows: readonly PaletteRowColumns[],
+  width: number,
+): PaletteRowLayout {
+  const categoryWidth = rows.reduce((n, r) => Math.max(n, r.category.length), 0)
+  const shortcutWidth = rows.reduce((n, r) => Math.max(n, r.shortcut.length), 0)
+  const afterCategory =
+    width - (categoryWidth > 0 ? categoryWidth + PALETTE_COL_GAP : 0)
+  const showShortcut =
+    shortcutWidth > 0 &&
+    afterCategory - shortcutWidth - PALETTE_COL_GAP >= PALETTE_LABEL_MIN
+  const showCategory = categoryWidth > 0 && afterCategory >= PALETTE_LABEL_MIN
+  return { showCategory, showShortcut, categoryWidth, shortcutWidth }
+}
+
+function fitLabel(label: string, width: number): string {
+  if (width <= 0) return ""
+  if (label.length <= width) return label.padEnd(width)
+  if (width === 1) return "…"
+  return `${label.slice(0, width - 1)}…`
+}
+
+/**
+ * Render rows to exactly `width` columns: dim category, label, right-aligned
+ * chord. Column widths are shared across the batch so the three columns line up.
+ */
+export function formatPaletteRows(
+  rows: readonly PaletteRowColumns[],
+  width: number,
+): readonly string[] {
+  const layout = paletteRowLayout(rows, width)
+  const head = layout.showCategory ? layout.categoryWidth + PALETTE_COL_GAP : 0
+  const tail = layout.showShortcut ? layout.shortcutWidth + PALETTE_COL_GAP : 0
+  const labelWidth = Math.max(0, width - head - tail)
+  return rows.map((row) => {
+    const category = layout.showCategory
+      ? row.category.padEnd(layout.categoryWidth) + " ".repeat(PALETTE_COL_GAP)
+      : ""
+    const shortcut = layout.showShortcut
+      ? " ".repeat(PALETTE_COL_GAP) + row.shortcut.padStart(layout.shortcutWidth)
+      : ""
+    return `${category}${fitLabel(row.label, labelWidth)}${shortcut}`
+  })
 }

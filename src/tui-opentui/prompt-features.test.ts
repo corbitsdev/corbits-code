@@ -11,6 +11,7 @@ import {
   attachClipboardImage,
   createAppShell,
   moveOverlaySelection,
+  noticeText,
   openAtMentionSuggestions,
   setMentionSuggestionSource,
   setPromptImageSource,
@@ -49,14 +50,14 @@ function withShell(
 }
 
 describe("image attachments", () => {
-  test("attaches a clipboard image and shows it in the prompt hint", async () => {
+  test("attaches a clipboard image and says so on the notice row", async () => {
     await withShell(async (shell) => {
       setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }))
       expect(await attachClipboardImage(shell)).toBe(true)
       expect(shell.pendingAttachments).toHaveLength(1)
-      const hint = shell.hint.content.chunks.map((c) => c.text).join("")
-      expect(hint).toContain("1 image")
-      expect(hint).toContain("attached clipboard.png")
+      const notice = noticeText(shell)
+      expect(notice).toContain("1 image")
+      expect(notice).toContain("attached clipboard.png")
     })
   })
 
@@ -187,9 +188,11 @@ describe("sent-message recall", () => {
 describe("@-mention suggestions", () => {
   test("opens the mentions overlay for the token under the cursor", async () => {
     await withShell(async (shell) => {
+      // The popup lists the directory portion and narrows the listing itself,
+      // so the source is asked for `src/`, not the whole typed token.
       setMentionSuggestionSource(shell, async (prefix) => {
-        expect(prefix).toBe("src/tu")
-        return ["src/tui/", "src/tui-opentui/"]
+        expect(prefix).toBe("src/")
+        return ["src/tui/", "src/tui-opentui/", "src/config/"]
       })
       shell.prompt.value = "read @src/tu"
       shell.prompt.cursorOffset = shell.prompt.value.length

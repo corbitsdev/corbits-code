@@ -1,9 +1,11 @@
 /**
- * OpenTUI app shell — sticky transcript, prompt chrome, hint line, inset overlay.
+ * OpenTUI app shell — sticky transcript, prompt chrome, inset overlay.
  *
  * Wave 3 product skin on the Wave 2 platform. Functional wrappers around
  * @opentui/core class renderables. Not wired to production CLI; Ink remains production.
  */
+
+import { homedir } from "node:os"
 
 import {
   BoxRenderable,
@@ -44,8 +46,14 @@ import {
   type SentHistoryBrowse,
 } from "../tui/sent-message-history.js"
 import { spliceMentionCompletion } from "./prompt-attachments.js"
-import { composeHintLine, type HintSurface } from "./hint-line.js"
-import { LOCKUP_GAP, lockupCells, lockupFits } from "./lockup.js"
+import { composeNoticeLine } from "./notice-line.js"
+import { LOCKUP_WIDTH, lockupCells, lockupText } from "./lockup.js"
+import {
+  BORDER,
+  composeRule,
+  composeWorkspaceLabel,
+  type RulePart,
+} from "./prompt-border.js"
 import {
   viewToTableContent,
   type McpStructuredView,
@@ -71,10 +79,12 @@ import {
 import {
   createLandingAbove,
   createLandingBelow,
+  fitLandingMark,
   landingBelowContent,
   landingSuggestionFor,
   paintLandingBelow,
   paintLandingMark,
+  resolveMarkGrid,
   splitLandingRows,
   type LandingAbove,
   type LandingBelowContent,
@@ -96,12 +106,19 @@ import {
 import {
   DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
+  formatPaletteRows,
   isResidualActionId,
   paletteDispatchOf,
   paletteLabels,
+  paletteRowColumns,
   type PaletteActionId,
   type PaletteCommand,
 } from "./palette.js"
+import { shortcutForPaletteId } from "./keybindings.js"
+import {
+  filterMentionSuggestions,
+  splitMentionToken,
+} from "./mention-filter.js"
 import {
   makeHelpItems,
   makeMentionItems,
@@ -131,6 +148,7 @@ import {
 } from "./session-queue.js"
 import {
   agentVoicesIn,
+  blockLabel,
   EXPAND_KEY,
   isMarkdownRow,
   MAIN_AGENT,
@@ -408,8 +426,10 @@ export type ShellRenderer = Pick<
 >
 
 export type AppShellOptions = {
-  /** Session name shown on the model bar. Default "corbits". */
+  /** Session name. Default "corbits". Not painted as chrome. */
   readonly title?: string
+  /** Working directory carried by the prompt box's bottom border. */
+  readonly cwd?: string
   /** Zone visibility overrides for resolveGeometry. Optional strips off by default. */
   readonly visibility?: ZoneVisibility
   /** Requested prompt content rows (geometry caps at 40%). Default 3. */
@@ -469,9 +489,15 @@ export type AppShell = {
   readonly overlayTitle: TextRenderable
   readonly overlayBody: BoxRenderable
   readonly prompt: InputRenderable
-  readonly modelBar: TextRenderable
   readonly promptBox: BoxRenderable
-  readonly hint: TextRenderable
+  /** The input's own row, bordered left and right only. */
+  readonly promptField: BoxRenderable
+  /** Top border of the prompt box — carries the model label. */
+  readonly promptTopRule: TextRenderable
+  /** Bottom border — carries the brand lockup and the workspace label. */
+  readonly promptBottomRule: TextRenderable
+  /** Transient state row above the prompt box (hidden when it has nothing to say). */
+  readonly notice: TextRenderable
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout
   /** Focus tree + scroll lease (updated by shell helpers). */
@@ -489,10 +515,15 @@ export type AppShell = {
    * once this holds more than one, so identity appears where it disambiguates.
    */
   agentVoices: Set<string>
-  /** Session name shown on the model bar. */
+  /**
+   * Session name. Held for hosts that rename a session; it is not chrome —
+   * an unnamed session shows nothing rather than a placeholder.
+   */
   baseTitle: string
-  /** Composed `profile · model · effort` label for the model_bar zone. */
+  /** Composed `profile · model · effort` label carried by the top border. */
   modelLabel: string | null
+  /** Working directory and git branch carried by the bottom border. */
+  workspace: { cwd: string; branch: string | null }
   /** Overlay list viewport (null when closed). */
   overlayList: ListViewportState | null
   /** Overlay item labels currently shown. */
@@ -513,13 +544,13 @@ export type AppShell = {
    */
   copyTargets: readonly CopyTarget[] | null
   /**
-   * Short hint-line flash (copy feedback, etc.). Cleared when replaced or
+   * Short transient flash (copy feedback, etc.). Cleared when replaced or
    * set to null; never appended to the stream log.
    */
   statusFlash: string | null
   /**
    * Live turn phase ("Thinking…", "Running tool…", …) or null when idle.
-   * Lives on the hint row rather than a chrome zone because the product host
+   * Lives on the transient notice row rather than a chrome zone because the product host
    * owns the goal/task/agents zones and overwrites them wholesale on every
    * snapshot push, which would clobber a per-token progress line.
    */
@@ -597,7 +628,7 @@ function terminalOf(
 
 function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
   return {
-    modelBar: true,
+    notice: false,
     progress: false,
     progressDivider: false,
     ...visibility,
@@ -611,7 +642,7 @@ export function isTranscriptFollowing(shell: AppShell): boolean {
   return transcript.scrollTop >= max - 1
 }
 
-/** Sticky-scroll mode label (surfaced on the hint row only when PINNED). */
+/** Sticky-scroll mode label (surfaced on the notice row only when PINNED). */
 export function stickyMode(shell: AppShell): "FOLLOW" | "PINNED" {
   return isTranscriptFollowing(shell) ? "FOLLOW" : "PINNED"
 }
@@ -620,27 +651,9 @@ function syncPending(shell: AppShell): void {
   shell.pendingQueue = badgeCount(shell.session)
 }
 
-function hintSurface(shell: AppShell): HintSurface {
-  if (shell.overlayList !== null) {
-    const kind = shell.overlayKind
-    return {
-      kind: "overlay",
-      filterable: kind === "palette" || kind === "mentions",
-    }
-  }
-  if (shell.observe !== null) return { kind: "observe" }
-  if (focusOwner(shell.focus) === "transcript") return { kind: "transcript" }
-  return { kind: "prompt" }
-}
-
-/** Rebuild the bottom hint row and the model bar from live shell state. */
-export function paintChrome(shell: AppShell): void {
-  syncPending(shell)
-  const bag = internals.get(shell)
-  const hint = composeHintLine({
-    surface: hintSurface(shell),
-    run: shell.session.run,
-    workers: (bag?.chrome.agents.length ?? 0) > 0,
+/** The transient row's text for the current state ("" when it has nothing to say). */
+export function noticeText(shell: AppShell): string {
+  return composeNoticeLine({
     queue: shell.pendingQueue,
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
@@ -648,29 +661,31 @@ export function paintChrome(shell: AppShell): void {
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,
   })
-  shell.hint.content = new StyledText([...hintRowChunks(shell, hint)])
+}
+
+/** Repaint the prompt borders and the transient notice row from live state. */
+export function paintChrome(shell: AppShell): void {
+  syncPending(shell)
+  const notice = noticeText(shell)
+  shell.notice.content = new StyledText([
+    fgChunk(UI.textDim)(notice.length > 0 ? ` ${notice}` : ""),
+  ])
+  paintPromptBorder(shell)
   syncLandingSuggestions(shell)
-  paintModelBar(shell)
+  syncNoticeRow(shell, notice)
 }
 
 /**
- * The hint row: the brand lockup, then the keys. The lockup is dropped whole
- * rather than truncated when the row cannot seat both.
+ * Give the notice row a row only while it has something to say, and take it
+ * back the moment it does not. The relayout re-enters paintChrome, which then
+ * finds the visibility already correct and stops.
  */
-function hintRowChunks(shell: AppShell, hint: string): readonly TextChunk[] {
-  const lead = fgChunk(UI.textDim)(" ")
-  if (!lockupFits(stringWidth(hint) + 1, shell.layout.contentWidth)) {
-    return [lead, fgChunk(UI.textDim)(hint)]
-  }
-  const cells = lockupCells({
-    nowMs: shell.lockupNowMs,
-    still: !shell.lockupAnimating,
-  })
-  return [
-    lead,
-    ...cells.map((cell) => fgChunk(cell.fg)(cell.char)),
-    fgChunk(UI.textDim)(`${LOCKUP_GAP}${hint}`),
-  ]
+function syncNoticeRow(shell: AppShell, notice: string): void {
+  const bag = internals.get(shell)
+  if (bag === undefined) return
+  const wanted = notice.length > 0
+  if ((bag.visibility.notice ?? false) === wanted) return
+  relayout(shell, { visibility: { ...bag.visibility, notice: wanted } })
 }
 
 /** Withdraw or restore the landing starters as the prompt fills and empties. */
@@ -702,7 +717,7 @@ export function setLockupFrame(
   paintChrome(shell)
 }
 
-/** Queue an image for the next submit and reflect it in the prompt hint. */
+/** Queue an image for the next submit and reflect it on the notice row. */
 export function addPendingAttachment(
   shell: AppShell,
   attachment: PendingImageAttachment,
@@ -745,7 +760,7 @@ function recordSentMessage(shell: AppShell, text: string): void {
   shell.sentHistory = createSentHistoryBrowse([...shell.sentHistory.sent, text])
 }
 
-/** Set a non-destructive hint flash and repaint (does not touch streamLog). */
+/** Set a non-destructive flash and repaint (does not touch streamLog). */
 export function setStatusFlash(shell: AppShell, message: string | null): void {
   shell.statusFlash = message
   paintChrome(shell)
@@ -806,13 +821,49 @@ function clearOverlayBody(shell: AppShell): void {
  * Rows the overlay host spends on itself before any list row: the bordered box
  * costs a top and bottom rule, plus the title line and the wrapped body lines.
  * Omitting the border here hands the list two rows the host cannot render, and
- * flex then stacks the surplus rows onto cells the model bar already owns.
+ * flex then stacks the surplus rows onto cells the prompt border already owns.
  */
 const OVERLAY_HOST_BORDER_ROWS = 2
 
 function overlayChromeRows(bodyLineCount: number): number {
   return OVERLAY_HOST_BORDER_ROWS + 1 + bodyLineCount
 }
+
+/**
+ * Stacking order for the floated overlay host. Only the landing composition
+ * sits under it, and that has no z-index of its own, so one step is enough.
+ */
+const OVERLAY_FLOAT_Z = 10
+
+/**
+ * Lift the overlay host out of the root's column, or drop it back in.
+ *
+ * On the landing the host is a modal: the mark and the disclosure are the
+ * screen, and shoving them around to open a command list would make every
+ * overlay feel like a navigation. Absolute positioning takes the host out of
+ * flow so the composition beneath is untouched, anchored above the chrome the
+ * host used to sit on top of. With a transcript on screen the opposite is
+ * true — rows there are content the operator is reading, and covering them is
+ * worse than pushing them — so the host goes back into the column.
+ */
+function floatOverlayHost(
+  shell: AppShell,
+  floating: boolean,
+  top: number,
+): void {
+  const host = shell.overlayHost
+  if (!floating) {
+    host.position = "relative"
+    host.zIndex = 0
+    return
+  }
+  host.position = "absolute"
+  host.left = 0
+  host.right = 0
+  host.top = top
+  host.zIndex = OVERLAY_FLOAT_Z
+}
+
 
 /** Total host rows needed to show `listRows` list rows under `bodyLineCount` body lines. */
 function overlayHostRows(bodyLineCount: number, listRows: number): number {
@@ -823,11 +874,13 @@ function addOverlayRow(
   shell: AppShell,
   content: string,
   fg: string,
+  bg?: string,
 ): void {
   shell.overlayBody.add(
     new TextRenderable(shell.renderer as CliRenderer, {
       content,
       fg,
+      ...(bg !== undefined ? { bg } : {}),
       height: 1,
       // Without this, a body taller than its host makes flex shrink every row
       // toward zero and paint several of them into the same terminal cells.
@@ -869,6 +922,42 @@ function overlayTitleLine(title: string, interior: number): string {
   return ` ${middleEllipsis(title, Math.max(1, interior - 1))}`
 }
 
+/** Interior columns of the overlay box, inside its border. */
+function overlayInteriorWidth(shell: AppShell): number {
+  return overlayRowWidth(shell) + 2
+}
+
+/** Columns before the label column: leading space, selection marker, space. */
+const PALETTE_MARKER_WIDTH = 3
+
+/**
+ * Palette rows are three columns wide, and the active one is a full-width band
+ * rather than a recolored marker. The band is the warm faint tone, not the
+ * action orange: a palette selection is a cursor position, not a decision the
+ * shell is waiting on.
+ */
+function paintPaletteList(shell: AppShell, list: ListViewportState): void {
+  const interior = overlayInteriorWidth(shell)
+  const columns = shell.paletteCommands.map((cmd) =>
+    paletteRowColumns(cmd, shortcutForPaletteId),
+  )
+  const lines = formatPaletteRows(
+    columns,
+    Math.max(4, interior - PALETTE_MARKER_WIDTH),
+  )
+  const slice = visibleSlice(list)
+  for (let i = slice.start; i < slice.end; i++) {
+    const line = lines[i] ?? ""
+    const active = i === list.activeIndex
+    const content = ` ${active ? ">" : " "} ${line}`.padEnd(interior)
+    if (active) {
+      addOverlayRow(shell, content, UI.text, UI.textFaint)
+    } else {
+      addOverlayRow(shell, content, UI.textDim)
+    }
+  }
+}
+
 function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList
   clearOverlayBody(shell)
@@ -877,6 +966,11 @@ function paintOverlayList(shell: AppShell): void {
   shell.overlayBodyLines.forEach((line, i) => {
     addOverlayRow(shell, ` ${line}`, shell.overlayBodyFgs[i] ?? UI.text)
   })
+
+  if (shell.overlayKind === "palette" && shell.paletteCommands.length > 0) {
+    paintPaletteList(shell, list)
+    return
+  }
 
   const decision = isDecisionOverlay(shell.overlayKind)
   const width = overlayRowWidth(shell)
@@ -898,25 +992,74 @@ function paintOverlayList(shell: AppShell): void {
   }
 }
 
-/** Apply geometry heights to chrome regions including overlay host. */
 /**
- * Right-align the model label in the always-on model_bar zone. Padding is
- * recomputed on every layout pass because a resize changes the column budget
- * without changing the label.
+ * Colour a composed rule. The frame stays faint so the labels it carries read
+ * as the brighter thing on the row; the brand run is swapped for the lockup's
+ * own cells, which is the only part of the border that animates.
  */
-function paintModelBar(shell: AppShell): void {
-  const label =
-    shell.modelLabel === null
-      ? shell.baseTitle
-      : `${shell.baseTitle} · ${shell.modelLabel}`
-  const rows = Math.max(0, shell.layout.heights.model_bar)
-  shell.modelBar.visible = rows > 0
-  shell.modelBar.height = rows > 0 ? rows : 1
-  const pad = Math.max(0, shell.layout.contentWidth - stringWidth(label) - 1)
-  shell.modelBar.content = `${" ".repeat(pad)}${label}`
+function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
+  const chunks: TextChunk[] = []
+  for (const part of parts) {
+    if (part.role !== "brand") {
+      chunks.push(
+        fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
+      )
+      continue
+    }
+    const cells = lockupCells({
+      nowMs: shell.lockupNowMs,
+      still: !shell.lockupAnimating,
+    })
+    chunks.push(fgChunk(UI.textFaint)(" "))
+    for (const cell of cells) chunks.push(fgChunk(cell.fg)(cell.char))
+    chunks.push(fgChunk(UI.textFaint)(" "))
+  }
+  return chunks
 }
 
-/** Publish the `session · profile · model · effort` line above the prompt border. */
+/**
+ * Repaint both border rules. Recomposed on every pass rather than cached: a
+ * resize changes the column budget without changing any label, and the lockup
+ * changes every animation frame without changing the geometry.
+ */
+export function paintPromptBorder(shell: AppShell): void {
+  const width = shell.layout.contentWidth
+  const top = composeRule({
+    width,
+    corners: [BORDER.topLeft, BORDER.topRight],
+    ...(shell.modelLabel !== null ? { label: shell.modelLabel } : {}),
+  })
+  shell.promptTopRule.content = new StyledText(ruleChunks(shell, top))
+
+  // Corners, both rule margins, the gap and the spaces around each label are
+  // what the workspace has to fit inside — with the lockup if the rule can
+  // seat both, without it if it cannot. Where the row can only afford one, the
+  // information wins and the mark goes.
+  const withBrand = Math.max(0, width - 9 - LOCKUP_WIDTH)
+  const alone = Math.max(0, width - 6)
+  const workspaceInput = {
+    cwd: shell.workspace.cwd,
+    branch: shell.workspace.branch,
+    home: homedir(),
+  }
+  const roomy = composeWorkspaceLabel({ ...workspaceInput, maxWidth: withBrand })
+  const workspace =
+    roomy.length > 0
+      ? roomy
+      : composeWorkspaceLabel({ ...workspaceInput, maxWidth: alone })
+  const brand = lockupText(
+    lockupCells({ nowMs: shell.lockupNowMs, still: !shell.lockupAnimating }),
+  )
+  const bottom = composeRule({
+    width,
+    corners: [BORDER.bottomLeft, BORDER.bottomRight],
+    ...(roomy.length > 0 || workspace.length === 0 ? { brand } : {}),
+    ...(workspace.length > 0 ? { label: workspace } : {}),
+  })
+  shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom))
+}
+
+/** Publish the `profile · model · effort` label carried by the top border. */
 export function setPromptModelLabel(
   shell: AppShell,
   input: PromptActionBarModelLabelInput,
@@ -924,7 +1067,19 @@ export function setPromptModelLabel(
   const label = composePromptActionBarModelLabel(input) ?? null
   if (label === shell.modelLabel) return
   shell.modelLabel = label
-  paintModelBar(shell)
+  paintPromptBorder(shell)
+}
+
+/** Publish the working directory and git branch carried by the bottom border. */
+export function setPromptWorkspace(
+  shell: AppShell,
+  input: { readonly cwd?: string; readonly branch?: string | null },
+): void {
+  const cwd = input.cwd ?? shell.workspace.cwd
+  const branch = input.branch === undefined ? shell.workspace.branch : input.branch
+  if (cwd === shell.workspace.cwd && branch === shell.workspace.branch) return
+  shell.workspace = { cwd, branch }
+  paintPromptBorder(shell)
 }
 
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
@@ -957,12 +1112,25 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.topPad.height = padH > 0 ? padH : 1
   shell.topPad.visible = padH > 0
 
+  const overlayH = Math.max(0, h.overlay_host)
+
   // The landing splits the transcript residual around the prompt box so the box
-  // sits on the terminal's middle row instead of at its foot.
-  const landing = internals.get(shell)?.landing ?? null
-  const split = landing === null ? null : splitLandingRows(transcriptH - padH)
-  if (landing !== null && split !== null) {
+  // sits on the terminal's middle row instead of at its foot. An open overlay
+  // floats over that composition rather than displacing it, so the rows the
+  // resolver took for the overlay host are handed back to the split.
+  const bag = internals.get(shell)
+  const landing = bag?.landing ?? null
+  const landingRows = transcriptH - padH + (landing === null ? 0 : overlayH)
+  const split = landing === null ? null : splitLandingRows(landingRows)
+  if (bag !== undefined && landing !== null && split !== null) {
     landing.above.box.height = Math.max(1, split.above)
+    // A new zone can seat a different tier, and a tier is a different grid, so
+    // the mark is redrawn rather than left showing the previous size's frame.
+    fitLandingMark(
+      landing.above,
+      resolveMarkGrid(split.above, layout.contentWidth),
+    )
+    paintLandingMark(landing.above, bag.landingNowMs, !bag.landingAnimating)
     landing.below.height = Math.max(0, split.below)
     landing.below.visible = split.below > 0
   }
@@ -972,12 +1140,31 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.transcript.height = transcriptBody > 0 ? transcriptBody : 1
   shell.transcript.visible = transcriptBody > 0
 
-  const overlayH = Math.max(0, h.overlay_host)
-  shell.overlayHost.height = overlayH > 0 ? overlayH : 1
-  shell.overlayHost.visible = overlayH > 0
-  if (overlayH > 0 && shell.overlayList) {
+  const noticeH = Math.max(0, h.notice)
+  shell.notice.height = noticeH > 0 ? noticeH : 1
+  shell.notice.visible = noticeH > 0
+
+  const promptH = Math.max(1, h.prompt)
+  shell.promptBox.height = promptH
+  shell.promptBox.visible = promptH > 0
+  // The field takes whatever the box has left once both labelled rules are paid.
+  shell.promptField.height = Math.max(1, promptH - 2)
+
+  // Sized last: the float is anchored against chrome sized earlier in this
+  // pass. Modal over the landing, an in-flow band once there is a transcript
+  // to push.
+  const floating = landing !== null && overlayH > 0
+  // Rows the flow spends before the prompt box — where a floated host's bottom
+  // edge has to land, since the landing's box sits mid-screen rather than at
+  // the foot and covering it would hide the thing the operator types into.
+  const promptTop = padH + goalH + taskH + agentsH + transcriptBody
+  const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
+  floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
+  shell.overlayHost.height = hostH > 0 ? hostH : 1
+  shell.overlayHost.visible = hostH > 0
+  if (hostH > 0 && shell.overlayList) {
     const chrome = overlayChromeRows(shell.overlayBodyLines.length)
-    const bodyH = Math.max(1, overlayH - chrome)
+    const bodyH = Math.max(1, hostH - chrome)
     // The viewport counts items, not rows; a decision overlay spends several
     // rows per item, so the row budget has to be divided back down.
     const perItem = overlayRowsPerItem(shell.overlayKind)
@@ -988,15 +1175,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     paintOverlayList(shell)
   }
 
-  paintModelBar(shell)
-
-  const promptH = Math.max(1, h.prompt)
-  shell.promptBox.height = promptH
-  shell.promptBox.visible = promptH > 0
-
-  const hintH = Math.max(1, h.hint)
-  shell.hint.height = hintH
-  shell.hint.visible = hintH > 0
+  paintPromptBorder(shell)
 
   // The landing owns the transcript's children until the first row lands, so a
   // resize there must not rebuild them out from under it.
@@ -1050,6 +1229,8 @@ type ShellInternals = {
     | readonly PaletteCommand[]
     | (() => readonly PaletteCommand[])
     | null
+  /** Live filter state for the open palette, so typing can re-filter it. */
+  paletteFilter: PaletteFilterState | null
   /**
    * Landing composition shown while the transcript has no content: the mark
    * above the prompt box, the disclosure and starters below it. Dropped (not
@@ -1068,6 +1249,8 @@ type ShellInternals = {
   landingSuggestionsVisible: boolean
   /** Whether the last painted mark frame was a moving one. */
   landingAnimating: boolean
+  /** Clock of the last painted mark frame, so a resize can redraw in place. */
+  landingNowMs: number
   /** Chrome text content (empty = zone off). */
   chrome: {
     goal: string
@@ -1185,11 +1368,27 @@ function noteAgentVoice(shell: AppShell, row: StreamRow): boolean {
   return before === 1 && shell.agentVoices.size === 2
 }
 
+/** Row immediately before `index` in the log, or undefined at the start. */
+function rowBefore(shell: AppShell, index: number): StreamRow | undefined {
+  return index > 0 ? shell.streamLog[index - 1] : undefined
+}
+
 /** Blank rows the row at `index` claims above itself. */
 function gapBefore(shell: AppShell, index: number): number {
   const row = shell.streamLog[index]
   if (row === undefined) return 0
-  return rowGroupGap(index > 0 ? shell.streamLog[index - 1] : undefined, row)
+  return rowGroupGap(rowBefore(shell, index), row)
+}
+
+/**
+ * Writer label the row at `index` carries above it, or null mid-block.
+ * A block is exactly a gap-free run from one writer, so this tracks
+ * `gapBefore` rather than keeping its own notion of block boundaries.
+ */
+function labelBefore(shell: AppShell, index: number): string | null {
+  const row = shell.streamLog[index]
+  if (row === undefined) return null
+  return blockLabel(rowBefore(shell, index), row, transcriptRowLayout(shell))
 }
 
 /** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
@@ -1202,8 +1401,9 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   // Under collapse threshold: append one paint node (cheap).
   // Over threshold: rebuild the windowed paint tree only.
   if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
+    const index = shell.streamLog.length - 1
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, shell.streamLog.length - 1)),
+      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
     )
     paintChrome(shell)
     return
@@ -1251,7 +1451,7 @@ export function replaceStreamRowAt(
   }
 
   const stale = children[index]
-  if (stale && retextStreamRow(shell, stale, row)) {
+  if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, index))) {
     paintChrome(shell)
     return
   }
@@ -1262,7 +1462,7 @@ export function replaceStreamRowAt(
     }
   }
   shell.transcript.add(
-    createStreamRowRenderable(shell, row, gapBefore(shell, index)),
+    createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
     index,
   )
   paintChrome(shell)
@@ -1274,16 +1474,36 @@ export function replaceStreamRowAt(
  * Streaming rows are replaced on every token, and tearing the node down each
  * time would drop the markdown parser's block state — the very thing that makes
  * incremental rendering stable. Returns false when the node shape does not
- * match the row and the caller must rebuild it.
+ * match the row and the caller must rebuild it — including a row whose block
+ * label just appeared or disappeared, since that changes the node's shape.
  */
 function retextStreamRow(
   shell: AppShell,
   node: BaseRenderable,
   row: StreamRow,
+  label: string | null,
 ): boolean {
   if (row.diff !== undefined || row.structured !== undefined) return false
   const layout = transcriptRowLayout(shell)
 
+  if (label !== null) {
+    if (!(node instanceof BoxRenderable)) return false
+    const [headerNode, innerNode] = node.getChildren()
+    if (!(headerNode instanceof TextRenderable) || innerNode === undefined) return false
+    if (!retextStreamRowBody(innerNode, row, layout)) return false
+    headerNode.content = label
+    return true
+  }
+
+  return retextStreamRowBody(node, row, layout)
+}
+
+/** The shape-matching rewrite shared by labelled and unlabelled rows. */
+function retextStreamRowBody(
+  node: BaseRenderable,
+  row: StreamRow,
+  layout: RowLayout,
+): boolean {
   if (node instanceof TextRenderable) {
     if (isMarkdownRow(row)) return false
     node.content = paintStreamRow(row, layout).content
@@ -1328,8 +1548,9 @@ export function repaintTranscriptWindow(shell: AppShell): void {
     )
   }
   win.rows.forEach((row, offset) => {
+    const index = win.start + offset
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, win.start + offset)),
+      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index)),
     )
   })
 }
@@ -1378,6 +1599,7 @@ export function paintLanding(
   if (bag === undefined || landing === null || landing === undefined) return
   if (!animating && !bag.landingAnimating) return
   bag.landingAnimating = animating
+  bag.landingNowMs = nowMs
   paintLandingMark(landing.above, nowMs, !animating)
 }
 
@@ -1413,46 +1635,31 @@ function gutterNode(ctx: CliRenderer, gutter: PaintedStreamLine): TextRenderable
 }
 
 /**
- * Build the paint node for one transcript row.
- * Markdown-bearing rows (assistant replies) get a MarkdownRenderable body next
- * to a plain gutter; structured rows (MCP results) get a TextTableRenderable;
- * edit-tool rows get a coloured diff body; every other role stays literal text.
+ * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
+ * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
+ * for structured rows (MCP results), a coloured diff body for edit-tool rows,
+ * and literal text for everything else.
  */
-export function createStreamRowRenderable(
-  shell: AppShell,
+function buildRowNode(
+  ctx: CliRenderer,
   row: StreamRow,
-  marginTop = 0,
+  layout: RowLayout,
 ): TextRenderable | BoxRenderable {
-  const ctx = shell.renderer as CliRenderer
-  const layout = transcriptRowLayout(shell)
-
   if (row.diff !== undefined) {
-    const node = createDiffRowRenderable(ctx, row, layout, row.diff)
-    node.marginTop = marginTop
-    return node
+    return createDiffRowRenderable(ctx, row, layout, row.diff)
   }
 
   if (row.structured !== undefined) {
-    const node = createStructuredRowRenderable(ctx, row, layout, row.structured)
-    node.marginTop = marginTop
-    return node
+    return createStructuredRowRenderable(ctx, row, layout, row.structured)
   }
 
   if (!isMarkdownRow(row)) {
     const painted = paintStreamRow(row, layout)
-    return new TextRenderable(ctx, {
-      content: painted.content,
-      fg: painted.fg,
-      marginTop,
-    })
+    return new TextRenderable(ctx, { content: painted.content, fg: painted.fg })
   }
 
   const gutter = streamRowGutter(row, layout)
-  const wrapper = new BoxRenderable(ctx, {
-    flexDirection: "row",
-    width: "100%",
-    marginTop,
-  })
+  const wrapper = new BoxRenderable(ctx, { flexDirection: "row", width: "100%" })
   wrapper.add(gutterNode(ctx, gutter))
   wrapper.add(
     new MarkdownRenderable(ctx, {
@@ -1464,6 +1671,33 @@ export function createStreamRowRenderable(
       streaming: row.streaming === true,
     }),
   )
+  return wrapper
+}
+
+/**
+ * Build the paint node for one transcript row, including its writer label
+ * when this row opens a new block (see `blockLabel`). The label is one text
+ * child stacked above the row's own node in a column wrapper — never a
+ * separate transcript child — so the 1:1 log-index-to-child mapping holds.
+ */
+export function createStreamRowRenderable(
+  shell: AppShell,
+  row: StreamRow,
+  marginTop = 0,
+  label: string | null = null,
+): TextRenderable | BoxRenderable {
+  const ctx = shell.renderer as CliRenderer
+  const layout = transcriptRowLayout(shell)
+  const node = buildRowNode(ctx, row, layout)
+
+  if (label === null) {
+    node.marginTop = marginTop
+    return node
+  }
+
+  const wrapper = new BoxRenderable(ctx, { flexDirection: "column", width: "100%", marginTop })
+  wrapper.add(new TextRenderable(ctx, { content: label, fg: UI.textDim }))
+  wrapper.add(node)
   return wrapper
 }
 
@@ -1841,29 +2075,114 @@ export function openPalette(
     readonly query?: string
     readonly catalog?: readonly PaletteCommand[]
     readonly title?: string
+    /** Claim printable keys for the `>` filter row. Off for the `/` popup. */
+    readonly typeToFilter?: boolean
   },
 ): void {
-  const catalog = opts?.catalog ?? resolvePaletteCatalog(shell)
-  const filtered = filterPaletteCommands(opts?.query ?? "", catalog)
-  const commands = filtered.length > 0 ? filtered : []
+  const title = opts?.title ?? "command palette"
+  const bag = internals.get(shell)
+  if (bag) {
+    bag.paletteFilter = {
+      query: opts?.query ?? "",
+      title,
+      // Slash and other callers pass a pre-narrowed catalog; a bare Ctrl+O open
+      // re-resolves the shell default so a registry loaded later is picked up.
+      catalog: opts?.catalog ?? null,
+      // The `/` popup keeps its query in the prompt and drives its own reopen.
+      typeToFilter: opts?.typeToFilter ?? false,
+    }
+  }
+  repaintPalette(shell)
+}
+
+/** Palette open state that survives a re-filter. */
+type PaletteFilterState = {
+  query: string
+  readonly title: string
+  readonly catalog: readonly PaletteCommand[] | null
+  readonly typeToFilter: boolean
+}
+
+/** Re-open the palette against the current filter state (used on every keystroke). */
+function repaintPalette(shell: AppShell): void {
+  const state = internals.get(shell)?.paletteFilter
+  if (!state) return
+  const catalog = state.catalog ?? resolvePaletteCatalog(shell)
+  const commands = filterPaletteCommands(state.query, catalog)
   const labels =
     commands.length > 0 ? paletteLabels(commands) : ["(no matches)"]
   shell.paletteCommands = commands
   openListOverlay(shell, {
     kind: "palette",
-    title: opts?.title ?? "palette · Ctrl+O",
+    title: state.title,
     items: labels,
+    // Filter query row, Amp-style: the palette always shows what it filtered on.
+    body: `> ${state.query}`,
     frameId: "command-palette",
   })
+  shell.overlayTitle.content = paletteTitleLine(
+    state.title,
+    overlayInteriorWidth(shell),
+  )
+  paintOverlayList(shell)
+}
+
+/**
+ * Keys the palette claims while it is open, so the `>` row filters as you type.
+ *
+ * Opt-in per open rather than a property of the shared list overlay: every other
+ * picker (permissions, model, resume, workers, copy) keeps j/k navigation, which
+ * only the palette has to give up to get its printable keys back. Arrow and page
+ * keys are never claimed here, so they keep working in every overlay including
+ * this one.
+ */
+export function handlePaletteFilterKey(
+  shell: AppShell,
+  key: KeyEvent,
+): boolean {
+  const state = internals.get(shell)?.paletteFilter
+  if (!state?.typeToFilter) return false
+  if (shell.overlayKind !== "palette" || shell.overlayList === null) return false
+  if (key.ctrl || key.meta || key.option) return false
+
+  if (key.name === "backspace") {
+    if (state.query.length === 0) return true
+    state.query = state.query.slice(0, -1)
+    repaintPalette(shell)
+    return true
+  }
+
+  const seq = typeof key.sequence === "string" ? key.sequence : ""
+  if (seq.length !== 1 || seq < " ") return false
+
+  state.query += seq
+  repaintPalette(shell)
+  return true
+}
+
+/**
+ * Palette title as a rule broken by the title, left-ish. The overlay host's own
+ * border is asserted elsewhere to be unbroken box-drawing, so the titled rule is
+ * a row inside the box rather than text written into the border itself.
+ */
+function paletteTitleLine(title: string, interior: number): string {
+  const head = `─ ${title} `
+  if (head.length >= interior) return head.slice(0, Math.max(0, interior))
+  return head + "─".repeat(interior - head.length)
 }
 
 /** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
 export function closeInsetOverlay(shell: AppShell): void {
   if (!shell.overlayList) return
-  // Esc (or any other dismiss) must also drop the `/` popup's key claim.
+  // Esc (or any other dismiss) must also drop the `/` and `@` popups' key claim.
   slashPopups.delete(shell)
+  mentionPopups.delete(shell)
 
   const wasPalette = shell.overlayKind === "palette"
+  if (wasPalette) {
+    const filterBag = internals.get(shell)
+    if (filterBag) filterBag.paletteFilter = null
+  }
   const bag = internals.get(shell)
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
 
@@ -2284,7 +2603,7 @@ export function enterCopyMode(shell: AppShell): boolean {
 
   const targets = buildCopyTargets(shell.streamLog)
   if (targets.length === 0) {
-    setStatusFlash(shell, "Nothing to copy")
+    setStatusFlash(shell, "nothing to copy")
     return false
   }
 
@@ -2304,7 +2623,7 @@ export function enterCopyMode(shell: AppShell): boolean {
 export function confirmCopySelection(shell: AppShell): boolean {
   const targets = shell.copyTargets
   if (!targets || targets.length === 0 || !shell.overlayList) {
-    setStatusFlash(shell, "Nothing to copy")
+    setStatusFlash(shell, "nothing to copy")
     closeInsetOverlay(shell)
     return false
   }
@@ -2314,7 +2633,7 @@ export function confirmCopySelection(shell: AppShell): boolean {
   )
   const target = targets[idx]
   if (!target) {
-    setStatusFlash(shell, "Nothing to copy")
+    setStatusFlash(shell, "nothing to copy")
     closeInsetOverlay(shell)
     return false
   }
@@ -2335,7 +2654,7 @@ export function confirmCopySelection(shell: AppShell): boolean {
 export function copyAllTargets(shell: AppShell): boolean {
   const targets = shell.copyTargets
   if (!targets || targets.length === 0) {
-    setStatusFlash(shell, "Nothing to copy")
+    setStatusFlash(shell, "nothing to copy")
     if (shell.overlayKind === "copy") closeInsetOverlay(shell)
     return false
   }
@@ -2543,16 +2862,38 @@ const defaultMentionSource: MentionSuggestionSource = (prefix) =>
  */
 export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean> {
   const at = parseAtState(shell.prompt.value, shell.prompt.cursorOffset)
-  if (at === null) return false
+  if (at === null) {
+    closeMentionPopup(shell)
+    return false
+  }
+
+  // Every keystroke re-queries; a slower earlier query must not overwrite the
+  // list a later one already produced.
+  const generation = (mentionGenerations.get(shell) ?? 0) + 1
+  mentionGenerations.set(shell, generation)
 
   const cursor = shell.prompt.cursorOffset
   const source = shellMentionSource.get(shell) ?? defaultMentionSource
-  const suggestions = await source(at.prefix)
+  const token = splitMentionToken(at.prefix)
+  let suggestions = filterMentionSuggestions(
+    await source(token.dir),
+    token.fragment,
+  )
+  // The source caps how many entries it returns per directory, so a large
+  // directory can cap out before the interior match appears. Asking it to do
+  // its own prefix filter puts that cap after the narrowing instead of before.
+  if (suggestions.length === 0 && token.fragment.length > 0) {
+    suggestions = await source(at.prefix)
+  }
+  if (mentionGenerations.get(shell) !== generation) return false
+
   if (suggestions.length === 0) {
+    closeMentionPopup(shell)
     setStatusFlash(shell, `no matches for @${at.prefix}`)
     return false
   }
 
+  closeMentionPopup(shell)
   openMentionsOverlay(shell, {
     items: [...suggestions],
     onAccept: (selection) => {
@@ -2570,6 +2911,64 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
       if (completion.endsWith("/")) void openAtMentionSuggestions(shell)
     },
   })
+  mentionPopups.add(shell)
+  return true
+}
+
+const mentionPopups = new WeakSet<AppShell>()
+const mentionGenerations = new WeakMap<AppShell, number>()
+
+/** True while the `@` path popup owns typed characters. */
+export function isMentionPopupOpen(shell: AppShell): boolean {
+  return mentionPopups.has(shell) && shell.overlayKind === "mentions"
+}
+
+export function closeMentionPopup(shell: AppShell): void {
+  if (!mentionPopups.has(shell)) return
+  mentionPopups.delete(shell)
+  if (shell.overlayList) closeInsetOverlay(shell)
+}
+
+function editPromptAt(shell: AppShell, value: string, cursor: number): void {
+  shell.prompt.value = value
+  shell.prompt.cursorOffset = cursor
+  shell.sentHistory = sentHistoryOnEdit(shell.sentHistory)
+}
+
+/**
+ * Keys the `@` popup claims while open — the same contract as the `/` popup:
+ * printable characters narrow the list, Backspace widens it, and a query that
+ * matches nothing closes the popup with the typed text left in place.
+ *
+ * The prompt does not hold focus while the overlay is open, so this inserts and
+ * deletes the characters itself rather than letting the InputRenderable do it.
+ */
+export function handleMentionPopupKey(shell: AppShell, key: KeyEvent): boolean {
+  if (!isMentionPopupOpen(shell) || shell.overlayList === null) return false
+  if (key.ctrl || key.meta || key.option) return false
+
+  const value = shell.prompt.value
+  const cursor = shell.prompt.cursorOffset
+
+  if (key.name === "backspace") {
+    if (cursor === 0) {
+      closeMentionPopup(shell)
+      return true
+    }
+    editPromptAt(shell, value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1)
+    // Deleting the `@` itself ends the mention; there is nothing left to filter.
+    if (value[cursor - 1] === "@") closeMentionPopup(shell)
+    else void openAtMentionSuggestions(shell)
+    return true
+  }
+
+  const seq = typeof key.sequence === "string" ? key.sequence : ""
+  if (seq.length !== 1 || seq < " ") return false
+
+  editPromptAt(shell, value.slice(0, cursor) + seq + value.slice(cursor), cursor + 1)
+  // Whitespace terminates the @token, so the popup has nothing left to narrow.
+  if (/\s/.test(seq)) closeMentionPopup(shell)
+  else void openAtMentionSuggestions(shell)
   return true
 }
 
@@ -2718,12 +3117,12 @@ export function handleCtrlC(shell: AppShell, now = Date.now()): void {
   } else if (shell.prompt.value.length > 0) {
     shell.prompt.value = ""
   }
-  setStatusFlash(shell, "press Ctrl+C again to exit")
+  setStatusFlash(shell, "press ctrl+c again to exit")
 }
 
 /**
  * Build the app shell frame on an OpenTUI renderer.
- * Mounts sticky transcript / overlay host / model bar / prompt / hint row.
+ * Mounts sticky transcript / overlay host / transient notice / prompt box.
  */
 export function createAppShell(
   renderer: ShellRenderer,
@@ -2846,6 +3245,10 @@ export function createAppShell(
     height: 1,
     flexShrink: 0,
     flexDirection: "column",
+    // A short terminal can leave the host fewer rows than its body wants. Rows
+    // that do not fit are clipped rather than painted over the chrome below,
+    // which would leave a half-overlay the operator cannot dismiss.
+    overflow: "hidden",
     border: true,
     borderColor: UI.action,
     backgroundColor: UI.ground,
@@ -2866,11 +3269,13 @@ export function createAppShell(
   overlayHost.add(overlayTitle)
   overlayHost.add(overlayBody)
 
-  const modelBar = new TextRenderable(ctx, {
-    id: "shell-model-bar",
-    height: 1,
+  // Transient only: the resolver gives it a row when paintChrome asks for one.
+  const notice = new TextRenderable(ctx, {
+    id: "shell-notice",
+    height: Math.max(1, layout.heights.notice),
     content: "",
     fg: UI.textDim,
+    visible: layout.heights.notice > 0,
   })
 
   const promptBox = new BoxRenderable(ctx, {
@@ -2881,13 +3286,29 @@ export function createAppShell(
     flexDirection: "column",
     backgroundColor: UI.ground,
   })
-  // Bordered input: top border + field + bottom border = 3 rows.
-  const promptFrame = new BoxRenderable(ctx, {
+  // The box is drawn in three pieces rather than as one bordered Box because
+  // both horizontal rules carry content the frame's own border cannot: a
+  // right-aligned label that the rule breaks around, and an animated lockup
+  // whose cells are individually coloured.
+  const promptTopRule = new TextRenderable(ctx, {
+    id: "shell-prompt-top-rule",
+    height: 1,
+    content: "",
+    fg: UI.textFaint,
+  })
+  const promptBottomRule = new TextRenderable(ctx, {
+    id: "shell-prompt-bottom-rule",
+    height: 1,
+    content: "",
+    fg: UI.textFaint,
+  })
+  const promptField = new BoxRenderable(ctx, {
     id: "shell-prompt-frame",
     width: "100%",
-    height: 3,
+    height: Math.max(1, layout.heights.prompt - 2),
     flexShrink: 0,
-    border: true,
+    border: ["left", "right"],
+    borderStyle: "rounded",
     borderColor: UI.textFaint,
     focusedBorderColor: UI.textDim,
     backgroundColor: UI.ground,
@@ -2904,15 +3325,10 @@ export function createAppShell(
     cursorColor: UI.text,
     placeholderColor: UI.textFaint,
   })
-  // The only always-on chrome besides the box: one dim, stateful key row.
-  const hint = new TextRenderable(ctx, {
-    id: "shell-prompt-hint",
-    height: Math.max(1, layout.heights.hint),
-    content: "",
-    fg: UI.textDim,
-  })
-  promptFrame.add(prompt)
-  promptBox.add(promptFrame)
+  promptField.add(prompt)
+  promptBox.add(promptTopRule)
+  promptBox.add(promptField)
+  promptBox.add(promptBottomRule)
 
   root.add(topPad)
   root.add(goalBox)
@@ -2920,9 +3336,8 @@ export function createAppShell(
   root.add(agentsBox)
   root.add(transcript)
   root.add(overlayHost)
-  root.add(modelBar)
+  root.add(notice)
   root.add(promptBox)
-  root.add(hint)
   root.add(landingBelow)
 
   if (mount) {
@@ -2970,6 +3385,18 @@ export function createAppShell(
       // The `/` popup filters as you type, so it claims printable keys before
       // the overlay's j/k navigation can swallow them.
       if (handleSlashPopupKey(shell, key)) {
+        key.preventDefault()
+        return
+      }
+      // Same reason as the `/` popup: the `@` popup narrows as you type, so it
+      // claims printable keys ahead of the overlay's j/k navigation.
+      if (handleMentionPopupKey(shell, key)) {
+        key.preventDefault()
+        return
+      }
+      // The palette filters as you type, so it claims printable keys — including
+      // the j/k every other overlay still uses to navigate.
+      if (handlePaletteFilterKey(shell, key)) {
         key.preventDefault()
         return
       }
@@ -3197,10 +3624,24 @@ export function createAppShell(
       }
     }
 
+    // Bare key, so it is live only while the transcript holds focus and can
+    // never shadow a `?` typed into the prompt.
+    if (
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      key.sequence === "?" &&
+      focusOwner(shell.focus) === "transcript"
+    ) {
+      key.preventDefault()
+      openHelpOverlay(shell)
+      return
+    }
+
     if (key.ctrl && (key.name === "o" || key.name === "O")) {
       // Ctrl+O reclaimed from tool-expand → command palette (Wave 6).
       key.preventDefault()
-      openPalette(shell)
+      openPalette(shell, { typeToFilter: true })
       return
     }
 
@@ -3269,9 +3710,11 @@ export function createAppShell(
     overlayTitle,
     overlayBody,
     prompt,
-    modelBar,
     promptBox,
-    hint,
+    promptField,
+    promptTopRule,
+    promptBottomRule,
+    notice,
     layout,
     focus: createFocusState(),
     session,
@@ -3281,6 +3724,7 @@ export function createAppShell(
     agentVoices: new Set<string>(),
     baseTitle: title,
     modelLabel: null,
+    workspace: { cwd: options?.cwd ?? process.cwd(), branch: null },
     overlayList: null,
     overlayItems,
     overlayKind: null,
@@ -3325,11 +3769,13 @@ export function createAppShell(
     overlayOnAccept: null,
     overlayOnToggleExpand: null,
     paletteCatalog: paletteCatalogOpt,
+    paletteFilter: null,
     landing: { above: landingAbove, below: landingBelow },
     landingNotice: options?.telemetryNotice ?? null,
     landingBelow: landingBelowState,
     landingSuggestionsVisible: true,
     landingAnimating: false,
+    landingNowMs: 0,
     chrome: { goal: "", task: "", agents: "" },
   })
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)

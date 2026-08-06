@@ -29,14 +29,15 @@ import {
   transcriptRowLayout,
 } from "./shell"
 
-/** Last painted row: the hint line is the bottom-most chrome in every state. */
-function hintLine(frame: string): string {
-  const rows = frame.split("\n").filter((r) => r.trim().length > 0)
-  return rows.at(-1) ?? ""
+/** The transient notice row sits directly above the prompt box's top rule. */
+function noticeRow(frame: string): string {
+  const rows = frame.split("\n")
+  const top = rows.findIndex((r) => r.includes("╭"))
+  return top > 0 ? (rows[top - 1] ?? "") : ""
 }
 
 describe("createAppShell", () => {
-  test("builds transcript / prompt / hint with floor geometry", async () => {
+  test("builds transcript / prompt / notice with floor geometry", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -47,7 +48,9 @@ describe("createAppShell", () => {
         try {
           expect(shell.transcript).toBeDefined()
           expect(shell.prompt).toBeDefined()
-          expect(shell.hint).toBeDefined()
+          expect(shell.notice).toBeDefined()
+          expect(shell.promptTopRule).toBeDefined()
+          expect(shell.promptBottomRule).toBeDefined()
           expect(shell.transcript.stickyScroll).toBe(true)
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
             IDLE_TRANSCRIPT_FLOOR,
@@ -56,7 +59,7 @@ describe("createAppShell", () => {
           expect(scrollLease(shell.focus)).toBe("transcript")
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("test")
+          // The session name is not chrome; the brand lockup is.
           expect(frame).toContain("corbits code")
         } finally {
           shell.dispose()
@@ -140,7 +143,8 @@ describe("createAppShell", () => {
           toggleShellFocus(shell)
           expect(focusOwner(shell.focus)).toBe("transcript")
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("tab prompt")
+          // Focus is a lease, not chrome: nothing on screen announces it.
+          expect(h.captureCharFrame()).not.toContain("tab prompt")
         } finally {
           shell.dispose()
         }
@@ -293,7 +297,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("hint line shows the keys that work right now", async () => {
+  test("the box's borders carry the chrome, with no keys strip", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -304,7 +308,11 @@ describe("product skin: stream + queue + overlay", () => {
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("corbits code")
-          expect(frame).toContain("/ commands")
+          expect(frame).not.toContain("/ commands")
+          expect(frame).not.toContain("@ files")
+          // Both rules close: the metadata is inside the frame, not beside it.
+          expect(frame).toContain("╮")
+          expect(frame).toContain("╯")
         } finally {
           shell.dispose()
         }
@@ -382,10 +390,10 @@ describe("product skin: stream + queue + overlay", () => {
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
           await h.renderOnce()
-          const hintRow = hintLine(h.captureCharFrame())
-          expect(hintRow).toContain("interrupt")
-          // An empty queue is the default state, so it stays off the hint row.
-          expect(hintRow).not.toContain("queue")
+          const row = noticeRow(h.captureCharFrame())
+          expect(row).toContain("interrupt")
+          // An empty queue is the default state, so it stays off the row.
+          expect(row).not.toContain("queue")
         } finally {
           shell.dispose()
         }

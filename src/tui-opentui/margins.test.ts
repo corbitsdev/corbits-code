@@ -149,8 +149,8 @@ describe("painted gutter", () => {
           await settle(h)
           expect(shell.layout.sideMargin).toBe(0)
           expect(shell.layout.contentWidth).toBe(columns)
-          // The prompt frame is the widest always-on surface: it must still fit.
-          expect(frameRows(h).some((row) => row.includes("┌"))).toBe(true)
+          // The prompt box is the widest always-on surface: it must still fit.
+          expect(frameRows(h).some((row) => row.includes("╭"))).toBe(true)
         } finally {
           shell.dispose()
         }

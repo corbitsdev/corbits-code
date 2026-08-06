@@ -2,14 +2,13 @@
  * The persistent bottom-left brand lockup: a one-row mountain glyph followed by
  * the "corbits code" wordmark.
  *
- * It shares the hint row rather than claiming one of its own. Three reasons:
- * the hint row is already the shell's only always-on chrome, so the brand sits
- * with the chrome instead of opening a second permanent band; a row is the
- * scarcest thing in a terminal and the lockup is worth zero of them; and
- * sharing means the lockup inherits the shell's gutter and its short-terminal
- * behaviour for free. The hint segments start to the right of the lockup, and
- * when the row cannot afford both, the lockup is what goes — the keys are
- * function, the mark is not.
+ * It rides the prompt box's bottom border, at the left end, opposite the
+ * working directory and branch. There is no status row left to share — the
+ * permanent hint strip is gone — and a row is the scarcest thing in a
+ * terminal, so the mark buys one of zero. Sitting in the border also means it
+ * inherits the box's gutter and its narrow-terminal behaviour for free, and
+ * when the rule cannot seat both labels the lockup is what goes: the workspace
+ * is information, the mark is not.
  *
  * Motion reuses the landing mark's timeline (`markFrame`, `ditherTone`) so both
  * marks breathe together, and like it this module is pure and clock-injected:
@@ -31,9 +30,6 @@ const GLYPH_GAP = " "
 /** Total columns the lockup paints, wordmark included. */
 export const LOCKUP_WIDTH =
   LOCKUP_MARK_COLS + GLYPH_GAP.length + LOCKUP_WORDMARK.length
-
-/** Columns between the lockup and the first hint segment. */
-export const LOCKUP_GAP = "   "
 
 /** Eighth blocks, shortest to tallest — the ridgeline's vertical resolution. */
 const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const
@@ -111,14 +107,6 @@ function ridgeChar(height: number): string {
     Math.max(0, Math.round(height * EIGHTHS.length) - 1),
   )
   return EIGHTHS[index] ?? " "
-}
-
-/**
- * Whether the row can afford the lockup beside the hint text. The hint always
- * wins: a key the operator needs outranks the mark.
- */
-export function lockupFits(hintWidth: number, contentWidth: number): boolean {
-  return contentWidth >= hintWidth + LOCKUP_WIDTH + LOCKUP_GAP.length
 }
 
 /** Plain-text rendering of a lockup frame — what the shape tests read. */

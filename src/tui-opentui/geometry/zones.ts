@@ -6,9 +6,8 @@
 export const ZONE_IDS = [
   "progress",
   "progress_divider",
-  "model_bar",
+  "notice",
   "prompt",
-  "hint",
   "goal",
   "task",
   "agents",
@@ -50,9 +49,10 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     idleDefault: 0,
     alwaysOn: false,
   },
-  model_bar: { id: "model_bar", min: 0, max: 1, idleDefault: 1, alwaysOn: true },
+  // Transient: rows only while the shell has state worth a row (queue depth,
+  // latched interrupt, a flash, a live turn). Idle it is off.
+  notice: { id: "notice", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   prompt: { id: "prompt", min: 3, max: 3, idleDefault: 3, alwaysOn: true },
-  hint: { id: "hint", min: 1, max: 1, idleDefault: 1, alwaysOn: true },
   goal: { id: "goal", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   agents: { id: "agents", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
@@ -106,7 +106,7 @@ export const PROMPT_CAP_FRACTION = 0.4;
 /** Overlay host body may not exceed this fraction of terminal rows (proposed). */
 export const OVERLAY_MAX_FRACTION = 0.7;
 
-/** Prompt base bordered height (borders + one content line). */
+/** Prompt base bordered height (labelled borders + one content line). */
 export const PROMPT_BASE_ROWS = 3;
 
 /**
@@ -122,14 +122,14 @@ export const COLLAPSE_ORDER = [
   "agents",
   "progress",
   "progress_divider",
-  "model_bar",
+  "notice",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)
   "prompt",
 ] as const satisfies readonly ZoneId[];
 
 /**
  * Top-to-bottom paint order for y-stacked rects.
- * Transcript is residual in the middle; bottom chrome is prompt stack + hint.
+ * Transcript is residual in the middle; the prompt box is the last thing painted.
  */
 export const PAINT_ORDER = [
   "goal",
@@ -142,9 +142,8 @@ export const PAINT_ORDER = [
   "settings_notice",
   "progress",
   "progress_divider",
-  "model_bar",
+  "notice",
   "prompt",
-  "hint",
 ] as const satisfies readonly ZoneId[];
 
 export function zoneDeclaration(id: ZoneId): ZoneDeclaration {

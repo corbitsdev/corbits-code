@@ -28,12 +28,12 @@ export type OverlayInput = {
 };
 
 /**
- * Optional chrome visibility. Always-on zones (model_bar, prompt, hint) default
- * to their idle budgets when omitted. Optional zones default to off (0).
+ * Optional chrome visibility. The prompt box is the only always-on zone and
+ * defaults to its idle budget. Optional zones default to off (0).
  */
 export type ZoneVisibility = {
-  /** Model bar on (default true → 1 row). Pass false to start collapsed. */
-  readonly modelBar?: boolean;
+  /** Transient notice row on (default off). */
+  readonly notice?: boolean;
   /** Progress: false/omit = 0; true = 2; or explicit 1|2. */
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
@@ -113,9 +113,6 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
           ? 1
           : 0;
 
-  const modelBar =
-    vis.modelBar === false ? 0 : ZONE_REGISTRY.model_bar.idleDefault;
-
   const promptRequested = input.promptContentRows ?? PROMPT_BASE_ROWS;
   const promptCap = Math.max(
     PROMPT_BASE_ROWS,
@@ -126,9 +123,8 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
   const heights: MutableHeights = {
     progress: clamp(progressRows, 0, ZONE_REGISTRY.progress.max),
     progress_divider: progressDivider,
-    model_bar: modelBar,
+    notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
     prompt: promptRows,
-    hint: ZONE_REGISTRY.hint.idleDefault,
     goal: vis.goal ? 1 : 0,
     task: vis.task ? 1 : 0,
     agents: vis.agents ? 1 : 0,
@@ -168,7 +164,7 @@ function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {
   }
   // closed: hard floor 12; on tiny terminals attempt what remains after min chrome
   if (terminalRows < 24) {
-    const minChrome = PROMPT_BASE_ROWS + ZONE_REGISTRY.hint.min;
+    const minChrome = PROMPT_BASE_ROWS;
     return Math.max(6, Math.min(IDLE_TRANSCRIPT_FLOOR, terminalRows - minChrome));
   }
   return IDLE_TRANSCRIPT_FLOOR;
@@ -281,9 +277,8 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     heights.settings_notice = 0;
     heights.progress = 0;
     heights.progress_divider = 0;
-    heights.model_bar = 0;
+    heights.notice = 0;
     heights.prompt = 0;
-    // The hint row survives every mode: it carries the overlay's own keys.
     const chrome = sumChrome(heights);
     heights.overlay_host = Math.max(0, terminal.rows - chrome);
     const regions = assignRects(heights, terminal);

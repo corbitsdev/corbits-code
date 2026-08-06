@@ -32,8 +32,31 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Ctrl+Y", description: "Yank last kill at cursor" },
   { keys: "Alt+Y", description: "Cycle yank to the next-older kill" },
   { keys: "Ctrl+P", description: "Attach an image from the clipboard to the next message" },
+  { keys: "?", description: "With the transcript focused, open this shortcut list" },
   { keys: "@", description: "Open file suggestions for the @mention being typed" },
   { keys: "/", description: "At an empty prompt, open the command list (Tab completes, Enter runs)" },
   { keys: "Up / Down", description: "Recall previously sent messages at the prompt edge" },
   { keys: "Arrow keys", description: "Move cursor left / right / up / down in prompt" },
 ] as const
+
+/**
+ * Palette entry id (residual action id or registry command name) → the chord
+ * that reaches the same surface without the palette.
+ */
+const PALETTE_CHORDS: Readonly<Record<string, string>> = {
+  help: "?",
+  mentions: "@",
+  copy_active: "Alt+C",
+  "paste-image": "Ctrl+P",
+}
+
+/**
+ * Chord to advertise for a palette row, or undefined when the entry has none.
+ * Resolved against SHELL_SHORTCUTS so the palette can never print a binding the
+ * shell does not actually implement.
+ */
+export function shortcutForPaletteId(id: string): string | undefined {
+  const keys = PALETTE_CHORDS[id]
+  if (keys === undefined) return undefined
+  return SHELL_SHORTCUTS.some((s) => s.keys === keys) ? keys : undefined
+}

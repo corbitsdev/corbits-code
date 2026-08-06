@@ -1740,7 +1740,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // are registered first. Ctrl+C stays with the shell (interrupt the run);
   // OpenTUI owns the alternate screen and mouse reporting itself.
   const host = await mountRunnerHost({
-    title: runTaskTitle.length > 0 ? runTaskTitle : "Untitled session",
+    // An unnamed session shows nothing rather than a placeholder.
+    title: runTaskTitle,
+    cwd: process.cwd(),
     eventEmitter: emitter,
     send: createSubmitHandler({
       dispatchCommand: (name, args) => dispatchCommand(name, args),
