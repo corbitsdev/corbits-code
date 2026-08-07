@@ -25,7 +25,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userResult("c1"),      // index 4 -> recent window head
       userText("c"), userText("d"), userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
   });
@@ -38,7 +38,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("a"), userText("b"), userText("c"), userText("d"),
       userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
   });
@@ -55,7 +55,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       editResult,
       userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
       t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),
@@ -77,7 +77,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("a"), userText("b"), userText("c"), userText("d"),
       userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     const kept = output.find((t) =>
       t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),

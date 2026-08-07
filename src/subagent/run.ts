@@ -491,7 +491,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       "pruning-compactor": createPruningCompactor({
         keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
         summaryMaxChars: 2500,
-        stripResultContent: true,
         // A structured model summary keeps sub-agent context useful across a
         // compaction; the deterministic stub remains the fallback on failure.
         ...(subagentSource !== undefined

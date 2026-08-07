@@ -255,8 +255,6 @@ export function createSessionPruningCompactor(
   return createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    ...(args.compactionMode !== "pruning"
-      ? { summarize: args.summarize }
-      : { stripResultContent: true }),
+    ...(args.compactionMode !== "pruning" ? { summarize: args.summarize } : {}),
   });
 }
