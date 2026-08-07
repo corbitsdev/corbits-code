@@ -1,6 +1,6 @@
 /**
- * Frame-level checks for the command palette's three-column rows: the category
- * prefix, the right-aligned chord, and how they degrade at narrow widths.
+ * Frame-level checks for the command palette's rows: the label, the
+ * right-aligned chord, and how the chord degrades at narrow widths.
  */
 import { describe, expect, test } from "bun:test"
 
@@ -39,33 +39,31 @@ function rowFor(rows: readonly string[], label: string): string | undefined {
 }
 
 describe("command palette rows", () => {
-  test("titles the box with a broken rule and shows the filter prompt", async () => {
+  test("shows the filter prompt with no title rule above it", async () => {
     const rows = await paletteFrame(100)
-    expect(rows.some((r) => r.startsWith("─ command palette ─"))).toBe(true)
+    expect(rows.some((r) => r.startsWith("─ command palette ─"))).toBe(false)
     expect(rows.some((r) => r.trim() === ">")).toBe(true)
   })
 
-  test("paints the category prefix and right-aligned chord at 100 columns", async () => {
+  test("has no leading selection marker or kind column", async () => {
     const rows = await paletteFrame(100)
     const help = rowFor(rows, "Show keymap help")
     expect(help).toBeDefined()
-    expect(help).toMatch(/^\s+[> ] view\s+Show keymap help\s+\?$/)
+    expect(help).toMatch(/^\s*Show keymap help\s+\?$/)
+    expect(help).not.toContain(">")
+    expect(help).not.toContain("view")
+  })
 
+  test("keeps the right-aligned chord at 100 columns", async () => {
+    const rows = await paletteFrame(100)
     const copy = rowFor(rows, "Copy active message / tool")
     expect(copy?.endsWith("Alt+C")).toBe(true)
   })
 
-  test("keeps both side columns at 60 columns", async () => {
-    const rows = await paletteFrame(60)
+  test("drops the chord at a narrow width, and the label always survives", async () => {
+    const rows = await paletteFrame(36)
     const help = rowFor(rows, "Show keymap help")
-    expect(help).toContain("view")
-    expect(help?.endsWith("?")).toBe(true)
-  })
-
-  test("drops the chord first at 48 columns, keeping the category", async () => {
-    const rows = await paletteFrame(48)
-    const help = rowFor(rows, "Show keymap help")
-    expect(help).toContain("view")
+    expect(help).toBeDefined()
     expect(help?.endsWith("?")).toBe(false)
 
     const copy = rowFor(rows, "Copy active")

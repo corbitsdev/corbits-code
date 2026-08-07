@@ -1071,10 +1071,20 @@ function overlayAnswerRows(shell: AppShell): number {
   return overlayAnswerState(shell) === null ? 0 : 1
 }
 
+/**
+ * Every other list overlay spends a row on a title rule (`─ permission ─...`);
+ * the palette drops it — the box already reads as the palette, and the filter
+ * row underneath says what's typed, so the rule was a second header for the
+ * same fact.
+ */
+function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
+  return kind === "palette" ? 0 : 1
+}
+
 function overlayChromeRows(shell: AppShell, bodyLineCount: number): number {
   return (
     OVERLAY_HOST_BORDER_ROWS +
-    1 +
+    overlayTitleRows(shell.overlayKind) +
     bodyLineCount +
     overlayZoneRows(shell) +
     overlayAnswerRows(shell)
@@ -1238,6 +1248,7 @@ function overlayHints(shell: AppShell): readonly string[] {
 function refreshOverlayTitle(shell: AppShell): void {
   const bag = internals.get(shell)
   if (!bag) return
+  shell.overlayTitle.visible = true
   shell.overlayTitle.content = overlayTitleLine(
     bag.overlayTitleText,
     overlayInteriorWidth(shell),
@@ -3346,10 +3357,10 @@ function repaintPalette(shell: AppShell): void {
     body: `> ${state.query}`,
     frameId: "command-palette",
   })
-  shell.overlayTitle.content = paletteTitleLine(
-    state.title,
-    overlayInteriorWidth(shell),
-  )
+  // No title rule row: the box is only ever the palette, and the filter row
+  // underneath already shows what's typed — a second header said nothing new.
+  shell.overlayTitle.visible = false
+  shell.overlayTitle.content = ""
   paintOverlayList(shell)
 }
 
@@ -3471,17 +3482,6 @@ export function handleOverlayAnswerKey(
 }
 
 /**
- * Palette title as a rule broken by the title, left-ish. The overlay host's own
- * border is asserted elsewhere to be unbroken box-drawing, so the titled rule is
- * a row inside the box rather than text written into the border itself.
- */
-function paletteTitleLine(title: string, interior: number): string {
-  const head = `─ ${title} `
-  if (head.length >= interior) return head.slice(0, Math.max(0, interior))
-  return head + "─".repeat(interior - head.length)
-}
-
-/**
  * Which open surface a chord toggles shut, or null when the chord is not a
  * toggling opener.
  *
@@ -3582,6 +3582,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.overlayBodyFgs = prior.bodyFgs
     shell.overlayList = prior.list
     shell.paletteCommands = prior.paletteCommands
+    shell.overlayTitle.visible = true
     shell.overlayTitle.content = prior.title
     bag.overlayItemIds = prior.itemIds
     bag.overlayItemValues = prior.itemValues

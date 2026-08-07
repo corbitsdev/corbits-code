@@ -47,7 +47,10 @@ describe("Wave 6: command palette", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toMatch(/palette/i)
+          // The palette drops its title rule row, so identify it on screen by
+          // its filter prompt and first row rather than the word "palette".
+          expect(frame).toMatch(/│\s*>\s*│/)
+          expect(frame).toContain("Open permissions")
           // List labels live in overlayItems (frame may clip first row under tight height).
           expect(shell.overlayItems[0]).toBe("Open permissions")
           expect(shell.overlayItems.some((l) => l.includes("permissions"))).toBe(
