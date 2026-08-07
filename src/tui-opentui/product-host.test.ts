@@ -13,7 +13,7 @@ import {
   permissionChoices,
   type ProductHostConfig,
 } from "./product-host.js"
-import { buildModelsFirstCatalog } from "./model-catalog.js"
+import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js"
 
 function makeFakeSessionPort(): {
   readonly sends: string[]
@@ -383,6 +383,7 @@ describe("provider-first model picker", () => {
       interrupt: port.interrupt,
       createRenderer: async () => harness.renderer,
       models: catalog,
+      activeModelId: () => modelOptionId("xai/thegreataxios", "grok-4.5"),
       onModelSelect: () => {},
     })
     try {
@@ -390,6 +391,46 @@ describe("provider-first model picker", () => {
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
       expect(frame).toContain("xai/thegreataxios / grok-4.5 (current)")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("stale recents pointing at a different model do not steal the (current) marker", async () => {
+    // Recents still name the model a *previous* session last switched to;
+    // this session has run codex/abk-labs / gpt-5.5 all along without ever
+    // touching the picker. The live model, not the recents list, decides
+    // which row reads "(current)".
+    const harness = await createHarness({ width: 80, height: 24 })
+    const port = makeFakeSessionPort()
+    const catalog = buildModelsFirstCatalog({
+      providers,
+      recent: [{ provider: "xai/thegreataxios", model: "grok-4.5" }],
+    })
+    const host = await mountProductHost({
+      title: "test-session",
+      eventEmitter: new EventEmitter(),
+      send: port.send,
+      interrupt: port.interrupt,
+      createRenderer: async () => harness.renderer,
+      models: catalog,
+      activeModelId: () => modelOptionId("codex/abk-labs", "gpt-5.5"),
+      onModelSelect: () => {},
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      const frame = harness.captureCharFrame()
+      expect(frame).not.toContain("xai/thegreataxios / grok-4.5 (current)")
+      const items = host.shell.overlayItems
+      const codexIndex = items.findIndex((label) => label.includes("codex/abk-labs"))
+      expect(codexIndex).toBeGreaterThanOrEqual(0)
+      moveOverlaySelection(host.shell, codexIndex)
+      acceptOverlaySelection(host.shell)
+      await harness.renderOnce()
+      const modelFrame = harness.captureCharFrame()
+      expect(modelFrame).toContain("gpt-5.5 (current)")
     } finally {
       host.dispose()
       harness.destroy()
