@@ -19,6 +19,93 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
+## [0.2.91] - 2026-08-07
+
+A bug-fix release on the OpenTUI cutover. Most of these faults had no visible
+symptom: sessions that hung with no way out, memory that grew without bound,
+and session state that quietly corrupted itself.
+
+**One behaviour reverses from 0.2.90.** That release gave the mouse to your
+terminal so drag-select and copy worked normally. Scrolling then landed in the
+prompt instead of the chat, because a terminal with mouse reporting off
+translates a wheel tick into arrow-key bytes indistinguishable from a real
+keypress — and arrows drive prompt history. The main session shell now takes
+the mouse: the wheel scrolls the transcript, arrows still cycle prompt history,
+and click-to-expand on tool rows and drag-to-scroll work without pressing
+Alt+M first. The cost is native drag-select in the transcript; Alt+M hands the
+mouse back when you want to select text, and Alt+C copies a message, tool
+output or diff without the mouse at all. The onboarding and session pickers
+keep native selection either way.
+
+### Fixed
+
+**Sessions could hang with no way out.**
+
+- Pressing Esc on a permission or operator prompt abandoned the request the
+  agent was waiting on. The session hung permanently and Ctrl+C did not
+  recover it — the interrupt path never reached that promise. Dismissing now
+  resolves it as a denial. (CL-5569)
+- Goal-mode auto-deny and the tool-watchdog abort were both inert. The
+  producer sent a timeout and an abort signal; a locally redeclared event type
+  in the renderer silently dropped both, so an unattended run could park on a
+  permission prompt forever. (CL-5568)
+- A permission or operator prompt raised before any transcript row existed
+  rendered its title and footer but clipped its choices, because the layout
+  asked for room for exactly one option regardless of how many there were.
+  (CL-5560)
+- Messages typed while the agent was working were queued and never sent. The
+  drain waited on a signal that fires once at shutdown rather than at each
+  turn boundary. (CL-5563)
+- A detached throw left the process alive with the event loop held open. Real
+  `uncaughtException` and `unhandledRejection` handlers now write a crash
+  report and exit non-zero. (CL-5565)
+
+**Memory and state grew or drifted without bound.**
+
+- Transcript rows were retained for the life of the process; a 600-row cap was
+  lost during the cutover and never restored. (CL-5551)
+- History past 500 rows could not be reached by scrolling, and every appended
+  row rebuilt the whole painted window. (CL-5553)
+- Concurrent writes to a session's `run.json` are serialized per session, so a
+  late progress snapshot can no longer resurrect a finished run as `running`.
+  (CL-5567)
+- Resuming a session reset `turnsUsed` to zero and dropped its connected MCP
+  servers. (CL-5566)
+- Quitting during an @-mention lookup or a clipboard read could write into
+  freed renderer memory. (CL-5554)
+
+**The context meter lied, and compaction could not act.**
+
+- The meter read only provider-reported usage with no fallback, so a provider
+  that omitted usage left it frozen while real occupancy climbed. It now falls
+  back to a local estimate and marks the number as approximate. (CL-5564)
+- The meter and the compaction governor computed context size from different
+  fields, so they could disagree by the full size of the prompt cache.
+- The system prompt and tool schemas are counted, having previously been
+  omitted from the estimate entirely.
+- Compaction armed at a turn count where the compactor was guaranteed to do
+  nothing, then re-armed, spinning without progress. Both now derive their
+  floor from one definition.
+
+**Input and rendering.**
+
+- Pasting several lines into a terminal that does not negotiate bracketed
+  paste sent each line as a separate message. (CL-5541)
+- Markdown headings no longer flicker while the text below them streams.
+  (CL-5559)
+- Parallel `task` dispatches paired results to calls by tool name, so three
+  concurrent sub-agents could resolve the wrong rows and append orphans. They
+  are keyed by call id. (CL-5562)
+- The onboarding and session pickers no longer turn on mouse reporting, so
+  drag-select works there. (CL-5540)
+
+### Changed
+
+- The sub-agent concurrency cap is removed. Sub-agents run unbounded, and the
+  `maxConcurrentSubAgents` setting no longer exists — an existing settings
+  file containing it still loads. Setting it to `0` previously disabled
+  sub-agents entirely; that capability is gone with it. (CL-5575)
+
 ## [0.2.90] - 2026-08-07
 
 The interactive TUI is now OpenTUI. The Ink renderer is deleted, not
