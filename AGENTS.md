@@ -55,7 +55,7 @@ Follow the `style` skill's message format: plain-English summary, no `feat:`/`fi
 
 ## Pushing
 
-**Never mutate global git config**, for any reason — not `git config --global`, not toggling `url.*.insteadOf`, not even temporarily with a plan to restore it. Global config is shared-mutable state across every agent and every repo on the machine; a crash or a second agent running concurrently turns a "temporary" toggle into a lasting outage or collision. This is the same hazard class as running `git stash` (also global, also banned).
+**Never mutate git configuration outside the current repository**, for any reason and not even temporarily with a plan to restore it — whatever the command (`--global`, `--system`, `--edit`, `--file` pointed at a path outside the repo, reassigning or unsetting `GIT_CONFIG_GLOBAL`, or writing `~/.gitconfig` directly). That state is shared by every agent and every repo on the machine; a crash or a second agent running concurrently turns a "temporary" toggle into a lasting outage or collision. This is the same hazard class as running `git stash` (also global, also banned). Auto mode enforces this at the shell-policy layer (`git-global-config` in `src/permission/auto-shell-policy.ts`), which routes any such command to an operator ask instead of running it unattended — this instruction is the fallback for the cases the policy can't see, not the only line of defense.
 
 If SSH push fails because the shell can't reach the ssh-agent socket, use `bin/git-push-scoped` instead of touching config:
 

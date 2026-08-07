@@ -143,6 +143,24 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       inCmd(String.raw`gcloud\s+auth\s+print-access-token\b`),
     ],
   },
+  {
+    name: "git-global-config",
+    effect: "ask",
+    reason:
+      "This command mutates git configuration outside the current repository (--global, --system, an arbitrary --file, or GIT_CONFIG_GLOBAL). That state outlives this call and is shared by every other repo and agent on the machine, so it needs explicit operator approval and never runs unattended in auto mode. Use bin/git-push-scoped for an HTTPS push instead of rewriting global config.",
+    patterns: [
+      // --global / --system write or read the machine-wide config files;
+      // --edit opens one in $EDITOR, which can write anything.
+      inCmd(String.raw`git\s+config\s+(?:--global|--system|--edit)\b`),
+      // --file points config at an arbitrary path, including ~/.gitconfig —
+      // ask rather than try to distinguish a repo-local target from that.
+      inCmd(String.raw`git\s+config\s+--file\b`),
+      // Unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig, the
+      // same as never having scoped it. (Reassigning it to a new path is
+      // already caught by the env-assignment rule above.)
+      inCmd(String.raw`unset\s+GIT_CONFIG_GLOBAL\b`),
+    ],
+  },
 ];
 
 export function matchAutoShellRule(command: string): AutoShellRule | undefined {

@@ -206,6 +206,56 @@ describe("credential-print shell commands force ask in auto mode", () => {
   });
 });
 
+describe("git config mutation outside the repo forces ask in auto mode", () => {
+  test("--global write or read", () => {
+    expect(autoShellRuleForCall(shellCall("git config --global user.name foo"))?.name).toBe(
+      "git-global-config",
+    );
+    expect(autoShellRuleForCall(shellCall("git config --global --get-regexp url."))?.name).toBe(
+      "git-global-config",
+    );
+  });
+
+  test("--system", () => {
+    expect(autoShellRuleForCall(shellCall("git config --system user.name foo"))?.name).toBe(
+      "git-global-config",
+    );
+  });
+
+  test("--edit opens an editor on a config file, which can write anything", () => {
+    expect(autoShellRuleForCall(shellCall("git config --global --edit"))?.name).toBe("git-global-config");
+    expect(autoShellRuleForCall(shellCall("git config --edit"))?.name).toBe("git-global-config");
+  });
+
+  test("--file to a path outside the workspace asks (via the outside-workspace rule)", () => {
+    expect(autoShellRuleForCall(shellCall("git config --file ~/.gitconfig user.name foo"))?.effect).toBe(
+      "ask",
+    );
+  });
+
+  test("--file to a workspace-relative path still asks on its own", () => {
+    expect(
+      autoShellRuleForCall(shellCall("git config --file scratch.gitconfig user.name foo"))?.name,
+    ).toBe("git-global-config");
+  });
+
+  test("unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig", () => {
+    expect(autoShellRuleForCall(shellCall("unset GIT_CONFIG_GLOBAL"))?.name).toBe("git-global-config");
+  });
+
+  test("reassigning GIT_CONFIG_GLOBAL is caught by the general env-assignment rule", () => {
+    expect(
+      autoShellRuleForCall(shellCall("GIT_CONFIG_GLOBAL=/tmp/x git config --global foo bar"))?.name,
+    ).toBe("env-assignment");
+  });
+
+  test("does not flag a plain repo-local config read or write", () => {
+    expect(autoShellRuleForCall(shellCall("git config user.name"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("git config user.email me@example.com"))).toBeUndefined();
+    expect(autoShellRuleForCall(shellCall("git config --local user.name foo"))).toBeUndefined();
+  });
+});
+
 describe("sensitive-path shell commands require approval, not a hard deny", () => {
   test("secret-guard no longer hard-denies shell references to secret files", async () => {
     const middleware = secretGuardPlugin().middleware;
