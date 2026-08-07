@@ -97,7 +97,9 @@ import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
   createActivatedToolTracker,
+  type ToolAvailability,
 } from "../agent/tool-search.js";
+import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
@@ -978,7 +980,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
   }
-  const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
+  // Loaded once, here, so both the wire tools array and the goal governor's
+  // restore (below) agree on the same snapshot — the file is only ever
+  // written for an active/paused/budget-limited goal, so non-null means the
+  // session starts with one.
+  const persistedGoalAtLaunch = await loadGoalState(config.cwd, sessionId);
+  const toolAvailability: ToolAvailability = {
+    hasGoalAtLaunch: persistedGoalAtLaunch !== null,
+    languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+  };
+  const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode, toolAvailability);
   // The workflow controller is built below, after the toolset; the holder lets
   // advance_workflow's handler read live workflow-active state without a
   // construction-order cycle.
@@ -1004,6 +1015,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         emitter.emit("operator.gate", event);
       }),
     sessionMode: liveSessionMode,
+    toolAvailability,
     ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
     mcpServersSource: config.mcpServersSource ?? "none",
     projectTrust,
@@ -1051,6 +1063,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ? { systemPromptExtensions: config.systemPromptExtensions }
       : {}),
     sessionMode: liveSessionMode,
+    toolAvailability,
   });
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
@@ -1250,11 +1263,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   goalGovernorRef.current = goalGovernor;
 
   // Resume restores condition as paused so autonomy is never silently re-armed.
-  {
-    const persistedGoal = await loadGoalState(config.cwd, sessionId);
-    if (persistedGoal !== null) {
-      goalGovernor.restore(persistedGoal);
-    }
+  if (persistedGoalAtLaunch !== null) {
+    goalGovernor.restore(persistedGoalAtLaunch);
   }
 
   // Compaction summarizer: produces a structured, workflow-aware handoff via a

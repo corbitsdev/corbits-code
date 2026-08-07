@@ -10,6 +10,11 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 // registered and dispatchable but discovered on demand via tool_search, keeping
 // the per-turn context small. Shared by the system prompt and the advertised-set
 // gate so the two never drift.
+//
+// `present` is deliberately absent: most sessions never render a view, and at
+// 2,793 chars it is the second-largest schema on the wire. It stays fully
+// dispatchable — the model finds it via tool_search when a session actually
+// needs it.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
   "edit_file",
@@ -18,7 +23,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "ask_operator",
   "manage_tasks",
   "manage_goal",
-  "present",
   "tool_search",
   "use_skill",
   "search_agents",
@@ -29,17 +33,44 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "task",
 ];
 
-const MULTI_AGENT_CORE_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
+const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
 
-export function coreToolNamesForSessionMode(mode: SessionMode): readonly string[] {
-  if (!sessionModeEnablesSubAgents(mode)) {
-    return CORE_TOOL_NAMES.filter((name) => !MULTI_AGENT_CORE_TOOL_NAMES.includes(name));
-  }
-  return CORE_TOOL_NAMES;
+// Session-start facts that gate a core tool's advertisement. Each must be
+// knowable once, before the first inference call, and must never change for
+// the life of the session — the tools array is a provider cache prefix (see
+// ADVERTISED_TOOL_NAMES below), so a value that could flip mid-session (e.g.
+// "is a goal active right now") would force a re-prefill worse than the
+// schema bytes it saves. `manage_tasks` is intentionally NOT gated here: the
+// goal-kickoff sequence (see goalKickoffUserMessage in ./goal.ts) instructs
+// the model to call manage_goal then manage_tasks back to back, so hiding
+// manage_tasks would trade one tool_search round trip for two.
+export type ToolAvailability = {
+  // Whether the session was resumed with an active/paused/budget-limited goal
+  // already persisted — not whether one exists at the current instant.
+  hasGoalAtLaunch: boolean;
+  // Whether a language server was resolvable for this project at startup —
+  // not whether one currently responds.
+  languageServerAvailable: boolean;
+};
+
+export function coreToolNamesForSessionMode(
+  mode: SessionMode,
+  availability: ToolAvailability,
+): readonly string[] {
+  const orchestratorEnabled = sessionModeEnablesSubAgents(mode);
+  return CORE_TOOL_NAMES.filter((name) => {
+    if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name)) return false;
+    if (name === "manage_goal") return availability.hasGoalAtLaunch;
+    if (name === "lsp") return availability.languageServerAvailable;
+    return true;
+  });
 }
 
-export function advertisedToolNamesForSessionMode(mode: SessionMode): readonly string[] {
-  return [...coreToolNamesForSessionMode(mode), ...CATALOG_TOOL_NAMES];
+export function advertisedToolNamesForSessionMode(
+  mode: SessionMode,
+  availability: ToolAvailability,
+): readonly string[] {
+  return [...coreToolNamesForSessionMode(mode, availability), ...CATALOG_TOOL_NAMES];
 }
 
 // Built-in file/search tools advertised alongside the core set. They carry full
@@ -52,13 +83,16 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
   "list_dir",
 ];
 
-// The complete set of built-in tools whose schemas are always on the wire, in a
-// deterministic order. Provider prompt caches are prefix caches keyed on the
-// tools array (it sits before system + messages), so this order must never shift
-// between turns — a reordered or grown array re-prefills the whole request.
+// The maximal set of built-in tools — every gate open — in a deterministic
+// order, used as the tool_search exclusion list and as a fallback prefix for
+// callers with no session-start availability facts. Provider prompt caches
+// are prefix caches keyed on the tools array (it sits before system +
+// messages), so this order must never shift between turns — a reordered or
+// grown array re-prefills the whole request.
 //
-// Primary TUI sessions should pass `advertisedToolNamesForSessionMode(sessionMode)`
-// as the `builtInPrefix` to `advertisedTools` — not this constant alone.
+// Primary TUI/exec sessions should pass
+// `advertisedToolNamesForSessionMode(sessionMode, toolAvailability)` as the
+// `builtInPrefix` to `advertisedTools` — not this constant alone.
 export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,

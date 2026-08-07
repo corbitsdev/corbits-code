@@ -37,7 +37,9 @@ import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
   createActivatedToolTracker,
+  type ToolAvailability,
 } from "../agent/tool-search.js";
+import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
@@ -304,6 +306,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const subAgentSessions = createSubAgentSessionStore();
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
+    // Exec has no goal governor (headless — no /goal), so a goal never starts
+    // at launch here. lsp is still worth detecting: exec sessions read/edit
+    // TypeScript projects same as the TUI.
+    const toolAvailability: ToolAvailability = {
+      hasGoalAtLaunch: false,
+      languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+    };
 
     let currentAgent: Agent | null = null;
 
@@ -324,6 +333,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isWorkflowActive: () => false,
       onOperatorGate: (question, options) => promptOperator(question, options, interactive),
       sessionMode,
+      toolAvailability,
       ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
       mcpServersSource: config.mcpServersSource ?? "none",
       projectTrust,
@@ -361,9 +371,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
         ? { systemPromptExtensions: config.systemPromptExtensions }
         : {}),
       sessionMode,
+      toolAvailability,
     });
 
-    const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode);
+    const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
     const activatedToolNames = createActivatedToolTracker();
     // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
     const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>

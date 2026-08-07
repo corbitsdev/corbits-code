@@ -33,7 +33,7 @@ import {
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { advertisedToolNamesForSessionMode } from "./tool-search.js";
+import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
@@ -109,6 +109,11 @@ export type AgentToolsetArgs = {
   isWorkflowActive?: () => boolean;
   // Primary session mode: single-agent sessions omit sub-agent tooling.
   sessionMode?: SessionMode;
+  // Session-start facts gating manage_goal/lsp advertisement. Omitted callers
+  // (tests, ad-hoc toolset construction) get both advertised, matching prior
+  // behavior. Real sessions always pass their detected values — see
+  // tool-search.ts for why these must be fixed for the session's life.
+  toolAvailability?: ToolAvailability;
   // When a goal governor is live, manage_goal mutates its acceptance checklist.
   getGoalGovernor?: () => GoalGovernor | null;
   // When provided, the agent gets a `task` tool that delegates to autonomous
@@ -176,11 +181,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     getBlobReader,
     sessionMode = "orchestrator",
     shellEnv,
+    toolAvailability = { hasGoalAtLaunch: true, languageServerAvailable: true },
   } = args;
   const sessionBlobReader =
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
-  const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode);
+  const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
 
   const inheritedMcpTools: AgentTool[] = [];
 
