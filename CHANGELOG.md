@@ -19,6 +19,98 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
+## [0.2.92] - 2026-08-07
+
+A second sweep over the OpenTUI cutover, plus a rebuilt model surface. Two of
+these faults could end a session outright, and several were behaviour that had
+been fixed once already and lost when the renderer was replaced.
+
+### Model selection
+
+The picker lists providers first and descends into models on select, with
+Escape returning to the provider level. Recents and favourites stay flat at the
+top, and each account appears as its own row.
+
+- **Model tiers are gone.** `settings.tiers`, `profile.tier`, and the
+  `task(tier=)` argument no longer exist, and `/fast`, `/standard`, and
+  `/clever` are retired rather than remapped — a tier was a per-name fallback
+  chain, which neither a favourite nor a pinned model expresses. Per-agent
+  selection continues through `profile.inference`. A settings file containing
+  `tiers` still loads; the key is dropped on save. (CL-5591)
+- **The context meter was wrong by nearly four times** for any provider with a
+  custom name. An account-qualified identity did not match the registry, so a
+  500k window read as the 128k default. Resolution now tries the identity as
+  given, the bare model id, and the canonical provider/model form, and marks a
+  figure as estimated only when it genuinely falls back. (CL-5587)
+- The current model is read from the live session rather than inferred from the
+  most recent pick, which mislabelled any session that never opened the picker.
+  (CL-5597)
+
+### Sessions could be killed outright
+
+- **Switching models poisoned the conversation permanently.** A reasoning
+  signature issued by one provider was replayed to another that could not
+  decrypt it, and every subsequent turn failed with HTTP 400. Signatures now
+  carry the provider that issued them, so two backends sharing a model name
+  cannot replay each other's. Switching accounts on the same provider still
+  preserves reasoning continuity. (CL-5592, CL-5594)
+- **A model that fell into a loop ran unbounded.** Repetition is detected by
+  character period within a streaming cycle, and by comparing cycle
+  fingerprints across tool calls, so a loop that emits a tool call each pass is
+  still caught. Ordinary narration repeated before successive tool calls is
+  not. (CL-5577)
+
+### The screen
+
+- Plugin diagnostics wrote raw to stderr and corrupted the frame. They now go
+  through the log sink, and the warnings that used to vanish with them are
+  surfaced where the operator can see them. (CL-5411)
+- The provider setup screen garbled its own text on short terminals — rows were
+  compressed into one another instead of clipping. (CL-5363)
+- The command palette matches the prompt box width, drops its marker column,
+  kind column, and title rule, and marks the selected row by colour rather than
+  a grey band. (CL-5581, CL-5582, CL-5583, CL-5584)
+- An open overlay reserves its own border, title, and content rows before any
+  other chrome is allowed to starve it. (CL-5584)
+- **`/resume` was offering sessions that did not exist.** Demo fixture data was
+  shipping in the production bundle and rendering whenever a dependency was
+  missing. A missing dependency now produces an honest empty state. (CL-5596)
+- Dialog choices read as plain English rather than internal names. (CL-5586)
+
+### Context and state
+
+- Compaction stopped hollowing out the turns it had just decided to keep. A file
+  edit inside the recent window keeps its content. (CL-5595)
+- `run.json` is finalized when the process crashes, without reading from disk on
+  the crash path. (CL-5574)
+- An `@`-mentioned file outside the workspace is inlined once rather than
+  blocked, gated by the sensitive-path list and a total byte cap. That list now
+  covers shell histories, system credential files, keychains, browser cookie and
+  login stores, and cloud credentials. (CL-5479)
+
+### Agents and the machine
+
+- **An agent could rewrite your global git configuration to push**, altering
+  every repository on the machine. That now requires operator approval, and a
+  scoped push path applies credentials per invocation with nothing written to
+  any config file. (CL-4762)
+- `present`, `manage_goal`, `manage_tasks`, and `lsp` are advertised only when
+  they apply. (CL-5588)
+- Live progress appears on a dispatched sub-agent's transcript row. (CL-5576)
+- The most recently queued message can be cancelled. (CL-5572)
+
+### Development
+
+- **The test suite only passed in one order.** Bun mutates the namespace object
+  returned by `await import()` when a module is later mocked, so the usual
+  capture-then-restore idiom silently reinstalled the mock process-wide. Under
+  randomized order the suite produced over a hundred failures; it now passes
+  across every seed tried, and CI runs a fixed seed on each change plus a
+  rotating seed nightly. (CL-5579)
+- `docs/TUI.md` states how the terminal UI is meant to look and behave —
+  overlays, selectors, the palette, the prompt box, scrolling, and key macros.
+  Nine documents describing the finished migration are retired.
+
 ## [0.2.91] - 2026-08-07
 
 A bug-fix release on the OpenTUI cutover. Most of these faults had no visible
