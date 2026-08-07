@@ -71,6 +71,37 @@ describe("image attachments", () => {
     })
   })
 
+  test("quitting mid-read does not attach into the disposed shell", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+        })
+        let resolveRead: (r: { ok: true; attachment: PendingImageAttachment }) => void =
+          () => {}
+        setPromptImageSource(
+          shell,
+          () =>
+            new Promise((resolve) => {
+              resolveRead = resolve
+            }),
+        )
+
+        const pending = attachClipboardImage(shell)
+
+        // The operator quits before the clipboard read answers.
+        shell.dispose()
+        resolveRead({ ok: true, attachment: CLIP })
+
+        expect(await pending).toBe(false)
+        expect(shell.pendingAttachments).toEqual([])
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   // Raw control bytes, not a synthetic KeyEvent: a binding that never matches
   // what the terminal actually writes looks correct in the catalog and fails
   // silently in use.

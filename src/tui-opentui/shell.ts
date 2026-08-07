@@ -863,6 +863,9 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
   const source = shellPromptImageSource.get(shell) ?? readClipboardImage
   setStatusFlash(shell, "reading clipboard image…")
   const result = await source()
+  // Quitting while the clipboard read is pending tears down the shell's
+  // renderables; a stale continuation must not mutate them on resume.
+  if (shell.disposed) return false
   if (!result.ok) {
     setStatusFlash(shell, `image attach failed: ${result.reason}`)
     return false
