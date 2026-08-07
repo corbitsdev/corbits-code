@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import { ripgrepPlugin } from "../../src/plugins/ripgrep-plugin.js";
+import type { RgChild, SpawnRg } from "../../src/plugins/rg-run.js";
 
 // Repo root derived from this file, not process.cwd(): these cases search real
 // repo paths, so they must not depend on where the runner was invoked from.
@@ -14,10 +15,22 @@ const fallback = async (): Promise<ToolResult> => ({ callId: "c", content: "FALL
 function run(
   call: ToolCall,
   limits: { timeoutMs?: number; maxOutputBytes?: number } = {},
+  spawnChild?: SpawnRg,
 ): Promise<ToolResult> {
-  const handler = ripgrepPlugin(cwd, limits).middleware!(fallback);
+  const handler = ripgrepPlugin(cwd, limits, spawnChild).middleware!(fallback);
   return handler(call, new AbortController().signal);
 }
+
+// A child that never emits data or closes, so the timeout is the only path
+// to settlement — the trigger the timeout test needs, not a race against how
+// fast a real ripgrep process happens to run.
+const stalledSpawn: SpawnRg = (): RgChild => ({
+  pid: undefined,
+  stdout: { on: () => undefined },
+  stderr: { on: () => undefined },
+  on: (() => undefined) as RgChild["on"],
+  kill: () => undefined,
+});
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "ripgrep-plugin-"));
@@ -114,6 +127,7 @@ test("grep returns partial matches when the timeout fires", async () => {
   const result = await run(
     { id: "c", name: "grep", arguments: { pattern: "e", path: "src" } },
     { timeoutMs: 1 },
+    stalledSpawn,
   );
   expect(result.isError).toBeUndefined();
   expect(result.content).toContain("timed out");

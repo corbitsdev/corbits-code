@@ -8,7 +8,7 @@ import {
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
 import { createRgCollector } from "./rg-output.js";
-import { MAX_OUTPUT_BYTES, runRg, type RgLimits } from "./rg-run.js";
+import { MAX_OUTPUT_BYTES, runRg, type RgLimits, type SpawnRg } from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -66,7 +66,7 @@ function searchLocation(path: string, fallbackCwd: string): { cwd: string; targe
   }
 }
 
-export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
+export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: SpawnRg): ToolPlugin {
   const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   return {
     middleware: (next) => async (call, signal) => {
@@ -86,7 +86,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
         if (glob !== undefined) rgArgs.push("-g", glob);
         rgArgs.push("--regexp", pattern, target);
 
-        const result = await runRg(rgArgs, rgCwd, signal, limits);
+        const result = await runRg(rgArgs, rgCwd, signal, limits, spawnChild);
         if (result.kind === "unavailable") {
           try {
             const boundedArgs: BoundedGrepArgs = {
