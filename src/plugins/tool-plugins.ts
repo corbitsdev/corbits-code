@@ -5,6 +5,7 @@ import type { PluginCredentialField } from "./manifest.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
 import {
   resolvePluginWarningHandler,
+  stderrPluginWarning,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 
@@ -52,7 +53,9 @@ export async function resolveToolPlugins(args: {
   diagnostics?: PluginLoadDiagnostics;
 }): Promise<ToolPlugin[]> {
   const onWarning = resolvePluginWarningHandler(
-    args.diagnostics === undefined ? {} : { diagnostics: args.diagnostics },
+    args.diagnostics !== undefined
+      ? { diagnostics: args.diagnostics }
+      : { onWarning: stderrPluginWarning },
   );
   const out: ToolPlugin[] = [];
   for (const cand of args.candidates) {

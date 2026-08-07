@@ -247,3 +247,32 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     expect(writes).toBe(0);
   });
 });
+
+// The interactive paths above always hand `resolveToolPlugins` a diagnostics
+// collector. Headless/standalone callers (exec's tool-plugin resolution,
+// direct unit tests) may supply neither `diagnostics` nor `onWarning` —
+// `resolveToolPlugins` still resolves that case, but now via its own
+// explicit stderr fallback rather than delegating to
+// `resolvePluginWarningHandler`'s old default. This pins that the fallback
+// still fires exactly once per warning (not silently dropped) when no
+// collector is in play, matching a genuinely headless call site.
+describe("resolveToolPlugins without a diagnostics collector", () => {
+  test("falls back to one explicit stderr write per failure", async () => {
+    const candidate: ToolPluginCandidate = {
+      id: "throws",
+      name: "Throws",
+      credentials: [],
+      factory: () => {
+        throw new Error("boom");
+      },
+    };
+    const { result: tools, writes } = await withStderrCapture(async () =>
+      resolveToolPlugins({
+        candidates: [candidate],
+        pluginConfig: { throws: { enabled: true, consented: true } },
+      }),
+    );
+    expect(tools).toEqual([]);
+    expect(writes).toBe(1);
+  });
+});

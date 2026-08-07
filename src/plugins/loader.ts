@@ -10,6 +10,7 @@ import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
   resolvePluginWarningHandler,
+  stderrPluginWarning,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 import {
@@ -116,9 +117,15 @@ export async function loadPluginEntry(
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer diagnostics collector when provided so batch discovery can summarize;
-  // explicit onWarning is for tests / one-off sinks; default is stderr per line.
-  const onWarning = resolvePluginWarningHandler(opts);
+  // Prefer diagnostics collector so batch discovery can summarize; explicit
+  // onWarning for tests; else stderrPluginWarning.
+  const onWarning = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : opts.onWarning !== undefined
+        ? { onWarning: opts.onWarning }
+        : { onWarning: stderrPluginWarning },
+  );
   const origin = opts.origin;
   let target = entryPath;
   let pluginDir = entryPath;
@@ -657,12 +664,12 @@ export async function discoverClaudeInstalledPlugins(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Prefer collector when present; else one stderr line (default sink).
+    // Prefer collector when present; else stderrPluginWarning.
     resolvePluginWarningHandler(
-      opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
-    )(
-      `failed to parse ${registryPath}`,
-    );
+      opts.diagnostics !== undefined
+        ? { diagnostics: opts.diagnostics }
+        : { onWarning: stderrPluginWarning },
+    )(`failed to parse ${registryPath}`);
     return [];
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -674,10 +681,12 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
-  // Default expand-skip sink respects diagnostics when provided so discovery
-  // can emit one summary; explicit onExpandSkip (tests) still wins.
+  // Default expand-skip sink: diagnostics when provided, else
+  // stderrPluginWarning; explicit onExpandSkip (tests) still wins.
   const warnExpand = resolvePluginWarningHandler(
-    opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : { onWarning: stderrPluginWarning },
   );
   const onExpandSkip =
     opts.onExpandSkip

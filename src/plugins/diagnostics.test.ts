@@ -97,13 +97,10 @@ describe("plugin load diagnostics wiring", () => {
       "agents/a.md": "---\nskills: [nope, also-missing]\n---\nbody\n",
     });
     const diag = createPluginLoadDiagnostics();
-    const stderrLines: string[] = [];
-    const sink = pluginWarningSink(diag, (msg) => stderrLines.push(msg));
+    const sink = pluginWarningSink(diag);
 
-    // Sink itself must not hit fallback when diag is set.
     sink("should only land in diag");
     expect(diag.warnings).toEqual(["should only land in diag"]);
-    expect(stderrLines).toEqual([]);
 
     diag.warnings.length = 0;
     const mod = await loadPluginEntry(dir, {
