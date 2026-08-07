@@ -285,19 +285,36 @@ export function turnStateFromEvent(
         ),
       }
 
+    /**
+     * A cycle with no active tool calls left is also a turn's real
+     * terminator: `connector.reply` (below) is the usual signal, but a
+     * workflow/goal-governor cycle that keeps self-continuing may never
+     * emit one, and `reactor.done` fires once at shutdown, never between
+     * turns. Without settling here, the phase line stays hot ("working")
+     * forever once nothing more arrives. A cycle that just requested tools
+     * only ends here, not the turn — those calls are already reflected in
+     * `activeToolCalls` (streamed before `inference.done`).
+     */
     case "inference.done":
+      if (state.activeToolCalls.length > 0) {
+        return {
+          ...state,
+          awaitingResponse: false,
+          streamingType: null,
+          lastActivityAt: nowMs,
+        }
+      }
       return {
-        ...state,
-        awaitingResponse: false,
-        streamingType: null,
-        lastActivityAt: nowMs,
+        ...initialTurnState(nowMs),
+        status: "done",
+        quota: state.quota,
       }
 
     /**
-     * The turn's real terminator. `agent.send()` resolves on connector.reply,
-     * and a chat session emits no `reactor.done` until it closes — so without
-     * this the phase line would stay hot for the rest of the session. A reply
-     * with tools still outstanding only ends the cycle, not the turn.
+     * The other turn terminator: `agent.send()` resolves on connector.reply,
+     * and for the ordinary case above `inference.done` already settled the
+     * turn a beat earlier, so this is a harmless idempotent re-settle. A
+     * reply with tools still outstanding only ends the cycle, not the turn.
      */
     case "connector.reply":
       if (state.activeToolCalls.length > 0) {

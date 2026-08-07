@@ -32,6 +32,7 @@ import { stringWidth } from "../tui/view/height.js"
 import { listPathSuggestions } from "../tui/components/at-mention/list.js"
 import { parseAtState } from "../tui/components/at-mention/parse.js"
 import {
+  formatAttachmentSummary,
   readClipboardImage,
   type ClipboardImageResult,
   type PendingImageAttachment,
@@ -2761,6 +2762,16 @@ export function setShellRunState(shell: AppShell, run: RunState): void {
   paintChrome(shell)
 }
 
+/** Transcript echo for a user message, annotated with its attachments. */
+export function userRowText(
+  text: string,
+  attachments: readonly PendingImageAttachment[],
+): string {
+  const summary = formatAttachmentSummary(attachments)
+  if (summary.length === 0) return text
+  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`
+}
+
 /** Submit prompt as queue (busy) or immediate user send (idle). */
 export function submitPrompt(
   shell: AppShell,
@@ -2801,14 +2812,18 @@ export function submitPrompt(
   }
 
   shell.session =
-    kind === "steer" ? enqueueSteer(shell.session, t) : enqueue(shell.session, t)
+    kind === "steer"
+      ? enqueueSteer(shell.session, t, undefined, attachments)
+      : enqueue(shell.session, t, "queue", undefined, attachments)
   shell.prompt.value = ""
   clearPendingAttachments(shell)
-  const tag = kind === "steer" ? "steer" : "queue"
+  // Show the message itself, not the internal transition ("queue +1 →
+  // pending N") — the notice row already carries the depth once, in plain
+  // language, so this row's job is making the pending item identifiable.
   appendStreamRow(shell, {
-    role: "system",
-    text: `${tag} +1 → pending ${badgeCount(shell.session)}`,
-    meta: "queue",
+    role: "user",
+    text: userRowText(t, attachments),
+    meta: kind === "steer" ? "steer" : "queue",
   })
   paintChrome(shell)
 }
