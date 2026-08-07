@@ -267,6 +267,27 @@ function defaultExpandSkip(skip: ExpandPluginPathSkip): void {
   );
 }
 
+function formatExpandSkip(skip: ExpandPluginPathSkip): string {
+  const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
+  return `marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})${where}`;
+}
+
+/**
+ * Build an `onSkip` handler that collects into `diagnostics` instead of
+ * `expandPluginPath`'s raw-stderr default. Every discovery path that already
+ * threads a diagnostics collector through must pass this, or a skipped
+ * marketplace member bypasses the collector entirely — not merely misrouted,
+ * dropped, since nothing else observes `defaultExpandSkip`'s stderr write.
+ * Returns undefined (falls back to the default) when no collector is given,
+ * e.g. a direct caller with no batching in play.
+ */
+export function expandSkipDiagnosticsHandler(
+  diagnostics?: PluginLoadDiagnostics,
+): ((skip: ExpandPluginPathSkip) => void) | undefined {
+  if (diagnostics === undefined) return undefined;
+  return (skip) => diagnostics.warnings.push(formatExpandSkip(skip));
+}
+
 /**
  * Containment check with symlink safety. Lexical reject first; when both the
  * candidate and the contain root exist, realpath both and re-check so a symlink
@@ -456,8 +477,11 @@ async function scanPluginsDir(
 
   const results: PluginModule[] = [];
   for (const entry of entries) {
-    // Each entry may itself be a marketplace, so expand before loading.
-    const dirs = await expandPluginPath(join(dir, entry));
+    // Each entry may itself be a marketplace, so expand before loading. A
+    // skipped member routes into `diagnostics` when the caller has one, same
+    // as loadPluginEntry below — otherwise it would bypass the collector.
+    const onSkip = expandSkipDiagnosticsHandler(diagnostics);
+    const dirs = await expandPluginPath(join(dir, entry), onSkip !== undefined ? { onSkip } : {});
     for (const d of dirs) {
       const abs = resolve(d);
       if (originRequiresTrust(origin) && isTrusted !== undefined && !isTrusted(abs)) {
@@ -536,10 +560,13 @@ export async function loadPluginsFromPaths(
     diagnostics?: PluginLoadDiagnostics;
   } = {},
 ): Promise<PluginModule[]> {
+  // A skipped member routes into `diagnostics` when the caller has one, same
+  // reasoning as scanPluginsDir — otherwise it bypasses the collector.
+  const onSkip = expandSkipDiagnosticsHandler(opts.diagnostics);
   const resolved = await Promise.all(
     paths.map(async (p) => {
       const abs = isAbsolute(p) ? p : join(cwd, p);
-      return expandPluginPath(abs);
+      return expandPluginPath(abs, onSkip !== undefined ? { onSkip } : {});
     }),
   );
   // Anything under <cwd>/.corbits/plugins/ is project origin no matter how it

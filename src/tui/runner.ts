@@ -50,8 +50,8 @@ import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import {
   expandExistingPluginMembers,
   expandPluginPath,
+  expandSkipDiagnosticsHandler,
   loadPluginEntry,
-  type ExpandPluginPathSkip,
   type PluginOrigin,
 } from "../plugins/loader.js";
 import {
@@ -899,14 +899,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // member is trusted (exact-path match on reload). `onSkip` collects into
       // `addDiag` instead of the default stderr write — same reasoning as
       // `loadPluginEntry` above.
-      const members = await expandPluginPath(abs, {
-        onSkip: (skip: ExpandPluginPathSkip) => {
-          const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
-          addDiag.warnings.push(
-            `marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})${where}`,
-          );
-        },
-      });
+      const addSkipHandler = expandSkipDiagnosticsHandler(addDiag);
+      const members = await expandPluginPath(
+        abs,
+        addSkipHandler !== undefined ? { onSkip: addSkipHandler } : {},
+      );
       pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.
@@ -985,6 +982,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     { diagnostics: profileDiag },
   );
   emitPluginWarningLog(profileDiag);
+  // Same fire-and-forget reasoning as the discovery/tool-plugin notices above:
+  // this runs before `host` exists, so it is queued rather than dropped.
+  const profileNotice = formatPluginWarningsSummary(profileDiag.warnings);
+  if (profileNotice !== undefined) startupPluginNotices.push(profileNotice);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 

@@ -7,7 +7,12 @@ import {
   emitPluginWarningLog,
   formatPluginWarningsSummary,
 } from "../plugins/diagnostics.js";
-import { expandPluginPath, loadPluginEntry, type ExpandPluginPathSkip } from "../plugins/loader.js";
+import {
+  discoverUserPlugins,
+  expandPluginPath,
+  loadPluginEntry,
+  type ExpandPluginPathSkip,
+} from "../plugins/loader.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { resolveToolPlugins, type ToolPluginCandidate } from "../plugins/tool-plugins.js";
 import { discoverSessionPlugins } from "../session/runtime-assembly.js";
@@ -126,6 +131,58 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
         },
       });
       expect(members).toEqual([]);
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("startup discovery: a marketplace member skipped during discovery is collected, not lost", async () => {
+    // Reproduces the exact shape reported against `scanPluginsDir` /
+    // `loadPluginsFromPaths`: a project-local `.corbits/plugins/` entry that
+    // is itself a marketplace with one bad (absolute) `source`. Both call
+    // `expandPluginPath` internally; without `onSkip` wired to `diagnostics`,
+    // the skip bypasses the collector entirely (not merely misrouted to the
+    // log — genuinely dropped, since nothing else observes the raw write).
+    const cwd = await mkdtemp(join(tmpdir(), "diag-cwd-market-"));
+    const marketDir = join(cwd, ".corbits", "plugins", "market");
+    await mkdir(join(marketDir, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(marketDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        name: "demo",
+        plugins: [{ name: "bad", source: "/etc/not-a-plugin" }],
+      }),
+    );
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      await discoverUserPlugins(cwd, { diagnostics: diag });
+      // The skip must land in the collector, not just avoid stderr — a write
+      // that silently vanishes without reaching diagnostics is the same
+      // lost-warning bug reached by a different route.
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(true);
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("startup agent-profile resolution: a malformed profile stays silent on stderr", async () => {
+    // Same call shape as runner.ts's startup `resolveAgentPluginProfiles`
+    // (over `executablePlugins()` and the full `settings.plugins` config),
+    // distinct from the verify-time call above which targets one plugin id.
+    const mod = {
+      manifest: { id: "startup-agent", name: "Startup Agent", kind: "agent" as const },
+      agentPlugin: { agents: [{ description: "missing the required id field" }] },
+    };
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      const profiles = await resolveAgentPluginProfiles(
+        [mod],
+        { "startup-agent": { enabled: true } },
+        { diagnostics: diag },
+      );
+      expect(profiles).toEqual([]);
       const message = formatPluginWarningsSummary(diag.warnings);
       expect(message).toBeDefined();
     });
