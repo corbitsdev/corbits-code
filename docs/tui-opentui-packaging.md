@@ -1,7 +1,7 @@
 # OpenTUI install / CI / packaging plan
 
 **Status:** plan (docs only; CI not yet changed)  
-**Spike verdict:** GO — `docs/plans/opentui-spike-report.md`  
+**Spike verdict:** GO  
 **Spike packages:** `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`  
 **Runtime:** Bun (`package.json` engines: `bun >= 1.2`)  
 **Platform priority:** macOS #1 · Linux #2 · Windows non-blocking  
@@ -109,7 +109,7 @@ bun install --frozen-lockfile
 bun run test:tui   # or whatever harness lands with the platform
 ```
 
-**Do not** add `@opentui/*` to root `package.json` on **main** until cutover policy allows it (`docs/tui-migration-cutover.md`). On branch `migration/opentui-tui`, root already depends on `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`, `@opentui/keymap@0.5.1`, and `solid-js@1.9.14` (scaffold under `src/tui-opentui/`; not wired to the `corbits` CLI yet).
+OpenTUI has since shipped: root `package.json` on `main` depends on `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`, `@opentui/keymap@0.5.1`, and `solid-js@1.9.14`, and `src/tui-opentui/` is the shipping shell (see `docs/TUI.md`).
 
 ### Solid contributor notes
 
@@ -236,10 +236,7 @@ bun run start
 
 | Doc | Role |
 |---|---|
-| `docs/plans/opentui-spike-report.md` | Spike GO evidence, install notes, binding hint |
-| `docs/plans/tui-layout-scroll-platform.md` | Epic plan; packaging is Renderer milestone |
-| `docs/tui-migration-cutover.md` | Branch hard cutover; no dual-release packaging |
-| `docs/tui-layout-constitution.md` | Geometry contracts once shell lands |
-| `docs/tui-ink-freeze.md` | Ink maintenance-only while OpenTUI builds |
+| `docs/TUI.md` | Shipping shell behavior spec (layout, geometry, overlays, prompt) |
+| `docs/adr/opentui-binding.md` | ADR: why OpenTUI, core-class vs Solid binding |
 
 Spike re-run evidence lives under `tmp/opentui-spike/` (local; not a root dependency).

@@ -70,6 +70,7 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 ## Reference
 
 - `docs/ARCHITECTURE.md` — reactor loop, events, directors, workflows, plugin chain, permission system
+- `docs/TUI.md` — terminal UI behavior spec: layout, overlays, selectors, palette, prompt box, scrolling
 - `docs/IMPLEMENTATION.md` — runtime, dependencies, config resolution, settings precedence, CLI flags, state persistence, eval harness
 - `docs/PRODUCT.md` — what we're building and why
 - `docs/HOOKS.md` — lifecycle hooks

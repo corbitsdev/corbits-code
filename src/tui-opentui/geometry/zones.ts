@@ -1,5 +1,5 @@
 // Chrome zone registry for the OpenTUI shell.
-// Source of truth: docs/tui-layout-constitution.md §3 zone table + §3.3 collapse order.
+// Source of truth: docs/TUI.md "How it should look" (zone table + collapse order).
 // Pure data — no process.stdout, no paint framework.
 
 /** Constitution zone ids (snake_case matches the registry table). */
@@ -139,7 +139,7 @@ export const PROMPT_IDLE_ROWS = PROMPT_IDLE_INPUT_ROWS + PROMPT_BORDER_ROWS;
 
 /**
  * Collapse order when transcript would breach the floor (first cut first).
- * Matches docs/tui-layout-constitution.md §3.3.
+ * Matches docs/TUI.md "How it should look" collapse order.
  */
 export const COLLAPSE_ORDER = [
   "command_banner",
