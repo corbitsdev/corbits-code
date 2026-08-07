@@ -543,6 +543,9 @@ describe("mcp surface", () => {
       acceptOverlaySelection(shell)
       expect(opened).toEqual(["https://notion.test/auth"])
       expect(shell.statusFlash).toContain("notion")
+      // The echo would quote "notion — needs auth" back forever, moments
+      // after the operator authorized it.
+      expect(shell.streamLog.filter((r) => r.meta === "overlay")).toEqual([])
     })
   })
 

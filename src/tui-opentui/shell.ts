@@ -1682,6 +1682,8 @@ type ShellInternals = {
   overlayItemIds: readonly string[]
   /** Per-open accept callback; cleared on close without invoke (Esc path). */
   overlayOnAccept: ((selection: OverlaySelection) => void) | null
+  /** False while an overlay that reports its own outcome is open. */
+  overlayEchoChoice: boolean
   /** Per-open expand/collapse hook for the open primary overlay. */
   overlayOnToggleExpand: (() => void) | null
   /** Per-open ← → cycle hook for the open primary overlay (settings inline cycling). */
@@ -2673,6 +2675,16 @@ export type OpenListOverlayOpts = {
    * nothing to choose, so the overlay is never a chooser with an empty list.
    */
   readonly textAnswerActive?: boolean
+  /**
+   * Suppress the `chose (kind): label` transcript echo for this open.
+   *
+   * The echo exists so a choice with no other visible result still leaves a
+   * trace. A surface that reports the outcome itself does not need it, and the
+   * echo is worse than silent there: it quotes the row's label from *before*
+   * the action, so authorizing a server leaves a permanent line saying that
+   * server needs authorization.
+   */
+  readonly echoChoice?: boolean
 }
 
 /**
@@ -2732,6 +2744,7 @@ export function openListOverlay(
     if (!isPalette) {
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
+      bag.overlayEchoChoice = opts?.echoChoice ?? true
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
@@ -2740,6 +2753,7 @@ export function openListOverlay(
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
+      bag.overlayEchoChoice = opts?.echoChoice ?? true
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
@@ -3353,11 +3367,13 @@ export function acceptOverlaySelection(shell: AppShell): void {
   // Capture before close clears per-open state.
   const perOpen = bag?.overlayOnAccept ?? null
 
-  appendStreamRow(shell, {
-    role: "system",
-    text: `chose (${kind}): ${label}`,
-    meta: "overlay",
-  })
+  if (bag?.overlayEchoChoice !== false) {
+    appendStreamRow(shell, {
+      role: "system",
+      text: `chose (${kind}): ${label}`,
+      meta: "overlay",
+    })
+  }
   closeInsetOverlay(shell)
   dispatchOverlayAccept(shell, selection, perOpen)
 }
@@ -4918,6 +4934,7 @@ export function createAppShell(
     priorOverlay: null,
     overlayItemIds: [],
     overlayOnAccept: null,
+    overlayEchoChoice: true,
     overlayOnToggleExpand: null,
     overlayOnCycle: null,
     overlayDescribe: null,

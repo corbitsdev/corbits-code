@@ -953,6 +953,9 @@ export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void 
     kind: "mcp",
     title: "mcp",
     frameId: "overlay-mcp",
+    // The flash below reports the outcome; the echo would quote the row's
+    // pre-authorization label back at the operator forever.
+    echoChoice: false,
     ...payload(rows),
     describe: (id) => {
       const target = byName.get(id)
