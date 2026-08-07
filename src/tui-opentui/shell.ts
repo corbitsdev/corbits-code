@@ -114,6 +114,7 @@ import {
   LONG_LOG_WINDOW,
   collapseMarker,
   mustWindow,
+  retentionOverflow,
   windowSlice,
 } from "./long-log.js"
 import {
@@ -565,8 +566,18 @@ export type AppShell = {
   pendingQueue: number
   /** Transcript line count (append counter / full log length). */
   lineCount: number
-  /** Full stream log (windowed paint; never unbounded render tree). */
+  /**
+   * Retained tail of the stream log — capped at MAX_RETAINED_STREAM_ROWS, so
+   * this is never the full session history on a long run.
+   */
   streamLog: StreamRow[]
+  /**
+   * Absolute index of `streamLog[0]`. Every index the bridge holds onto
+   * across calls (tool-call rows, the open streaming row, the retry
+   * boundary) is absolute, so it stays valid once eviction has shifted the
+   * array itself. Bumped by the number of rows dropped on each trim.
+   */
+  streamLogBase: number
   /**
    * Distinct writers in the visible transcript. Rows carry a name and icon only
    * once this holds more than one, so identity appears where it disambiguates.
@@ -646,6 +657,8 @@ export type AppShell = {
   } | null
   /** Parent stream snapshot while observe is active. */
   parentStreamLog: StreamRow[] | null
+  /** Absolute base for `parentStreamLog`, saved/restored across observe (see `streamLogBase`). */
+  parentStreamLogBase: number | null
   /**
    * Readline kill ring backing Ctrl+Y/Alt+Y. Ctrl+K/U/W and Alt+D feed it;
    * the text widget itself has no concept of a kill ring (see
@@ -1857,9 +1870,28 @@ export function appendTranscript(
 export function appendStreamRow(shell: AppShell, row: StreamRow): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
     shell.parentStreamLog.push(row)
+    shell.parentStreamLogBase = trimRetainedLog(
+      shell.parentStreamLog,
+      shell.parentStreamLogBase ?? 0,
+    )
     return
   }
   paintAppendStreamRow(shell, row)
+}
+
+/**
+ * Evict the oldest rows once `log` exceeds the retention cap and return the
+ * new absolute base (the index `log[0]` now represents).
+ *
+ * Every index the bridge holds onto — tool-call rows, the open streaming
+ * row, the retry boundary — is absolute (base + local position), so eviction
+ * only has to bump the base; it never has to rewrite a stored index.
+ */
+function trimRetainedLog(log: StreamRow[], base: number): number {
+  const drop = retentionOverflow(log.length)
+  if (drop <= 0) return base
+  log.splice(0, drop)
+  return base + drop
 }
 
 /**
@@ -1925,14 +1957,23 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell)
   const gainedVoice = noteAgentVoice(shell, row)
   shell.streamLog.push(row)
+  shell.streamLogBase = trimRetainedLog(shell.streamLog, shell.streamLogBase)
   shell.lineCount = shell.streamLog.length
 
   // Under collapse threshold: append one paint node (cheap).
-  // Over threshold: rebuild the windowed paint tree only.
+  // Over threshold: rebuild the windowed paint tree only. The retention cap
+  // sits above the collapse threshold, so a trim never lands here — by the
+  // time eviction starts, appends are already windowed.
   if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
     const index = shell.streamLog.length - 1
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
+      createStreamRowRenderable(
+        shell,
+        row,
+        gapBefore(shell, index),
+        labelBefore(shell, index),
+        shell.streamLogBase + index,
+      ),
     )
     paintChrome(shell)
     return
@@ -1946,36 +1987,45 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
 export function streamRowCount(shell: AppShell): number {
   return shell.observe !== null && shell.parentStreamLog !== null
     ? shell.parentStreamLog.length
-    : shell.streamLog.length
+    : shell.streamLogBase + shell.streamLog.length
 }
 
 /**
- * Row at `index` on the log `appendStreamRow` currently targets. A tool result
- * rewrites the call row it answers rather than appending its own, and needs to
- * read that row back to fold into it.
+ * Row at absolute `index` on the log `appendStreamRow` currently targets. A
+ * tool result rewrites the call row it answers rather than appending its
+ * own, and needs to read that row back to fold into it.
+ *
+ * `index` is absolute (see `streamLogBase`); a row already evicted by the
+ * retention cap reads back as undefined, same as one past the end.
  */
 export function streamRowAt(shell: AppShell, index: number): StreamRow | undefined {
-  const log =
-    shell.observe !== null && shell.parentStreamLog !== null
-      ? shell.parentStreamLog
-      : shell.streamLog
-  return index >= 0 && index < log.length ? log[index] : undefined
+  if (shell.observe !== null && shell.parentStreamLog !== null) {
+    const local = index - (shell.parentStreamLogBase ?? 0)
+    return local >= 0 && local < shell.parentStreamLog.length
+      ? shell.parentStreamLog[local]
+      : undefined
+  }
+  const local = index - shell.streamLogBase
+  return local >= 0 && local < shell.streamLog.length ? shell.streamLog[local] : undefined
 }
 
 /**
- * Drop every row from `length` onward on the log `appendStreamRow` targets.
+ * Drop every row from absolute `length` onward on the log `appendStreamRow`
+ * targets.
  *
  * A committed inference attempt that fails is re-streamed from scratch, so the
  * transcript has to retract what the failed attempt already painted instead of
- * letting the replay pile up underneath it.
+ * letting the replay pile up underneath it. A boundary the retention cap has
+ * already evicted has nothing left to retract, so this is a no-op rather than
+ * mis-truncating the tail that replaced it.
  */
 export function truncateStreamRows(shell: AppShell, length: number): void {
-  const log =
-    shell.observe !== null && shell.parentStreamLog !== null
-      ? shell.parentStreamLog
-      : shell.streamLog
-  if (length < 0 || length >= log.length) return
-  log.length = length
+  const observing = shell.observe !== null && shell.parentStreamLog !== null
+  const log = observing ? shell.parentStreamLog! : shell.streamLog
+  const base = observing ? shell.parentStreamLogBase ?? 0 : shell.streamLogBase
+  const local = length - base
+  if (local < 0 || local >= log.length) return
+  log.length = local
   if (log !== shell.streamLog) return
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
@@ -1998,6 +2048,10 @@ function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
  * Streaming assistant and thinking bodies grow token by token; the bridge keeps
  * one open row and replaces it on every delta rather than appending a row per
  * token. Repaints only the affected node while the log fits without windowing.
+ *
+ * `index` is absolute (see `streamLogBase`); a row the retention cap has
+ * already evicted is a no-op rather than corrupting an unrelated row at the
+ * same array slot.
  */
 export function replaceStreamRowAt(
   shell: AppShell,
@@ -2005,13 +2059,15 @@ export function replaceStreamRowAt(
   row: StreamRow,
 ): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
-    if (index >= 0 && index < shell.parentStreamLog.length) {
-      shell.parentStreamLog[index] = row
+    const parentLocal = index - (shell.parentStreamLogBase ?? 0)
+    if (parentLocal >= 0 && parentLocal < shell.parentStreamLog.length) {
+      shell.parentStreamLog[parentLocal] = row
     }
     return
   }
-  if (index < 0 || index >= shell.streamLog.length) return
-  shell.streamLog[index] = row
+  const local = index - shell.streamLogBase
+  if (local < 0 || local >= shell.streamLog.length) return
+  shell.streamLog[local] = row
 
   const children = transcriptRowChildren(shell)
   // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
@@ -2022,8 +2078,8 @@ export function replaceStreamRowAt(
     return
   }
 
-  const stale = children[index]
-  if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, index))) {
+  const stale = children[local]
+  if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, local))) {
     paintChrome(shell)
     return
   }
@@ -2034,8 +2090,8 @@ export function replaceStreamRowAt(
   // +1: index 0 in the transcript's own child list is the bottom-anchor
   // spacer, not a row (see `transcriptRowChildren`).
   shell.transcript.add(
-    createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
-    index + 1,
+    createStreamRowRenderable(shell, row, gapBefore(shell, local), labelBefore(shell, local), index),
+    local + 1,
   )
   paintChrome(shell)
 }
@@ -2127,9 +2183,15 @@ export function repaintTranscriptWindow(shell: AppShell): void {
     )
   }
   win.rows.forEach((row, offset) => {
-    const index = win.start + offset
+    const local = win.start + offset
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
+      createStreamRowRenderable(
+        shell,
+        row,
+        gapBefore(shell, local),
+        labelBefore(shell, local),
+        shell.streamLogBase + local,
+      ),
     )
   })
 }
@@ -2345,8 +2407,10 @@ export function createStreamRowRenderable(
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
   const layout = transcriptRowLayout(shell)
-  // Rows are only ever appended, so an index taken at build time stays the
-  // row's index for as long as its node lives.
+  // `index` is absolute (see `streamLogBase`), so it stays the row's index
+  // for as long as its node lives even if the retention cap trims the array
+  // out from underneath it later. `toggleRowExpandedAt` converts it back to
+  // a local array position at click time, not here.
   const onToggle =
     index === undefined || !isCollapsibleRow(row)
       ? undefined
@@ -3216,16 +3280,19 @@ export const OVERLAY_EXPAND_KEY = EXPAND_KEY
  *
  * False when that row hides nothing.
  */
+/** `index` is absolute (see `streamLogBase`), matching the index closures built off `createStreamRowRenderable` carry. */
 export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
-  const row = shell.streamLog[index]
+  const row = shell.streamLog[index - shell.streamLogBase]
   if (row === undefined || !isCollapsibleRow(row)) return false
   replaceStreamRowAt(shell, index, { ...row, expanded: row.expanded !== true })
   return true
 }
 
 export function toggleCollapsedRow(shell: AppShell): boolean {
-  const collapsible = shell.streamLog.flatMap((row, index) =>
-    row !== undefined && isCollapsibleRow(row) ? [{ row, index }] : [],
+  const collapsible = shell.streamLog.flatMap((row, local) =>
+    row !== undefined && isCollapsibleRow(row)
+      ? [{ row, index: shell.streamLogBase + local }]
+      : [],
   )
   if (collapsible.length === 0) return false
   const expand = collapsible.some(({ row }) => row.expanded !== true)
@@ -3740,6 +3807,7 @@ export function enterSubagentObserve(
 
   const seedLines = session.lines.slice()
   shell.parentStreamLog = shell.streamLog.slice()
+  shell.parentStreamLogBase = shell.streamLogBase
   shell.observe = {
     sessionId: session.sessionId,
     agentId: session.agentId,
@@ -3747,7 +3815,10 @@ export function enterSubagentObserve(
     lines: seedLines.slice(),
   }
 
+  // A fresh log for the child view; its own indices start at zero regardless
+  // of how far the parent's retention cap has already trimmed.
   shell.streamLog = seedLines
+  shell.streamLogBase = 0
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
 
@@ -3773,7 +3844,9 @@ export function leaveSubagentObserve(shell: AppShell): void {
 
   if (shell.parentStreamLog) {
     shell.streamLog = shell.parentStreamLog
+    shell.streamLogBase = shell.parentStreamLogBase ?? 0
     shell.parentStreamLog = null
+    shell.parentStreamLogBase = null
   }
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
@@ -4878,6 +4951,7 @@ export function createAppShell(
     pendingQueue: badgeCount(session),
     lineCount: 0,
     streamLog: [],
+    streamLogBase: 0,
     agentVoices: new Set<string>(),
     baseTitle: title,
     modelLabel: null,
@@ -4901,6 +4975,7 @@ export function createAppShell(
     costContext: null,
     observe: null,
     parentStreamLog: null,
+    parentStreamLogBase: null,
     promptKillRing: emptyKillRing,
     pendingAttachments: [],
     sentHistory: createSentHistoryBrowse([]),
