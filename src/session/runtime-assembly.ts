@@ -7,6 +7,7 @@ import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
+import type { ToolAvailability } from "../agent/tool-search.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import {
   loadAgentContextExtensions,
@@ -171,6 +172,7 @@ export type SessionChatPromptArgs = {
   skillDirs: readonly string[];
   systemPromptExtensions?: readonly string[];
   sessionMode: SessionMode;
+  toolAvailability: ToolAvailability;
 };
 
 export type SessionChatPrompt = {
@@ -200,6 +202,7 @@ export async function loadSessionChatPrompt(
       overrides.base,
       skills,
       args.sessionMode,
+      args.toolAvailability,
     ),
     skills,
   };

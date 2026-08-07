@@ -1,7 +1,19 @@
 import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import type { SessionMode } from "../config/session-mode.js";
-import { coreToolNamesForSessionMode, CORE_TOOL_NAMES } from "./tool-search.js";
+import {
+  coreToolNamesForSessionMode,
+  CORE_TOOL_NAMES,
+  type ToolAvailability,
+} from "./tool-search.js";
+
+// Advertise every gated core tool when the caller has no session-start facts
+// (tests, ad-hoc prompt previews). Real sessions always pass their detected
+// availability — see tui/runner.ts and exec/runner.ts.
+const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
+  hasGoalAtLaunch: true,
+  languageServerAvailable: true,
+};
 import { PRODUCT_NAME, SETTINGS_DIR_NAME } from "../branding.js";
 
 // Fallback tool list for sub-agent prompts when the caller does not pass the
@@ -295,10 +307,11 @@ export function buildChatSystemPrompt(
   baseOverride?: string,
   skills: readonly SkillSummary[] = [],
   sessionMode: SessionMode = "orchestrator",
+  toolAvailability: ToolAvailability = DEFAULT_TOOL_AVAILABILITY,
 ): string {
   const sections = [
     baseSection(baseOverride, sessionMode),
-    buildAvailableTools(coreToolNamesForSessionMode(sessionMode)),
+    buildAvailableTools(coreToolNamesForSessionMode(sessionMode, toolAvailability)),
   ];
   if (skills.length > 0) sections.push(buildSkillsSection(skills));
   sections.push(contextSection(env));

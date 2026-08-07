@@ -6,9 +6,20 @@ import {
   createActivatedToolTracker,
   advertisedTools,
   advertisedToolNamesForSessionMode,
+  coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
+  type ToolAvailability,
 } from "./tool-search.js";
+
+const FULL_AVAILABILITY: ToolAvailability = {
+  hasGoalAtLaunch: true,
+  languageServerAvailable: true,
+};
+const NO_AVAILABILITY: ToolAvailability = {
+  hasGoalAtLaunch: false,
+  languageServerAvailable: false,
+};
 
 const defs: ToolDefinition[] = [
   { name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {}, required: [] } },
@@ -55,10 +66,49 @@ describe("createToolIndex", () => {
   });
 
   test("orchestrator mode advertises task and search_agents; single mode omits them", () => {
-    expect(advertisedToolNamesForSessionMode("orchestrator")).toContain("task");
-    expect(advertisedToolNamesForSessionMode("orchestrator")).toContain("search_agents");
-    expect(advertisedToolNamesForSessionMode("single")).not.toContain("task");
-    expect(advertisedToolNamesForSessionMode("single")).not.toContain("search_agents");
+    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("task");
+    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("search_agents");
+    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("task");
+    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("search_agents");
+  });
+
+  test("manage_tasks is advertised in both session modes regardless of availability", () => {
+    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("manage_tasks");
+    expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
+  });
+
+  test("present is never in the advertised core set — discovered via tool_search only", () => {
+    expect(CORE_TOOL_NAMES).not.toContain("present");
+    expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
+  });
+
+  test("manage_goal is advertised only when the session starts with a goal", () => {
+    expect(
+      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: true, languageServerAvailable: true }),
+    ).toContain("manage_goal");
+    expect(
+      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: true }),
+    ).not.toContain("manage_goal");
+  });
+
+  test("lsp is advertised only when a language server was detected at startup", () => {
+    expect(
+      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: true }),
+    ).toContain("lsp");
+    expect(
+      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: false }),
+    ).not.toContain("lsp");
+  });
+
+  test("ask_operator is advertised regardless of session mode or availability", () => {
+    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("ask_operator");
+    expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("ask_operator");
+  });
+
+  test("the advertised set is deterministic — repeat calls with the same inputs are identical", () => {
+    const first = coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY);
+    const second = coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY);
+    expect(second).toEqual(first);
   });
 
   test("returns nothing for an empty query", () => {
@@ -122,9 +172,11 @@ describe("advertisedTools", () => {
   ];
 
   test("single session mode omits multi-agent tools from the wire prefix", () => {
-    const names = advertisedTools(registry, [], advertisedToolNamesForSessionMode("single")).map(
-      (d) => d.name,
-    );
+    const names = advertisedTools(
+      registry,
+      [],
+      advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY),
+    ).map((d) => d.name);
     expect(names).not.toContain("task");
     expect(names).not.toContain("search_agents");
     expect(names).toContain("read_file");
@@ -184,6 +236,23 @@ describe("advertisedTools", () => {
     const names = advertisedTools(multi, ["mcp__acme__do", "mcp__linear__create_issue"]).map((d) => d.name);
     const tailIdx = names.length - 2;
     expect(names.slice(tailIdx)).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
+  });
+
+  test("the built-in prefix is byte-identical across repeated turns of the same session", () => {
+    // Session-start availability is computed once and must never be
+    // re-evaluated per turn — simulate several turns by calling with the same
+    // captured prefix and confirm the wire array never drifts.
+    const prefix = advertisedToolNamesForSessionMode("orchestrator", {
+      hasGoalAtLaunch: false,
+      languageServerAvailable: true,
+    });
+    const turn1 = JSON.stringify(advertisedTools(registry, [], prefix));
+    const turn2 = JSON.stringify(advertisedTools(registry, [], prefix));
+    const turn3 = JSON.stringify(advertisedTools(registry, ["mcp__linear__create_issue"], prefix));
+    expect(turn2).toBe(turn1);
+    // Growth from a mid-session discovery only appends — the prefix itself
+    // (everything before the activated tail) still matches turn 1 exactly.
+    expect(turn3.startsWith(turn1.slice(0, -1))).toBe(true);
   });
 
   test("tool_search never returns an already-advertised built-in", () => {
