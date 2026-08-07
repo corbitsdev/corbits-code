@@ -24,27 +24,14 @@ This repeats until the director emits `capabilities.done()`.
 
 `inference.done` and `reactor.done` read as near-synonyms at a call site but
 answer different questions: "did a turn end" versus "did the reactor shut
-down." Three shipped defects came from code that needed a turn boundary but
-keyed off `reactor.done` instead: queued messages never dispatched because
-the send-queue drain waited for shutdown; `run.json`'s `turnsUsed` froze for
-an entire session because the mid-run snapshot only re-fired on shutdown;
-and the shell run state didn't return to idle between turns. Documentation
-didn't prevent the second and third instances, so code that needs to ask
-"did a turn end" or "did the reactor shut down" should go through the
-`onTurnBoundary` / `onReactorShutdown` guards in `src/agent/reactor-events.ts`
-rather than comparing `event.type` to a string directly — naming the
-question makes the right thing easier to write than the wrong one.
+down." Code that needs either answer should go through the `onTurnBoundary`
+/ `onReactorShutdown` guards in `src/agent/reactor-events.ts` rather than
+comparing `event.type` to a string directly — naming the question makes the
+right thing easier to write than the wrong one.
 
 This is a convention, not an enforced constraint: nothing stops a future
 call site from writing `event.type === "reactor.done"` directly instead of
-reaching for the guard. Two enforcement routes were considered and both are
-out of scope here — a lint rule (`no-restricted-syntax` or similar) would
-mean standing up ESLint or Biome from scratch, since neither is configured
-anywhere in this repo, disproportionate for a Low-priority cleanup; and a
-type-level fix branding `event.type` would require modifying `@intx/types`
-or `@intx/inference`, which are vendored and off-limits. Reviewers should
-treat a bare `event.type === "reactor.done"` / `"inference.done"` comparison
-outside `reactor-events.ts` as a signal to ask why the guard wasn't used.
+reaching for the guard.
 
 ### ReactorActions
 
