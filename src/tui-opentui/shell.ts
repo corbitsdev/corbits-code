@@ -267,6 +267,8 @@ export type OverlaySelection = {
   readonly label: string
   /** Stable id when the host provided `itemIds`; otherwise omitted. */
   readonly id?: string
+  /** Plain chosen value when the host provided `itemValues`; otherwise omitted. */
+  readonly value?: string
 }
 
 /**
@@ -1701,6 +1703,7 @@ type PriorOverlaySnapshot = {
   readonly title: string
   readonly paletteCommands: readonly PaletteCommand[]
   readonly itemIds: readonly string[]
+  readonly itemValues: readonly (string | undefined)[]
   readonly onAccept: ((selection: OverlaySelection) => void) | null
   readonly onToggleExpand: (() => void) | null
   readonly onCycle: ((itemId: string, direction: -1 | 1) => void) | null
@@ -1720,6 +1723,8 @@ type ShellInternals = {
   priorOverlay: PriorOverlaySnapshot | null
   /** Optional stable ids aligned with overlayItems for the open primary. */
   overlayItemIds: readonly string[]
+  /** Optional plain chosen values aligned with overlayItems for the open primary. */
+  overlayItemValues: readonly (string | undefined)[]
   /** Per-open accept callback; cleared on close without invoke (Esc path). */
   overlayOnAccept: ((selection: OverlaySelection) => void) | null
   /** False while an overlay that reports its own outcome is open. */
@@ -2963,6 +2968,13 @@ export type OpenListOverlayOpts = {
   readonly items?: readonly string[]
   /** Optional stable ids aligned with `items` (permission scope ids, model ids). */
   readonly itemIds?: readonly string[]
+  /**
+   * Optional plain chosen-value aligned with `items`, for rows whose display
+   * label carries more than the value itself (a cycled field's name, padding,
+   * and `‹ ›` markers around the active option). The accept echo reads this
+   * instead of recovering the value by parsing the label back apart.
+   */
+  readonly itemValues?: readonly (string | undefined)[]
   readonly body?: string
   readonly activeIndex?: number
   readonly frameId?: string
@@ -3055,6 +3067,7 @@ export function openListOverlay(
           title: String(shell.overlayTitle.content),
           paletteCommands: shell.paletteCommands,
           itemIds: bag.overlayItemIds,
+          itemValues: bag.overlayItemValues,
           onAccept: bag.overlayOnAccept,
           onToggleExpand: bag.overlayOnToggleExpand,
           onCycle: bag.overlayOnCycle,
@@ -3085,6 +3098,7 @@ export function openListOverlay(
     // Palette open does not own primary accept; leave prior snapshot's callback.
     if (!isPalette) {
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
+      bag.overlayItemValues = opts?.itemValues ? [...opts.itemValues] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
       bag.overlayEchoChoice = opts?.echoChoice ?? true
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
@@ -3095,6 +3109,7 @@ export function openListOverlay(
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
+      bag.overlayItemValues = opts?.itemValues ? [...opts.itemValues] : []
       bag.overlayOnAccept = opts?.onAccept ?? null
       bag.overlayEchoChoice = opts?.echoChoice ?? true
       bag.overlayOnToggleExpand = opts?.onToggleExpand ?? null
@@ -3457,6 +3472,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   // captured before this clears, and is invoked separately once state settles).
   if (bag && !prior) {
     bag.overlayItemIds = []
+    bag.overlayItemValues = []
     bag.overlayOnAccept = null
     bag.overlayOnToggleExpand = null
     bag.overlayOnCycle = null
@@ -3485,6 +3501,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.paletteCommands = prior.paletteCommands
     shell.overlayTitle.content = prior.title
     bag.overlayItemIds = prior.itemIds
+    bag.overlayItemValues = prior.itemValues
     bag.overlayOnAccept = prior.onAccept
     bag.overlayOnToggleExpand = prior.onToggleExpand
     bag.overlayOnCycle = prior.onCycle
@@ -3629,11 +3646,13 @@ export function setOverlayItems(
   shell: AppShell,
   items: readonly string[],
   itemIds?: readonly string[],
+  itemValues?: readonly (string | undefined)[],
 ): void {
   if (!shell.overlayList) return
   shell.overlayItems = items
   const bag = internals.get(shell)
   if (bag && itemIds) bag.overlayItemIds = [...itemIds]
+  if (bag && itemValues) bag.overlayItemValues = [...itemValues]
   shell.overlayList = setListCount(shell.overlayList, items.length)
   paintOverlayList(shell)
 }
@@ -3720,11 +3739,13 @@ export function acceptOverlaySelection(shell: AppShell): void {
 
   const bag = internals.get(shell)
   const id = bag?.overlayItemIds[idx]
+  const value = bag?.overlayItemValues[idx]
   const selection: OverlaySelection = {
     kind,
     index: idx,
     label,
     ...(id !== undefined ? { id } : {}),
+    ...(value !== undefined ? { value } : {}),
   }
   // Capture before close clears per-open state.
   const perOpen = bag?.overlayOnAccept ?? null
@@ -3735,7 +3756,7 @@ export function acceptOverlaySelection(shell: AppShell): void {
   if (bag?.overlayEchoChoice !== false) {
     appendStreamRow(shell, {
       role: "system",
-      text: overlayChoiceText(label, id),
+      text: overlayChoiceText(label, id, value),
       meta: overlayKindWord(kind),
     })
   }
@@ -3746,15 +3767,20 @@ export function acceptOverlaySelection(shell: AppShell): void {
 /**
  * Plain-English echo of an accepted choice. A cycled settings field's label
  * carries every option with `‹ ›` around the active one (list-painting detail,
- * not something an operator asked for) — name the field by its id and report
- * only the value that won. A plain list item has no such markers, so it is
- * quoted as-is.
+ * not something an operator asked for), so the caller passes the value that
+ * actually won structurally via `itemValues` rather than leaving it to be
+ * recovered from the rendered label — a marker or spacing change, or a label
+ * that legitimately contains `‹`/`›`, would otherwise corrupt the echo
+ * silently. A plain list item has no separate value, so it is quoted as-is.
  */
-function overlayChoiceText(label: string, id: string | undefined): string {
-  const active = label.match(/‹\s*(.+?)\s*›/)
-  if (active === null) return `Chose ${label.trim()}.`
+function overlayChoiceText(
+  label: string,
+  id: string | undefined,
+  value: string | undefined,
+): string {
+  if (value === undefined) return `Chose ${label.trim()}.`
   const field = id === undefined ? "setting" : id.replace(/[-_]/g, " ")
-  return `Set ${field} to ${active[1]}.`
+  return `Set ${field} to ${value}.`
 }
 
 /** Internal overlay kinds read as words in the transcript, not identifiers. */
@@ -4193,6 +4219,8 @@ export type OpenResidualListOpts = {
   readonly items?: readonly string[]
   /** Stable ids aligned with `items` (setting keys, session ids, paths). */
   readonly itemIds?: readonly string[]
+  /** Plain chosen value aligned with `items`, for the accept echo (see `OpenListOverlayOpts.itemValues`). */
+  readonly itemValues?: readonly (string | undefined)[]
   readonly activeIndex?: number
   /** Per-open accept; host binds toggle / resume / mention insert. */
   readonly onAccept?: (selection: OverlaySelection) => void
@@ -4213,6 +4241,7 @@ export function openSettingsOverlay(
     activeIndex: opts?.activeIndex ?? 0,
     frameId: "overlay-settings",
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.itemValues !== undefined ? { itemValues: opts.itemValues } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onCycle !== undefined ? { onCycle: opts.onCycle } : {}),
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
@@ -5416,6 +5445,7 @@ export function createAppShell(
     overlayBodyRows: undefined,
     priorOverlay: null,
     overlayItemIds: [],
+    overlayItemValues: [],
     overlayOnAccept: null,
     overlayEchoChoice: true,
     overlayOnToggleExpand: null,
