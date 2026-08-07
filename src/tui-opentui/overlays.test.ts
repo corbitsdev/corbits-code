@@ -18,6 +18,7 @@ import {
   closeInsetOverlay,
   createAppShell,
   moveOverlaySelection,
+  openListOverlay,
   pageOverlaySelection,
   relayout,
   setShellOverlayHooks,
@@ -223,7 +224,8 @@ describe("model / provider picker", () => {
 
           await h.renderOnce()
           frame = h.captureCharFrame()
-          expect(frame).toContain("chose (model_picker)")
+          expect(frame).toContain("model picker")
+          expect(frame).toMatch(/Chose /)
         } finally {
           shell.dispose()
         }
@@ -436,6 +438,38 @@ describe("resize mid-overlay", () => {
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
             IDLE_TRANSCRIPT_FLOOR,
           )
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("accept echo reads the chosen value structurally", () => {
+  test("a label containing its own ‹ › text does not corrupt the echo", async () => {
+    // A row whose display label happens to contain marker glyphs for reasons
+    // that have nothing to do with the cycled-field convention — the echo
+    // must still report the caller-supplied value, not something scraped
+    // back out of the label.
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          openListOverlay(shell, {
+            kind: "settings",
+            items: ["server name    ‹ prod › staging"],
+            itemIds: ["server"],
+            itemValues: ["prod"],
+          })
+          acceptOverlaySelection(shell)
+
+          const row = shell.streamLog.at(-1)
+          expect(row?.text).toBe("Set server to prod.")
         } finally {
           shell.dispose()
         }

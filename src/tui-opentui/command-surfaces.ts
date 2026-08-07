@@ -251,6 +251,14 @@ function cycleValue<T>(options: readonly T[], current: T, direction: -1 | 1): T 
   return next ?? current
 }
 
+/** The active option's plain label — the value an accept echo should report, not the row's painted display string. */
+function activeOptionLabel<T extends string>(
+  options: readonly CycleOption<T>[],
+  activeId: T,
+): string {
+  return options.find((o) => o.id === activeId)?.label ?? activeId
+}
+
 const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
   { id: "llm", label: "summarize" },
   { id: "pruning", label: "drop" },
@@ -273,6 +281,8 @@ const SETTINGS_NAME_WIDTH = 16
 type SettingsCycleRow = {
   readonly id: string
   readonly value: string
+  /** Plain value the row currently holds, for the accept echo — not the painted `value` string. */
+  readonly chosenLabel: string
   readonly describe: ItemDescription
   readonly cycle: (direction: -1 | 1) => void
 }
@@ -286,6 +296,7 @@ function settingsCycleRows(
     {
       id: "compaction",
       value: `${"compaction".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(COMPACTION_OPTIONS, snapshot.compactionMode)}`,
+      chosenLabel: activeOptionLabel(COMPACTION_OPTIONS, snapshot.compactionMode),
       describe: {
         what: "how the transcript is trimmed once the context fills.",
         impact:
@@ -299,6 +310,7 @@ function settingsCycleRows(
     {
       id: "session-mode",
       value: `${"session mode".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_MODE_OPTIONS, snapshot.sessionMode)}`,
+      chosenLabel: activeOptionLabel(SESSION_MODE_OPTIONS, snapshot.sessionMode),
       describe: {
         what: "single agent works in-session; orchestrator delegates through a worker fleet.",
         impact: "orchestrator can run sub-agents concurrently and costs more per turn.",
@@ -313,6 +325,7 @@ function settingsCycleRows(
     {
       id: "session-scope",
       value: `${"  scope".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope)}`,
+      chosenLabel: activeOptionLabel(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope),
       describe: {
         what: "whether the session mode above applies to every repo or just this one.",
         impact: "this repo writes a local override that takes precedence over the global default.",
@@ -326,6 +339,7 @@ function settingsCycleRows(
     {
       id: "wait-for-approval",
       value: `${"approval wait".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off")}`,
+      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off"),
       describe: {
         what: "whether a tool's time budget pauses while waiting on your approval.",
         impact: "off counts the wait against the tool's timeout, so a slow approval can time it out.",
@@ -336,6 +350,7 @@ function settingsCycleRows(
     {
       id: "telemetry",
       value: `${"telemetry".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off")}`,
+      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off"),
       describe: {
         what: "anonymous usage data shared to help improve corbits.",
         impact: "off stops all telemetry from this session.",
@@ -346,6 +361,7 @@ function settingsCycleRows(
     {
       id: "prompt-cost",
       value: `${"show cost".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off")}`,
+      chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off"),
       describe: {
         what: "shows the session's spend in the prompt border, next to the context percentage.",
         impact: "it's a running total that draws the eye every time it changes — off by default; /cost still gives the full breakdown on demand.",
@@ -434,10 +450,17 @@ function renderSettingsMenu(
   ])
   const ids = [...cycleRows.map((r) => r.id), ...navRows.map((r) => r.id)]
   const items = [...cycleRows.map((r) => r.value), ...navRows.map((r) => r.value)]
+  // Nav rows (permissions, plugins, hooks) open a sub-surface rather than
+  // holding a value of their own, so they carry no echo value.
+  const values: readonly (string | undefined)[] = [
+    ...cycleRows.map((r) => r.chosenLabel),
+    ...navRows.map(() => undefined),
+  ]
 
   openSettingsOverlay(shell, {
     items,
     itemIds: ids,
+    itemValues: values,
     activeIndex: Math.min(activeIndex, Math.max(0, items.length - 1)),
     describe: (id) => descById.get(id) ?? null,
     onCycle: (id, direction) => {

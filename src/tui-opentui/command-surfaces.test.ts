@@ -166,6 +166,27 @@ describe("settings surface", () => {
     })
   })
 
+  test("choosing a cycled row writes a plain-English transcript line, not the internal echo", async () => {
+    await withShell(async (shell) => {
+      const { deps } = settingsDeps()
+      openCommandSurface(shell, "settings", deps)
+      await Promise.resolve()
+      await Promise.resolve()
+
+      cycleOverlaySelection(shell, 1)
+      await Promise.resolve()
+      await Promise.resolve()
+      acceptOverlaySelection(shell)
+
+      const row = shell.streamLog.at(-1)
+      expect(row?.text).toBe("Set compaction to drop.")
+      expect(row?.meta).not.toBe("overlay")
+      expect(row?.text).not.toContain("‹")
+      expect(row?.text).not.toContain("›")
+      expect(row?.text).not.toContain("overlay")
+    })
+  })
+
   test("session mode scope switch honours a local write", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = settingsDeps()
