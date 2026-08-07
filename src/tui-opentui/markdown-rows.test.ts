@@ -23,17 +23,22 @@ const shellOpts = {
 } as const
 
 /**
- * Markdown blocks highlight asynchronously; settle before capturing a frame.
- * A row with several top-level blocks (heading, list, fence, link) resolves
- * its highlight promises one render at a time, so a fixed couple of ticks
- * that was enough for one block is not enough for several.
+ * Highlighting runs on a worker outside the render scheduler, so the
+ * scheduler goes idle before the highlighted frame lands. Pass a predicate
+ * for the settled shape and get the frame back the moment it's true, rather
+ * than gambling on a fixed sleep long enough to outrun load.
  */
-async function settle(h: Harness): Promise<string> {
-  for (let i = 0; i < 8; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 50))
+async function settle(h: Harness, isSettled: (frame: string) => boolean): Promise<string> {
+  const deadline = Date.now() + 2000
+  for (;;) {
     await h.renderOnce()
+    const frame = h.captureCharFrame()
+    if (isSettled(frame)) return frame
+    if (Date.now() >= deadline) {
+      throw new Error(`markdown row never settled; last frame:\n${frame}`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
-  return h.captureCharFrame()
 }
 
 describe("markdown transcript rows", () => {
@@ -68,7 +73,10 @@ describe("markdown transcript rows", () => {
         ].join("\n"),
       })
 
-      const frame = await settle(h)
+      const frame = await settle(
+        h,
+        (f) => f.includes("docs") && !f.includes("## Title") && !f.includes("**bolded**"),
+      )
       expect(frame).toContain("Title")
       expect(frame).not.toContain("## Title")
       expect(frame).toContain("bolded")
@@ -94,7 +102,10 @@ describe("markdown transcript rows", () => {
         ].join("\n"),
       })
 
-      const frame = await settle(h)
+      const frame = await settle(
+        h,
+        (f) => f.includes("What the site is") && !f.includes("###") && !f.includes("**Hardware:**"),
+      )
       expect(frame).toContain("What the site is")
       expect(frame).not.toContain("###")
       expect(frame).toContain("Hardware:")
@@ -108,7 +119,7 @@ describe("markdown transcript rows", () => {
       appendStreamRow(shell, { role: "tool", text: "## not a heading" })
       appendStreamRow(shell, { role: "system", text: "**raw**" })
 
-      const frame = await settle(h)
+      const frame = await settle(h, (f) => f.includes("**raw**"))
       expect(frame).toContain("## not a heading")
       expect(frame).toContain("**raw**")
     }, WIDE)
@@ -123,7 +134,10 @@ describe("markdown transcript rows", () => {
         text: ["## Done", "", "```ts", "const partial = "].join("\n"),
       })
 
-      const frame = await settle(h)
+      const frame = await settle(
+        h,
+        (f) => f.includes("Done") && !f.includes("## Done") && f.includes("const partial ="),
+      )
       expect(frame).toContain("Done")
       expect(frame).not.toContain("## Done")
       expect(frame).toContain("const partial =")
@@ -143,7 +157,7 @@ describe("markdown transcript rows", () => {
       // literal text and the row paints the bare markers until the title's
       // first character lands. Held back instead, so the line's classification
       // cannot flip under text already on screen.
-      const frame = await settle(h)
+      const frame = await settle(h, (f) => f.includes("Some body text.") && !f.includes("####"))
       expect(frame).toContain("Some body text.")
       expect(frame).not.toContain("####")
 
@@ -152,7 +166,7 @@ describe("markdown transcript rows", () => {
         streaming: true,
         text: ["Some body text.", "", "#### Title"].join("\n"),
       })
-      const next = await settle(h)
+      const next = await settle(h, (f) => f.includes("Title") && !f.includes("#### Title"))
       expect(next).toContain("Title")
       expect(next).not.toContain("#### Title")
     }, WIDE)
@@ -240,7 +254,7 @@ describe("markdown transcript rows", () => {
         role: "assistant",
         text: ["### Title", "", "Here is the list:", "- alpha", "- beta"].join("\n"),
       })
-      const frame = await settle(h)
+      const frame = await settle(h, (f) => f.includes("alpha"))
       const lines = frame.split("\n").map((line) => line.trimEnd())
       const listLine = lines.findIndex((line) => line.includes("Here is the list:"))
       expect(listLine).toBeGreaterThan(-1)
@@ -257,7 +271,7 @@ describe("markdown transcript rows", () => {
         role: "assistant",
         text: ["### Steps", "", ...items].join("\n"),
       })
-      const frame = await settle(h)
+      const frame = await settle(h, (f) => f.includes("10. item 10"))
       expect(frame).toContain("1. item 1")
       expect(frame).toContain("10. item 10")
     }, WIDE)
@@ -290,7 +304,8 @@ describe("markdown transcript rows", () => {
       })
       // Warm up once: the first highlight pass in a process loads the
       // tree-sitter grammar and is not itself part of what this test samples.
-      const baseline = await settle(h).then(() => headingSpan(h))
+      await settle(h, () => headingSpan(h) !== null)
+      const baseline = headingSpan(h)
       expect(baseline).not.toBeNull()
 
       for (let i = 2; i <= full.length; i += 1) {
@@ -375,7 +390,10 @@ describe("markdown transcript rows", () => {
             "more prose streaming in",
           ].join("\n"),
         })
-        const frame = await settle(h)
+        const frame = await settle(
+          h,
+          (f) => f.includes("# this is a comment, not a heading") && f.includes("more prose streaming in"),
+        )
         expect(frame).toContain("# this is a comment, not a heading")
         expect(frame).toContain("echo hi")
         expect(frame).toContain("more prose streaming in")

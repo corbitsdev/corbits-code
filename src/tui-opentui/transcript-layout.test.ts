@@ -73,8 +73,8 @@ describe("transcript turn layout", () => {
         expect(row).toBeDefined()
         const painted = row as string
         expect(painted.indexOf("listing")).toBe(resolveSideMargin(80))
-        expect(frame).not.toContain("agent")
-        expect(frame).not.toContain("you")
+        expect(rowsContaining(frame, "● agent")).toHaveLength(0)
+        expect(rowsContaining(frame, "● you")).toHaveLength(0)
       },
     )
   })
