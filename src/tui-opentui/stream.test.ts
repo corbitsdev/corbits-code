@@ -368,3 +368,44 @@ describe("block labels", () => {
     expect(blockLabel(corbits, critic, CREW)).toBe("● critic")
   })
 })
+
+describe("sub-agent dispatch row marks", () => {
+  const dispatch = toolCallRow({
+    name: "task",
+    arguments: JSON.stringify({ description: "Review permission gate" }),
+  })
+
+  test("a bare pending call reads as the plain dot", () => {
+    expect(streamRowGutter(dispatch, SOLO).content).toContain("·")
+  })
+
+  test("an actively working dispatch reads distinctly from the plain dot", () => {
+    const working = { ...dispatch, agentWorking: true }
+    const gutter = streamRowGutter(working, SOLO).content
+    expect(gutter).toContain("◐")
+    expect(gutter).not.toContain("·")
+  })
+
+  test("a stalled dispatch reads distinctly from both working and plain pending", () => {
+    const stalled = { ...dispatch, agentWorking: false }
+    const gutter = streamRowGutter(stalled, SOLO).content
+    expect(gutter).toContain("!")
+    expect(gutter).not.toContain("◐")
+    expect(gutter).not.toContain("·")
+  })
+
+  test("elapsed time and current tool paint as the row's dim trailer", () => {
+    const working = { ...dispatch, agentWorking: true, stat: "0:42 · grep" }
+    const line = toolSentenceLines(working, 60)
+      .flat()
+      .map((s) => s.text)
+      .join("")
+    expect(line).toContain("0:42 · grep")
+  })
+
+  test("a resolved dispatch drops back to the plain done mark", () => {
+    const result = toolResultRow({ name: "task", content: "8 lines", isError: false })
+    const merged = mergeToolRows({ ...dispatch, agentWorking: true }, result)
+    expect(streamRowGutter(merged, SOLO).content).toContain("✓")
+  })
+})

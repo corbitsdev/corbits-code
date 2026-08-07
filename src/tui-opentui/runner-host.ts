@@ -239,6 +239,14 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
     onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
+    subAgentSessions: () =>
+      deps.subAgentSessions().map((s) => ({
+        id: s.id,
+        status: s.status,
+        currentToolName: s.currentToolName,
+        startedAt: s.startedAt,
+        lastActivityAt: s.lastActivityAt,
+      })),
     ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
     ...(deps.telemetryNotice !== undefined
       ? { telemetryNotice: deps.telemetryNotice }

@@ -128,6 +128,13 @@ export type StreamRow = {
   readonly verb?: string
   /** Diff stat or line range painted dim after the subject, e.g. "+1/-0". */
   readonly stat?: string
+  /**
+   * A dispatched sub-agent's row while its `task` call is still pending: true
+   * once it has reported activity within the stall window, false once the
+   * silence has run long enough to look hung rather than merely slow. Absent
+   * for every row that is not a live sub-agent dispatch.
+   */
+  readonly agentWorking?: boolean
 }
 
 /**
@@ -212,6 +219,10 @@ const MARK_OK = "✓"
 const MARK_FAILED = "×"
 /** A call still in flight has no verdict yet, and must not borrow one. */
 const MARK_PENDING = "·"
+/** A dispatched sub-agent actively reporting progress — distinct from the bare dot. */
+const MARK_AGENT_ACTIVE = "◐"
+/** A dispatched sub-agent gone quiet past the stall window. */
+const MARK_AGENT_STALLED = "!"
 
 /**
  * Glyphs are single-cell so nothing after them can slip out of the meta column.
@@ -268,7 +279,10 @@ export function blockLabel(
 /** Where a tool row stands: in flight, answered, or answered badly. */
 function toolMark(row: StreamRow): string {
   if (row.failed === true) return MARK_FAILED
-  return row.pending === true ? MARK_PENDING : MARK_OK
+  if (row.pending !== true) return MARK_OK
+  if (row.agentWorking === true) return MARK_AGENT_ACTIVE
+  if (row.agentWorking === false) return MARK_AGENT_STALLED
+  return MARK_PENDING
 }
 
 /**

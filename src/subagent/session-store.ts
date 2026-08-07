@@ -27,6 +27,10 @@ export type SubAgentSession = {
   currentToolName: string | null;
   entries: SubAgentTranscriptEntry[];
   startedAt: number;
+  // Clock of the last event this session recorded (a stream token, a tool
+  // start/end, a status change). Distinct from startedAt so the strip can
+  // tell a worker mid-turn from one that has gone silent.
+  lastActivityAt: number;
   finishedAt?: number;
   report?: string;
   error?: string;
@@ -159,6 +163,7 @@ export function createSubAgentSessionStore(
   const markCancelled = (session: SubAgentSession, reason: string): void => {
     session.status = "cancelled";
     session.finishedAt = now();
+    session.lastActivityAt = now();
     session.currentToolName = null;
     session.error = reason;
     pushEntry(session, {
@@ -223,6 +228,7 @@ export function createSubAgentSessionStore(
     const session = sessions.get(id);
     if (session === undefined) return;
     fn(session);
+    session.lastActivityAt = now();
     bumpRevision(id);
     notify();
   };
@@ -264,6 +270,7 @@ export function createSubAgentSessionStore(
         currentToolName: null,
         entries: [],
         startedAt: now(),
+        lastActivityAt: now(),
         ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
       };
       sessions.set(id, session);
@@ -470,6 +477,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     currentToolName: session.currentToolName,
     entries: session.entries.map(cloneEntry),
     startedAt: session.startedAt,
+    lastActivityAt: session.lastActivityAt,
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),

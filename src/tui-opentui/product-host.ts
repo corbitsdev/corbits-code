@@ -13,6 +13,7 @@ import { checkWidthContract, widthContractNotice } from "./width-contract.js"
 import {
   attachSessionBridge,
   type SessionBridge,
+  type TaskProgressSession,
   type TurnMonitorOptions,
 } from "./runtime-bridge.js"
 import { openModelPickerOverlay } from "./overlays.js"
@@ -105,6 +106,12 @@ export type ProductHostConfig = {
    * this to view real subagent sessions.
    */
   readonly onObserveRequest?: PaletteOnObserveRequest
+  /**
+   * Live sub-agent sessions read on the chrome poll cadence to refresh
+   * outstanding `task` rows with elapsed time, current tool, and stall state.
+   * Omitted hosts (tests, the demo shell) simply paint bare pending rows.
+   */
+  readonly subAgentSessions?: () => readonly TaskProgressSession[]
   /**
    * Renderer factory override for headless mounting in tests.
    * Defaults to the real `createCliRenderer`; tests inject a
@@ -299,6 +306,9 @@ export async function mountProductHost(
     if (disposed) return
     try {
       paintChrome(shell)
+      if (config.subAgentSessions !== undefined) {
+        bridge.syncAgentProgress(config.subAgentSessions())
+      }
     } catch {
       clearInterval(stickyPoll)
     }

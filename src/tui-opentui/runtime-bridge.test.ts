@@ -1,11 +1,12 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import {
   FIXTURE_BUSY_SESSION,
   attachSessionBridge,
   createRecordingPort,
   mapReactorLike,
+  type TaskProgressSession,
 } from "./runtime-bridge"
-import { createAppShell } from "./shell"
+import { appendStreamRow, createAppShell, streamRowCount } from "./shell"
 import { withTestRenderer } from "./harness"
 import { badgeCount } from "./session-queue"
 
@@ -591,6 +592,116 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
           expect(toolRows.every((r) => r.pending !== true)).toBe(true)
           expect(toolRows.every((r) => r.failed !== true)).toBe(true)
           expect(toolRows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"])
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("syncAgentProgress", () => {
+  function taskSession(over: Partial<TaskProgressSession>): TaskProgressSession {
+    return {
+      id: "task-1",
+      status: "running",
+      currentToolName: "grep",
+      startedAt: 0,
+      lastActivityAt: 0,
+      ...over,
+    }
+  }
+
+  test("updates the dispatch row in place without appending or removing rows", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        // Padding rows ahead of the dispatch: proves churn stays bounded by
+        // outstanding task calls, not by transcript length.
+        for (let i = 0; i < 40; i++) {
+          appendStreamRow(shell, { role: "assistant", text: `filler ${i}` })
+        }
+        let nowMs = 0
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+        })
+        try {
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "task",
+              callId: "task-1",
+              arguments: { description: "Review permission gate" },
+            },
+          })
+          await h.renderOnce()
+          const rowCountBefore = streamRowCount(shell)
+          const removeSpy = spyOn(shell.transcript, "remove")
+
+          nowMs = 42_000
+          bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })])
+          bridge.syncAgentProgress([
+            taskSession({ currentToolName: "grep", lastActivityAt: nowMs }),
+          ])
+
+          expect(streamRowCount(shell)).toBe(rowCountBefore)
+          // One rewrite per changed tick, never proportional to the 40 padding rows.
+          expect(removeSpy.mock.calls.length).toBeLessThanOrEqual(2)
+
+          const row = shell.streamLog[rowCountBefore - 1]!
+          expect(row.pending).toBe(true)
+          expect(row.agentWorking).toBe(true)
+          expect(row.stat).toContain("grep")
+
+          nowMs = 72_000
+          bridge.syncAgentProgress([
+            taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
+          ])
+          const stalledRow = shell.streamLog[rowCountBefore - 1]!
+          expect(stalledRow.agentWorking).toBe(false)
+
+          removeSpy.mockRestore()
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a finished session's row is left to the tool-result path", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "task",
+              callId: "task-1",
+              arguments: { description: "Review mouse/paste" },
+            },
+          })
+          bridge.handle({
+            type: "tool.done",
+            data: { result: { callId: "task-1", name: "task", content: "done", isError: false } },
+          })
+          const index = shell.streamLog.length - 1
+          bridge.syncAgentProgress([taskSession({ status: "done" })])
+          expect(shell.streamLog[index]!.pending).not.toBe(true)
+          expect(shell.streamLog[index]!.agentWorking).toBeUndefined()
         } finally {
           bridge.dispose()
           shell.dispose()
