@@ -30,6 +30,7 @@ import {
   type TextChunk,
 } from "@opentui/core"
 import { BoxRenderable, TextRenderable } from "@opentui/core"
+import pkg from "../../package.json" with { type: "json" }
 
 import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js"
 import { renderMark } from "./mark-anim.js"
@@ -49,6 +50,9 @@ const MARK_GAP_ROWS = 1
 /** Columns of air between the mark's right edge and the hint block. */
 export const LANDING_HERO_GAP = 3
 
+/** The running build, read from `package.json` so it cannot drift from what shipped. */
+export const LANDING_VERSION = `v${pkg.version}`
+
 /**
  * The two doors off the landing screen. Every other key lives behind one of
  * them, so this list never grows.
@@ -62,9 +66,9 @@ export const LANDING_HINTS: readonly {
 ]
 
 /** Columns the hint block needs, its longest line deciding. */
-export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
-  (widest, hint) => Math.max(widest, hint.key.length + 1 + hint.rest.length),
-  0,
+export const LANDING_HINT_WIDTH = Math.max(
+  LANDING_HINTS.reduce((widest, hint) => Math.max(widest, hint.key.length + 1 + hint.rest.length), 0),
+  LANDING_VERSION.length,
 )
 
 /** Largest first: the landing takes the best-reading mark its zone can seat. */
@@ -343,6 +347,14 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
       }),
     )
   })
+  block.add(
+    new TextRenderable(ctx, {
+      id: "shell-landing-version",
+      height: 1,
+      content: LANDING_VERSION,
+      fg: UI.textFaint,
+    }),
+  )
   return block
 }
 
@@ -352,7 +364,7 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
  */
 export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
   above.grid = grid
-  const rows = grid?.rows ?? LANDING_HINTS.length
+  const rows = grid?.rows ?? LANDING_HINTS.length + 1
   above.hero.height = rows
   above.markColumn.visible = grid !== null
   above.markColumn.width = grid?.cols ?? 0
