@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   createPruningCompactor,
+  compactorNoOpFloor,
   buildContextEnvelope,
   formatPlan,
   classifyTaskBoundary,
@@ -44,6 +45,30 @@ describe("createPruningCompactor", () => {
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(result.output).toBe(turns); // Same reference when no compaction needed
+  });
+
+  test("compactorNoOpFloor names the exact turn count apply() no-ops on", async () => {
+    // The compaction governor (agent/compaction.ts) derives its arming floor
+    // from this function so it never arms a compaction guaranteed to no-op.
+    // Anyone changing apply()'s no-op condition without updating
+    // compactorNoOpFloor accordingly breaks that guarantee silently.
+    const keepRecentTurns = 3;
+    const compactor = createPruningCompactor({ keepRecentTurns, summaryMaxChars: 500 });
+    const floor = compactorNoOpFloor(keepRecentTurns);
+
+    const atFloor = Array.from({ length: floor }, (_, i) =>
+      makeTurn({ role: i % 2 === 0 ? "user" : "assistant" }),
+    );
+    const pastFloor = Array.from({ length: floor + 1 }, (_, i) =>
+      makeTurn({ role: i % 2 === 0 ? "user" : "assistant" }),
+    );
+
+    expect((await compactor.apply(atFloor, mockStrategyCtx)).record.reason).toBe(
+      "no compaction needed",
+    );
+    expect((await compactor.apply(pastFloor, mockStrategyCtx)).record.reason).not.toBe(
+      "no compaction needed",
+    );
   });
 
   test("compacts old turns and preserves recent ones", async () => {

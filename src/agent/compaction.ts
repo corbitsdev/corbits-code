@@ -6,10 +6,16 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 import { compactionThresholdFor, contextTokensFromUsage } from "../provider/context-window.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
-const MIN_TURNS_TO_COMPACT = 6;
+// The exact turn count `createPruningCompactor` (session/compactor.ts) is
+// guaranteed to no-op on. Derived from the same keepRecentTurns both real
+// registrations (session, sub-agent) use, so this floor cannot silently
+// drift from what the compactor will actually do — arming at or below it
+// would spend a reactor cycle that shrinks nothing.
+const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
 const MAX_OVERFLOW_RECOVERIES = 2;
 
 // A compact action runs in its own reactor cycle, after which the reactor
@@ -55,10 +61,6 @@ export function createCompactionGovernor(
     return estimate.syncFromTurns(turns);
   }
 
-  // `createPruningCompactor` (session/compactor.ts) is the only layer that
-  // knows whether a history is actually shrinkable — it no-ops below its own
-  // keepRecentTurns floor. MIN_TURNS_TO_COMPACT mirrors that floor so the
-  // governor never arms a compaction the compactor is guaranteed to no-op.
   function isOverThreshold(contextTokens: number): boolean {
     return contextTokens > compactionThresholdFor(lastModel) && turnCount > MIN_TURNS_TO_COMPACT;
   }

@@ -8,14 +8,25 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor } from "./compaction.js";
 import { compactionThresholdFor } from "../provider/context-window.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 
 const capabilities = {
   infer: (options?: unknown) => ({ type: "infer", ...(options !== undefined ? { options } : {}) }),
   compact: (compactor: string, reason: string) => ({ type: "compact", compactor, reason }),
 } as unknown as ReactorCapabilities;
 
+// Distinct, non-zero cacheRead/cacheWrite so a test asserting on the total
+// would fail if compaction.ts ever stopped routing through the shared
+// contextTokensFromUsage and summed only `input` again.
 function usage(input: number): TokenUsage {
-  return { input, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 };
+  return { input, output: 0, cacheRead: 3, cacheWrite: 5, thinking: 0 };
+}
+
+// A provider that truly omits usage reports every field as zero, not just
+// `input` — distinct from usage(0), which still carries the fixture's
+// non-zero cache values above.
+function zeroUsage(): TokenUsage {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 };
 }
 
 function turnsOfLength(count: number, textLength: number): ConversationTurn[] {
@@ -39,7 +50,7 @@ function inferenceDoneWithoutUsage(): Extract<ReactorInboundEvent, { type: "infe
   return {
     type: "inference.done",
     turn: { role: "assistant", content: [{ type: "text", text: "ok" }] },
-    usage: usage(0),
+    usage: zeroUsage(),
     source: { sourceId: "s", provider: "p", model: "m" },
   } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
 }
@@ -280,5 +291,44 @@ describe("compaction governor", () => {
     const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
     expect(actions).not.toBeNull();
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("never arms at the exact turn count createPruningCompactor no-ops on", () => {
+    // createPruningCompactor's own no-op floor (session/compactor.ts) is
+    // compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS). Arming at or below it
+    // would spend a reactor cycle that is guaranteed to shrink nothing.
+    const floor = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(floor, 1));
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
+  test("arms one turn past the floor createPruningCompactor no-ops on", () => {
+    const floor = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(floor + 1, 1));
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("does not catch a huge tool result mid-cycle when the provider reported real usage", () => {
+    // Disclosed, accepted gap: the live tool.done re-check only re-derives
+    // arming from the local estimate when the last inference.done snapshot
+    // came from that same estimate (usingEstimate). When the provider
+    // reported real usage under threshold, that snapshot is trusted as
+    // authoritative until the next inference.done — a huge tool result
+    // arriving in between is not caught until then, unlike the
+    // usage-omitted case covered above.
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    const overThresholdChars = (compactionThresholdFor("m") + 1) * 4;
+    governor.syncFromTurns(turnsOfLength(10, Math.ceil(overThresholdChars / 10)));
+
+    // Still null: the live estimate is now over threshold, but the last
+    // arming decision trusted reported usage, so it is not re-checked here.
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
   });
 });

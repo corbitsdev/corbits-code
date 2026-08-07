@@ -217,6 +217,19 @@ const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   stripResultContent: false,
 };
 
+// Recent turns kept verbatim by both real pruning-compactor registrations
+// (the main session and sub-agents). Exported so callers that need to know
+// in advance whether a compaction would do anything — the compaction
+// governor's arming floor — derive it from this value instead of carrying
+// an independent literal that can silently drift out of sync.
+export const COMPACTOR_KEEP_RECENT_TURNS = 6;
+
+// `apply` below no-ops at or below this turn count: keeping `keepRecentTurns`
+// turns plus at least one more is what makes pruning worth doing at all.
+export function compactorNoOpFloor(keepRecentTurns: number): number {
+  return keepRecentTurns + 1;
+}
+
 // Minimum anchor score for a turn to be pulled forward past the summary boundary.
 const ANCHOR_SCORE_THRESHOLD = 5;
 
@@ -425,7 +438,7 @@ export function createPruningCompactor(
       // leave the inference-facing context as soon as they exit the recent window.
       const aged = await ageImagesOutsideRecentWindow(turns, cfg.keepRecentTurns);
 
-      if (aged.turns.length <= cfg.keepRecentTurns + 1) {
+      if (aged.turns.length <= compactorNoOpFloor(cfg.keepRecentTurns)) {
         return {
           output: aged.turns,
           record: {
