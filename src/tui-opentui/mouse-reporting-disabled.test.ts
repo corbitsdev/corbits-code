@@ -22,7 +22,12 @@ const mountedHarnesses: Harness[] = []
 // helpers) does a real `@opentui/core` import, or that import wins the module
 // cache and the mock never takes effect. Every dependency below is loaded
 // with a dynamic `import()` after `mock.module` for that reason.
-const realCore = await import("@opentui/core")
+//
+// Bun mutates the imported namespace object in place when a module is
+// mocked, so the capture is shallow-copied immediately -- holding onto the
+// live namespace would turn into the mocked exports the moment mock.module
+// below runs, making the afterAll restore below a no-op.
+const realCore = { ...(await import("@opentui/core")) }
 
 mock.module("@opentui/core", () => ({
   ...realCore,

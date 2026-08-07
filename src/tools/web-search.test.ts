@@ -1,9 +1,19 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const calls: { toolName: string; args: Record<string, unknown> }[] = [];
 let connectConfigs: { name: string; url?: string }[] = [];
 
+// Bun mutates the imported namespace object in place when a module is
+// mocked, so the capture is shallow-copied immediately -- holding onto the
+// live namespace would turn into the mocked exports as soon as mock.module
+// below runs, making the afterAll restore a no-op. The mock also needs to
+// spread the real module rather than replace it outright, or any other
+// export (unwrapToolContent, connectMCPServers) disappears for the rest of
+// the process for every file that runs after this one.
+const realClient = { ...(await import("../mcp/client.js")) };
+
 mock.module("../mcp/client.js", () => ({
+  ...realClient,
   connectMCPServer: async (config: { name: string; url?: string }) => {
     connectConfigs.push(config);
     return {
@@ -20,6 +30,10 @@ mock.module("../mcp/client.js", () => ({
     };
   },
 }));
+
+afterAll(() => {
+  mock.module("../mcp/client.js", () => realClient);
+});
 
 const {
   createWebSearchTool,

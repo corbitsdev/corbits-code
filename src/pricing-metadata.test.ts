@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +15,14 @@ import { contextWindowFor } from "./provider/context-window.js";
 import { writePricingCache } from "./cost/pricing-fetcher.js";
 
 describe("pricing-metadata", () => {
+  // refreshScheduled is a module-level one-shot latch shared with every other
+  // file in this process; another file's real loadConfig() call can leave it
+  // set before this file's first test ever runs. Reset on both sides so this
+  // suite's outcome does not depend on what ran before it.
+  beforeEach(() => {
+    resetPricingMetadataRefreshForTests();
+  });
+
   afterEach(() => {
     resetPricingMetadataRefreshForTests();
     applyPricingCacheMetadata(null);

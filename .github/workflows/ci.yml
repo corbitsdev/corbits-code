@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    # Nightly, a fresh seed each run -- the fixed-seed step above only ever
+    # exercises one shuffle of the suite, so a leak that this particular
+    # order does not disturb would otherwise stay invisible forever.
+    - cron: "17 7 * * *"
 
 jobs:
   check:
@@ -41,3 +46,40 @@ jobs:
       # inference package (vendor/) is out of scope for this repo's CI.
       - name: Test
         run: bun run test
+
+      # Catches tests that only pass because of the default file order (shared
+      # module-level state, an unrestored global mock, a leaked env var). The
+      # seed is fixed so a failure here reproduces locally with the same flag.
+      - name: Test (randomized order)
+        run: bun test ./src ./tests ./evals --randomize --seed 424242
+
+  randomize-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # A fresh seed every run, printed up front so a failure here reproduces
+      # locally with the exact same `--seed` regardless of which shuffle hit it.
+      - name: Test (fresh random seed)
+        run: |
+          seed=$RANDOM$RANDOM
+          echo "seed=$seed"
+          bun test ./src ./tests ./evals --randomize --seed "$seed"
