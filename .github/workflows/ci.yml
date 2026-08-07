@@ -41,3 +41,9 @@ jobs:
       # inference package (vendor/) is out of scope for this repo's CI.
       - name: Test
         run: bun run test
+
+      # Catches tests that only pass because of the default file order (shared
+      # module-level state, an unrestored global mock, a leaked env var). The
+      # seed is fixed so a failure here reproduces locally with the same flag.
+      - name: Test (randomized order)
+        run: bun test ./src ./tests ./evals --randomize --seed 424242

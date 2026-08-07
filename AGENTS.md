@@ -33,6 +33,7 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 - Add or update tests with every behavior change.
 - Bug fixes start with a failing test that reproduces the bug. Do not start by patching.
 - `tests/unit/` shared unit tests and helpers · co-located `src/**/*.test.ts` for module logic · `tests/fixtures/` fixture repos · `tests/integration/` reactor/permission harness. Planned: `tests/e2e/` (fixture-repo runs).
+- A test must not depend on another file having run, or on the default file order. It must pass under `bun test ./src ./tests ./evals --randomize`. If a test mutates module-level state or calls `mock.module`, it must restore that state itself (`afterEach`/`afterAll`), not rely on the process happening to reset it. When capturing a module's real exports to restore later, shallow-copy them at capture time (`{ ...(await import(path)) }`) — Bun mutates the live namespace object in place when the module is mocked, so holding a bare reference to it silently turns into the mocked exports.
 
 ## Build & Validation
 
