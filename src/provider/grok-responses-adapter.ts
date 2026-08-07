@@ -15,7 +15,7 @@ import {
   XAI_CLIENT_VERSION,
   XAI_USER_AGENT,
 } from "../auth/xai/constants.js";
-import { createResponsesBlockIndexer, parseResponse } from "./codex-responses-adapter.js";
+import { createResponsesBlockIndexer, parseResponse, signatureForModel } from "./codex-responses-adapter.js";
 
 // Adapter for the grok-cli OAuth proxy (cli-chat-proxy.grok.com), which serves
 // the OpenAI Responses API at /v1/responses. The request shape mirrors the grok
@@ -52,7 +52,7 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
 // Map one internal turn to Responses items. Text-only messages keep the string
 // shape grok sends; messages with image blocks switch to Responses content parts
 // so the model receives the actual pixels instead of only a text placeholder.
-function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
+function toResponsesItems(turn: ConversationTurn, requestModel: string): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const role = turn.role;
   const parts: ResponsesInputContentPart[] = [];
@@ -95,7 +95,10 @@ function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
       flushMessage();
-      items.push({ type: "reasoning", summary: [], encrypted_content: block.signature });
+      const encryptedContent = signatureForModel(turn, requestModel, block.signature);
+      if (encryptedContent !== undefined) {
+        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+      }
     }
   }
   flushMessage();
@@ -135,7 +138,7 @@ function buildRequest(
   model: string,
   options: InferenceOptions,
 ): BuiltRequest {
-  const conversation = dedupeToolOutputs(messages.flatMap(toResponsesItems));
+  const conversation = dedupeToolOutputs(messages.flatMap((turn) => toResponsesItems(turn, model)));
   const systemMessage: ResponsesInputItem | undefined =
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }

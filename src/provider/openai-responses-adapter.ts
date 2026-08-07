@@ -13,6 +13,7 @@ import {
   createResponsesBlockIndexer,
   isResponsesStreamTerminal,
   parseResponse,
+  signatureForModel,
 } from "./codex-responses-adapter.js";
 
 // Generic OpenAI Responses API adapter (POST /responses). Used by OpenCode Go
@@ -41,7 +42,7 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
   return parts.join("");
 }
 
-function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
+function toResponsesItems(turn: ConversationTurn, requestModel: string): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const role = turn.role;
   const parts: ResponsesInputContentPart[] = [];
@@ -90,7 +91,10 @@ function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
       flushMessage();
-      items.push({ type: "reasoning", summary: [], encrypted_content: block.signature });
+      const encryptedContent = signatureForModel(turn, requestModel, block.signature);
+      if (encryptedContent !== undefined) {
+        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+      }
     }
   }
   flushMessage();
@@ -125,7 +129,7 @@ function buildRequest(
   model: string,
   options: InferenceOptions,
 ): BuiltRequest {
-  const conversation = dedupeToolOutputs(messages.flatMap(toResponsesItems));
+  const conversation = dedupeToolOutputs(messages.flatMap((turn) => toResponsesItems(turn, model)));
   const systemMessage: ResponsesInputItem | undefined =
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }

@@ -56,14 +56,27 @@ type ResponsesInputItem =
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
 
+// A thinking block's `signature` is opaque ciphertext a specific backend
+// issued for a specific model; only that backend can decrypt it. `turn.model`
+// records which model produced the turn, so comparing it against the model
+// this request is being built for is enough provenance to tell whether a
+// signature is safe to replay — no separate provenance field is needed.
+// Switching models means turns from the old model simply stop qualifying, so
+// a poisoned history self-heals on the very next request instead of being
+// replayed forever.
+export function signatureForModel(turn: ConversationTurn, requestModel: string, signature: string): string | undefined {
+  return turn.model === requestModel ? signature : undefined;
+}
+
 // Map one internal turn to zero or more Responses items. Assistant text uses
 // `output_text` parts; user/system text uses `input_text`. Tool calls become
 // `function_call` items (arguments serialized to a JSON string) and tool
 // results become `function_call_output` items. Reasoning blocks are echoed
 // back only when they carry the opaque `encrypted_content` the backend issued
-// (held in a thinking block's signature), which is required for multi-turn
-// reasoning continuity.
-function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
+// (held in a thinking block's signature) AND that backend is the one this
+// request is going to — replaying it to a different provider gets a 400 it
+// cannot recover from.
+function toResponsesItems(turn: ConversationTurn, requestModel: string): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const textKind: "input_text" | "output_text" = turn.role === "assistant" ? "output_text" : "input_text";
   const textParts: ResponsesContentPart[] = [];
@@ -99,7 +112,10 @@ function toResponsesItems(turn: ConversationTurn): ResponsesInputItem[] {
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
       flushText();
-      items.push({ type: "reasoning", summary: [], encrypted_content: block.signature });
+      const encryptedContent = signatureForModel(turn, requestModel, block.signature);
+      if (encryptedContent !== undefined) {
+        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+      }
     }
   }
   flushText();
@@ -154,7 +170,7 @@ function buildRequest(
   model: string,
   options: InferenceOptions,
 ): BuiltRequest {
-  const conversation = messages.flatMap(toResponsesItems);
+  const conversation = messages.flatMap((turn) => toResponsesItems(turn, model));
   // Corbits Code's prompt cannot live in `instructions` (the backend pins that to
   // the official Codex prompt), so it leads the input as a developer message.
   const input =

@@ -110,6 +110,7 @@ describe("codex-responses buildRequest", () => {
       userTurn("solve the hard problem"),
       {
         role: "assistant",
+        model: "gpt-5-codex",
         timestamp: 0,
         content: [
           { type: "thinking", thinking: "internal steps...", signature: "ENC_BLOB_123" },
@@ -123,6 +124,48 @@ describe("codex-responses buildRequest", () => {
       { type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
     ]);
+  });
+
+  test("drops a reasoning signature issued for a different model after a provider switch", () => {
+    // The signature was minted by grok-4.5; the request now targets a Codex
+    // model. Replaying it would 400 with an undecryptable-content error, so
+    // the reasoning item must be omitted while the surrounding turn survives.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "grok-4.5",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: "FOREIGN_BLOB" },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "solve the hard problem" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
+    ]);
+  });
+
+  test("recovers an already-poisoned session: a foreign signature is dropped on every subsequent request", () => {
+    const poisonedHistory: ConversationTurn[] = [
+      userTurn("turn 1"),
+      {
+        role: "assistant",
+        model: "grok-4.5",
+        timestamp: 0,
+        content: [{ type: "thinking", thinking: "...", signature: "FOREIGN_BLOB" }, { type: "text", text: "ok" }],
+      },
+      userTurn("turn 2"),
+    ];
+    const firstRetry = JSON.parse(adapter().buildRequest(poisonedHistory, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    const secondRetry = JSON.parse(adapter().buildRequest(poisonedHistory, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    for (const body of [firstRetry, secondRetry]) {
+      const input = body["input"] as Array<Record<string, unknown>>;
+      expect(input.some((item) => item["type"] === "reasoning")).toBe(false);
+    }
   });
 
   test("omits the account-id header when no account id is supplied", () => {
