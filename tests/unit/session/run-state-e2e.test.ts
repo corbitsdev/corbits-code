@@ -12,10 +12,12 @@ import { saveState, loadState, type RunState } from "../../../src/session/state.
 
 // End-to-end coverage for the run.json turn-boundary snapshot fix (CL-5534):
 // createRunSink, saveState, and loadState run for real against a temp
-// session directory — nothing mocked. This is what now covers
-// isRunSnapshotTurnBoundary's observable effect, since that predicate was
-// un-exported from src/tui/runner.ts as a testability-only surface with a
-// single production caller.
+// session directory — nothing mocked. The snapshot cadence itself now lives
+// in createRunSink's onTurnBoundarySnapshot callback (moved out of
+// src/tui/runner.ts so a future renderer swap cannot silently drop it
+// again), so these tests drive that callback exactly as production wiring
+// does: nothing here calls saveState directly from the turn loop, only from
+// inside onTurnBoundarySnapshot.
 
 const noopHookManager = { dispatchPostTurn: () => undefined, getStatuses: () => [] };
 
@@ -48,18 +50,28 @@ describe("run.json turn-boundary snapshots — end to end", () => {
     const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
     const sessionId = generateSessionId();
     try {
-      const runSink = createRunSink({ emitter: new EventEmitter(), hookManager: noopHookManager });
-
+      const writes: Promise<void>[] = [];
       const observed: number[] = [];
+      const runSink = createRunSink({
+        emitter: new EventEmitter(),
+        hookManager: noopHookManager,
+        onTurnBoundarySnapshot: () => {
+          observed.push(runSink.getTurnCount());
+          writes.push(saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home));
+        },
+      });
+
       for (let turn = 1; turn <= 4; turn++) {
         runSink.sink(inferenceDone());
-        await saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home);
-        const onDisk = await loadState(cwd, sessionId, home);
-        expect(onDisk).not.toBeNull();
-        observed.push(onDisk!.turnsUsed);
       }
+      await Promise.all(writes);
 
+      // The snapshot callback must fire once per turn, not just once at the
+      // end — that's the regression this test guards against.
       expect(observed).toEqual([1, 2, 3, 4]);
+
+      const onDisk = await loadState(cwd, sessionId, home);
+      expect(onDisk?.turnsUsed).toBe(4);
 
       runSink.sink({ type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent);
       await saveState(
@@ -82,16 +94,21 @@ describe("run.json turn-boundary snapshots — end to end", () => {
     const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
     const sessionId = generateSessionId();
     try {
-      const runSink = createRunSink({ emitter: new EventEmitter(), hookManager: noopHookManager });
-
-      // Fire all 20 turns and their snapshot writes back to back, with no
-      // await between them — the per-session writeChains promise chain in
-      // src/session/state.ts is what keeps these ordered rather than the
-      // caller awaiting each one before starting the next.
       const writes: Promise<void>[] = [];
+      const runSink = createRunSink({
+        emitter: new EventEmitter(),
+        hookManager: noopHookManager,
+        onTurnBoundarySnapshot: () => {
+          writes.push(saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home));
+        },
+      });
+
+      // Fire all 20 turns back to back, with no await between them — the
+      // per-session writeChains promise chain in src/session/state.ts is what
+      // keeps the resulting writes ordered, not the caller awaiting each one
+      // before starting the next.
       for (let turn = 1; turn <= 20; turn++) {
         runSink.sink(inferenceDone());
-        writes.push(saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home));
       }
       await Promise.all(writes);
 
@@ -109,18 +126,24 @@ describe("run.json turn-boundary snapshots — end to end", () => {
     const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
     const sessionId = generateSessionId();
     try {
-      const runSink = createRunSink({ emitter: new EventEmitter(), hookManager: noopHookManager });
-      runSink.sink(inferenceDone());
+      let runningWrite: Promise<void> | undefined;
+      const runSink = createRunSink({
+        emitter: new EventEmitter(),
+        hookManager: noopHookManager,
+        onTurnBoundarySnapshot: () => {
+          runningWrite = saveState(
+            cwd,
+            sessionId,
+            baseState({ status: "running" }, runSink.getTurnCount()),
+            home,
+          );
+        },
+      });
 
-      // Issue a "running" progress snapshot but do not await it before
-      // issuing the terminal "done" write right behind it — this models a
+      // The turn-boundary snapshot fires and is left un-awaited before the
+      // terminal "done" write follows right behind it — this models a
       // straggler turn-boundary snapshot racing the close-out write.
-      const runningWrite = saveState(
-        cwd,
-        sessionId,
-        baseState({ status: "running" }, runSink.getTurnCount()),
-        home,
-      );
+      runSink.sink(inferenceDone());
       runSink.sink({ type: "reactor.done", data: {} } as unknown as ReactorEmittedEvent);
       const doneWrite = saveState(
         cwd,

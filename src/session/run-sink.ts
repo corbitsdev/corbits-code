@@ -23,6 +23,17 @@ export type RunSinkArgs = {
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number;
+  // Fired at every turn boundary so a caller can persist a mid-run run.json
+  // snapshot. `inference.done` is the turn boundary every reactor cycle
+  // guarantees; `reactor.done` fires once, at shutdown, and never between
+  // turns of a long-lived interactive session. Keying the mid-run snapshot
+  // off `reactor.done` left turnsUsed frozen at its resume-time value for
+  // the entire session — a live monorepo session showed turnsUsed: 0 with
+  // dozens of turns already in the turns log. This cadence lives here,
+  // alongside the turn count it reports, rather than in a second
+  // subscription to the same event stream in a renderer: the renderer has
+  // already been swapped out from under this constraint three times.
+  onTurnBoundarySnapshot?: () => void;
 };
 
 export type RunSink = {
@@ -70,7 +81,7 @@ export function resolveExecRunStatus(args: {
 }
 
 export function createRunSink(args: RunSinkArgs): RunSink {
-  const { emitter, hookManager, onTurnComplete, initialTurnCount } = args;
+  const { emitter, hookManager, onTurnComplete, initialTurnCount, onTurnBoundarySnapshot } = args;
 
   function hasConfiguredHooks(): boolean {
     return hookManager.getStatuses().length > 0;
@@ -115,6 +126,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     // would mark a recovered successful send as failed.
     if (onTurnBoundary(event)) {
       runError = undefined;
+      onTurnBoundarySnapshot?.();
     }
     if (event.type === "reactor.error") {
       const data = event.data as { error: string };

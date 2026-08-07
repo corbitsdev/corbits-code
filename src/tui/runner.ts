@@ -207,18 +207,6 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
-// `inference.done` is the turn boundary every reactor cycle guarantees;
-// `reactor.done` fires once, at shutdown, and never between turns of a
-// long-lived interactive session. Keying the mid-run run.json snapshot off
-// `reactor.done` left turnsUsed frozen at its resume-time value for the
-// entire session — a live monorepo session showed turnsUsed: 0 with dozens
-// of turns already in the turns log. The terminal write on close still goes
-// through writeRunSnapshot directly with the real final status, so this
-// only needs to cover progress snapshots taken while the run is live.
-function isRunSnapshotTurnBoundary(eventType: string): boolean {
-  return eventType === "inference.done";
-}
-
 /** One-line transcript block when resume history fails to load. */
 export function resumeTranscriptLoadErrorBlock(err: unknown): {
   type: "error";
@@ -1399,6 +1387,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         duration_ms: ctx.durationMs,
       });
     },
+    // persistRunSnapshot is defined below but not invoked until the stream
+    // starts consuming events, well after this closure captures it.
+    onTurnBoundarySnapshot: () => {
+      void persistRunSnapshot("running");
+    },
   });
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
@@ -1452,9 +1445,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
     cycleRecorder.handleEvent(event);
-    if (isRunSnapshotTurnBoundary(event.type)) {
-      void persistRunSnapshot("running");
-    }
   };
 
   // Tool count before any MCP server connects; a reload is only worthwhile if
