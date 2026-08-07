@@ -39,10 +39,14 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 ```bash
 bun run typecheck
 bun run build
-bun test
+bun run test
 ```
 
 Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
+
+`bun run test` runs `bun test ./src ./tests ./evals`. A bare `bun test` also
+scans `vendor/`, adding hundreds of unrelated results and making pass/fail
+counts meaningless to compare across branches — always use `bun run test`.
 
 ## Commits
 
