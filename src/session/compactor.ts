@@ -204,17 +204,12 @@ export type CompactorConfig = {
   // errors) before the summary stub. Pulled from the end of the older set
   // so the most-recent anchors survive.
   maxAnchorTurns: number;
-  // When true, replace tool_result content in every kept turn with a
-  // one-line stub. Safe at compaction time because the cache is already
-  // cold from the compaction event itself.
-  stripResultContent: boolean;
 };
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   keepRecentTurns: 5,
   summaryMaxChars: 2000,
   maxAnchorTurns: 8,
-  stripResultContent: false,
 };
 
 // Recent turns kept verbatim by both real pruning-compactor registrations
@@ -232,33 +227,6 @@ export function compactorNoOpFloor(keepRecentTurns: number): number {
 
 // Minimum anchor score for a turn to be pulled forward past the summary boundary.
 const ANCHOR_SCORE_THRESHOLD = 5;
-
-// Tool name → path argument, used to build readable stubs.
-type ToolCallInfo = {
-  name: string;
-  pathArg?: string;
-  commandArg?: string;
-};
-
-// Build a callId → tool info index from the full turn list so the strip
-// function can produce named stubs without searching across turns.
-function buildCallIndex(turns: ConversationTurn[]): Map<string, ToolCallInfo> {
-  const index = new Map<string, ToolCallInfo>();
-  for (const turn of turns) {
-    for (const block of turn.content) {
-      if (block.type !== "tool_call") continue;
-      const info: ToolCallInfo = { name: block.name };
-      const args = block.arguments;
-      if (typeof args === "object" && args !== null) {
-        const a = args as Record<string, unknown>;
-        if (typeof a["path"] === "string") info.pathArg = a["path"];
-        if (typeof a["command"] === "string") info.commandArg = a["command"];
-      }
-      index.set(block.id, info);
-    }
-  }
-  return index;
-}
 
 // Locate the turn index of each tool_call and its matching tool_result. In this
 // runtime a call lives on one turn and its result on the following turn, so the
@@ -307,39 +275,6 @@ function firstUserTurnIndex(turns: ConversationTurn[]): number {
 
 function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
-}
-
-function buildResultStub(
-  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
-  callIndex: Map<string, ToolCallInfo>,
-): string {
-  const info = callIndex.get(block.callId);
-  const name = info?.name ?? "tool_result";
-  const size = resultContentSize(block);
-  if (info?.pathArg !== undefined) {
-    const path = info.pathArg;
-    const spillHint =
-      path.startsWith("tool-output://") ? " Re-read with read_file offset/limit or grep on that URI." : "";
-    return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
-  }
-  if (info?.commandArg !== undefined) {
-    const cmd = info.commandArg.slice(0, 40);
-    return `[${name} "${cmd}" — ${size} chars, omitted]`;
-  }
-  return `[${name} — ${size} chars, omitted]`;
-}
-
-// Replace tool_result content with a one-line stub. Errors are kept in full
-// because they may describe constraints the model still needs to respect.
-function stripTurnResults(
-  turn: ConversationTurn,
-  callIndex: Map<string, ToolCallInfo>,
-): ConversationTurn {
-  const content = turn.content.map((block): ConversationTurn["content"][number] => {
-    if (block.type !== "tool_result" || block.isError === true) return block;
-    return { ...block, content: [{ type: "text", text: buildResultStub(block, callIndex) }] };
-  });
-  return { ...turn, content };
 }
 
 // True when a turn carries no tool_call/tool_result blocks.
@@ -429,7 +364,7 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.1.0",
+    version: "1.2.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -454,8 +389,6 @@ export function createPruningCompactor(
           ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
         };
       }
-
-      const callIndex = buildCallIndex(aged.turns);
 
       const keepCount = Math.min(cfg.keepRecentTurns, aged.turns.length - 1);
       const keepFrom = aged.turns.length - keepCount;
@@ -513,15 +446,17 @@ export function createPruningCompactor(
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
-      const process = (t: ConversationTurn): ConversationTurn =>
-        cfg.stripResultContent ? stripTurnResults(t, callIndex) : t;
-
-      // Anchors are already image-aged (outside the recent window). Recent
-      // turns keep live base64 so a just-pasted screenshot still reaches the model.
+      // Anchors and recent turns are exactly what compaction chose to keep —
+      // pulling a turn forward and then hollowing out its tool_result defeats
+      // the reason it was kept. Only summarizedTurns lose their content, and
+      // they lose it wholesale (folded into `summary` above), not stubbed
+      // in place. Anchors are already image-aged (outside the recent window).
+      // Recent turns keep live base64 so a just-pasted screenshot still
+      // reaches the model.
       const output = coalesceAdjacentTextTurns([
         summaryTurn,
-        ...anchorTurns.map(process),
-        ...recentTurns.map(process),
+        ...anchorTurns,
+        ...recentTurns,
       ]);
 
       return {
@@ -533,7 +468,6 @@ export function createPruningCompactor(
             keepRecentTurns: cfg.keepRecentTurns,
             summaryMaxChars: cfg.summaryMaxChars,
             maxAnchorTurns: cfg.maxAnchorTurns,
-            stripResultContent: cfg.stripResultContent,
           },
           reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${keepCount} recent`,
           decisions: {
