@@ -14,8 +14,17 @@ import type {
   PermissionRequest,
 } from "../permission/types.js"
 import type { AppShell, OverlaySelection } from "./shell.js"
-import { appendStreamRow, onOverlayClosed, setOverlayBody } from "./shell.js"
+import {
+  appendStreamRow,
+  closeInsetOverlay,
+  onOverlayClosed,
+  setOverlayBody,
+} from "./shell.js"
 import { EXPAND_KEY } from "./stream.js"
+import type {
+  OperatorGateEvent,
+  PermissionGateEvent,
+} from "../tui/gate-events.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
@@ -218,17 +227,6 @@ function recordDecision(
   appendStreamRow(shell, { role: "system", text, meta: "permission" })
 }
 
-type PermissionGateEvent = {
-  request: PermissionRequest
-  resolve: (outcome: ApprovalOutcome) => void
-}
-
-type OperatorGateEvent = {
-  question: string
-  options: string[]
-  resolve: (result: OperatorResult) => void
-}
-
 /**
  * Subscribe the permission/operator gate events to the shell's overlays.
  * Returns a dispose function that removes exactly the listeners this call added.
@@ -264,6 +262,8 @@ export function wireGates(
     const collapsedAnything =
       formatCommandForApproval(ev.request.subject).payloadCount > 0
     let expanded = false
+    let settled = false
+    let isOpen = false
 
     const onToggleExpand = (): void => {
       expanded = !expanded
@@ -283,20 +283,65 @@ export function wireGates(
       })
     }
 
-    openOrQueue(() => openPermissionsOverlay(shell, {
-      items: choices.items,
-      itemIds: choices.itemIds,
-      body: collapsedBody,
-      ...(collapsedAnything ? { onToggleExpand } : {}),
-      onAccept: (sel: OverlaySelection) => {
-        const gateSelection = {
-          index: sel.index,
-          ...(sel.id !== undefined ? { id: sel.id } : {}),
-        }
-        recordDecision(shell, ev.request, choices, gateSelection)
-        ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
-      },
-    }))
+    const open = (): void => {
+      isOpen = true
+      openPermissionsOverlay(shell, {
+        items: choices.items,
+        itemIds: choices.itemIds,
+        body: collapsedBody,
+        ...(collapsedAnything ? { onToggleExpand } : {}),
+        onAccept: (sel: OverlaySelection) => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          const gateSelection = {
+            index: sel.index,
+            ...(sel.id !== undefined ? { id: sel.id } : {}),
+          }
+          recordDecision(shell, ev.request, choices, gateSelection)
+          ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
+        },
+      })
+    }
+
+    // Watchdog abort (tool budget expired / parent run cancelled) and the
+    // goal-mode timeout both race an operator who may never answer — each
+    // must resolve the gate itself rather than leave the overlay (or the
+    // queued open) parked forever. autoDeny wins the race exactly once:
+    // whichever fires first tears down the other and, if the overlay is
+    // already on screen for this gate, closes it so nothing stale lingers.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const clearTimers = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      ev.signal?.removeEventListener("abort", onAbort)
+    }
+    const autoDeny = (message: string): void => {
+      if (settled) return
+      settled = true
+      clearTimers()
+      if (isOpen) {
+        closeInsetOverlay(shell)
+      } else {
+        const idx = pending.indexOf(open)
+        if (idx >= 0) pending.splice(idx, 1)
+      }
+      ev.resolve({ allow: false, message })
+    }
+    function onAbort(): void {
+      autoDeny("tool no longer running; permission request denied")
+    }
+    if (ev.timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        autoDeny(ev.timeoutMessage ?? "approval timed out; request denied")
+      }, ev.timeoutMs)
+    }
+    if (ev.signal?.aborted === true) {
+      autoDeny("tool no longer running; permission request denied")
+      return
+    }
+    ev.signal?.addEventListener("abort", onAbort, { once: true })
+
+    openOrQueue(open)
   }
 
   function onOperator(ev: OperatorGateEvent): void {
