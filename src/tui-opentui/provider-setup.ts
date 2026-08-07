@@ -645,13 +645,20 @@ export async function runProviderSetup(
   })
 
   function listHeight(): number {
-    // Fixed chrome above the list: root padding, header, intro, step,
-    // instruction, one populated summary row, and the list box's own
-    // padding — plus the footer below it, and slack for a long label
-    // wrapping onto a second terminal row. A tighter budget than the old
-    // flat -14 so the list actually uses the room a short terminal leaves it
-    // instead of reserving rows nothing else needs and sitting short.
-    const chromeRows = 12
+    // Every row root carries besides listBox itself, during the steps where
+    // the list is shown (provider pick, or model pick for preset/oauth):
+    // loginBox and inputFrame are hidden then, so they cost nothing.
+    const singleLineRows = 7 // header, intro, step, instruction, statusLine, guidance, footer
+    const rootPadding = 1
+    const listBoxPadding = 1
+    // summary always renders one row per step in the active flow (values
+    // filled in as "done", the rest as "—"); PRESET_STEPS and OAUTH_STEPS
+    // are the only flows whose model/provider steps show the list, and both
+    // are the same length today, so take the max in case that changes.
+    const summaryRows = 1 + Math.max(PRESET_STEPS.length, OAUTH_STEPS.length)
+    const telemetryRows = config.showTelemetryNotice ? 1 + TELEMETRY_ROWS : 0
+    const chromeRows =
+      rootPadding + singleLineRows + summaryRows + listBoxPadding + telemetryRows
     const rows = renderer.height || 24
     return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - chromeRows))
   }
