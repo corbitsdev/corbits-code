@@ -1,9 +1,12 @@
 import { test, expect, describe } from "bun:test";
 import {
   createCodexResponsesAdapter,
+  tagSignature,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
+  CODEX_RESPONSES_PROVIDER,
 } from "../../src/provider/codex-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER } from "../../src/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
@@ -113,7 +116,7 @@ describe("codex-responses buildRequest", () => {
         model: "gpt-5-codex",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "internal steps...", signature: "ENC_BLOB_123" },
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB_123") },
           { type: "text", text: "The answer is 42." },
         ],
       },
@@ -124,6 +127,28 @@ describe("codex-responses buildRequest", () => {
       { type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
     ]);
+  });
+
+  test("a second account on the same provider still replays the signature", () => {
+    // codex/personal and codex/work are two ChatGPT accounts routed through the
+    // same Codex backend (same provider, different InferenceSource.id). The
+    // backend can decrypt a signature issued to either account, so a live
+    // account switch must not poison reasoning continuity.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB_123") },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const workAdapter = createCodexResponsesAdapter({ sourceId: "codex/work", provider: "codex-responses", model: "gpt-5-codex" });
+    const body = JSON.parse(workAdapter.buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toContainEqual({ type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" });
   });
 
   test("drops a reasoning signature issued for a different model after a provider switch", () => {
@@ -137,7 +162,31 @@ describe("codex-responses buildRequest", () => {
         model: "grok-4.5",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "internal steps...", signature: "FOREIGN_BLOB" },
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "solve the hard problem" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
+    ]);
+  });
+
+  test("drops a reasoning signature issued by a different provider even when the model string matches", () => {
+    // Two distinct backends (e.g. proxy aliases) can declare the identical
+    // literal model name. Nothing but the tagged provider on the signature
+    // itself distinguishes them, since InferenceSource.model is arbitrary
+    // catalog text and turn.model alone cannot tell them apart.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
           { type: "text", text: "The answer is 42." },
         ],
       },
@@ -156,7 +205,10 @@ describe("codex-responses buildRequest", () => {
         role: "assistant",
         model: "grok-4.5",
         timestamp: 0,
-        content: [{ type: "thinking", thinking: "...", signature: "FOREIGN_BLOB" }, { type: "text", text: "ok" }],
+        content: [
+          { type: "thinking", thinking: "...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
+          { type: "text", text: "ok" },
+        ],
       },
       userTurn("turn 2"),
     ];
