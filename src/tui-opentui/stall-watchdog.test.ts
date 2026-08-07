@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import {
   applyStallRecovery,
+  detectRepetition,
+  repetitionRecoveryMessage,
   shouldAbortForStall,
   shouldNoticeStall,
   STALL_NOTICE_MS,
@@ -81,13 +83,92 @@ describe("shouldAbortForStall", () => {
 })
 
 describe("applyStallRecovery", () => {
-  test("aborts then notifies", () => {
+  test("aborts then notifies with the default message", () => {
     const calls: string[] = []
     applyStallRecovery({
       abort: () => calls.push("abort"),
       notify: (m) => calls.push(m),
     })
     expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE])
+  })
+
+  test("aborts then notifies with a supplied message", () => {
+    const calls: string[] = []
+    applyStallRecovery(
+      { abort: () => calls.push("abort"), notify: (m) => calls.push(m) },
+      "custom message",
+    )
+    expect(calls).toEqual(["abort", "custom message"])
+  })
+})
+
+describe("detectRepetition", () => {
+  test("finds nothing in fresh, varied output", () => {
+    const text = [
+      "I'll check the callId emission path first.",
+      "Running the search now.",
+      "Found three matches across the module.",
+    ].join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  // The captured incident: the two sentences ran together with no line break
+  // at all. A line-splitting detector never sees this; the period search
+  // does not care where (or whether) the lines break.
+  test("flags the captured incident string verbatim, with no newlines", () => {
+    const line1 =
+      "I'll verify callId emission and remaining edges, then write the ranked findings."
+    const line2 = "Confirming callId emission, then writing the ranked findings."
+    const text = Array(10).fill(`${line1}${line2}`).join("")
+    const check = detectRepetition(text)
+    expect(check.repeating).toBe(true)
+    expect(check.period).toBe(line1.length + line2.length)
+  })
+
+  test("does not flag the same cycle a handful of times", () => {
+    const line1 =
+      "I'll verify callId emission and remaining edges, then write the ranked findings."
+    const line2 = "Confirming callId emission, then writing the ranked findings."
+    // Fewer than the occurrence threshold: a model can legitimately restate
+    // a step once or twice across tool-call cycles without looping.
+    const text = Array(4).fill(`${line1}${line2}`).join("")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("does not flag a repeated markdown table separator row", () => {
+    const row = "| ---------------------- | ---------------------- |"
+    const text = Array(6).fill(row).join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("does not flag a few identical code lines", () => {
+    const line = "  const result = await fetchData(request, options, context)"
+    const text = Array(3).fill(line).join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("ignores short recurring fragments", () => {
+    const text = Array(10).fill("ok").join(" ")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  // A monochrome run is periodic at every period by construction — the
+  // easiest thing to false-trigger on if entropy is not checked.
+  test("does not flag a long run of the same character", () => {
+    expect(detectRepetition("x".repeat(500)).repeating).toBe(false)
+  })
+
+  test("does not flag a repeated horizontal rule", () => {
+    const text = Array(10).fill("----------------------------").join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+})
+
+describe("repetitionRecoveryMessage", () => {
+  test("names degeneration and attributes the looped tokens", () => {
+    const message = repetitionRecoveryMessage(42)
+    expect(message).toContain("repeating itself")
+    expect(message).toContain("42")
   })
 })
 
@@ -101,7 +182,12 @@ describe("shouldNoticeStall", () => {
     stallNoticeMs: STALL_NOTICE_MS,
     isProcessing: true,
     streamingType: null,
+    repeating: false,
   }
+
+  test("stays quiet while repeating, even if also silent by the clock", () => {
+    expect(shouldNoticeStall({ ...base, repeating: true })).toBe(false)
+  })
 
   test("speaks up long before the abort backstop", () => {
     expect(STALL_NOTICE_MS).toBeLessThan(STALL_TIMEOUT_MS)

@@ -9,7 +9,12 @@ import {
 } from "./turn-state.js"
 
 const fold = (
-  events: readonly { type: string; data?: unknown; state?: string }[],
+  events: readonly {
+    type: string
+    data?: unknown
+    state?: string
+    text?: string
+  }[],
   startMs = 0,
 ) =>
   events.reduce(
@@ -182,5 +187,159 @@ describe("turn transitions", () => {
     const s = turnStateBlocked(turnStateOnSubmit(initialTurnState(0), 1))
     expect(s.status).toBe("blocked")
     expect(s.isProcessing).toBe(true)
+  })
+})
+
+describe("repetition tracking", () => {
+  const line1 =
+    "I'll verify callId emission and remaining edges, then write the ranked findings."
+  const line2 = "Confirming callId emission, then writing the ranked findings."
+  // The captured incident shape: the two sentences run together with no
+  // separator, each delta landing as one full cycle.
+  const cycle = `${line1}${line2}`
+
+  const textDelta = (text: string) => ({
+    type: "inference.text.delta",
+    data: { token: text },
+  })
+
+  test("varied streamed text is never flagged", () => {
+    const s = fold([
+      { type: "inference.start" },
+      textDelta("I'll check the callId path.\n"),
+      textDelta("Running the search now.\n"),
+      textDelta("Found the match.\n"),
+    ])
+    expect(s.repeating).toBe(false)
+    expect(s.repeatingSinceTokenCount).toBeNull()
+  })
+
+  test("the captured incident shape (no separator between cycles) flips repeating", () => {
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
+    const s = fold([{ type: "inference.start" }, ...deltas])
+    expect(s.repeating).toBe(true)
+    expect(s.repeatingSinceTokenCount).not.toBeNull()
+  })
+
+  test("a couple of restated cycles across tool calls is not a loop", () => {
+    const deltas = Array(3)
+      .fill(cycle)
+      .map((text) => textDelta(text))
+    const s = fold([{ type: "inference.start" }, ...deltas])
+    expect(s.repeating).toBe(false)
+  })
+
+  test("a tool call ends the streaming cycle but does not un-latch a real detection", () => {
+    // The raw text buffer is discarded at the tool-call boundary (that is
+    // what keeps narration from accumulating into a false loop), but a real
+    // in-cycle detection that already fired must stay latched — the model
+    // did loop, and a coincidental tool call right after should not erase
+    // that fact.
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
+    const looping = fold([{ type: "inference.start" }, ...deltas])
+    expect(looping.repeating).toBe(true)
+
+    const withTool = turnStateFromEvent(
+      looping,
+      { type: "tool.start", data: { call: { id: "c1", name: "grep" } } },
+      100,
+    )
+    expect(withTool.repeating).toBe(true)
+    expect(withTool.streamText).toBe("")
+
+    const afterReply = turnStateFromEvent(
+      withTool,
+      { type: "connector.reply" },
+      101,
+    )
+    expect(afterReply.repeating).toBe(true)
+  })
+
+  test("the same block repeated every cycle, interleaved with tool calls, still trips as a loop", () => {
+    // The gap this closes: an unconditional per-cycle reset (no cross-cycle
+    // memory at all) never catches a model that loops while interleaving a
+    // trivial tool call between every repeat — verified against a 500-cycle,
+    // 88,000-character run that never flipped `repeating`. A fingerprint of
+    // each completed cycle, compared to the one before it, catches this
+    // shape within a small, bounded number of cycles instead.
+    const block = "xk4mQ2 loop unit that never varies at all here"
+    expect(block.length).toBeGreaterThanOrEqual(24)
+
+    let state = fold([{ type: "inference.start" }])
+    let clock = 1
+    let trippedAtCycle = -1
+    for (let cycleIndex = 0; cycleIndex < 30; cycleIndex++) {
+      state = turnStateFromEvent(state, textDelta(block), ++clock)
+      state = turnStateFromEvent(
+        state,
+        {
+          type: "tool.start",
+          data: { call: { id: `c${cycleIndex}`, name: "noop" } },
+        },
+        ++clock,
+      )
+      state = turnStateFromEvent(state, { type: "connector.reply" }, ++clock)
+      state = turnStateFromEvent(
+        state,
+        { type: "tool.done", data: { result: { callId: `c${cycleIndex}` } } },
+        ++clock,
+      )
+      if (trippedAtCycle === -1 && state.repeating) trippedAtCycle = cycleIndex
+    }
+    expect(state.repeating).toBe(true)
+    expect(trippedAtCycle).toBeGreaterThan(-1)
+    expect(trippedAtCycle).toBeLessThan(30)
+  })
+
+  test("a short narration line repeated before each of nine tool calls is not a loop", () => {
+    // Verified false positive (CL-5577): "Let me check the next file now."
+    // fed in 4-char chunks before nine separate tool calls, interleaved with
+    // tool.start/connector.reply/tool.done, must not abort the turn. Nothing
+    // about saying a similar short thing before each of several tool calls
+    // in one turn is degenerate.
+    const narration = "Let me check the next file now."
+    const chunks: string[] = []
+    for (let i = 0; i < narration.length; i += 4) {
+      chunks.push(narration.slice(i, i + 4))
+    }
+
+    let state = fold([{ type: "inference.start" }])
+    let clock = 1
+    for (let cycleIndex = 0; cycleIndex < 12; cycleIndex++) {
+      for (const chunk of chunks) {
+        state = turnStateFromEvent(state, textDelta(chunk), ++clock)
+      }
+      state = turnStateFromEvent(
+        state,
+        {
+          type: "tool.start",
+          data: { call: { id: `c${cycleIndex}`, name: "read_file" } },
+        },
+        ++clock,
+      )
+      state = turnStateFromEvent(state, { type: "connector.reply" }, ++clock)
+      state = turnStateFromEvent(
+        state,
+        { type: "tool.done", data: { result: { callId: `c${cycleIndex}` } } },
+        ++clock,
+      )
+      expect(state.repeating).toBe(false)
+    }
+    expect(state.repeating).toBe(false)
+  })
+
+  test("a fresh submit clears the repetition state", () => {
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
+    const looping = fold([{ type: "inference.start" }, ...deltas])
+    const restarted = turnStateOnSubmit(looping, 200)
+    expect(restarted.repeating).toBe(false)
+    expect(restarted.repeatingSinceTokenCount).toBeNull()
+    expect(restarted.streamText).toBe("")
   })
 })

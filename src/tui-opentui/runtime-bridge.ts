@@ -41,10 +41,12 @@ import {
 import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
 import {
   applyStallRecovery,
+  repetitionRecoveryMessage,
   shouldAbortForStall,
   shouldNoticeStall,
   STALL_NOTICE_MESSAGE,
   STALL_NOTICE_MS,
+  STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js"
 import {
@@ -919,6 +921,27 @@ export function attachSessionBridge(
       return
     }
 
+    // Content-based, not time-based: a repeating line means the model is
+    // stuck regardless of how fast it is producing it, so this is checked
+    // before the silence clock rather than folded into it.
+    //
+    // Gated on `status === "running"` because every turn-ending transition
+    // (interrupt, connector.reply with no tools outstanding, reactor.done /
+    // reactor.error) routes through `initialTurnState`, which clears
+    // `repeating`. If a future settle path changes `isProcessing` without
+    // also resetting `status` and `repeating` through that same reset, this
+    // guard would no longer mean "the turn is actually live" and could fire
+    // on an already-settled turn — recheck this alongside any such change.
+    if (bag.turn.status === "running" && bag.turn.repeating) {
+      const repeatedTokens =
+        bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0)
+      applyStallRecovery(
+        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        repetitionRecoveryMessage(repeatedTokens),
+      )
+      return
+    }
+
     const stallArgs = {
       status: bag.turn.status,
       awaitingResponse: bag.turn.awaitingResponse,
@@ -930,16 +953,22 @@ export function attachSessionBridge(
     }
 
     if (shouldAbortForStall(stallArgs)) {
-      applyStallRecovery({
-        abort: doInterrupt,
-        notify: (message) => setStatusFlash(shell, message),
-      })
+      applyStallRecovery(
+        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        STALL_RECOVERY_MESSAGE,
+      )
       return
     }
 
     // Notice only — the phase still paints below, because a ramp that stops
     // moving is the very thing that reads as a hang.
-    if (shouldNoticeStall({ ...stallArgs, stallNoticeMs })) {
+    if (
+      shouldNoticeStall({
+        ...stallArgs,
+        stallNoticeMs,
+        repeating: bag.turn.repeating,
+      })
+    ) {
       setStatusFlash(shell, STALL_NOTICE_MESSAGE)
     }
 
