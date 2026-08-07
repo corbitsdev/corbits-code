@@ -74,7 +74,6 @@ export type SettingsSnapshot = {
   readonly sessionMode: SessionMode
   /** Which scope `sessionMode` currently reflects — a local override wins over global. */
   readonly sessionModeScope: SessionModeScope
-  readonly maxConcurrentSubAgents: number
   readonly waitForApproval: boolean
   readonly telemetryEnabled: boolean
   readonly showPromptCost: boolean
@@ -148,7 +147,6 @@ export type SettingsSurfaceDeps = {
   readonly setCompactionMode: (mode: CompactionMode) => void
   /** Writes to the given scope: "local" persists to `.corbits/settings.json` in cwd. */
   readonly setSessionMode: (mode: SessionMode, scope: SessionModeScope) => void
-  readonly setMaxConcurrentSubAgents: (limit: number) => void
   readonly setWaitForApproval: (value: boolean) => void
   readonly setTelemetryEnabled: (value: boolean) => void
   readonly setShowPromptCost: (value: boolean) => void
@@ -182,9 +180,6 @@ export type CommandSurfaceKind =
 
 const CLOSE_ID = "__close__"
 const BACK_ID = "__back__"
-
-/** Sub-agent concurrency choices offered by the settings surface. */
-export const SUBAGENT_LIMIT_CHOICES: readonly number[] = [1, 2, 3, 4, 6, 8]
 
 export function grantRowLabel(entry: GrantEntry): string {
   const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : ""
@@ -326,19 +321,6 @@ function settingsCycleRows(
         settings.setSessionMode(
           snapshot.sessionMode,
           cycleValue(SESSION_SCOPE_OPTIONS.map((o) => o.id), snapshot.sessionModeScope, dir),
-        ),
-    },
-    {
-      id: "subagents",
-      value: `${"sub-agents".padEnd(SETTINGS_NAME_WIDTH)}‹ ${snapshot.maxConcurrentSubAgents} ›`,
-      describe: {
-        what: "the most sub-agents an orchestrator session runs at once.",
-        impact: "raising the cap runs more work in parallel and spends more tokens per turn.",
-        tone: "consequence",
-      },
-      cycle: (dir) =>
-        settings.setMaxConcurrentSubAgents(
-          cycleValue(SUBAGENT_LIMIT_CHOICES, snapshot.maxConcurrentSubAgents, dir),
         ),
     },
     {

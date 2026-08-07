@@ -224,35 +224,6 @@ test("orchestrator profile installs nestedDispatch so task can be re-dispatched"
   expect(received?.systemPromptRole).toContain("coordinate");
 });
 
-test("nested dispatch runs reentrant so a full pool cannot deadlock it", async () => {
-  let received: RunSubAgentParams | undefined;
-  const nestedTool = createTaskTool({ permissionGate: testPermissionGate,
-    cwd: "/repo",
-    getWorkdirBase: () => "/repo/.ctx",
-    provider,
-    allowOrchestrator: false,
-    run: async (params) => {
-      received = params;
-      return "leaf";
-    },
-  });
-  await callHandler(nestedTool, { description: "work", prompt: "do the work" });
-  expect(received?.nested).toBe(true);
-
-  let topReceived: RunSubAgentParams | undefined;
-  const topTool = createTaskTool({ permissionGate: testPermissionGate,
-    cwd: "/repo",
-    getWorkdirBase: () => "/repo/.ctx",
-    provider,
-    run: async (params) => {
-      topReceived = params;
-      return "worker";
-    },
-  });
-  await callHandler(topTool, { description: "work", prompt: "do the work" });
-  expect(topReceived?.nested).toBeUndefined();
-});
-
 test("nested dispatch forwards the external sink, not the orchestrator recorder", async () => {
   const store = createSubAgentSessionStore();
   const external: string[] = [];

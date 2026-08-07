@@ -16,11 +16,8 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
-  DEFAULT_MAX_CONCURRENT_SUB_AGENTS,
   DEFAULT_SUBAGENT_MAX_TURNS,
   MAX_SUBAGENT_MAX_TURNS_CAP,
-  resolveMaxConcurrentSubAgents,
-  clampMaxConcurrentSubAgents,
   resolveDefaultSubAgentMaxTurns,
   resolveSubAgentMaxTurns,
   clampSubAgentMaxTurns,
@@ -764,57 +761,31 @@ describe("sessionMode", () => {
   });
 });
 
-describe("maxConcurrentSubAgents", () => {
-  test("defaults to 10 when unset", () => {
-    expect(resolveMaxConcurrentSubAgents(null)).toBe(DEFAULT_MAX_CONCURRENT_SUB_AGENTS);
-    expect(resolveMaxConcurrentSubAgents({ providers: {} })).toBe(10);
-  });
+test("loadSettings round-trips showPromptCost", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+  try {
+    const path = join(dir, ".corbits", "settings.json");
+    await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
+    expect(await loadSettings(path)).toEqual({ ...firepass, showPromptCost: true });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
-  test("loadSettings round-trips showPromptCost", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
-      expect(await loadSettings(path)).toEqual({ ...firepass, showPromptCost: true });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadSettings round-trips maxConcurrentSubAgents", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, maxConcurrentSubAgents: 6 });
-      expect(await loadSettings(path)).toEqual({ ...firepass, maxConcurrentSubAgents: 6 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("accepts zero to disable sub-agents", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        maxConcurrentSubAgents: 0,
-      }),
-    ).toBe(true);
-    expect(clampMaxConcurrentSubAgents(0)).toBe(0);
-  });
-
-  test("rejects negative maxConcurrentSubAgents", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        maxConcurrentSubAgents: -1,
-      }),
-    ).toBe(false);
-  });
-
-  test("clamp floors fractional values and negative numbers", () => {
-    expect(clampMaxConcurrentSubAgents(3.9)).toBe(3);
-    expect(clampMaxConcurrentSubAgents(-2)).toBe(0);
-  });
+test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+  try {
+    const path = join(dir, ".corbits", "settings.json");
+    await mkdir(join(dir, ".corbits"), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({ ...firepass, maxConcurrentSubAgents: 6 }, null, 2),
+      "utf8",
+    );
+    expect(await loadSettings(path)).toEqual(firepass);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 describe("lastChangelogVersion", () => {

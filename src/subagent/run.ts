@@ -47,7 +47,6 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
-import { withSubAgentSlot } from "./concurrency.js";
 import {
   detectRepetition,
   REPETITION_CHECK_INTERVAL_CHARS,
@@ -213,12 +212,6 @@ export function createSubAgentRunController(
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
-  return withSubAgentSlot(() => runSubAgentInner(params), {
-    reentrant: params.nested === true,
-  });
-}
-
-async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   await seedPricingMetadataFromCache({
     cachePath: defaultPricingCachePath(),
   });

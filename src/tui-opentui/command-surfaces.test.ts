@@ -30,7 +30,6 @@ function baseSnapshot(): SettingsSnapshot {
     compactionMode: "llm",
     sessionMode: "orchestrator",
     sessionModeScope: "global",
-    maxConcurrentSubAgents: 3,
     waitForApproval: true,
     telemetryEnabled: false,
     showPromptCost: false,
@@ -96,7 +95,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   readonly calls: {
     compaction: string[]
     sessionMode: Array<{ mode: string; scope: string }>
-    subagents: number[]
     waitForApproval: boolean[]
     telemetry: boolean[]
     showPromptCost: boolean[]
@@ -106,7 +104,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   const calls = {
     compaction: [] as string[],
     sessionMode: [] as Array<{ mode: string; scope: string }>,
-    subagents: [] as number[],
     waitForApproval: [] as boolean[],
     telemetry: [] as boolean[],
     showPromptCost: [] as boolean[],
@@ -122,10 +119,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
       setSessionMode: (mode, scope) => {
         calls.sessionMode.push({ mode, scope })
         state = { ...state, sessionMode: mode, sessionModeScope: scope }
-      },
-      setMaxConcurrentSubAgents: (limit) => {
-        calls.subagents.push(limit)
-        state = { ...state, maxConcurrentSubAgents: limit }
       },
       setWaitForApproval: (value) => {
         calls.waitForApproval.push(value)
@@ -153,7 +146,6 @@ describe("settings surface", () => {
       await Promise.resolve()
 
       expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(true)
-      expect(shell.overlayItems.some((l) => l.includes("3"))).toBe(true)
       expect(shell.overlayItems.some((l) => l.includes("off"))).toBe(true)
     })
   })
@@ -171,21 +163,6 @@ describe("settings surface", () => {
       expect(calls.compaction).toEqual(["pruning"])
       expect(shell.overlayKind).toBe("settings")
       expect(shell.overlayItems[0]).toContain("drop")
-    })
-  })
-
-  test("left/right cycles the sub-agent cap through its numeric choices", async () => {
-    await withShell(async (shell) => {
-      const { deps, calls } = settingsDeps()
-      openCommandSurface(shell, "settings", deps)
-      await Promise.resolve()
-      await Promise.resolve()
-
-      moveOverlaySelection(shell, 3) // compaction, session mode, scope, subagents
-      cycleOverlaySelection(shell, 1)
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(calls.subagents).toEqual([4])
     })
   })
 
@@ -213,7 +190,7 @@ describe("settings surface", () => {
 
       expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true)
 
-      moveOverlaySelection(shell, 6) // compaction, session mode, scope, subagents, approval wait, telemetry, show cost
+      moveOverlaySelection(shell, 5) // compaction, session mode, scope, approval wait, telemetry, show cost
       cycleOverlaySelection(shell, 1)
       await Promise.resolve()
       await Promise.resolve()

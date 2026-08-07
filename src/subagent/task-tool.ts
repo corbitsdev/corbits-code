@@ -597,9 +597,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(orchestrator
               ? { orchestrator: true, nestedDispatch: nestedDispatch! }
               : {}),
-            // Nested workers (installed by an orchestrator that already holds a
-            // slot) reuse the parent slot rather than acquiring their own.
-            ...(deps.allowOrchestrator === false ? { nested: true } : {}),
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
           };

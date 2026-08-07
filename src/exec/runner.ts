@@ -23,11 +23,9 @@ import {
 import {
   loadLocalSettings,
   localSettingsPath,
-  resolveMaxConcurrentSubAgents,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
 } from "../config/settings.js";
-import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
@@ -280,9 +278,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
     );
     const sessionMode: SessionMode =
       resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
-    if (sessionMode === "orchestrator") {
-      configureSubAgentConcurrency(resolveMaxConcurrentSubAgents(config.settings));
-    }
 
     const activeProviderModel = `${config.providerName}:${config.model}`;
     const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);

@@ -24,7 +24,6 @@ import {
   localSettingsPath,
   markTelemetryNoticeShown,
   pushRecentModel,
-  resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
   saveLocalSettings,
@@ -42,7 +41,6 @@ import { providerChoices } from "../tui-opentui/provider-setup.js";
 import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { createGateRequestApproval } from "./request-approval.js";
-import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
@@ -979,10 +977,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
-  }
-  let liveMaxConcurrentSubAgents = resolveMaxConcurrentSubAgents(config.settings);
-  if (liveSessionMode === "orchestrator") {
-    configureSubAgentConcurrency(liveMaxConcurrentSubAgents);
   }
   const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
   // The workflow controller is built below, after the toolset; the holder lets
@@ -2093,7 +2087,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           compactionMode: liveCompactionMode,
           sessionMode: liveSessionMode ?? "orchestrator",
           sessionModeScope: liveSessionModeScope,
-          maxConcurrentSubAgents: liveMaxConcurrentSubAgents,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
           showPromptCost: liveShowPromptCost,
@@ -2120,14 +2113,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             return rest;
           });
           void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
-        },
-        setMaxConcurrentSubAgents: (limit) => {
-          liveMaxConcurrentSubAgents = limit;
-          configureSubAgentConcurrency(limit);
-          void persistGlobalSettings("max concurrent sub-agents", (base) => ({
-            ...base,
-            maxConcurrentSubAgents: limit,
-          }));
         },
         setWaitForApproval: (value) => {
           liveToolWatchdog.waitForApproval = value;
