@@ -329,7 +329,7 @@ session; that tree re-write is inherent to git and left as residual cost.
 
 ### Crash Logging
 
-`index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each writes a best-effort crash report to `~/.corbits/projects/<project-slug>/errors/<timestamp>.txt`, where the slug is the cwd with non-alphanumeric runs collapsed to `-`. The file records the failure kind, an ISO timestamp, the cwd, and the stack. The logger swallows its own errors so it can never mask the original crash, then exits non-zero after printing a one-line message to stderr.
+`index.ts` installs `uncaughtException` and `unhandledRejection` handlers (and catches a rejected `main`). Each calls `writeCrashReport` (`crash/report.ts`) to write a best-effort report to `~/.corbits/projects/<project-key>/errors/<timestamp>.txt`, using the same `projectKeyFor`/`projectSessionsRoot` (`session/project-key.ts`) that keys that project's session directories, so a crash report lands next to the session's `run.json` and transcript rather than under a separately computed slug. The file records the failure kind, an ISO timestamp, the cwd, and the stack. `projectSessionsRoot` shells out to git with no timeout, so the handler never calls it directly — `primeCrashReporting` resolves and caches the directory once at startup (right after config load), and `writeCrashReport` only ever reads that cached value; if priming never ran or failed, it falls back to an `unresolved` bucket rather than touching git mid-crash. `writeCrashReport` swallows its own errors and returns `null` without logging; the handler in `index.ts` is what prints the one-line failure notice to stderr when that happens, then exits non-zero.
 
 ### Event Stream
 
