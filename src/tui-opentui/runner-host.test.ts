@@ -355,7 +355,9 @@ describe("mountRunnerHost quit key", () => {
     }
   })
 
-  test("Ctrl+D at an empty prompt quits", async () => {
+  // Quitting is Ctrl+C twice. The host claims no key of its own, so an empty
+  // prompt is not a special case: Ctrl+D stays the prompt's own binding.
+  test("Ctrl+D at an empty prompt does not quit", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     const host = await mountRunnerHost(baseDeps(harness))
     try {
@@ -363,7 +365,7 @@ describe("mountRunnerHost quit key", () => {
       harness.pressKey("d", { ctrl: true })
       await harness.renderOnce()
 
-      expect(await exited(host)).toBe(true)
+      expect(await exited(host)).toBe(false)
     } finally {
       host.dispose()
       harness.destroy()

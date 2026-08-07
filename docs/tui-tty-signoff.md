@@ -39,14 +39,13 @@ it passes at both sizes.
 |---|---|---|---|
 | 5 | Ctrl+Enter inserts a newline; the prompt grows and then scrolls at 40vh | ☐ | ☐ |
 | 6 | Enter sends; the message is not split at a newline | ☐ | ☐ |
-| 7 | Ctrl+D **with text in the prompt** deletes a character and does **not** exit | ☐ | ☐ |
-| 8 | Ctrl+D at an **empty** prompt quits, and the terminal is restored | ☐ | ☐ |
-| 9 | Ctrl+C interrupts a run; twice exits | ☐ | ☐ |
-| 10 | Paste a short API key into onboarding | ☐ | ☐ |
-| 11 | Paste a key longer than 1000 characters — it must not truncate | ☐ | ☐ |
-| 12 | Paste multi-line text into the prompt: arrives whole, does not send early | ☐ | ☐ |
-| 13 | Ctrl+V with an image on the clipboard attaches it | ☐ | ☐ |
-| 14 | Typing works immediately on every surface without clicking first | ☐ | ☐ |
+| 7 | Ctrl+D deletes the character under the cursor and never exits | ☐ | ☐ |
+| 8 | Ctrl+C interrupts a run; twice quits, and the terminal is restored | ☐ | ☐ |
+| 9 | Paste a short API key into onboarding | ☐ | ☐ |
+| 10 | Paste a key longer than 1000 characters — it must not truncate | ☐ | ☐ |
+| 11 | Paste multi-line text into the prompt: arrives whole, does not send early | ☐ | ☐ |
+| 12 | Ctrl+V with an image on the clipboard attaches it | ☐ | ☐ |
+| 13 | Typing works immediately on every surface without clicking first | ☐ | ☐ |
 
 ## Selection and copy
 
@@ -88,10 +87,8 @@ State whether each is still true, so the release notes match reality.
 - **Markdown flicker while streaming.** The deterministic cause (a bare `####`
   painting as literal text) is fixed and guarded. A milder flicker remains from
   the async highlighter repainting raw source before the concealed form lands.
-- **`view`, `plan` and `tasks` blocks are dropped on resume** — the data stays
-  on disk, but the painted transcript loses it, silently.
-- **CL-5539**, test renderers are never freed, so CI exhausts TextBuffers.
-  Affects the suite, not the product.
+- **CL-5551**, transcript rows are retained for the life of the process. The
+  600-block cap died with the deleted Ink stream state and was not ported.
 
 ## Sign-off
 

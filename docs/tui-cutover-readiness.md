@@ -190,7 +190,7 @@ were verified fixed on 2026-08-06.
 | Typed `/` commands do not parse and are sent to the model | `runner.ts:271-272` intercepts the leading `/`; `shell.ts` opens a completion list at an empty prompt (see the `/` row in `keybindings.ts`). |
 | `@`-mention resolution is unwired | `ingestPathMentions` at `runner.ts:1821`, `resolveAtMentions` at `runner.ts:1822`, `setMentionSuggestionSource` at `runner.ts:2099`. |
 | Image attachments are gone; `/paste-image` reports "not available" | `runner.ts:1799` routes `paste-image` to `attachClipboardImage`; `readClipboardImage` feeds `shell.pendingAttachments` (`shell.ts:824`), bound to Ctrl+V and Ctrl+P. |
-| Help catalog documents Ctrl+D as "delete character under cursor" | `keybindings.ts:28` documents Ctrl+D as Quit. |
+| Help catalog documents Ctrl+D as "delete character under cursor" | Correct: the host claims no quit key, so Ctrl+D is the prompt default. Quitting is Ctrl+C twice. |
 | There is no exit-confirm step | Ctrl+C arms a 2-second exit window and quits on a second press (`CTRL_C_EXIT_WINDOW_MS`, `shell.ts:3843`). |
 | `quota-retry.ts` / `stall-watchdog.ts` have no production importer | Both moved to `src/tui-opentui/` and are imported by `runtime-bridge.ts:35,40`; `product-host.ts:232` opts the host into their timers. |
 | Sent-message history recall is unimplemented | `shell.ts:45` imports `src/tui/sent-message-history.ts`; `runner.ts` appends every sent prompt and Up/Down recall is in the help catalog. |
@@ -218,7 +218,7 @@ Manual checklist — **not yet signed off by an operator**:
 - [ ] 80×24 palette over permissions: Esc ×2 restores prompt
 - [ ] 120×40: extra rows land in transcript
 - [ ] Observe enter/leave: parent stream restored
-- [ ] Ctrl+D quits cleanly; Ctrl+C interrupts a run, and twice in a row exits
+- [ ] Ctrl+C interrupts a run, and twice in a row exits cleanly; Ctrl+D only deletes a character
 - [ ] Resize mid-session leaves no ghost rows
 - [ ] Paste multi-line text into the prompt (CL-5541)
 - [ ] Drag-select and copy transcript text with the mouse; `Alt+M` restores click-to-expand (CL-5540)

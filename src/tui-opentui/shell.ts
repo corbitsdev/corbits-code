@@ -205,7 +205,7 @@ import {
 const shellExitHandlers = new WeakMap<AppShell, () => void>()
 
 /**
- * Register the host's quit path (the same one Ctrl+D runs) so a bare `exit` /
+ * Register the host's quit path (the same one Ctrl+C twice runs) so a bare `exit` /
  * `quit` typed at the prompt tears down through finalize instead of a second,
  * cleanup-skipping exit route.
  */

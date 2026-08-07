@@ -18,7 +18,6 @@ import {
   type CommandSurfaceKind,
 } from "./command-surfaces.js"
 import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
-import { focusOwner } from "./focus/index.js"
 import {
   buildModelsFirstCatalog,
   describeModelCatalogOption,
@@ -274,30 +273,21 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     ...(deps.fetchBranch !== undefined ? { fetchBranch: deps.fetchBranch } : {}),
   })
 
-  // The shell's Ctrl+C is the interrupt key, so quitting needs its own binding.
-  // Shell convention: Ctrl+D quits only at an empty, focused prompt. With text
-  // in the buffer it stays the textarea's delete-character-under-cursor, so a
-  // mid-edit Ctrl+D can never drop the draft.
-  const onKey = (key: KeyEvent): void => {
-    if (!key.ctrl || key.name !== "d") return
-    if (focusOwner(host.shell.focus) !== "prompt") return
-    if (host.shell.prompt.value !== "") return
-    key.preventDefault()
-    dispose()
-  }
-  host.renderer.keyInput.on("keypress", onKey)
+  // Quitting is Ctrl+C twice, the binding this interface has always used. The
+  // host claims no key of its own: a second exit chord split the one thing
+  // every operator already knows across two keys, and Ctrl+D stays the
+  // prompt's delete-character-under-cursor.
 
   const dispose = (): void => {
     stopBranchWatch()
     deps.eventEmitter.off("event", onCostEvent)
     unsubscribeChrome?.()
-    host.renderer.keyInput.off("keypress", onKey)
     clearShellExitHandler(host.shell)
     host.dispose()
   }
 
   // A bare `exit` / `quit` at the prompt routes through the same teardown as
-  // the Ctrl+D quit key, so finalize still runs.
+  // the Ctrl+C exit, so finalize still runs.
   setShellExitHandler(host.shell, dispose)
 
   const surfaceDeps: CommandSurfaceDeps = {

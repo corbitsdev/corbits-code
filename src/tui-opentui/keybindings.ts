@@ -30,7 +30,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Tab", description: "move focus between the prompt and the transcript" },
   { keys: "Esc", description: "close the open overlay, or leave subagent observe" },
   { keys: "Ctrl+B / Ctrl+F", description: "move the cursor back / forward one character" },
-  { keys: "Ctrl+D", description: "at an empty prompt, quit; with text in the buffer, delete the character under the cursor" },
+  { keys: "Ctrl+D", description: "delete the character under the cursor" },
   { keys: "Alt+B / Alt+F", description: "move the cursor back / forward one word" },
   { keys: "Ctrl+K", description: "kill from the cursor to the end of the line" },
   { keys: "Ctrl+U", description: "kill from the start of the line to the cursor" },

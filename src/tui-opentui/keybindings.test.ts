@@ -456,6 +456,9 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
 
   "Ctrl+D": {
     group: "host",
+    // Probed on a mounted host rather than a bare shell: the row claims a
+    // prompt default, which is only true while the host claims no key of its
+    // own. Quitting is Ctrl+C twice and nothing else.
     probe: async ({ h, shell, chords, hasExited }) => {
       if (hasExited === undefined) throw new Error("Ctrl+D must be probed on a mounted host")
       shellFocusPrompt(shell)
@@ -469,7 +472,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       shell.prompt.value = ""
       press(h, chords[0])
       await settle(h)
-      expect(hasExited()).toBe(true)
+      expect(hasExited()).toBe(false)
     },
   },
 }
@@ -600,14 +603,14 @@ describe("every catalog row is driven against real behavior", () => {
 })
 
 /**
- * The Ctrl+D failure in general form: the runner host installs a key listener
- * of its own, so a row describing the prompt's default behavior is only true if
- * the host leaves that byte alone. Driven on a real mount, not a bare shell.
+ * The Ctrl+D failure in general form: a row describing a prompt default is only
+ * true while the runner host leaves that byte alone. Driven on a real mount,
+ * not a bare shell, so a host listener that shadows the prompt fails here.
  */
 describe("the runner host does not shadow the prompt bindings the catalog claims", () => {
   const PROMPT_DEFAULT_ROWS = ["Ctrl+B / Ctrl+F", "Alt+B / Alt+F", "Arrow keys"] as const
 
-  test("prompt defaults survive the host, and Ctrl+D quits", async () => {
+  test("prompt defaults survive the host", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     const host = await mountRunnerHost({
       title: "keybindings",
@@ -632,10 +635,10 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
         if (entry === undefined) throw new Error(`no probe for ${keys}`)
         await entry.probe({ h: harness, shell: host.shell, chords: chordsOf(keys) })
       }
-      // Last: it tears the host down.
-      const quit = PROBES["Ctrl+D"]
-      if (quit === undefined) throw new Error("no probe for Ctrl+D")
-      await quit.probe({
+      // Ctrl+D is the sharpest case: the host used to claim it to quit.
+      const ctrlD = PROBES["Ctrl+D"]
+      if (ctrlD === undefined) throw new Error("no probe for Ctrl+D")
+      await ctrlD.probe({
         h: harness,
         shell: host.shell,
         chords: chordsOf("Ctrl+D"),

@@ -7,7 +7,7 @@
 
 This document is the interaction constitution for the OpenTUI shell. It locks mid-run send semantics, discovery chords, focus ownership, and scroll lease rules so implementers do not re-open product decisions or invent focus/scroll races.
 
-The cutover has landed and OpenTUI is the shipping renderer, but not every binding below is implemented — `docs/tui-cutover-readiness.md` records which ones are missing (Shift+Tab, and Shift+Enter on terminals that do not report the modifier) and where runtime behavior deviates (Ctrl+D quits outright; Ctrl+C interrupts, and quits only on a second press inside a two-second window).
+The cutover has landed and OpenTUI is the shipping renderer, but not every binding below is implemented — `docs/tui-cutover-readiness.md` records which ones are missing (Shift+Tab, and Shift+Enter on terminals that do not report the modifier) and where runtime behavior deviates (Ctrl+C interrupts, and quits on a second press inside a two-second window).
 
 ---
 
