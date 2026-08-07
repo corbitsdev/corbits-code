@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Push to a GitHub-hosted remote without touching global git config.
+#
+# Worktree agents often cannot reach the local ssh-agent socket, so an
+# SSH-configured "origin" (git@github.com:...) fails to push. The old
+# workaround toggled the *global* `url.git@github.com:.insteadOf` setting
+# off and back on, which is shared-mutable state: any other agent pushing
+# or fetching during that window breaks, and a crash mid-flight leaves the
+# machine altered for every repo, forever.
+#
+# This script authenticates over HTTPS using `gh`'s credential helper and
+# rewrites the SSH URL to HTTPS, both scoped to this single `git push`
+# invocation via `-c`. Nothing is written to any git config file, local or
+# global, so there is nothing to restore and nothing to collide over.
+set -euo pipefail
+
+usage() {
+  echo "usage: git-push-scoped [-C <dir>] [--] [git-push-args...]" >&2
+  exit 1
+}
+
+dir="."
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -C)
+      dir=$2
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -h | --help)
+      usage
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "git-push-scoped: gh is required for the scoped credential helper" >&2
+  exit 1
+fi
+
+exec git -C "$dir" \
+  -c credential.helper= \
+  -c credential.helper='!gh auth git-credential' \
+  -c url."https://github.com/".insteadOf="git@github.com:" \
+  -c url."https://github.com/".insteadOf="ssh://git@github.com/" \
+  push "$@"
