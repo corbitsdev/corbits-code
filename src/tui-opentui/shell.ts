@@ -2924,15 +2924,11 @@ export function applyShellCancelLast(shell: AppShell): void {
   if (index !== undefined) {
     const row = streamRowAt(shell, index)
     if (row !== undefined) {
-      // The bar-and-bubble paint for a user row shows only `text`, not
-      // `meta` (see `paintStreamRow`) — copy mode reads `text` too — so the
-      // word has to land in the body itself or the visible transcript still
-      // reads as a message that will dispatch.
-      replaceStreamRowAt(shell, index, {
-        ...row,
-        text: `[cancelled] ${row.text}`,
-        meta: "cancelled",
-      })
+      // `cancelled` stays a flag, not a `text` rewrite — `paintStreamRow`
+      // owns turning it into the "[cancelled]" prefix, so `row.text` still
+      // holds what the operator actually typed for anything else that reads
+      // it (copy mode, a resumed transcript).
+      replaceStreamRowAt(shell, index, { ...row, meta: "cancelled", cancelled: true })
     }
   }
   paintChrome(shell)

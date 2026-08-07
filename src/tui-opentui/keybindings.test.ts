@@ -458,7 +458,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
 
   "Ctrl+G": {
     group: "session",
-    probe: ({ h, shell, chords }) => {
+    probe: async ({ h, shell, chords }) => {
       clearShellBridgeHooks(shell)
       setShellRunState(shell, "busy")
       shell.prompt.value = "keep"
@@ -476,6 +476,13 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       // as though it will still dispatch (the bug that got the first attempt
       // at this pulled).
       expect(rows).toEqual(["queue", "cancelled"])
+
+      // The chord's whole job is what lands on screen, not the model alone —
+      // assert on the rendered frame, not just streamLog.
+      await h.renderOnce()
+      const frame = h.captureCharFrame()
+      expect(frame).toContain("[cancelled] drop me")
+      expect(frame).toContain("keep")
 
       setShellRunState(shell, "idle")
     },
