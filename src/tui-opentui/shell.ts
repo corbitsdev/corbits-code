@@ -20,6 +20,7 @@ import {
   type BaseRenderable,
   type CliRenderer,
   type KeyEvent,
+  type MouseEvent,
   type TextChunk,
 } from "@opentui/core"
 
@@ -3998,8 +3999,8 @@ export function copyAllTargets(shell: AppShell): boolean {
 
 /**
  * Alt+M: take DEC mouse reporting, or hand it back to the terminal.
- * Reporting is off by default so drag-select and the terminal's own copy keep
- * working; taking it enables click-to-expand and drag-scroll at that cost.
+ * Reporting is on by default so wheel scroll and click-to-expand work;
+ * releasing it restores the terminal's own drag-select and copy.
  * Returns the new enabled state, or null when the host exposes no control.
  */
 export function toggleMouseCapture(shell: AppShell): boolean | null {
@@ -4498,6 +4499,33 @@ export function handleCtrlC(
 }
 
 /**
+ * Wheel/trackpad scroll landing on the prompt scrolls the chat instead.
+ *
+ * The prompt textarea is an editable buffer with its own `scrollY`, so
+ * OpenTUI's default routing — whichever renderable the wheel event hits, or
+ * the focused renderable when the hit misses — happily scrolls the prompt's
+ * own (usually one-screen, nothing-to-scroll) content. The prompt also holds
+ * keyboard focus for the whole session, so it is the fallback target for any
+ * wheel event that lands off the transcript's hit-tested rows. Overriding the
+ * scroll case here — rather than teaching the transcript's own scroll lease
+ * about wheel events — keeps the fix to exactly where wheel input actually
+ * arrives, without touching transcript viewport internals.
+ */
+function routePromptWheelToTranscript(
+  prompt: BaseRenderable,
+  transcript: ScrollBoxRenderable,
+): void {
+  ;(prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }).onMouseEvent = (
+    event: MouseEvent,
+  ) => {
+    if (event.type !== "scroll") return
+    ;(
+      transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }
+    ).onMouseEvent(event)
+  }
+}
+
+/**
  * Build the app shell frame on an OpenTUI renderer.
  * Mounts sticky transcript / overlay host / transient notice / prompt box.
  */
@@ -4727,6 +4755,7 @@ export function createAppShell(
     cursorColor: UI.text,
     placeholderColor: UI.textFaint,
   })
+  routePromptWheelToTranscript(prompt, transcript)
   promptField.add(prompt)
   promptBox.add(promptTopRule)
   promptBox.add(promptField)

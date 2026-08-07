@@ -116,9 +116,10 @@ export type ProductHostConfig = {
   /** First-run telemetry disclosure, shown on the landing screen. */
   readonly telemetryNotice?: string
   /**
-   * Take DEC mouse reporting. Default false: while it is on the terminal hands
-   * drags to us and cannot select text, which breaks copy with the mouse.
-   * Alt+M flips it at runtime for click-to-expand and drag-scroll.
+   * Take DEC mouse reporting. Default true: wheel/trackpad scroll only
+   * reaches OpenTUI when the terminal is told to report it, otherwise the
+   * terminal's own alternate-scroll mode resends it as arrow keys. Alt+M
+   * hands the mouse back to the terminal for native drag-select.
    */
   readonly useMouse?: boolean
 }
@@ -206,11 +207,15 @@ export async function mountProductHost(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // Mouse reporting off by default: any of DEC 1000/1002/1003/1006 makes
-        // the terminal forward drags to us instead of selecting text, so the
-        // user cannot copy with the mouse. Alt+M takes the mouse when
-        // click-to-expand or drag-scroll is wanted.
-        useMouse: config.useMouse ?? false,
+        // Mouse reporting on by default: without it, wheel/trackpad scroll
+        // never reaches OpenTUI — the terminal's own alternate-scroll mode
+        // swallows it and resends it as arrow keys, which the prompt then
+        // reads as history navigation instead of the transcript scrolling.
+        // Cost accepted: this suppresses the terminal's native drag-select
+        // in the main shell. Alt+M hands the mouse back when that is wanted.
+        // enableMouseMovement stays off (no ?1003): only clicks and wheel
+        // are needed.
+        useMouse: config.useMouse ?? true,
         enableMouseMovement: false,
         // A plain terminal sends a bare CR for both Enter and Shift+Enter, so
         // the modifier only arrives once the kitty keyboard protocol is

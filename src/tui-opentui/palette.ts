@@ -171,7 +171,7 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
   },
   {
     id: "toggle_mouse",
-    label: "Toggle mouse capture (off by default so you can drag-select)",
+    label: "Toggle mouse capture (on by default; release it to drag-select)",
     keywords: ["mouse", "select", "selection", "copy", "drag"],
     dispatch: "residual",
     category: "view",

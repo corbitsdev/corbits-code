@@ -586,8 +586,8 @@ export async function runProviderSetup(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // Same trade as the product host (CL-5540): reporting off by default
-        // so the terminal owns drag-select and its own copy during onboarding.
+        // Reporting stays off during onboarding, unlike the main shell, so
+        // the terminal owns drag-select and its own copy here.
         useMouse: false,
         enableMouseMovement: false,
       })
