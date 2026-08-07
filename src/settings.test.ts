@@ -257,6 +257,10 @@ describe("validators", () => {
     ).toBe(false);
   });
 
+  test("isSettings accepts showPromptCost", () => {
+    expect(isSettings({ providers: firepass.providers, showPromptCost: true })).toBe(true);
+  });
+
   test("isLocalSettings rejects credentials", () => {
     expect(isLocalSettings({ provider: "a", apiKey: "leak" })).toBe(false);
   });
@@ -764,6 +768,17 @@ describe("maxConcurrentSubAgents", () => {
   test("defaults to 10 when unset", () => {
     expect(resolveMaxConcurrentSubAgents(null)).toBe(DEFAULT_MAX_CONCURRENT_SUB_AGENTS);
     expect(resolveMaxConcurrentSubAgents({ providers: {} })).toBe(10);
+  });
+
+  test("loadSettings round-trips showPromptCost", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, ".corbits", "settings.json");
+      await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
+      expect(await loadSettings(path)).toEqual({ ...firepass, showPromptCost: true });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("loadSettings round-trips maxConcurrentSubAgents", async () => {

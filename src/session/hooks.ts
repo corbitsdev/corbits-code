@@ -185,6 +185,10 @@ export function createTurnContextCollector(
   getTurns(): TurnContext[];
   getTurnCount(): number;
   getTokenUsage(): TokenUsage;
+  // Usage reported for the most recent turn alone (not summed across turns),
+  // since a provider's per-turn `input` already reflects the whole resent
+  // conversation — the right basis for "how full is the context window now."
+  getLastTurnUsage(): TokenUsage;
   getToolCallCount(): number;
 } {
   const retainHistory = options.retainHistory ?? true;
@@ -193,6 +197,7 @@ export function createTurnContextCollector(
   let pending: PendingTurn | null = null;
   let cycleStartedAt = now();
   let tokenUsage: TokenUsage = { ...emptyUsage };
+  let lastTurnUsage: TokenUsage = { ...emptyUsage };
   let toolCallCount = 0;
 
   function completePending(): void {
@@ -238,6 +243,7 @@ export function createTurnContextCollector(
           }));
         toolCallCount += toolCalls.length;
         tokenUsage = addUsage(tokenUsage, event.data.usage);
+        lastTurnUsage = event.data.usage;
         pending = {
           startedAt: cycleStartedAt,
           turnIndex: turnCount,
@@ -264,6 +270,9 @@ export function createTurnContextCollector(
     },
     getTokenUsage(): TokenUsage {
       return { ...tokenUsage };
+    },
+    getLastTurnUsage(): TokenUsage {
+      return { ...lastTurnUsage };
     },
     getToolCallCount(): number {
       return toolCallCount;
@@ -300,12 +309,16 @@ export function createLifecycleHookManager(args: {
   hooks: LifecycleHook[];
   onEvent?: (event: LifecycleHookEvent) => void;
   logError?: (message: string) => void;
+  // Persisted enable/disable state, keyed by hook id. A hook absent here starts
+  // enabled, matching discovery's default before any state was ever saved.
+  initialEnabled?: Record<string, boolean>;
 }): LifecycleHookManager {
   const onEvent = args.onEvent ?? (() => {});
   const logError = args.logError ?? (() => {});
+  const initialEnabled = args.initialEnabled ?? {};
   const statuses = new Map<string, LifecycleHookStatus>();
   for (const hook of args.hooks) {
-    statuses.set(hook.id, { ...hook, enabled: true });
+    statuses.set(hook.id, { ...hook, enabled: initialEnabled[hook.id] ?? true });
   }
 
   function snapshot(): LifecycleHookStatus[] {

@@ -3,13 +3,11 @@
   "compilerOptions": {
     "noEmit": true,
     "composite": false,
-    "jsx": "react-jsx",
-    "jsxImportSource": "react",
     "baseUrl": ".",
     "paths": {
       "@corbits/provider-opencode-go": ["./packages/opencode-go/src/index.ts"],
       "@corbits/first-class-providers": ["./packages/first-class-providers/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "packages/**/*.ts"]
+  "include": ["src/**/*.ts", "packages/**/*.ts"]
 }

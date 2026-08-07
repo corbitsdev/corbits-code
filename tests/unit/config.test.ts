@@ -125,6 +125,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       workflowProfiles: { default: { implement: "m" } },
       plugins: { "plug-a": { enabled: true } },
       pluginPaths: ["/tmp/plugin"],
+      hooks: { "/tmp/hook.ts": { enabled: false } },
       discoverClaudePlugins: true,
       web: "plug-a",
       hiddenCommands: ["/help"],

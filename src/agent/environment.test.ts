@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -17,11 +17,27 @@ test("gatherEnvironment reports cwd, platform, and date", async () => {
   expect(env.date).toBe(date);
 });
 
-test("gatherEnvironment detects this repository as a git work tree", async () => {
-  const env = await gatherEnvironment(process.cwd());
-  expect(env.isGitRepo).toBe(true);
-  expect(env.gitBranch).toBeDefined();
-  expect(env.topLevel).toContain("src/");
+test("gatherEnvironment detects a git work tree and lists its top level", async () => {
+  // A purpose-built repo rather than the checkout this run happens to sit in:
+  // a runner may check out a detached HEAD, which has no branch name.
+  const dir = await mkdtemp(join(tmpdir(), "corbits-env-repo-"));
+  try {
+    await run("git", ["init"], { cwd: dir });
+    await run("git", ["config", "user.email", "t@t.test"], { cwd: dir });
+    await run("git", ["config", "user.name", "t"], { cwd: dir });
+    await run("git", ["checkout", "-b", "trunk"], { cwd: dir });
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src", "seed.ts"), "export const seed = 1;\n");
+    await run("git", ["add", "."], { cwd: dir });
+    await run("git", ["commit", "-m", "seed"], { cwd: dir });
+
+    const env = await gatherEnvironment(dir);
+    expect(env.isGitRepo).toBe(true);
+    expect(env.gitBranch).toBe("trunk");
+    expect(env.topLevel).toContain("src/");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("gatherEnvironment gathers branch and dirty status from the same work tree", async () => {
@@ -71,8 +87,12 @@ test("getGitBranch returns null for empty output", async () => {
 });
 
 test("gatherEnvironment reports a non-git directory without throwing", async () => {
-  const env = await gatherEnvironment(tmpdir());
-  expect(env.cwd).toBe(tmpdir());
-  // tmpdir is not expected to be a git work tree on CI or dev machines.
-  expect(typeof env.isGitRepo).toBe("boolean");
+  const dir = await mkdtemp(join(tmpdir(), "corbits-env-bare-"));
+  try {
+    const env = await gatherEnvironment(dir);
+    expect(env.cwd).toBe(dir);
+    expect(env.isGitRepo).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

@@ -23,7 +23,7 @@ Existing coding agents stall. They get stuck in thinking loops, read files endle
 5. **Resume capability** — Runs persist to a git-backed store and resume from the last point after interruption.
 6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
 7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or via stdin when the product agent runs under `corbits exec`.
-8. **Mid-run steering** — Two modes while the agent is running: **Enter** interrupts the current run immediately and starts a new turn with your message; **Alt+Enter** queues the message for delivery at the next turn boundary without stopping the current run. A badge on the input shows the count of queued messages. A hint line in the input area makes both options discoverable.
+8. **Mid-run steering** — Two modes while the agent is running: **Enter** queues the message for delivery at the next turn boundary without stopping the current run; **Alt+Enter** steers by interrupting the current run immediately and starting a new turn with your message. **Ctrl+C** stops the run outright. A badge on the input shows the count of queued messages. A hint line in the input area (`Enter queue · Alt+Enter steer · Ctrl+C stop`) makes the options discoverable.
 9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Corbits Code asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/model` provider switches). The `exec` path uses the same `sessionMode` resolution as the TUI (global + per-repo settings; defaults to orchestrator when unset).
 
 ## User Experience
@@ -36,6 +36,13 @@ $ corbits "Add JWT auth to the API"
 
 A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
+**Layout and interaction contracts** (OpenTUI is the shipping shell):
+
+- Layout constitution: `docs/tui-layout-constitution.md` (chrome budget, geometry ownership, kill list)
+- Interaction contract: `docs/tui-interaction-contract.md` (queue / steer / interrupt, keys, palette)
+- Migration cutover: `docs/tui-migration-cutover.md`
+- Epic plan: `docs/plans/tui-layout-scroll-platform.md` · product brief: `briefs/tui-rebuild-opentui.md`
+
 ### Exec mode (non-TUI product path)
 
 ```bash
@@ -44,7 +51,7 @@ $ corbits exec "Add JWT auth to the API"
 $ corbits run "Add JWT auth to the API"
 ```
 
-Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the Ink shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller or goal governor; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
+Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the OpenTUI shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller or goal governor; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
 
 Local multi-model capability checks use this path (`bun run eval:capability`); see `evals/capability/README.md`.
 
@@ -61,7 +68,7 @@ Continues from the last saved state in the working directory.
 - **Tiered permission gate** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) run freely. Every consequential tool (`write_file`, `edit_file`, `run_shell`, …) is gated. The operator can Allow Once or Allow Always (scoped to a file, a directory, or a command shape); "Allow Always" choices persist per working directory so repeat actions don't interrupt flow.
 - **Secret guard** — Path-keyed tools (`read_file`, `write_file`, …) hard-deny sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar), even with approval or `--dangerously-skip-permissions`. Template files like `.env.example` are exempt. Shell commands that *reference* those paths (e.g. `bun --env-file=.env.staging run …`, `cat .env`) require explicit operator approval and never auto-run in auto mode; once approved, they proceed. Tool-result scrubbing still redacts credential-shaped output that reaches the transcript.
 - **Catastrophic-command deny** — Destructive shell patterns that target system roots (`rm -rf /`, home, `/etc`, …), plus `mkfs`, `dd`, `sudo`, fork bombs, `curl | bash`, force-push, … are blocked before they run. Recursive delete of ordinary workspace paths is not hard-denied but requires operator approval (never auto in auto mode).
-- **Constrained auto mode** — Default is on (`auto = true`). Pass `--no-auto` to start in ask mode, or press **SHIFT+TAB** in the TUI to toggle (enabling prints a one-line envelope reminder). Auto mode auto-approves workspace file writes/edits/deletes and unconstrained shell without per-action prompts, but it is not a free-for-all:
+- **Constrained auto mode** — Default is on (`auto = true`). Pass `--no-auto` to start in ask mode, or `--auto` to force it on; there is currently no in-session key to toggle it. Auto mode auto-approves workspace file writes/edits/deletes and unconstrained shell without per-action prompts, but it is not a free-for-all:
   - **Denied** (must use `write_file` / `edit_file`): shell file mutations via output redirection, `tee`, `sed -i` / `perl -i`, interpreter inline programs or heredocs.
   - **Still asks**: dependency installs and remote runners (npm/yarn/pnpm/bun, pip, cargo, go, brew, `npx`/`bunx`, …), recursive `rm`, git worktree add/remove/prune (list is fine), shell that references sensitive paths, and opaque unparseable wrappers (variable expansion or command substitution).
   - **Wrapper peel**: `bash`/`sh`/`zsh -c`, `xargs`, and transparent prefixes (`env`, `nice`, `timeout`, …) are expanded so the same deny/ask rules see the inner payload.

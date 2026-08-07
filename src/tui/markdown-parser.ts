@@ -567,14 +567,13 @@ function renderKeyValue(cells: StyledSegment[][][]): StyledSegment[][] {
 // A table row is either a bordered GFM row (leading pipe) or a borderless row
 // whose cells are split by a spaced pipe. Escaped pipes (\|) are literal content
 // and a `||` is a logical-or operator, so neither counts as a cell separator.
-// Exported so streaming-markdown open-table freeze uses the same heuristics.
-export function looksLikeTableRow(line: string): boolean {
+function looksLikeTableRow(line: string): boolean {
   const stripped = line.replace(/\\\|/g, "");
   if (/\|\|/.test(stripped)) return false;
   return /^\s*\|/.test(stripped) || / \| /.test(stripped);
 }
 
-export function isTableSeparator(line: string): boolean {
+function isTableSeparator(line: string): boolean {
   return /^\s*\|?(?:\s*:?-{1,}:?\s*\|)+\s*:?-{1,}:?\s*\|?\s*$/.test(line);
 }
 

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { dirname, basename } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
@@ -8,6 +7,8 @@ import {
   runBoundedSearchFiles,
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
+import { createRgCollector } from "./rg-output.js";
+import { MAX_OUTPUT_BYTES, runRg, type RgLimits } from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -17,103 +18,8 @@ import {
 // built-in posix tool otherwise, so behavior degrades gracefully on hosts
 // without ripgrep.
 
-const RG_TIMEOUT_MS = 10_000;
 const DEFAULT_GREP_MAX = 500;
 const DEFAULT_SEARCH_MAX = 1000;
-// Cap collected stdout so a runaway pattern cannot OOM the process before the
-// line-cap post-processing runs.
-const MAX_OUTPUT_BYTES = 512_000;
-
-type RgResult =
-  | { kind: "output"; stdout: string }
-  | { kind: "no-match" }
-  | { kind: "unavailable" }
-  | { kind: "error"; message: string }
-  | { kind: "partial"; stdout: string; notice: string };
-
-type RgLimits = {
-  timeoutMs?: number;
-  maxOutputBytes?: number;
-};
-
-function runRg(
-  rgArgs: string[],
-  cwd: string,
-  signal: AbortSignal,
-  limits: RgLimits = {},
-): Promise<RgResult> {
-  const timeoutMs = limits.timeoutMs ?? RG_TIMEOUT_MS;
-  const maxOutputBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
-  return new Promise((resolve) => {
-    const child = spawn("rg", rgArgs, {
-      cwd,
-      signal,
-      // Process-group leader so timeout kills any grandchildren.
-      detached: process.platform !== "win32",
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const finish = (result: RgResult): void => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    const killTree = (): void => {
-      if (child.pid === undefined) return;
-      try {
-        if (process.platform === "win32") child.kill("SIGKILL");
-        else process.kill(-child.pid, "SIGKILL");
-      } catch {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // already dead
-        }
-      }
-    };
-
-    const timer = setTimeout(() => {
-      killTree();
-      finish({
-        kind: "partial",
-        stdout,
-        notice: `ripgrep timed out after ${timeoutMs}ms — showing partial results; narrow path/glob`,
-      });
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      if (settled) return;
-      stdout += String(chunk);
-      if (stdout.length > maxOutputBytes) {
-        killTree();
-        clearTimeout(timer);
-        finish({
-          kind: "partial",
-          stdout,
-          notice: `ripgrep output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
-        });
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      // ENOENT means rg is not installed: signal a fallback, not an error.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") finish({ kind: "unavailable" });
-      else finish({ kind: "error", message: err.message });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (settled) return;
-      if (code === 0) finish({ kind: "output", stdout });
-      else if (code === 1) finish({ kind: "no-match" });
-      else finish({ kind: "error", message: stderr.trim() || `ripgrep exited with code ${code}` });
-    });
-  });
-}
 
 function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
@@ -128,6 +34,15 @@ function partialContent(stdout: string, maxResults: number, notice: string): str
   const capped = capLines(stdout, maxResults);
   if (capped.length === 0) return `no matches collected before ${notice}`;
   return `${capped}\n... ${notice}`;
+}
+
+// The fallback walker collects its whole result in memory before returning, so
+// the byte cap has to be applied here. Without this the cap simply does not
+// exist on a host without ripgrep, and an unbounded grep reaches the model.
+function boundedContent(content: string, maxResults: number, maxOutputBytes: number): string {
+  const breach = createRgCollector(maxOutputBytes).push(content);
+  if (breach?.kind !== "partial") return capLines(content, maxResults);
+  return partialContent(breach.stdout, maxResults, breach.notice);
 }
 
 function str(value: unknown): string | undefined {
@@ -152,6 +67,7 @@ function searchLocation(path: string, fallbackCwd: string): { cwd: string; targe
 }
 
 export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
+  const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "grep") {
@@ -181,7 +97,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
             };
             if (glob !== undefined) boundedArgs.glob = glob;
             const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
-            return { callId: call.id, content: capLines(content, maxResults) };
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,
@@ -217,7 +133,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}): ToolPlugin {
               signal,
               rgCwd,
             );
-            return { callId: call.id, content: capLines(content, maxResults) };
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,

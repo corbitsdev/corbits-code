@@ -558,7 +558,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   streamPromise = consumeStream(agent.stream(), streamSink);
 
   // Aborting the send signal only rejects the promise; the child reactor keeps
-  // running until close() (same hard-stop rule as the parent in runner.tsx).
+  // running until close() (same hard-stop rule as the parent in runner.ts).
   closeOnAbort = (): void => {
     void (async () => {
       try {

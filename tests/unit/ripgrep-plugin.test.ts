@@ -6,7 +6,9 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import { ripgrepPlugin } from "../../src/plugins/ripgrep-plugin.js";
 
-const cwd = process.cwd();
+// Repo root derived from this file, not process.cwd(): these cases search real
+// repo paths, so they must not depend on where the runner was invoked from.
+const cwd = join(import.meta.dirname, "../..");
 const fallback = async (): Promise<ToolResult> => ({ callId: "c", content: "FALLBACK", isError: true });
 
 function run(
@@ -77,6 +79,34 @@ test("grep returns partial matches when the output byte cap is hit", async () =>
     expect(result.content).toContain("match line here");
     expect(result.content).toContain("exceeded 200 bytes");
     expect(result.content).toContain("narrow path/glob or pattern");
+  });
+});
+
+// Hosts without ripgrep take the pure-TypeScript walker instead, and the cap has
+// to hold there too — a CI runner with no `rg` is how this went unnoticed.
+async function withoutRipgrep(body: () => Promise<void>): Promise<void> {
+  const path = process.env.PATH;
+  process.env.PATH = "";
+  try {
+    await body();
+  } finally {
+    process.env.PATH = path;
+  }
+}
+
+test("the output byte cap holds when ripgrep is unavailable", async () => {
+  await withTempDir(async (dir) => {
+    await writeFile(join(dir, "big.txt"), "match line here\n".repeat(5000));
+    await withoutRipgrep(async () => {
+      const result = await run(
+        { id: "c", name: "grep", arguments: { pattern: "match", path: dir, max_results: 5000 } },
+        { maxOutputBytes: 200 },
+      );
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toContain("match line here");
+      expect(result.content).toContain("exceeded 200 bytes");
+      expect(result.content.length).toBeLessThan(400);
+    });
   });
 });
 

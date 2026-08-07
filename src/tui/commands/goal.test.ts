@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseGoalArgs } from "./built-in.js";
+import { parseGoalArgs, registerBuiltInCommands } from "./built-in.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 import type { GoalSnapshot } from "../../agent/goal.js";
-import "./built-in.js";
+
+registerBuiltInCommands();
 
 function snap(partial: Partial<GoalSnapshot> = {}): GoalSnapshot {
   const condition = partial.condition ?? "tests green";

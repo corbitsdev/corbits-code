@@ -101,6 +101,18 @@ export async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  const code = await main(process.argv.slice(2));
+  // OpenTUI installs a process-global uncaughtException handler that only
+  // logs, which suppresses Bun's default print-and-exit. Combined with
+  // raw-mode stdin holding the event loop open, an escaped throw would
+  // otherwise hang the process forever with the terminal still in the
+  // alternate screen. Exiting explicitly here is the backstop for throws that
+  // originate outside runTUI's own crash path.
+  let code: number;
+  try {
+    code = await main(process.argv.slice(2));
+  } catch (err: unknown) {
+    process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+    code = 1;
+  }
   process.exit(code);
 }

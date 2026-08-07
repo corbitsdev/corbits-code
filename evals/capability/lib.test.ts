@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -692,6 +692,12 @@ describe("loadEvalCases (integration with tmp dir)", () => {
 });
 
 describe("withEnv / httpFixtureEnv", () => {
+  // The absent-variable case is a precondition of these tests, not something
+  // inherited from the shell or from whatever ran earlier in this process.
+  beforeEach(() => {
+    delete process.env.EVAL_HTTP_URL;
+  });
+
   test("makes the fixture origin visible to in-process code the way ssrf-guard reads it", async () => {
     const fixture = { url: "http://127.0.0.1:54321/", token: "tok" };
     expect(process.env.EVAL_HTTP_URL).toBeUndefined();

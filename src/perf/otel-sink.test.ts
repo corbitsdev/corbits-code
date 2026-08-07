@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { Settings } from "../config/settings.js";
 import { clear, end, snapshot, start, type PerfSpan } from "./index.js";
@@ -12,6 +12,12 @@ import {
   tagsToOtlpAttributes,
 } from "./otel-sink.js";
 import type { EnabledOtelExportConfig } from "./otel-config.js";
+
+// The span store is process-wide, so a perf test cannot assume the tests that
+// ran before it in this process left it empty. Reset on both edges.
+beforeEach(() => {
+  clear();
+});
 
 afterEach(() => {
   clear();

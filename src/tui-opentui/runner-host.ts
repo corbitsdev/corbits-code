@@ -1,0 +1,330 @@
+/**
+ * Runner-facing mount for the OpenTUI product host.
+ *
+ * Owns everything renderer-specific about the interactive path so the session
+ * runner keeps only agent/session wiring: catalog assembly from live config,
+ * chrome pushes on session change, subagent observe resolution, and the quit
+ * key that resolves `waitUntilExit`.
+ */
+
+import type { EventEmitter } from "node:events"
+import type { CliRenderer, KeyEvent } from "@opentui/core"
+
+import type { SubAgentSession, SubAgentTranscriptEntry } from "../subagent/session-store.js"
+import { buildCommandCatalog, type RegistryCommandSource } from "./command-catalog.js"
+import {
+  openCommandSurface,
+  type CommandSurfaceDeps,
+  type CommandSurfaceKind,
+} from "./command-surfaces.js"
+import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
+import { focusOwner } from "./focus/index.js"
+import {
+  buildModelsFirstCatalog,
+  describeModelCatalogOption,
+  type ModelCatalogOption,
+  type ModelCatalogProvidersInput,
+  type ModelCatalogRef,
+  type ModelCatalogUnconnectedProvider,
+} from "./model-catalog.js"
+import type { ItemDescription } from "./shell.js"
+import { mountProductHost, type ProductHost } from "./product-host.js"
+import {
+  appendStreamRow,
+  clearShellExitHandler,
+  setPromptCostContext,
+  setPromptModelLabel,
+  setPromptWorkspace,
+  setShellExitHandler,
+} from "./shell.js"
+import type { CostSummary } from "../cost/cost-summary.js"
+import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
+import type { PromptActionBarModelLabelInput } from "../tui/components/prompt-action-bar-label.js"
+import type { ObserveSession } from "./residuals.js"
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import { toolCallRow } from "./diff.js"
+import { toolResultRow } from "./mcp-view.js"
+import { pushToolCall, pushToolResult } from "./tool-rows.js"
+import type { StreamRow } from "./stream.js"
+import type { QueueKind } from "./session-queue.js"
+
+export type RunnerHostDeps = {
+  readonly title: string
+  readonly eventEmitter: EventEmitter
+  readonly send: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
+  readonly interrupt: () => void
+  readonly deliver?: (
+    text: string,
+    kind: QueueKind,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void
+  readonly providers: ModelCatalogProvidersInput
+  /** Recently used provider+model pairs, most recent first (settings.recentModels). */
+  readonly recentModels?: readonly ModelCatalogRef[]
+  /** Favorited provider+model pairs (settings.favoriteModels). */
+  readonly favoriteModels?: readonly ModelCatalogRef[]
+  /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
+  readonly unconnectedProviders?: readonly ModelCatalogUnconnectedProvider[]
+  readonly onModelSelect: (id: string) => void
+  /** Selecting a "connect →" row; runner owns the actual connect flow. */
+  readonly onConnectProvider?: (providerName: string) => void
+  /** `f` on a focused model row; runner owns the favorite persist + refresh. */
+  readonly onFavoriteToggle?: (id: string) => void
+  /** Working directory carried by the prompt box's bottom border. */
+  readonly cwd?: string
+  /** Branch lookup override for tests; defaults to a real `git rev-parse`. */
+  readonly fetchBranch?: FetchBranch
+  /**
+   * Live `profile · model · effort` source for the top border label. Read on
+   * mount and again after every model selection, so the label follows the
+   * same config the picker mutates.
+   */
+  readonly modelLabel?: () => PromptActionBarModelLabelInput
+  /**
+   * Live cost/context source for the bottom border's meter. Read on mount and
+   * again after every completed inference turn, so the meter tracks usage
+   * without a timer of its own.
+   */
+  readonly readCostSummary?: () => CostSummary | undefined
+  /**
+   * Live read of the show-cost setting. Consulted on every cost push so the
+   * cost run is omitted at the source when off, rather than composed and
+   * then hidden. Defaults to false (off) when omitted.
+   */
+  readonly showPromptCost?: () => boolean
+  readonly commands: readonly RegistryCommandSource[]
+  readonly onCommand: (name: string) => void
+  /** Live chrome snapshot source, read on mount and on every notify. */
+  readonly chrome: () => ChromeSessionInput
+  /** Registers a chrome-change notifier; returns an unsubscribe. */
+  readonly subscribeChrome?: (notify: () => void) => () => void
+  /** Live subagent sessions for the palette observe action. */
+  readonly subAgentSessions: () => readonly SubAgentSession[]
+  /**
+   * Live data behind the command surfaces (settings, permissions, plugins).
+   * `notify` is supplied by the host itself.
+   */
+  readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels">
+  /** Renderer factory override for headless mounting in tests. */
+  readonly createRenderer?: () => Promise<CliRenderer>
+  /** First-run telemetry disclosure, shown on the landing screen. */
+  readonly telemetryNotice?: string
+}
+
+/** Product host plus the runner-owned subscriptions torn down with it. */
+export type RunnerHost = ProductHost & {
+  /**
+   * Open a command surface. Returns false when the requested surface has no
+   * OpenTUI implementation, so the caller can report the gap.
+   */
+  readonly openSurface: (kind: CommandSurfaceKind) => boolean
+  /**
+   * Recompute the models-first catalog from fresh recent/favorite refs and
+   * push it into the already-open host — the picker's Recent/Favorites
+   * sections would otherwise never reflect a same-session selection.
+   */
+  readonly refreshModels: (
+    recentModels: readonly ModelCatalogRef[],
+    favoriteModels: readonly ModelCatalogRef[],
+  ) => void
+  /** Re-reads `showPromptCost` and cost/context state, repainting the border immediately. */
+  readonly refreshCostContext: () => void
+}
+
+/** Map a subagent transcript entry to a stream row. */
+export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRow {
+  switch (entry.kind) {
+    case "text":
+      return { role: "assistant", text: entry.content }
+    case "thinking":
+      return { role: "system", text: entry.content, meta: "thinking" }
+    case "tool":
+      return toolCallRow({ name: entry.name, arguments: entry.arguments })
+    case "tool_result":
+      return toolResultRow({
+        name: entry.name,
+        content: entry.content,
+        isError: entry.isError,
+      })
+    case "report":
+      return { role: "assistant", text: entry.content, meta: "report" }
+  }
+}
+
+/**
+ * A subagent transcript as rows. Tool entries are folded, not mapped one to
+ * one: a call and its result share a row, and a repeated call collapses onto
+ * the row it repeats.
+ */
+export function rowsFromTranscript(
+  entries: readonly SubAgentTranscriptEntry[],
+): StreamRow[] {
+  const rows: StreamRow[] = []
+  for (const entry of entries) {
+    if (entry.kind === "tool") {
+      pushToolCall(rows, { name: entry.name, arguments: entry.arguments })
+      continue
+    }
+    if (entry.kind === "tool_result") {
+      pushToolResult(rows, {
+        name: entry.name,
+        content: entry.content,
+        isError: entry.isError,
+      })
+      continue
+    }
+    rows.push(rowFromTranscriptEntry(entry))
+  }
+  return rows
+}
+
+/**
+ * Pick the session the operator most likely wants to watch: the newest running
+ * one, else the most recent session of any status. No sessions → null.
+ */
+export function observeSessionFromSubAgents(
+  sessions: readonly SubAgentSession[],
+): ObserveSession | null {
+  const running = [...sessions].reverse().find((s) => s.status === "running")
+  const picked = running ?? sessions[sessions.length - 1]
+  if (picked === undefined) return null
+  return {
+    sessionId: picked.id,
+    agentId: picked.agentId,
+    description: picked.description,
+    lines: rowsFromTranscript(picked.entries),
+  }
+}
+
+/** Mount the OpenTUI host for a live session. */
+export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost> {
+  let catalog: readonly ModelCatalogOption[] = buildModelsFirstCatalog({
+    providers: deps.providers,
+    recent: deps.recentModels ?? [],
+    favorites: deps.favoriteModels ?? [],
+    unconnected: deps.unconnectedProviders ?? [],
+  })
+  const describeModel = (itemId: string): ItemDescription | null =>
+    describeModelCatalogOption(
+      catalog.find((o) => o.id === itemId) ?? { id: itemId, label: itemId },
+      { unconnected: deps.unconnectedProviders ?? [] },
+    )
+  const readModelLabel = deps.modelLabel
+  const onModelSelect = (id: string): void => {
+    deps.onModelSelect(id)
+    if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
+  }
+  const cwd = deps.cwd ?? process.cwd()
+  const host = await mountProductHost({
+    title: deps.title,
+    cwd,
+    eventEmitter: deps.eventEmitter,
+    send: deps.send,
+    interrupt: deps.interrupt,
+    ...(deps.deliver !== undefined ? { deliver: deps.deliver } : {}),
+    ...(deps.onConnectProvider !== undefined
+      ? { onConnectProvider: deps.onConnectProvider }
+      : {}),
+    ...(deps.onFavoriteToggle !== undefined
+      ? { onFavoriteToggle: deps.onFavoriteToggle }
+      : {}),
+    models: catalog,
+    onModelSelect,
+    describeModel,
+    commands: buildCommandCatalog(deps.commands),
+    onCommand: deps.onCommand,
+    chrome: chromeFromSession(deps.chrome()),
+    onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
+    ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
+    ...(deps.telemetryNotice !== undefined
+      ? { telemetryNotice: deps.telemetryNotice }
+      : {}),
+  })
+
+  const pushChrome = (): void => {
+    host.setChrome(chromeFromSession(deps.chrome()))
+  }
+  const unsubscribeChrome = deps.subscribeChrome?.(pushChrome)
+
+  if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
+
+  const pushCostContext = (): void => {
+    const summary = deps.readCostSummary?.()
+    if (summary === undefined) return
+    const showCost = deps.showPromptCost?.() ?? false
+    setPromptCostContext(host.shell, {
+      contextPercentUsed: summary.contextPercentUsed,
+      costLabel: showCost && summary.costHiddenReason === null ? summary.formattedCost : null,
+    })
+  }
+  pushCostContext()
+  // Every completed inference turn changes both cost and context usage;
+  // nothing else needs a fresher read than that.
+  const onCostEvent = (event: { type: string }): void => {
+    if (event.type === "inference.done") pushCostContext()
+  }
+  deps.eventEmitter.on("event", onCostEvent)
+
+  const stopBranchWatch = watchGitBranch({
+    cwd,
+    onBranch: (branch) => setPromptWorkspace(host.shell, { branch }),
+    ...(deps.fetchBranch !== undefined ? { fetchBranch: deps.fetchBranch } : {}),
+  })
+
+  // The shell's Ctrl+C is the interrupt key, so quitting needs its own binding.
+  // Shell convention: Ctrl+D quits only at an empty, focused prompt. With text
+  // in the buffer it stays the textarea's delete-character-under-cursor, so a
+  // mid-edit Ctrl+D can never drop the draft.
+  const onKey = (key: KeyEvent): void => {
+    if (!key.ctrl || key.name !== "d") return
+    if (focusOwner(host.shell.focus) !== "prompt") return
+    if (host.shell.prompt.value !== "") return
+    key.preventDefault()
+    dispose()
+  }
+  host.renderer.keyInput.on("keypress", onKey)
+
+  const dispose = (): void => {
+    stopBranchWatch()
+    deps.eventEmitter.off("event", onCostEvent)
+    unsubscribeChrome?.()
+    host.renderer.keyInput.off("keypress", onKey)
+    clearShellExitHandler(host.shell)
+    host.dispose()
+  }
+
+  // A bare `exit` / `quit` at the prompt routes through the same teardown as
+  // the Ctrl+D quit key, so finalize still runs.
+  setShellExitHandler(host.shell, dispose)
+
+  const surfaceDeps: CommandSurfaceDeps = {
+    ...(deps.surfaces ?? {}),
+    ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
+    notify: (text) =>
+      appendStreamRow(host.shell, { role: "system", text, meta: "command" }),
+  }
+
+  const refreshModels = (
+    recentModels: readonly ModelCatalogRef[],
+    favoriteModels: readonly ModelCatalogRef[],
+  ): void => {
+    catalog = buildModelsFirstCatalog({
+      providers: deps.providers,
+      recent: recentModels,
+      favorites: favoriteModels,
+      unconnected: deps.unconnectedProviders ?? [],
+    })
+    host.setModels?.(catalog, describeModel)
+  }
+
+  return {
+    ...host,
+    dispose,
+    openSurface: (kind) => openCommandSurface(host.shell, kind, surfaceDeps),
+    refreshModels,
+    refreshCostContext: pushCostContext,
+  }
+}

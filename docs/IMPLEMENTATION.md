@@ -19,6 +19,10 @@ CLI binary: `corbits` (`./dist/index.js`). Version lives in `package.json` only.
 | `@intx/tools-posix` | workspace | `createPosixTools`, `ToolPlugin` middleware — sandboxed shell/file tools |
 | `@intx/types` | workspace | Runtime types (`ReactorDirector`, `ReactorState`, `ToolDefinition`, `ToolCall`, `ToolResult`, …) |
 | `@intx/storage-isogit` | workspace | Git-backed context persistence |
+| `@opentui/core` | 0.5.1 | Terminal UI renderer |
+| `@opentui/keymap` | 0.5.1 | OpenTUI keybinding support |
+| `@opentui/solid` | 0.5.1 | Solid bindings for OpenTUI |
+| `solid-js` | 1.9.14 | Reactive primitives used by the OpenTUI bindings |
 | `arktype` | catalog ^2.1.29 | Runtime validation |
 
 Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`, `@intx/log`, `@intx/crypto-node`) are pulled transitively via the above.
@@ -29,11 +33,6 @@ Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`,
 |---|---|---|
 | `@intx/inference-testing` | workspace | Deterministic agent-loop test harness |
 | `@types/bun` | 1.3.9 | Bun types |
-| `ink` | ^7.0.4 | Terminal UI framework |
-| `react` | ^19.2.6 | TUI component model |
-| `@types/react` | ^19.2.15 | React types |
-| `ink-testing-library` | ^4.0.0 | TUI test utilities |
-| `react-devtools-core` | ^7.0.1 | React devtools |
 | `ws` | ^8.21.0 | WebSocket support |
 | `typescript` | 5.9.3 | Type checking |
 | `typescript-language-server` | ^4.3.4 | TS/JS language server for the `lsp` tool (`bin/check-env` checks for it) |
@@ -117,36 +116,33 @@ src/
     file-mutation-lock.ts      Serialize mutations per file for verify
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
   tui/
-    app.tsx               Root full-screen layout
-    runner.tsx            Chat-mode agent setup + Ink render (alt-screen)
-    use-stream.ts         Event stream → React state (AgentStatus machine)
+    runner.ts             Chat-mode agent setup; mounts the OpenTUI host
+    onboarding.ts         First-run provider setup entry
+    pick-session.ts       Resume picker (via runListModal)
+    session-mode-prompt.ts  Session-mode prompt (via runListModal)
+    turns-to-blocks.ts    Stored turns → typed content blocks (resume hydration)
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
-    keymap-table.ts       Keybindings
     theme.ts              Colors
     commands/
       registry.ts         Extensible slash-command registry
       built-in.ts         /help, /model, /settings, /permissions, /plugins,
                           /clear, /new, /mcp (connect providers from /model)
-    components/
-      header.tsx, event-log.tsx, chat-input.tsx, status-bar.tsx, task-view.tsx,
-      at-mention/, operator-modal.tsx, permission-modal.tsx,
-      permissions-manager.tsx, plugins-manager.tsx, settings-overlay.tsx,
-      agent-modal.tsx, exit-confirm.tsx, help-overlay.tsx, hook-panel.tsx,
-      codex-login-modal.tsx, mcp-auth-prompt.tsx,
-      onboarding-animation.tsx, in-flight-indicator.tsx, modal-stack.tsx
-    hooks/
-      use-gates.ts, use-keymap.ts, use-layout-geometry.ts, use-mcp-status.ts,
-      use-mouse-scroll.ts, use-provider-manager.ts,
-      use-scroll.ts, use-spinner.ts, use-terminal-size.ts
-    stdin-filter.ts       Strips SGR mouse sequences before Ink parses input
+  tui-opentui/
+    shell.ts              Transcript, header, status line, prompt, overlays
+    product-host.ts        Creates the CliRenderer, wires the event bridge
+    runner-host.ts          Runner-facing mount: catalogs, chrome, quit key
+    list-modal.ts           Shared list-picker overlay (runListModal)
+    command-surfaces.ts     Slash-command surface routing (openCommandSurface)
+    command-catalog.ts, model-catalog.ts, chrome-state.ts, palette.ts,
+    provider-setup.ts       Onboarding provider setup flow
 docs/
   PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md, MCP.md, PLUGINS.md
 ```
 
 ### Auto Mode
 
-Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). SHIFT+TAB (wired through `use-keymap`'s `cycleMode` action to `onToggleAuto` in `src/tui/app.tsx`) toggles it for the rest of the session; enabling prints a one-line envelope reminder via `commandMessage`. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call.
+Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). It is toggled only via those CLI flags — there is currently no in-session key bound to it. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call.
 
 When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOLS` and any `run_shell` that does not match the auto-shell policy. The policy (`autoShellRuleForCall` / `AUTO_SHELL_RULES` in `src/permission/auto-shell-policy.ts`) peels wrappers via `expandShellSubjects` (`bash`/`sh`/`zsh -c`, `xargs`, transparent prefixes), then applies:
 
@@ -167,11 +163,11 @@ Plan approval is handled separately by `use-gates` (`pendingPlan`), independent 
 - **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
 - **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
 
-Token event batching in `use-stream.ts`: `TOKEN_EVENTS` (`inference.text.delta`, `inference.thinking.delta`, `inference.tool_call.delta`) set `pendingRenderRef.current = true`; a 33ms `setInterval` converts pending flags into `setTick` calls. All other events call `setTick` directly.
+`src/tui-opentui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui-opentui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
 ### @file Mention Resolution
 
-`@<path>` tokens in chat input are resolved to file contents before delivery to the agent. `resolveAtMentions` (in `app.tsx`) scans the submitted text for `@<path>` patterns, resolves each against the workspace (blocking absolute paths, `..` escapes, and sensitive files), and inlines file contents as fenced code blocks or directory summaries. Unresolvable paths pass through as a short inline warning so the agent knows the mention could not be expanded. Limits: 5 mentions per message, 200 kB per file, 400 kB total.
+`@-mention` resolution and image paste are not wired on the OpenTUI send path.
 
 ## Configuration
 
@@ -289,7 +285,7 @@ Providers and credentials are read exclusively from settings files: the global `
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
 | `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
-| `--no-auto` | false | Start with auto mode off (ask on every consequential action); SHIFT+TAB still toggles live |
+| `--no-auto` | false | Start with auto mode off (ask on every consequential action); no in-session key toggles it |
 | `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |
 | `--help` | — | Show help |
 
@@ -345,7 +341,7 @@ session; that tree re-write is inherent to git and left as residual cost.
 - `inference.error` / `reactor.error` — parse/inference and fatal errors
 - `reactor.done` — loop completion
 
-Mid-run queue steering is entirely in `app.tsx`: `queuedCount` tracks `pendingQueueRef` depth; the input chrome shows `N queued · Enter steer · Alt+Enter queue` while processing.
+Mid-run queue/steer/interrupt state is a pure state machine in `src/tui-opentui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui-opentui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.
 
 ### Lifecycle Hooks
 
@@ -367,7 +363,7 @@ See `docs/PLUGINS.md` for the full design. Summary:
 - Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | tool`. A workflow is just a slash command, so there is no separate workflow/agent kind.
 - Plugins are auto-discovered from `plugins/`, `<cwd>/.corbits/plugins/`, and `~/.corbits/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. When `settings.discoverClaudePlugins` is true, plugins listed in `~/.claude/plugins/installed_plugins.json` are also loaded (install paths only; still require enable). The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`). Project-local plugins require per-cwd trust (`~/.corbits/trust/<hash>.json`); path plugins use global path trust (`~/.corbits/trust/path-plugins.json`) so they keep working across project directories. Untrusted origins load metadata-only until granted.
 
-- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.tsx` (via `tools.ts` helpers). `web` → `web_search`/`web_fetch` are now always-on core built-ins (`src/tools/web-search.ts`, `src/tools/web-fetch.ts`), not plugin-backed; a discovered `kind: "web"` plugin is retained for brand-display resolution only (`resolveWebProviderFromPlugins`/`webBrand` in `src/web/plugin-provider.ts`) and no longer supplies the tool implementation.
+- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.ts` (via `tools.ts` helpers). `web` → `web_search`/`web_fetch` are now always-on core built-ins (`src/tools/web-search.ts`, `src/tools/web-fetch.ts`), not plugin-backed; a discovered `kind: "web"` plugin is retained for brand-display resolution only (`resolveWebProviderFromPlugins`/`webBrand` in `src/web/plugin-provider.ts`) and no longer supplies the tool implementation.
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
 - Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 
@@ -391,7 +387,7 @@ Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests
 |---|---|
 | **Status** | Not applicable on the default path; deferred until real audit persistence is enabled |
 | **Risk** | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs. |
-| **Why Corbits Code-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.tsx` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
+| **Why Corbits Code-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.ts` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
 | **Upstream owner** | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata. |
 | **Future Corbits Code work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
 
@@ -414,7 +410,7 @@ Run all three before declaring work complete.
 - **`tests/fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`, `multi-file-service/`).
 - **`tests/integration/`** holds the reactor permission / multi-turn harness (scripted models via `@intx/inference-testing`). **`tests/e2e/`** (fixture-repo runs) is still planned. Until e2e exists, broader harness coverage also lives in co-located `*.test.ts` files and `tests/unit/`.
 - **Capability evals** (`evals/capability/`) are **not** the integration harness: they drive the product path (`corbits exec` / `runExec`) with real models against fixture copies and objective `verify.sh` graders. Case format + loader tests live under `evals/capability/`; run with `bun run eval:capability` (see `evals/capability/README.md`). Use `--baseline` to detect improve/regress across models or commits.
-- **TUI tests** use `ink-testing-library` with mock `EventEmitter`s to simulate real-time event streams; they verify stream-hook accumulation, event-log formatting/filtering, keyboard handling, and cost formatting. `bun run test:tui` preloads `tests/setup/tui-preload.ts`, which mocks `yoga-layout` onto its TLA-free `/load` entry point. Under Bun 1.3.14, `--isolate`'s fresh-global-per-file evaluation hits a TLA/TDZ regression (fixed on Bun's `main` via oven-sh/bun#32437, not yet in a stable release) that leaves `ink`'s default `yoga-layout` import in its temporal dead zone, crashing every TUI test file; the preload works around it without giving up `--isolate`'s per-file timer/handle isolation, which the TUI tests rely on. Drop the preload once a stable Bun release ships that fix.
+- **TUI tests** are co-located `*.test.ts` files under `src/tui/` and `src/tui-opentui/` (e.g. `shell.test.ts`, `runner-host.test.ts`, `stream.test.ts`), run as part of `bun test` along with everything else; there is no separate `test:tui` script or test-setup preload.
 
 ## Deployment
 

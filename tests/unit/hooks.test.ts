@@ -231,6 +231,26 @@ test("createLifecycleHookManager can disable hooks per run", async () => {
   expect(manager.getStatuses()[0]?.lastFiredAt).toBeUndefined();
 });
 
+test("createLifecycleHookManager seeds enabled from initialEnabled, defaulting to true when absent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
+  const a = join(dir, "a.sh");
+  const b = join(dir, "b.sh");
+  await writeFile(a, "true\n");
+  await writeFile(b, "true\n");
+
+  const manager = createLifecycleHookManager({
+    hooks: [
+      { id: a, name: "a.sh", type: "shell", path: a },
+      { id: b, name: "b.sh", type: "shell", path: b },
+    ],
+    initialEnabled: { [a]: false },
+  });
+
+  const statuses = manager.getStatuses();
+  expect(statuses.find((s) => s.id === a)?.enabled).toBe(false);
+  expect(statuses.find((s) => s.id === b)?.enabled).toBe(true);
+});
+
 test("createLifecycleHookManager waits for postRun hooks to finish", async () => {
   const dir = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
   const outputPath = join(dir, "output.json");

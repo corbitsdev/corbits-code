@@ -1,12 +1,18 @@
 /**
  * CL-5170: permission.wait and subagent spans at the ask gate and task fleet.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { createPermissionGate } from "../permission/gate.js";
 import { createTaskTool } from "../subagent/task-tool.js";
 import { clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver, currentTurnId } from "./reactor-spans.js";
+
+// The span store is process-wide, so a perf test cannot assume the tests that
+// ran before it in this process left it empty. Reset on both edges.
+beforeEach(() => {
+  clear();
+});
 
 afterEach(() => {
   clear();

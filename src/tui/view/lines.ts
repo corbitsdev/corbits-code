@@ -7,21 +7,31 @@ import { GAP, PAD, toneRole, truncate } from "./registry.js";
 
 export type StyledLine = StyledSegment[];
 
-function colored(text: string, role: SemanticRole | undefined, extra?: Partial<StyledSegment>): StyledSegment {
-  return { text, ...(role !== undefined ? { color: color(role) } : {}), ...extra };
+// Layout is shared across skins; the palette is not. The OpenTUI transcript
+// paints the same view tree in the Corbits terminal palette, so callers may
+// substitute the role→color resolver instead of re-implementing the layout.
+export type ViewPalette = (role: SemanticRole) => string;
+
+function colored(
+  text: string,
+  role: SemanticRole | undefined,
+  palette: ViewPalette,
+  extra?: Partial<StyledSegment>,
+): StyledSegment {
+  return { text, ...(role !== undefined ? { color: palette(role) } : {}), ...extra };
 }
 
 // Render a leaf-ish node to a single inline StyledLine (for use inside row/grid cells).
 // If the node would produce multiple lines we take only the first (agent should use
 // simple text nodes inside aligned structures).
-function renderCell(node: ViewNode, available: number): StyledLine {
-  const lines = viewToLines(node, available + PAD); // +PAD so inner doesn't subtract again
+function renderCell(node: ViewNode, available: number, palette: ViewPalette): StyledLine {
+  const lines = viewToLines(node, available + PAD, palette); // +PAD so inner doesn't subtract again
   return lines[0] ?? [];
 }
 
 // Compute plain text width of a cell's first line for allocation (strips style).
-function cellWidth(node: ViewNode): number {
-  const line = renderCell(node, 1000);
+function cellWidth(node: ViewNode, palette: ViewPalette): number {
+  const line = renderCell(node, 1000, palette);
   return line.reduce((n, s) => n + s.text.length, 0);
 }
 
@@ -41,12 +51,16 @@ function padSegments(segments: StyledLine, width: number, align: "left" | "right
 // Lay a view node out as flat styled lines, one per visual row. This is the
 // single source of truth for view layout: the event log slices these by line so
 // a tall view is cut at the viewport edge rather than overpainting past it.
-export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
+export function viewToLines(
+  node: ViewNode,
+  columns: number,
+  palette: ViewPalette = color,
+): StyledLine[] {
   const available = Math.max(8, columns - PAD);
 
   switch (node.type) {
     case "divider":
-      return [[colored("─".repeat(available), "muted")]];
+      return [[colored("─".repeat(available), "muted", palette)]];
 
     case "text": {
       const role = toneRole(node.tone);
@@ -54,14 +68,14 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
         ...(node.bold ? { bold: true } : {}),
         ...(node.dim ? { dim: true } : {}),
       };
-      return wrapLines(node.text, available).map((row) => [colored(row, role, extra)]);
+      return wrapLines(node.text, available).map((row) => [colored(row, role, palette, extra)]);
     }
 
     case "stack": {
       const lines: StyledLine[] = [];
       node.children.forEach((child, i) => {
         if (node.gap === 1 && i > 0) lines.push([]);
-        lines.push(...viewToLines(child, columns));
+        lines.push(...viewToLines(child, columns, palette));
       });
       return lines;
     }
@@ -69,7 +83,7 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
     case "row": {
       if (node.children.length === 0) return [[]];
       // Render children as inline segments on a single row. Use first line of each.
-      const parts: StyledLine[] = node.children.map((c) => renderCell(c, available));
+      const parts: StyledLine[] = node.children.map((c) => renderCell(c, available, palette));
       const out: StyledLine = [];
       const gapSeg = { text: " ".repeat(node.gap ?? 0) };
       parts.forEach((p, i) => {
@@ -81,17 +95,17 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
 
     case "box": {
       const innerWidth = Math.max(4, available - (node.border ? 2 : 0) - (node.padding ? 2 : 0) * 2);
-      const inner = node.children.flatMap((c) => viewToLines(c, innerWidth + PAD));
+      const inner = node.children.flatMap((c) => viewToLines(c, innerWidth + PAD, palette));
       if (!node.border && !node.padding) return inner;
       const out: StyledLine[] = [];
       const border = "─".repeat(Math.max(1, innerWidth));
-      if (node.border) out.push([colored(`┌${border}┐`, "muted")]);
+      if (node.border) out.push([colored(`┌${border}┐`, "muted", palette)]);
       const pad = node.padding ? " ".repeat(node.padding) : "";
       for (const ln of inner) {
         const content = ln.map((s) => ({ ...s }));
-        out.push([colored(pad, undefined), ...content, colored(pad, undefined)]);
+        out.push([colored(pad, undefined, palette), ...content, colored(pad, undefined, palette)]);
       }
-      if (node.border) out.push([colored(`└${border}┘`, "muted")]);
+      if (node.border) out.push([colored(`└${border}┘`, "muted", palette)]);
       return out;
     }
 
@@ -106,7 +120,7 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
         let w = 0;
         for (const row of allRows) {
           const cell = row[c];
-          if (cell) w = Math.max(w, cellWidth(cell));
+          if (cell) w = Math.max(w, cellWidth(cell, palette));
         }
         natural.push(Math.min(40, Math.max(1, w))); // cap like before
       }
@@ -129,7 +143,7 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
         const segs: StyledLine = [];
         for (let i = 0; i < cells.length; i++) {
           const cellNode = cells[i]!;
-          const cellLine = renderCell(cellNode, widths[i]!);
+          const cellLine = renderCell(cellNode, widths[i]!, palette);
           const align = (cols[i]?.align ?? "left") as "left" | "right" | "center";
           const padded = padSegments(cellLine, widths[i]!, align);
           segs.push(...padded);
@@ -138,7 +152,9 @@ export function viewToLines(node: ViewNode, columns: number): StyledLine[] {
         lines.push(segs);
       }
       if (node.rows.length > allRows.length) {
-        lines.push([colored(`+${node.rows.length - allRows.length} more`, "muted", { dim: true })]);
+        lines.push([
+          colored(`+${node.rows.length - allRows.length} more`, "muted", palette, { dim: true }),
+        ]);
       }
       return lines;
     }
