@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   createCodexResponsesAdapter,
   isResponsesStreamTerminal,
+  tagSignature,
 } from "../../src/provider/codex-responses-adapter.js";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
 import { ProtocolMismatchError } from "@intx/inference";
@@ -95,7 +96,7 @@ describe("codex-sse fixtures (golden parse)", () => {
     });
     expect(out[3]).toMatchObject({
       type: "inference.thinking.signature",
-      data: { signature: "ENC_FIXTURE_BLOB_NOT_REAL", index: 0 },
+      data: { signature: tagSignature(SOURCE.provider, "ENC_FIXTURE_BLOB_NOT_REAL"), index: 0 },
     });
     expect(out[4]).toMatchObject({
       type: "inference.text.delta",

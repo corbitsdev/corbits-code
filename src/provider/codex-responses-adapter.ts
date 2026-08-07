@@ -57,15 +57,44 @@ type ResponsesInputItem =
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
 
 // A thinking block's `signature` is opaque ciphertext a specific backend
-// issued for a specific model; only that backend can decrypt it. `turn.model`
-// records which model produced the turn, so comparing it against the model
-// this request is being built for is enough provenance to tell whether a
-// signature is safe to replay — no separate provenance field is needed.
-// Switching models means turns from the old model simply stop qualifying, so
-// a poisoned history self-heals on the very next request instead of being
-// replayed forever.
-export function signatureForModel(turn: ConversationTurn, requestModel: string, signature: string): string | undefined {
-  return turn.model === requestModel ? signature : undefined;
+// issued for a specific model; only that backend can decrypt it. `model` is
+// arbitrary catalog/user-supplied text — nothing stops two distinct backends
+// (proxy aliases, two OpenAI-compatible endpoints) from declaring the same
+// literal model name, so comparing `turn.model` alone treats a foreign
+// signature as safe to replay. `ConversationTurn` carries no field for which
+// provider produced it, so provenance rides inside the signature string
+// itself: capture tags it `<provider>:<ciphertext>` (see `tagSignature`),
+// and replay only unwraps the ciphertext when both the tagged provider and
+// the model match the current request.
+//
+// Provider, not the per-account source id, is the unit of decrypt
+// capability — a Codex backend shared across ChatGPT accounts can decrypt a
+// signature issued to any of them, so keying on provider (rather than source
+// id) is what lets an account switch keep reasoning continuity while a
+// genuine cross-provider collision still gets dropped. A poisoned history
+// self-heals on the next request instead of being replayed forever.
+const SIGNATURE_TAG_SEPARATOR = ":";
+
+export function tagSignature(provider: string, encryptedContent: string): string {
+  return `${provider}${SIGNATURE_TAG_SEPARATOR}${encryptedContent}`;
+}
+
+function untagSignature(tagged: string): { provider: string; encryptedContent: string } | undefined {
+  const idx = tagged.indexOf(SIGNATURE_TAG_SEPARATOR);
+  if (idx === -1) return undefined;
+  return { provider: tagged.slice(0, idx), encryptedContent: tagged.slice(idx + 1) };
+}
+
+export function signatureForModel(
+  turn: ConversationTurn,
+  requestModel: string,
+  requestProvider: string,
+  signature: string,
+): string | undefined {
+  if (turn.model !== requestModel) return undefined;
+  const tagged = untagSignature(signature);
+  if (tagged === undefined) return undefined;
+  return tagged.provider === requestProvider ? tagged.encryptedContent : undefined;
 }
 
 // Map one internal turn to zero or more Responses items. Assistant text uses
@@ -76,7 +105,7 @@ export function signatureForModel(turn: ConversationTurn, requestModel: string, 
 // (held in a thinking block's signature) AND that backend is the one this
 // request is going to — replaying it to a different provider gets a 400 it
 // cannot recover from.
-function toResponsesItems(turn: ConversationTurn, requestModel: string): ResponsesInputItem[] {
+function toResponsesItems(turn: ConversationTurn, requestModel: string, requestProvider: string): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const textKind: "input_text" | "output_text" = turn.role === "assistant" ? "output_text" : "input_text";
   const textParts: ResponsesContentPart[] = [];
@@ -112,7 +141,7 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string): Respons
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
       flushText();
-      const encryptedContent = signatureForModel(turn, requestModel, block.signature);
+      const encryptedContent = signatureForModel(turn, requestModel, requestProvider, block.signature);
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
       }
@@ -169,8 +198,9 @@ function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
+  requestProvider: string,
 ): BuiltRequest {
-  const conversation = messages.flatMap((turn) => toResponsesItems(turn, model));
+  const conversation = messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider));
   // Corbits Code's prompt cannot live in `instructions` (the backend pins that to
   // the official Codex prompt), so it leads the input as a developer message.
   const input =
@@ -377,7 +407,7 @@ export function parseResponse(
         events.push({
           type: "inference.thinking.signature",
           seq,
-          data: { signature: item["encrypted_content"], index },
+          data: { signature: tagSignature(source.provider, item["encrypted_content"] as string), index },
         });
       }
       return events;
@@ -457,7 +487,7 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
     items: new Map<string, { index: number; kind: CodexBlockKind }>(),
   };
   return {
-    buildRequest,
+    buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
     isStreamTerminal: isResponsesStreamTerminal,
   };

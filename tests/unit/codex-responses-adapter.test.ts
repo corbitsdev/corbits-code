@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   createCodexResponsesAdapter,
   tagSignature,
+  signatureForModel,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
   CODEX_RESPONSES_PROVIDER,
@@ -220,6 +221,43 @@ describe("codex-responses buildRequest", () => {
     }
   });
 
+  test("drops a bare, untagged legacy signature instead of misparsing it as ciphertext", () => {
+    // Signatures captured before this change carry no "<provider>:" prefix.
+    // untagSignature must recognize the absence of a separator and refuse to
+    // treat any part of the raw string as ciphertext, rather than replaying
+    // a truncated or garbled blob the backend cannot decrypt.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: "QUJDREVGRzEyMzQ1Njc4OTAtXy8rPQ==" },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    const input = body["input"] as Array<Record<string, unknown>>;
+    expect(input.some((item) => item["type"] === "reasoning")).toBe(false);
+  });
+
+  test("signatureForModel returns undefined for an untagged signature", () => {
+    const turn: ConversationTurn = { role: "assistant", model: "gpt-5-codex", timestamp: 0, content: [] };
+    expect(signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, "QUJDREVGRzEyMzQ1Njc4OTAtXy8rPQ==")).toBeUndefined();
+  });
+
+  test("tagSignature/signatureForModel round-trips ciphertext containing embedded colons byte-exact", () => {
+    // untagSignature splits on the FIRST colon (indexOf, not split(":")),
+    // so ciphertext that itself contains colons must survive intact. A
+    // naive split(":")[1] would truncate this to "part2".
+    const ciphertext = "part1:part2:part3==";
+    const turn: ConversationTurn = { role: "assistant", model: "gpt-5-codex", timestamp: 0, content: [] };
+    const tagged = tagSignature(CODEX_RESPONSES_PROVIDER, ciphertext);
+    expect(signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, tagged)).toBe(ciphertext);
+  });
+
   test("omits the account-id header when no account id is supplied", () => {
     const req = adapter().buildRequest([userTurn("x")], "gpt-5-codex", { providerOptions: { [CODEX_SESSION_ID_OPTION]: "s" } });
     expect(req.headers["chatgpt-account-id"]).toBeUndefined();
@@ -285,7 +323,10 @@ describe("codex-responses parseResponse", () => {
       { type: "response.output_item.done", item: { type: "reasoning", id: "rs_1", encrypted_content: "ENC_BLOB" } },
     ]);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
-    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC_BLOB", index: 0 } });
+    expect(out[1]).toMatchObject({
+      type: "inference.thinking.signature",
+      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB"), index: 0 },
+    });
   });
 
   test("emits empty thinking delta + signature when done provides encrypted_content with no prior delta (pure-encrypted reasoning)", () => {
@@ -297,7 +338,10 @@ describe("codex-responses parseResponse", () => {
     ]);
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { token: "", index: 0 } });
-    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC", index: 0 } });
+    expect(out[1]).toMatchObject({
+      type: "inference.thinking.signature",
+      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC"), index: 0 },
+    });
   });
 
   test("keys blocks by item_id so interleaved reasoning and tool calls keep distinct indices", () => {
