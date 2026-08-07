@@ -665,6 +665,12 @@ export type AppShell = {
    * ./prompt-kill-ring.js).
    */
   promptKillRing: KillRing
+  /** `Date.now()` of the last keypress; detects an un-bracketed paste burst (see `PASTE_BURST_MS`). */
+  lastKeyAt: number
+  /** Whether that last keypress inserted a plain character (see `isPrintableInsertKey`). */
+  lastKeyWasPrintable: boolean
+  /** A converted CR is about to be followed by its CRLF partner LF; swallow that LF. */
+  suppressNextLinefeed: boolean
   /** Images attached with Ctrl+P, sent with the next prompt submit. */
   pendingAttachments: PendingImageAttachment[]
   /** Up/Down recall of messages already sent in this session. */
@@ -694,6 +700,23 @@ export type PrimaryOverlayKind =
   | "hooks"
   | "mcp"
   | "plugin_credentials"
+
+// Human keystrokes land tens of milliseconds apart at the fastest; a paste
+// replayed onto stdin without bracketed-paste framing lands effectively all
+// at once. Anything under this gap between keypresses is paste, not typing.
+const PASTE_BURST_MS = 15
+
+/** A single unmodified character, as opposed to a control chord or named key. */
+function isPrintableInsertKey(key: KeyEvent): boolean {
+  return (
+    !key.ctrl &&
+    !key.meta &&
+    !key.option &&
+    typeof key.sequence === "string" &&
+    key.sequence.length === 1 &&
+    key.sequence >= " "
+  )
+}
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -4666,6 +4689,46 @@ export function createAppShell(
     // kill ring — Ctrl+K/U/W and Alt+D delete natively but discard the text;
     // Ctrl+Y/Alt+Y need somewhere to yank it back from.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : ""
+
+    // The LF half of a CRLF pair the block below just turned into a newline:
+    // without this, "line one\r\nline two" would insert two newlines, one for
+    // the converted CR and one for the LF arriving right behind it.
+    const suppressLinefeed = shell.suppressNextLinefeed
+    shell.suppressNextLinefeed = false
+    if (suppressLinefeed && keyName === "linefeed" && !key.ctrl && !key.meta && !key.option) {
+      key.preventDefault()
+      return
+    }
+
+    // A terminal that never negotiated bracketed paste (DEC 2004) hands a
+    // multi-line paste to us as ordinary keystrokes, CR and all -- and a bare
+    // CR is the same "return" that submits. Left alone, pasting three lines
+    // sends three separate messages instead of composing one. Bracketed paste
+    // delivers the whole blob as one `paste` event and never reaches here, so
+    // this only fires on the raw-keystroke fallback.
+    //
+    // Detecting it needs two signals, not one: a lone fast Enter can happen
+    // (key rollover, a scripted "send keys"), and a lone printable character
+    // right before Enter is just typing. What never happens from a human is a
+    // printable character landing, then Enter, both inside a keystroke burst
+    // — that shape is unique to a paste being replayed byte-for-byte. Gating
+    // on both keeps a deliberate Ctrl+J-then-Enter (newline, then send) safe,
+    // since Ctrl+J is not "a printable character," while still catching
+    // "...end of line one<CR><LF>line two..." arriving as raw keystrokes.
+    const now = Date.now()
+    const sincePreviousKey = now - shell.lastKeyAt
+    const previousKeyWasPrintable = shell.lastKeyWasPrintable
+    shell.lastKeyAt = now
+    shell.lastKeyWasPrintable = isPrintableInsertKey(key)
+    const isBareReturn =
+      !key.ctrl && !key.meta && !key.option && (keyName === "return" || keyName === "kpenter")
+    if (isBareReturn && previousKeyWasPrintable && sincePreviousKey < PASTE_BURST_MS) {
+      key.preventDefault()
+      shell.prompt.insertText("\n")
+      shell.suppressNextLinefeed = true
+      return
+    }
+
     const isCtrlKillYank =
       key.ctrl &&
       !key.meta &&
@@ -4984,6 +5047,9 @@ export function createAppShell(
     parentStreamLog: null,
     parentStreamLogBase: null,
     promptKillRing: emptyKillRing,
+    lastKeyAt: 0,
+    lastKeyWasPrintable: false,
+    suppressNextLinefeed: false,
     pendingAttachments: [],
     sentHistory: createSentHistoryBrowse([]),
     disposed: false,

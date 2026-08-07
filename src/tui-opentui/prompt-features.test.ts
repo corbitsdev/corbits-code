@@ -238,6 +238,49 @@ describe("text paste", () => {
     async (h) => await h.mockInput.pasteBracketedText(`${"x".repeat(4000)}\nend`),
     `${"x".repeat(4000)}\nend`,
   )
+
+  // A terminal that never negotiated DEC 2004 hands a paste to us as plain
+  // keystrokes -- CR included -- instead of one `paste` event. Without a
+  // burst guard, the bare CR after "line one" would hit the same submit
+  // binding a deliberate Enter does, sending the message after its first
+  // line instead of composing all three.
+  pasteCase(
+    "a CRLF paste arriving as raw keystrokes still composes instead of submitting",
+    async (h) => await h.mockInput.typeText("line one\r\nline two\r\nline three"),
+    "line one\nline two\nline three",
+  )
+})
+
+describe("un-bracketed paste vs. deliberate Enter", () => {
+  test("Ctrl+J then Enter still sends -- a newline chord followed by a real Enter is not a paste", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+        })
+        try {
+          const submitted: string[] = []
+          setShellBridgeHooks(shell, {
+            onSubmit: (text) => submitted.push(text),
+            onInterrupt: () => {},
+            exclusive: true,
+          })
+          shell.prompt.focus()
+          shell.prompt.value = "first"
+          h.mockInput.pressKey("\n")
+          h.mockInput.pressKey("\r")
+          await h.renderOnce()
+          expect(submitted).toEqual(["first\n"])
+          expect(shell.prompt.value).toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
 })
 
 describe("sent-message recall", () => {
