@@ -109,7 +109,7 @@ export class SubAgentDirector extends DefaultDirector {
     now: () => number = Date.now,
   ) {
     super(systemPrompt, toolDefinitions, {});
-    this.compaction = createCompactionGovernor(requestContinuation);
+    this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
     this.maxTurns = maxTurns;
     this.repeatLimit = repeatLimit;
     this.stallTimeoutMs = stallTimeoutMs;

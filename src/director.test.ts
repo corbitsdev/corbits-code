@@ -3,6 +3,7 @@ import { createChatDirector } from "./agent/director.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "./session/compactor.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ExtendedInferenceOptions } from "@intx/inference";
 import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
@@ -275,7 +276,14 @@ describe("chatDirector compaction", () => {
     const director = createChatDirector("", [], undefined, undefined, undefined, undefined, undefined, undefined, () => {
       continuations++;
     });
-    const longState = { turns: Array.from({ length: 7 }, () => ({ role: "user", content: [], timestamp: 0 })) } as unknown as ReactorState;
+    // One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
+    // so the arming check finds a history actually worth compacting.
+    const longState = {
+      turns: Array.from(
+        { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
+        () => ({ role: "user", content: [], timestamp: 0 }),
+      ),
+    } as unknown as ReactorState;
 
     const replyActions = actionsArray(await director.decide(textInferenceDone(999_999), longState, mockCapabilities));
     expect(replyActions.some((a) => a.type === "reply")).toBe(true);
@@ -288,7 +296,13 @@ describe("chatDirector compaction", () => {
     ]);
   });
 
-  const longState = { turns: Array.from({ length: 7 }, () => ({ role: "user", content: [], timestamp: 0 })) } as unknown as ReactorState;
+  // One turn past createPruningCompactor's own no-op floor (session/compactor.ts).
+  const longState = {
+    turns: Array.from(
+      { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
+      () => ({ role: "user", content: [], timestamp: 0 }),
+    ),
+  } as unknown as ReactorState;
 
   function overThresholdToolTurn(): ReactorInboundEvent {
     return {

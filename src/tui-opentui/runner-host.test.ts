@@ -31,6 +31,7 @@ function fakeCostSummary(): CostSummary {
     outputTokens: 50,
     cacheReadTokens: 0,
     contextTokens: 1000,
+    contextIsEstimate: false,
     costHiddenReason: null,
     contextWindow: 10000,
     contextPercentUsed: 10,
@@ -72,6 +73,7 @@ describe("rowFromTranscriptEntry", () => {
       verb: "Grep",
       pending: true,
       callKey: "grep Grep ",
+      callId: "c",
     })
     expect(
       rowFromTranscriptEntry({
@@ -81,7 +83,7 @@ describe("rowFromTranscriptEntry", () => {
         content: "boom",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "boom", meta: "grep", failed: true })
+    ).toEqual({ role: "tool", text: "boom", meta: "grep", failed: true, callId: "c" })
     expect(rowFromTranscriptEntry({ kind: "report", content: "done" })).toEqual({
       role: "assistant",
       text: "done",
@@ -140,14 +142,12 @@ describe("mountRunnerHost command surfaces", () => {
             compactionMode: "llm",
             sessionMode: "orchestrator",
             sessionModeScope: "global",
-            maxConcurrentSubAgents: 3,
             waitForApproval: true,
             telemetryEnabled: false,
             showPromptCost: false,
           }),
           setCompactionMode: () => {},
           setSessionMode: () => {},
-          setMaxConcurrentSubAgents: () => {},
           setWaitForApproval: () => {},
           setTelemetryEnabled: () => {},
           setShowPromptCost: () => {},

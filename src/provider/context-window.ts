@@ -3,7 +3,21 @@
 // models.dev metadata is loaded at startup it takes priority; otherwise we fall
 // back to conservative per-family floors, and finally a common 128k window.
 
+import type { TokenUsage } from "@intx/types/runtime";
+
 const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+// The one place "how much context is this turn occupying" gets computed from
+// a provider's reported usage. Cache reads and writes still ride on the
+// context window (a provider like Anthropic bills and counts them against
+// it) even though they are not `input` — omitting them understates occupancy
+// for any session using prompt caching. The status-bar meter and the
+// compaction governor must both call this rather than hand-picking fields,
+// or they silently diverge on what "context size" means.
+export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
+  if (usage === undefined) return 0;
+  return usage.input + usage.cacheRead + usage.cacheWrite;
+}
 
 // Populated at startup from the models.dev pricing cache (limit.context).
 // Exact model-id match wins over the family heuristics below.

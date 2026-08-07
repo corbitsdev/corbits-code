@@ -5,7 +5,12 @@
 // tool payloads, images) so proactive compaction still has a signal. This is
 // a lower bound: system prompt, tool schemas, and framing are not counted.
 
-import type { ContentBlock, ConversationTurn, MediaSource } from "@intx/types/runtime";
+import type {
+  ContentBlock,
+  ConversationTurn,
+  MediaSource,
+  ToolDefinition,
+} from "@intx/types/runtime";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -77,17 +82,35 @@ export function estimateContextTokens(turns: readonly ConversationTurn[]): numbe
   return total;
 }
 
+// The system prompt and tool schemas ride on every request the same way turns
+// do, but they never appear in `turns` — they're framing the harness supplies
+// out of band. Without this, the estimate undercounts by whatever AGENTS.md
+// and the active tool roster cost, which is often tens of thousands of tokens
+// before a single turn is sent.
+export function estimateOverheadTokens(
+  systemPrompt: string,
+  toolDefinitions: readonly ToolDefinition[],
+): number {
+  let chars = systemPrompt.length;
+  for (const tool of toolDefinitions) {
+    chars += tool.name.length + tool.description.length + JSON.stringify(tool.inputSchema).length;
+  }
+  return estimateTokensFromChars(chars);
+}
+
 // Mutable running estimate. Callers re-sync from the full turn list after each
 // append so compaction rewrites and tool results stay accurate without
-// incremental add/subtract bookkeeping.
+// incremental add/subtract bookkeeping. `overheadTokens` is fixed per session
+// (system prompt + tool schemas do not change turn to turn) and is folded into
+// every sync so the total tracks what actually goes out on the wire.
 export type ContextEstimate = ReturnType<typeof createContextEstimate>;
 
-export function createContextEstimate() {
-  let tokens = 0;
+export function createContextEstimate(overheadTokens = 0) {
+  let tokens = overheadTokens;
   let turnCount = 0;
 
   function syncFromTurns(turns: readonly ConversationTurn[]): number {
-    tokens = estimateContextTokens(turns);
+    tokens = overheadTokens + estimateContextTokens(turns);
     turnCount = turns.length;
     return tokens;
   }

@@ -20,6 +20,7 @@ import {
   type BaseRenderable,
   type CliRenderer,
   type KeyEvent,
+  type MouseEvent,
   type TextChunk,
 } from "@opentui/core"
 
@@ -32,6 +33,7 @@ import { stringWidth } from "../tui/view/height.js"
 import { listPathSuggestions } from "../tui/components/at-mention/list.js"
 import { parseAtState } from "../tui/components/at-mention/parse.js"
 import {
+  formatAttachmentSummary,
   readClipboardImage,
   type ClipboardImageResult,
   type PendingImageAttachment,
@@ -110,12 +112,7 @@ import {
   visibleSlice,
   type ListViewportState,
 } from "./list-viewport.js"
-import {
-  LONG_LOG_WINDOW,
-  collapseMarker,
-  mustWindow,
-  windowSlice,
-} from "./long-log.js"
+import { retentionOverflow } from "./long-log.js"
 import {
   DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
@@ -565,8 +562,18 @@ export type AppShell = {
   pendingQueue: number
   /** Transcript line count (append counter / full log length). */
   lineCount: number
-  /** Full stream log (windowed paint; never unbounded render tree). */
+  /**
+   * Retained tail of the stream log — capped at MAX_RETAINED_STREAM_ROWS, so
+   * this is never the full session history on a long run.
+   */
   streamLog: StreamRow[]
+  /**
+   * Absolute index of `streamLog[0]`. Every index the bridge holds onto
+   * across calls (tool-call rows, the open streaming row, the retry
+   * boundary) is absolute, so it stays valid once eviction has shifted the
+   * array itself. Bumped by the number of rows dropped on each trim.
+   */
+  streamLogBase: number
   /**
    * Distinct writers in the visible transcript. Rows carry a name and icon only
    * once this holds more than one, so identity appears where it disambiguates.
@@ -646,6 +653,8 @@ export type AppShell = {
   } | null
   /** Parent stream snapshot while observe is active. */
   parentStreamLog: StreamRow[] | null
+  /** Absolute base for `parentStreamLog`, saved/restored across observe (see `streamLogBase`). */
+  parentStreamLogBase: number | null
   /**
    * Readline kill ring backing Ctrl+Y/Alt+Y. Ctrl+K/U/W and Alt+D feed it;
    * the text widget itself has no concept of a kill ring (see
@@ -681,6 +690,29 @@ export type PrimaryOverlayKind =
   | "hooks"
   | "mcp"
   | "plugin_credentials"
+
+// Human keystrokes land tens of milliseconds apart at the fastest; a paste
+// replayed onto stdin without bracketed-paste framing lands effectively all
+// at once. 15ms is an empirical guess at a gap comfortably under normal
+// typing and comfortably over a replayed paste, not a measured figure --
+// too high false-positives on a very fast typist's real Enter (read as
+// paste, so it inserts a newline instead of sending); too low misses a
+// slow paste replay (read as typing, so a bare CR mid-paste still
+// submits). Only matters before this terminal's first real paste event;
+// see `sawBracketedPaste` below.
+const PASTE_BURST_MS = 15
+
+/** A single unmodified character, as opposed to a control chord or named key. */
+function isPrintableInsertKey(key: KeyEvent): boolean {
+  return (
+    !key.ctrl &&
+    !key.meta &&
+    !key.option &&
+    typeof key.sequence === "string" &&
+    key.sequence.length === 1 &&
+    key.sequence >= " "
+  )
+}
 
 const DEFAULT_TITLE = "corbits"
 const DEFAULT_OVERLAY_ITEMS = [
@@ -863,6 +895,9 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
   const source = shellPromptImageSource.get(shell) ?? readClipboardImage
   setStatusFlash(shell, "reading clipboard image…")
   const result = await source()
+  // Quitting while the clipboard read is pending tears down the shell's
+  // renderables; a stale continuation must not mutate them on resume.
+  if (shell.disposed) return false
   if (!result.ok) {
     setStatusFlash(shell, `image attach failed: ${result.reason}`)
     return false
@@ -1480,7 +1515,11 @@ export function setPromptWorkspace(
  */
 export function setPromptCostContext(
   shell: AppShell,
-  input: { readonly contextPercentUsed: number | null; readonly costLabel?: string | null },
+  input: {
+    readonly contextPercentUsed: number | null
+    readonly costLabel?: string | null
+    readonly contextIsEstimate: boolean
+  },
 ): void {
   const meter = composeCostContextMeter(input)
   if (meterEquals(meter, shell.costContext)) return
@@ -1499,8 +1538,9 @@ function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): bo
  * A floated overlay is clipped to the rows above the box so it never covers the
  * thing the operator types into. Losing the tail of a long body to that clip is
  * survivable; losing every choice is not, because then the surface cannot be
- * answered. So the box slides down just far enough to keep the overlay's chrome
- * and one choice on screen, and the starters below it pay for the move.
+ * answered. So the box slides down just far enough to keep the overlay's full,
+ * already fraction-capped height on screen, and the starters below it pay for
+ * the move.
  */
 function landingSplitFor(
   landingRows: number,
@@ -1556,14 +1596,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const bag = internals.get(shell)
   const landing = bag?.landing ?? null
   const landingRows = transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH)
+  // The resolver already sized overlayH to the overlay's real content (list
+  // included) and capped it against the fraction/floor limits, so it is the
+  // correct minimum to ask the landing split to make room for — asking for
+  // less (e.g. just enough for one choice row) starves the list underneath
+  // the title down to nearly nothing once floatOverlayHost pins the host to it.
   const split =
-    landing === null
-      ? null
-      : landingSplitFor(
-          landingRows,
-          overlayH > 0 ? overlayHostRows(shell, shell.overlayBodyLines.length, 1) : 0,
-          padH,
-        )
+    landing === null ? null : landingSplitFor(landingRows, overlayH, padH)
   if (bag !== undefined && landing !== null && split !== null) {
     landing.above.box.height = Math.max(1, split.above)
     // A new zone can seat a different tier, and a tier is a different grid, so
@@ -1669,6 +1708,7 @@ type PriorOverlaySnapshot = {
   readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null
   readonly answer: OverlayAnswerState | null
   readonly titleText: string
+  readonly onCancel: (() => void) | null
 }
 
 type ShellInternals = {
@@ -1696,6 +1736,12 @@ type ShellInternals = {
   overlayAnswer: OverlayAnswerState | null
   /** Bare title of the open overlay, so its key hints can be re-composed. */
   overlayTitleText: string
+  /**
+   * Per-open dismiss hook for promise-backed overlays (permissions, operator).
+   * Esc/closeInsetOverlay invokes this instead of silently dropping the
+   * pending promise the way palette/mentions/copy overlays correctly do.
+   */
+  overlayOnCancel: (() => void) | null
   /** Fired once the shell has no overlay open, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>
   /**
@@ -1857,9 +1903,28 @@ export function appendTranscript(
 export function appendStreamRow(shell: AppShell, row: StreamRow): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
     shell.parentStreamLog.push(row)
+    shell.parentStreamLogBase = trimRetainedLog(
+      shell.parentStreamLog,
+      shell.parentStreamLogBase ?? 0,
+    )
     return
   }
   paintAppendStreamRow(shell, row)
+}
+
+/**
+ * Evict the oldest rows once `log` exceeds the retention cap and return the
+ * new absolute base (the index `log[0]` now represents).
+ *
+ * Every index the bridge holds onto — tool-call rows, the open streaming
+ * row, the retry boundary — is absolute (base + local position), so eviction
+ * only has to bump the base; it never has to rewrite a stored index.
+ */
+function trimRetainedLog(log: StreamRow[], base: number): number {
+  const drop = retentionOverflow(log.length)
+  if (drop <= 0) return base
+  log.splice(0, drop)
+  return base + drop
 }
 
 /**
@@ -1920,25 +1985,67 @@ function labelBefore(shell: AppShell, index: number): string | null {
   return blockLabel(rowBefore(shell, index), row, transcriptRowLayout(shell))
 }
 
-/** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
+/**
+ * Notice painted above the oldest retained row once the cap has evicted
+ * anything. Unlike the pre-CL-5551 collapse marker it replaces, scrolling
+ * never reveals more — these rows are gone, not merely out of the window.
+ */
+function evictedRowsNotice(evicted: number): string {
+  return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`
+}
+
+/**
+ * Paint + push onto the visible streamLog (child while observing, parent
+ * otherwise). The paint tree stays 1:1 with the (retention-capped) log —
+ * CL-5551 already bounds `streamLog` to `MAX_RETAINED_STREAM_ROWS`, so there
+ * is no separate, smaller window to maintain on top of it: every retained
+ * row gets a node, which is also what makes all of it reachable by
+ * scrolling (CL-5553). A trim past the cap costs one node removal here, not
+ * a rebuild.
+ */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell)
   const gainedVoice = noteAgentVoice(shell, row)
   shell.streamLog.push(row)
+  const baseBefore = shell.streamLogBase
+  shell.streamLogBase = trimRetainedLog(shell.streamLog, shell.streamLogBase)
   shell.lineCount = shell.streamLog.length
 
-  // Under collapse threshold: append one paint node (cheap).
-  // Over threshold: rebuild the windowed paint tree only.
-  if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
-    const index = shell.streamLog.length - 1
-    shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
-    )
+  if (gainedVoice) {
+    repaintTranscriptWindow(shell)
     paintChrome(shell)
     return
   }
 
-  repaintTranscriptWindow(shell)
+  const dropped = shell.streamLogBase - baseBefore
+  if (dropped > 0) {
+    for (const evicted of transcriptRowChildren(shell).slice(0, dropped)) {
+      shell.transcript.remove(evicted)
+      destroySubtree(evicted)
+    }
+    const marker = transcriptMarker(shell)
+    if (marker instanceof TextRenderable) {
+      marker.content = evictedRowsNotice(shell.streamLogBase)
+    } else {
+      const node = new TextRenderable(shell.renderer as CliRenderer, {
+        content: evictedRowsNotice(shell.streamLogBase),
+        fg: UI.textDim,
+      })
+      evictionMarkers.add(node)
+      shell.transcript.add(node, 1)
+    }
+  }
+
+  const index = shell.streamLog.length - 1
+  shell.transcript.add(
+    createStreamRowRenderable(
+      shell,
+      row,
+      gapBefore(shell, index),
+      labelBefore(shell, index),
+      shell.streamLogBase + index,
+    ),
+  )
   paintChrome(shell)
 }
 
@@ -1946,36 +2053,45 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
 export function streamRowCount(shell: AppShell): number {
   return shell.observe !== null && shell.parentStreamLog !== null
     ? shell.parentStreamLog.length
-    : shell.streamLog.length
+    : shell.streamLogBase + shell.streamLog.length
 }
 
 /**
- * Row at `index` on the log `appendStreamRow` currently targets. A tool result
- * rewrites the call row it answers rather than appending its own, and needs to
- * read that row back to fold into it.
+ * Row at absolute `index` on the log `appendStreamRow` currently targets. A
+ * tool result rewrites the call row it answers rather than appending its
+ * own, and needs to read that row back to fold into it.
+ *
+ * `index` is absolute (see `streamLogBase`); a row already evicted by the
+ * retention cap reads back as undefined, same as one past the end.
  */
 export function streamRowAt(shell: AppShell, index: number): StreamRow | undefined {
-  const log =
-    shell.observe !== null && shell.parentStreamLog !== null
-      ? shell.parentStreamLog
-      : shell.streamLog
-  return index >= 0 && index < log.length ? log[index] : undefined
+  if (shell.observe !== null && shell.parentStreamLog !== null) {
+    const local = index - (shell.parentStreamLogBase ?? 0)
+    return local >= 0 && local < shell.parentStreamLog.length
+      ? shell.parentStreamLog[local]
+      : undefined
+  }
+  const local = index - shell.streamLogBase
+  return local >= 0 && local < shell.streamLog.length ? shell.streamLog[local] : undefined
 }
 
 /**
- * Drop every row from `length` onward on the log `appendStreamRow` targets.
+ * Drop every row from absolute `length` onward on the log `appendStreamRow`
+ * targets.
  *
  * A committed inference attempt that fails is re-streamed from scratch, so the
  * transcript has to retract what the failed attempt already painted instead of
- * letting the replay pile up underneath it.
+ * letting the replay pile up underneath it. A boundary the retention cap has
+ * already evicted has nothing left to retract, so this is a no-op rather than
+ * mis-truncating the tail that replaced it.
  */
 export function truncateStreamRows(shell: AppShell, length: number): void {
-  const log =
-    shell.observe !== null && shell.parentStreamLog !== null
-      ? shell.parentStreamLog
-      : shell.streamLog
-  if (length < 0 || length >= log.length) return
-  log.length = length
+  const observing = shell.observe !== null && shell.parentStreamLog !== null
+  const log = observing ? shell.parentStreamLog! : shell.streamLog
+  const base = observing ? shell.parentStreamLogBase ?? 0 : shell.streamLogBase
+  const local = length - base
+  if (local < 0 || local >= log.length) return
+  log.length = local
   if (log !== shell.streamLog) return
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
@@ -1983,13 +2099,38 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
 }
 
 /**
+ * Identifies a transcript child as the eviction notice rather than a row.
+ * Identity, not position or state, is the source of truth: `streamLogBase`
+ * flips to nonzero the instant a trim happens, one step before the notice
+ * node itself exists in the paint tree, so deriving "is there a marker"
+ * from state would misalign row indices for exactly that transitional call.
+ */
+const evictionMarkers = new WeakSet<BaseRenderable>()
+
+/**
  * Row-index code paths (below, and the two windowed-rebuild callers) treat
  * `getChildren()` as a 1:1 array with `streamLog`. The leading bottom-anchor
- * spacer (see `transcriptSpacers`) breaks that at index 0, so every consumer
- * that needs the row-only view goes through here rather than the raw call.
+ * spacer (see `transcriptSpacers`) and, once retention has evicted anything,
+ * the eviction notice above the oldest retained row both break that — every
+ * consumer that needs the row-only view goes through here rather than the
+ * raw call.
  */
 function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
-  return shell.transcript.getChildren().slice(1)
+  const children = shell.transcript.getChildren().slice(1)
+  return children.length > 0 && evictionMarkers.has(children[0]!)
+    ? children.slice(1)
+    : children
+}
+
+/** The eviction-notice node, if the retention cap has dropped anything. */
+function transcriptMarker(shell: AppShell): BaseRenderable | undefined {
+  const children = shell.transcript.getChildren().slice(1)
+  return children.length > 0 && evictionMarkers.has(children[0]!) ? children[0] : undefined
+}
+
+/** Raw child-list offset before the first row: the spacer, plus the notice if present. */
+function transcriptRowOffset(shell: AppShell): number {
+  return transcriptMarker(shell) === undefined ? 1 : 2
 }
 
 /**
@@ -1998,6 +2139,10 @@ function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
  * Streaming assistant and thinking bodies grow token by token; the bridge keeps
  * one open row and replaces it on every delta rather than appending a row per
  * token. Repaints only the affected node while the log fits without windowing.
+ *
+ * `index` is absolute (see `streamLogBase`); a row the retention cap has
+ * already evicted is a no-op rather than corrupting an unrelated row at the
+ * same array slot.
  */
 export function replaceStreamRowAt(
   shell: AppShell,
@@ -2005,25 +2150,27 @@ export function replaceStreamRowAt(
   row: StreamRow,
 ): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
-    if (index >= 0 && index < shell.parentStreamLog.length) {
-      shell.parentStreamLog[index] = row
+    const parentLocal = index - (shell.parentStreamLogBase ?? 0)
+    if (parentLocal >= 0 && parentLocal < shell.parentStreamLog.length) {
+      shell.parentStreamLog[parentLocal] = row
     }
     return
   }
-  if (index < 0 || index >= shell.streamLog.length) return
-  shell.streamLog[index] = row
+  const local = index - shell.streamLogBase
+  if (local < 0 || local >= shell.streamLog.length) return
+  shell.streamLog[local] = row
 
   const children = transcriptRowChildren(shell)
   // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
-  // the windowed rebuild, which derives every node from the log.
-  if (mustWindow(shell.streamLog.length) || children.length !== shell.streamLog.length) {
+  // a full repaint, which derives every node from the log.
+  if (children.length !== shell.streamLog.length) {
     repaintTranscriptWindow(shell)
     paintChrome(shell)
     return
   }
 
-  const stale = children[index]
-  if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, index))) {
+  const stale = children[local]
+  if (stale && retextStreamRow(shell, stale, row, labelBefore(shell, local))) {
     paintChrome(shell)
     return
   }
@@ -2031,11 +2178,12 @@ export function replaceStreamRowAt(
     shell.transcript.remove(stale)
     destroySubtree(stale)
   }
-  // +1: index 0 in the transcript's own child list is the bottom-anchor
-  // spacer, not a row (see `transcriptRowChildren`).
+  // Raw child list is spacer (+ eviction notice, if any) then rows; see
+  // `transcriptRowOffset` (see `transcriptRowChildren` for why row 0 is not
+  // simply index 1).
   shell.transcript.add(
-    createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
-    index + 1,
+    createStreamRowRenderable(shell, row, gapBefore(shell, local), labelBefore(shell, local), index),
+    local + transcriptRowOffset(shell),
   )
   paintChrome(shell)
 }
@@ -2091,45 +2239,76 @@ function retextStreamRowBody(
 
   if (!(node instanceof BoxRenderable) || !isMarkdownRow(row)) return false
   const [gutterNode, bodyNode] = node.getChildren()
-  if (
-    !(gutterNode instanceof TextRenderable) ||
-    !(bodyNode instanceof MarkdownRenderable)
-  ) {
-    return false
-  }
+  if (!(gutterNode instanceof TextRenderable)) return false
   const gutter = streamRowGutter(row, layout)
   gutterNode.content = gutter.content
   gutterNode.width = stringWidth(gutter.content)
-  bodyNode.width = markdownBodyColumns(gutter, layout)
-  bodyNode.content = markdownContent(row)
-  bodyNode.streaming = row.streaming === true
+  const width = markdownBodyColumns(gutter, layout)
+  const content = markdownContent(row)
+  const split = splitAtSettledHeading(content)
+
+  // No settled heading behind the tail: a lone renderer, same as an unsplit
+  // body. A shape change (a heading just closed, or one just left the window
+  // a full rebuild trimmed) falls through to the caller's rebuild.
+  if (split === null) {
+    if (!(bodyNode instanceof MarkdownRenderable)) return false
+    bodyNode.width = width
+    bodyNode.content = content
+    bodyNode.streaming = row.streaming === true
+    return true
+  }
+
+  if (!(bodyNode instanceof BoxRenderable)) return false
+  const [frozenNode, liveNode] = bodyNode.getChildren()
+  if (!(frozenNode instanceof MarkdownRenderable) || !(liveNode instanceof MarkdownRenderable)) {
+    return false
+  }
+  bodyNode.width = width
+  frozenNode.width = width
+  frozenNode.content = split.frozen
+  liveNode.width = width
+  liveNode.content = split.live
+  liveNode.streaming = row.streaming === true
+  liveNode.marginTop = split.gapRows
   return true
 }
 
-/** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
+/**
+ * Rebuild the transcript paint tree from `streamLog` — every retained row,
+ * not a smaller window of it. `streamLog` is already capped at
+ * `MAX_RETAINED_STREAM_ROWS`, so this is O(cap), and painting all of it is
+ * what makes the full retained history reachable by scrolling.
+ */
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell)
   shell.agentVoices = new Set(agentVoicesIn(shell.streamLog))
-  // The bottom-anchor spacer (index 0) stays; only row nodes get torn down.
-  const children = transcriptRowChildren(shell)
-  for (const child of [...children]) {
+  // The bottom-anchor spacer (index 0) stays; the eviction notice (if any)
+  // and every row get torn down and rebuilt from the log.
+  for (const child of shell.transcript.getChildren().slice(1)) {
     shell.transcript.remove(child)
     destroySubtree(child)
   }
 
-  const win = windowSlice(shell.streamLog, { windowSize: LONG_LOG_WINDOW })
-  if (win.truncatedAbove) {
-    shell.transcript.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${collapseMarker(win.start)}`,
-        fg: UI.textDim,
-      }),
-    )
+  // Rows evicted by the retention cap are gone for good, not just scrolled
+  // past — say so, or the boundary reads as the true start of history.
+  if (shell.streamLogBase > 0) {
+    const marker = new TextRenderable(shell.renderer as CliRenderer, {
+      content: evictedRowsNotice(shell.streamLogBase),
+      fg: UI.textDim,
+    })
+    evictionMarkers.add(marker)
+    shell.transcript.add(marker)
   }
-  win.rows.forEach((row, offset) => {
-    const index = win.start + offset
+
+  shell.streamLog.forEach((row, local) => {
     shell.transcript.add(
-      createStreamRowRenderable(shell, row, gapBefore(shell, index), labelBefore(shell, index), index),
+      createStreamRowRenderable(
+        shell,
+        row,
+        gapBefore(shell, local),
+        labelBefore(shell, local),
+        shell.streamLogBase + local,
+      ),
     )
   })
 }
@@ -2248,6 +2427,99 @@ function markdownContent(row: StreamRow): string {
 }
 
 /**
+ * An ATX heading line (`#` through `######`) with a title, not a bare marker.
+ * CommonMark allows the marker up to 3 spaces in; a 4th makes it indented code
+ * instead, which this line still has to reject.
+ */
+const HEADING_LINE_RE = /^ {0,3}#{1,6}[ \t]+\S.*$/
+
+/**
+ * A fenced code block's opening delimiter: three or more backticks or tildes,
+ * optionally indented up to three spaces (CommonMark's limit before a fence
+ * counts as indented code instead), followed by anything (an info string,
+ * e.g. the "bash" in ` ```bash `).
+ */
+const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * A fenced code block's closing delimiter. Unlike the opener, CommonMark
+ * requires the closing line to contain nothing but the fence run and
+ * trailing whitespace — "```stillcode" does not close a fence, it is more
+ * fence content — so this is deliberately not just `FENCE_OPEN_RE` again.
+ */
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+
+/**
+ * Lines that are inside a fenced code block, where a leading `#` is a shell
+ * comment or similar and never a heading. A closer needs the same character
+ * as the opener and a run at least as long — a shorter run, a run of the
+ * other character, or a closing-shaped line carrying trailing text is just
+ * more fence content, per CommonMark.
+ */
+function fencedLineMask(lines: readonly string[]): boolean[] {
+  const inside = new Array<boolean>(lines.length).fill(false)
+  let opener: { char: string; length: number } | null = null
+  for (let i = 0; i < lines.length; i += 1) {
+    if (opener === null) {
+      const match = lines[i]!.match(FENCE_OPEN_RE)
+      if (match) {
+        inside[i] = true
+        opener = { char: match[1]![0]!, length: match[1]!.length }
+      }
+      continue
+    }
+    inside[i] = true
+    const close = lines[i]!.match(FENCE_CLOSE_RE)
+    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
+      opener = null
+    }
+  }
+  return inside
+}
+
+/**
+ * A markdown body split at the last heading that already has content behind
+ * it: everything through that heading, and everything after it.
+ *
+ * The renderer's own incremental parser only reuses a block whose raw text is
+ * unchanged; the default block mode merges a heading into the same raw chunk
+ * as the paragraph that follows it, so every keystroke of that paragraph
+ * changes the merged chunk's raw text and forces the heading's already-settled
+ * markup to re-highlight too — visibly flickering while the rest of the
+ * message keeps streaming in. Rendering the two halves as separate
+ * `MarkdownRenderable`s keeps the heading's renderer untouched once it is no
+ * longer the one growing, without changing how paragraphs, lists or tables
+ * inside either half are laid out (both halves still use the library's
+ * default block mode).
+ */
+export type MarkdownSplit = {
+  readonly frozen: string
+  readonly live: string
+  /** Blank source lines between the heading and what follows it (0 or 1). */
+  readonly gapRows: number
+}
+
+export function splitAtSettledHeading(text: string): MarkdownSplit | null {
+  const lines = text.split("\n")
+  const insideFence = fencedLineMask(lines)
+  let boundary = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!insideFence[i] && HEADING_LINE_RE.test(lines[i]!)) boundary = i
+  }
+  // No heading, or the last one is still the open tail: nothing to freeze.
+  if (boundary === -1 || boundary >= lines.length - 1) return null
+  const rest = lines.slice(boundary + 1)
+  const firstContent = rest.findIndex((line) => line.trim().length > 0)
+  // Heading closed but nothing has started under it yet.
+  if (firstContent === -1) return null
+  return {
+    frozen: lines.slice(0, boundary + 1).join("\n"),
+    live: rest.slice(firstContent).join("\n"),
+    gapRows: firstContent > 0 ? 1 : 0,
+  }
+}
+
+/**
  * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
  * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
  * for structured rows (MCP results), a coloured diff body for edit-tool rows,
@@ -2315,19 +2587,66 @@ function buildRowNode(
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, { flexDirection: "row", width: "100%" })
   wrapper.add(gutterNode(ctx, gutter))
-  wrapper.add(
-    new MarkdownRenderable(ctx, {
-      content: markdownContent(row),
-      syntaxStyle: transcriptSyntaxStyle(),
-      fg: gutter.fg,
-      width: markdownBodyColumns(gutter, layout),
-      flexShrink: 0,
-      tableOptions: TRANSCRIPT_TABLE_OPTIONS,
+  wrapper.add(createMarkdownBody(ctx, row, gutter, layout))
+  return wrapper
+}
+
+/** Shared construction options for a transcript markdown body's renderer. */
+function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
+  return {
+    syntaxStyle: transcriptSyntaxStyle(),
+    fg: gutter.fg,
+    width,
+    flexShrink: 0,
+    tableOptions: TRANSCRIPT_TABLE_OPTIONS,
+  } as const
+}
+
+/**
+ * A markdown row's body. Most rows have no settled heading yet (no heading at
+ * all, or the only one is still the open tail), and paint through a single
+ * renderer, same as before this fix existed. Once a heading closes, the body
+ * becomes a settled `frozen` renderer — everything through that heading,
+ * never streaming, never handed new content while the tail keeps growing, so
+ * it is never asked to re-highlight once written — stacked above the still
+ * `live` one, which carries the row's own streaming flag. Both halves use the
+ * library's default block mode, so paragraphs, lists and tables inside either
+ * one lay out exactly as a single unsplit body would.
+ */
+function createMarkdownBody(
+  ctx: CliRenderer,
+  row: StreamRow,
+  gutter: PaintedStreamLine,
+  layout: RowLayout,
+): MarkdownRenderable | BoxRenderable {
+  const width = markdownBodyColumns(gutter, layout)
+  const content = markdownContent(row)
+  const split = splitAtSettledHeading(content)
+  if (split === null) {
+    return new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content,
       // Native incremental block stability: only the trailing block is unstable.
       streaming: row.streaming === true,
+    })
+  }
+  const column = new BoxRenderable(ctx, { flexDirection: "column", width })
+  column.add(
+    new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content: split.frozen,
+      streaming: false,
     }),
   )
-  return wrapper
+  column.add(
+    new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content: split.live,
+      streaming: row.streaming === true,
+      marginTop: split.gapRows,
+    }),
+  )
+  return column
 }
 
 /**
@@ -2345,8 +2664,10 @@ export function createStreamRowRenderable(
 ): TextRenderable | BoxRenderable {
   const ctx = shell.renderer as CliRenderer
   const layout = transcriptRowLayout(shell)
-  // Rows are only ever appended, so an index taken at build time stays the
-  // row's index for as long as its node lives.
+  // `index` is absolute (see `streamLogBase`), so it stays the row's index
+  // for as long as its node lives even if the retention cap trims the array
+  // out from underneath it later. `toggleRowExpandedAt` converts it back to
+  // a local array position at click time, not here.
   const onToggle =
     index === undefined || !isCollapsibleRow(row)
       ? undefined
@@ -2501,6 +2822,16 @@ export function setShellRunState(shell: AppShell, run: RunState): void {
   paintChrome(shell)
 }
 
+/** Transcript echo for a user message, annotated with its attachments. */
+export function userRowText(
+  text: string,
+  attachments: readonly PendingImageAttachment[],
+): string {
+  const summary = formatAttachmentSummary(attachments)
+  if (summary.length === 0) return text
+  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`
+}
+
 /** Submit prompt as queue (busy) or immediate user send (idle). */
 export function submitPrompt(
   shell: AppShell,
@@ -2541,14 +2872,18 @@ export function submitPrompt(
   }
 
   shell.session =
-    kind === "steer" ? enqueueSteer(shell.session, t) : enqueue(shell.session, t)
+    kind === "steer"
+      ? enqueueSteer(shell.session, t, undefined, attachments)
+      : enqueue(shell.session, t, "queue", undefined, attachments)
   shell.prompt.value = ""
   clearPendingAttachments(shell)
-  const tag = kind === "steer" ? "steer" : "queue"
+  // Show the message itself, not the internal transition ("queue +1 →
+  // pending N") — the notice row already carries the depth once, in plain
+  // language, so this row's job is making the pending item identifiable.
   appendStreamRow(shell, {
-    role: "system",
-    text: `${tag} +1 → pending ${badgeCount(shell.session)}`,
-    meta: "queue",
+    role: "user",
+    text: userRowText(t, attachments),
+    meta: kind === "steer" ? "steer" : "queue",
   })
   paintChrome(shell)
 }
@@ -2649,6 +2984,12 @@ export type OpenListOverlayOpts = {
    */
   readonly onCycle?: (itemId: string, direction: -1 | 1) => void
   /**
+   * Per-open Esc/dismiss hook for promise-backed overlays (permissions,
+   * operator). Invoked by closeInsetOverlay before the accept path is
+   * cleared, so the caller's awaited promise resolves instead of hanging.
+   */
+  readonly onCancel?: () => void
+  /**
    * Description-zone source. Called with the focused item's id on every move
    * (falling back to its label when no `itemIds` were supplied). Returning
    * null renders the zone blank, not collapsed — the fixed two-line zone is
@@ -2721,6 +3062,7 @@ export function openListOverlay(
           onAction: bag.overlayOnAction,
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
+          onCancel: bag.overlayOnCancel,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -2749,6 +3091,7 @@ export function openListOverlay(
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
+      bag.overlayOnCancel = opts?.onCancel ?? null
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
@@ -2758,6 +3101,7 @@ export function openListOverlay(
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
+      bag.overlayOnCancel = opts?.onCancel ?? null
     }
     if (!isPalette) {
       bag.overlayAnswer =
@@ -3005,6 +3349,10 @@ export function handleOverlayAnswerKey(
       text: `answered: ${text}`,
       meta: "overlay",
     })
+    // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
+    // the Esc/cancel path.
+    const bag = internals.get(shell)
+    if (bag) bag.overlayOnCancel = null
     closeInsetOverlay(shell)
     submit(text)
     return true
@@ -3090,6 +3438,13 @@ export function closeInsetOverlay(shell: AppShell): void {
   }
   const bag = internals.get(shell)
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
+  // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
+  // still settle that promise (as a deny/cancel) or the caller hangs forever.
+  // Palette/mentions/copy have no such awaited caller, so they drop silently.
+  const cancelable =
+    !prior &&
+    (shell.overlayKind === "permissions" || shell.overlayKind === "operator")
+  const onCancel = cancelable ? bag?.overlayOnCancel ?? null : null
 
   shell.overlayList = null
   shell.overlayKind = null
@@ -3098,7 +3453,8 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.paletteCommands = []
   shell.copyTargets = null
   clearOverlayBody(shell)
-  // Esc / dismiss: drop accept path without invoking callbacks.
+  // Esc / dismiss: drop accept path without invoking it (onCancel above is
+  // captured before this clears, and is invoked separately once state settles).
   if (bag && !prior) {
     bag.overlayItemIds = []
     bag.overlayOnAccept = null
@@ -3107,6 +3463,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayDescribe = null
     bag.overlayOnAction = null
     bag.overlayAnswer = null
+    bag.overlayOnCancel = null
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -3135,6 +3492,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnAction = prior.onAction
     bag.overlayAnswer = prior.answer
     bag.overlayTitleText = prior.titleText
+    bag.overlayOnCancel = prior.onCancel
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -3163,6 +3521,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   relayout(shell, { overlayMode: "closed" })
   applyFocus(shell)
   notifyOverlayClosed(shell)
+  onCancel?.()
 }
 
 /**
@@ -3216,16 +3575,19 @@ export const OVERLAY_EXPAND_KEY = EXPAND_KEY
  *
  * False when that row hides nothing.
  */
+/** `index` is absolute (see `streamLogBase`), matching the index closures built off `createStreamRowRenderable` carry. */
 export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
-  const row = shell.streamLog[index]
+  const row = shell.streamLog[index - shell.streamLogBase]
   if (row === undefined || !isCollapsibleRow(row)) return false
   replaceStreamRowAt(shell, index, { ...row, expanded: row.expanded !== true })
   return true
 }
 
 export function toggleCollapsedRow(shell: AppShell): boolean {
-  const collapsible = shell.streamLog.flatMap((row, index) =>
-    row !== undefined && isCollapsibleRow(row) ? [{ row, index }] : [],
+  const collapsible = shell.streamLog.flatMap((row, local) =>
+    row !== undefined && isCollapsibleRow(row)
+      ? [{ row, index: shell.streamLogBase + local }]
+      : [],
   )
   if (collapsible.length === 0) return false
   const expand = collapsible.some(({ row }) => row.expanded !== true)
@@ -3366,6 +3728,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
   }
   // Capture before close clears per-open state.
   const perOpen = bag?.overlayOnAccept ?? null
+  // This is a deliberate accept, not a dismiss — closeInsetOverlay must not
+  // also fire the Esc/cancel path below.
+  if (bag) bag.overlayOnCancel = null
 
   if (bag?.overlayEchoChoice !== false) {
     appendStreamRow(shell, {
@@ -3693,8 +4058,8 @@ export function copyAllTargets(shell: AppShell): boolean {
 
 /**
  * Alt+M: take DEC mouse reporting, or hand it back to the terminal.
- * Reporting is off by default so drag-select and the terminal's own copy keep
- * working; taking it enables click-to-expand and drag-scroll at that cost.
+ * Reporting is on by default so wheel scroll and click-to-expand work;
+ * releasing it restores the terminal's own drag-select and copy.
  * Returns the new enabled state, or null when the host exposes no control.
  */
 export function toggleMouseCapture(shell: AppShell): boolean | null {
@@ -3740,6 +4105,7 @@ export function enterSubagentObserve(
 
   const seedLines = session.lines.slice()
   shell.parentStreamLog = shell.streamLog.slice()
+  shell.parentStreamLogBase = shell.streamLogBase
   shell.observe = {
     sessionId: session.sessionId,
     agentId: session.agentId,
@@ -3747,7 +4113,10 @@ export function enterSubagentObserve(
     lines: seedLines.slice(),
   }
 
+  // A fresh log for the child view; its own indices start at zero regardless
+  // of how far the parent's retention cap has already trimmed.
   shell.streamLog = seedLines
+  shell.streamLogBase = 0
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
 
@@ -3773,7 +4142,9 @@ export function leaveSubagentObserve(shell: AppShell): void {
 
   if (shell.parentStreamLog) {
     shell.streamLog = shell.parentStreamLog
+    shell.streamLogBase = shell.parentStreamLogBase ?? 0
     shell.parentStreamLog = null
+    shell.parentStreamLogBase = null
   }
   shell.lineCount = shell.streamLog.length
   repaintTranscriptWindow(shell)
@@ -3931,11 +4302,15 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     await source(token.dir),
     token.fragment,
   )
+  // Quitting mid-lookup tears down the renderer/TextBuffer this function
+  // writes into below; a resolved-but-stale lookup must not touch them.
+  if (shell.disposed) return false
   // The source caps how many entries it returns per directory, so a large
   // directory can cap out before the interior match appears. Asking it to do
   // its own prefix filter puts that cap after the narrowing instead of before.
   if (suggestions.length === 0 && token.fragment.length > 0) {
     suggestions = await source(at.prefix)
+    if (shell.disposed) return false
   }
   if (mentionGenerations.get(shell) !== generation) return false
 
@@ -4183,6 +4558,33 @@ export function handleCtrlC(
 }
 
 /**
+ * Wheel/trackpad scroll landing on the prompt scrolls the chat instead.
+ *
+ * The prompt textarea is an editable buffer with its own `scrollY`, so
+ * OpenTUI's default routing — whichever renderable the wheel event hits, or
+ * the focused renderable when the hit misses — happily scrolls the prompt's
+ * own (usually one-screen, nothing-to-scroll) content. The prompt also holds
+ * keyboard focus for the whole session, so it is the fallback target for any
+ * wheel event that lands off the transcript's hit-tested rows. Overriding the
+ * scroll case here — rather than teaching the transcript's own scroll lease
+ * about wheel events — keeps the fix to exactly where wheel input actually
+ * arrives, without touching transcript viewport internals.
+ */
+function routePromptWheelToTranscript(
+  prompt: BaseRenderable,
+  transcript: ScrollBoxRenderable,
+): void {
+  ;(prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }).onMouseEvent = (
+    event: MouseEvent,
+  ) => {
+    if (event.type !== "scroll") return
+    ;(
+      transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }
+    ).onMouseEvent(event)
+  }
+}
+
+/**
  * Build the app shell frame on an OpenTUI renderer.
  * Mounts sticky transcript / overlay host / transient notice / prompt box.
  */
@@ -4412,6 +4814,7 @@ export function createAppShell(
     cursorColor: UI.text,
     placeholderColor: UI.textFaint,
   })
+  routePromptWheelToTranscript(prompt, transcript)
   promptField.add(prompt)
   promptBox.add(promptTopRule)
   promptBox.add(promptField)
@@ -4437,6 +4840,21 @@ export function createAppShell(
   const seedPending = Math.max(0, Math.floor(options?.pendingQueue ?? 0))
   for (let i = 0; i < seedPending; i++) {
     session = enqueue(session, `seed-${i + 1}`)
+  }
+
+  // A real bracketed-paste event proves this terminal negotiates DEC 2004:
+  // every paste from here on arrives as one `paste` event, never as raw
+  // keystrokes, so the CRLF-submit fallback below has nothing left to guard
+  // against and turns itself off for the rest of the session. Terminals that
+  // never send one keep the guard, since they've never shown they can do
+  // better. Un-bracketed-paste bookkeeping only this key handler reads, so it
+  // lives in this closure rather than on the shared AppShell.
+  let sawBracketedPaste = false
+  let lastKeyAt = 0
+  let lastKeyWasPrintable = false
+  let suppressNextLinefeed = false
+  const onPaste = (): void => {
+    sawBracketedPaste = true
   }
 
   const onKey = (key: KeyEvent): void => {
@@ -4586,6 +5004,48 @@ export function createAppShell(
     // kill ring — Ctrl+K/U/W and Alt+D delete natively but discard the text;
     // Ctrl+Y/Alt+Y need somewhere to yank it back from.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : ""
+
+    // Everything below this line is the un-bracketed-paste fallback, and a
+    // terminal that has ever fired a real `paste` event has proven it never
+    // needs it: every future paste arrives as one `paste` event, not raw
+    // keystrokes, so re-running these checks on it would only risk a false
+    // positive for no benefit.
+    if (!sawBracketedPaste) {
+      // The LF half of a CRLF pair the block below just turned into a
+      // newline: without this, "line one\r\nline two" would insert two
+      // newlines, one for the converted CR and one for the LF right behind it.
+      const suppressLinefeed = suppressNextLinefeed
+      suppressNextLinefeed = false
+      if (suppressLinefeed && keyName === "linefeed" && !key.ctrl && !key.meta && !key.option) {
+        key.preventDefault()
+        return
+      }
+
+      // A bare CR is the same "return" that submits. Left alone, pasting
+      // three lines here sends three separate messages instead of composing
+      // one. Detecting it needs two signals, not one: a lone fast Enter can
+      // happen (key rollover, a scripted "send keys"), and a lone printable
+      // character right before Enter is just typing. What never happens from
+      // a human is a printable character landing, then Enter, both inside a
+      // keystroke burst -- that shape is unique to a paste being replayed
+      // byte-for-byte. Gating on both keeps a deliberate Ctrl+J-then-Enter
+      // (newline, then send) safe, since Ctrl+J is not "a printable
+      // character," while still catching "...line one<CR><LF>line two...".
+      const now = Date.now()
+      const sincePreviousKey = now - lastKeyAt
+      const previousKeyWasPrintable = lastKeyWasPrintable
+      lastKeyAt = now
+      lastKeyWasPrintable = isPrintableInsertKey(key)
+      const isBareReturn =
+        !key.ctrl && !key.meta && !key.option && (keyName === "return" || keyName === "kpenter")
+      if (isBareReturn && previousKeyWasPrintable && sincePreviousKey < PASTE_BURST_MS) {
+        key.preventDefault()
+        shell.prompt.insertText("\n")
+        suppressNextLinefeed = true
+        return
+      }
+    }
+
     const isCtrlKillYank =
       key.ctrl &&
       !key.meta &&
@@ -4846,6 +5306,7 @@ export function createAppShell(
 
   if (wireKeys) {
     renderer.keyInput.on("keypress", onKey)
+    renderer.keyInput.on("paste", onPaste)
     prompt.onSubmit = onEnter
   }
   renderer.on(CliRenderEvents.FRAME, onFrame)
@@ -4878,6 +5339,7 @@ export function createAppShell(
     pendingQueue: badgeCount(session),
     lineCount: 0,
     streamLog: [],
+    streamLogBase: 0,
     agentVoices: new Set<string>(),
     baseTitle: title,
     modelLabel: null,
@@ -4901,6 +5363,7 @@ export function createAppShell(
     costContext: null,
     observe: null,
     parentStreamLog: null,
+    parentStreamLogBase: null,
     promptKillRing: emptyKillRing,
     pendingAttachments: [],
     sentHistory: createSentHistoryBrowse([]),
@@ -4911,6 +5374,7 @@ export function createAppShell(
       shell.disposed = true
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey)
+        renderer.keyInput.off("paste", onPaste)
         prompt.onSubmit = undefined
       }
       renderer.off(CliRenderEvents.FRAME, onFrame)
@@ -4941,6 +5405,7 @@ export function createAppShell(
     overlayOnAction: null,
     overlayAnswer: null,
     overlayTitleText: "",
+    overlayOnCancel: null,
     overlayClosedListeners: new Set(),
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,

@@ -123,6 +123,39 @@ describe("@ popup narrows as you type", () => {
     })
   })
 
+  test("quitting mid-lookup does not write into the disposed shell", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        let resolveLookup: (entries: readonly string[]) => void = () => {}
+        setMentionSuggestionSource(
+          shell,
+          () =>
+            new Promise<readonly string[]>((resolve) => {
+              resolveLookup = resolve
+            }),
+        )
+
+        shell.prompt.value = "read @"
+        shell.prompt.cursorOffset = shell.prompt.value.length
+        const pending = openAtMentionSuggestions(shell)
+
+        // The operator quits before the filesystem lookup answers.
+        shell.dispose()
+        resolveLookup(["AGENTS.md", "README.md"])
+
+        await expect(pending).resolves.toBe(false)
+        expect(shell.overlayKind).toBeNull()
+        expect(isMentionPopupOpen(shell)).toBe(false)
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("no match closes the popup and leaves the typed text", async () => {
     await withShell(async (shell) => {
       await openAt(shell, "@")

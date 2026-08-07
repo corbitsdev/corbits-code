@@ -41,7 +41,14 @@ export async function runListModal(
 ): Promise<string | null> {
   const renderer = config.createRenderer
     ? await config.createRenderer()
-    : await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
+    : await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+        // Reporting stays off in this satellite picker, unlike the main
+        // shell, so the terminal owns drag-select and its own copy here.
+        useMouse: false,
+        enableMouseMovement: false,
+      })
 
   const shell = createAppShell(renderer, { title: config.title, run: "idle" })
 

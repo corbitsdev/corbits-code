@@ -38,7 +38,7 @@ import {
 import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
-import { createPruningCompactor } from "./compactor.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
 
 // ---------------------------------------------------------------------------
 // 1. Sub-agent provider literal
@@ -238,7 +238,6 @@ export function buildSessionSourcesFromConfig(
 // 6. Pruning-compactor config
 // ---------------------------------------------------------------------------
 
-const SESSION_COMPACTOR_KEEP_RECENT = 6;
 const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 
 export type SessionPruningCompactorArgs = {
@@ -251,7 +250,7 @@ export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
   return createPruningCompactor({
-    keepRecentTurns: SESSION_COMPACTOR_KEEP_RECENT,
+    keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     ...(args.compactionMode !== "pruning"
       ? { summarize: args.summarize }

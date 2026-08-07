@@ -264,6 +264,8 @@ export type ToolResultRowInput = {
   readonly name: string
   readonly content: string
   readonly isError?: boolean
+  /** Runtime call id this result answers, when the source carried one. */
+  readonly callId?: string
 }
 
 /** Bodies at or under this many lines read faster than a sentence about them. */
@@ -487,6 +489,7 @@ export function toolResultRow(input: ToolResultRowInput): StreamRow {
     role: "tool" as const,
     text: input.content,
     meta: input.name,
+    ...(input.callId !== undefined ? { callId: input.callId } : {}),
   }
   if (failed) return { ...base, failed: true }
 

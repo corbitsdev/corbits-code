@@ -5,11 +5,7 @@ import { describe, expect, test } from "bun:test"
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index"
 import { focusOwner, scrollLease } from "./focus/index"
 import { withTestRenderer } from "./harness"
-import {
-  LONG_LOG_COLLAPSE_THRESHOLD,
-  LONG_LOG_WINDOW,
-  mustWindow,
-} from "./long-log"
+import { MAX_RETAINED_STREAM_ROWS } from "./long-log"
 import { openPermissionsOverlay } from "./overlays"
 import {
   acceptOverlaySelection,
@@ -22,7 +18,10 @@ import {
   moveOverlaySelection,
   openInsetOverlay,
   openPalette,
+  replaceStreamRowAt,
   setChromeZones,
+  streamRowAt,
+  streamRowCount,
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
 
@@ -142,7 +141,7 @@ describe("Wave 6: command palette", () => {
 })
 
 describe("Wave 6: long-log windowing", () => {
-  test("multi-thousand append stays interactive (windowed paint)", async () => {
+  test("multi-thousand append stays interactive (full-retained-log paint)", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -150,8 +149,8 @@ describe("Wave 6: long-log windowing", () => {
           wireKeys: false,
         })
         try {
-          const n = LONG_LOG_COLLAPSE_THRESHOLD + 50
-          expect(mustWindow(n)).toBe(true)
+          // Below MAX_RETAINED_STREAM_ROWS: no eviction, so painted == n + 1 below holds.
+          const n = MAX_RETAINED_STREAM_ROWS - 50
 
           const t0 = performance.now()
           for (let i = 0; i < n; i++) {
@@ -174,11 +173,12 @@ describe("Wave 6: long-log windowing", () => {
 
           expect(shell.streamLog.length).toBe(n)
           expect(shell.lineCount).toBe(n)
-          // Paint tree is windowed, not full history.
+          // Paint tree tracks the full retained log 1:1 (CL-5553) — capped at
+          // MAX_RETAINED_STREAM_ROWS by CL-5551, not a smaller paint window,
+          // so every retained row stays reachable by scrolling.
           const painted = shell.transcript.getChildren().length
-          // collapse marker + window rows
-          expect(painted).toBeLessThanOrEqual(LONG_LOG_WINDOW + 2)
-          expect(painted).toBeGreaterThan(0)
+          expect(painted).toBeLessThanOrEqual(MAX_RETAINED_STREAM_ROWS + 1)
+          expect(painted).toBe(n + 1) // +1: bottom-anchor spacer
           // Smoke: no multi-second peg on append storm
           expect(elapsed).toBeLessThan(5_000)
 
@@ -193,6 +193,81 @@ describe("Wave 6: long-log windowing", () => {
       { width: 80, height: 24 },
     )
   })
+
+  test(
+    "a long, tool-heavy session retains a bounded tail, not the whole history",
+    async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: 24 },
+            wireKeys: false,
+          })
+          try {
+            const n = MAX_RETAINED_STREAM_ROWS + 200
+            for (let i = 0; i < n; i++) {
+              appendStreamRow(shell, { role: "tool", text: `row-${i}`, meta: "bash" })
+            }
+
+            // Retention caps the backing array itself, not just the paint window.
+            expect(shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS)
+            // But the append count the bridge relies on for bookkeeping stays
+            // absolute — it must never appear to shrink just because rows were
+            // evicted underneath it.
+            expect(streamRowCount(shell)).toBe(n)
+            // The oldest surviving row is the one at the eviction boundary.
+            expect(shell.streamLog[0]).toMatchObject({
+              text: `row-${n - MAX_RETAINED_STREAM_ROWS}`,
+            })
+            // Evicted rows read back as gone, not as some other row's data.
+            expect(streamRowAt(shell, 0)).toBeUndefined()
+            expect(streamRowAt(shell, n - 1)).toMatchObject({ text: `row-${n - 1}` })
+          } finally {
+            shell.dispose()
+          }
+        },
+        { width: 80, height: 24 },
+      )
+    },
+    20_000,
+  )
+
+  test(
+    "replaceStreamRowAt keeps targeting the right row across an eviction (absolute index survives the trim)",
+    async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: 24 },
+            wireKeys: false,
+          })
+          try {
+            appendStreamRow(shell, { role: "tool", text: "pinned call", meta: "bash" })
+            const pinnedIndex = streamRowCount(shell) - 1
+
+            // Push the pinned row well past the retention cap.
+            for (let i = 0; i < MAX_RETAINED_STREAM_ROWS + 100; i++) {
+              appendStreamRow(shell, { role: "tool", text: `filler-${i}`, meta: "bash" })
+            }
+            // The pinned row itself was evicted; a rewrite must be a safe no-op,
+            // not a write to whatever row now occupies that array slot.
+            const survivorAtSameSlot = streamRowAt(shell, pinnedIndex)
+            expect(survivorAtSameSlot).toBeUndefined()
+
+            const recentIndex = streamRowCount(shell) - 1
+            const before = streamRowAt(shell, recentIndex)
+            replaceStreamRowAt(shell, recentIndex, { role: "tool", text: "edited", meta: "bash" })
+            expect(streamRowAt(shell, recentIndex)).toMatchObject({ text: "edited" })
+            expect(before).not.toMatchObject({ text: "edited" })
+          } finally {
+            shell.dispose()
+          }
+        },
+        { width: 80, height: 24 },
+      )
+    },
+    20_000,
+  )
 })
 
 describe("Wave 6: chrome zones", () => {

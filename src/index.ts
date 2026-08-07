@@ -1,5 +1,6 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
+import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/report.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { flushPerfToOtel } from "./perf/index.js";
@@ -20,6 +21,11 @@ export async function mainWithRunners(
   runners: Runners,
 ): Promise<number> {
   const config = await loadConfig(argv, { allowUnconfigured: true });
+  // Resolve the crash-report directory once, up front, while the process is
+  // healthy. This is the only place project-key resolution (which shells
+  // out to git) may happen on the crash path — the handler itself must
+  // never call it, or a hung git would block the exit it exists to force.
+  primeCrashReporting(config.cwd);
   // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
   // main-screen notice. Surface fail-open diagnostics on stderr for those
   // paths so junk local files are never silent.
@@ -100,13 +106,33 @@ export async function main(argv: readonly string[]): Promise<number> {
   });
 }
 
+async function handleFatal(kind: CrashKind, error: unknown): Promise<void> {
+  process.stderr.write(`${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+  const file = await writeCrashReport(kind, error);
+  if (file !== null) {
+    process.stderr.write(`crash report written to ${file}\n`);
+  } else {
+    process.stderr.write("failed to write crash report\n");
+  }
+  process.exit(1);
+}
+
 if (import.meta.main) {
-  // OpenTUI installs a process-global uncaughtException handler that only
-  // logs, which suppresses Bun's default print-and-exit. Combined with
-  // raw-mode stdin holding the event loop open, an escaped throw would
-  // otherwise hang the process forever with the terminal still in the
-  // alternate screen. Exiting explicitly here is the backstop for throws that
-  // originate outside runTUI's own crash path.
+  // OpenTUI installs a process-global uncaughtException/unhandledRejection
+  // handler that only logs (opentui/core's Renderer.handleError), which
+  // suppresses Bun's default print-and-exit. Combined with raw-mode stdin
+  // holding the event loop open, an escaped throw would otherwise hang the
+  // process forever with the terminal still in the alternate screen. Node
+  // invokes every registered listener for the event regardless of order, so
+  // these still run and terminate the process even though OpenTUI's own
+  // listener never exits or rethrows.
+  process.on("uncaughtException", (err) => {
+    void handleFatal("uncaughtException", err);
+  });
+  process.on("unhandledRejection", (reason) => {
+    void handleFatal("unhandledRejection", reason);
+  });
+
   let code: number;
   try {
     code = await main(process.argv.slice(2));

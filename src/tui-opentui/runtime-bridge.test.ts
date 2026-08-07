@@ -214,6 +214,116 @@ describe("attachSessionBridge", () => {
     )
   })
 
+  test("queued item delivers on a tool-less turn (inference.done, no tool calls)", async () => {
+    // Regression for CL-5563: reactor.done only fires once, at agent
+    // shutdown, never between turns — a plain-text reply with no tool calls
+    // must still drain the queue, or a queued message sits forever.
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.submit("follow up", "queue")
+          expect(badgeCount(shell.session)).toBe(1)
+          port.clear()
+          bridge.handle({ type: "inference.start" })
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "hi" },
+          })
+          bridge.handle({ type: "inference.done" })
+          expect(badgeCount(shell.session)).toBe(0)
+          const deliver = port.calls.find((c) => c.op === "deliver")
+          expect(deliver).toEqual({
+            op: "deliver",
+            item: expect.objectContaining({
+              text: "follow up",
+              kind: "queue",
+            }),
+          })
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("run and the phase ramp both return to idle after a tool-less inference.done, with no connector.reply", async () => {
+    // Regression: a goal-governor / workflow cycle that keeps self-continuing
+    // may never emit connector.reply, the only other event that clears
+    // `run` and the turn's `isProcessing`. Without this, every future Enter
+    // resolves to "queue" (busy is sticky) and, once the workflow stops
+    // producing cycles, that queued message is never drained — CL-5563's
+    // bug moved one layer over. The ramp indicator has the same failure
+    // mode: it reads `isProcessing`, not `run`, so it can say "working"
+    // forever even once dispatch itself is fixed.
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.handle({ type: "inference.start" })
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "hi" },
+          })
+          bridge.handle({ type: "inference.done" })
+          expect(shell.session.run).toBe("idle")
+          expect(shell.turnPhase).toBeNull()
+
+          port.clear()
+          bridge.submit("are you still there", "queue")
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "are you still there" },
+          ])
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("run stays busy after inference.done while a tool call is still outstanding", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.handle({ type: "inference.start" })
+          bridge.handle({
+            type: "inference.tool_call.start",
+            data: { call: { id: "c1", name: "bash" } },
+          })
+          bridge.handle({ type: "inference.done" })
+          expect(shell.session.run).toBe("busy")
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("token-by-token deltas grow one assistant row", async () => {
     await withTestRenderer(
       async (h) => {
@@ -423,6 +533,64 @@ describe("committed inference retry", () => {
           expect(text).toContain("final answer")
           expect(text).not.toContain("partial answer")
           expect(shell.streamLog.filter((r) => r.pending)).toEqual([])
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+describe("parallel sub-agent dispatch on the live session bridge", () => {
+  // The live main-session path tracks a call's row by callId in its own map
+  // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
+  // pendingCallIndex — this pins that down so a future change to either path
+  // cannot silently reintroduce CL-5562's misattribution on the parent
+  // transcript specifically (the observe overlay and resumed history are
+  // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
+  test("three parallel task calls resolve to three rows, each with its own result", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const events = [
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c1", arguments: { description: "Fix CL-5559" } },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c2", arguments: { description: "Fix CL-5560" } },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c3", arguments: { description: "Fix CL-5561" } },
+            },
+            { type: "inference.done", data: {} },
+            { type: "tool.start", data: { call: { id: "c1", name: "task" } } },
+            { type: "tool.start", data: { call: { id: "c2", name: "task" } } },
+            { type: "tool.start", data: { call: { id: "c3", name: "task" } } },
+            // Completion order does not follow dispatch order.
+            { type: "tool.done", data: { result: { callId: "c2", name: "task", content: "done c2" } } },
+            { type: "tool.done", data: { result: { callId: "c1", name: "task", content: "done c1" } } },
+            { type: "tool.done", data: { result: { callId: "c3", name: "task", content: "done c3" } } },
+            { type: "reactor.done", data: {} },
+          ] as const
+          for (const event of events) bridge.handle(event)
+
+          const toolRows = shell.streamLog.filter((r) => r.role === "tool")
+          expect(toolRows.length).toBe(3)
+          expect(toolRows.every((r) => r.pending !== true)).toBe(true)
+          expect(toolRows.every((r) => r.failed !== true)).toBe(true)
+          expect(toolRows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"])
         } finally {
           bridge.dispose()
           shell.dispose()

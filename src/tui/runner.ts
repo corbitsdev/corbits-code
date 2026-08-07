@@ -24,7 +24,6 @@ import {
   localSettingsPath,
   markTelemetryNoticeShown,
   pushRecentModel,
-  resolveMaxConcurrentSubAgents,
   resolveTier,
   saveGlobalSettings,
   saveLocalSettings,
@@ -42,7 +41,6 @@ import { providerChoices } from "../tui-opentui/provider-setup.js";
 import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { createGateRequestApproval } from "./request-approval.js";
-import { configureSubAgentConcurrency } from "../subagent/concurrency.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
@@ -94,6 +92,7 @@ import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
+import { contextTokensFromUsage } from "../provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -209,6 +208,29 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
 } {
   const message = err instanceof Error ? err.message : String(err);
   return { type: "error", message: `Could not load prior session transcript: ${message}` };
+}
+
+export type ResumeSeed = {
+  turnsUsed: number;
+  mcpServers: ConnectedMcpServer[];
+};
+
+const FRESH_RESUME_SEED: ResumeSeed = { turnsUsed: 0, mcpServers: [] };
+
+/**
+ * Fold a resumed session's run.json into a concrete seed once, at the
+ * resume boundary, so every downstream reader (the run sink, the
+ * connected-servers list, the immediate post-resume saveState) trusts a
+ * fully-populated value instead of each repeating its own `?? 0` / `?? []`
+ * default. A fresh (non-resumed) run gets the same shape via
+ * FRESH_RESUME_SEED, so callers never branch on "was this a resume."
+ */
+export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
+  if (pickedState === null) return FRESH_RESUME_SEED;
+  return {
+    turnsUsed: pickedState.turnsUsed,
+    mcpServers: pickedState.mcpServers ?? [],
+  };
 }
 
 const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
@@ -406,6 +428,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let resumeSkipInitialTask = config.skipInitialTask === true;
   let startedAt = Date.now();
   let runTaskTitle = config.task;
+  // Resolved once at the resume boundary so turnsUsed/mcpServers reads
+  // downstream never repeat their own omission-handling default.
+  let resumeSeed: ResumeSeed = FRESH_RESUME_SEED;
 
   if (config.resumePicker) {
     const picked = await pickSession(config.cwd, { includeCompleted: config.force });
@@ -413,6 +438,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     sessionId = picked.sessionId;
     resumeSkipInitialTask = true;
     const pickedState = await loadState(config.cwd, sessionId);
+    resumeSeed = resolveResumeSeed(pickedState);
     if (pickedState !== null) {
       startedAt = pickedState.startedAt;
       runTaskTitle = pickedState.task;
@@ -435,11 +461,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // run.json at all.
   await saveState(config.cwd, sessionId, {
     status: "running",
-    turnsUsed: 0,
+    turnsUsed: resumeSeed.turnsUsed,
     task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
     model: `${config.providerName}:${config.model}`,
-    mcpServers: [],
+    mcpServers: resumeSeed.mcpServers,
   });
 
   // Crash guard: if anything from setup onward throws all the way out of
@@ -447,8 +473,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // out run.json so status and finishedAt never disagree. Declared before the
   // try so every fallible step after the minimal write above is covered.
   // `finalized` is set by the normal finalize path so this never double-writes
-  // on a clean exit; it also gates straggler snapshot writes (see
-  // persistRunSnapshot) from resurrecting a closed record.
+  // on a clean exit. It also gates persistRunSnapshot (below) from *issuing*
+  // a straggler write at all once the run is closed — a different job from
+  // saveState's per-session write ordering in state.ts. That ordering only
+  // decides which already-issued write lands last; it has no way to know a
+  // "running" snapshot fired after finalize is stale and should never be
+  // written in the first place. Without this flag such a snapshot would
+  // still queue behind the terminal write and legitimately "win" the
+  // ordering, resurrecting a closed run.json. Two different constraints
+  // (don't issue a stale write vs. order the writes you do issue), each
+  // owned by its own layer — not a duplicate check.
   let finalized = false;
   // Bound after the cycle recorder exists (it needs the session workdir); the
   // crash guard is declared first so it covers every fallible step below.
@@ -944,10 +978,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
   }
-  let liveMaxConcurrentSubAgents = resolveMaxConcurrentSubAgents(config.settings);
-  if (liveSessionMode === "orchestrator") {
-    configureSubAgentConcurrency(liveMaxConcurrentSubAgents);
-  }
   const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode);
   // The workflow controller is built below, after the toolset; the holder lets
   // advance_workflow's handler read live workflow-active state without a
@@ -1305,6 +1335,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const runSink = createRunSink({
     emitter,
     hookManager,
+    initialTurnCount: resumeSeed.turnsUsed,
     onTurnComplete: (ctx) => {
       // provider_id is the canonical provider kind, never ctx.source.sourceId:
       // sourceId is the user-typed label from onboarding/settings, and free
@@ -1324,7 +1355,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
   // replaces rather than duplicates the entry.
-  let connectedMcpServers: ConnectedMcpServer[] = [];
+  let connectedMcpServers: ConnectedMcpServer[] = resumeSeed.mcpServers;
   // Every configured server's latest state, for the /mcp surface. Unlike
   // `connectedMcpServers` (persisted run metadata) this keeps the ones that
   // failed or are still waiting on authorization.
@@ -1688,6 +1719,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const faremeter = createFaremeter({ modelId: config.model, pricingCache });
       faremeter.addUsage(usage);
       const totalCost = faremeter.getTotalCost();
+      // A provider that omits or zeroes usage would otherwise pin the meter at
+      // 0% forever; fall back to the director's local estimate (turns plus
+      // system-prompt/tool-schema overhead). The governor already decided
+      // whether it's estimating when it computed this turn's arming — trust
+      // that decision rather than re-deriving it from a second usage read.
+      const contextEstimate = directorHolder.instance?.getContextEstimate();
+      const isEstimate = contextEstimate !== undefined && contextEstimate.isEstimate;
       return buildCostSummary({
         modelId: config.model,
         baseURL: config.baseURL,
@@ -1697,7 +1735,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         inputTokens: usage.input,
         outputTokens: usage.output,
         cacheReadTokens: usage.cacheRead,
-        contextTokens: lastTurnUsage.input + lastTurnUsage.cacheRead + lastTurnUsage.cacheWrite,
+        contextTokens: isEstimate ? contextEstimate.tokens : contextTokensFromUsage(lastTurnUsage),
+        contextIsEstimate: isEstimate,
       });
     },
     startWorkflow: (name) => workflowController.start(name),
@@ -2048,7 +2087,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           compactionMode: liveCompactionMode,
           sessionMode: liveSessionMode ?? "orchestrator",
           sessionModeScope: liveSessionModeScope,
-          maxConcurrentSubAgents: liveMaxConcurrentSubAgents,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
           showPromptCost: liveShowPromptCost,
@@ -2075,14 +2113,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             return rest;
           });
           void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
-        },
-        setMaxConcurrentSubAgents: (limit) => {
-          liveMaxConcurrentSubAgents = limit;
-          configureSubAgentConcurrency(limit);
-          void persistGlobalSettings("max concurrent sub-agents", (base) => ({
-            ...base,
-            maxConcurrentSubAgents: limit,
-          }));
         },
         setWaitForApproval: (value) => {
           liveToolWatchdog.waitForApproval = value;

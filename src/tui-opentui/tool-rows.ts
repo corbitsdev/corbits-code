@@ -158,14 +158,34 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
 }
 
 /**
- * Index of the call row a result belongs to: the newest unanswered call by the
- * same tool, else the newest unanswered call at all. -1 when the result answers
- * nothing on the log (a hydrated transcript that kept only results, say).
+ * Index of the call row a result belongs to.
+ *
+ * A carried call id is exact and wins outright — it is the only thing that
+ * tells two in-flight calls to the same tool apart, which parallel sub-agent
+ * dispatch produces on every turn that fires more than one `task` call (three
+ * dispatches all show `meta === "task"`; name alone cannot tell them apart).
+ * An id that matches nothing on the log still returns -1 rather than falling
+ * through to the name scan below: every current caller (the live bridge's own
+ * call map, `SubAgentTranscriptEntry`, `BridgeInboundEvent`) always carries an
+ * id, so a miss here is a real mismatch, not a legacy record, and papering
+ * over it with the newest same-name row is the exact misattribution this
+ * function exists to prevent.
+ *
+ * The name scan only runs when `callId` is `undefined` — saved history from
+ * before ids were threaded through `HistoryBlock` (`history-hydrate.ts`) is
+ * the one caller that still omits it.
  */
 export function pendingCallIndex(
   rows: readonly StreamRow[],
   name: string,
+  callId?: string,
 ): number {
+  if (callId !== undefined) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i]?.callId === callId) return i
+    }
+    return -1
+  }
   let fallback = -1
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]
@@ -196,7 +216,7 @@ export function pushToolResult(
   input: ToolResultRowInput,
 ): void {
   const result = toolResultRow(input)
-  const index = pendingCallIndex(rows, input.name)
+  const index = pendingCallIndex(rows, input.name, input.callId)
   const call = index === -1 ? undefined : rows[index]
   if (call === undefined) {
     rows.push(result)

@@ -174,6 +174,9 @@ export type TurnContextCollectorOptions = {
   // standing copy of recent history, so callers with nothing to hand it to
   // (no lifecycle hook) can opt out of retaining it.
   retainHistory?: boolean;
+  // Resuming a session should continue the persisted run.json turn count
+  // rather than restart it at zero.
+  initialTurnCount?: number;
 };
 
 export function createTurnContextCollector(
@@ -193,7 +196,7 @@ export function createTurnContextCollector(
 } {
   const retainHistory = options.retainHistory ?? true;
   const turns: TurnContext[] = [];
-  let turnCount = 0;
+  let turnCount = options.initialTurnCount ?? 0;
   let pending: PendingTurn | null = null;
   let cycleStartedAt = now();
   let tokenUsage: TokenUsage = { ...emptyUsage };

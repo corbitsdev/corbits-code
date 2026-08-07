@@ -40,14 +40,13 @@ import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 
-import { createPruningCompactor } from "../session/compactor.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "../session/compactor.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
-import { withSubAgentSlot } from "./concurrency.js";
 import {
   detectRepetition,
   REPETITION_CHECK_INTERVAL_CHARS,
@@ -213,12 +212,6 @@ export function createSubAgentRunController(
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
 export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
-  return withSubAgentSlot(() => runSubAgentInner(params), {
-    reentrant: params.nested === true,
-  });
-}
-
-async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
   await seedPricingMetadataFromCache({
     cachePath: defaultPricingCachePath(),
   });
@@ -496,7 +489,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }),
     compactors: {
       "pruning-compactor": createPruningCompactor({
-        keepRecentTurns: 6,
+        keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
         summaryMaxChars: 2500,
         stripResultContent: true,
         // A structured model summary keeps sub-agent context useful across a

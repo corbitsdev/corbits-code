@@ -15,6 +15,7 @@ const baseInput: CostSummaryInput = {
   outputTokens: 500,
   cacheReadTokens: 200,
   contextTokens: 64_000,
+  contextIsEstimate: false,
 };
 
 describe("buildCostSummary", () => {
@@ -81,6 +82,11 @@ describe("formatStatusBarSegments", () => {
     expect(segments.contextLabel).toBe("Ctx --%");
     expect(segments.contextPercentUsed).toBeNull();
   });
+
+  it("flags an estimated context percentage with a tilde", () => {
+    const summary = buildCostSummary({ ...baseInput, contextIsEstimate: true });
+    expect(formatStatusBarSegments(summary).contextLabel).toBe("Ctx ~50%");
+  });
 });
 
 describe("formatCostCommandOutput", () => {
@@ -115,5 +121,10 @@ describe("formatCostCommandOutput", () => {
     setModelContextWindows({ "test-model": 0 });
     const summary = buildCostSummary(baseInput);
     expect(formatCostCommandOutput(summary)).toContain("Context: 64000/unknown (--%)");
+  });
+
+  it("flags an estimated context percentage with a tilde", () => {
+    const summary = buildCostSummary({ ...baseInput, contextIsEstimate: true });
+    expect(formatCostCommandOutput(summary)).toContain("(~50%)");
   });
 });

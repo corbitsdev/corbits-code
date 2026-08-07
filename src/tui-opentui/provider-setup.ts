@@ -583,7 +583,14 @@ export async function runProviderSetup(
 ): Promise<boolean> {
   const renderer = config.createRenderer
     ? await config.createRenderer()
-    : await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
+    : await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+        // Reporting stays off during onboarding, unlike the main shell, so
+        // the terminal owns drag-select and its own copy here.
+        useMouse: false,
+        enableMouseMovement: false,
+      })
 
   const choices = providerChoices()
   const values: ProviderFormValues = {

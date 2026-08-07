@@ -3,12 +3,19 @@ import type {
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
+  ToolDefinition,
 } from "@intx/types/runtime";
-import { compactionThresholdFor } from "../provider/context-window.js";
-import { createContextEstimate } from "./context-estimate.js";
+import { compactionThresholdFor, contextTokensFromUsage } from "../provider/context-window.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
+import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
-const MIN_TURNS_TO_COMPACT = 6;
+// The exact turn count `createPruningCompactor` (session/compactor.ts) is
+// guaranteed to no-op on. Derived from the same keepRecentTurns both real
+// registrations (session, sub-agent) use, so this floor cannot silently
+// drift from what the compactor will actually do — arming at or below it
+// would spend a reactor cycle that shrinks nothing.
+const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
 const MAX_OVERFLOW_RECOVERIES = 2;
 
 // A compact action runs in its own reactor cycle, after which the reactor
@@ -20,23 +27,42 @@ const MAX_OVERFLOW_RECOVERIES = 2;
 // would be worse than growing the context.
 export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 
-export function createCompactionGovernor(requestContinuation?: () => void) {
+export function createCompactionGovernor(
+  requestContinuation?: () => void,
+  systemPrompt = "",
+  toolDefinitions: readonly ToolDefinition[] = [],
+) {
   let pending = false;
   let idlePending = false;
   let postCompactInfer = false;
   let overflowRecoveries = 0;
+  // Set whenever the arming decision fell back to the local estimate because
+  // the provider omitted usage or reported zero, so callers rendering a meter
+  // can flag the number as approximate instead of implying provider-grade
+  // precision.
+  let usingEstimate = false;
+  // Model of the last inference.done turn, kept for live re-checks between
+  // inference cycles (see interceptActions) where the event carries no model.
+  let lastModel: string | undefined;
+  let turnCount = 0;
 
-  // Running local estimate of the turns we send. Providers that omit usage or
-  // report zero leave the proactive path blind; the estimate fills that gap.
-  // When the provider reports real usage we prefer it so a coarse local count
-  // cannot thrash against a trustworthy signal.
-  const estimate = createContextEstimate();
+  // Running local estimate of the turns we send, plus the fixed system-prompt
+  // and tool-schema overhead every request carries. Providers that omit usage
+  // or report zero leave the proactive path blind; the estimate fills that
+  // gap. When the provider reports real usage we prefer it so a coarse local
+  // count cannot thrash against a trustworthy signal.
+  const estimate = createContextEstimate(estimateOverheadTokens(systemPrompt, toolDefinitions));
 
   // Re-sync after turn appends, tool results, and compaction rewrites. Callers
   // pass the full turn list so the estimate stays accurate without incremental
   // add/subtract bookkeeping.
   function syncFromTurns(turns: readonly ConversationTurn[]): number {
+    turnCount = turns.length;
     return estimate.syncFromTurns(turns);
+  }
+
+  function isOverThreshold(contextTokens: number): boolean {
+    return contextTokens > compactionThresholdFor(lastModel) && turnCount > MIN_TURNS_TO_COMPACT;
   }
 
   function noteInferenceDone(
@@ -46,25 +72,37 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
     overflowRecoveries = 0;
     if (requestContinuation === undefined) return;
     syncFromTurns(turns);
-    const reportedTokens = event.usage?.input ?? 0;
-    const contextTokens = reportedTokens > 0 ? reportedTokens : estimate.tokens;
-    // Assign, don't OR: an under-threshold follow-up must disarm a sticky pending
-    // left from an earlier over-threshold turn (e.g. after the provider reports
-    // real usage that lands below the threshold).
-    pending =
-      contextTokens > compactionThresholdFor(event.source?.model) &&
-      turns.length > MIN_TURNS_TO_COMPACT;
+    lastModel = event.source?.model;
+    const reportedTokens = contextTokensFromUsage(event.usage);
+    usingEstimate = reportedTokens <= 0;
+    const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
+    // Assign, don't OR: an under-threshold follow-up must disarm a sticky
+    // pending left from an earlier over-threshold turn (e.g. after the
+    // provider reports real usage that lands below the threshold).
+    pending = isOverThreshold(contextTokens);
   }
 
   // Compaction waits for the natural pause between a tool batch finishing and
   // the follow-up infer: the infer is dropped from the action set, the compact
   // cycle runs, and the continuation message re-enters inference.
+  //
+  // `pending` reflects the snapshot as of the last inference.done, which
+  // predates any tool result produced by that turn's own tool batch. When the
+  // provider is reporting real usage, that snapshot is authoritative and
+  // `pending` alone is trusted (there is no fresher provider number to check
+  // against until the next inference.done). But when usage was omitted or
+  // zero, `pending` was itself derived from the local estimate — in that case
+  // a large tool result can push the estimate over threshold before the next
+  // inference.done ever runs, so this re-derives the same arming rule against
+  // the live estimate (already re-synced this cycle by the director) instead
+  // of trusting a `pending` that can be stale by exactly one tool batch.
   function interceptActions(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (!pending || event.type !== "tool.done") return null;
+    if (event.type !== "tool.done") return null;
+    if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens))) return null;
     if (!actions.some((a) => a.type === "infer")) return null;
     pending = false;
     postCompactInfer = true;
@@ -139,6 +177,12 @@ export function createCompactionGovernor(requestContinuation?: () => void) {
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
+    },
+    // True once the provider has omitted or zeroed usage on the current
+    // turn, so a status-bar meter reading this can mark itself approximate
+    // rather than silently understating a real number.
+    get usingEstimate(): boolean {
+      return usingEstimate;
     },
     syncFromTurns,
     noteInferenceDone,

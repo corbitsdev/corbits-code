@@ -82,6 +82,30 @@ describe("turnStateFromEvent", () => {
     expect(s.isProcessing).toBe(false)
   })
 
+  test("inference.done with no active tool calls settles the turn", () => {
+    // Regression for CL-5563/CL-5570: a workflow/goal-governor cycle that
+    // keeps self-continuing may never emit connector.reply, the usual
+    // terminator. Without settling here too, isProcessing (and the "working"
+    // ramp it drives) stays true forever once nothing else arrives.
+    const s = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta" },
+      { type: "inference.done" },
+    ])
+    expect(s.status).toBe("done")
+    expect(s.isProcessing).toBe(false)
+  })
+
+  test("inference.done with a tool call still outstanding does not settle", () => {
+    const s = fold([
+      { type: "inference.start" },
+      { type: "inference.tool_call.end", data: { name: "bash" } },
+      { type: "inference.done" },
+    ])
+    expect(s.isProcessing).toBe(true)
+    expect(s.status).toBe("running")
+  })
+
   test("activity clock advances with every event", () => {
     const s = fold([{ type: "inference.start" }, { type: "inference.text.delta" }])
     expect(s.lastActivityAt).toBe(2)

@@ -99,12 +99,14 @@ performed.
    the shell's key handler), but the reported real-terminal failure is not
    reproduced or explained. Until someone pastes into a real TTY, treat text paste
    as unverified.
-2. **Mouse selection policy (CL-5540).** DEC mouse reporting is moving to
-   off-by-default (`mouseCapture` in `src/tui-opentui/product-host.ts:101`) so the
-   terminal owns drag-select and copy. The cost is that click-to-expand and
-   drag-scroll are off unless the user presses `Alt+M`
-   (`src/tui-opentui/shell.ts:3392`). This is a deliberate trade, but it is a
-   visible regression for mouse users and the default is not settled.
+2. **Mouse selection policy (CL-5540).** DEC mouse reporting defaults on in
+   the main shell (`useMouse` in `src/tui-opentui/product-host.ts:218`), so
+   wheel scroll and click-to-expand work out of the box. The cost is native
+   text selection, which the terminal cannot perform while reporting is on;
+   `Alt+M` (`toggleMouseCapture` in `src/tui-opentui/shell.ts:4006`) hands the
+   mouse back for that. The satellite pickers (`list-modal.ts`,
+   `provider-setup.ts`) keep reporting off and are unaffected. This is the
+   settled decision, not a pending tradeoff.
 3. **Shift+Enter does not insert a newline on terminals that do not report the
    modifier.** `Ctrl+Enter` and `Ctrl+J` are the working newline chords and the
    help catalog says so (`src/tui-opentui/keybindings.ts`). The kitty keyboard

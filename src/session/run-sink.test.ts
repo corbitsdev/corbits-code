@@ -77,6 +77,24 @@ describe("createRunSink", () => {
     expect(runSink.getTokenUsage()).toEqual({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   });
 
+  test("seeds the turn count from a resumed session's prior turnsUsed", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      initialTurnCount: 7,
+    });
+
+    expect(runSink.getTurnCount()).toBe(7);
+
+    runSink.sink(event("inference.done", {
+      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { provider: "test", model: "test" },
+    }));
+
+    expect(runSink.getTurnCount()).toBe(8);
+  });
+
   test("getLastTurnUsage reports the latest turn alone, not the running sum", () => {
     const runSink = createRunSink({
       emitter: new EventEmitter(),

@@ -159,6 +159,49 @@ describe("createAppShell", () => {
     )
   })
 
+  test("wheel scroll landing on the prompt moves the transcript, not the prompt", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          for (let i = 0; i < 50; i++) {
+            appendTranscript(shell, `seed-${i}`)
+          }
+          await h.renderOnce()
+          await h.renderOnce()
+          expect(isTranscriptFollowing(shell)).toBe(true)
+          const followingTop = shell.transcript.scrollTop
+
+          // Locate the prompt's interior on screen and scroll through the
+          // renderer's real SGR-mouse parse + hit-test dispatch, the same
+          // path a live terminal drives — not a direct method call, which
+          // would pass even if the renderer never routed the event here.
+          const rows = h.captureCharFrame().split("\n")
+          const borderRow = rows.findIndex((r) => r.includes("╭"))
+          const promptX = rows[borderRow]!.indexOf("╭") + 2
+          const promptY = borderRow + 1
+
+          for (let i = 0; i < 5; i++) {
+            await h.mockMouse.scroll(promptX, promptY, "up")
+          }
+          await h.renderOnce()
+
+          // The wheel event landed on the prompt, but the transcript moved
+          // and pinned — the prompt's own (empty) buffer never scrolled.
+          expect(shell.transcript.scrollTop).toBeLessThan(followingTop)
+          expect(isTranscriptFollowing(shell)).toBe(false)
+          expect(stickyMode(shell)).toBe("PINNED")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("focus lease: prompt vs transcript", async () => {
     await withTestRenderer(
       async (h) => {

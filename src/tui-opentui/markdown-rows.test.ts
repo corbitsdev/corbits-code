@@ -4,8 +4,15 @@
  */
 
 import { describe, expect, test } from "bun:test"
+import { MarkdownRenderable, BoxRenderable, type CapturedSpan } from "@opentui/core"
 import { withTestRenderer, type Harness } from "./harness"
-import { appendStreamRow, createAppShell, replaceStreamRowAt } from "./shell"
+import {
+  appendStreamRow,
+  createAppShell,
+  createStreamRowRenderable,
+  replaceStreamRowAt,
+  splitAtSettledHeading,
+} from "./shell"
 import { isMarkdownRow } from "./stream"
 
 const WIDE = { width: 80, height: 24 } as const
@@ -15,11 +22,17 @@ const shellOpts = {
   wireKeys: false,
 } as const
 
-/** Markdown blocks highlight asynchronously; settle before capturing a frame. */
+/**
+ * Markdown blocks highlight asynchronously; settle before capturing a frame.
+ * A row with several top-level blocks (heading, list, fence, link) resolves
+ * its highlight promises one render at a time, so a fixed couple of ticks
+ * that was enough for one block is not enough for several.
+ */
 async function settle(h: Harness): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  await h.renderOnce()
-  await h.renderOnce()
+  for (let i = 0; i < 8; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await h.renderOnce()
+  }
   return h.captureCharFrame()
 }
 
@@ -143,5 +156,307 @@ describe("markdown transcript rows", () => {
       expect(next).toContain("Title")
       expect(next).not.toContain("#### Title")
     }, WIDE)
+  })
+
+  test("a row with no settled heading paints through a single renderer, not a wasted split", async () => {
+    // Most rows never have a settled heading behind their tail (no heading at
+    // all, or the only one is still being typed). Building the frozen/live
+    // pair unconditionally would double every markdown row's renderer count
+    // for no benefit in the common case.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      const node = createStreamRowRenderable(shell, {
+        role: "assistant",
+        text: "Just a paragraph, no heading at all.",
+      })
+      expect(node).toBeInstanceOf(BoxRenderable)
+      const [, bodyNode] = (node as BoxRenderable).getChildren()
+      expect(bodyNode).toBeInstanceOf(MarkdownRenderable)
+    }, WIDE)
+  })
+
+  test("a closed heading renders in its own settled renderer, separate from the prose after it", async () => {
+    // The library's default block mode merges a heading into the same raw
+    // chunk as the paragraph that follows it, so every keystroke of that
+    // paragraph re-highlights the heading's already-settled text too — the
+    // heading's markers and styling visibly flicker while the rest of the
+    // message keeps streaming in. Splitting the body at the heading gives it
+    // its own renderer, marked non-streaming, that the live (still-growing)
+    // half never shares — so it is never asked to re-highlight again.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      const node = createStreamRowRenderable(shell, {
+        role: "assistant",
+        streaming: true,
+        text: ["### Title", "", "Some body text."].join("\n"),
+      })
+      expect(node).toBeInstanceOf(BoxRenderable)
+      const [, bodyNode] = (node as BoxRenderable).getChildren()
+      expect(bodyNode).toBeInstanceOf(BoxRenderable)
+      const [frozenNode, liveNode] = (bodyNode as BoxRenderable).getChildren()
+      expect(frozenNode).toBeInstanceOf(MarkdownRenderable)
+      expect(liveNode).toBeInstanceOf(MarkdownRenderable)
+      expect((frozenNode as MarkdownRenderable).content).toContain("### Title")
+      expect((frozenNode as MarkdownRenderable).streaming).toBe(false)
+      expect((liveNode as MarkdownRenderable).content).toBe("Some body text.")
+      expect((liveNode as MarkdownRenderable).streaming).toBe(true)
+    }, WIDE)
+  })
+
+  test("the settled heading renderer is never rewritten while the prose after it keeps streaming", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, {
+        role: "assistant",
+        streaming: true,
+        text: ["### Title", "", "Some"].join("\n"),
+      })
+      const children = shell.transcript.getChildren().slice(1)
+      const [, bodyNode] = (children[0] as BoxRenderable).getChildren()
+      const [frozenNode] = (bodyNode as BoxRenderable).getChildren()
+      const before = (frozenNode as MarkdownRenderable).content
+
+      replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+        role: "assistant",
+        streaming: true,
+        text: ["### Title", "", "Some body text that keeps growing and growing."].join("\n"),
+      })
+      const childrenAfter = shell.transcript.getChildren().slice(1)
+      const [, bodyNodeAfter] = (childrenAfter[0] as BoxRenderable).getChildren()
+      const [frozenNodeAfter] = (bodyNodeAfter as BoxRenderable).getChildren()
+
+      expect(frozenNodeAfter).toBe(frozenNode)
+      expect((frozenNodeAfter as MarkdownRenderable).content).toBe(before)
+    }, WIDE)
+  })
+
+  test("a list directly under a paragraph, with no blank line, keeps that shape after the split", async () => {
+    // Regression guard: the split must never fall at a list boundary — only
+    // at a settled heading — so paragraph/list spacing stays byte-identical
+    // to the unsplit renderer's own default layout.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, {
+        role: "assistant",
+        text: ["### Title", "", "Here is the list:", "- alpha", "- beta"].join("\n"),
+      })
+      const frame = await settle(h)
+      const lines = frame.split("\n").map((line) => line.trimEnd())
+      const listLine = lines.findIndex((line) => line.includes("Here is the list:"))
+      expect(listLine).toBeGreaterThan(-1)
+      // No blank row inserted between the paragraph and the list beneath it.
+      expect(lines[listLine + 1]).toContain("alpha")
+    }, WIDE)
+  })
+
+  test("a ten-item ordered list under a heading keeps unpadded markers", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      const items = Array.from({ length: 10 }, (_, i) => `${i + 1}. item ${i + 1}`)
+      appendStreamRow(shell, {
+        role: "assistant",
+        text: ["### Steps", "", ...items].join("\n"),
+      })
+      const frame = await settle(h)
+      expect(frame).toContain("1. item 1")
+      expect(frame).toContain("10. item 10")
+    }, WIDE)
+  })
+
+  /** The heading's own painted span, wherever it lands in the current frame. */
+  function headingSpan(h: Harness): CapturedSpan | null {
+    for (const line of h.captureSpans().lines) {
+      for (const span of line.spans) {
+        if (span.text.includes("Title")) return span
+      }
+    }
+    return null
+  }
+
+  test("a settled heading's painted span never changes while the prose after it keeps streaming", async () => {
+    // The shake this fixes is a transient re-highlight, not a settled-frame
+    // difference — a snapshot taken only after several idle ticks (as every
+    // other test in this file does) cannot see it, because the async
+    // highlight pass has always finished by then. This test instead samples
+    // the heading's span on every delta, immediately after a single render
+    // with no settle wait, which is the one place the flicker would show up.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      const full = "Some body text that keeps growing and growing more and more and even more."
+      appendStreamRow(shell, {
+        role: "assistant",
+        streaming: true,
+        text: ["### Title", "", full.slice(0, 1)].join("\n"),
+      })
+      // Warm up once: the first highlight pass in a process loads the
+      // tree-sitter grammar and is not itself part of what this test samples.
+      const baseline = await settle(h).then(() => headingSpan(h))
+      expect(baseline).not.toBeNull()
+
+      for (let i = 2; i <= full.length; i += 1) {
+        replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+          role: "assistant",
+          streaming: true,
+          text: ["### Title", "", full.slice(0, i)].join("\n"),
+        })
+        await h.renderOnce()
+        const span = headingSpan(h)
+        expect(span).not.toBeNull()
+        expect(span!.text).toBe(baseline!.text)
+        expect(span!.fg).toEqual(baseline!.fg)
+        expect(span!.attributes).toBe(baseline!.attributes)
+      }
+    }, WIDE)
+  })
+
+  describe("splitAtSettledHeading never splits a fenced code block", () => {
+    test("a `#` shell comment inside a fence is not read as a heading boundary", () => {
+      const text = [
+        "```bash",
+        "# this is a comment, not a heading",
+        "echo hi",
+        "```",
+        "",
+        "more prose streaming in",
+      ].join("\n")
+      const split = splitAtSettledHeading(text)
+      // No real heading anywhere in this text, fenced or not: no split at all.
+      expect(split).toBeNull()
+    })
+
+    test("a real heading before an open fence still splits, and the fence stays whole", () => {
+      const text = [
+        "### Title",
+        "",
+        "```bash",
+        "# comment, not a heading",
+        "echo hi",
+        "```",
+        "",
+        "more prose streaming in",
+      ].join("\n")
+      const split = splitAtSettledHeading(text)
+      expect(split).not.toBeNull()
+      // The fence opens and closes on the same side of the split.
+      expect(split!.frozen).toBe("### Title")
+      expect(split!.live).toContain("```bash")
+      expect(split!.live).toContain("```\n")
+    })
+
+    test("a fence opened before a heading keeps the heading out of the boundary search until it closes", () => {
+      const text = [
+        "```py",
+        "# looks like a heading but is not",
+        "```",
+        "",
+        "### Real Title",
+        "",
+        "body text",
+      ].join("\n")
+      const split = splitAtSettledHeading(text)
+      expect(split).not.toBeNull()
+      expect(split!.frozen).toContain("### Real Title")
+      expect(split!.frozen).not.toContain("body text")
+      expect(split!.live).toBe("body text")
+    })
+
+    test("a fenced `#` comment renders inside a matched fence, not split across two renderers", async () => {
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, shellOpts)
+        appendStreamRow(shell, {
+          role: "assistant",
+          streaming: true,
+          text: [
+            "```bash",
+            "# this is a comment, not a heading",
+            "echo hi",
+            "```",
+            "",
+            "more prose streaming in",
+          ].join("\n"),
+        })
+        const frame = await settle(h)
+        expect(frame).toContain("# this is a comment, not a heading")
+        expect(frame).toContain("echo hi")
+        expect(frame).toContain("more prose streaming in")
+      }, WIDE)
+    })
+
+    test("a closing-fence-shaped line carrying trailing text does not close the fence", () => {
+      // CommonMark: the closing delimiter may contain only the fence
+      // characters and trailing whitespace. "```stillcode" is more fence
+      // content, not a closer, so the `#` after the real closer is still the
+      // first heading — not the "```stillcode" line before it.
+      const text = [
+        "```bash",
+        "echo hi",
+        "```stillcode",
+        "# should still be inside fence per CommonMark",
+        "```",
+        "",
+        "### Title",
+        "",
+        "body",
+      ].join("\n")
+      const split = splitAtSettledHeading(text)
+      expect(split).not.toBeNull()
+      expect(split!.frozen).toContain("### Title")
+      expect(split!.frozen).toContain("```stillcode")
+      expect(split!.frozen).toContain("# should still be inside fence per CommonMark")
+      expect(split!.live).toBe("body")
+    })
+
+    test("adversarial fence pairings: length and character must both match, indentation is bounded", () => {
+      // Four backticks are not closed by three — the fence stays open, so
+      // "### Title" is fence content too and there is no heading at all.
+      expect(
+        splitAtSettledHeading(
+          ["````", "# not a heading", "```", "### Title", "", "body"].join("\n"),
+        ),
+      ).toBeNull()
+      // The same shape, properly closed by a run of 4+: now it is a heading.
+      expect(
+        splitAtSettledHeading(
+          ["````", "# not a heading", "```", "### not a heading either", "````", "", "### Title", "", "body"].join(
+            "\n",
+          ),
+        )!.frozen,
+      ).toContain("### Title")
+      // Three backticks are closed by four (a longer run of the same char).
+      expect(
+        splitAtSettledHeading(
+          ["```", "# not a heading", "````", "", "### Title", "", "body"].join("\n"),
+        )!.frozen,
+      ).toContain("### Title")
+      // A tilde run never closes a backtick fence, or vice versa.
+      expect(
+        splitAtSettledHeading(
+          ["```", "~~~", "# not a heading", "```", "### Title", "", "body"].join("\n"),
+        )!.frozen,
+      ).toContain("### Title")
+      // Up to 3 spaces of indent still opens/closes a fence.
+      expect(
+        splitAtSettledHeading(
+          ["   ```", "# not a heading", "   ```", "### Title", "", "body"].join("\n"),
+        )!.frozen,
+      ).toContain("### Title")
+      // 4 spaces is indented code, not a fence — the `#` line is still inside
+      // it as indented code, never a heading boundary on its own.
+      expect(
+        splitAtSettledHeading(["    ```", "    # not a heading", "body"].join("\n")),
+      ).toBeNull()
+      // An unclosed fence at end of input, with a `#` line inside it and no
+      // real heading anywhere: nothing to split at.
+      expect(
+        splitAtSettledHeading(["```", "# still fence content, not a heading", "still going"].join("\n")),
+      ).toBeNull()
+    })
+  })
+
+  test("an indented heading (CommonMark allows up to 3 leading spaces) still closes the split", () => {
+    const split = splitAtSettledHeading(["  ### Title", "", "body"].join("\n"))
+    expect(split).not.toBeNull()
+    expect(split!.frozen).toBe("  ### Title")
+    expect(split!.live).toBe("body")
   })
 })
