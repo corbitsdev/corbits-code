@@ -203,19 +203,25 @@ EOF
 # Nothing is written to package.json: these are already declared there as
 # optionalDependencies, and this only makes the ones bun skipped present.
 fetch_native_modules() {
-  local version platform pkg dir url
+  local version platform pkg dir url variants bun_target _label _kind _deb
   version=$(jq -r '.optionalDependencies["@opentui/core-darwin-arm64"] // empty' package.json)
   [ -n "$version" ] || die "no @opentui/core-* version in package.json optionalDependencies"
   for entry in "${TARGETS[@]}"; do
     IFS='|' read -r _label bun_target _kind _deb <<< "$entry"
     platform=${bun_target#bun-}
-    pkg="core-$platform"
-    dir="node_modules/@opentui/$pkg"
-    [ -d "$dir" ] && continue
-    url="https://registry.npmjs.org/@opentui/$pkg/-/$pkg-$version.tgz"
-    info "fetching @opentui/$pkg@$version (cross-compile target)"
-    mkdir -p "$dir"
-    curl -fsSL "$url" | tar -xz -C "$dir" --strip-components=1 ||       die "could not fetch @opentui/$pkg@$version from the registry"
+    # A Linux binary picks glibc or musl at runtime, so both variants have to
+    # resolve at compile time.
+    variants="core-$platform"
+    [ "$_kind" = linux ] && variants="$variants core-$platform-musl"
+    for pkg in $variants; do
+      dir="node_modules/@opentui/$pkg"
+      [ -d "$dir" ] && continue
+      url="https://registry.npmjs.org/@opentui/$pkg/-/$pkg-$version.tgz"
+      info "fetching @opentui/$pkg@$version (cross-compile target)"
+      mkdir -p "$dir"
+      curl -fsSL "$url" | tar -xz -C "$dir" --strip-components=1 \
+        || die "could not fetch @opentui/$pkg@$version from the registry"
+    done
   done
 }
 
