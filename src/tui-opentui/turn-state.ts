@@ -27,6 +27,47 @@ const STREAM_TEXT_BUFFER_CHARS = 8_000
 // cost proportional to output, not token count.
 const REPETITION_CHECK_INTERVAL_CHARS = 40
 
+// Cycles shorter than this are skipped when updating the cross-cycle streak:
+// a bare tool call with no preceding text, or a one-word aside, is too little
+// signal to compare — matching by coincidence is common at this length, and
+// skipping neither breaks nor extends a streak already in progress.
+const CYCLE_FINGERPRINT_MIN_CHARS = 24
+
+// How many consecutive cycles must fingerprint identically before it counts
+// as a loop rather than ordinary phrasing. The fingerprint covers the whole
+// cycle's text, so any variation at all — a changing filename, index, or
+// detail ("Editing src/module_47.ts next.") produces a different hash and
+// never advances the streak, no matter how many cycles run. That is what
+// makes this bar tolerable at a bare-number glance: it only ever governs
+// content that is byte-for-byte invariant, cycle after cycle, which ordinary
+// narration is not. The verified false positive (CL-5577) is a model saying
+// the exact same short line before each of 9-12 separate tool calls in one
+// turn — that must not abort, so the bar sits above that range with
+// headroom. Set well below the reported repro (an unvarying 46-char block
+// repeated every cycle for 500 cycles, which the unconditional-reset version
+// never caught at all): at this bar the streak still trips a small fraction
+// of the way in, a few thousand characters and under two dozen tool calls,
+// not after 500 and 88,000 characters. The remaining exposure is narrow and
+// explicit: an exact, invariant line of at least `CYCLE_FINGERPRINT_MIN_CHARS`
+// chars repeated with zero variation for this many cycles running straight
+// through tool calls — contentless boilerplate, not narration.
+const CYCLE_REPETITION_MIN_CONSECUTIVE = 20
+
+/**
+ * Cheap 32-bit fingerprint (FNV-1a) of one completed cycle's text, so the
+ * cross-cycle streak only has to remember a short string per turn rather than
+ * retain raw text across cycles — the retained text is exactly what caused
+ * the cross-cycle false positive this replaces.
+ */
+function cycleFingerprint(text: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16)
+}
+
 export type QuotaWait = {
   readonly retryAfterMs: number
   readonly retryAt: number
@@ -80,6 +121,20 @@ export type TurnState = {
    * rather than the whole turn's count.
    */
   readonly repeatingSinceTokenCount: number | null
+  /**
+   * Fingerprint of the most recently completed streaming cycle (set at each
+   * tool-call boundary), used only to compare against the next cycle's
+   * fingerprint. Not the raw text — carrying that across cycles is what
+   * caused repeats to accumulate into a false positive across tool calls.
+   */
+  readonly cycleFingerprint: string | null
+  /**
+   * Consecutive completed cycles whose fingerprint matched the one before it.
+   * A model repeating the same block every cycle, with a tool call in
+   * between each, builds this streak even though no single cycle's text ever
+   * gets long enough to trip `detectRepetition` on its own.
+   */
+  readonly consecutiveMatchingCycles: number
 }
 
 export function initialTurnState(nowMs: number): TurnState {
@@ -98,6 +153,8 @@ export function initialTurnState(nowMs: number): TurnState {
     repetitionCheckedAt: 0,
     repeating: false,
     repeatingSinceTokenCount: null,
+    cycleFingerprint: null,
+    consecutiveMatchingCycles: 0,
   }
 }
 
@@ -118,6 +175,8 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     repetitionCheckedAt: 0,
     repeating: false,
     repeatingSinceTokenCount: null,
+    cycleFingerprint: null,
+    consecutiveMatchingCycles: 0,
   }
 }
 
@@ -251,7 +310,12 @@ const streaming = (
   const streamCharsSeen = state.streamCharsSeen + text.length
   const due =
     streamCharsSeen - state.repetitionCheckedAt >= REPETITION_CHECK_INTERVAL_CHARS
-  const repeating = due ? detectRepetition(streamText).repeating : state.repeating
+  // Once true, stays true for the rest of the turn — a fresh cycle's buffer
+  // starts empty (see `runningTool`) and would otherwise read back false on
+  // the next check, un-latching a real detection the moment a tool call
+  // interrupts the stream.
+  const repeating =
+    state.repeating || (due && detectRepetition(streamText).repeating)
   return {
     ...state,
     status: state.status === "blocked" ? "blocked" : "running",
@@ -271,29 +335,58 @@ const streaming = (
   }
 }
 
-// A tool call ends the current streaming cycle. Clearing the repetition
-// buffer here, rather than only on a fresh turn, is what keeps repeats from
-// accumulating across `connector.reply` boundaries — the mechanism that
-// turned nine separate narration lines ("Let me check the next file now.")
-// into one apparent loop and killed an ordinary turn mid-flight.
+// A tool call ends the current streaming cycle. The raw text buffer is
+// discarded here, rather than only on a fresh turn, so repeats never
+// accumulate across `connector.reply` boundaries — the mechanism that turned
+// nine separate narration lines ("Let me check the next file now.") into one
+// apparent loop and killed an ordinary turn mid-flight. But discarding the
+// buffer outright would also erase a genuine loop that interleaves a tool
+// call between every repeat of the same block, so a fingerprint of the
+// completed cycle is kept and compared against the next one: several
+// consecutive cycles fingerprinting alike is what that shape of loop looks
+// like, and nine different narration lines never do.
 const runningTool = (
   state: TurnState,
   name: string | null,
   nowMs: number,
-): TurnState => ({
-  ...state,
-  status: state.status === "blocked" ? "blocked" : "running",
-  isProcessing: true,
-  awaitingResponse: false,
-  streamingType: "tool",
-  currentToolName: name ?? state.currentToolName,
-  lastActivityAt: nowMs,
-  streamText: "",
-  streamCharsSeen: 0,
-  repetitionCheckedAt: 0,
-  repeating: false,
-  repeatingSinceTokenCount: null,
-})
+): TurnState => {
+  const cycleText = state.streamText
+  const longEnoughToCompare = cycleText.length >= CYCLE_FINGERPRINT_MIN_CHARS
+  const fingerprint = longEnoughToCompare
+    ? cycleFingerprint(cycleText)
+    : null
+  const matchedPrevious =
+    longEnoughToCompare &&
+    state.cycleFingerprint !== null &&
+    fingerprint === state.cycleFingerprint
+  const consecutiveMatchingCycles = matchedPrevious
+    ? state.consecutiveMatchingCycles + 1
+    : longEnoughToCompare
+      ? 1
+      : state.consecutiveMatchingCycles
+  const repeating =
+    state.repeating || consecutiveMatchingCycles >= CYCLE_REPETITION_MIN_CONSECUTIVE
+
+  return {
+    ...state,
+    status: state.status === "blocked" ? "blocked" : "running",
+    isProcessing: true,
+    awaitingResponse: false,
+    streamingType: "tool",
+    currentToolName: name ?? state.currentToolName,
+    lastActivityAt: nowMs,
+    streamText: "",
+    streamCharsSeen: 0,
+    repetitionCheckedAt: 0,
+    repeating,
+    repeatingSinceTokenCount:
+      repeating && state.repeatingSinceTokenCount === null
+        ? state.streamTokenCount
+        : state.repeatingSinceTokenCount,
+    cycleFingerprint: longEnoughToCompare ? fingerprint : state.cycleFingerprint,
+    consecutiveMatchingCycles,
+  }
+}
 
 /**
  * Fold one inbound event (reactor-shaped or canonical bridge-shaped) into the
