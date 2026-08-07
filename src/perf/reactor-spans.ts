@@ -20,6 +20,7 @@
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import { end, start } from "./index.js";
 import {
   getActiveTurnId,
@@ -82,7 +83,7 @@ function emptyState(): ObserverState {
 }
 
 function toolCallCount(event: ReactorEmittedEvent): number {
-  if (event.type !== "inference.done") return 0;
+  if (!onTurnBoundary(event)) return 0;
   const data = event.data as {
     turn?: { content?: ReadonlyArray<{ type: string }> };
   };
@@ -117,7 +118,7 @@ function modelTags(event: ReactorEmittedEvent): Record<string, unknown> | undefi
     }
     return undefined;
   }
-  if (event.type === "inference.done") {
+  if (onTurnBoundary(event)) {
     const data = event.data as {
       source?: { provider?: unknown; model?: unknown };
       usage?: { input?: unknown; output?: unknown };
@@ -222,7 +223,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
       return;
     }
 
-    if (type === "inference.done") {
+    if (onTurnBoundary(event)) {
       const tags = modelTags(event);
       closeInferenceTree(tags);
       state.pendingTools = toolCallCount(event);

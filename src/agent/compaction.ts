@@ -8,6 +8,7 @@ import type {
 import { compactionThresholdFor, contextTokensFromUsage } from "../provider/context-window.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
+import { onTurnBoundary } from "./reactor-events.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
 // The exact turn count `createPruningCompactor` (session/compactor.ts) is
@@ -119,7 +120,7 @@ export function createCompactionGovernor(
   // compact when it (or the operator's next message) arrives.
   function noteIdleTurn(event: ReactorInboundEvent, actions: ReactorAction[]): void {
     if (!pending || idlePending || requestContinuation === undefined) return;
-    if (event.type !== "inference.done") return;
+    if (!onTurnBoundary(event)) return;
     const terminal =
       actions.some((a) => a.type === "reply" || a.type === "wait") &&
       !actions.some((a) => a.type === "infer" || a.type === "execute_tools");

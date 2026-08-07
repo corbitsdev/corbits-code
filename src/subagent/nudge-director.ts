@@ -14,6 +14,7 @@ import type {
   InferenceOptions,
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   EMPTY_THRASH_STATE,
   nextThrashState,
@@ -137,7 +138,7 @@ export class SubAgentDirector extends DefaultDirector {
     // rewrites included). Arming still happens inside noteInferenceDone, which
     // prefers provider usage when present.
     this.compaction.syncFromTurns(state.turns);
-    if (event.type === "inference.done") {
+    if (onTurnBoundary(event)) {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
       this.compaction.noteInferenceDone(event, state.turns);

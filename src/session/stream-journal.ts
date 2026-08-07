@@ -5,6 +5,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 
 /**
  * Partial-output capture for streaming inference cycles.
@@ -98,7 +99,7 @@ export function createCycleTextRecorder(
       if (typeof token === "string") cycleText = appendCycleText(cycleText, token);
       return;
     }
-    if (event.type === "inference.done") {
+    if (onTurnBoundary(event)) {
       cycleText = "";
       return;
     }

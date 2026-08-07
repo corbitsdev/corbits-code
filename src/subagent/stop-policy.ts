@@ -4,6 +4,7 @@
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   evaluateThrashStop,
   type ThrashConfig,
@@ -225,7 +226,7 @@ export function lastText(content: ReadonlyArray<{ type: string }>): string {
 
 /** Best-effort partial assistant text from a stream event (inference.done). */
 export function partialTextFromEvent(event: ReactorEmittedEvent): string | null {
-  if (event.type !== "inference.done") return null;
+  if (!onTurnBoundary(event)) return null;
   // Stream events nest the turn under data (same shape as hooks/renderer).
   // Guard data.turn so a malformed event cannot throw in the stream sink.
   const turn = event.data?.turn;
