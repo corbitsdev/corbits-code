@@ -361,7 +361,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onActivateTools = onActivateTools;
     this.workflowCoordinator = workflowCoordinator;
     this.onTasksChange = onTasksChange;
-    this.compaction = createCompactionGovernor(requestContinuation);
+    this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
     this.modelFamilyPolicy = modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
   }
 

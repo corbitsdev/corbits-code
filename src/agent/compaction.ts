@@ -3,9 +3,10 @@ import type {
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
+  ToolDefinition,
 } from "@intx/types/runtime";
 import { compactionThresholdFor } from "../provider/context-window.js";
-import { createContextEstimate } from "./context-estimate.js";
+import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
 const MIN_TURNS_TO_COMPACT = 6;
@@ -20,17 +21,22 @@ const MAX_OVERFLOW_RECOVERIES = 2;
 // would be worse than growing the context.
 export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 
-export function createCompactionGovernor(requestContinuation?: () => void) {
+export function createCompactionGovernor(
+  requestContinuation?: () => void,
+  systemPrompt = "",
+  toolDefinitions: readonly ToolDefinition[] = [],
+) {
   let pending = false;
   let idlePending = false;
   let postCompactInfer = false;
   let overflowRecoveries = 0;
 
-  // Running local estimate of the turns we send. Providers that omit usage or
-  // report zero leave the proactive path blind; the estimate fills that gap.
-  // When the provider reports real usage we prefer it so a coarse local count
-  // cannot thrash against a trustworthy signal.
-  const estimate = createContextEstimate();
+  // Running local estimate of the turns we send, plus the fixed system-prompt
+  // and tool-schema overhead every request carries. Providers that omit usage
+  // or report zero leave the proactive path blind; the estimate fills that
+  // gap. When the provider reports real usage we prefer it so a coarse local
+  // count cannot thrash against a trustworthy signal.
+  const estimate = createContextEstimate(estimateOverheadTokens(systemPrompt, toolDefinitions));
 
   // Re-sync after turn appends, tool results, and compaction rewrites. Callers
   // pass the full turn list so the estimate stays accurate without incremental
