@@ -41,7 +41,15 @@ export async function runListModal(
 ): Promise<string | null> {
   const renderer = config.createRenderer
     ? await config.createRenderer()
-    : await createCliRenderer({ exitOnCtrlC: false, targetFps: 30 })
+    : await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+        // Same trade as the product host (CL-5540): reporting off by default
+        // so the terminal owns drag-select and its own copy in these satellite
+        // pickers too.
+        useMouse: false,
+        enableMouseMovement: false,
+      })
 
   const shell = createAppShell(renderer, { title: config.title, run: "idle" })
 
