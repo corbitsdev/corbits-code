@@ -607,8 +607,8 @@ export type AppShell = {
    * set to null; never appended to the stream log.
    */
   statusFlash: string | null
-  /** MCP servers awaiting authorization; the notice row counts them. */
-  mcpNeedsAuth: number
+  /** MCP servers awaiting authorization; the notice row names them. */
+  mcpNeedsAuth: readonly string[]
   /**
    * Live turn phase ("Thinking…", "Running tool…", …) or null when idle.
    * Lives on the transient notice row rather than a chrome zone because the product host
@@ -743,10 +743,16 @@ export function noticeText(shell: AppShell): string {
   })
 }
 
-/** How many MCP servers are waiting on authorization. Repaints on change. */
-export function setMcpNeedsAuth(shell: AppShell, count: number): void {
-  if (shell.mcpNeedsAuth === count) return
-  shell.mcpNeedsAuth = count
+/** Which MCP servers are waiting on authorization. Repaints on change. */
+export function setMcpNeedsAuth(shell: AppShell, names: readonly string[]): void {
+  const next = [...names]
+  if (
+    shell.mcpNeedsAuth.length === next.length &&
+    next.every((name) => shell.mcpNeedsAuth.includes(name))
+  ) {
+    return
+  }
+  shell.mcpNeedsAuth = next
   paintChrome(shell)
 }
 
@@ -4870,7 +4876,7 @@ export function createAppShell(
     mouseCapture: options?.mouseCapture ?? null,
     copyTargets: null,
     statusFlash: null,
-    mcpNeedsAuth: 0,
+    mcpNeedsAuth: [],
     turnPhase: null,
     lockupNowMs: 0,
     lockupAnimating: false,

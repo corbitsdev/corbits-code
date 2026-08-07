@@ -365,7 +365,7 @@ export async function mountProductHost(
     if (parsed === null) return
     if (parsed.state === "needs-auth") mcpUnauthorized.add(parsed.name)
     else mcpUnauthorized.delete(parsed.name)
-    setMcpNeedsAuth(shell, mcpUnauthorized.size)
+    setMcpNeedsAuth(shell, [...mcpUnauthorized])
     show(mcpNotice(parsed))
   }
 

@@ -107,7 +107,7 @@ describe("mcp.status channel", () => {
         url: "https://mcp.test/auth",
       })
       const painted = await frame()
-      expect(painted).toContain("1 mcp needs auth (/mcp)")
+      expect(painted).toContain("mcp linear needs auth (/mcp)")
       expect(painted).not.toContain("https://mcp.test/auth")
       expect(host.shell.streamLog).toEqual([])
     } finally {
@@ -121,7 +121,7 @@ describe("mcp.status channel", () => {
       emitter.emit("mcp.status", { name: "linear", state: "needs-auth", url: "https://x/a" })
       emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] })
       await frame()
-      expect(host.shell.mcpNeedsAuth).toBe(0)
+      expect(host.shell.mcpNeedsAuth).toEqual([])
     } finally {
       cleanup()
     }
