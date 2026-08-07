@@ -11,7 +11,13 @@
 
 import { type } from "arktype"
 
+import { detectRepetition } from "./stall-watchdog.js"
 import type { TurnStatus } from "./session-chrome.js"
+
+// Bound on the accumulated stream text kept for repetition checks. Comfortably
+// larger than the lookback window `detectRepetition` reads, so trimming never
+// drops a line the check still needs.
+const STREAM_TEXT_BUFFER_CHARS = 8_000
 
 export type QuotaWait = {
   readonly retryAfterMs: number
@@ -41,6 +47,20 @@ export type TurnState = {
    * so the settle decision needs the outstanding ids, not just the last name.
    */
   readonly activeToolCalls: readonly string[]
+  /**
+   * Tail of the text/thinking output streamed this turn, across cycles —
+   * `connector.reply` with tools outstanding does not clear it. Bounded to
+   * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectRepetition`, nothing else.
+   */
+  readonly streamText: string
+  /** Live result of checking `streamText` for a looping line. */
+  readonly repeating: boolean
+  /**
+   * `streamTokenCount` at the moment repetition was first observed this turn.
+   * Latched, not recomputed, so the abort can report tokens spent looping
+   * rather than the whole turn's count.
+   */
+  readonly repeatingSinceTokenCount: number | null
 }
 
 export function initialTurnState(nowMs: number): TurnState {
@@ -54,6 +74,9 @@ export function initialTurnState(nowMs: number): TurnState {
     lastActivityAt: nowMs,
     quota: null,
     activeToolCalls: [],
+    streamText: "",
+    repeating: false,
+    repeatingSinceTokenCount: null,
   }
 }
 
@@ -69,6 +92,9 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     streamTokenCount: 0,
     lastActivityAt: nowMs,
     activeToolCalls: [],
+    streamText: "",
+    repeating: false,
+    repeatingSinceTokenCount: null,
   }
 }
 
@@ -92,6 +118,20 @@ const inferenceErrorData = type({
     "retryAfterMs?": "number",
   },
 })
+
+const tokenData = type({ "token?": "string" })
+
+/**
+ * Text carried by a delta event. Reactor-shaped deltas carry it as
+ * `data.token`; canonical bridge deltas carry it as a top-level `text`.
+ */
+function deltaText(event: { readonly data?: unknown; readonly text?: string }): string {
+  const parsed = tokenData(event.data)
+  if (!(parsed instanceof type.errors) && parsed.token !== undefined) {
+    return parsed.token
+  }
+  return event.text ?? ""
+}
 
 const namedCallData = type({ "name?": "string" })
 const toolStartData = type({
@@ -178,16 +218,30 @@ const streaming = (
   state: TurnState,
   kind: "text" | "thinking",
   nowMs: number,
-): TurnState => ({
-  ...state,
-  status: state.status === "blocked" ? "blocked" : "running",
-  isProcessing: true,
-  awaitingResponse: false,
-  streamingType: kind,
-  streamTokenCount:
-    kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount,
-  lastActivityAt: nowMs,
-})
+  text: string,
+): TurnState => {
+  const streamTokenCount =
+    kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount
+  const streamText = `${state.streamText}${text}`.slice(
+    -STREAM_TEXT_BUFFER_CHARS,
+  )
+  const check = detectRepetition(streamText)
+  return {
+    ...state,
+    status: state.status === "blocked" ? "blocked" : "running",
+    isProcessing: true,
+    awaitingResponse: false,
+    streamingType: kind,
+    streamTokenCount,
+    lastActivityAt: nowMs,
+    streamText,
+    repeating: check.repeating,
+    repeatingSinceTokenCount:
+      check.repeating && state.repeatingSinceTokenCount === null
+        ? streamTokenCount
+        : state.repeatingSinceTokenCount,
+  }
+}
 
 const runningTool = (
   state: TurnState,
@@ -215,6 +269,7 @@ export function turnStateFromEvent(
     /** Canonical bridge shapes carry these instead of `data`. */
     readonly state?: string
     readonly name?: string
+    readonly text?: string
   },
   nowMs: number,
 ): TurnState {
@@ -235,10 +290,11 @@ export function turnStateFromEvent(
 
     case "inference.text.delta":
     case "assistant.delta":
-      return streaming(state, "text", nowMs)
+      return streaming(state, "text", nowMs, deltaText(event))
 
     case "inference.thinking.delta":
-      return streaming(state, "thinking", nowMs)
+    case "thinking.delta":
+      return streaming(state, "thinking", nowMs, deltaText(event))
 
     case "inference.tool_call.delta":
       return runningTool(state, toolName(event.data), nowMs)

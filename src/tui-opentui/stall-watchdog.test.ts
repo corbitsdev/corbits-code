@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import {
   applyStallRecovery,
+  detectRepetition,
+  repetitionRecoveryMessage,
   shouldAbortForStall,
   shouldNoticeStall,
   STALL_NOTICE_MS,
@@ -81,13 +83,64 @@ describe("shouldAbortForStall", () => {
 })
 
 describe("applyStallRecovery", () => {
-  test("aborts then notifies", () => {
+  test("aborts then notifies with the default message", () => {
     const calls: string[] = []
     applyStallRecovery({
       abort: () => calls.push("abort"),
       notify: (m) => calls.push(m),
     })
     expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE])
+  })
+
+  test("aborts then notifies with a supplied message", () => {
+    const calls: string[] = []
+    applyStallRecovery(
+      { abort: () => calls.push("abort"), notify: (m) => calls.push(m) },
+      "custom message",
+    )
+    expect(calls).toEqual(["abort", "custom message"])
+  })
+})
+
+describe("detectRepetition", () => {
+  test("finds nothing in fresh, varied output", () => {
+    const text = [
+      "I'll check the callId emission path first.",
+      "Running the search now.",
+      "Found three matches across the module.",
+    ].join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("flags a line repeated past the occurrence threshold", () => {
+    const line1 =
+      "I'll verify callId emission and remaining edges, then write the ranked findings."
+    const line2 = "Confirming callId emission, then writing the ranked findings."
+    const text = Array(4).fill([line1, line2]).flat().join("\n")
+    const check = detectRepetition(text)
+    expect(check.repeating).toBe(true)
+    expect(check.repeatedLine).toBe(line1)
+    expect(check.occurrences).toBeGreaterThanOrEqual(3)
+  })
+
+  test("ignores short recurring lines", () => {
+    const text = Array(6).fill("Checking...").join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("does not flag two occurrences", () => {
+    const line =
+      "I'll verify callId emission and remaining edges, then write the ranked findings."
+    const text = [line, "some other progress here.", line].join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+})
+
+describe("repetitionRecoveryMessage", () => {
+  test("names degeneration and attributes the looped tokens", () => {
+    const message = repetitionRecoveryMessage(42)
+    expect(message).toContain("repeating itself")
+    expect(message).toContain("42")
   })
 })
 

@@ -41,10 +41,12 @@ import {
 import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
 import {
   applyStallRecovery,
+  repetitionRecoveryMessage,
   shouldAbortForStall,
   shouldNoticeStall,
   STALL_NOTICE_MESSAGE,
   STALL_NOTICE_MS,
+  STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js"
 import {
@@ -919,6 +921,19 @@ export function attachSessionBridge(
       return
     }
 
+    // Content-based, not time-based: a repeating line means the model is
+    // stuck regardless of how fast it is producing it, so this is checked
+    // before the silence clock rather than folded into it.
+    if (bag.turn.status === "running" && bag.turn.repeating) {
+      const repeatedTokens =
+        bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0)
+      applyStallRecovery(
+        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        repetitionRecoveryMessage(repeatedTokens),
+      )
+      return
+    }
+
     const stallArgs = {
       status: bag.turn.status,
       awaitingResponse: bag.turn.awaitingResponse,
@@ -930,10 +945,10 @@ export function attachSessionBridge(
     }
 
     if (shouldAbortForStall(stallArgs)) {
-      applyStallRecovery({
-        abort: doInterrupt,
-        notify: (message) => setStatusFlash(shell, message),
-      })
+      applyStallRecovery(
+        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        STALL_RECOVERY_MESSAGE,
+      )
       return
     }
 

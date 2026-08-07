@@ -9,7 +9,12 @@ import {
 } from "./turn-state.js"
 
 const fold = (
-  events: readonly { type: string; data?: unknown; state?: string }[],
+  events: readonly {
+    type: string
+    data?: unknown
+    state?: string
+    text?: string
+  }[],
   startMs = 0,
 ) =>
   events.reduce(
@@ -182,5 +187,71 @@ describe("turn transitions", () => {
     const s = turnStateBlocked(turnStateOnSubmit(initialTurnState(0), 1))
     expect(s.status).toBe("blocked")
     expect(s.isProcessing).toBe(true)
+  })
+})
+
+describe("repetition tracking", () => {
+  const line1 =
+    "I'll verify callId emission and remaining edges, then write the ranked findings."
+  const line2 =
+    "Confirming callId emission, then writing the ranked findings."
+
+  const textDelta = (text: string) => ({
+    type: "inference.text.delta",
+    data: { token: text },
+  })
+
+  test("varied streamed text is never flagged", () => {
+    const s = fold([
+      { type: "inference.start" },
+      textDelta("I'll check the callId path.\n"),
+      textDelta("Running the search now.\n"),
+      textDelta("Found the match.\n"),
+    ])
+    expect(s.repeating).toBe(false)
+    expect(s.repeatingSinceTokenCount).toBeNull()
+  })
+
+  test("a line looping past the threshold flips repeating and latches the token count", () => {
+    const deltas = Array(4)
+      .fill([line1, line2])
+      .flat()
+      .map((line) => textDelta(`${line}\n`))
+    const s = fold([{ type: "inference.start" }, ...deltas])
+    expect(s.repeating).toBe(true)
+    // Three text deltas land before the third `line1` repeat crosses the
+    // occurrence threshold and latches the count.
+    expect(s.repeatingSinceTokenCount).toBe(5)
+  })
+
+  test("repetition tracked across a tool cycle survives connector.reply with tools outstanding", () => {
+    const deltas = Array(4)
+      .fill([line1, line2])
+      .flat()
+      .map((line) => textDelta(`${line}\n`))
+    const withTool = turnStateFromEvent(
+      fold([{ type: "inference.start" }, ...deltas]),
+      { type: "tool.start", data: { call: { id: "c1", name: "grep" } } },
+      100,
+    )
+    const afterReply = turnStateFromEvent(
+      withTool,
+      { type: "connector.reply" },
+      101,
+    )
+    expect(afterReply.repeating).toBe(true)
+    expect(afterReply.streamText.length).toBeGreaterThan(0)
+  })
+
+  test("a fresh submit clears the repetition state", () => {
+    const deltas = Array(4)
+      .fill([line1, line2])
+      .flat()
+      .map((line) => textDelta(`${line}\n`))
+    const looping = fold([{ type: "inference.start" }, ...deltas])
+    const restarted = turnStateOnSubmit(looping, 200)
+    expect(restarted.repeating).toBe(false)
+    expect(restarted.repeatingSinceTokenCount).toBeNull()
+    expect(restarted.streamText).toBe("")
   })
 })
