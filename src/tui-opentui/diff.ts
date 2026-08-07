@@ -445,6 +445,8 @@ export type ToolCallRowInput = {
   readonly name: string
   /** Raw JSON arguments as streamed by the model; may be absent or partial. */
   readonly arguments?: string
+  /** Runtime call id, when the source (live bridge, saved history) carried one. */
+  readonly callId?: string
 }
 
 /**
@@ -492,6 +494,7 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
     meta,
     pending: true,
     callKey,
+    ...(input.callId !== undefined ? { callId: input.callId } : {}),
     ...(diff !== null ? { diff } : {}),
     ...(verb !== undefined ? { verb } : {}),
     // A summarised call may deliberately have no subject — its verb already

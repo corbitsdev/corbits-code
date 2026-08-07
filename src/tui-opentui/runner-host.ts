@@ -141,12 +141,13 @@ export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRo
     case "thinking":
       return { role: "system", text: entry.content, meta: "thinking" }
     case "tool":
-      return toolCallRow({ name: entry.name, arguments: entry.arguments })
+      return toolCallRow({ name: entry.name, arguments: entry.arguments, callId: entry.callId })
     case "tool_result":
       return toolResultRow({
         name: entry.name,
         content: entry.content,
         isError: entry.isError,
+        callId: entry.callId,
       })
     case "report":
       return { role: "assistant", text: entry.content, meta: "report" }
@@ -164,7 +165,7 @@ export function rowsFromTranscript(
   const rows: StreamRow[] = []
   for (const entry of entries) {
     if (entry.kind === "tool") {
-      pushToolCall(rows, { name: entry.name, arguments: entry.arguments })
+      pushToolCall(rows, { name: entry.name, arguments: entry.arguments, callId: entry.callId })
       continue
     }
     if (entry.kind === "tool_result") {
@@ -172,6 +173,7 @@ export function rowsFromTranscript(
         name: entry.name,
         content: entry.content,
         isError: entry.isError,
+        callId: entry.callId,
       })
       continue
     }
