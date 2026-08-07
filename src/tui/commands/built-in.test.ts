@@ -148,6 +148,7 @@ describe("/cost command", () => {
         outputTokens: 50,
         cacheReadTokens: 10,
         contextTokens: 160,
+        contextIsEstimate: false,
       });
     const result = getCommand("cost")!.handler("", ctx);
     expect(result.type).toBe("message");

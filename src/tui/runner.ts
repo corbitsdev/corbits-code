@@ -94,6 +94,7 @@ import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
+import { contextTokensFromUsage } from "../provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -1724,6 +1725,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       const faremeter = createFaremeter({ modelId: config.model, pricingCache });
       faremeter.addUsage(usage);
       const totalCost = faremeter.getTotalCost();
+      // A provider that omits or zeroes usage would otherwise pin the meter at
+      // 0% forever; fall back to the director's local estimate (turns plus
+      // system-prompt/tool-schema overhead). The governor already decided
+      // whether it's estimating when it computed this turn's arming — trust
+      // that decision rather than re-deriving it from a second usage read.
+      const contextEstimate = directorHolder.instance?.getContextEstimate();
+      const isEstimate = contextEstimate !== undefined && contextEstimate.isEstimate;
       return buildCostSummary({
         modelId: config.model,
         baseURL: config.baseURL,
@@ -1733,7 +1741,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         inputTokens: usage.input,
         outputTokens: usage.output,
         cacheReadTokens: usage.cacheRead,
-        contextTokens: lastTurnUsage.input + lastTurnUsage.cacheRead + lastTurnUsage.cacheWrite,
+        contextTokens: isEstimate ? contextEstimate.tokens : contextTokensFromUsage(lastTurnUsage),
+        contextIsEstimate: isEstimate,
       });
     },
     startWorkflow: (name) => workflowController.start(name),
