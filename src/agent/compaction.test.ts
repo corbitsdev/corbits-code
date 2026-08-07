@@ -255,4 +255,30 @@ describe("compaction governor", () => {
     expect(governor.interceptActions(inferenceDone(overThreshold), inferAction, capabilities)).toBeNull();
     expect(governor.interceptActions(toolDone(), [{ type: "reply", content: "x" }], capabilities)).toBeNull();
   });
+
+  test("stays inert below the minimum-turn floor no matter how far over threshold", () => {
+    // Two turns is well under MIN_TURNS_TO_COMPACT. createPruningCompactor
+    // no-ops at the same floor (see session/compactor.ts), so arming here
+    // would spend a reactor cycle that cannot shrink anything.
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold * 10), turnsOfLength(2, 1));
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
+  test("arms on tool.done from a live estimate even when the last snapshot was under threshold", () => {
+    // Usage is omitted (pending is derived from the local estimate, which
+    // starts small and stays false), but the tool result that follows is
+    // itself large enough to cross the ordinary threshold before the next
+    // inference.done ever runs.
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDoneWithoutUsage(), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    const overThresholdChars = (compactionThresholdFor("m") + 1) * 4;
+    governor.syncFromTurns(turnsOfLength(10, Math.ceil(overThresholdChars / 10)));
+
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
 });

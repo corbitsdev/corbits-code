@@ -1,11 +1,17 @@
 import { test, expect, describe, afterEach } from "bun:test";
+import type { TokenUsage } from "@intx/types/runtime";
 import {
   contextWindowFor,
   compactionThresholdFor,
+  contextTokensFromUsage,
   COMPACTION_WINDOW_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
 } from "../../src/provider/context-window.js";
+
+function usage(overrides: Partial<TokenUsage>): TokenUsage {
+  return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0, ...overrides };
+}
 
 afterEach(() => setModelContextWindows(undefined));
 
@@ -36,6 +42,19 @@ describe("compactionThresholdFor", () => {
 
   test("falls back to the default window when the model is unknown", () => {
     expect(compactionThresholdFor(undefined)).toBe(76_800);
+  });
+});
+
+describe("contextTokensFromUsage", () => {
+  test("sums input plus both cache fields, not just input", () => {
+    // Prompt caching (e.g. Anthropic) bills and counts cache reads/writes
+    // against the window; a formula that only looks at `input` understates
+    // occupancy on any session using it.
+    expect(contextTokensFromUsage(usage({ input: 100, cacheRead: 50, cacheWrite: 25 }))).toBe(175);
+  });
+
+  test("is zero for empty usage", () => {
+    expect(contextTokensFromUsage(usage({}))).toBe(0);
   });
 });
 

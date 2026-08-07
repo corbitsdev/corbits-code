@@ -385,6 +385,13 @@ class ChatDirectorImpl extends DefaultDirector {
     return [...this.tasks];
   }
 
+  // The status bar's context meter falls back to this when a provider omits
+  // or zeroes usage on the latest turn — a local lower-then-corrected bound
+  // beats displaying a number the provider never actually reported.
+  getContextEstimate(): { tokens: number; isEstimate: boolean } {
+    return { tokens: this.compaction.estimatedTokens, isEstimate: this.compaction.usingEstimate };
+  }
+
   private openTaskIds(): string[] {
     return this.tasks
       .filter((t) => t.status === "todo" || t.status === "doing")
@@ -796,4 +803,5 @@ export interface ChatDirector extends ReactorDirector {
   setGoalGovernor(goal: GoalGovernor | undefined): void;
   getGoalGovernor(): GoalGovernor | undefined;
   getTasks(): Task[];
+  getContextEstimate(): { tokens: number; isEstimate: boolean };
 }
