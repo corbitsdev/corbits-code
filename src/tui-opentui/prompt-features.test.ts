@@ -238,6 +238,92 @@ describe("text paste", () => {
     async (h) => await h.mockInput.pasteBracketedText(`${"x".repeat(4000)}\nend`),
     `${"x".repeat(4000)}\nend`,
   )
+
+  // A terminal that never negotiated DEC 2004 hands a paste to us as plain
+  // keystrokes -- CR included -- instead of one `paste` event. Without a
+  // burst guard, the bare CR after "line one" would hit the same submit
+  // binding a deliberate Enter does, sending the message after its first
+  // line instead of composing all three.
+  pasteCase(
+    "a CRLF paste arriving as raw keystrokes still composes instead of submitting",
+    async (h) => await h.mockInput.typeText("line one\r\nline two\r\nline three"),
+    "line one\nline two\nline three",
+  )
+})
+
+describe("un-bracketed paste vs. deliberate Enter", () => {
+  test("Ctrl+J then Enter still sends -- a newline chord followed by a real Enter is not a paste", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+        })
+        try {
+          const submitted: string[] = []
+          setShellBridgeHooks(shell, {
+            onSubmit: (text) => submitted.push(text),
+            onInterrupt: () => {},
+            exclusive: true,
+          })
+          shell.prompt.focus()
+          shell.prompt.value = "first"
+          h.mockInput.pressKey("\n")
+          h.mockInput.pressKey("\r")
+          await h.renderOnce()
+          expect(submitted).toEqual(["first\n"])
+          expect(shell.prompt.value).toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  // The false-positive direction: once this terminal has proven it negotiates
+  // DEC 2004 by firing one real bracketed paste, the raw-keystroke fallback
+  // must retire for the rest of the session -- otherwise a fast typist's
+  // genuine Enter risks being read as paste forever, on every keystroke, on
+  // every terminal, most of which never needed the fallback at all.
+  //
+  // This cannot be distinguished from actual paste by timing alone: the
+  // harness dispatches keys synchronously, so a "fast typist" and a "paste
+  // replay" produce the identical zero-elapsed-time shape. The capability
+  // gate is what makes the distinction possible -- this test exercises that
+  // gate, not a timing threshold.
+  test("a keystroke burst after a real paste no longer triggers the CRLF fallback", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+        })
+        try {
+          const submitted: string[] = []
+          setShellBridgeHooks(shell, {
+            onSubmit: (text) => submitted.push(text),
+            onInterrupt: () => {},
+            exclusive: true,
+          })
+          shell.prompt.focus()
+          await h.mockInput.pasteBracketedText("proves DEC 2004")
+          shell.prompt.value = ""
+
+          await h.mockInput.typeText("hi\r")
+          await h.renderOnce()
+
+          expect(submitted).toEqual(["hi"])
+          expect(shell.prompt.value).toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
 })
 
 describe("sent-message recall", () => {
