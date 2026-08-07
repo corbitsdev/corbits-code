@@ -6,14 +6,6 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
-### Changed
-
-- **OOM shell-block messaging** — open-ended `find`/`rg`/`grep -r` hard-denies still block; agent-facing copy and prompts cite host safety / OOM risk and bounded `grep`/`search_files` tools as practical alternatives. (CL-5421)
-
-### Fixed
-
-- Pure directory listing (`ls`, depth-bounded `tree` via `-L`/`--max-depth`, depth ≤ 10) of paths outside the workspace auto-allows again; content readers (`cat`, `head`, …) still require approval. Unbounded recursive listing (`ls -R`, bare `tree`, or over-deep `tree`) forces operator approval even inside the workspace. (CL-5422)
-
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)
@@ -26,6 +18,80 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision (gates CL-5161 / CL-5164 / CL-5172).
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
+
+## [0.2.90] - 2026-08-07
+
+The interactive TUI is now OpenTUI. The Ink renderer is deleted, not
+feature-flagged, so rollback is the prior tag rather than a setting.
+
+**What moved under your hands.** Ctrl+Enter (or Ctrl+J) inserts a newline;
+Shift+Enter only works on terminals that report the modifier. The mouse belongs
+to your terminal by default, so drag-select and copy behave normally — Alt+M
+takes the mouse when you want click-to-expand or drag-scroll. Quitting is
+unchanged: Ctrl+C interrupts, twice exits.
+
+### New Features
+
+- **OpenTUI renderer** — zone-based geometry resolver with per-zone minimums and
+  an explicit collapse order, replacing React reconciliation. (CL-4426)
+- **Multi-line composer** that wraps and grows to 40vh before it scrolls.
+- **Copy mode** (Alt+C) writes to the system clipboard on macOS, Windows, and
+  Linux, with an OSC 52 fallback for content selection cannot reach.
+- **Free-text answers to operator questions** — type a reply instead of picking
+  from a list, which the tool had always promised and the interface never had.
+- **Live status for hooks, subagent progress, MCP connections and grants**,
+  which were emitted but had nothing listening.
+
+### Fixed
+
+- **Standalone binary could not start.** `build:bin` excluded its own native
+  module, so a distributed binary had no `node_modules` to resolve it from.
+- **Terminal-owned selection.** Mouse reporting is off by default; while it is
+  on, the terminal forwards drags to the app and cannot select text.
+- **Copy wrote nowhere.** Alt+C had always written to an in-memory array.
+- **A crash left the terminal wedged.** An uncaught throw kept the alternate
+  screen, mouse reporting and raw mode, and the process survived.
+- **Bidirectional overrides reached the approval overlay**, so text could read
+  as one thing and run as another at the moment of approval. Model output is
+  sanitized too, including sequences split across streaming deltas.
+- **Search output ignored its byte cap** on a breach, and had no cap at all on
+  hosts without ripgrep.
+- **Repeated tool calls dropped every result after the first.**
+- **A retried turn painted itself twice.**
+- **Approval text wrapped by code units, not columns**, so wide characters
+  overflowed the subject being approved.
+- **Native buffers leaked** on every transcript repaint, landing clear and
+  shell dispose.
+- **Onboarding truncated a pasted API key at 1000 characters** without saying so.
+- **A question could arrive with no way to answer it** when another overlay
+  already held the screen.
+- **Resumed sessions dropped `view`, `plan` and `tasks` blocks** silently.
+- **Ctrl+D quit mid-edit.** The host claims no key of its own now.
+
+### Permissions
+
+- **Shell-block messaging** cites host safety and OOM risk, and names the
+  bounded `grep`/`search_files` tools as the alternative, rather than reading as
+  a tool-routing preference. Open-ended `find`/`rg`/`grep -r` still hard-deny.
+  (CL-5421, #328)
+- **Pure directory listing outside the workspace auto-allows again** — `ls`, and
+  `tree` bounded by `-L`/`--max-depth` to depth 10. Content readers still ask.
+  Unbounded recursive listing (`ls -R`, bare or over-deep `tree`) asks even
+  inside the workspace. (CL-5422, #329)
+- **`tree -o` no longer auto-allows** — a listing command that writes a file is
+  not a listing command, and it had been bypassing `write_file` review. Long
+  `--recursive` spellings on `ls`, down to every unambiguous abbreviation, are
+  caught too. (#329)
+
+### Known Issues
+
+- **Shift+Enter** does not insert a newline on terminals that do not report the
+  modifier. Ctrl+Enter and Ctrl+J do.
+- **Markdown flickers mildly while streaming.** The deterministic cause is
+  fixed; a residue remains from the async highlighter.
+- Transcript history past 500 rows cannot be scrolled to, and rows are retained
+  for the life of the process. (CL-5553, CL-5551)
+- A detached throw or a signal can leave a session marked running. (CL-5552)
 
 ## [0.2.89] - 2026-08-05
 
