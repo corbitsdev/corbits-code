@@ -165,16 +165,21 @@ describe("live subagent observe", () => {
           expect(shell.observe).toBeNull()
           expect(shell.parentStreamLog).toBeNull()
           expect(focusOwner(shell.focus)).not.toBe("observe")
-          expect(shell.streamLog.length).toBeGreaterThanOrEqual(parentLen)
+          // Parent gained exactly the row appended while away plus the
+          // "left observe" system row — never a doubled copy of either.
+          expect(shell.streamLog.length).toBe(parentLen + 2)
           expect(
-            shell.streamLog.some((r) => r.text === "parent user line"),
-          ).toBe(true)
+            shell.streamLog.filter((r) => r.text === "parent user line")
+              .length,
+          ).toBe(1)
           expect(
-            shell.streamLog.some((r) => r.text === "parent while away"),
-          ).toBe(true)
+            shell.streamLog.filter((r) => r.text === "parent while away")
+              .length,
+          ).toBe(1)
           expect(
-            shell.streamLog.some((r) => r.text.includes("left observe")),
-          ).toBe(true)
+            shell.streamLog.filter((r) => r.text.includes("left observe"))
+              .length,
+          ).toBe(1)
           // Child rows must not leak into the restored parent transcript.
           expect(
             shell.streamLog.some((r) => r.text === "child only"),
@@ -182,6 +187,51 @@ describe("live subagent observe", () => {
           expect(
             shell.streamLog.some((r) => r.text === "child tool hit"),
           ).toBe(false)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("leave does not duplicate rows across repeated enter/observe/leave cycles", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          run: "idle",
+        })
+        try {
+          appendStreamRow(shell, { role: "user", text: "start" })
+
+          for (let cycle = 0; cycle < 3; cycle++) {
+            enterSubagentObserve(
+              shell,
+              liveChildSession([{ role: "assistant", text: `cycle ${cycle}` }]),
+            )
+            appendObserveStreamRow(shell, {
+              role: "tool",
+              text: `child tool ${cycle}`,
+              meta: "tool.done",
+            })
+            leaveSubagentObserve(shell)
+          }
+
+          // One "start" row and one "left observe" row per cycle; no
+          // child row and no doubled parent row from any cycle.
+          expect(
+            shell.streamLog.filter((r) => r.text === "start").length,
+          ).toBe(1)
+          expect(
+            shell.streamLog.filter((r) => r.text.includes("left observe"))
+              .length,
+          ).toBe(3)
+          for (let cycle = 0; cycle < 3; cycle++) {
+            expect(
+              shell.streamLog.some((r) => r.text === `child tool ${cycle}`),
+            ).toBe(false)
+          }
         } finally {
           shell.dispose()
         }
