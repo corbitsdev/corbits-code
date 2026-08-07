@@ -1110,8 +1110,14 @@ function floatOverlayHost(
     return
   }
   host.position = "absolute"
-  host.left = 0
-  host.right = 0
+  // Absolute positioning escapes root's padding, so the same sideMargin the
+  // prompt box gets for free in normal flow has to be given back explicitly.
+  // width is set to the same contentWidth the prompt box resolves to via
+  // "100%" of root's padded box — one source, not a second computed here —
+  // rather than left+right insets, since those combine with the existing
+  // width:"100%" to overshoot the right edge.
+  host.left = shell.layout.sideMargin
+  host.width = shell.layout.contentWidth
   host.top = top
   host.zIndex = OVERLAY_FLOAT_Z
 }

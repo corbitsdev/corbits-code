@@ -193,3 +193,30 @@ describe("palette filters as you type", () => {
     )
   })
 })
+
+describe("command palette width", () => {
+  // Both boxes are children of the same padded root; a width computed a
+  // second way for the floating palette drifts from the prompt box's "100%".
+  test("shares the prompt box's left/right edges while floating over landing", async () => {
+    const rows = await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell)
+        await h.renderOnce()
+        return h.captureCharFrame().split("\n")
+      },
+      { width: 80, height: 24 },
+    )
+    const overlayTop = rows.find((r) => r.includes("┌"))
+    const promptTop = rows.find((r) => r.includes("╭"))
+    expect(overlayTop).toBeDefined()
+    expect(promptTop).toBeDefined()
+    expect(overlayTop?.indexOf("┌")).toBe(promptTop?.indexOf("╭"))
+    expect(overlayTop?.lastIndexOf("┐")).toBe(promptTop?.lastIndexOf("╮"))
+  })
+})
+
