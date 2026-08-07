@@ -15,6 +15,7 @@ import { paintStreamRow } from "./stream"
 import {
   appendStreamRow,
   appendTranscript,
+  applyShellCancelLast,
   closeInsetOverlay,
   createAppShell,
   interruptShell,
@@ -470,6 +471,47 @@ describe("product skin: stream + queue + overlay", () => {
           expect(row).toContain("interrupt")
           // An empty queue is the default state, so it stays off the row.
           expect(row).not.toContain("queue")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+G cancels the last queued message and rewrites its row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "keep this one"
+          submitPrompt(shell, "queue")
+          shell.prompt.value = "oops wrong message"
+          submitPrompt(shell, "queue")
+          expect(shell.pendingQueue).toBe(2)
+
+          const before = shell.streamLog.map((row) => ({ text: row.text, meta: row.meta }))
+          expect(before).toEqual([
+            { text: "keep this one", meta: "queue" },
+            { text: "oops wrong message", meta: "queue" },
+          ])
+
+          applyShellCancelLast(shell)
+
+          expect(shell.pendingQueue).toBe(1)
+          expect(shell.session.items[0]!.text).toBe("keep this one")
+
+          const after = shell.streamLog.map((row) => ({ text: row.text, meta: row.meta }))
+          // The cancelled row is rewritten, not left claiming "queue" — the
+          // first attempt's bug this test exists to catch.
+          expect(after).toEqual([
+            { text: "keep this one", meta: "queue" },
+            { text: "[cancelled] oops wrong message", meta: "cancelled" },
+          ])
         } finally {
           shell.dispose()
         }

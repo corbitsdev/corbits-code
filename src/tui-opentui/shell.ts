@@ -148,6 +148,7 @@ import {
 } from "./copy-path.js"
 import {
   badgeCount,
+  cancelLast,
   clearInterruptFlash,
   createSessionQueue,
   enqueue,
@@ -2880,6 +2881,7 @@ export function submitPrompt(
     kind === "steer"
       ? enqueueSteer(shell.session, t, undefined, attachments)
       : enqueue(shell.session, t, "queue", undefined, attachments)
+  const queued = shell.session.items[shell.session.items.length - 1]
   shell.prompt.value = ""
   clearPendingAttachments(shell)
   // Show the message itself, not the internal transition ("queue +1 →
@@ -2889,7 +2891,50 @@ export function submitPrompt(
     role: "user",
     text: userRowText(t, attachments),
     meta: kind === "steer" ? "steer" : "queue",
+    ...(queued !== undefined ? { queueItemId: queued.id } : {}),
   })
+  paintChrome(shell)
+}
+
+/**
+ * Find the transcript row a still-pending queue/steer item echoed, so a
+ * cancel can retract it instead of leaving a message tagged "queue" that will
+ * never dispatch. Absolute index, matching `replaceStreamRowAt`.
+ */
+function findQueueRowIndex(shell: AppShell, queueItemId: string): number | undefined {
+  for (let local = shell.streamLog.length - 1; local >= 0; local--) {
+    if (shell.streamLog[local]?.queueItemId === queueItemId) {
+      return shell.streamLogBase + local
+    }
+  }
+  return undefined
+}
+
+/**
+ * Cancel the most recently queued or steered message (last-only: see
+ * `cancelLast`'s doc comment for why picking an earlier item is out of
+ * scope). Retracts it from the queue and rewrites its transcript row so the
+ * readout never shows a message tagged "queue"/"steer" that will not send.
+ */
+export function applyShellCancelLast(shell: AppShell): void {
+  const { state, item } = cancelLast(shell.session)
+  if (item === null) return
+  shell.session = state
+  const index = findQueueRowIndex(shell, item.id)
+  if (index !== undefined) {
+    const row = streamRowAt(shell, index)
+    if (row !== undefined) {
+      // The bar-and-bubble paint for a user row shows only `text`, not
+      // `meta` (see `paintStreamRow`) — copy mode reads `text` too — so the
+      // word has to land in the body itself or the visible transcript still
+      // reads as a message that will dispatch.
+      replaceStreamRowAt(shell, index, {
+        ...row,
+        text: `[cancelled] ${row.text}`,
+        meta: "cancelled",
+      })
+    }
+  }
   paintChrome(shell)
 }
 
@@ -5305,6 +5350,15 @@ export function createAppShell(
     if (key.ctrl && key.name === "c") {
       key.preventDefault()
       handleCtrlC(shell)
+      return
+    }
+
+    if (key.ctrl && key.name === "g") {
+      // Readline/Emacs "abort" chord — unclaimed by both the textarea's
+      // default bindings and this shell's other chords, and already means
+      // "cancel the pending thing" to muscle memory, unlike Ctrl+X (cut).
+      key.preventDefault()
+      applyShellCancelLast(shell)
       return
     }
 

@@ -81,6 +81,12 @@ export type StreamRow = {
    */
   readonly callId?: string
   /**
+   * Id of the queue item this row echoes (see `SessionQueueState`). Lets a
+   * cancel find the exact row a queued/steered message appended, rather than
+   * guessing by position once other rows have interleaved.
+   */
+  readonly queueItemId?: string
+  /**
    * Row standing for a run of repeated calls. Its subject stays the call the
    * run repeats (never a total across them, which would be a claim the
    * payloads do not support); each answer lands in the expanded body.
