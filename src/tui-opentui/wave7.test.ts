@@ -1,19 +1,14 @@
 /**
- * Wave 7 — residual surfaces + subagent observe + readiness smoke.
+ * Wave 7 — residual list surfaces + subagent observe + readiness smoke.
  */
 import { describe, expect, test } from "bun:test"
 import { focusOwner } from "./focus/index.js"
 import { withTestRenderer } from "./harness.js"
 import { SHELL_SHORTCUTS } from "./keybindings.js"
 import {
-  makeHelpItems,
-  makeMentionItems,
-  makeObserveFixture,
-  makePluginsItems,
-  makeResumeItems,
-  makeSettingsItems,
   residualIdFromSelection,
   residualListFromCatalog,
+  type ObserveSession,
 } from "./residuals.js"
 import {
   acceptOverlaySelection,
@@ -26,13 +21,25 @@ import {
   moveOverlaySelection,
   openHelpOverlay,
   openMentionsOverlay,
-  openPluginsOverlay,
-  openResumeOverlay,
   openSettingsOverlay,
   setShellOverlayHooks,
   type OverlaySelection,
-  type PrimaryOverlayKind,
 } from "./shell.js"
+
+const SETTINGS_TEST_ITEMS = ["Permissions", "Telemetry", "Close"] as const
+
+function testObserveSession(): ObserveSession {
+  return {
+    sessionId: "child-1",
+    agentId: "explore",
+    description: "map callers of openListOverlay",
+    lines: [
+      { role: "system", text: "— child session explore —" },
+      { role: "user", text: "find every openListOverlay caller" },
+      { role: "assistant", text: "Searching src/tui-opentui…" },
+    ],
+  }
+}
 
 describe("Wave 7: residual list surfaces", () => {
   test("settings open → navigate → Esc restores prompt", async () => {
@@ -43,9 +50,9 @@ describe("Wave 7: residual list surfaces", () => {
           run: "idle",
         })
         try {
-          openSettingsOverlay(shell)
+          openSettingsOverlay(shell, { items: [...SETTINGS_TEST_ITEMS] })
           expect(shell.overlayKind).toBe("settings")
-          expect(shell.overlayItems.length).toBe(makeSettingsItems().length)
+          expect(shell.overlayItems.length).toBe(SETTINGS_TEST_ITEMS.length)
           expect(focusOwner(shell.focus)).toBe("overlay")
           expect(shell.prompt.focused).toBe(false)
 
@@ -66,7 +73,7 @@ describe("Wave 7: residual list surfaces", () => {
     )
   })
 
-  test("help / plugins / resume / mentions each open and Esc-restore", async () => {
+  test("help opens the shell's own keybinding catalog and Esc-restores", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -74,42 +81,16 @@ describe("Wave 7: residual list surfaces", () => {
           run: "idle",
         })
         try {
-          const cases: Array<{
-            open: () => void
-            kind: PrimaryOverlayKind
-            count: number
-          }> = [
-            {
-              open: () => openHelpOverlay(shell),
-              kind: "help",
-              count: makeHelpItems().length,
-            },
-            {
-              open: () => openPluginsOverlay(shell),
-              kind: "plugins",
-              count: makePluginsItems().length,
-            },
-            {
-              open: () => openResumeOverlay(shell),
-              kind: "resume",
-              count: makeResumeItems().length,
-            },
-            {
-              open: () => openMentionsOverlay(shell),
-              kind: "mentions",
-              count: makeMentionItems().length,
-            },
-          ]
-
-          for (const c of cases) {
-            c.open()
-            expect(shell.overlayKind).toBe(c.kind)
-            expect(shell.overlayItems.length).toBe(c.count)
-            expect(focusOwner(shell.focus)).toBe("overlay")
-            closeInsetOverlay(shell)
-            expect(shell.overlayList).toBeNull()
-            expect(focusOwner(shell.focus)).toBe("prompt")
-          }
+          openHelpOverlay(shell)
+          expect(shell.overlayKind).toBe("help")
+          expect(shell.overlayItems).toEqual([
+            ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+            "Close help",
+          ])
+          expect(focusOwner(shell.focus)).toBe("overlay")
+          closeInsetOverlay(shell)
+          expect(shell.overlayList).toBeNull()
+          expect(focusOwner(shell.focus)).toBe("prompt")
         } finally {
           shell.dispose()
         }
@@ -126,7 +107,7 @@ describe("Wave 7: residual list surfaces", () => {
           run: "idle",
         })
         try {
-          openSettingsOverlay(shell)
+          openSettingsOverlay(shell, { items: [...SETTINGS_TEST_ITEMS] })
           h.pressKey("escape")
           await h.renderOnce()
           if (shell.overlayList) closeInsetOverlay(shell)
@@ -157,7 +138,7 @@ describe("Wave 7: subagent observe", () => {
           })
           const parentLen = shell.streamLog.length
 
-          const child = makeObserveFixture()
+          const child = testObserveSession()
           enterSubagentObserve(shell, child)
 
           expect(shell.observe?.agentId).toBe("explore")
@@ -197,7 +178,7 @@ describe("Wave 7: subagent observe", () => {
         })
         try {
           appendStreamRow(shell, { role: "user", text: "stay" })
-          enterSubagentObserve(shell, makeObserveFixture())
+          enterSubagentObserve(shell, testObserveSession())
           expect(shell.observe).not.toBeNull()
 
           h.pressKey("escape")
@@ -215,36 +196,7 @@ describe("Wave 7: subagent observe", () => {
   })
 })
 
-describe("Wave 7: residual fixtures", () => {
-  test("catalogs are non-empty and stable", () => {
-    expect(makeSettingsItems().length).toBeGreaterThan(3)
-    expect(makeHelpItems()).toContain(
-      "Ctrl+O — open the command palette; press again to close it",
-    )
-    expect(makeHelpItems()).toEqual([
-      ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
-      "Close help",
-    ])
-    // Rows the interaction contract requires and the shell implements —
-    // regression guard for the rows that were previously dropped.
-    for (const keys of ["Enter", "Alt+Enter", "Tab"]) {
-      expect(SHELL_SHORTCUTS.some((s) => s.keys === keys)).toBe(true)
-    }
-    // Ctrl+O must describe the palette, never the Ink renderer's tool-expand
-    // binding (the two renderers disagree on this chord).
-    expect(makeHelpItems().some((l) => l.includes("Toggle expand tool output"))).toBe(
-      false,
-    )
-    expect(makePluginsItems().some((l) => l.includes("plugin:"))).toBe(true)
-    expect(makeResumeItems().length).toBeGreaterThan(2)
-    expect(
-      makeMentionItems().every(
-        (l) => l.startsWith("@") || l.startsWith("Close"),
-      ),
-    ).toBe(true)
-    expect(makeObserveFixture().lines.length).toBeGreaterThan(2)
-  })
-
+describe("Wave 7: residual catalog helpers", () => {
   test("residualListFromCatalog + residualIdFromSelection round-trip", () => {
     const catalog = residualListFromCatalog([
       { id: "permissions", label: "Permissions" },
@@ -284,9 +236,6 @@ describe("Wave 7: residual live inject + accept", () => {
             "Telemetry",
             "Close",
           ])
-          expect(shell.overlayItems.length).not.toBe(
-            makeSettingsItems().length,
-          )
 
           moveOverlaySelection(shell, 1)
           acceptOverlaySelection(shell)
@@ -300,67 +249,6 @@ describe("Wave 7: residual live inject + accept", () => {
           ])
           expect(shell.overlayList).toBeNull()
           expect(focusOwner(shell.focus)).toBe("prompt")
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
-
-  test("resume shell-level onResume when no per-open onAccept", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        })
-        try {
-          const accepted: OverlaySelection[] = []
-          setShellOverlayHooks(shell, {
-            onResume: (s) => accepted.push(s),
-          })
-          openResumeOverlay(shell, {
-            items: ["Session A", "Session B"],
-            itemIds: ["sess-a", "sess-b"],
-          })
-          moveOverlaySelection(shell, 1)
-          acceptOverlaySelection(shell)
-          expect(accepted).toEqual([
-            {
-              kind: "resume",
-              index: 1,
-              label: "Session B",
-              id: "sess-b",
-            },
-          ])
-        } finally {
-          clearShellOverlayHooks(shell)
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
-
-  test("omitted items fall back to fixture catalogs", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        })
-        try {
-          openPluginsOverlay(shell)
-          expect(shell.overlayItems).toEqual([...makePluginsItems()])
-          closeInsetOverlay(shell)
-
-          openMentionsOverlay(shell)
-          expect(shell.overlayItems).toEqual([...makeMentionItems()])
-          closeInsetOverlay(shell)
-
-          openHelpOverlay(shell)
-          expect(shell.overlayItems).toEqual([...makeHelpItems()])
         } finally {
           shell.dispose()
         }

@@ -124,21 +124,13 @@ import {
   type PaletteActionId,
   type PaletteCommand,
 } from "./palette.js"
-import { shortcutForPaletteId } from "./keybindings.js"
+import { SHELL_SHORTCUTS, shortcutForPaletteId } from "./keybindings.js"
 import { destroySubtree } from "./teardown.js"
 import {
   filterMentionSuggestions,
   splitMentionToken,
 } from "./mention-filter.js"
-import {
-  makeHelpItems,
-  makeMentionItems,
-  makeObserveFixture,
-  makePluginsItems,
-  makeResumeItems,
-  makeSettingsItems,
-  type ObserveSession,
-} from "./residuals.js"
+import { type ObserveSession } from "./residuals.js"
 import {
   buildCopyTargets,
   createRecordingClipboard,
@@ -4022,27 +4014,13 @@ export function runPaletteAction(
       openHelpOverlay(shell)
       return
     }
-    case "settings": {
-      openSettingsOverlay(shell)
-      return
-    }
-    case "plugins": {
-      openPluginsOverlay(shell)
-      return
-    }
-    case "resume": {
-      openResumeOverlay(shell)
-      return
-    }
     case "mentions": {
-      openMentionsOverlay(shell)
+      void openAtMentionSuggestions(shell)
       return
     }
     case "observe": {
       const onObserveRequest = getPaletteOnObserveRequest(shell)
-      const session = onObserveRequest
-        ? onObserveRequest()
-        : makeObserveFixture()
+      const session = onObserveRequest ? onObserveRequest() : null
       if (session) enterSubagentObserve(shell, session)
       else {
         appendStreamRow(shell, {
@@ -4303,11 +4281,13 @@ export function leaveSubagentObserve(shell: AppShell): void {
 }
 
 /**
- * Host-injected residual list open. Fixtures apply only when `items` is omitted.
+ * Host-injected residual list open. `items` is owned by the caller — there is
+ * no fallback, so a missing dependency must produce an honest empty state or
+ * a surfaced error upstream rather than reach this with nothing to show.
  * Per-open `onAccept` wins over shell-level residual hooks for that open.
  */
 export type OpenResidualListOpts = {
-  readonly items?: readonly string[]
+  readonly items: readonly string[]
   /** Stable ids aligned with `items` (setting keys, session ids, paths). */
   readonly itemIds?: readonly string[]
   /** Plain chosen value aligned with `items`, for the accept echo (see `OpenListOverlayOpts.itemValues`). */
@@ -4323,79 +4303,54 @@ export type OpenResidualListOpts = {
 
 export function openSettingsOverlay(
   shell: AppShell,
-  opts?: OpenResidualListOpts,
+  opts: OpenResidualListOpts,
 ): void {
   openListOverlay(shell, {
     kind: "settings",
     title: "settings",
-    items: opts?.items ?? makeSettingsItems(),
-    activeIndex: opts?.activeIndex ?? 0,
+    items: opts.items,
+    activeIndex: opts.activeIndex ?? 0,
     frameId: "overlay-settings",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.itemValues !== undefined ? { itemValues: opts.itemValues } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-    ...(opts?.onCycle !== undefined ? { onCycle: opts.onCycle } : {}),
-    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
+    ...(opts.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts.itemValues !== undefined ? { itemValues: opts.itemValues } : {}),
+    ...(opts.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts.onCycle !== undefined ? { onCycle: opts.onCycle } : {}),
+    ...(opts.describe !== undefined ? { describe: opts.describe } : {}),
   })
 }
 
-export function openHelpOverlay(
-  shell: AppShell,
-  opts?: OpenResidualListOpts,
-): void {
+/** Help rows derived from the shell's own keybinding catalog, so they cannot
+ * drift from what the shell actually implements — there is no host dependency
+ * to omit, so this never takes user-supplied items. */
+function helpItems(): readonly string[] {
+  return [
+    ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+    "Close help",
+  ]
+}
+
+export function openHelpOverlay(shell: AppShell): void {
   openListOverlay(shell, {
     kind: "help",
     title: "help · keymap",
-    items: opts?.items ?? makeHelpItems(),
-    activeIndex: opts?.activeIndex ?? 0,
+    items: helpItems(),
+    activeIndex: 0,
     frameId: "overlay-help",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-  })
-}
-
-export function openPluginsOverlay(
-  shell: AppShell,
-  opts?: OpenResidualListOpts,
-): void {
-  openListOverlay(shell, {
-    kind: "plugins",
-    title: "plugins",
-    items: opts?.items ?? makePluginsItems(),
-    activeIndex: opts?.activeIndex ?? 0,
-    frameId: "overlay-plugins",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-  })
-}
-
-export function openResumeOverlay(
-  shell: AppShell,
-  opts?: OpenResidualListOpts,
-): void {
-  openListOverlay(shell, {
-    kind: "resume",
-    title: "resume session",
-    items: opts?.items ?? makeResumeItems(),
-    activeIndex: opts?.activeIndex ?? 0,
-    frameId: "overlay-resume",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 
 export function openMentionsOverlay(
   shell: AppShell,
-  opts?: OpenResidualListOpts,
+  opts: OpenResidualListOpts,
 ): void {
   openListOverlay(shell, {
     kind: "mentions",
     title: "mentions",
-    items: opts?.items ?? makeMentionItems(),
-    activeIndex: opts?.activeIndex ?? 0,
+    items: opts.items,
+    activeIndex: opts.activeIndex ?? 0,
     frameId: "overlay-mentions",
-    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
   })
 }
 

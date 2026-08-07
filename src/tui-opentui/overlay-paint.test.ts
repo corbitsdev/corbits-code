@@ -16,8 +16,6 @@ import {
   openListOverlay,
   openMentionsOverlay,
   openPalette,
-  openPluginsOverlay,
-  openResumeOverlay,
   openSettingsOverlay,
   setPromptModelLabel,
   type AppShell,
@@ -153,7 +151,10 @@ describe("overlay host never shares cells with the prompt border", () => {
     { width: 60, height: 24 },
   ] as const) {
     test(`mention popup with matches clears the prompt border at ${size.width}x${size.height}`, async () => {
-      const { frame } = await paintOverlay((shell) => openMentionsOverlay(shell), size)
+      const { frame } = await paintOverlay(
+        (shell) => openMentionsOverlay(shell, { items: ["@src/file.ts", "@AGENTS.md"] }),
+        size,
+      )
 
       // Every border rule stays a border rule: no list text glued onto it, and
       // the overlay host's own rules never share a row with the prompt box's.
@@ -170,11 +171,27 @@ describe("overlay host never shares cells with the prompt border", () => {
 
 describe("every overlay kind paints clean rows", () => {
   const openers: readonly [string, (shell: AppShell) => void][] = [
-    ["settings", (s) => openSettingsOverlay(s)],
+    ["settings", (s) => openSettingsOverlay(s, { items: ["Compaction", "Close settings"] })],
     ["help", (s) => openHelpOverlay(s)],
-    ["plugins", (s) => openPluginsOverlay(s)],
-    ["resume", (s) => openResumeOverlay(s)],
-    ["mentions", (s) => openMentionsOverlay(s)],
+    [
+      "plugins",
+      (s) =>
+        openListOverlay(s, {
+          kind: "plugins",
+          title: "plugins",
+          items: ["plugin:linear — enabled", "Close plugins"],
+        }),
+    ],
+    [
+      "resume",
+      (s) =>
+        openListOverlay(s, {
+          kind: "resume",
+          title: "resume session",
+          items: ["Fix permissions overflow · 2h ago · idle", "Close resume"],
+        }),
+    ],
+    ["mentions", (s) => openMentionsOverlay(s, { items: ["@src/file.ts", "Close mentions"] })],
     ["palette", (s) => openPalette(s)],
     [
       "permissions",

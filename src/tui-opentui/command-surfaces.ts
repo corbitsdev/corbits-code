@@ -504,7 +504,7 @@ function renderSettingsMenu(
 export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
   const settings = deps.settings
   if (settings === undefined) {
-    openSettingsOverlay(shell)
+    deps.notify("Settings are not available in this session.")
     return
   }
   if (deps.permissions === undefined) {

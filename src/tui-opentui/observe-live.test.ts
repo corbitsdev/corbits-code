@@ -358,7 +358,7 @@ describe("palette observe action asks the host for a live session", () => {
     )
   })
 
-  test("falls back to the fixture when no host handler is set", async () => {
+  test("stays out of observe with an honest message when no host handler is set", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -367,7 +367,10 @@ describe("palette observe action asks the host for a live session", () => {
         })
         try {
           runPaletteAction(shell, "observe")
-          expect(shell.observe?.sessionId).toBe("child-1")
+          expect(shell.observe).toBeNull()
+          expect(
+            shell.streamLog.some((r) => r.text === "no subagent session to observe"),
+          ).toBe(true)
         } finally {
           shell.dispose()
         }
