@@ -20,6 +20,7 @@ import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,
+  LANDING_VERSION,
   landingBelowContent,
   landingBelowRows,
   landingSuggestionFor,
@@ -28,6 +29,7 @@ import {
   wrapLanding,
 } from "./landing"
 import { LOCKUP_WORDMARK } from "./lockup"
+import pkg from "../../package.json" with { type: "json" }
 import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape"
 import { UI } from "./theme"
 
@@ -151,6 +153,9 @@ describe("landing screen", () => {
           expect(row).toContain(hint.key)
           expect(row!.indexOf(hint.key)).toBeGreaterThan(0)
         }
+        // The version sits with the hints, and cannot drift from package.json.
+        expect(LANDING_VERSION).toBe(`v${pkg.version}`)
+        expect(h.captureCharFrame()).toContain(LANDING_VERSION)
         const noticeRow = painted.findIndex((row) => row.includes("telemetry"))
         expect(noticeRow).toBeGreaterThan(bottom)
         for (const item of LANDING_SUGGESTIONS) {
