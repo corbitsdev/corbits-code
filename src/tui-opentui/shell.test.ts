@@ -2,7 +2,7 @@
  * Integration: app shell product skin — sticky, queue/steer/interrupt, overlay Esc.
  */
 import { describe, expect, test } from "bun:test"
-import { MouseEvent, type KeyEvent } from "@opentui/core"
+import type { KeyEvent } from "@opentui/core"
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index"
 import { focusOwner, scrollLease } from "./focus/index"
 import {
@@ -175,21 +175,22 @@ describe("createAppShell", () => {
           expect(isTranscriptFollowing(shell)).toBe(true)
           const followingTop = shell.transcript.scrollTop
 
-          const wheelUp = new MouseEvent(shell.prompt, {
-            type: "scroll",
-            button: 0,
-            x: 0,
-            y: 0,
-            modifiers: { shift: false, alt: false, ctrl: false },
-            scroll: { direction: "up", delta: 3 },
-          })
-          ;(
-            shell.prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }
-          ).onMouseEvent(wheelUp)
+          // Locate the prompt's interior on screen and scroll through the
+          // renderer's real SGR-mouse parse + hit-test dispatch, the same
+          // path a live terminal drives — not a direct method call, which
+          // would pass even if the renderer never routed the event here.
+          const rows = h.captureCharFrame().split("\n")
+          const borderRow = rows.findIndex((r) => r.includes("╭"))
+          const promptX = rows[borderRow]!.indexOf("╭") + 2
+          const promptY = borderRow + 1
+
+          for (let i = 0; i < 5; i++) {
+            await h.mockMouse.scroll(promptX, promptY, "up")
+          }
           await h.renderOnce()
 
-          // The wheel event was dispatched at the prompt, but the transcript
-          // moved and pinned — the prompt's own (empty) buffer never scrolled.
+          // The wheel event landed on the prompt, but the transcript moved
+          // and pinned — the prompt's own (empty) buffer never scrolled.
           expect(shell.transcript.scrollTop).toBeLessThan(followingTop)
           expect(isTranscriptFollowing(shell)).toBe(false)
           expect(stickyMode(shell)).toBe("PINNED")
