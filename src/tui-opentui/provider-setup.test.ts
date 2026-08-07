@@ -693,3 +693,86 @@ describe("runProviderSetup paste", () => {
     expect(values?.apiKey).toBe(key)
   })
 })
+
+describe("runProviderSetup pick-list height cap", () => {
+  // Every terminal size gets a bounded frame — no chrome row overlaps
+  // another (the header/intro/step/instruction rows used to compress into
+  // each other when the flex column ran out of room), and the picker never
+  // paints past the terminal's own row count.
+  for (const height of [24, 16, 12, 8, 6]) {
+    test(`stays within a ${height}-row terminal with no overlapping chrome`, async () => {
+      const harness = await createHarness({ width: 80, height })
+      runProviderSetup({
+        onSubmit: async () => {},
+        showTelemetryNotice: false,
+        createRenderer: async () => harness.renderer,
+      })
+      await harness.renderOnce()
+      await harness.renderOnce()
+      const lines = harness.captureCharFrame().split("\n")
+      expect(lines.length).toBeLessThanOrEqual(height + 1)
+      // The garbled-overlap bug glued the step line and the intro line
+      // together on one row; each survives as its own line, or is clipped
+      // entirely, but never merges into the other.
+      const stepLine = lines.find((l) => l.includes("step 1 of 3"))
+      if (stepLine !== undefined) {
+        expect(stepLine).not.toContain("connect an inference provider")
+      }
+    })
+  }
+
+  test("keyboard navigation scrolls a long provider list and keeps the active row visible", async () => {
+    const harness = await createHarness({ width: 80, height: 16 })
+    runProviderSetup({
+      onSubmit: async () => {},
+      showTelemetryNotice: false,
+      createRenderer: async () => harness.renderer,
+    })
+    await harness.renderOnce()
+    await harness.renderOnce()
+    const ids = providerChoiceRows(providerChoices()).map((r) => r.id)
+    for (let i = 0; i < ids.length - 1; i++) harness.pressKey("ARROW_DOWN")
+    await harness.renderOnce()
+    const frame = harness.captureCharFrame()
+    const last = providerChoiceRows(providerChoices()).at(-1)
+    expect(last).toBeDefined()
+    expect(frame).toContain(last!.label.slice(0, 20))
+  })
+
+  // statusLine and guidance are both blank on the first screen these tests
+  // exercised — the garbling only showed up once a failed connection test
+  // populates both of them at once, so walk the flow there instead of
+  // stopping at the provider pick-list.
+  test("a failed connection test at a short terminal shows status and guidance on their own lines", async () => {
+    const harness = await createHarness({ width: 80, height: 16 })
+    runProviderSetup({
+      onSubmit: async (_values, _setPhase, opts) => {
+        if (!opts.skipValidation) throw new Error("connection refused")
+      },
+      showTelemetryNotice: false,
+      createRenderer: async () => harness.renderer,
+    })
+    await harness.renderOnce()
+    await harness.renderOnce()
+    await pickRow(harness, PROVIDER_IDS, "openai")
+    type(harness, "sk-key")
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    await new Promise((r) => setTimeout(r, 0))
+    await harness.renderOnce()
+
+    const lines = harness.captureCharFrame().split("\n")
+    expect(lines.length).toBeLessThanOrEqual(17)
+    const statusRow = lines.find((l) => l.includes("connection refused"))
+    const guidanceRow = lines.find((l) => l.includes("esc to re-enter"))
+    expect(statusRow).toBeDefined()
+    expect(guidanceRow).toBeDefined()
+    // The garbling bug glued these two rows together; each must survive as
+    // its own line, never merged into the other.
+    expect(statusRow).not.toBe(guidanceRow)
+    expect(statusRow).not.toContain("esc to re-enter")
+    expect(guidanceRow).not.toContain("connection refused")
+  })
+})
