@@ -1,9 +1,13 @@
 import { test, expect, describe } from "bun:test";
 import {
   createCodexResponsesAdapter,
+  tagSignature,
+  signatureForModel,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
+  CODEX_RESPONSES_PROVIDER,
 } from "../../src/provider/codex-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER } from "../../src/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
@@ -113,7 +117,7 @@ describe("codex-responses buildRequest", () => {
         model: "gpt-5-codex",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "internal steps...", signature: "ENC_BLOB_123" },
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB_123") },
           { type: "text", text: "The answer is 42." },
         ],
       },
@@ -124,6 +128,28 @@ describe("codex-responses buildRequest", () => {
       { type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" },
       { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
     ]);
+  });
+
+  test("a second account on the same provider still replays the signature", () => {
+    // codex/personal and codex/work are two ChatGPT accounts routed through the
+    // same Codex backend (same provider, different InferenceSource.id). The
+    // backend can decrypt a signature issued to either account, so a live
+    // account switch must not poison reasoning continuity.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB_123") },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const workAdapter = createCodexResponsesAdapter({ sourceId: "codex/work", provider: "codex-responses", model: "gpt-5-codex" });
+    const body = JSON.parse(workAdapter.buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toContainEqual({ type: "reasoning", summary: [], encrypted_content: "ENC_BLOB_123" });
   });
 
   test("drops a reasoning signature issued for a different model after a provider switch", () => {
@@ -137,7 +163,31 @@ describe("codex-responses buildRequest", () => {
         model: "grok-4.5",
         timestamp: 0,
         content: [
-          { type: "thinking", thinking: "internal steps...", signature: "FOREIGN_BLOB" },
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    expect(body["input"]).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "solve the hard problem" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "The answer is 42." }] },
+    ]);
+  });
+
+  test("drops a reasoning signature issued by a different provider even when the model string matches", () => {
+    // Two distinct backends (e.g. proxy aliases) can declare the identical
+    // literal model name. Nothing but the tagged provider on the signature
+    // itself distinguishes them, since InferenceSource.model is arbitrary
+    // catalog text and turn.model alone cannot tell them apart.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
           { type: "text", text: "The answer is 42." },
         ],
       },
@@ -156,7 +206,10 @@ describe("codex-responses buildRequest", () => {
         role: "assistant",
         model: "grok-4.5",
         timestamp: 0,
-        content: [{ type: "thinking", thinking: "...", signature: "FOREIGN_BLOB" }, { type: "text", text: "ok" }],
+        content: [
+          { type: "thinking", thinking: "...", signature: tagSignature(GROK_RESPONSES_PROVIDER, "FOREIGN_BLOB") },
+          { type: "text", text: "ok" },
+        ],
       },
       userTurn("turn 2"),
     ];
@@ -166,6 +219,43 @@ describe("codex-responses buildRequest", () => {
       const input = body["input"] as Array<Record<string, unknown>>;
       expect(input.some((item) => item["type"] === "reasoning")).toBe(false);
     }
+  });
+
+  test("drops a bare, untagged legacy signature instead of misparsing it as ciphertext", () => {
+    // Signatures captured before this change carry no "<provider>:" prefix.
+    // untagSignature must recognize the absence of a separator and refuse to
+    // treat any part of the raw string as ciphertext, rather than replaying
+    // a truncated or garbled blob the backend cannot decrypt.
+    const turns: ConversationTurn[] = [
+      userTurn("solve the hard problem"),
+      {
+        role: "assistant",
+        model: "gpt-5-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "internal steps...", signature: "QUJDREVGRzEyMzQ1Njc4OTAtXy8rPQ==" },
+          { type: "text", text: "The answer is 42." },
+        ],
+      },
+    ];
+    const body = JSON.parse(adapter().buildRequest(turns, "gpt-5-codex", baseOptions).body) as Record<string, unknown>;
+    const input = body["input"] as Array<Record<string, unknown>>;
+    expect(input.some((item) => item["type"] === "reasoning")).toBe(false);
+  });
+
+  test("signatureForModel returns undefined for an untagged signature", () => {
+    const turn: ConversationTurn = { role: "assistant", model: "gpt-5-codex", timestamp: 0, content: [] };
+    expect(signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, "QUJDREVGRzEyMzQ1Njc4OTAtXy8rPQ==")).toBeUndefined();
+  });
+
+  test("tagSignature/signatureForModel round-trips ciphertext containing embedded colons byte-exact", () => {
+    // untagSignature splits on the FIRST colon (indexOf, not split(":")),
+    // so ciphertext that itself contains colons must survive intact. A
+    // naive split(":")[1] would truncate this to "part2".
+    const ciphertext = "part1:part2:part3==";
+    const turn: ConversationTurn = { role: "assistant", model: "gpt-5-codex", timestamp: 0, content: [] };
+    const tagged = tagSignature(CODEX_RESPONSES_PROVIDER, ciphertext);
+    expect(signatureForModel(turn, "gpt-5-codex", CODEX_RESPONSES_PROVIDER, tagged)).toBe(ciphertext);
   });
 
   test("omits the account-id header when no account id is supplied", () => {
@@ -233,7 +323,10 @@ describe("codex-responses parseResponse", () => {
       { type: "response.output_item.done", item: { type: "reasoning", id: "rs_1", encrypted_content: "ENC_BLOB" } },
     ]);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
-    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC_BLOB", index: 0 } });
+    expect(out[1]).toMatchObject({
+      type: "inference.thinking.signature",
+      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB"), index: 0 },
+    });
   });
 
   test("emits empty thinking delta + signature when done provides encrypted_content with no prior delta (pure-encrypted reasoning)", () => {
@@ -245,7 +338,10 @@ describe("codex-responses parseResponse", () => {
     ]);
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { token: "", index: 0 } });
-    expect(out[1]).toMatchObject({ type: "inference.thinking.signature", data: { signature: "ENC", index: 0 } });
+    expect(out[1]).toMatchObject({
+      type: "inference.thinking.signature",
+      data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC"), index: 0 },
+    });
   });
 
   test("keys blocks by item_id so interleaved reasoning and tool calls keep distinct indices", () => {

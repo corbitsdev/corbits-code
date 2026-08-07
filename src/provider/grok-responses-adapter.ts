@@ -52,7 +52,7 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
 // Map one internal turn to Responses items. Text-only messages keep the string
 // shape grok sends; messages with image blocks switch to Responses content parts
 // so the model receives the actual pixels instead of only a text placeholder.
-function toResponsesItems(turn: ConversationTurn, requestModel: string): ResponsesInputItem[] {
+function toResponsesItems(turn: ConversationTurn, requestModel: string, requestProvider: string): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const role = turn.role;
   const parts: ResponsesInputContentPart[] = [];
@@ -95,7 +95,7 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string): Respons
       items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
     } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
       flushMessage();
-      const encryptedContent = signatureForModel(turn, requestModel, block.signature);
+      const encryptedContent = signatureForModel(turn, requestModel, requestProvider, block.signature);
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
       }
@@ -137,8 +137,9 @@ function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
+  requestProvider: string,
 ): BuiltRequest {
-  const conversation = dedupeToolOutputs(messages.flatMap((turn) => toResponsesItems(turn, model)));
+  const conversation = dedupeToolOutputs(messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider)));
   const systemMessage: ResponsesInputItem | undefined =
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }
@@ -177,7 +178,7 @@ function buildRequest(
 export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAdapter {
   const indexer = createResponsesBlockIndexer();
   return {
-    buildRequest,
+    buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
   };
 }
