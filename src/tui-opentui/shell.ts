@@ -2180,18 +2180,37 @@ function retextStreamRowBody(
 
   if (!(node instanceof BoxRenderable) || !isMarkdownRow(row)) return false
   const [gutterNode, bodyNode] = node.getChildren()
-  if (
-    !(gutterNode instanceof TextRenderable) ||
-    !(bodyNode instanceof MarkdownRenderable)
-  ) {
-    return false
-  }
+  if (!(gutterNode instanceof TextRenderable)) return false
   const gutter = streamRowGutter(row, layout)
   gutterNode.content = gutter.content
   gutterNode.width = stringWidth(gutter.content)
-  bodyNode.width = markdownBodyColumns(gutter, layout)
-  bodyNode.content = markdownContent(row)
-  bodyNode.streaming = row.streaming === true
+  const width = markdownBodyColumns(gutter, layout)
+  const content = markdownContent(row)
+  const split = splitAtSettledHeading(content)
+
+  // No settled heading behind the tail: a lone renderer, same as an unsplit
+  // body. A shape change (a heading just closed, or one just left the window
+  // a full rebuild trimmed) falls through to the caller's rebuild.
+  if (split === null) {
+    if (!(bodyNode instanceof MarkdownRenderable)) return false
+    bodyNode.width = width
+    bodyNode.content = content
+    bodyNode.streaming = row.streaming === true
+    return true
+  }
+
+  if (!(bodyNode instanceof BoxRenderable)) return false
+  const [frozenNode, liveNode] = bodyNode.getChildren()
+  if (!(frozenNode instanceof MarkdownRenderable) || !(liveNode instanceof MarkdownRenderable)) {
+    return false
+  }
+  bodyNode.width = width
+  frozenNode.width = width
+  frozenNode.content = split.frozen
+  liveNode.width = width
+  liveNode.content = split.live
+  liveNode.streaming = row.streaming === true
+  liveNode.marginTop = split.gapRows
   return true
 }
 
@@ -2343,6 +2362,99 @@ function markdownContent(row: StreamRow): string {
 }
 
 /**
+ * An ATX heading line (`#` through `######`) with a title, not a bare marker.
+ * CommonMark allows the marker up to 3 spaces in; a 4th makes it indented code
+ * instead, which this line still has to reject.
+ */
+const HEADING_LINE_RE = /^ {0,3}#{1,6}[ \t]+\S.*$/
+
+/**
+ * A fenced code block's opening delimiter: three or more backticks or tildes,
+ * optionally indented up to three spaces (CommonMark's limit before a fence
+ * counts as indented code instead), followed by anything (an info string,
+ * e.g. the "bash" in ` ```bash `).
+ */
+const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * A fenced code block's closing delimiter. Unlike the opener, CommonMark
+ * requires the closing line to contain nothing but the fence run and
+ * trailing whitespace — "```stillcode" does not close a fence, it is more
+ * fence content — so this is deliberately not just `FENCE_OPEN_RE` again.
+ */
+const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+
+/**
+ * Lines that are inside a fenced code block, where a leading `#` is a shell
+ * comment or similar and never a heading. A closer needs the same character
+ * as the opener and a run at least as long — a shorter run, a run of the
+ * other character, or a closing-shaped line carrying trailing text is just
+ * more fence content, per CommonMark.
+ */
+function fencedLineMask(lines: readonly string[]): boolean[] {
+  const inside = new Array<boolean>(lines.length).fill(false)
+  let opener: { char: string; length: number } | null = null
+  for (let i = 0; i < lines.length; i += 1) {
+    if (opener === null) {
+      const match = lines[i]!.match(FENCE_OPEN_RE)
+      if (match) {
+        inside[i] = true
+        opener = { char: match[1]![0]!, length: match[1]!.length }
+      }
+      continue
+    }
+    inside[i] = true
+    const close = lines[i]!.match(FENCE_CLOSE_RE)
+    if (close && close[1]![0] === opener.char && close[1]!.length >= opener.length) {
+      opener = null
+    }
+  }
+  return inside
+}
+
+/**
+ * A markdown body split at the last heading that already has content behind
+ * it: everything through that heading, and everything after it.
+ *
+ * The renderer's own incremental parser only reuses a block whose raw text is
+ * unchanged; the default block mode merges a heading into the same raw chunk
+ * as the paragraph that follows it, so every keystroke of that paragraph
+ * changes the merged chunk's raw text and forces the heading's already-settled
+ * markup to re-highlight too — visibly flickering while the rest of the
+ * message keeps streaming in. Rendering the two halves as separate
+ * `MarkdownRenderable`s keeps the heading's renderer untouched once it is no
+ * longer the one growing, without changing how paragraphs, lists or tables
+ * inside either half are laid out (both halves still use the library's
+ * default block mode).
+ */
+export type MarkdownSplit = {
+  readonly frozen: string
+  readonly live: string
+  /** Blank source lines between the heading and what follows it (0 or 1). */
+  readonly gapRows: number
+}
+
+export function splitAtSettledHeading(text: string): MarkdownSplit | null {
+  const lines = text.split("\n")
+  const insideFence = fencedLineMask(lines)
+  let boundary = -1
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!insideFence[i] && HEADING_LINE_RE.test(lines[i]!)) boundary = i
+  }
+  // No heading, or the last one is still the open tail: nothing to freeze.
+  if (boundary === -1 || boundary >= lines.length - 1) return null
+  const rest = lines.slice(boundary + 1)
+  const firstContent = rest.findIndex((line) => line.trim().length > 0)
+  // Heading closed but nothing has started under it yet.
+  if (firstContent === -1) return null
+  return {
+    frozen: lines.slice(0, boundary + 1).join("\n"),
+    live: rest.slice(firstContent).join("\n"),
+    gapRows: firstContent > 0 ? 1 : 0,
+  }
+}
+
+/**
  * Build the row-shaped paint node: a MarkdownRenderable body next to a plain
  * gutter for markdown-bearing rows (assistant replies), a TextTableRenderable
  * for structured rows (MCP results), a coloured diff body for edit-tool rows,
@@ -2410,19 +2522,66 @@ function buildRowNode(
   const gutter = streamRowGutter(row, layout)
   const wrapper = new BoxRenderable(ctx, { flexDirection: "row", width: "100%" })
   wrapper.add(gutterNode(ctx, gutter))
-  wrapper.add(
-    new MarkdownRenderable(ctx, {
-      content: markdownContent(row),
-      syntaxStyle: transcriptSyntaxStyle(),
-      fg: gutter.fg,
-      width: markdownBodyColumns(gutter, layout),
-      flexShrink: 0,
-      tableOptions: TRANSCRIPT_TABLE_OPTIONS,
+  wrapper.add(createMarkdownBody(ctx, row, gutter, layout))
+  return wrapper
+}
+
+/** Shared construction options for a transcript markdown body's renderer. */
+function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
+  return {
+    syntaxStyle: transcriptSyntaxStyle(),
+    fg: gutter.fg,
+    width,
+    flexShrink: 0,
+    tableOptions: TRANSCRIPT_TABLE_OPTIONS,
+  } as const
+}
+
+/**
+ * A markdown row's body. Most rows have no settled heading yet (no heading at
+ * all, or the only one is still the open tail), and paint through a single
+ * renderer, same as before this fix existed. Once a heading closes, the body
+ * becomes a settled `frozen` renderer — everything through that heading,
+ * never streaming, never handed new content while the tail keeps growing, so
+ * it is never asked to re-highlight once written — stacked above the still
+ * `live` one, which carries the row's own streaming flag. Both halves use the
+ * library's default block mode, so paragraphs, lists and tables inside either
+ * one lay out exactly as a single unsplit body would.
+ */
+function createMarkdownBody(
+  ctx: CliRenderer,
+  row: StreamRow,
+  gutter: PaintedStreamLine,
+  layout: RowLayout,
+): MarkdownRenderable | BoxRenderable {
+  const width = markdownBodyColumns(gutter, layout)
+  const content = markdownContent(row)
+  const split = splitAtSettledHeading(content)
+  if (split === null) {
+    return new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content,
       // Native incremental block stability: only the trailing block is unstable.
       streaming: row.streaming === true,
+    })
+  }
+  const column = new BoxRenderable(ctx, { flexDirection: "column", width })
+  column.add(
+    new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content: split.frozen,
+      streaming: false,
     }),
   )
-  return wrapper
+  column.add(
+    new MarkdownRenderable(ctx, {
+      ...markdownBodyOptions(gutter, width),
+      content: split.live,
+      streaming: row.streaming === true,
+      marginTop: split.gapRows,
+    }),
+  )
+  return column
 }
 
 /**
