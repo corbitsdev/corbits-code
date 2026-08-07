@@ -15,9 +15,17 @@ import { detectRepetition } from "./stall-watchdog.js"
 import type { TurnStatus } from "./session-chrome.js"
 
 // Bound on the accumulated stream text kept for repetition checks. Comfortably
-// larger than the lookback window `detectRepetition` reads, so trimming never
-// drops a line the check still needs.
+// larger than the periods `detectRepetition` can confirm, so trimming never
+// drops content the check still needs.
 const STREAM_TEXT_BUFFER_CHARS = 8_000
+
+// `detectRepetition` walks a character-level period search; cheap per call,
+// but the reactor loop can emit a delta per token, and running it on every
+// single one makes it the hottest thing in that loop for no benefit — a
+// repeating tail does not appear or disappear between two three-character
+// tokens. Checking once per chunk of newly streamed text instead keeps the
+// cost proportional to output, not token count.
+const REPETITION_CHECK_INTERVAL_CHARS = 40
 
 export type QuotaWait = {
   readonly retryAfterMs: number
@@ -53,7 +61,15 @@ export type TurnState = {
    * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectRepetition`, nothing else.
    */
   readonly streamText: string
-  /** Live result of checking `streamText` for a looping line. */
+  /**
+   * Total characters streamed this turn, uncapped — unlike `streamText.length`
+   * this keeps climbing after the buffer fills, which is what lets the
+   * throttle below tell "40 more chars arrived" from "the buffer is full."
+   */
+  readonly streamCharsSeen: number
+  /** `streamCharsSeen` as of the last `detectRepetition` call. */
+  readonly repetitionCheckedAt: number
+  /** Result of the most recent `detectRepetition` check on `streamText`. */
   readonly repeating: boolean
   /**
    * `streamTokenCount` at the moment repetition was first observed this turn.
@@ -75,6 +91,8 @@ export function initialTurnState(nowMs: number): TurnState {
     quota: null,
     activeToolCalls: [],
     streamText: "",
+    streamCharsSeen: 0,
+    repetitionCheckedAt: 0,
     repeating: false,
     repeatingSinceTokenCount: null,
   }
@@ -93,6 +111,8 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     lastActivityAt: nowMs,
     activeToolCalls: [],
     streamText: "",
+    streamCharsSeen: 0,
+    repetitionCheckedAt: 0,
     repeating: false,
     repeatingSinceTokenCount: null,
   }
@@ -225,7 +245,10 @@ const streaming = (
   const streamText = `${state.streamText}${text}`.slice(
     -STREAM_TEXT_BUFFER_CHARS,
   )
-  const check = detectRepetition(streamText)
+  const streamCharsSeen = state.streamCharsSeen + text.length
+  const due =
+    streamCharsSeen - state.repetitionCheckedAt >= REPETITION_CHECK_INTERVAL_CHARS
+  const repeating = due ? detectRepetition(streamText).repeating : state.repeating
   return {
     ...state,
     status: state.status === "blocked" ? "blocked" : "running",
@@ -235,9 +258,11 @@ const streaming = (
     streamTokenCount,
     lastActivityAt: nowMs,
     streamText,
-    repeating: check.repeating,
+    streamCharsSeen,
+    repetitionCheckedAt: due ? streamCharsSeen : state.repetitionCheckedAt,
+    repeating,
     repeatingSinceTokenCount:
-      check.repeating && state.repeatingSinceTokenCount === null
+      repeating && state.repeatingSinceTokenCount === null
         ? streamTokenCount
         : state.repeatingSinceTokenCount,
   }
@@ -293,7 +318,6 @@ export function turnStateFromEvent(
       return streaming(state, "text", nowMs, deltaText(event))
 
     case "inference.thinking.delta":
-    case "thinking.delta":
       return streaming(state, "thinking", nowMs, deltaText(event))
 
     case "inference.tool_call.delta":

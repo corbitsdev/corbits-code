@@ -193,8 +193,10 @@ describe("turn transitions", () => {
 describe("repetition tracking", () => {
   const line1 =
     "I'll verify callId emission and remaining edges, then write the ranked findings."
-  const line2 =
-    "Confirming callId emission, then writing the ranked findings."
+  const line2 = "Confirming callId emission, then writing the ranked findings."
+  // The captured incident shape: the two sentences run together with no
+  // separator, each delta landing as one full cycle.
+  const cycle = `${line1}${line2}`
 
   const textDelta = (text: string) => ({
     type: "inference.text.delta",
@@ -212,23 +214,27 @@ describe("repetition tracking", () => {
     expect(s.repeatingSinceTokenCount).toBeNull()
   })
 
-  test("a line looping past the threshold flips repeating and latches the token count", () => {
-    const deltas = Array(4)
-      .fill([line1, line2])
-      .flat()
-      .map((line) => textDelta(`${line}\n`))
+  test("the captured incident shape (no separator between cycles) flips repeating", () => {
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
     const s = fold([{ type: "inference.start" }, ...deltas])
     expect(s.repeating).toBe(true)
-    // Three text deltas land before the third `line1` repeat crosses the
-    // occurrence threshold and latches the count.
-    expect(s.repeatingSinceTokenCount).toBe(5)
+    expect(s.repeatingSinceTokenCount).not.toBeNull()
+  })
+
+  test("a couple of restated cycles across tool calls is not a loop", () => {
+    const deltas = Array(3)
+      .fill(cycle)
+      .map((text) => textDelta(text))
+    const s = fold([{ type: "inference.start" }, ...deltas])
+    expect(s.repeating).toBe(false)
   })
 
   test("repetition tracked across a tool cycle survives connector.reply with tools outstanding", () => {
-    const deltas = Array(4)
-      .fill([line1, line2])
-      .flat()
-      .map((line) => textDelta(`${line}\n`))
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
     const withTool = turnStateFromEvent(
       fold([{ type: "inference.start" }, ...deltas]),
       { type: "tool.start", data: { call: { id: "c1", name: "grep" } } },
@@ -244,10 +250,9 @@ describe("repetition tracking", () => {
   })
 
   test("a fresh submit clears the repetition state", () => {
-    const deltas = Array(4)
-      .fill([line1, line2])
-      .flat()
-      .map((line) => textDelta(`${line}\n`))
+    const deltas = Array(10)
+      .fill(cycle)
+      .map((text) => textDelta(text))
     const looping = fold([{ type: "inference.start" }, ...deltas])
     const restarted = turnStateOnSubmit(looping, 200)
     expect(restarted.repeating).toBe(false)

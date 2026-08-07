@@ -21,41 +21,88 @@ export type ShouldAbortForStallArgs = {
   readonly streamingType: "text" | "thinking" | "tool" | null
 }
 
-// A repeated line has to be long enough that short, legitimately-recurring
-// fragments ("Let me check.") do not trip the guard.
-const REPETITION_MIN_LINE_LENGTH = 20
-// How far back into the streamed text to look for repeats. Bounded so the
-// check stays cheap however long the turn runs.
-const REPETITION_LOOKBACK_LINES = 12
-// Three verbatim repeats of the same substantial line is not a coincidence
-// of phrasing — it is the model looping.
-const REPETITION_MIN_OCCURRENCES = 3
+// The captured incident looped two sentences with no line break between them
+// ("...ranked findings.Confirming callId emission...") — degeneration is a
+// character-level loop, not a line-level one. Splitting on "\n" misses it
+// entirely, so the tail is treated as a plain string and checked for the
+// smallest period it exactly repeats: the shortest span p such that the last
+// several hundred characters equal p repeated.
+//
+// A period below this is more likely a short structural tic (indentation, a
+// repeated bullet or table-cell divider) than a looping phrase. Chosen well
+// under the ~140-char period of the captured incident's two-sentence cycle,
+// with headroom for shorter degenerate loops (a single repeated sentence).
+const REPETITION_MIN_PERIOD = 24
+// How many exact repeats of the period are required before it counts as a
+// loop rather than a coincidence. Verified against real non-degenerate
+// repetition: a 6-row markdown table separator (period ~51 chars, 6 exact
+// repeats) and 3 identical code lines (period ~60 chars, 3 exact repeats)
+// both land under this bar and are not flagged; the captured incident's
+// sentence pair comfortably clears it well before the stream ends.
+const REPETITION_MIN_REPEATS = 8
+// Hard ceiling on the period search regardless of buffer size, purely to cap
+// worst-case work per check — token-level degeneration loops on a phrase or
+// two, never on multi-paragraph spans.
+const REPETITION_MAX_PERIOD_CAP = 2_000
+// A monochrome run ("x".repeat(500), a "----" rule, a wall of spaces) is
+// trivially periodic at *every* period, which would otherwise make it the
+// single easiest thing to false-trigger on — verified by execution against
+// `thinking-reveal.test.ts`'s burst-of-"x" fixture, which tripped the guard
+// before this floor existed. Requiring the repeating unit itself to contain
+// this many distinct characters keeps single-character and low-variety runs
+// out without weakening the sentence-level case: the captured incident's
+// cycle spans two full sentences, comfortably above it.
+const REPETITION_MIN_DISTINCT_CHARS = 8
 
 export type RepetitionCheck = {
   readonly repeating: boolean
-  readonly repeatedLine: string | null
-  readonly occurrences: number
+  readonly period: number | null
+  readonly repeats: number
 }
 
 /**
- * Whether the tail of the streamed text is dominated by a line repeated
- * verbatim. Pure text-in, decision-out: the caller owns accumulating the
- * buffer across deltas and cycles within a turn.
+ * Length of the exact-period run ending at the last character of `text`,
+ * including the base period itself. `text[i] === text[i - period]` walked
+ * backwards from the end; stops at the first mismatch or the start of the
+ * string.
+ */
+function periodicSuffixLength(text: string, period: number): number {
+  let i = text.length - 1
+  let j = i - period
+  let matched = 0
+  while (j >= 0 && text[i] === text[j]) {
+    matched++
+    i--
+    j--
+  }
+  return matched + period
+}
+
+/**
+ * Whether the tail of `text` is an exact repeat of some short span at least
+ * `REPETITION_MIN_REPEATS` times. Pure text-in, decision-out: the caller owns
+ * accumulating the buffer across deltas and cycles within a turn.
+ *
+ * Periods longer than `text.length / REPETITION_MIN_REPEATS` are skipped, not
+ * as an arbitrary cutoff but because they cannot mathematically reach the
+ * occurrence threshold within the given text — a loop with a longer period
+ * needs a longer buffer to confirm, which is a buffer-size trade-off owned by
+ * the caller, not a second detection path here.
  */
 export function detectRepetition(text: string): RepetitionCheck {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length >= REPETITION_MIN_LINE_LENGTH)
-  const tail = lines.slice(-REPETITION_LOOKBACK_LINES)
-  const counts = new Map<string, number>()
-  for (const line of tail) counts.set(line, (counts.get(line) ?? 0) + 1)
-  for (const [line, occurrences] of counts) {
-    if (occurrences >= REPETITION_MIN_OCCURRENCES) {
-      return { repeating: true, repeatedLine: line, occurrences }
-    }
+  const maxPeriod = Math.min(
+    REPETITION_MAX_PERIOD_CAP,
+    Math.floor(text.length / REPETITION_MIN_REPEATS),
+  )
+  for (let period = REPETITION_MIN_PERIOD; period <= maxPeriod; period++) {
+    const matched = periodicSuffixLength(text, period)
+    const repeats = matched / period
+    if (repeats < REPETITION_MIN_REPEATS) continue
+    const unit = text.slice(text.length - period)
+    if (new Set(unit).size < REPETITION_MIN_DISTINCT_CHARS) continue
+    return { repeating: true, period, repeats }
   }
-  return { repeating: false, repeatedLine: null, occurrences: 0 }
+  return { repeating: false, period: null, repeats: 0 }
 }
 
 /**
@@ -87,14 +134,18 @@ export function shouldAbortForStall(args: ShouldAbortForStallArgs): boolean {
 
 export type ShouldNoticeStallArgs = ShouldAbortForStallArgs & {
   readonly stallNoticeMs: number
+  /** Whether the repetition guard currently sees a looping tail. */
+  readonly repeating: boolean
 }
 
 /**
  * Returns true while the run has been silent long enough to say so but not yet
  * long enough to abort. False once the abort takes over, so the two never
- * paint at the same time.
+ * paint at the same time, and false while repeating — that run is producing
+ * output, just not useful output, and "no response" would misdescribe it.
  */
 export function shouldNoticeStall(args: ShouldNoticeStallArgs): boolean {
+  if (args.repeating) return false
   if (shouldAbortForStall(args)) return false
   return silentPastThreshold(args, args.stallNoticeMs)
 }

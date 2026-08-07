@@ -112,26 +112,54 @@ describe("detectRepetition", () => {
     expect(detectRepetition(text).repeating).toBe(false)
   })
 
-  test("flags a line repeated past the occurrence threshold", () => {
+  // The captured incident: the two sentences ran together with no line break
+  // at all. A line-splitting detector never sees this; the period search
+  // does not care where (or whether) the lines break.
+  test("flags the captured incident string verbatim, with no newlines", () => {
     const line1 =
       "I'll verify callId emission and remaining edges, then write the ranked findings."
     const line2 = "Confirming callId emission, then writing the ranked findings."
-    const text = Array(4).fill([line1, line2]).flat().join("\n")
+    const text = Array(10).fill(`${line1}${line2}`).join("")
     const check = detectRepetition(text)
     expect(check.repeating).toBe(true)
-    expect(check.repeatedLine).toBe(line1)
-    expect(check.occurrences).toBeGreaterThanOrEqual(3)
+    expect(check.period).toBe(line1.length + line2.length)
   })
 
-  test("ignores short recurring lines", () => {
-    const text = Array(6).fill("Checking...").join("\n")
+  test("does not flag the same cycle a handful of times", () => {
+    const line1 =
+      "I'll verify callId emission and remaining edges, then write the ranked findings."
+    const line2 = "Confirming callId emission, then writing the ranked findings."
+    // Fewer than the occurrence threshold: a model can legitimately restate
+    // a step once or twice across tool-call cycles without looping.
+    const text = Array(4).fill(`${line1}${line2}`).join("")
     expect(detectRepetition(text).repeating).toBe(false)
   })
 
-  test("does not flag two occurrences", () => {
-    const line =
-      "I'll verify callId emission and remaining edges, then write the ranked findings."
-    const text = [line, "some other progress here.", line].join("\n")
+  test("does not flag a repeated markdown table separator row", () => {
+    const row = "| ---------------------- | ---------------------- |"
+    const text = Array(6).fill(row).join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("does not flag a few identical code lines", () => {
+    const line = "  const result = await fetchData(request, options, context)"
+    const text = Array(3).fill(line).join("\n")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  test("ignores short recurring fragments", () => {
+    const text = Array(10).fill("ok").join(" ")
+    expect(detectRepetition(text).repeating).toBe(false)
+  })
+
+  // A monochrome run is periodic at every period by construction — the
+  // easiest thing to false-trigger on if entropy is not checked.
+  test("does not flag a long run of the same character", () => {
+    expect(detectRepetition("x".repeat(500)).repeating).toBe(false)
+  })
+
+  test("does not flag a repeated horizontal rule", () => {
+    const text = Array(10).fill("----------------------------").join("\n")
     expect(detectRepetition(text).repeating).toBe(false)
   })
 })
@@ -154,7 +182,12 @@ describe("shouldNoticeStall", () => {
     stallNoticeMs: STALL_NOTICE_MS,
     isProcessing: true,
     streamingType: null,
+    repeating: false,
   }
+
+  test("stays quiet while repeating, even if also silent by the clock", () => {
+    expect(shouldNoticeStall({ ...base, repeating: true })).toBe(false)
+  })
 
   test("speaks up long before the abort backstop", () => {
     expect(STALL_NOTICE_MS).toBeLessThan(STALL_TIMEOUT_MS)

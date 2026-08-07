@@ -377,15 +377,18 @@ describe("repetition guard", () => {
         t.bridge.submit("build it", "immediate")
         t.port.clear()
 
+        // The captured incident shape: the two sentences run together with
+        // no line break between cycles.
         const line1 =
-          "I'll verify callId emission and remaining edges, then write the ranked findings.\n"
-        const line2 = "Confirming callId emission, then writing the ranked findings.\n"
+          "I'll verify callId emission and remaining edges, then write the ranked findings."
+        const line2 = "Confirming callId emission, then writing the ranked findings."
+        const cycle = `${line1}${line2}`
 
         // Tokens keep landing every tick — a real stall would never fire here.
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 10; i++) {
           t.bridge.handle({
             type: "inference.text.delta",
-            data: { token: i % 2 === 0 ? line1 : line2 },
+            data: { token: cycle },
           })
           t.advance(10)
           t.tick()
