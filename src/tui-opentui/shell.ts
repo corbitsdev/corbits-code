@@ -665,12 +665,6 @@ export type AppShell = {
    * ./prompt-kill-ring.js).
    */
   promptKillRing: KillRing
-  /** `Date.now()` of the last keypress; detects an un-bracketed paste burst (see `PASTE_BURST_MS`). */
-  lastKeyAt: number
-  /** Whether that last keypress inserted a plain character (see `isPrintableInsertKey`). */
-  lastKeyWasPrintable: boolean
-  /** A converted CR is about to be followed by its CRLF partner LF; swallow that LF. */
-  suppressNextLinefeed: boolean
   /** Images attached with Ctrl+P, sent with the next prompt submit. */
   pendingAttachments: PendingImageAttachment[]
   /** Up/Down recall of messages already sent in this session. */
@@ -703,7 +697,13 @@ export type PrimaryOverlayKind =
 
 // Human keystrokes land tens of milliseconds apart at the fastest; a paste
 // replayed onto stdin without bracketed-paste framing lands effectively all
-// at once. Anything under this gap between keypresses is paste, not typing.
+// at once. 15ms is an empirical guess at a gap comfortably under normal
+// typing and comfortably over a replayed paste, not a measured figure --
+// too high false-positives on a very fast typist's real Enter (read as
+// paste, so it inserts a newline instead of sending); too low misses a
+// slow paste replay (read as typing, so a bare CR mid-paste still
+// submits). Only matters before this terminal's first real paste event;
+// see `sawBracketedPaste` below.
 const PASTE_BURST_MS = 15
 
 /** A single unmodified character, as opposed to a control chord or named key. */
@@ -4542,6 +4542,21 @@ export function createAppShell(
     session = enqueue(session, `seed-${i + 1}`)
   }
 
+  // A real bracketed-paste event proves this terminal negotiates DEC 2004:
+  // every paste from here on arrives as one `paste` event, never as raw
+  // keystrokes, so the CRLF-submit fallback below has nothing left to guard
+  // against and turns itself off for the rest of the session. Terminals that
+  // never send one keep the guard, since they've never shown they can do
+  // better. Un-bracketed-paste bookkeeping only this key handler reads, so it
+  // lives in this closure rather than on the shared AppShell.
+  let sawBracketedPaste = false
+  let lastKeyAt = 0
+  let lastKeyWasPrintable = false
+  let suppressNextLinefeed = false
+  const onPaste = (): void => {
+    sawBracketedPaste = true
+  }
+
   const onKey = (key: KeyEvent): void => {
     if (disposed) return
 
@@ -4690,43 +4705,45 @@ export function createAppShell(
     // Ctrl+Y/Alt+Y need somewhere to yank it back from.
     const keyName = typeof key.name === "string" ? key.name.toLowerCase() : ""
 
-    // The LF half of a CRLF pair the block below just turned into a newline:
-    // without this, "line one\r\nline two" would insert two newlines, one for
-    // the converted CR and one for the LF arriving right behind it.
-    const suppressLinefeed = shell.suppressNextLinefeed
-    shell.suppressNextLinefeed = false
-    if (suppressLinefeed && keyName === "linefeed" && !key.ctrl && !key.meta && !key.option) {
-      key.preventDefault()
-      return
-    }
+    // Everything below this line is the un-bracketed-paste fallback, and a
+    // terminal that has ever fired a real `paste` event has proven it never
+    // needs it: every future paste arrives as one `paste` event, not raw
+    // keystrokes, so re-running these checks on it would only risk a false
+    // positive for no benefit.
+    if (!sawBracketedPaste) {
+      // The LF half of a CRLF pair the block below just turned into a
+      // newline: without this, "line one\r\nline two" would insert two
+      // newlines, one for the converted CR and one for the LF right behind it.
+      const suppressLinefeed = suppressNextLinefeed
+      suppressNextLinefeed = false
+      if (suppressLinefeed && keyName === "linefeed" && !key.ctrl && !key.meta && !key.option) {
+        key.preventDefault()
+        return
+      }
 
-    // A terminal that never negotiated bracketed paste (DEC 2004) hands a
-    // multi-line paste to us as ordinary keystrokes, CR and all -- and a bare
-    // CR is the same "return" that submits. Left alone, pasting three lines
-    // sends three separate messages instead of composing one. Bracketed paste
-    // delivers the whole blob as one `paste` event and never reaches here, so
-    // this only fires on the raw-keystroke fallback.
-    //
-    // Detecting it needs two signals, not one: a lone fast Enter can happen
-    // (key rollover, a scripted "send keys"), and a lone printable character
-    // right before Enter is just typing. What never happens from a human is a
-    // printable character landing, then Enter, both inside a keystroke burst
-    // — that shape is unique to a paste being replayed byte-for-byte. Gating
-    // on both keeps a deliberate Ctrl+J-then-Enter (newline, then send) safe,
-    // since Ctrl+J is not "a printable character," while still catching
-    // "...end of line one<CR><LF>line two..." arriving as raw keystrokes.
-    const now = Date.now()
-    const sincePreviousKey = now - shell.lastKeyAt
-    const previousKeyWasPrintable = shell.lastKeyWasPrintable
-    shell.lastKeyAt = now
-    shell.lastKeyWasPrintable = isPrintableInsertKey(key)
-    const isBareReturn =
-      !key.ctrl && !key.meta && !key.option && (keyName === "return" || keyName === "kpenter")
-    if (isBareReturn && previousKeyWasPrintable && sincePreviousKey < PASTE_BURST_MS) {
-      key.preventDefault()
-      shell.prompt.insertText("\n")
-      shell.suppressNextLinefeed = true
-      return
+      // A bare CR is the same "return" that submits. Left alone, pasting
+      // three lines here sends three separate messages instead of composing
+      // one. Detecting it needs two signals, not one: a lone fast Enter can
+      // happen (key rollover, a scripted "send keys"), and a lone printable
+      // character right before Enter is just typing. What never happens from
+      // a human is a printable character landing, then Enter, both inside a
+      // keystroke burst -- that shape is unique to a paste being replayed
+      // byte-for-byte. Gating on both keeps a deliberate Ctrl+J-then-Enter
+      // (newline, then send) safe, since Ctrl+J is not "a printable
+      // character," while still catching "...line one<CR><LF>line two...".
+      const now = Date.now()
+      const sincePreviousKey = now - lastKeyAt
+      const previousKeyWasPrintable = lastKeyWasPrintable
+      lastKeyAt = now
+      lastKeyWasPrintable = isPrintableInsertKey(key)
+      const isBareReturn =
+        !key.ctrl && !key.meta && !key.option && (keyName === "return" || keyName === "kpenter")
+      if (isBareReturn && previousKeyWasPrintable && sincePreviousKey < PASTE_BURST_MS) {
+        key.preventDefault()
+        shell.prompt.insertText("\n")
+        suppressNextLinefeed = true
+        return
+      }
     }
 
     const isCtrlKillYank =
@@ -4989,6 +5006,7 @@ export function createAppShell(
 
   if (wireKeys) {
     renderer.keyInput.on("keypress", onKey)
+    renderer.keyInput.on("paste", onPaste)
     prompt.onSubmit = onEnter
   }
   renderer.on(CliRenderEvents.FRAME, onFrame)
@@ -5047,9 +5065,6 @@ export function createAppShell(
     parentStreamLog: null,
     parentStreamLogBase: null,
     promptKillRing: emptyKillRing,
-    lastKeyAt: 0,
-    lastKeyWasPrintable: false,
-    suppressNextLinefeed: false,
     pendingAttachments: [],
     sentHistory: createSentHistoryBrowse([]),
     disposed: false,
@@ -5059,6 +5074,7 @@ export function createAppShell(
       shell.disposed = true
       if (wireKeys) {
         renderer.keyInput.off("keypress", onKey)
+        renderer.keyInput.off("paste", onPaste)
         prompt.onSubmit = undefined
       }
       renderer.off(CliRenderEvents.FRAME, onFrame)

@@ -281,6 +281,49 @@ describe("un-bracketed paste vs. deliberate Enter", () => {
       { width: 80, height: 24 },
     )
   })
+
+  // The false-positive direction: once this terminal has proven it negotiates
+  // DEC 2004 by firing one real bracketed paste, the raw-keystroke fallback
+  // must retire for the rest of the session -- otherwise a fast typist's
+  // genuine Enter risks being read as paste forever, on every keystroke, on
+  // every terminal, most of which never needed the fallback at all.
+  //
+  // This cannot be distinguished from actual paste by timing alone: the
+  // harness dispatches keys synchronously, so a "fast typist" and a "paste
+  // replay" produce the identical zero-elapsed-time shape. The capability
+  // gate is what makes the distinction possible -- this test exercises that
+  // gate, not a timing threshold.
+  test("a keystroke burst after a real paste no longer triggers the CRLF fallback", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+        })
+        try {
+          const submitted: string[] = []
+          setShellBridgeHooks(shell, {
+            onSubmit: (text) => submitted.push(text),
+            onInterrupt: () => {},
+            exclusive: true,
+          })
+          shell.prompt.focus()
+          await h.mockInput.pasteBracketedText("proves DEC 2004")
+          shell.prompt.value = ""
+
+          await h.mockInput.typeText("hi\r")
+          await h.renderOnce()
+
+          expect(submitted).toEqual(["hi"])
+          expect(shell.prompt.value).toBe("")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
 })
 
 describe("sent-message recall", () => {
