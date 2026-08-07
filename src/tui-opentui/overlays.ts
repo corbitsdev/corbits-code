@@ -89,6 +89,8 @@ export type OpenPermissionsOpts = {
   readonly onAccept?: (selection: OverlaySelection) => void
   /** Per-open expand/collapse of collapsed command payloads. */
   readonly onToggleExpand?: () => void
+  /** Per-open Esc/dismiss; host binds resolve(ApprovalOutcome) so Esc denies instead of hanging. */
+  readonly onCancel?: () => void
 }
 
 export function openPermissionsOverlay(
@@ -108,6 +110,7 @@ export function openPermissionsOverlay(
       ? { onToggleExpand: opts.onToggleExpand }
       : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
   })
 }
 
@@ -120,6 +123,8 @@ export type OpenOperatorOpts = {
   readonly onAccept?: (selection: OverlaySelection) => void
   /** Per-open free-text answer; host binds the custom OperatorResult. */
   readonly onTextAnswer?: (text: string) => void
+  /** Per-open Esc/dismiss; host binds resolve(cancel) so Esc cancels instead of hanging. */
+  readonly onCancel?: () => void
 }
 
 /**
@@ -128,7 +133,7 @@ export type OpenOperatorOpts = {
  * offering "Enter choose" against an empty list.
  */
 const NO_WAY_TO_ANSWER =
-  "No options were offered and this question takes no typed answer. Press Esc to dismiss it."
+  "No options were offered and this question takes no typed answer. Press Esc to cancel it."
 
 export function openOperatorOverlay(
   shell: AppShell,
@@ -150,6 +155,7 @@ export function openOperatorOverlay(
     ...(opts?.onTextAnswer !== undefined
       ? { onTextAnswer: opts.onTextAnswer }
       : {}),
+    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
   })
 }
 

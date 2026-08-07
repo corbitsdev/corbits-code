@@ -301,6 +301,19 @@ export function wireGates(
           recordDecision(shell, ev.request, choices, gateSelection)
           ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
         },
+        // Esc must settle the awaited promise (as a deny), not abandon it —
+        // an unresolved gate hangs the run until the process is killed.
+        onCancel: () => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          ev.resolve(
+            approvalOutcomeFromSelection(choices, {
+              index: 0,
+              id: PERMISSION_DENY_ID,
+            }),
+          )
+        },
       })
     }
 
@@ -346,11 +359,18 @@ export function wireGates(
 
   function onOperator(ev: OperatorGateEvent): void {
     const choices = operatorChoicesFromOptions(ev.options)
+    // Guarded the same way as the permission gate: correctness must not rest
+    // on callers of closeInsetOverlay remembering to null the cancel hook
+    // before dispatching accept — a future accept-via-close path that forgets
+    // would otherwise double-resolve this promise.
+    let settled = false
     openOrQueue(() => openOperatorOverlay(shell, {
       body: ev.question,
       choices: choices.items,
       itemIds: choices.itemIds,
       onAccept: (sel: OverlaySelection) => {
+        if (settled) return
+        settled = true
         ev.resolve(
           operatorResultFromSelection(ev.options, {
             index: sel.index,
@@ -360,7 +380,18 @@ export function wireGates(
       },
       // The ask_operator contract offers a free-form answer, so the overlay
       // must be able to send one back rather than only an option index.
-      onTextAnswer: (text: string) => ev.resolve(operatorCustomResult(text)),
+      onTextAnswer: (text: string) => {
+        if (settled) return
+        settled = true
+        ev.resolve(operatorCustomResult(text))
+      },
+      // Esc must settle the awaited promise (as a cancel), not abandon it —
+      // an unresolved gate hangs the run until the process is killed.
+      onCancel: () => {
+        if (settled) return
+        settled = true
+        ev.resolve(operatorCancelResult())
+      },
     }))
   }
 

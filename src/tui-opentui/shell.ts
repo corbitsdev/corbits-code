@@ -1685,6 +1685,7 @@ type PriorOverlaySnapshot = {
   readonly onAction: ((itemId: string, key: KeyEvent) => boolean) | null
   readonly answer: OverlayAnswerState | null
   readonly titleText: string
+  readonly onCancel: (() => void) | null
 }
 
 type ShellInternals = {
@@ -1712,6 +1713,12 @@ type ShellInternals = {
   overlayAnswer: OverlayAnswerState | null
   /** Bare title of the open overlay, so its key hints can be re-composed. */
   overlayTitleText: string
+  /**
+   * Per-open dismiss hook for promise-backed overlays (permissions, operator).
+   * Esc/closeInsetOverlay invokes this instead of silently dropping the
+   * pending promise the way palette/mentions/copy overlays correctly do.
+   */
+  overlayOnCancel: (() => void) | null
   /** Fired once the shell has no overlay open, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>
   /**
@@ -2716,6 +2723,12 @@ export type OpenListOverlayOpts = {
    */
   readonly onCycle?: (itemId: string, direction: -1 | 1) => void
   /**
+   * Per-open Esc/dismiss hook for promise-backed overlays (permissions,
+   * operator). Invoked by closeInsetOverlay before the accept path is
+   * cleared, so the caller's awaited promise resolves instead of hanging.
+   */
+  readonly onCancel?: () => void
+  /**
    * Description-zone source. Called with the focused item's id on every move
    * (falling back to its label when no `itemIds` were supplied). Returning
    * null renders the zone blank, not collapsed — the fixed two-line zone is
@@ -2788,6 +2801,7 @@ export function openListOverlay(
           onAction: bag.overlayOnAction,
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
+          onCancel: bag.overlayOnCancel,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -2816,6 +2830,7 @@ export function openListOverlay(
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
+      bag.overlayOnCancel = opts?.onCancel ?? null
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
@@ -2825,6 +2840,7 @@ export function openListOverlay(
       bag.overlayOnCycle = opts?.onCycle ?? null
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
+      bag.overlayOnCancel = opts?.onCancel ?? null
     }
     if (!isPalette) {
       bag.overlayAnswer =
@@ -3072,6 +3088,10 @@ export function handleOverlayAnswerKey(
       text: `answered: ${text}`,
       meta: "overlay",
     })
+    // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
+    // the Esc/cancel path.
+    const bag = internals.get(shell)
+    if (bag) bag.overlayOnCancel = null
     closeInsetOverlay(shell)
     submit(text)
     return true
@@ -3157,6 +3177,13 @@ export function closeInsetOverlay(shell: AppShell): void {
   }
   const bag = internals.get(shell)
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
+  // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
+  // still settle that promise (as a deny/cancel) or the caller hangs forever.
+  // Palette/mentions/copy have no such awaited caller, so they drop silently.
+  const cancelable =
+    !prior &&
+    (shell.overlayKind === "permissions" || shell.overlayKind === "operator")
+  const onCancel = cancelable ? bag?.overlayOnCancel ?? null : null
 
   shell.overlayList = null
   shell.overlayKind = null
@@ -3165,7 +3192,8 @@ export function closeInsetOverlay(shell: AppShell): void {
   shell.paletteCommands = []
   shell.copyTargets = null
   clearOverlayBody(shell)
-  // Esc / dismiss: drop accept path without invoking callbacks.
+  // Esc / dismiss: drop accept path without invoking it (onCancel above is
+  // captured before this clears, and is invoked separately once state settles).
   if (bag && !prior) {
     bag.overlayItemIds = []
     bag.overlayOnAccept = null
@@ -3174,6 +3202,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayDescribe = null
     bag.overlayOnAction = null
     bag.overlayAnswer = null
+    bag.overlayOnCancel = null
   }
 
   // Pop exactly one frame (palette or overlay).
@@ -3202,6 +3231,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnAction = prior.onAction
     bag.overlayAnswer = prior.answer
     bag.overlayTitleText = prior.titleText
+    bag.overlayOnCancel = prior.onCancel
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -3230,6 +3260,7 @@ export function closeInsetOverlay(shell: AppShell): void {
   relayout(shell, { overlayMode: "closed" })
   applyFocus(shell)
   notifyOverlayClosed(shell)
+  onCancel?.()
 }
 
 /**
@@ -3436,6 +3467,9 @@ export function acceptOverlaySelection(shell: AppShell): void {
   }
   // Capture before close clears per-open state.
   const perOpen = bag?.overlayOnAccept ?? null
+  // This is a deliberate accept, not a dismiss — closeInsetOverlay must not
+  // also fire the Esc/cancel path below.
+  if (bag) bag.overlayOnCancel = null
 
   if (bag?.overlayEchoChoice !== false) {
     appendStreamRow(shell, {
@@ -5023,6 +5057,7 @@ export function createAppShell(
     overlayOnAction: null,
     overlayAnswer: null,
     overlayTitleText: "",
+    overlayOnCancel: null,
     overlayClosedListeners: new Set(),
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,

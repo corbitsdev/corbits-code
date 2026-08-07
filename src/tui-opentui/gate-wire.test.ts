@@ -9,6 +9,7 @@ import { withTestRenderer, type Harness } from "./harness.js"
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js"
 import {
   acceptOverlaySelection,
+  closeInsetOverlay,
   createAppShell,
   exitOverlayAnswerMode,
   handleOverlayAnswerKey,
@@ -565,6 +566,71 @@ describe("permission.gate auto-deny", () => {
         expect(firstResolved).toEqual({ allow: false })
         // No queued gate left to open once the first closes.
         expect(shell.overlayList).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+})
+
+describe("Esc on a gate overlay settles the awaited promise", () => {
+  test("permission.gate: Esc denies instead of abandoning the promise", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolved: unknown
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: (outcome: unknown) => {
+            resolveCount += 1
+            resolved = outcome
+          },
+        })
+        expect(shell.overlayKind).toBe("permissions")
+
+        closeInsetOverlay(shell)
+
+        expect(shell.overlayList).toBeNull()
+        expect(resolveCount).toBe(1)
+        expect(resolved).toEqual({ allow: false })
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("operator.gate: Esc cancels instead of abandoning the promise", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolved: unknown
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: (result: unknown) => {
+            resolveCount += 1
+            resolved = result
+          },
+        })
+        expect(shell.overlayKind).toBe("operator")
+
+        closeInsetOverlay(shell)
+
+        expect(shell.overlayList).toBeNull()
+        expect(resolveCount).toBe(1)
+        expect(resolved).toEqual({ kind: "cancel" })
       } finally {
         shell.dispose()
       }
