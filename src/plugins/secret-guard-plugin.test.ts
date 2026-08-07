@@ -45,6 +45,29 @@ describe("isSensitivePath", () => {
     "my-project_service_account-key.json",
     ".corbits/settings.json",
     "/Users/me/.corbits/settings.json",
+    // Shell histories.
+    "/home/me/.bash_history",
+    ".zsh_history",
+    ".sh_history",
+    "/home/me/.local/share/fish/fish_history",
+    // System account and privilege files.
+    "/etc/shadow",
+    "/etc/sudoers",
+    "/etc/sudoers.d/90-cloud-init-users",
+    // macOS Keychain.
+    "/Users/me/Library/Keychains/login.keychain-db",
+    "backup.keychain",
+    // Browser cookie jars and saved-login stores.
+    "/Users/me/Library/Application Support/Google/Chrome/Default/Cookies",
+    "/Users/me/Library/Application Support/Google/Chrome/Default/Login Data",
+    "/home/me/.mozilla/firefox/abc123.default/cookies.sqlite",
+    "/home/me/.mozilla/firefox/abc123.default/logins.json",
+    "/home/me/.mozilla/firefox/abc123.default/key4.db",
+    // Cloud credentials beyond AWS.
+    "/home/me/.config/gcloud/legacy_credentials/me@example.com/adc.json",
+    "/home/me/.config/gcloud/credentials.db",
+    "/home/me/.azure/accessTokens.json",
+    "/home/me/.azure/azureProfile.json",
   ];
   for (const p of sensitive) {
     test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
@@ -62,6 +85,16 @@ describe("isSensitivePath", () => {
     "keystore.md",
     "account.json",
     "src/keyboard.ts",
+    // Near-misses for the new patterns: plausible legitimate filenames that
+    // share a word or extension with a sensitive pattern but aren't the
+    // sensitive file itself.
+    "docs/bash_history_format.md",
+    "src/keychain-helper.ts",
+    "test/fixtures/cookies.json",
+    "src/etc/shadow-dom.ts",
+    "docs/sudoers-explained.md",
+    "src/gcloud-deploy.ts",
+    "src/azure-profile-view.tsx",
   ];
   for (const p of ok) {
     test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));

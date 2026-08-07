@@ -42,6 +42,38 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /\.tfstate(\.backup)?$/,
   // GCP service-account key files, e.g. service-account.json, my-service_account-key.json.
   /service[-_]account[^/]*\.json$/,
+  // Shell history files. Operators paste secrets into interactive shells
+  // constantly (export TOKEN=…, curl -H "Authorization: …", psql with an
+  // inline password); the history file is a durable log of that. Previously
+  // the workspace boundary kept ~/.bash_history etc. out of reach even though
+  // this list didn't cover it. Now that @mentions can reach outside the
+  // workspace, the list has to carry that weight itself.
+  /(^|\/)\.bash_history$/,
+  /(^|\/)\.zsh_history$/,
+  /(^|\/)\.sh_history$/,
+  /(^|\/)fish_history$/,
+  // System account and privilege files. Not "secrets" in the API-key sense,
+  // but /etc/shadow is password hashes and /etc/sudoers is the privilege
+  // escalation policy — both are direct system-compromise material.
+  /(^|\/)etc\/shadow$/,
+  /(^|\/)etc\/sudoers(\.d\/.*)?$/,
+  // macOS Keychain databases — every saved Wi-Fi password, website login, and
+  // app credential on the machine lives here.
+  /(^|\/)Library\/Keychains\//,
+  /\.keychain(-db)?$/,
+  // Browser cookie jars and saved-login stores. A cookie store alone is often
+  // enough to hijack an authenticated session without ever seeing a password.
+  /(^|\/)Cookies$/, // Chrome/Chromium/Edge profile cookie DB (no extension)
+  /(^|\/)Login Data$/, // Chrome/Chromium/Edge saved passwords DB (no extension)
+  /(^|\/)cookies\.sqlite$/, // Firefox
+  /(^|\/)logins\.json$/, // Firefox saved logins
+  /(^|\/)key4\.db$/, // Firefox's key store for the above
+  // Broaden the existing single-file gcloud pattern to the whole config
+  // directory — legacy_credentials/, credentials.db, and access_tokens.db
+  // all live alongside application_default_credentials.json there.
+  /(^|\/)\.config\/gcloud\//,
+  // Azure CLI's credential cache — the equivalent of ~/.aws/credentials.
+  /(^|\/)\.azure\/(accessTokens|azureProfile)\.json$/,
 ];
 
 export function isSensitivePath(value: string): boolean {

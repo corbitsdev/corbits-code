@@ -110,7 +110,7 @@ describe("resolveAtMentions", () => {
     }
   });
 
-  test("blocks symlinks that resolve outside the workspace", async () => {
+  test("inlines symlinked outside-workspace files", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
@@ -118,15 +118,14 @@ describe("resolveAtMentions", () => {
       await symlink(outside, join(dir, "escape"));
 
       const resolved = await resolveAtMentions("read @escape/outside.txt", dir);
-      expect(resolved).toContain("@escape/outside.txt (blocked: outside workspace)");
-      expect(resolved).not.toContain("outside content");
+      expect(resolved).toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
     }
   });
 
-  test("blocks absolute paths outside the workspace", async () => {
+  test("inlines absolute outside-workspace paths", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
@@ -134,15 +133,15 @@ describe("resolveAtMentions", () => {
       await writeFile(outsideFile, "outside content\n");
 
       const resolved = await resolveAtMentions(`read @${outsideFile}`, dir);
-      expect(resolved).toContain(`@${outsideFile} (blocked: outside workspace)`);
-      expect(resolved).not.toContain("outside content");
+      expect(resolved).toContain(`\`${outsideFile}\`:`);
+      expect(resolved).toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
     }
   });
 
-  test("blocks parent-traversal paths that escape the workspace", async () => {
+  test("inlines parent-traversal outside-workspace paths", async () => {
     const dir = await fixture();
     const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
     try {
@@ -150,11 +149,73 @@ describe("resolveAtMentions", () => {
       const traversal = `../../${outside.split("/").pop() ?? ""}/outside.txt`;
 
       const resolved = await resolveAtMentions(`read @${traversal}`, join(dir, "src"));
-      expect(resolved).toContain(`@${traversal} (blocked: outside workspace)`);
-      expect(resolved).not.toContain("outside content");
+      expect(resolved).toContain("outside content");
     } finally {
       await rm(dir, { recursive: true, force: true });
       await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("summarizes outside-workspace directories", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      await writeFile(join(outside, "a.txt"), "a\n");
+      await mkdir(join(outside, "sub"));
+
+      const resolved = await resolveAtMentions(`read @${outside}`, dir);
+      expect(resolved).toContain("directory - ");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("still blocks sensitive outside-workspace paths", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideEnv = join(outside, ".env");
+      await writeFile(outsideEnv, "API_KEY=secret\n");
+
+      const resolved = await resolveAtMentions(`read @${outsideEnv}`, dir);
+      expect(resolved).toContain("(blocked: sensitive path)");
+      expect(resolved).not.toContain("API_KEY=secret");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks a symlink that points outside the workspace at a sensitive file", async () => {
+    // Combines the two cases the other tests exercise separately: the symlink
+    // test above targets a sensitive file *inside* the workspace, and the
+    // outside-workspace sensitivity test above uses a direct path. Realpath
+    // must resolve the symlink before the sensitivity check runs regardless
+    // of which boundary (workspace, sensitivity) the target crosses.
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "at-mention-resolution-outside-"));
+    try {
+      const outsideKey = join(outside, "id_rsa");
+      await writeFile(outsideKey, "-----BEGIN OPENSSH PRIVATE KEY-----\n");
+      await symlink(outsideKey, join(dir, "looks-like-a-normal-file"));
+
+      const resolved = await resolveAtMentions("read @looks-like-a-normal-file", dir);
+      expect(resolved).toContain("(blocked: sensitive path)");
+      expect(resolved).not.toContain("BEGIN OPENSSH PRIVATE KEY");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks home-relative paths", async () => {
+    const dir = await fixture();
+    try {
+      const resolved = await resolveAtMentions("read @~/some-file.txt", dir);
+      expect(resolved).toContain("(blocked: home-relative paths are not supported)");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 
