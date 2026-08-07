@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   createPluginLoadDiagnostics,
+  emitPluginWarningLog,
   emitPluginWarningSummary,
   formatPluginWarningsSummary,
   pluginWarningSink,
@@ -68,6 +69,25 @@ describe("emitPluginWarningSummary", () => {
     const lines: string[] = [];
     emitPluginWarningSummary(diag, (line) => lines.push(line));
     expect(lines).toEqual([]);
+  });
+});
+
+describe("emitPluginWarningLog", () => {
+  test("never writes to stderr — interactive TUI holds the alt screen and a raw write corrupts the frame", () => {
+    const diag = createPluginLoadDiagnostics();
+    diag.warnings.push('agent a: skill "style" referenced but not found in skill search path');
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    let stderrCalls = 0;
+    process.stderr.write = ((..._args: unknown[]) => {
+      stderrCalls++;
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      emitPluginWarningLog(diag);
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    expect(stderrCalls).toBe(0);
   });
 });
 

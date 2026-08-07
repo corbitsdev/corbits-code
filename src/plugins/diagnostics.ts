@@ -2,6 +2,11 @@
 // interactive TUI) accumulate warnings and emit a single summary instead of
 // writing one stderr line per miss mid-frame.
 
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const pluginDiagnosticsLogger = getLogger([LOG_NAMESPACE_ROOT, "plugins"]);
+
 export type PluginLoadDiagnostics = {
   warnings: string[];
 };
@@ -83,4 +88,17 @@ export function emitPluginWarningSummary(
 ): void {
   const summary = formatPluginWarningsSummary(diag.warnings);
   if (summary !== undefined) write(summary);
+}
+
+/**
+ * Emit a diagnostics summary through the structured logger instead of raw
+ * stderr. Interactive callers (the TUI holds the alternate screen for the
+ * whole session) must use this, not the raw-stderr default above — a bare
+ * write lands mid-frame and corrupts the rendered transcript. The logger is
+ * already routed to `~/.corbits/logs/corbits.log` by `installFileLogSink`
+ * (first statement of `mainWithRunners`), so this reuses that sink rather
+ * than adding a second suppression path.
+ */
+export function emitPluginWarningLog(diag: PluginLoadDiagnostics): void {
+  emitPluginWarningSummary(diag, (line) => pluginDiagnosticsLogger.warn(line));
 }

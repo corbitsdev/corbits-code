@@ -50,7 +50,7 @@ import { refreshCodexInstructions } from "../auth/codex/instructions.js";
 import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type PluginOrigin } from "../plugins/loader.js";
 import {
   createPluginLoadDiagnostics,
-  emitPluginWarningSummary,
+  emitPluginWarningLog,
   formatPluginWarningsSummary,
 } from "../plugins/diagnostics.js";
 import {
@@ -410,7 +410,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     isRegisteredPathTrusted,
     diagnostics: pluginLoadDiag,
   });
-  emitPluginWarningSummary(pluginLoadDiag);
+  emitPluginWarningLog(pluginLoadDiag);
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -766,7 +766,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             origin: stub.origin,
             diagnostics: trustDiag,
           });
-          emitPluginWarningSummary(trustDiag);
+          emitPluginWarningLog(trustDiag);
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -813,7 +813,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           { [id]: { enabled: true } },
           { diagnostics: verifyDiag },
         );
-        emitPluginWarningSummary(verifyDiag);
+        emitPluginWarningLog(verifyDiag);
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
         return { ok: true, message: `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}` };
       }
@@ -946,7 +946,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     config.settings?.plugins ?? {},
     { diagnostics: profileDiag },
   );
-  emitPluginWarningSummary(profileDiag);
+  emitPluginWarningLog(profileDiag);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
