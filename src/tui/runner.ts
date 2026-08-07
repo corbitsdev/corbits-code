@@ -447,8 +447,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // out run.json so status and finishedAt never disagree. Declared before the
   // try so every fallible step after the minimal write above is covered.
   // `finalized` is set by the normal finalize path so this never double-writes
-  // on a clean exit; it also gates straggler snapshot writes (see
-  // persistRunSnapshot) from resurrecting a closed record.
+  // on a clean exit. It also gates persistRunSnapshot (below) from *issuing*
+  // a straggler write at all once the run is closed — a different job from
+  // saveState's per-session write ordering in state.ts. That ordering only
+  // decides which already-issued write lands last; it has no way to know a
+  // "running" snapshot fired after finalize is stale and should never be
+  // written in the first place. Without this flag such a snapshot would
+  // still queue behind the terminal write and legitimately "win" the
+  // ordering, resurrecting a closed run.json. Two different constraints
+  // (don't issue a stale write vs. order the writes you do issue), each
+  // owned by its own layer — not a duplicate check.
   let finalized = false;
   // Bound after the cycle recorder exists (it needs the session workdir); the
   // crash guard is declared first so it covers every fallible step below.
