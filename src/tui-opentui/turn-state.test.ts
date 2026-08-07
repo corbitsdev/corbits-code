@@ -231,7 +231,10 @@ describe("repetition tracking", () => {
     expect(s.repeating).toBe(false)
   })
 
-  test("repetition tracked across a tool cycle survives connector.reply with tools outstanding", () => {
+  test("a tool call ends the streaming cycle and clears the repetition buffer", () => {
+    // Repeats within one unbroken stream are a real loop; a tool call
+    // interrupting the stream is not part of that cycle, so it must not
+    // carry the accumulated repetition state into the next one.
     const deltas = Array(10)
       .fill(cycle)
       .map((text) => textDelta(text))
@@ -240,13 +243,52 @@ describe("repetition tracking", () => {
       { type: "tool.start", data: { call: { id: "c1", name: "grep" } } },
       100,
     )
+    expect(withTool.repeating).toBe(false)
+    expect(withTool.streamText).toBe("")
+
     const afterReply = turnStateFromEvent(
       withTool,
       { type: "connector.reply" },
       101,
     )
-    expect(afterReply.repeating).toBe(true)
-    expect(afterReply.streamText.length).toBeGreaterThan(0)
+    expect(afterReply.repeating).toBe(false)
+  })
+
+  test("a short narration line repeated before each of nine tool calls is not a loop", () => {
+    // Verified false positive (CL-5577): "Let me check the next file now."
+    // fed in 4-char chunks before nine separate tool calls, interleaved with
+    // tool.start/connector.reply/tool.done, must not abort the turn. Nothing
+    // about saying a similar short thing before each of several tool calls
+    // in one turn is degenerate.
+    const narration = "Let me check the next file now."
+    const chunks: string[] = []
+    for (let i = 0; i < narration.length; i += 4) {
+      chunks.push(narration.slice(i, i + 4))
+    }
+
+    let state = fold([{ type: "inference.start" }])
+    let clock = 1
+    for (let cycleIndex = 0; cycleIndex < 12; cycleIndex++) {
+      for (const chunk of chunks) {
+        state = turnStateFromEvent(state, textDelta(chunk), ++clock)
+      }
+      state = turnStateFromEvent(
+        state,
+        {
+          type: "tool.start",
+          data: { call: { id: `c${cycleIndex}`, name: "read_file" } },
+        },
+        ++clock,
+      )
+      state = turnStateFromEvent(state, { type: "connector.reply" }, ++clock)
+      state = turnStateFromEvent(
+        state,
+        { type: "tool.done", data: { result: { callId: `c${cycleIndex}` } } },
+        ++clock,
+      )
+      expect(state.repeating).toBe(false)
+    }
+    expect(state.repeating).toBe(false)
   })
 
   test("a fresh submit clears the repetition state", () => {

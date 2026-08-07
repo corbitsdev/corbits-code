@@ -56,8 +56,11 @@ export type TurnState = {
    */
   readonly activeToolCalls: readonly string[]
   /**
-   * Tail of the text/thinking output streamed this turn, across cycles —
-   * `connector.reply` with tools outstanding does not clear it. Bounded to
+   * Tail of the text/thinking output streamed in the current uninterrupted
+   * streaming cycle. A tool call ends the cycle and clears it: a model
+   * narrating a similar short line before each of several tool calls is
+   * ordinary and must not accumulate into an apparent loop, whereas a
+   * genuinely degenerate model repeats within one unbroken stream. Bounded to
    * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectRepetition`, nothing else.
    */
   readonly streamText: string
@@ -268,6 +271,11 @@ const streaming = (
   }
 }
 
+// A tool call ends the current streaming cycle. Clearing the repetition
+// buffer here, rather than only on a fresh turn, is what keeps repeats from
+// accumulating across `connector.reply` boundaries — the mechanism that
+// turned nine separate narration lines ("Let me check the next file now.")
+// into one apparent loop and killed an ordinary turn mid-flight.
 const runningTool = (
   state: TurnState,
   name: string | null,
@@ -280,6 +288,11 @@ const runningTool = (
   streamingType: "tool",
   currentToolName: name ?? state.currentToolName,
   lastActivityAt: nowMs,
+  streamText: "",
+  streamCharsSeen: 0,
+  repetitionCheckedAt: 0,
+  repeating: false,
+  repeatingSinceTokenCount: null,
 })
 
 /**
