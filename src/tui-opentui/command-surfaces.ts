@@ -300,7 +300,8 @@ function settingsCycleRows(
       describe: {
         what: "how the transcript is trimmed once the context fills.",
         impact:
-          "summarize spends a model call and keeps the thread; drop is instant and loses the middle of the session.",
+          "summarize (default) spends a call; drop is free but also strips tool output.",
+        tone: "consequence",
       },
       cycle: (dir) =>
         settings.setCompactionMode(
