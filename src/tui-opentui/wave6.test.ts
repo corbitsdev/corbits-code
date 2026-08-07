@@ -5,12 +5,7 @@ import { describe, expect, test } from "bun:test"
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index"
 import { focusOwner, scrollLease } from "./focus/index"
 import { withTestRenderer } from "./harness"
-import {
-  LONG_LOG_COLLAPSE_THRESHOLD,
-  LONG_LOG_WINDOW,
-  MAX_RETAINED_STREAM_ROWS,
-  mustWindow,
-} from "./long-log"
+import { MAX_RETAINED_STREAM_ROWS } from "./long-log"
 import { openPermissionsOverlay } from "./overlays"
 import {
   acceptOverlaySelection,
@@ -146,7 +141,7 @@ describe("Wave 6: command palette", () => {
 })
 
 describe("Wave 6: long-log windowing", () => {
-  test("multi-thousand append stays interactive (windowed paint)", async () => {
+  test("multi-thousand append stays interactive (full-retained-log paint)", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -154,8 +149,8 @@ describe("Wave 6: long-log windowing", () => {
           wireKeys: false,
         })
         try {
-          const n = LONG_LOG_COLLAPSE_THRESHOLD + 50
-          expect(mustWindow(n)).toBe(true)
+          // Below MAX_RETAINED_STREAM_ROWS: no eviction, so painted == n + 1 below holds.
+          const n = MAX_RETAINED_STREAM_ROWS - 50
 
           const t0 = performance.now()
           for (let i = 0; i < n; i++) {
@@ -178,11 +173,12 @@ describe("Wave 6: long-log windowing", () => {
 
           expect(shell.streamLog.length).toBe(n)
           expect(shell.lineCount).toBe(n)
-          // Paint tree is windowed, not full history.
+          // Paint tree tracks the full retained log 1:1 (CL-5553) — capped at
+          // MAX_RETAINED_STREAM_ROWS by CL-5551, not a smaller paint window,
+          // so every retained row stays reachable by scrolling.
           const painted = shell.transcript.getChildren().length
-          // collapse marker + window rows
-          expect(painted).toBeLessThanOrEqual(LONG_LOG_WINDOW + 2)
-          expect(painted).toBeGreaterThan(0)
+          expect(painted).toBeLessThanOrEqual(MAX_RETAINED_STREAM_ROWS + 1)
+          expect(painted).toBe(n + 1) // +1: bottom-anchor spacer
           // Smoke: no multi-second peg on append storm
           expect(elapsed).toBeLessThan(5_000)
 
