@@ -244,6 +244,27 @@ describe("resolveGeometry — overlay modes", () => {
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
   });
 
+  test("a large list overlay on a short terminal never exceeds terminal rows", () => {
+    // A ~30-command palette asks for far more body rows than a short terminal
+    // has; the resolver must still sum to exactly terminal.rows rather than
+    // let the overlay's own border/title chrome overflow past the screen.
+    for (let rows = 4; rows <= 12; rows++) {
+      const layout = resolveGeometry({
+        terminal: { columns: 80, rows },
+        overlay: { mode: "inset", bodyRows: 48 },
+      });
+      const total = layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
+      expect(total).toBe(rows);
+    }
+  });
+
+  test("overlay gets at least its border/title minimum before the transcript floor", () => {
+    const layout = idle80x24({
+      overlay: { mode: "inset", bodyRows: 48, minBodyRows: 5 },
+    });
+    expect(layout.overlayHeight).toBeGreaterThanOrEqual(5);
+  });
+
   test("full_shell hides transcript and gives residual to overlay_host", () => {
     const layout = idle80x24({
       overlay: { mode: "full_shell", bodyRows: 20 },

@@ -6,6 +6,7 @@ import {
   COLLAPSE_ORDER,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_MAX_FRACTION,
+  OVERLAY_MIN_ROWS,
   OVERLAY_TRANSCRIPT_FLOOR,
   PAINT_ORDER,
   PROMPT_BASE_ROWS,
@@ -26,6 +27,12 @@ export type OverlayInput = {
   readonly mode: OverlayMode;
   /** Requested overlay body rows (measured by host). Capped by fraction + floor. */
   readonly bodyRows?: number;
+  /**
+   * Rows the overlay's own chrome cannot render without (border + title +
+   * at least one content row). Falls back to `OVERLAY_MIN_ROWS` when the
+   * caller has not measured its actual chrome.
+   */
+  readonly minBodyRows?: number;
 };
 
 /**
@@ -315,6 +322,15 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   );
   if (heights.prompt > promptCap) heights.prompt = promptCap;
 
+  // An open overlay with real content needs its own border/title rows or it
+  // renders past whatever height it was actually assigned. The transcript
+  // floor below cannot be satisfied at that overlay's expense.
+  const requestedOverlayRows = input.overlay?.bodyRows ?? 0;
+  const minOverlay =
+    mode !== "closed" && requestedOverlayRows > 0
+      ? Math.min(input.overlay?.minBodyRows ?? OVERLAY_MIN_ROWS, requestedOverlayRows)
+      : 0;
+
   // Iteratively collapse optional chrome until transcript meets floor with overlay.
   // Enough steps to walk a grown prompt back to base one row at a time on top
   // of dropping every optional zone.
@@ -328,7 +344,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       floor,
     );
     const transcript = terminal.rows - chrome - overlay;
-    if (transcript >= floor) {
+    if (transcript >= floor && overlay >= minOverlay) {
       heights.transcript = Math.max(0, transcript);
       heights.overlay_host = overlay;
       break;
@@ -336,7 +352,8 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     // Need more space: collapse one zone, then retry.
     const cut = collapseOnce(heights, collapsed);
     if (cut === null) {
-      // Nothing left — accept best effort (may be below floor on tiny terminals).
+      // Nothing left — relax the transcript floor rather than leave the
+      // overlay under its own render minimum; accept best effort past that.
       heights.overlay_host = desiredOverlayHeight(
         { ...input, terminal },
         mode,

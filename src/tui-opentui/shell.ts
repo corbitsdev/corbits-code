@@ -1126,6 +1126,21 @@ function overlayHostRows(
   return overlayChromeRows(shell, bodyLineCount) + listRows
 }
 
+/**
+ * Smallest host rows the open overlay can render into without spilling past
+ * its own box: fixed chrome (border, title, body lines) plus one row of the
+ * list when it has anything to show. Below this the resolver must give ground
+ * elsewhere (transcript floor) rather than starve the overlay itself.
+ */
+function overlayMinHostRows(
+  shell: AppShell,
+  bodyLineCount: number,
+  hasItems: boolean,
+): number {
+  const perItem = overlayRowsPerItem(shell.overlayKind)
+  return overlayChromeRows(shell, bodyLineCount) + (hasItems ? perItem : 0)
+}
+
 function addOverlayRow(
   shell: AppShell,
   content: string,
@@ -1693,6 +1708,12 @@ export type RelayoutOpts = {
   readonly promptContentRows?: number
   readonly overlayMode?: OverlayMode
   readonly overlayBodyRows?: number
+  /**
+   * Rows the open overlay cannot render without: border + title + at least
+   * one content row. Below this, the box paints past whatever height it was
+   * assigned instead of shrinking, so the resolver must never starve it here.
+   */
+  readonly overlayMinBodyRows?: number
 }
 
 type PriorOverlaySnapshot = {
@@ -1720,6 +1741,7 @@ type ShellInternals = {
   promptContentRows: number | undefined
   overlayMode: OverlayMode
   overlayBodyRows: number | undefined
+  overlayMinBodyRows: number | undefined
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null
   /** Optional stable ids aligned with overlayItems for the open primary. */
@@ -1846,11 +1868,13 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   const promptContentRows = opts?.promptContentRows ?? bag?.promptContentRows
   const overlayMode = opts?.overlayMode ?? bag?.overlayMode ?? "closed"
   const overlayBodyRows = opts?.overlayBodyRows ?? bag?.overlayBodyRows
+  const overlayMinBodyRows = opts?.overlayMinBodyRows ?? bag?.overlayMinBodyRows
   if (bag) {
     bag.visibility = visibility
     bag.promptContentRows = promptContentRows
     bag.overlayMode = overlayMode
     bag.overlayBodyRows = overlayBodyRows
+    bag.overlayMinBodyRows = overlayMinBodyRows
   }
 
   const columns = opts?.columns ?? shell.renderer.width
@@ -1865,6 +1889,9 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
             mode: overlayMode,
             ...(overlayBodyRows !== undefined
               ? { bodyRows: overlayBodyRows }
+              : {}),
+            ...(overlayMinBodyRows !== undefined
+              ? { minBodyRows: overlayMinBodyRows }
               : {}),
           },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
@@ -3191,6 +3218,11 @@ export function openListOverlay(
     shell.overlayBodyLines.length,
     listItems * perItem,
   )
+  const minHostRows = overlayMinHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    listItems > 0,
+  )
 
   shell.overlayList = createListViewport({
     count: labels.length,
@@ -3207,7 +3239,11 @@ export function openListOverlay(
     target: focusTarget,
     scrollOwner: isPalette ? "palette" : "overlay",
   })
-  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  relayout(shell, {
+    overlayMode: "inset",
+    overlayBodyRows: hostRows,
+    overlayMinBodyRows: minHostRows,
+  })
   applyFocus(shell)
   paintOverlayList(shell)
 }
@@ -3560,7 +3596,16 @@ export function closeInsetOverlay(shell: AppShell): void {
     }
     const listH = prior.list.height
     const hostRows = overlayHostRows(shell, prior.bodyLines.length, listH)
-    relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+    const minHostRows = overlayMinHostRows(
+      shell,
+      prior.bodyLines.length,
+      prior.list.count > 0,
+    )
+    relayout(shell, {
+      overlayMode: "inset",
+      overlayBodyRows: hostRows,
+      overlayMinBodyRows: minHostRows,
+    })
     applyFocus(shell)
     paintOverlayList(shell)
     return
@@ -3673,7 +3718,16 @@ export function setOverlayBody(
     Math.max(1, shell.overlayItems.length) *
       overlayRowsPerItem(shell.overlayKind),
   )
-  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  const minHostRows = overlayMinHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    shell.overlayItems.length > 0,
+  )
+  relayout(shell, {
+    overlayMode: "inset",
+    overlayBodyRows: hostRows,
+    overlayMinBodyRows: minHostRows,
+  })
   paintOverlayList(shell)
 }
 
@@ -5493,6 +5547,7 @@ export function createAppShell(
     promptContentRows,
     overlayMode: "closed",
     overlayBodyRows: undefined,
+    overlayMinBodyRows: undefined,
     priorOverlay: null,
     overlayItemIds: [],
     overlayItemValues: [],

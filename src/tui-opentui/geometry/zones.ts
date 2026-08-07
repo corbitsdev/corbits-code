@@ -115,6 +115,14 @@ export const PROMPT_CAP_FRACTION = 0.4;
 export const OVERLAY_MAX_FRACTION = 0.7;
 
 /**
+ * Smallest overlay_host an open overlay can render into: two border rows plus
+ * one content row. The transcript floor exists to keep conversation visible,
+ * but it must not starve an overlay the operator just opened below the rows
+ * its own border costs — that renders past its box instead of shrinking.
+ */
+export const OVERLAY_MIN_ROWS = 3;
+
+/**
  * Prompt floor: labelled borders + one content line. Only a terminal too short
  * to seat the transcript floor alongside a composing area gets squeezed here.
  */
