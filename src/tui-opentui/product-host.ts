@@ -550,7 +550,7 @@ export async function mountProductHost(
             const { groups } = groupModelsForPicker(currentModels)
             const group = groups.get(groupProvider)
             if (group !== undefined) {
-              openLevel(annotateCurrent(group.rows, activeModelId()), openModels)
+              openLevel(annotateCurrent(group.rows, config.activeModelId?.()), openModels)
             }
             return
           }
@@ -574,11 +574,9 @@ export async function mountProductHost(
       })
     }
 
-    const activeModelId = (): string | undefined => config.activeModelId?.()
-
     openModels = (): void => {
       const { top, groups } = groupModelsForPicker(currentModels)
-      const activeId = activeModelId()
+      const activeId = config.activeModelId?.()
       // The active model's own row already reads "(current)" via annotateCurrent
       // below; when it lives inside a provider group, mark the group row too
       // so the pick is visible without descending into it.
