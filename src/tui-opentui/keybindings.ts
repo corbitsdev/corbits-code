@@ -25,7 +25,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Ctrl+C", description: "interrupt the run, or clear the prompt when idle; press twice to exit" },
   { keys: "Ctrl+O", description: "open the command palette; press again to close it" },
   { keys: "Alt+C", description: "copy mode: pick a message, tool output, or diff; press again to close it" },
-  { keys: "Alt+M", description: "take the mouse for click-to-expand and drag-scroll; off by default so drag-select and copy work" },
+  { keys: "Alt+M", description: "release the mouse to the terminal for native drag-select and copy; on by default for wheel scroll and click-to-expand" },
   { keys: "Alt+E", description: "expand or collapse every collapsible row (tool call, diff, skill, reasoning)" },
   { keys: "Tab", description: "move focus between the prompt and the transcript" },
   { keys: "Esc", description: "close the open overlay, or leave subagent observe" },

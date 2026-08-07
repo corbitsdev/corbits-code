@@ -3999,8 +3999,8 @@ export function copyAllTargets(shell: AppShell): boolean {
 
 /**
  * Alt+M: take DEC mouse reporting, or hand it back to the terminal.
- * Reporting is off by default so drag-select and the terminal's own copy keep
- * working; taking it enables click-to-expand and drag-scroll at that cost.
+ * Reporting is on by default so wheel scroll and click-to-expand work;
+ * releasing it restores the terminal's own drag-select and copy.
  * Returns the new enabled state, or null when the host exposes no control.
  */
 export function toggleMouseCapture(shell: AppShell): boolean | null {
