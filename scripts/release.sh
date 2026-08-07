@@ -196,12 +196,36 @@ EOF
   rm -rf "$wd"
 }
 
+# The OpenTUI renderer ships its native core as one optional package per
+# platform, and an install only ever lands the host's own. A cross-compile for
+# any other target then fails to resolve it, so every target's package is
+# fetched straight from the registry into node_modules before the build.
+# Nothing is written to package.json: these are already declared there as
+# optionalDependencies, and this only makes the ones bun skipped present.
+fetch_native_modules() {
+  local version platform pkg dir url
+  version=$(jq -r '.optionalDependencies["@opentui/core-darwin-arm64"] // empty' package.json)
+  [ -n "$version" ] || die "no @opentui/core-* version in package.json optionalDependencies"
+  for entry in "${TARGETS[@]}"; do
+    IFS='|' read -r _label bun_target _kind _deb <<< "$entry"
+    platform=${bun_target#bun-}
+    pkg="core-$platform"
+    dir="node_modules/@opentui/$pkg"
+    [ -d "$dir" ] && continue
+    url="https://registry.npmjs.org/@opentui/$pkg/-/$pkg-$version.tgz"
+    info "fetching @opentui/$pkg@$version (cross-compile target)"
+    mkdir -p "$dir"
+    curl -fsSL "$url" | tar -xz -C "$dir" --strip-components=1 ||       die "could not fetch @opentui/$pkg@$version from the registry"
+  done
+}
+
 # ---- preflight -------------------------------------------------------------
 step "Preflight for $TAG"
 for t in git gh bun jq ar tar shasum; do command -v "$t" >/dev/null || die "missing tool: $t"; done
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated (run: gh auth login)"
 info "installing dependencies (bun install)"
 bun install >/dev/null 2>&1 || die "bun install failed"
+fetch_native_modules
 if [ "$SKIP_TAP" != 1 ]; then
   TAP_DIR=$(brew --repository "$TAP_SLUG" 2>/dev/null) || die "brew not found; use --skip-tap"
   if [ ! -d "$TAP_DIR/.git" ]; then
