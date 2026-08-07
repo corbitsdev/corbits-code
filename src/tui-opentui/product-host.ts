@@ -44,6 +44,7 @@ import {
   setHeader,
   setPaletteCatalog,
   setPaletteOnCommand,
+  setMcpNeedsAuth,
   setStatusFlash,
   type AppShell,
   type ItemDescription,
@@ -328,6 +329,9 @@ export async function mountProductHost(
     resolveExit?.()
   }
 
+  // Servers that announced an authorization URL and have not connected since.
+  const mcpUnauthorized = new Set<string>()
+
   function onEvent(event: unknown): void {
     if (disposed) return
     if (
@@ -358,7 +362,11 @@ export async function mountProductHost(
   function onMcpStatus(state: unknown): void {
     if (disposed) return
     const parsed = mcpServerState(state)
-    if (parsed !== null) show(mcpNotice(parsed))
+    if (parsed === null) return
+    if (parsed.state === "needs-auth") mcpUnauthorized.add(parsed.name)
+    else mcpUnauthorized.delete(parsed.name)
+    setMcpNeedsAuth(shell, [...mcpUnauthorized])
+    show(mcpNotice(parsed))
   }
 
   function onPermissionGrant(payload: unknown): void {

@@ -514,6 +514,62 @@ describe("hooks surface", () => {
   })
 })
 
+describe("mcp surface", () => {
+  const entries = [
+    { name: "linear", state: "connected" as const, toolCount: 12 },
+    { name: "notion", state: "needs-auth" as const, authURL: "https://notion.test/auth" },
+    { name: "sentry", state: "failed" as const, error: "ECONNREFUSED" },
+  ]
+
+  test("lists every configured server with its live state", async () => {
+    await withShell((shell) => {
+      openCommandSurface(shell, "mcp", { notify: () => {}, mcp: { list: () => entries, openAuthURL: () => {} } })
+      expect(shell.overlayItems.slice(0, 3)).toEqual([
+        "linear — connected · 12 tools",
+        "notion — needs auth",
+        "sentry — failed",
+      ])
+    })
+  })
+
+  test("Enter on an unauthorized server opens the browser and copies the link", async () => {
+    await withShell((shell) => {
+      const opened: string[] = []
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: { list: () => entries, openAuthURL: (url) => opened.push(url) },
+      })
+      moveOverlaySelection(shell, 1)
+      acceptOverlaySelection(shell)
+      expect(opened).toEqual(["https://notion.test/auth"])
+      expect(shell.statusFlash).toContain("notion")
+      // The echo would quote "notion — needs auth" back forever, moments
+      // after the operator authorized it.
+      expect(shell.streamLog.filter((r) => r.meta === "overlay")).toEqual([])
+    })
+  })
+
+  test("Enter on a connected server does nothing", async () => {
+    await withShell((shell) => {
+      const opened: string[] = []
+      openCommandSurface(shell, "mcp", {
+        notify: () => {},
+        mcp: { list: () => entries, openAuthURL: (url) => opened.push(url) },
+      })
+      acceptOverlaySelection(shell)
+      expect(opened).toEqual([])
+    })
+  })
+
+  test("reports the gap when the session has no mcp deps", async () => {
+    await withShell((shell) => {
+      const notes: string[] = []
+      openCommandSurface(shell, "mcp", { notify: (t) => notes.push(t) })
+      expect(notes[0]).toContain("not available")
+    })
+  })
+})
+
 describe("model surface", () => {
   test("routes to the host picker, and reports the gap when absent", async () => {
     await withShell((shell) => {

@@ -73,8 +73,9 @@ export function hookNotice(event: LifecycleHookEvent): RuntimeNotice | null {
 
 /**
  * MCP connection state. Reconnect chatter is noise on every server every run;
- * a server waiting on authorization or refusing to connect changes what the
- * agent can do, so it keeps a row.
+ * a server refusing to connect changes what the agent can do, so it keeps a
+ * row. A server waiting on authorization is a standing condition with an
+ * action attached, which is the notice row's and /mcp's job, not a row's.
  */
 export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
   switch (state.state) {
@@ -87,11 +88,10 @@ export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
         text: `mcp ${state.name} connected · ${n} tool${n === 1 ? "" : "s"}`,
       }
     }
+    // A raw authorization URL in the transcript is unactionable and scrolls
+    // away. The notice row counts these and /mcp does the authorizing.
     case "needs-auth":
-      return {
-        kind: "row",
-        text: `mcp ${state.name} needs authorization — open ${state.url}`,
-      }
+      return null
     case "failed":
       return {
         kind: "row",

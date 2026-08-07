@@ -83,13 +83,10 @@ describe("mcpNotice", () => {
     ).toEqual({ kind: "flash", text: "mcp linear connected · 2 tools" })
   })
 
-  test("needs-auth keeps a row with the url", () => {
+  test("needs-auth says nothing — the notice row and /mcp own it", () => {
     expect(
       mcpNotice({ name: "linear", state: "needs-auth", url: "https://x/auth" }),
-    ).toEqual({
-      kind: "row",
-      text: "mcp linear needs authorization — open https://x/auth",
-    })
+    ).toBeNull()
   })
 
   test("failure keeps a row saying what was lost", () => {

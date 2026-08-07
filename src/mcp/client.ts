@@ -119,7 +119,7 @@ async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions)
 async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions): Promise<MCPConnectResult> {
   if (config.url === undefined) return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
   const url = new URL(config.url);
-  const callback = await startCallbackServer();
+  const callback = await startCallbackServer(config.name);
   const authProvider = await createOAuthProvider({
     serverName: config.name,
     redirectUrl: callback.redirectUrl,

@@ -26,6 +26,20 @@ rollback is the prior tag rather than a setting.
 - Live status for lifecycle hooks, subagent progress, MCP connections and
   recorded permission grants.
 
+### Connecting an MCP server
+
+Remote MCP servers that need OAuth used to print a raw authorization URL into
+the transcript the moment you started a session — nothing you could click, copy
+or come back to.
+
+- Nothing blocks usage. A server waiting on authorization simply has no tools,
+  and the notice row names it: `mcp granola needs auth (/mcp)`.
+- **`/mcp` lists every server** and its live state. Enter on one that needs
+  authorization opens the page in your browser and copies the link, so it works
+  over SSH too.
+- **The page your browser lands on** now tells you which server connected, and
+  looks like the rest of Corbits rather than a browser default.
+
 ### Fixed
 
 The ones most likely to have affected you:

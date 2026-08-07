@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { PRODUCT_NAME } from "../branding.js";
+import { callbackPageHtml } from "../auth/callback-page.js";
 
 export type CallbackServer = {
   // The redirect_uri to register with the authorization server.
@@ -17,15 +17,12 @@ type CallbackWaiter = { resolve: (code: string) => void; reject: (error: Error) 
 
 const CALLBACK_PATH = "/callback";
 
-const DONE_HTML =
-  "<!doctype html><meta charset=utf-8><title>Authorized</title>" +
-  "<body style=\"font-family:system-ui;padding:3rem;text-align:center\">" +
-  `<h1>Authorization complete</h1><p>You can close this tab and return to ${PRODUCT_NAME}.</p>`;
-
-// Start an ephemeral loopback server to receive the OAuth redirect. Binds to a
+// Start an ephemeral loopback server to receive the OAuth redirect. `serverName`
+// only names the authorization on the page the browser lands on.
+// Binds to a
 // random port on 127.0.0.1 so it never collides with anything and is only
 // reachable locally.
-export async function startCallbackServer(): Promise<CallbackServer> {
+export async function startCallbackServer(serverName?: string): Promise<CallbackServer> {
   let expectedState: string | undefined;
   let pendingResult: CallbackResult | undefined;
   let waiter: CallbackWaiter | undefined;
@@ -61,9 +58,15 @@ export async function startCallbackServer(): Promise<CallbackServer> {
 
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
-    res.statusCode = error !== null || code === null ? 400 : 200;
+    const failure = error ?? (code === null ? "the redirect carried no code" : undefined);
+    res.statusCode = failure === undefined ? 200 : 400;
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.end(error !== null || code === null ? `Authorization failed: ${error ?? "no code returned"}` : DONE_HTML);
+    res.end(
+      callbackPageHtml({
+        ...(serverName !== undefined ? { subject: serverName } : {}),
+        ...(failure !== undefined ? { error: failure } : {}),
+      }),
+    );
     if (error !== null) deliver({ error: new Error(`Authorization failed: ${error}`) });
     else if (code === null) deliver({ error: new Error("Authorization redirect carried no code.") });
     else deliver({ code });

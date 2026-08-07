@@ -27,6 +27,23 @@ export type NoticeState = {
   /** Transient feedback (copy result, attach failure, exit arming). */
   readonly flash: string | null
   readonly attachments: number
+  /** Names of MCP servers still unauthorized; their tools stay unavailable. */
+  readonly mcpNeedsAuth: readonly string[]
+}
+
+/** How many server names the segment spells out before it counts instead. */
+const MCP_NAMES_SHOWN = 2
+
+/**
+ * Name the unauthorized servers rather than counting them: a bare count sends
+ * the operator to /mcp to find out which one it meant, and reads as a claim
+ * about whichever server they see there first.
+ */
+function mcpAuthNames(names: readonly string[]): string {
+  const sorted = [...names].sort()
+  if (sorted.length <= MCP_NAMES_SHOWN) return `mcp ${sorted.join(", ")}`
+  const shown = sorted.slice(0, MCP_NAMES_SHOWN).join(", ")
+  return `mcp ${shown} +${sorted.length - MCP_NAMES_SHOWN}`
 }
 
 /**
@@ -42,6 +59,9 @@ export function composeNoticeLine(state: NoticeState): string {
     segments.push(
       `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,
     )
+  }
+  if (state.mcpNeedsAuth.length > 0) {
+    segments.push(`${mcpAuthNames(state.mcpNeedsAuth)} needs auth (/mcp)`)
   }
   const flash = state.flash?.trim() ?? ""
   if (flash.length > 0) segments.push(flash)
