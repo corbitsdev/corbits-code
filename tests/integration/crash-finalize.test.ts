@@ -11,7 +11,7 @@ import { isResumableByDefault } from "../../src/tui/pick-session.js";
 const FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-crash.ts");
 
 describe("integration — crash finalizes run.json", () => {
-  test("uncaughtException writes status: crashed with finishedAt", async () => {
+  test("uncaughtException writes status: crashed with finishedAt, racing in-flight snapshot writes", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-crash-cwd-"));
     const home = mkdtempSync(join(tmpdir(), "corbits-crash-home-"));
     const sessionId = generateSessionId();
@@ -35,10 +35,15 @@ describe("integration — crash finalizes run.json", () => {
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
 
+      // The fixture also fires 50 unawaited straggler "running" snapshot
+      // writes for the same session immediately before crashing. Without the
+      // isCrashed() guard in saveState (src/session/state.ts), one of those
+      // could win the rename() race and this would read back "running".
       expect(state.status).toBe("crashed");
       expect(state.finishedAt).toBeGreaterThan(0);
       expect(state.error).toContain("simulated crash");
       expect(state.task).toBe("simulated crash task");
+      expect(state.model).toBe("test-provider:test-model");
       expect(isResumableByDefault(state)).toBe(false);
     } finally {
       rmSync(cwd, { recursive: true, force: true });

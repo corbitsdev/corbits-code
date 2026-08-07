@@ -2,10 +2,20 @@
 // handler (src/index.ts) can reach even though persistRunSnapshot is a
 // closure local to runTUI. Only ever consulted from the crash path: a run
 // that never crashes never has this read.
+//
+// Carries enough of the live run state (task, startedAt, model) that the
+// crash handler can build a full RunState record itself. It must not read
+// run.json back off disk to fill these in — an unbounded readFile on the
+// crash path has the exact failure mode primeCrashReporting (src/crash/
+// report.ts) exists to avoid for git: a stalled disk or network mount would
+// block process.exit forever.
 export type RunStateHandle = {
   sessionId: string;
   cwd: string;
   active: boolean;
+  task: string;
+  startedAt: number;
+  model?: string;
 };
 
 let activeRun: RunStateHandle | null = null;
@@ -20,4 +30,22 @@ export function clearActiveRun(): void {
 
 export function getActiveRun(): RunStateHandle | null {
   return activeRun;
+}
+
+// Set once, by the crash handler, immediately before it writes the terminal
+// "crashed" record. saveState (src/session/state.ts) reads this synchronously
+// right before each queued write actually fires, so any snapshot write still
+// waiting behind another one in its per-session chain sees the flag and
+// no-ops instead of firing after (and clobbering) the crash write. It cannot
+// stop a write whose writeFile/rename has already been dispatched to the
+// kernel at the moment the flag flips — that window is one atomicWrite call
+// wide, not the full remaining lifetime of the process.
+let crashed = false;
+
+export function markCrashed(): void {
+  crashed = true;
+}
+
+export function isCrashed(): boolean {
+  return crashed;
 }

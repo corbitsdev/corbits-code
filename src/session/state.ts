@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { sessionDir } from "./index.js";
+import { isCrashed } from "./active-run.js";
 import { COMMAND_NAME } from "../branding.js";
 
 const ConnectedMcpServerSchema = type({
@@ -65,6 +66,18 @@ export function warnUnreadableState(path: string, reason: string): void {
 // only ever address one file per session.
 const writeChains = new Map<string, Promise<void>>();
 
+// Checked right before a chained write actually fires (not at saveState()
+// call time) so a snapshot write still queued behind another one, at the
+// moment the crash handler flips this flag, sees it and no-ops instead of
+// landing after (and clobbering) the crash write issued via saveCrashState.
+// This cannot recall a write whose writeFile/rename has already been
+// dispatched to the kernel — that residual window is one atomicWrite call
+// wide (a small local JSON write), not the remaining lifetime of the process.
+async function atomicWriteUnlessCrashed(path: string, content: string): Promise<void> {
+  if (isCrashed()) return;
+  await atomicWrite(path, content);
+}
+
 export async function saveState(
   cwd: string,
   sessionId: string,
@@ -75,8 +88,8 @@ export async function saveState(
   const content = JSON.stringify(state, null, 2);
   const previous = writeChains.get(sessionId) ?? Promise.resolve();
   const write = previous.then(
-    () => atomicWrite(path, content),
-    () => atomicWrite(path, content),
+    () => atomicWriteUnlessCrashed(path, content),
+    () => atomicWriteUnlessCrashed(path, content),
   );
   // Swallow the error in the chain tail (not in `write`, which still rejects
   // for this caller) so one failed save doesn't permanently wedge later
@@ -96,8 +109,9 @@ export async function saveState(
 // still-pending write for this session (possibly the very write mid-flight
 // when the process crashed) must never be awaited here, or a queued write
 // that never settles would block the crash handler's process.exit forever.
-// There is no later write to order against once the process is exiting, so
-// per-session ordering has nothing left to protect.
+// Callers must call markCrashed() (src/session/active-run.ts) before this, so
+// any snapshot write still queued behind another one in the chain steps
+// aside instead of racing this write's rename().
 export async function saveCrashState(
   cwd: string,
   sessionId: string,

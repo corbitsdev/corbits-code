@@ -1,8 +1,8 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/report.js";
-import { getActiveRun } from "./session/active-run.js";
-import { loadState, saveCrashState } from "./session/state.js";
+import { getActiveRun, markCrashed } from "./session/active-run.js";
+import { saveCrashState } from "./session/state.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { installFileLogSink } from "./logging/sink.js";
@@ -118,6 +118,12 @@ export async function main(argv: readonly string[]): Promise<number> {
 // Exported so an integration test can register these process-level handlers
 // and inject a crash without spawning the full TUI stack.
 export async function handleFatal(kind: CrashKind, error: unknown): Promise<void> {
+  // Flip this before any awaits below so any snapshot write still queued
+  // behind another one in state.ts's per-session chain sees it and steps
+  // aside the moment it's next in line, rather than racing saveCrashState's
+  // rename() below. See markCrashed's doc comment for the residual window
+  // this cannot close.
+  markCrashed();
   process.stderr.write(`${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
   const file = await writeCrashReport(kind, error);
   if (file !== null) {
@@ -131,26 +137,28 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
 
 // A crash reaching here escaped without ever hitting runTUI's own try/catch
 // (e.g. a throw inside a fire-and-forget `void` call), so run.json was never
-// closed out. getActiveRun surfaces the in-flight session set by runTUI; the
-// write itself goes through saveCrashState, which bypasses the per-session
-// write chain in state.ts on purpose — chaining behind a write that never
-// settles (possibly the very write that triggered this crash) would block
-// process.exit indefinitely, defeating this handler's one job.
+// closed out. getActiveRun surfaces the in-flight session set by runTUI, with
+// enough (task, startedAt, model) carried on the handle itself that no read
+// of run.json is needed — a readFile here would be exactly the kind of
+// unbounded crash-path I/O primeCrashReporting (src/crash/report.ts) exists
+// to avoid for git: a stalled disk or network mount would block process.exit
+// forever. The write itself goes through saveCrashState, which bypasses the
+// per-session write chain in state.ts on purpose — chaining behind a write
+// that never settles (possibly the very write that triggered this crash)
+// would block process.exit indefinitely, defeating this handler's one job.
 async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
   const run = getActiveRun();
   if (run === null || !run.active) return;
   const message = error instanceof Error ? error.message : String(error);
   try {
-    const prior = await loadState(run.cwd, run.sessionId);
     await saveCrashState(run.cwd, run.sessionId, {
       status: "crashed",
-      turnsUsed: prior?.turnsUsed ?? 0,
-      task: prior?.task ?? "(conversation)",
-      startedAt: prior?.startedAt ?? Date.now(),
+      turnsUsed: 0,
+      task: run.task,
+      startedAt: run.startedAt,
       finishedAt: Date.now(),
       error: message,
-      ...(prior?.model !== undefined ? { model: prior.model } : {}),
-      ...(prior?.mcpServers !== undefined ? { mcpServers: prior.mcpServers } : {}),
+      ...(run.model !== undefined ? { model: run.model } : {}),
     });
   } catch (saveErr: unknown) {
     process.stderr.write(

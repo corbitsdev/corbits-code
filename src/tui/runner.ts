@@ -477,7 +477,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // ever reaching this function's own try/catch — e.g. a throw inside a
   // fire-and-forget `void` call. Cleared wherever `finalized` below flips
   // true, since those paths already write a terminal run.json themselves.
-  const activeRunHandle: RunStateHandle = { sessionId, cwd: config.cwd, active: true };
+  const activeRunHandle: RunStateHandle = {
+    sessionId,
+    cwd: config.cwd,
+    active: true,
+    task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+    startedAt,
+    model: `${config.providerName}:${config.model}`,
+  };
   setActiveRun(activeRunHandle);
 
   // Crash guard: if anything from setup onward throws all the way out of
@@ -1387,12 +1394,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     status: RunState["status"],
     extra?: Pick<RunState, "finishedAt" | "error">,
   ): Promise<void> => {
+    const task = runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)";
+    const model = `${liveSource.id}:${liveSource.model}`;
+    // Kept in step with every persisted snapshot so the crash handler's copy
+    // (activeRunHandle, read by index.ts) never lags what's actually on disk.
+    activeRunHandle.task = task;
+    activeRunHandle.startedAt = startedAt;
+    activeRunHandle.model = model;
     await saveState(config.cwd, sessionId, {
       status,
       turnsUsed: runSink.getTurnCount(),
-      task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
+      task,
       startedAt,
-      model: `${liveSource.id}:${liveSource.model}`,
+      model,
       mcpServers: connectedMcpServers,
       ...extra,
     });

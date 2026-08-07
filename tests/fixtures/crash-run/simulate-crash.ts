@@ -14,17 +14,39 @@ if (sessionId === undefined) {
   throw new Error("CRASH_TEST_SESSION_ID must be set");
 }
 
+const startedAt = Date.now();
+const task = "simulated crash task";
+const model = "test-provider:test-model";
+
 await saveState(cwd, sessionId, {
   status: "running",
   turnsUsed: 3,
-  task: "simulated crash task",
-  startedAt: Date.now(),
+  task,
+  startedAt,
+  model,
 });
 
-setActiveRun({ sessionId, cwd, active: true });
+setActiveRun({ sessionId, cwd, active: true, task, startedAt, model });
 installCrashHandlers();
 
 process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);
+
+// Queue a burst of unawaited straggler snapshot writes (what
+// persistRunSnapshot does on every turn/model-switch/MCP-connect event) right
+// before crashing. Each is chained onto the previous one in state.ts's
+// per-session write queue, so most of these are still waiting their turn —
+// not yet dispatched to the kernel — at the moment the crash handler flips
+// the isCrashed() flag. Without that guard, one of these landing after
+// saveCrashState's rename() would resurrect status: "running".
+for (let i = 0; i < 50; i++) {
+  void saveState(cwd, sessionId, {
+    status: "running",
+    turnsUsed: i,
+    task,
+    startedAt,
+    model,
+  });
+}
 
 setImmediate(() => {
   throw new Error("simulated crash");
