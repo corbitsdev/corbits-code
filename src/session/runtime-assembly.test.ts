@@ -142,7 +142,7 @@ describe("skillDirsFromEnabledPlugins", () => {
 });
 
 describe("createSessionPruningCompactor", () => {
-  test("uses stripResultContent in pruning mode and summarize otherwise", async () => {
+  test("only wires a summarize function in llm mode", async () => {
     const summarize = async () => "summary";
     const pruning = createSessionPruningCompactor({
       compactionMode: "pruning",

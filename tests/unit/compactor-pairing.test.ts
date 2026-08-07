@@ -25,7 +25,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userResult("c1"),      // index 4 -> recent window head
       userText("c"), userText("d"), userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
   });
@@ -38,9 +38,52 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("a"), userText("b"), userText("c"), userText("d"),
       userText("e"), userText("f"), userText("g"),
     ];
-    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2, stripResultContent: true });
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
     const { output } = await compactor.apply(turns, {} as never);
     expect(() => assertWellFormedToolSequence(output)).not.toThrow();
+  });
+
+  test("keeps tool_result content in a recent-window turn across a pruning pass", async () => {
+    const editResult: ConversationTurn = {
+      role: "user",
+      content: [{ type: "tool_result", callId: "edit1", content: [{ type: "text", text: "diff applied to file.ts" }] }],
+      timestamp: 1,
+    };
+    const turns: ConversationTurn[] = [
+      userText("start"), userText("a"), userText("b"), userText("c"), userText("d"),
+      { role: "assistant", content: [{ type: "tool_call", id: "edit1", name: "edit_file", arguments: { path: "file.ts" } }], timestamp: 1 },
+      editResult,
+      userText("e"), userText("f"), userText("g"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    const kept = output.find((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),
+    );
+    const resultBlock = kept?.content.find((b) => b.type === "tool_result" && b.callId === "edit1");
+    expect(resultBlock).toMatchObject({ content: [{ type: "text", text: "diff applied to file.ts" }] });
+  });
+
+  test("keeps tool_result content in an anchored file-edit turn pulled forward from the discarded middle", async () => {
+    const editResult: ConversationTurn = {
+      role: "user",
+      content: [{ type: "tool_result", callId: "edit1", content: [{ type: "text", text: "diff applied to file.ts" }] }],
+      timestamp: 1,
+    };
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      { role: "assistant", content: [{ type: "tool_call", id: "edit1", name: "edit_file", arguments: { path: "file.ts" } }], timestamp: 1 },
+      editResult,
+      userText("a"), userText("b"), userText("c"), userText("d"),
+      userText("e"), userText("f"), userText("g"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    const kept = output.find((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "edit1"),
+    );
+    const resultBlock = kept?.content.find((b) => b.type === "tool_result" && b.callId === "edit1");
+    expect(resultBlock).toMatchObject({ content: [{ type: "text", text: "diff applied to file.ts" }] });
   });
 
   test("buildTurnSummary counts large tool_result payloads", () => {
