@@ -29,6 +29,7 @@ import {
 } from "./model-catalog.js"
 import type { ItemDescription } from "./shell.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
+import { onTurnBoundary } from "../agent/reactor-events.js"
 import {
   appendStreamRow,
   clearShellExitHandler,
@@ -285,7 +286,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   // Every completed inference turn changes both cost and context usage;
   // nothing else needs a fresher read than that.
   const onCostEvent = (event: { type: string }): void => {
-    if (event.type === "inference.done") pushCostContext()
+    if (onTurnBoundary(event)) pushCostContext()
   }
   deps.eventEmitter.on("event", onCostEvent)
 

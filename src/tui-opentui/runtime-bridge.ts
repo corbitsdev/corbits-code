@@ -33,6 +33,7 @@ import {
   type AppShell,
 } from "./shell.js"
 import { rampFor, rampLine } from "./ramp.js"
+import { onTurnBoundary } from "../agent/reactor-events.js"
 import {
   resolveRampPhase,
   resolveTurnLabel,
@@ -829,7 +830,7 @@ export function attachSessionBridge(
       // turn (see turn-state.ts) — the cycle continues, but a boundary still
       // passed, so a queued message waiting on it should not wait for the
       // turn's eventual end too.
-      if (event.type === "inference.done" && bag.turn.activeToolCalls.length > 0) {
+      if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
         drainAtBoundary(shell, bag)
       }
       if (settled) settleRun()

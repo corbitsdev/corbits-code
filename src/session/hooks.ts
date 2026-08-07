@@ -12,6 +12,7 @@ import type {
   ToolCall,
   ToolResult,
 } from "@intx/types/runtime";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 
 import { COMMAND_NAME, SETTINGS_DIR_NAME } from "../branding.js";
 
@@ -236,7 +237,7 @@ export function createTurnContextCollector(
         return;
       }
 
-      if (event.type === "inference.done") {
+      if (onTurnBoundary(event)) {
         const toolCalls = event.data.turn.content
           .filter((block): block is Extract<typeof block, { type: "tool_call" }> => block.type === "tool_call")
           .map((block): ToolCall => ({

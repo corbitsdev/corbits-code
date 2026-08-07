@@ -15,6 +15,7 @@ import {
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
+import { onTurnBoundary } from "./reactor-events.js";
 import { type } from "arktype";
 import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createCorbitsRetryPolicy } from "./retry-policy.js";
@@ -523,7 +524,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.pendingToolOnlyNudge = false;
       this.pausedForToolOnly = false;
     }
-    if (event.type === "inference.done") this.inferenceRecoveries = 0;
+    if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
     if (event.type === "message.received" && this.taskClassifier !== undefined) {
       const message = event.message;
@@ -564,7 +565,7 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    if (event.type === "inference.done") {
+    if (onTurnBoundary(event)) {
       this.turnCount++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
       const hasText = event.turn.content.some(
@@ -679,7 +680,7 @@ class ChatDirectorImpl extends DefaultDirector {
     // prefers provider usage when present.
     const turns = state.turns ?? [];
     this.compaction.syncFromTurns(turns);
-    if (event.type === "inference.done") {
+    if (onTurnBoundary(event)) {
       this.compaction.noteInferenceDone(event, turns);
     }
 

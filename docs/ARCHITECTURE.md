@@ -18,8 +18,20 @@ This repeats until the director emits `capabilities.done()`.
 
 | Event | When it fires |
 |---|---|
-| `inference.done` | The LLM finished one assistant turn. Carries the full turn content. |
+| `inference.done` | The LLM finished one assistant turn. Carries the full turn content. Fires once per turn, every turn — this is the **turn boundary**. |
 | `tool.done` | One tool call completed. Carries the result and the original `callId`. |
+| `reactor.done` | The reactor loop shut down. Fires once, at the end of the run — not between turns. |
+
+`inference.done` and `reactor.done` read as near-synonyms at a call site but
+answer different questions: "did a turn end" versus "did the reactor shut
+down." Code that needs either answer should go through the `onTurnBoundary`
+/ `onReactorShutdown` guards in `src/agent/reactor-events.ts` rather than
+comparing `event.type` to a string directly — naming the question makes the
+right thing easier to write than the wrong one.
+
+This is a convention, not an enforced constraint: nothing stops a future
+call site from writing `event.type === "reactor.done"` directly instead of
+reaching for the guard.
 
 ### ReactorActions
 

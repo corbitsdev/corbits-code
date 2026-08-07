@@ -2,6 +2,7 @@ import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   createTurnContextCollector,
   type LifecycleHookManager,
@@ -112,7 +113,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     // A completed inference turn supersedes a prior recoverable inference.error
     // (ChatDirector retries timeout/retryable/aborted). Leaving the sticky error
     // would mark a recovered successful send as failed.
-    if (event.type === "inference.done") {
+    if (onTurnBoundary(event)) {
       runError = undefined;
     }
     if (event.type === "reactor.error") {
