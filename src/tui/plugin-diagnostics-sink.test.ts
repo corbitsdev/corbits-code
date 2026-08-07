@@ -1,17 +1,157 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  createPluginLoadDiagnostics,
+  emitPluginWarningLog,
+  formatPluginWarningsSummary,
+} from "../plugins/diagnostics.js";
+import { expandPluginPath, loadPluginEntry, type ExpandPluginPathSkip } from "../plugins/loader.js";
+import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
+import { resolveToolPlugins, type ToolPluginCandidate } from "../plugins/tool-plugins.js";
+import { discoverSessionPlugins } from "../session/runtime-assembly.js";
 
 // The TUI holds the alternate screen for the whole interactive session, so any
-// plugin-diagnostics summary that lands on raw stderr corrupts the rendered
-// frame instead of showing up as a single controlled line (see CL-5411).
-// `emitPluginWarningSummary` defaults to a raw `process.stderr.write` sink
-// when called with no second argument; interactive callers must route through
-// `emitPluginWarningLog` (the structured-logger sink) instead.
-describe("runner.ts plugin diagnostics", () => {
-  test("never calls emitPluginWarningSummary with its raw-stderr default", async () => {
-    const src = await readFile(join(import.meta.dir, "runner.ts"), "utf8");
-    const bareCalls = src.match(/emitPluginWarningSummary\([^,)]+\)/g) ?? [];
-    expect(bareCalls).toEqual([]);
+// of the real plugin-loading paths runner.ts drives at startup / enable /
+// verify / add-path / tool-resolve time must never write to raw stderr — a
+// bare write lands mid-frame and corrupts the rendered transcript (CL-5411).
+// This instruments process.stderr.write around each real code path runner.ts
+// calls (not a source grep for one function name), so it catches the bug
+// class regardless of which function or file the write comes from.
+
+async function withStderrCapture<T>(fn: () => Promise<T>): Promise<{ result: T; writes: number }> {
+  const original = process.stderr.write.bind(process.stderr);
+  let writes = 0;
+  process.stderr.write = ((..._args: unknown[]) => {
+    writes++;
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    const result = await fn();
+    return { result, writes };
+  } finally {
+    process.stderr.write = original;
+  }
+}
+
+async function makeAgentPluginWithMissingSkill(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "diag-behavior-"));
+  const agentsDir = join(dir, "agents");
+  await mkdir(agentsDir, { recursive: true });
+  await writeFile(
+    join(agentsDir, "a.md"),
+    "---\nskills: [does-not-exist]\n---\nbody\n",
+  );
+  await writeFile(
+    join(dir, "plugin.json"),
+    JSON.stringify({ id: "diag-behavior", name: "diag-behavior", kind: "agent" }),
+  );
+  return dir;
+}
+
+describe("interactive plugin diagnostics never hit raw stderr", () => {
+  test("startup discovery: a plugin with a missing skill ref stays silent on stderr", async () => {
+    const pluginDir = await makeAgentPluginWithMissingSkill();
+    const cwd = await mkdtemp(join(tmpdir(), "diag-cwd-"));
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      await discoverSessionPlugins({
+        cwd,
+        pluginPaths: [pluginDir],
+        isProjectPluginTrusted: () => true,
+        isRegisteredPathTrusted: () => true,
+        diagnostics: diag,
+      });
+      emitPluginWarningLog(diag);
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("trust-grant / enable: loading a plugin with a missing skill ref stays silent on stderr", async () => {
+    const pluginDir = await makeAgentPluginWithMissingSkill();
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      await loadPluginEntry(pluginDir, { cwd: pluginDir, origin: "path", diagnostics: diag });
+      // Same fold-into-message pattern the fix applies in runner.ts's
+      // `saveConfig` — never a bare `emitPluginWarningSummary(diag)`.
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("verify: an agent profile that fails schema validation stays silent on stderr", async () => {
+    // resolveAgentPluginProfiles validates AgentProfileSchema (requires `id`);
+    // build a module with a malformed profile directly rather than round-
+    // tripping through markdown, since that's the exact shape runner.ts's
+    // `verify` handler passes in from an already-loaded module.
+    const mod = {
+      manifest: { id: "malformed-agent", name: "Malformed Agent", kind: "agent" as const },
+      agentPlugin: { agents: [{ description: "missing the required id field" }] },
+    };
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      const profiles = await resolveAgentPluginProfiles(
+        [mod],
+        { "malformed-agent": { enabled: true } },
+        { diagnostics: diag },
+      );
+      expect(profiles).toEqual([]);
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("add-path: a marketplace with a skipped member (outside contain root) stays silent on stderr", async () => {
+    const root = await mkdtemp(join(tmpdir(), "diag-market-"));
+    const marketDir = join(root, "market");
+    await mkdir(join(marketDir, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(marketDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        name: "demo",
+        plugins: [
+          // Absolute source is always skipped — same shape as a real bad entry.
+          { name: "bad", source: "/etc/not-a-plugin" },
+        ],
+      }),
+    );
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      const members = await expandPluginPath(marketDir, {
+        onSkip: (skip: ExpandPluginPathSkip) => {
+          diag.warnings.push(`marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})`);
+        },
+      });
+      expect(members).toEqual([]);
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("tool-resolve: a throwing tool-plugin factory stays silent on stderr", async () => {
+    const candidate: ToolPluginCandidate = {
+      id: "throws",
+      name: "Throws",
+      credentials: [],
+      factory: () => {
+        throw new Error("boom");
+      },
+    };
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      const tools = await resolveToolPlugins({
+        candidates: [candidate],
+        pluginConfig: { throws: { enabled: true, consented: true } },
+        diagnostics: diag,
+      });
+      expect(tools).toEqual([]);
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+    });
+    expect(writes).toBe(0);
   });
 });

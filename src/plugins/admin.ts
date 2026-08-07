@@ -26,7 +26,10 @@ export type PluginsAdmin = {
   list: () => PluginDescriptor[];
   getConfig: () => Record<string, PluginConfig>;
   getWebOverride: () => string | undefined;
-  saveConfig: (id: string, cfg: PluginConfig) => Promise<void> | void;
+  // A trust-grant load (enabling a metadata-only plugin) can surface skill-miss
+  // and similar warnings; the optional message lets the caller show them
+  // instead of dropping them on the floor.
+  saveConfig: (id: string, cfg: PluginConfig) => Promise<{ message?: string } | void> | void;
   setWebOverride: (id: string | undefined) => Promise<void> | void;
   verify: (id: string, credentials: Record<string, string>) => Promise<VerifyResult>;
   // Register a plugin from an arbitrary file/dir path, persisting it so it loads
