@@ -1,7 +1,16 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterEach, beforeEach } from "bun:test";
 import { color, color256, palette, supportsTrueColor } from "../../../src/tui/theme.js";
 
 const originalColorterm = process.env.COLORTERM;
+
+// `color()` answers hex only on a truecolor terminal and ANSI-256 otherwise, so
+// every hex assertion below is really an assertion about the environment it
+// runs in. A developer's terminal sets COLORTERM and a CI runner does not, which
+// is why these passed locally and failed in CI. State the terminal rather than
+// inherit it; the two tests that exercise detection set it themselves.
+beforeEach(() => {
+  process.env.COLORTERM = "truecolor";
+});
 
 afterEach(() => {
   if (originalColorterm === undefined) {

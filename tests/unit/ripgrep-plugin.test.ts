@@ -6,7 +6,9 @@ import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import { ripgrepPlugin } from "../../src/plugins/ripgrep-plugin.js";
 
-const cwd = process.cwd();
+// Repo root derived from this file, not process.cwd(): these cases search real
+// repo paths, so they must not depend on where the runner was invoked from.
+const cwd = join(import.meta.dirname, "../..");
 const fallback = async (): Promise<ToolResult> => ({ callId: "c", content: "FALLBACK", isError: true });
 
 function run(

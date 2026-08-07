@@ -38,6 +38,9 @@ beforeEach(() => {
 
 afterEach(async () => {
   await disposeWebSearchClients();
+  // Leave no provider selection behind for whatever file runs next.
+  delete process.env.CORBITS_WEB_SEARCH_PROVIDER;
+  delete process.env.CORBITS_WEB_SEARCH_API_KEY;
 });
 
 describe("resolveWebSearchProvider", () => {

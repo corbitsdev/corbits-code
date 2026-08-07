@@ -1,4 +1,5 @@
 import { mkdir, writeFile, readFile, rename, unlink } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { type } from "arktype";
@@ -27,8 +28,8 @@ const PersistedGoalStateSchema = type({
 
 export type PersistedGoalState = typeof PersistedGoalStateSchema.infer;
 
-function goalPath(cwd: string, sessionId: string): string {
-  return join(sessionDir(cwd, sessionId), "goal.json");
+function goalPath(cwd: string, sessionId: string, home: string): string {
+  return join(sessionDir(cwd, sessionId, home), "goal.json");
 }
 
 // Returns the parsed state, or the arktype error summary when the shape is
@@ -42,8 +43,9 @@ export async function saveGoalState(
   cwd: string,
   sessionId: string,
   state: PersistedGoalState | null,
+  home: string = homedir(),
 ): Promise<void> {
-  const path = goalPath(cwd, sessionId);
+  const path = goalPath(cwd, sessionId, home);
   if (state === null || state.status === "inactive" || state.status === "cleared") {
     try {
       await unlink(path);
@@ -66,8 +68,9 @@ export async function saveGoalState(
 export async function loadGoalState(
   cwd: string,
   sessionId: string,
+  home: string = homedir(),
 ): Promise<PersistedGoalState | null> {
-  const path = goalPath(cwd, sessionId);
+  const path = goalPath(cwd, sessionId, home);
   try {
     const raw = await readFile(path, "utf8");
     const parsed = parsePersistedGoal(JSON.parse(raw));
@@ -99,8 +102,9 @@ export async function writeGoalStateRaw(
   cwd: string,
   sessionId: string,
   content: string,
+  home: string = homedir(),
 ): Promise<void> {
-  const path = goalPath(cwd, sessionId);
+  const path = goalPath(cwd, sessionId, home);
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   await writeFile(tmp, content);

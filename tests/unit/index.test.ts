@@ -1,16 +1,75 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Config } from "../../src/config/index.js";
+import {
+  resetPricingMetadataRefreshForTests,
+  schedulePricingMetadataRefresh,
+} from "../../src/cost/pricing-metadata.js";
 import { mainWithRunners } from "../../src/index.js";
 
 const envVars = {
   // Unit tests must never export telemetry or write an installationId into
   // the developer's real global settings file.
   CORBITS_TELEMETRY: "0",
-  OPENAI_COMPATIBLE_API_KEY: "test-key",
-  OPENAI_COMPATIBLE_BASE_URL: "http://localhost:1234",
-  OPENAI_COMPATIBLE_MODEL: "test-model",
-  OPENAI_COMPATIBLE_PROVIDER_NAME: "test-provider",
 };
+
+// Configuration resolution reads a settings file and the local settings file
+// under the run cwd. Both are pinned to a temp sandbox (--config and --cwd) so
+// the run is identical on a developer machine and on a clean runner: os.homedir()
+// is snapshotted at process start in Bun, so mutating HOME here would not work.
+// --config also suppresses the home-level OAuth profile merge.
+let sandbox: string;
+
+function writeSandboxSettings(root: string): void {
+  const settingsDir = join(root, "home", ".corbits");
+  mkdirSync(settingsDir, { recursive: true });
+  writeFileSync(
+    join(settingsDir, "settings.json"),
+    JSON.stringify({
+      providers: {
+        "test-provider": {
+          baseURL: "http://localhost:1234",
+          apiKey: "test-key",
+          models: ["test-model"],
+          defaultModel: "test-model",
+        },
+      },
+      defaultProvider: "test-provider",
+    }),
+  );
+  mkdirSync(join(root, "project"), { recursive: true });
+}
+
+beforeEach(() => {
+  sandbox = mkdtempSync(join(tmpdir(), "corbits-index-test-"));
+  writeSandboxSettings(sandbox);
+  // Claim the one-shot pricing refresh guard with a sandboxed cache and a
+  // fetch that never fires, so loadConfig's bootstrap cannot reach the network
+  // or write into the real home cache directory.
+  resetPricingMetadataRefreshForTests();
+  schedulePricingMetadataRefresh({
+    cachePath: join(sandbox, "home", ".corbits", "cache", "models-pricing.json"),
+    fetchImpl: () => Promise.reject(new Error("network disabled in tests")),
+  });
+});
+
+afterEach(() => {
+  rmSync(sandbox, { recursive: true, force: true });
+});
+
+// The subcommand must stay at argv[0]; flags go after it.
+function sandboxArgs(subcommand: readonly string[], rest: readonly string[] = []): string[] {
+  return [
+    ...subcommand,
+    "--cwd",
+    join(sandbox, "project"),
+    "--config",
+    join(sandbox, "home", ".corbits", "settings.json"),
+    ...rest,
+  ];
+}
 
 async function withEnv(fn: () => void | Promise<void>): Promise<void> {
   const original: Record<string, string | undefined> = {};
@@ -22,7 +81,8 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
     await fn();
   } finally {
     for (const [key, value] of Object.entries(original)) {
-      process.env[key] = value;
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   }
 }
@@ -32,7 +92,7 @@ test("main launches TUI when configured", async () => {
     const runTUI = mock((_config: Config) => Promise.resolve(0));
     const runExec = mock((_config: Config) => Promise.resolve(0));
     const runOnboarding = mock(() => Promise.resolve(0));
-    const code = await mainWithRunners([], {
+    const code = await mainWithRunners(sandboxArgs([]), {
       runTUI,
       runExec,
       runOnboarding,
@@ -48,7 +108,7 @@ test("main launches exec when configured with exec subcommand", async () => {
     const runTUI = mock((_config: Config) => Promise.resolve(0));
     const runExec = mock((_config: Config) => Promise.resolve(0));
     const runOnboarding = mock(() => Promise.resolve(0));
-    const code = await mainWithRunners(["exec", "say hello"], {
+    const code = await mainWithRunners(sandboxArgs(["exec"], ["say hello"]), {
       runTUI,
       runExec,
       runOnboarding,
@@ -67,7 +127,7 @@ test("main launches exec for run alias", async () => {
     const runTUI = mock((_config: Config) => Promise.resolve(0));
     const runExec = mock((_config: Config) => Promise.resolve(0));
     const runOnboarding = mock(() => Promise.resolve(0));
-    const code = await mainWithRunners(["run", "do the thing"], {
+    const code = await mainWithRunners(sandboxArgs(["run"], ["do the thing"]), {
       runTUI,
       runExec,
       runOnboarding,
