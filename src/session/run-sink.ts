@@ -19,6 +19,9 @@ export type RunSinkArgs = {
   // turn actually ran against, so consumers report per-turn provider/model
   // even if the live selection changed mid-run.
   onTurnComplete?: (ctx: import("./hooks.js").TurnContext) => void;
+  // Continues a resumed session's persisted run.json turn count instead of
+  // restarting the collector at zero.
+  initialTurnCount?: number;
 };
 
 export type RunSink = {
@@ -66,7 +69,7 @@ export function resolveExecRunStatus(args: {
 }
 
 export function createRunSink(args: RunSinkArgs): RunSink {
-  const { emitter, hookManager, onTurnComplete } = args;
+  const { emitter, hookManager, onTurnComplete, initialTurnCount } = args;
 
   function hasConfiguredHooks(): boolean {
     return hookManager.getStatuses().length > 0;
@@ -82,15 +85,19 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     onTurnComplete?.(ctx);
   };
 
-  function createCollector(): TurnCollector {
+  // The initial seed only applies to the run's first collector (a resumed
+  // session's prior turnsUsed); a later reset() starts a fresh sub-session
+  // and should count from zero, not re-seed.
+  function createCollector(seedTurnCount?: number): TurnCollector {
     return createTurnContextCollector(handleTurn, Date.now, {
       retainHistory: hasConfiguredHooks(),
+      ...(seedTurnCount !== undefined ? { initialTurnCount: seedTurnCount } : {}),
     });
   }
 
   let runCompleted = false;
   let runError: string | undefined;
-  let turnCollector = createCollector();
+  let turnCollector = createCollector(initialTurnCount);
   // Always-on local PerfTrace: not gated by lifecycle hooks.
   let perfObserver = createPerfReactorObserver();
 

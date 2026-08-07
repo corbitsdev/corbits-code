@@ -55,13 +55,40 @@ export function warnUnreadableState(path: string, reason: string): void {
   process.stderr.write(`${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
 }
 
+// Concurrent saveState calls for the same session (a straggler progress
+// snapshot racing a terminal finalize write) have no ordering guarantee
+// between their underlying rename()s — the later call could still finish
+// first and resurrect a closed run.json as "running". Chaining each session's
+// writes onto the previous one forces them to apply in call order, so a
+// write issued after another always lands after it regardless of how long
+// either write's fs calls take. Keyed by sessionId, not path, since callers
+// only ever address one file per session.
+const writeChains = new Map<string, Promise<void>>();
+
 export async function saveState(
   cwd: string,
   sessionId: string,
   state: RunState,
   home?: string,
 ): Promise<void> {
-  await atomicWrite(statePath(cwd, sessionId, home), JSON.stringify(state, null, 2));
+  const path = statePath(cwd, sessionId, home);
+  const content = JSON.stringify(state, null, 2);
+  const previous = writeChains.get(sessionId) ?? Promise.resolve();
+  const write = previous.then(
+    () => atomicWrite(path, content),
+    () => atomicWrite(path, content),
+  );
+  // Swallow the error in the chain tail (not in `write`, which still rejects
+  // for this caller) so one failed save doesn't permanently wedge later
+  // saves for the same session.
+  const tail = write.catch(() => {});
+  writeChains.set(sessionId, tail);
+  // Once this is the last write for the session, drop the entry so a
+  // long-lived process doesn't retain a chain per session forever.
+  void tail.then(() => {
+    if (writeChains.get(sessionId) === tail) writeChains.delete(sessionId);
+  });
+  return write;
 }
 
 
