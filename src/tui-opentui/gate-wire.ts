@@ -305,13 +305,29 @@ export function wireGates(
     emitter,
     permissionQueue,
   )
+  // Bumped every time any gate (permission or operator) opens on the shared
+  // host. A settle path that only knows "my overlay was opened" cannot tell
+  // whether the host has since moved on to a newer one — the shell closes an
+  // accepted/cancelled overlay and may open the next queued gate before that
+  // gate's own settle callback runs — and closing blind would tear down that
+  // newer overlay instead of its own. Comparing the generation captured at
+  // open-time against the current one answers that directly, so correctness
+  // never rests on remembering shell.ts's close-before-callback ordering at
+  // each call site. openHost is the only place an overlay opens, so it is
+  // the only place this counter needs to change.
+  let overlayGeneration = 0
+
+  function openHost(open: () => void): void {
+    overlayGeneration++
+    open()
+  }
 
   function openOrQueue(open: () => void): void {
     if (shell.overlayList !== null) {
       pending.push(open)
       return
     }
-    open()
+    openHost(open)
   }
 
   function unqueue(open: () => void): void {
@@ -321,7 +337,7 @@ export function wireGates(
 
   const disposeClosed = onOverlayClosed(shell, () => {
     const next = pending.shift()
-    if (next) next()
+    if (next) openHost(next)
   })
 
   function onPermission(ev: PermissionGateEvent): void {
@@ -334,27 +350,30 @@ export function wireGates(
     const collapsedAnything =
       formatCommandForApproval(ev.request.subject).payloadCount > 0
     let expanded = false
-    let isOpen = false
+    // Set only while this gate's own overlay is the one on screen — see
+    // overlayGeneration above for why the settle path checks it against the
+    // current generation instead of trusting this alone.
+    let openedGeneration: number | undefined
 
     // The queue is the single settle guard: once an id is removed (accept,
     // cancel, timeout, abort, or a reconciled grant), a later call is a
     // no-op instead of double-resolving. Its resolve callback settles
     // through the onceClosed-wrapped `resolve` (not ev.resolve directly) so
     // hooks.onGateClosed still fires exactly once regardless of which path
-    // drained this entry. settle's own return value tells a call site
-    // whether it was the one that actually settled, which is also how
-    // recordDecision below is guarded against firing twice — closing the
-    // overlay from inside this callback re-invokes the overlay's own
-    // onCancel (see shell.ts's closeInsetOverlay), and that reentrant call
-    // must find the id already gone.
+    // drained this entry. Closing the overlay from inside this callback
+    // re-invokes the overlay's own onCancel (see shell.ts's
+    // closeInsetOverlay, which fires onCancel after notifying close
+    // listeners) — settle's return value is how a call site tells that
+    // reentrant call apart from the original one, so recordDecision below
+    // fires exactly once per gate instead of once per reentry.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome)
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers()
-      if (isOpen) {
-        closeInsetOverlay(shell)
-      } else {
+      if (openedGeneration === undefined) {
         unqueue(open)
+      } else if (openedGeneration === overlayGeneration) {
+        closeInsetOverlay(shell)
       }
       resolve(outcome)
     })
@@ -378,7 +397,7 @@ export function wireGates(
     }
 
     const open = (): void => {
-      isOpen = true
+      openedGeneration = overlayGeneration
       openPermissionsOverlay(shell, {
         items: choices.items,
         itemIds: choices.itemIds,
@@ -389,10 +408,6 @@ export function wireGates(
         echoChoice: false,
         ...(collapsedAnything ? { onToggleExpand } : {}),
         onAccept: (sel: OverlaySelection) => {
-          // The shell already closed this overlay (and may have opened the
-          // next queued one) before invoking onAccept — settle must not
-          // closeInsetOverlay a second time and tear down that next overlay.
-          isOpen = false
           const gateSelection = {
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
@@ -402,11 +417,8 @@ export function wireGates(
           }
         },
         // Esc must settle the awaited promise (as a deny), not abandon it —
-        // an unresolved gate hangs the run until the process is killed. The
-        // shell has already closed the overlay by the time onCancel runs, for
-        // the same reason noted in onAccept above.
+        // an unresolved gate hangs the run until the process is killed.
         onCancel: () => {
-          isOpen = false
           const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
           if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
             recordDecision(shell, ev.request, choices, gateSelection)
