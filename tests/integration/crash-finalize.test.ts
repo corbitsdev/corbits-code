@@ -35,10 +35,13 @@ describe("integration — crash finalizes run.json", () => {
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
 
-      // The fixture also fires 50 unawaited straggler "running" snapshot
-      // writes for the same session immediately before crashing. Without the
-      // isCrashed() guard in saveState (src/session/state.ts), one of those
-      // could win the rename() race and this would read back "running".
+      // The fixture also parks two unawaited straggler "running" snapshot
+      // writes behind a test-only gate (setTestWriteGate) that it releases
+      // only after the crash handler has flipped isCrashed(), guaranteeing
+      // both are still queued — not dispatched to the kernel — at that
+      // moment. Without the isCrashed() guard in saveState
+      // (src/session/state.ts), one of those would win the rename() race
+      // once released and this would read back "running".
       expect(state.status).toBe("crashed");
       expect(state.finishedAt).toBeGreaterThan(0);
       expect(state.error).toContain("simulated crash");

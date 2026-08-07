@@ -49,3 +49,18 @@ export function markCrashed(): void {
 export function isCrashed(): boolean {
   return crashed;
 }
+
+// Test-only seam: lets an integration test hold a chained write open past the
+// moment markCrashed() fires, so it can deterministically prove a write still
+// queued in the chain sees isCrashed() before it fires — rather than hoping
+// real filesystem timing happens to interleave that way. No effect on
+// production callers, which never install a gate.
+let testWriteGate: Promise<void> | null = null;
+
+export function setTestWriteGate(gate: Promise<void> | null): void {
+  testWriteGate = gate;
+}
+
+export function getTestWriteGate(): Promise<void> | null {
+  return testWriteGate;
+}

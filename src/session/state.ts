@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { sessionDir } from "./index.js";
-import { isCrashed } from "./active-run.js";
+import { getTestWriteGate, isCrashed } from "./active-run.js";
 import { COMMAND_NAME } from "../branding.js";
 
 const ConnectedMcpServerSchema = type({
@@ -74,6 +74,10 @@ const writeChains = new Map<string, Promise<void>>();
 // dispatched to the kernel — that residual window is one atomicWrite call
 // wide (a small local JSON write), not the remaining lifetime of the process.
 async function atomicWriteUnlessCrashed(path: string, content: string): Promise<void> {
+  // No-op in production; lets a test hold this write open past the moment
+  // isCrashed() flips, so the check below is proven rather than assumed.
+  const gate = getTestWriteGate();
+  if (gate !== null) await gate;
   if (isCrashed()) return;
   await atomicWrite(path, content);
 }
