@@ -68,6 +68,26 @@ unchanged: Ctrl+C interrupts, twice exits.
 - **Resumed sessions dropped `view`, `plan` and `tasks` blocks** silently.
 - **Ctrl+D quit mid-edit.** The host claims no key of its own now.
 
+### MCP
+
+- **Authorization moved out of the transcript and into `/mcp`.** A server
+  needing OAuth used to dump a raw authorization URL as a transcript row at
+  session start — unactionable, uncopyable, and gone once it scrolled away. The
+  notice row now names the servers waiting (`mcp granola needs auth (/mcp)`)
+  and clears when they connect; nothing blocks usage, an unauthorized server
+  simply has no tools. (CL-5555)
+- **`/mcp` is a real surface** listing every configured server and its live
+  state — connected with tool count, needs auth, or failed with the reason.
+  Enter on an unauthorized row opens its authorization page in the browser and
+  copies the link, so the flow also works over SSH. (CL-5555)
+- **The OAuth callback page carries the brand.** One page now serves MCP
+  servers and inference providers alike, on the terminal's own palette, with
+  the mark animating through the same dithered draw/fill timeline as the
+  landing. It names what happened — "Linear connected successfully", "Granola
+  failed to connect" — and humanizes server names and error codes on the way
+  in. Entirely inline: a local authorization callback makes no network call.
+  (CL-5556)
+
 ### Permissions
 
 - **Shell-block messaging** cites host safety and OOM risk, and names the
