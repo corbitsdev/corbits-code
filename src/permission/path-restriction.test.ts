@@ -47,3 +47,15 @@ test("workspace-relative paths are unrestricted", () => {
   expect(r.isRestricted("src/index.ts", false)).toBe(false);
   expect(r.isRestricted("src/index.ts", true)).toBe(false);
 });
+
+test("a directory sharing a string prefix with the workspace root is still restricted", async () => {
+  // "<cwd>baz" shares a string prefix with cwd but is a distinct sibling
+  // directory outside the workspace — the boundary check must not leak into
+  // it via naive string prefixing.
+  const prefixSibling = `${cwd}baz`;
+  await mkdir(prefixSibling, { recursive: true });
+  const r = createPathRestriction(cwd, () => [], home);
+
+  expect(r.isRestricted(prefixSibling, false)).toBe(true);
+  expect(r.isRestricted(join(prefixSibling, "file.txt"), false)).toBe(true);
+});
