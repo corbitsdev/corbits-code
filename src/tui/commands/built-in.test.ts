@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
-import { getCommand, listCommands } from "./registry.js";
+import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
-import { registerBuiltInCommands, setConfiguredTiers } from "./built-in.js";
+import { registerBuiltInCommands } from "./built-in.js";
 import { buildCostSummary } from "../../cost/cost-summary.js";
 
 registerBuiltInCommands();
@@ -93,37 +93,11 @@ describe("/new command", () => {
   });
 });
 
-describe("tier commands", () => {
-  it("registers a slash command for each provider tier", () => {
-    expect(getCommand("fast")).toBeDefined();
-    expect(getCommand("standard")).toBeDefined();
-    expect(getCommand("clever")).toBeDefined();
-  });
-
-  it("each emits a tier-switch intent carrying its tier name", () => {
-    for (const tier of ["fast", "standard", "clever"] as const) {
-      expect(getCommand(tier)!.handler("", makeCtx())).toEqual({ type: "tier", tier });
-    }
-  });
-
-  it("are hidden from the menu until configured, then appear", () => {
-    // Reset to nothing configured: no tier command surfaces in the menu.
-    setConfiguredTiers({});
-    let names = listCommands().map((c) => c.name);
-    expect(names).not.toContain("fast");
-    expect(names).not.toContain("standard");
-    expect(names).not.toContain("clever");
-
-    // Still callable directly — visibility is display-only, never a hard gate.
-    expect(getCommand("fast")).toBeDefined();
-
-    setConfiguredTiers({ fast: { provider: "fp", model: "fp-large" } });
-    names = listCommands().map((c) => c.name);
-    expect(names).toContain("fast");
-    expect(names).not.toContain("standard");
-    expect(names).not.toContain("clever");
-
-    setConfiguredTiers({});
+describe("removed tier commands", () => {
+  it("/fast, /standard, /clever are not registered", () => {
+    expect(getCommand("fast")).toBeUndefined();
+    expect(getCommand("standard")).toBeUndefined();
+    expect(getCommand("clever")).toBeUndefined();
   });
 });
 

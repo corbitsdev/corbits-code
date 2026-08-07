@@ -58,6 +58,72 @@ import type { StreamRow } from "./stream.js"
 
 import type { PendingImageAttachment } from "../tui/image-attachments.js"
 
+const PROVIDER_GROUP_PREFIX = "providerGroup:"
+
+function providerGroupRowId(provider: string): string {
+  return `${PROVIDER_GROUP_PREFIX}${provider}`
+}
+
+function providerFromGroupRowId(id: string): string | null {
+  return id.startsWith(PROVIDER_GROUP_PREFIX) ? id.slice(PROVIDER_GROUP_PREFIX.length) : null
+}
+
+/** Provider (account) segment of a `provider:model` row id. */
+function providerOfRowId(id: string): string {
+  const i = id.indexOf(":")
+  return i === -1 ? id : id.slice(0, i)
+}
+
+/** Provider label segment of a `Provider Label / model` row label. */
+function providerLabelOfRow(label: string): string {
+  const i = label.indexOf(" / ")
+  return i === -1 ? label : label.slice(0, i)
+}
+
+type ModelGroup = {
+  readonly label: string
+  readonly rows: ProductHostModelOption[]
+}
+
+/**
+ * Split a flat, section-tagged models list into the provider-first picker's
+ * top level (recent/favorites/unconnected pass through flat; each distinct
+ * provider collapses into one group row, in first-seen order) plus the
+ * per-provider model rows reached by descending into a group. Rows with no
+ * `section` (a caller not using buildModelsFirstCatalog) pass through
+ * ungrouped, preserving today's single-level picker for that caller.
+ */
+function groupModelsForPicker(
+  models: readonly ProductHostModelOption[],
+): { readonly top: ProductHostModelOption[]; readonly groups: ReadonlyMap<string, ModelGroup> } {
+  const top: ProductHostModelOption[] = []
+  const groups = new Map<string, ModelGroup>()
+  for (const row of models) {
+    if (row.section !== "provider") {
+      top.push(row)
+      continue
+    }
+    const provider = providerOfRowId(row.id)
+    let group = groups.get(provider)
+    if (group === undefined) {
+      group = { label: providerLabelOfRow(row.label), rows: [] }
+      groups.set(provider, group)
+      top.push({ id: providerGroupRowId(provider), label: group.label, section: "provider" })
+    }
+    group.rows.push(row)
+  }
+  return { top, groups }
+}
+
+/** Suffix the row matching `activeId` (if any) so it reads as the current pick. */
+function annotateCurrent(
+  rows: readonly ProductHostModelOption[],
+  activeId: string | undefined,
+): ProductHostModelOption[] {
+  if (activeId === undefined) return [...rows]
+  return rows.map((r) => (r.id === activeId ? { ...r, label: `${r.label} (current)` } : r))
+}
+
 export type ProductHostSend = (
   text: string,
   attachments?: readonly PendingImageAttachment[],
@@ -69,9 +135,19 @@ export type ProductHostDeliver = (
   attachments?: readonly PendingImageAttachment[],
 ) => void
 
+/**
+ * `section` groups rows for the provider-first picker: "recent" and
+ * "favorites" stay flat at the top (already single models, reachable without
+ * descending); "provider" rows are grouped into one top-level entry per
+ * provider (or per account, since each configured provider entry is already
+ * account-scoped — `codex/abk-labs`, `codex/dirtroad`); "unconnected" stays
+ * flat as a "connect →" row. Omitted (from a caller not using
+ * buildModelsFirstCatalog) falls back to one flat list, unwrapped.
+ */
 export type ProductHostModelOption = {
   readonly id: string
   readonly label: string
+  readonly section?: "recent" | "favorites" | "provider" | "unconnected"
 }
 
 export type ProductHostConfig = {
@@ -433,21 +509,47 @@ export async function mountProductHost(
     const onSelect = config.onModelSelect
     const onConnect = config.onConnectProvider
     const onFavoriteToggle = config.onFavoriteToggle
-    openModels = (): void => {
+
+    // Provider rows have no catalog entry of their own to describe; fall back
+    // to a plain model count so the description zone is never blank.
+    const describe = (itemId: string): ItemDescription | null => {
+      const groupProvider = providerFromGroupRowId(itemId)
+      if (groupProvider !== null) {
+        const { groups } = groupModelsForPicker(currentModels)
+        const count = groups.get(groupProvider)?.rows.length ?? 0
+        return {
+          what: `${count} model${count === 1 ? "" : "s"} available.`,
+          impact: "Press Enter to see them.",
+          tone: "plain",
+        }
+      }
+      return currentDescribeModel?.(itemId) ?? null
+    }
+
+    const openLevel = (items: readonly ProductHostModelOption[], onCancel?: () => void): void => {
       openModelPickerOverlay(shell, {
-        items: currentModels.map((m) => m.label),
-        itemIds: currentModels.map((m) => m.id),
+        items: items.map((m) => m.label),
+        itemIds: items.map((m) => m.id),
         onAccept: (sel) => {
-          const id = sel.id ?? currentModels[sel.index]?.id
+          const id = sel.id ?? items[sel.index]?.id
           if (!id) return
           const providerName = id.startsWith("connect:") ? id.slice("connect:".length) : null
           if (providerName !== null) {
             onConnect?.(providerName)
             return
           }
+          const groupProvider = providerFromGroupRowId(id)
+          if (groupProvider !== null) {
+            const { groups } = groupModelsForPicker(currentModels)
+            const group = groups.get(groupProvider)
+            if (group !== undefined) {
+              openLevel(annotateCurrent(group.rows, activeModelId()), openModels)
+            }
+            return
+          }
           onSelect(id)
         },
-        ...(currentDescribeModel !== undefined ? { describe: currentDescribeModel } : {}),
+        describe,
         ...(onFavoriteToggle !== undefined
           ? {
               onAction: (itemId, key) => {
@@ -455,13 +557,37 @@ export async function mountProductHost(
                 // bare letter narrows the list instead of toggling a favorite.
                 const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
                 if (name !== "f" || key.ctrl || !(key.meta || key.option)) return false
-                if (itemId.startsWith("connect:")) return false
+                if (itemId.startsWith("connect:") || providerFromGroupRowId(itemId) !== null) return false
                 onFavoriteToggle(itemId)
                 return true
               },
             }
           : {}),
+        ...(onCancel !== undefined ? { onCancel } : {}),
       })
+    }
+
+    // Recent's first row (if any) is the model just switched to — the closest
+    // thing to a live "current model" id without threading one through from
+    // the runner. Used only to mark that row "(current)" wherever it appears.
+    const activeModelId = (): string | undefined =>
+      currentModels.find((r) => r.section === "recent")?.id
+
+    openModels = (): void => {
+      const { top, groups } = groupModelsForPicker(currentModels)
+      const activeId = activeModelId()
+      // The active model's own row already reads "(current)" via annotateCurrent
+      // below; when it lives inside a provider group, mark the group row too
+      // so the pick is visible without descending into it.
+      const activeGroupId = [...groups.entries()].find(([, g]) =>
+        g.rows.some((r) => r.id === activeId),
+      )?.[0]
+      const withGroupMark = activeGroupId === undefined
+        ? top
+        : top.map((r) =>
+            r.id === providerGroupRowId(activeGroupId) ? { ...r, label: `${r.label} (current)` } : r,
+          )
+      openLevel(annotateCurrent(withGroupMark, activeId))
     }
     ;(shell as AppShell & { __openModels?: () => void }).__openModels =
       openModels

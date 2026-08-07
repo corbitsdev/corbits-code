@@ -9,15 +9,7 @@ import {
   buildXaiSource,
   type ProviderCatalogEntry,
 } from "./index.js";
-import type {
-  ProviderTier,
-  Settings,
-  TierAssignment,
-  TierDefinition,
-  TierProviderRef,
-  TierSelectionMode,
-} from "./settings.js";
-import { PROVIDER_TIERS, resolveTierDefinition, tierDefinitionAt } from "./settings.js";
+import type { Settings } from "./settings.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
@@ -28,32 +20,24 @@ export type BuildSourceContext = {
   catalog: readonly ProviderCatalogEntry[];
 };
 
-function refKey(ref: TierProviderRef): string {
+// A resolved provider+model, with optional reasoningEffort — the unit both
+// the primary source and its backups are built from.
+export type ProviderRef = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
+
+function refKey(ref: ProviderRef): string {
   return `${ref.provider}\0${ref.model}`;
 }
 
-export function normalizeTierDefinition(
-  raw: TierAssignment | TierDefinition | undefined,
-): TierDefinition | undefined {
-  if (raw === undefined) return undefined;
-  if ("order" in raw && Array.isArray(raw.order)) {
-    const def = raw as TierDefinition;
-    return {
-      mode: def.mode ?? "prefer",
-      order: def.order.filter((r) => r.provider.length > 0 && r.model.length > 0),
-    };
-  }
-  const leg = raw as TierAssignment;
-  if (leg.provider.length === 0 || leg.model.length === 0) return undefined;
-  return { mode: "pin", order: [{ provider: leg.provider, model: leg.model }] };
-}
-
-function preferTailFromSettings(
+// Every other configured provider, one model each, so a primary source that
+// fails to build (bad credentials, missing baseURL) still has somewhere to
+// fall back to. Order follows settings.providers; providers already covered
+// by `existing` are skipped.
+function backupRefsFromSettings(
   settings: Settings,
-  existing: readonly TierProviderRef[],
-): TierProviderRef[] {
+  existing: readonly ProviderRef[],
+): ProviderRef[] {
   const seenProviders = new Set(existing.map((r) => r.provider));
-  const tail: TierProviderRef[] = [];
+  const tail: ProviderRef[] = [];
   for (const [provider, p] of Object.entries(settings.providers)) {
     if (seenProviders.has(provider)) continue;
     const model = p.defaultModel ?? p.models[0];
@@ -62,22 +46,6 @@ function preferTailFromSettings(
     tail.push({ provider, model });
   }
   return tail;
-}
-
-export function tierProviderRefs(
-  tier: ProviderTier,
-  settings: Settings | undefined,
-  options?: { fallbackChain?: boolean },
-): TierProviderRef[] {
-  if (settings === undefined) return [];
-  const def =
-    options?.fallbackChain === true
-      ? resolveTierDefinition(tier, settings)
-      : tierDefinitionAt(tier, settings);
-  if (def === null) return [];
-  const head = def.order;
-  if (def.mode === "pin") return head;
-  return [...head, ...preferTailFromSettings(settings, head)];
 }
 
 function catalogEntry(
@@ -98,7 +66,7 @@ function maxTokensFor(
 }
 
 export function buildInferenceSourceForRef(
-  ref: TierProviderRef,
+  ref: ProviderRef,
   ctx: BuildSourceContext,
   settings: Settings | undefined,
 ): InferenceSource | null {
@@ -195,7 +163,7 @@ export function buildInferenceSourceForRef(
 }
 
 export function buildSourcesFromRefs(
-  refs: readonly TierProviderRef[],
+  refs: readonly ProviderRef[],
   ctx: BuildSourceContext,
   settings: Settings | undefined,
 ): InferenceSource[] {
@@ -212,21 +180,22 @@ export function buildSourcesFromRefs(
 }
 
 export function prependActiveRef(
-  refs: readonly TierProviderRef[],
-  active: TierProviderRef,
-): TierProviderRef[] {
+  refs: readonly ProviderRef[],
+  active: ProviderRef,
+): ProviderRef[] {
   const without = refs.filter((r) => refKey(r) !== refKey(active));
   return [active, ...without];
 }
 
-function buildTieredSourceBundle(args: {
+// Builds the primary source for `head` plus one backup per other configured
+// provider, so a mid-run failure (bad credentials, dropped connection) has
+// somewhere else to go. `head` always wins as defaultSource when it builds.
+function buildSourceBundle(args: {
   settings: Settings | undefined;
   catalog: readonly ProviderCatalogEntry[];
-  tier: ProviderTier;
-  head: TierProviderRef;
+  head: ProviderRef;
   reasoningEffort?: ReasoningEffort;
   sessionId: string;
-  fallbackChain: boolean;
 }): { sources: InferenceSource[]; defaultSource: string } {
   const ctx: BuildSourceContext = {
     sessionId: args.sessionId,
@@ -234,8 +203,9 @@ function buildTieredSourceBundle(args: {
     ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
   };
 
-  const tierRefs = tierProviderRefs(args.tier, args.settings, { fallbackChain: args.fallbackChain });
-  const refs = tierRefs.length > 0 ? prependActiveRef(tierRefs, args.head) : [args.head];
+  const refs = args.settings !== undefined
+    ? prependActiveRef(backupRefsFromSettings(args.settings, [args.head]), args.head)
+    : [args.head];
 
   const sources = buildSourcesFromRefs(refs, ctx, args.settings);
   const defaultId = args.head.provider;
@@ -261,13 +231,11 @@ export function buildMainSessionSources(args: {
   reasoningEffort?: ReasoningEffort;
   sessionId: string;
 }): { sources: InferenceSource[]; defaultSource: string } {
-  return buildTieredSourceBundle({
+  return buildSourceBundle({
     settings: args.settings,
     catalog: args.catalog,
-    tier: "standard",
     head: { provider: args.activeProvider, model: args.activeModel },
     sessionId: args.sessionId,
-    fallbackChain: false,
     ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
   });
 }
@@ -275,100 +243,15 @@ export function buildMainSessionSources(args: {
 export function buildSubagentSources(args: {
   settings: Settings | undefined;
   catalog: readonly ProviderCatalogEntry[];
-  tier: ProviderTier;
-  head: TierProviderRef;
+  head: ProviderRef;
   reasoningEffort?: ReasoningEffort;
   sessionId?: string;
 }): { sources: InferenceSource[]; defaultSource: string } {
-  return buildTieredSourceBundle({
+  return buildSourceBundle({
     settings: args.settings,
     catalog: args.catalog,
-    tier: args.tier,
     head: args.head,
     sessionId: args.sessionId ?? randomUUID(),
-    fallbackChain: true,
     ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
   });
 }
-
-export function firstTierRef(
-  tier: ProviderTier,
-  settings: Settings | undefined,
-): TierProviderRef | null {
-  const refs = tierProviderRefs(tier, settings);
-  return refs[0] ?? null;
-}
-
-export function tierModeLabel(mode: TierSelectionMode | undefined): string {
-  return mode === "pin" ? "pin" : "prefer";
-}
-
-export function formatTierChain(raw: TierDefinition | TierAssignment | undefined): string {
-  const normalized = normalizeTierDefinition(raw);
-  if (normalized === undefined || normalized.order.length === 0) return "unset";
-  const chain = normalized.order
-    .map((r) => {
-      const leg = `${r.provider}/${r.model}`;
-      return r.reasoningEffort !== undefined ? `${leg}@${r.reasoningEffort}` : leg;
-    })
-    .join(" → ");
-  return `[${tierModeLabel(normalized.mode)}] ${chain}`;
-}
-
-export function appendTierEntry(
-  existing: TierDefinition | TierAssignment | undefined,
-  entry: TierProviderRef,
-  mode?: TierSelectionMode,
-): TierDefinition {
-  const base = normalizeTierDefinition(existing) ?? { mode: mode ?? "prefer", order: [] };
-  const without = base.order.filter((r) => refKey(r) !== refKey(entry));
-  return {
-    mode: mode ?? base.mode ?? "prefer",
-    order: [entry, ...without],
-  };
-}
-
-function tierDefinitionWithOrder(
-  base: TierDefinition,
-  order: TierProviderRef[],
-): TierDefinition {
-  const mode: TierSelectionMode = base.mode ?? "prefer";
-  return { mode, order };
-}
-
-export function cycleTierMode(existing: TierDefinition | TierAssignment | undefined): TierDefinition {
-  const base = normalizeTierDefinition(existing) ?? { mode: "prefer", order: [] };
-  const next: TierSelectionMode = base.mode === "pin" ? "prefer" : "pin";
-  return tierDefinitionWithOrder({ ...base, mode: next }, base.order);
-}
-
-export function removeTierLeg(
-  existing: TierDefinition | TierAssignment | undefined,
-  legIndex: number,
-): TierDefinition | undefined {
-  const base = normalizeTierDefinition(existing);
-  if (base === undefined || legIndex < 0 || legIndex >= base.order.length) return base;
-  const order = base.order.filter((_, i) => i !== legIndex);
-  if (order.length === 0) return undefined;
-  return tierDefinitionWithOrder(base, order);
-}
-
-export function moveTierLeg(
-  existing: TierDefinition | TierAssignment | undefined,
-  legIndex: number,
-  direction: -1 | 1,
-): TierDefinition | undefined {
-  const base = normalizeTierDefinition(existing);
-  if (base === undefined) return undefined;
-  const target = legIndex + direction;
-  if (target < 0 || target >= base.order.length) return base;
-  const order = [...base.order];
-  const tmp = order[legIndex];
-  const swap = order[target];
-  if (tmp === undefined || swap === undefined) return base;
-  order[legIndex] = swap;
-  order[target] = tmp;
-  return tierDefinitionWithOrder(base, order);
-}
-
-export { PROVIDER_TIERS };

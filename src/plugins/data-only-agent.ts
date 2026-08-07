@@ -52,7 +52,7 @@ const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 //                    (legacy: tools: { read: true, bash: false })
 //   - corbitsdev:    name, description, mode, color, permission: { read: "allow", bash: "deny" }
 //
-// Native Corbits Code keys also work and win ties: tier, inference, capabilities,
+// Native Corbits Code keys also work and win ties: inference, capabilities,
 // skills (frontmatter list, in addition to body `Load the X skill` lines).
 
 // Upstream tool-name aliases mapped to Corbits Code tool ids. Case-insensitive.
@@ -229,12 +229,16 @@ function normalizePermission(
   return undefined;
 }
 
-// Normalize the union of `tier` / `model` / `effort` / `inference` shapes into
-// either a tier alias or an explicit InferenceSpec. Native `inference` wins;
-// then `tier`; then `model` (object or array) with optional `effort`.
+// Normalize the union of `model` / `effort` / `inference` shapes into an
+// explicit InferenceSpec. Native `inference` wins; then `model` (object or
+// array) with optional `effort` applied to legs that don't declare their own.
+//
+// A bare Claude Code `effort: high` with no `model` has nothing to attach the
+// effort to now that tiers (which used to map effort to a model swap) are
+// gone, so it is ignored — set `model` alongside `effort` to pin both.
 function normalizeInference(
   fm: Record<string, unknown> | null,
-): { tier?: "fast" | "standard" | "clever"; inference?: InferenceSpec } {
+): { inference?: InferenceSpec } {
   if (fm === null) return {};
 
   // Native explicit inference spec.
@@ -245,22 +249,6 @@ function normalizeInference(
   ) {
     const spec = normalizeInferenceSpec(fm.inference as Record<string, unknown>);
     if (spec !== undefined) return { inference: spec };
-  }
-
-  // Native tier alias.
-  if (fm.tier === "fast" || fm.tier === "standard" || fm.tier === "clever") {
-    return { tier: fm.tier };
-  }
-
-  // Claude Code `effort: high` — maps to a tier alias.
-  if (typeof fm.effort === "string") {
-    const tierFromEffort: Record<string, "fast" | "standard" | "clever"> = {
-      low: "fast",
-      medium: "standard",
-      high: "clever",
-    };
-    const tier = tierFromEffort[fm.effort];
-    if (tier !== undefined) return { tier };
   }
 
   // `model` block: object, array, or (rejected in v1) string.
@@ -460,12 +448,11 @@ export async function loadDataOnlyAgentPlugin(
     // to JS-plugin agents too.
     const systemPromptRole = promptBody;
 
-    const { tier, inference } = normalizeInference(frontmatter);
+    const { inference } = normalizeInference(frontmatter);
     const capabilities = normalizeCapabilities(frontmatter);
 
     const profile: Record<string, unknown> = { id };
     if (description !== undefined) profile.description = description;
-    if (tier !== undefined) profile.tier = tier;
     if (inference !== undefined) profile.inference = inference;
     if (capabilities !== undefined) profile.capabilities = capabilities;
     // `orchestrator: true` opts the agent into the recursion exception. Stored

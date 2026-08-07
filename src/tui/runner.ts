@@ -24,7 +24,6 @@ import {
   localSettingsPath,
   markTelemetryNoticeShown,
   pushRecentModel,
-  resolveTier,
   saveGlobalSettings,
   saveLocalSettings,
   shellTimeoutFromSettings,
@@ -35,7 +34,6 @@ import {
   type Settings,
   type LocalSettings,
   type PluginConfig,
-  type ProviderTier,
 } from "../config/settings.js";
 import { providerChoices } from "../tui-opentui/provider-setup.js";
 import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
@@ -79,7 +77,7 @@ import {
   type CommandContext,
   type CommandResult,
 } from "./commands/registry.js";
-import { registerBuiltInCommands, setConfiguredTiers } from "./commands/built-in.js";
+import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
@@ -111,7 +109,6 @@ import { createChatDirector } from "../agent/director.js";
 import { createGoalGovernor } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
-import { buildInferenceSourceForRef, tierProviderRefs } from "../config/inference-sources.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -375,7 +372,6 @@ export function setUpCommandRegistry(
 ): void {
   const pluginConfig = settings?.plugins ?? {};
   registerBuiltInCommands();
-  setConfiguredTiers(settings?.tiers ?? {});
   registerWorkflowPlugins(plugins, pluginConfig);
   registerCommandPlugins(plugins, pluginConfig);
   setHiddenCommands(settings?.hiddenCommands ?? []);
@@ -709,7 +705,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .map((m) => toDescriptor(m))
     .filter((d): d is PluginDescriptor => d !== undefined);
   // Attach agent profiles to their descriptors so the /plugins UI can show
-  // which sub-agents and tiers a plugin contributes.
+  // which sub-agents a plugin contributes.
   for (const mod of livePluginModules) {
     if (mod.manifest?.kind !== "agent" || mod.agentPlugin === undefined) continue;
     const desc = pluginDescriptors.find((d) => d.id === mod.manifest!.id);
@@ -719,7 +715,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null && "id" in a)
       .map((a) => ({
         id: String(a["id"]),
-        ...(typeof a["tier"] === "string" ? { tier: a["tier"] } : {}),
         ...(typeof a["description"] === "string" ? { description: a["description"] } : {}),
       }));
   }
@@ -809,8 +804,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       await persistPluginSettings();
     },
     verify: async (id, credentials) => {
-      // Agent plugins verify by checking they contribute valid profiles and
-      // that each profile's tier resolves to a configured provider.
+      // Agent plugins verify by checking they contribute valid profiles.
       const agentMod = livePluginModules.find((m) => m.manifest?.id === id && m.manifest?.kind === "agent");
       if (agentMod !== undefined) {
         const verifyDiag = createPluginLoadDiagnostics();
@@ -821,14 +815,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         );
         emitPluginWarningSummary(verifyDiag);
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
-        // Check tier resolution so the user knows if the provider is configured.
-        const unresolved = profiles.filter(
-          (p) => p.tier !== undefined && resolveTier(p.tier as ProviderTier, config.settings ?? { providers: {} }) === null,
-        );
-        const tierHint = unresolved.length > 0
-          ? ` (${unresolved.length} unresolved tier${unresolved.length === 1 ? "" : "s"} — set in /model → tiers)`
-          : "";
-        return { ok: true, message: `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}${tierHint}` };
+        return { ok: true, message: `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}` };
       }
       // Tool plugins verify by loading (the factory must construct without
       // error and yield at least one tool).
@@ -1228,31 +1215,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   }
 
   // Goal governor survives director rebuilds; reattached in the factory below.
-  // Evaluator prefers the fast tier when configured, else the live session model.
-  // Fail-open if inference fails.
+  // Evaluator runs on the live session model.
   const goalGovernor = createGoalGovernor({
     evaluate: createGoalEvaluator({
-      getSource: () => {
-        const settings = config.settings;
-        const refs = tierProviderRefs("fast", settings, { fallbackChain: true });
-        const head = refs[0];
-
-        if (head !== undefined) {
-          const fast = buildInferenceSourceForRef(
-            head,
-            {
-              sessionId,
-              catalog: config.providers,
-              ...(config.reasoningEffort !== undefined
-                ? { reasoningEffort: config.reasoningEffort }
-                : {}),
-            },
-            settings,
-          );
-          if (fast !== null) return fast;
-        }
-        return liveSource;
-      },
+      getSource: () => liveSource,
       deps: inferenceDeps,
     }),
     onChange: (snap) => {
@@ -1860,9 +1826,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         return;
       case "workflow":
         systemRow(workflowController.start(result.name));
-        return;
-      case "tier":
-        systemRow(`Tier ${result.tier} selected`);
         return;
       case "noop":
         return;

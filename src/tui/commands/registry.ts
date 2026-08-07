@@ -1,4 +1,3 @@
-import type { ProviderTier } from "../../config/settings.js";
 import type { GoalSnapshot, GoalSetOpts, GoalResumeOpts } from "../../agent/goal.js";
 import type { CostSummary } from "../../cost/cost-summary.js";
 
@@ -30,7 +29,6 @@ export type CommandResult =
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "paste-image" }
-  | { type: "tier"; tier: ProviderTier }
   | { type: "noop" };
 
 export type SubcommandDefinition = {
@@ -51,7 +49,7 @@ export type CommandDefinition = {
   handler: (args: string, ctx: CommandContext) => CommandResult;
   // Optional visibility gate. When present and returns false the command is
   // omitted from listCommands (the slash menu) but still callable via
-  // getCommand — so a tier command stays resolvable even mid-reconfigure.
+  // getCommand.
   available?: () => boolean;
 };
 

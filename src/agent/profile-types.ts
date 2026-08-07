@@ -28,9 +28,8 @@ export type CapabilityFilter = {
   tools: string[];
 };
 
-// A single provider/model/effort combo an agent can run on. Mirrors a tier leg
-// but carries an optional reasoningEffort so an agent can pin "Sonnet + medium"
-// or "Grok + high" without going through the tier abstraction.
+// A single provider/model/effort combo an agent can run on, so an agent can
+// pin "Sonnet + medium" or "Grok + high".
 export type InferenceLeg = {
   provider: string;
   model: string;
@@ -50,12 +49,9 @@ export type AgentProfile = {
   // Unique identifier, used in workflow steps as `agent: "greybeard"`.
   id: string;
   description?: string;
-  // Provider tier alias for this agent. Resolved via settings.tiers to a
-  // concrete provider and model assignment. Used when `inference` is absent.
-  tier?: "fast" | "standard" | "clever";
-  // Explicit per-agent model selection. Takes precedence over `tier` when set,
-  // so an agent can declare "Sonnet + medium reasoning" without going through
-  // the user's tier config. See InferenceSpec for resolution rules.
+  // Explicit per-agent model selection. When absent, the agent runs on the
+  // parent session's active provider/model. See InferenceSpec for
+  // resolution rules.
   inference?: InferenceSpec;
   // Optional tool restriction. Controls which tools the sub-agent can call.
   capabilities?: CapabilityFilter;

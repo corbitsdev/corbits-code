@@ -12,7 +12,7 @@
 import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../provider/billing-product.js"
 import { getActivePricingCache } from "../cost/cost-visibility.js"
 import { lookupModelPricing, type PricingCache } from "../cost/pricing-fetcher.js"
-import { contextWindowFor } from "../provider/context-window.js"
+import { contextWindowFor, hasContextWindowFor } from "../provider/context-window.js"
 import { modelReasoningCapability } from "../provider/reasoning-effort.js"
 import type { ItemDescription } from "./shell.js"
 
@@ -272,9 +272,12 @@ function pricingImpact(pricing: PricingCache | null, model: string): string {
 function whatLine(model: string): string {
   const reasoning = modelReasoningCapability(model)
   const context = contextWindowFor(model)
-  const contextText = context > 0 ? `${Math.round(context / 1000)}k context` : "context length unknown"
-  const tierText = reasoning === true ? "deep reasoning" : reasoning === false ? "standard tier" : "tier unknown"
-  return `${tierText}. ${contextText}.`
+  const confident = hasContextWindowFor(model)
+  const contextText = context > 0
+    ? `${Math.round(context / 1000)}k context${confident ? "" : " (estimated)"}`
+    : "context length unknown"
+  const reasoningText = reasoning === true ? "Deep reasoning" : reasoning === false ? "No extended reasoning" : "Reasoning support unknown"
+  return `${reasoningText}. ${contextText}.`
 }
 
 /**

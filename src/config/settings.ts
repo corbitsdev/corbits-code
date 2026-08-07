@@ -44,18 +44,6 @@ export type ProviderSettings = {
   opencodeGo?: boolean;
 };
 
-export type ProviderTier = "fast" | "standard" | "clever";
-export type TierAssignment = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
-export type TierSelectionMode = "pin" | "prefer";
-export type TierProviderRef = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
-export type TierDefinition = {
-  mode?: TierSelectionMode;
-  order: TierProviderRef[];
-};
-export type TierConfig = TierAssignment | TierDefinition;
-
-export const PROVIDER_TIERS: readonly ProviderTier[] = ["fast", "standard", "clever"];
-
 // Provider+model identity used by the models-first picker (recent / favorites).
 export type ModelRef = { provider: string; model: string };
 
@@ -67,7 +55,6 @@ export type Settings = {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
-  tiers?: Partial<Record<ProviderTier, TierConfig>>;
   // Per-phase model overrides for workflows. Keyed by profile name, then by
   // workflow step profile key. Example:
   //   { "fast": { "implement": "gpt-4o-mini", "review": "gpt-4o" } }
@@ -413,34 +400,15 @@ const ModelRefSchema = type({
   model: "string",
 });
 
-const TierProviderRefSchema = type({
-  provider: "string",
-  model: "string",
-  "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
-});
-
-const TierAssignmentSchema = TierProviderRefSchema;
-
-const TierDefinitionSchema = type({
-  "mode?": "'pin' | 'prefer'",
-  order: TierProviderRefSchema.array(),
-});
-
-const TierConfigSchema = TierDefinitionSchema.or(TierAssignmentSchema);
-
-const TiersSchema = type({
-  "fast?": TierConfigSchema,
-  "standard?": TierConfigSchema,
-  "clever?": TierConfigSchema,
-});
-
 const SettingsSchema = type({
   "defaultProvider?": "string",
   providers: type({ "[string]": ProviderSettingsSchema }),
   // mcpServers accepts both array and object forms, so it is validated by
   // normalizeMcpServers rather than expressed structurally here.
   "mcpServers?": "unknown",
-  "tiers?": TiersSchema,
+  // Model tiers were removed; an older settings file may still carry this key.
+  // Accepted and ignored so the file still loads, then dropped on next save.
+  "tiers?": "unknown",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
   "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
   "pluginPaths?": "string[]",
@@ -614,7 +582,6 @@ type OptionalLocalSettingsFields = {
 export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "defaultProvider",
   "mcpServers",
-  "tiers",
   "workflowProfiles",
   "plugins",
   "pluginPaths",
@@ -713,11 +680,15 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       `settings: "workflowPlugins"/"agentPlugins" are no longer supported and will be dropped. Install those plugins under .corbits/plugins/ (or via /plugins "add by path") and enable them in /plugins.\n`,
     );
   }
+  if (s.tiers !== undefined) {
+    process.stderr.write(
+      `settings: "tiers" is no longer supported and will be dropped. Model tiers were removed; use /model to pick a provider and model directly.\n`,
+    );
+  }
   // Transforms (normalize/clamp/enum) first; pickDefined only drops undefined.
   const optional: OptionalSettingsFields = {
     defaultProvider: s.defaultProvider as string | undefined,
     mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-    tiers: s.tiers as Settings["tiers"] | undefined,
     workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] | undefined,
     plugins: s.plugins as Settings["plugins"] | undefined,
     pluginPaths: s.pluginPaths as string[] | undefined,
@@ -1144,69 +1115,6 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   };
 }
 
-function isTierDefinitionConfig(raw: TierConfig): raw is TierDefinition {
-  return "order" in raw && Array.isArray(raw.order);
-}
-
-function tierConfigToDefinition(raw: TierConfig): TierDefinition | null {
-  if (isTierDefinitionConfig(raw)) {
-    const order = raw.order.filter((r) => r.provider.length > 0 && r.model.length > 0);
-    if (order.length === 0) return null;
-    return { mode: raw.mode ?? "prefer", order };
-  }
-  const leg = raw;
-  if (leg.provider.length === 0 || leg.model.length === 0) return null;
-  return { mode: "pin", order: [{ provider: leg.provider, model: leg.model }] };
-}
-
-/** Tier config at the given name only (no fast → standard → clever walk). */
-export function tierDefinitionAt(
-  tier: ProviderTier,
-  settings: Settings,
-): TierDefinition | null {
-  const raw = settings.tiers?.[tier];
-  if (raw === undefined) return null;
-  const def = tierConfigToDefinition(raw);
-  if (def === null) return null;
-  const viable = def.order.filter((r) => settings.providers[r.provider] !== undefined);
-  if (viable.length === 0) return null;
-  return { mode: def.mode ?? "prefer", order: viable };
-}
-
-export function resolveTierDefinition(
-  tier: ProviderTier,
-  settings: Settings,
-): TierDefinition | null {
-  const chain: ProviderTier[] = ["fast", "standard", "clever"];
-  const start = chain.indexOf(tier);
-  if (start === -1) return null;
-  for (let i = start; i < chain.length; i++) {
-    const t = chain[i] as ProviderTier;
-    const raw = settings.tiers?.[t];
-    if (raw === undefined) continue;
-    const def = tierConfigToDefinition(raw);
-    if (def === null) continue;
-    const viable = def.order.filter((r) => settings.providers[r.provider] !== undefined);
-    if (viable.length === 0) continue;
-    const mode: TierSelectionMode = def.mode ?? "prefer";
-    return { mode, order: viable };
-  }
-  return null;
-}
-
-// Walk the fallback chain fast → standard → clever and return the first
-// provider/model in the resolved tier chain.
-export function resolveTier(tier: ProviderTier, settings: Settings): TierAssignment | null {
-  const def = resolveTierDefinition(tier, settings);
-  const first = def?.order[0];
-  if (first === undefined) return null;
-  return {
-    provider: first.provider,
-    model: first.model,
-    ...(first.reasoningEffort !== undefined ? { reasoningEffort: first.reasoningEffort } : {}),
-  };
-}
-
 import type { InferenceSpec } from "../agent/profile-types.js";
 
 // A resolved inference leg, with reasoningEffort threaded through.
@@ -1231,7 +1139,7 @@ function isLegViable(leg: { provider: string; model: string }, settings: Setting
 //
 //   - "resolved"      — a viable leg was found, returned in `value`.
 //   - "fallback"      — no viable leg, but the agent permits fallback (the
-//                       caller falls through to tier / active session).
+//                       caller falls through to the active session's model).
 //   - "unavailable"   — no viable leg, and the spec forbids fallback
 //                       (`mode: "pin"` or `agentModelFallback: "none"`). The
 //                       caller must surface this as an error rather than

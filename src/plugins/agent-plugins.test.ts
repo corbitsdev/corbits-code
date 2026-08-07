@@ -20,7 +20,6 @@ function agentModule(
 const validProfile = {
   id: "explorer",
   description: "Repository exploration sub-agent",
-  tier: "fast" as const,
   capabilities: { mode: "allow" as const, tools: ["read_file", "search_files", "grep"] },
   systemPromptRole: "You explore repositories.",
 };
@@ -31,7 +30,6 @@ describe("resolveAgentPluginProfiles", () => {
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles.length).toBe(1);
     expect(profiles[0]!.id).toBe("explorer");
-    expect(profiles[0]!.tier).toBe("fast");
   });
 
   test("skips profiles from disabled plugins", async () => {
@@ -57,7 +55,7 @@ describe("resolveAgentPluginProfiles", () => {
   test("skips malformed profiles, keeps valid ones", async () => {
     const { mod, config } = agentModule("p1", [
       validProfile,
-      { id: "bad", tier: "nonexistent" }, // invalid tier
+      { id: "bad", maxTurns: "nonexistent" }, // invalid maxTurns type
       { description: "missing id" }, // missing required id
     ]);
     const profiles = await resolveAgentPluginProfiles([mod], config);

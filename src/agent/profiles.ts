@@ -40,7 +40,6 @@ const InferenceSpecSchema = type({
 const AgentProfileSchema = type({
   id: "string",
   "description?": "string",
-  "tier?": "'fast' | 'standard' | 'clever'",
   "inference?": InferenceSpecSchema,
   "capabilities?": CapabilityFilterSchema,
   "systemPromptRole?": "string",

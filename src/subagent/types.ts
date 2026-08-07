@@ -10,7 +10,7 @@ import type { ToolPlugin } from "@intx/tools-posix";
 
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
-import type { Settings, ProviderTier } from "../config/settings.js";
+import type { Settings } from "../config/settings.js";
 import type { ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
@@ -27,9 +27,9 @@ export type SubAgentProvider = {
   // resolveEffortForRole — leaves default to medium, orchestrators to high,
   // so a primary /agent high selection does not force every leaf onto high.
   reasoningEffort?: ReasoningEffort;
-  // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the generic
-  // (no-tier) dispatch path builds a plain openai-compatible source and the
-  // gateway never receives the x-bf-vk header.
+  // Mirrors ProviderCatalogEntry.bifrostVirtualKey. Without it the dispatch
+  // path builds a plain openai-compatible source and the gateway never
+  // receives the x-bf-vk header.
   bifrostVirtualKey?: boolean;
 };
 
@@ -71,7 +71,6 @@ export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
   provider: SubAgentProvider;
-  tier?: ProviderTier;
   settings?: Settings;
   catalog?: readonly ProviderCatalogEntry[];
   description: string;
