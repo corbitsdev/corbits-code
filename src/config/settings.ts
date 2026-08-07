@@ -112,7 +112,6 @@ export type Settings = {
   // "llm" (default) generates a structured handoff summary via LLM call.
   // "pruning" uses fast deterministic pruning with no LLM call.
   compactionMode?: "llm" | "pruning";
-  maxConcurrentSubAgents?: number;
   // Default inference-turn budget for leaf sub-agents (not the parent session limit).
   subagentMaxTurns?: number;
   // Primary session behavior: single agent does work in-session; orchestrator
@@ -250,20 +249,6 @@ export function shellEnvFromSettings(
   local?: LocalSettings | null,
 ): Record<string, string> | undefined {
   return local?.env;
-}
-
-export const DEFAULT_MAX_CONCURRENT_SUB_AGENTS = 10;
-
-export function clampMaxConcurrentSubAgents(value: number): number {
-  if (!Number.isFinite(value)) return DEFAULT_MAX_CONCURRENT_SUB_AGENTS;
-  return Math.max(0, Math.floor(value));
-}
-
-export function resolveMaxConcurrentSubAgents(settings?: Settings | null): number {
-  if (settings?.maxConcurrentSubAgents === undefined) {
-    return DEFAULT_MAX_CONCURRENT_SUB_AGENTS;
-  }
-  return clampMaxConcurrentSubAgents(settings.maxConcurrentSubAgents);
 }
 
 export const DEFAULT_SUBAGENT_MAX_TURNS = 30;
@@ -466,7 +451,6 @@ const SettingsSchema = type({
   "onboarded?": "boolean",
   "lastChangelogVersion?": "string",
   "compactionMode?": "'llm' | 'pruning'",
-  "maxConcurrentSubAgents?": "number",
   "subagentMaxTurns?": "number",
   "sessionMode?": "'single' | 'orchestrator'",
   "agentModelFallback?": "'active' | 'none'",
@@ -522,10 +506,6 @@ export function isSettings(value: unknown): value is Settings {
   if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
-  if (s.maxConcurrentSubAgents !== undefined) {
-    const n = s.maxConcurrentSubAgents;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return false;
-  }
   if (s.subagentMaxTurns !== undefined) {
     const n = s.subagentMaxTurns;
     if (
@@ -645,7 +625,6 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "onboarded",
   "lastChangelogVersion",
   "compactionMode",
-  "maxConcurrentSubAgents",
   "subagentMaxTurns",
   "sessionMode",
   "agentModelFallback",
@@ -753,10 +732,6 @@ export async function loadSettings(path: string): Promise<Settings | null> {
         : undefined,
     compactionMode:
       s.compactionMode === "llm" || s.compactionMode === "pruning" ? s.compactionMode : undefined,
-    maxConcurrentSubAgents:
-      s.maxConcurrentSubAgents !== undefined
-        ? clampMaxConcurrentSubAgents(s.maxConcurrentSubAgents as number)
-        : undefined,
     subagentMaxTurns:
       s.subagentMaxTurns !== undefined
         ? clampSubAgentMaxTurns(s.subagentMaxTurns as number)

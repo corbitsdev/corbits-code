@@ -628,7 +628,6 @@ describe("buildProviderCatalog", () => {
       hiddenCommands: ["help"],
       onboarded: true,
       compactionMode: "pruning",
-      maxConcurrentSubAgents: 3,
       subagentMaxTurns: 40,
       sessionMode: "orchestrator",
       agentModelFallback: "none",

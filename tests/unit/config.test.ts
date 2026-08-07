@@ -132,7 +132,6 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       onboarded: true,
       lastChangelogVersion: "0.1.0",
       compactionMode: "pruning" as const,
-      maxConcurrentSubAgents: 3,
       subagentMaxTurns: 20,
       sessionMode: "orchestrator" as const,
       agentModelFallback: "none" as const,

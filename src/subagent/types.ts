@@ -103,10 +103,6 @@ export type RunSubAgentParams = {
   // Present only when orchestrator is true. Installs task + search_agents so
   // the orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
-  // Set when this dispatch is a nested worker spawned by an orchestrator that
-  // already holds a concurrency slot. The nested run reuses the parent's slot
-  // (reentrant) instead of acquiring its own, which would deadlock the pool.
-  nested?: boolean;
   /** Inference-turn budget for this worker only (not the parent session limit). */
   maxTurns?: number;
   /**
