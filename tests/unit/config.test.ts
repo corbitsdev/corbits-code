@@ -1,6 +1,12 @@
 import { test, expect, mock } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import * as nodeOs from "node:os";
+
+// Bun mutates the imported namespace object in place when a module is
+// mocked, so `nodeOs` itself is not safe to hold onto across a mock.module
+// call -- capture a shallow copy now, before anything mocks node:os, so the
+// snapshot below still reads "real" after the mock/restore round-trip.
+const realNodeOs = { ...nodeOs };
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -226,7 +232,7 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
     // parameter — so the only way to point it at a synthetic auth store
     // without touching the real one is to stub node:os for the duration of
     // this call.
-    mock.module("node:os", () => ({ ...nodeOs, homedir: () => fakeHome }));
+    mock.module("node:os", () => ({ ...realNodeOs, homedir: () => fakeHome }));
     try {
       const { impl } = offlineFetch();
       const config = await loadConfig(
@@ -240,7 +246,7 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
         expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
       }
     } finally {
-      mock.module("node:os", () => nodeOs);
+      mock.module("node:os", () => realNodeOs);
     }
   } finally {
     await rm(fakeHome, { recursive: true, force: true });

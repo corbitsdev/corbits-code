@@ -1,8 +1,13 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import * as realFs from "node:fs/promises";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+
+// Bun mutates the imported namespace object in place when a module is
+// mocked, so the capture is shallow-copied immediately -- holding onto the
+// live namespace would turn into the mocked exports as soon as mock.module
+// below runs, making a later restore a no-op.
+const realFs = { ...(await import("node:fs/promises")) };
 
 // Simulates the straggler write's real await point (e.g. cycleRecorder.dispose
 // during the terminal path) landing its writeFile after a later-issued
@@ -19,6 +24,10 @@ mock.module("node:fs/promises", () => ({
     return realWriteFile(path, data);
   },
 }));
+
+afterAll(() => {
+  mock.module("node:fs/promises", () => realFs);
+});
 
 const { loadState, saveState } = await import("./state.js");
 type RunState = Awaited<ReturnType<typeof loadState>>;
