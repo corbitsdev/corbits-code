@@ -53,6 +53,18 @@ counts meaningless to compare across branches — always use `bun run test`.
 
 Follow the `style` skill's message format: plain-English summary, no `feat:`/`fix:` prefixes, no filename in the summary. Separate refactors from feature additions. Commit with the user's local git identity.
 
+## Pushing
+
+**Never mutate git configuration outside the current repository**, for any reason and not even temporarily with a plan to restore it — whatever the command (`--global`, `--system`, `--edit`, `--file` pointed at a path outside the repo, reassigning or unsetting `GIT_CONFIG_GLOBAL`, or writing `~/.gitconfig` directly). That state is shared by every agent and every repo on the machine; a crash or a second agent running concurrently turns a "temporary" toggle into a lasting outage or collision. This is the same hazard class as running `git stash` (also global, also banned). Auto mode enforces this at the shell-policy layer (`git-global-config` in `src/permission/auto-shell-policy.ts`), which routes any such command to an operator ask instead of running it unattended — this instruction is the fallback for the cases the policy can't see, not the only line of defense.
+
+If SSH push fails because the shell can't reach the ssh-agent socket, use `bin/git-push-scoped` instead of touching config:
+
+```bash
+bin/git-push-scoped origin <branch>
+```
+
+It authenticates over HTTPS via `gh`'s credential helper and rewrites the SSH remote to HTTPS, both scoped to that one `git push` invocation with `-c`. Nothing is written to any config file, so there is nothing to restore and nothing to collide over.
+
 ## Building on Interchange
 
 Interchange is the standard library for this repo, consumed as published `@intx/*` npm packages pinned at 0.2.2 (`@intx/inference` resolves to the vendored copy in `vendor/intx-inference` — upstream 0.2.2 plus the audited patch set on CL-4352). We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
