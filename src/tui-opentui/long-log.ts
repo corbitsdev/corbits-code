@@ -19,6 +19,19 @@ export const LONG_LOG_WINDOW = 200
  */
 export const LONG_LOG_COLLAPSE_THRESHOLD = 500
 
+/**
+ * Retained tail of a stream log. Display-only state — the agent's own context
+ * is kept separately — but an unbounded array still costs memory and O(n)
+ * snapshot/diff work on every append over a long, tool-heavy session. Set
+ * above the collapse threshold so eviction never fights the paint window.
+ */
+export const MAX_RETAINED_STREAM_ROWS = 600
+
+/** Rows to drop from the front of a log of this length to fit the cap. */
+export function retentionOverflow(length: number): number {
+  return Math.max(0, length - MAX_RETAINED_STREAM_ROWS)
+}
+
 export type LongLogWindow = {
   /** Inclusive start index into the full row log. */
   readonly start: number
