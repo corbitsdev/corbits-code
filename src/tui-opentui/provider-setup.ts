@@ -645,22 +645,17 @@ export async function runProviderSetup(
   })
 
   function listHeight(): number {
-    // Every row root carries besides listBox itself, during the steps where
-    // the list is shown (provider pick, or model pick for preset/oauth):
-    // loginBox and inputFrame are hidden then, so they cost nothing.
-    const singleLineRows = 7 // header, intro, step, instruction, statusLine, guidance, footer
-    const rootPadding = 1
-    const listBoxPadding = 1
-    // summary always renders one row per step in the active flow (values
-    // filled in as "done", the rest as "—"); PRESET_STEPS and OAUTH_STEPS
-    // are the only flows whose model/provider steps show the list, and both
-    // are the same length today, so take the max in case that changes.
-    const summaryRows = 1 + Math.max(PRESET_STEPS.length, OAUTH_STEPS.length)
-    const telemetryRows = config.showTelemetryNotice ? 1 + TELEMETRY_ROWS : 0
-    const chromeRows =
-      rootPadding + singleLineRows + summaryRows + listBoxPadding + telemetryRows
+    // This budget is a guess, not a derivation: it runs before `root` is
+    // even constructed below, so there has been no layout pass yet and
+    // nothing in OpenTUI to measure — Renderable.height and scrollHeight
+    // only reflect the last completed layout, populated post-mount. -14
+    // is a hand count of the chrome rows above and below the list (header,
+    // intro, step, instruction, summary, statusLine, guidance, footer, and
+    // padding) with slack for a wrapped label; it goes stale if that chrome
+    // changes and nothing here will catch it. A shared, derived chrome
+    // budget for this and shell.ts's picker is tracked separately.
     const rows = renderer.height || 24
-    return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - chromeRows))
+    return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14))
   }
 
   const steps = (): readonly SetupStep[] => stepsFor(choice)
