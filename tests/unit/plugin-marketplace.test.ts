@@ -178,7 +178,12 @@ test("path expand reports skips via onSkip (never silent when callback set)", as
   }
 });
 
-test("default expand path reports skips to stderr (non-silent without onSkip)", async () => {
+test("onSkip is required — every skip reaches the caller's handler, none silent", async () => {
+  // `expandPluginPath` has no default sink: `onSkip` is a required field on
+  // its options (CL-5411 round 4) so a caller cannot forget it and fall
+  // through to a raw stderr write. This drives the real function with an
+  // explicit collecting handler and confirms every skip reaches it — stderr
+  // stays untouched, since there is no implicit fallback left to reach it.
   const base = await mkdtemp(join(tmpdir(), "corbits-mkt-stderr-"));
   try {
     const root = join(base, "marketplace");
@@ -198,14 +203,13 @@ test("default expand path reports skips to stderr (non-silent without onSkip)", 
       writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
       return true;
     }) as typeof process.stderr.write;
+    const skips: ExpandPluginPathSkip[] = [];
     try {
-      const members = await expandPluginPath(root);
+      const members = await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
       expect(members).toEqual([]);
-      expect(writes.some((w) => w.includes("skipped marketplace source"))).toBe(true);
-      expect(writes.some((w) => w.includes("absolute"))).toBe(true);
-      expect(writes.some((w) => w.includes("missing"))).toBe(true);
-      // Default reporter uses the original relative source string for missing.
-      expect(writes.some((w) => w.includes("./plugins/missing"))).toBe(true);
+      expect(writes).toEqual([]);
+      expect(skips.some((s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin")).toBe(true);
+      expect(skips.some((s) => s.reason === "missing" && s.source === "./plugins/missing")).toBe(true);
     } finally {
       process.stderr.write = origWrite;
     }

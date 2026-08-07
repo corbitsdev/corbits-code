@@ -54,7 +54,11 @@ import type {
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
-import { expandExistingPluginMembers } from "../plugins/loader.js";
+import {
+  expandExistingPluginMembers,
+  formatExpandSkip,
+  type ExpandPluginPathSkip,
+} from "../plugins/loader.js";
 import { isPluginTrusted, loadProjectTrust } from "../trust/project-trust.js";
 import {
   isPathPluginTrusted,
@@ -233,9 +237,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
     let projectTrust = await loadProjectTrust(config.cwd);
     const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
     // One-shot migration only when the path-trust file does not exist yet.
+    // Headless exec has no frame to corrupt, so a skipped marketplace member
+    // writes straight to stderr here — an explicit choice at this call site,
+    // not `expandPluginPath` falling back to it on its own.
     let pathTrust = await migratePathTrustFromPluginPaths(
       config.settings?.pluginPaths ?? [],
-      (p) => expandExistingPluginMembers(p, config.cwd),
+      (p) =>
+        expandExistingPluginMembers(p, config.cwd, (skip: ExpandPluginPathSkip) => {
+          process.stderr.write(`plugins: ${formatExpandSkip(skip)}\n`);
+        }),
       undefined,
       { onMigrated: reportPathTrustMigration },
     );

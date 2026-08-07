@@ -393,17 +393,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // global path-trust entry, load metadata-only (no import).
   // Claude Code marketplace installs are opt-in via settings.discoverClaudePlugins.
   let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
+  // Declared before the migration call below so a skipped marketplace member
+  // (bad pluginPaths entry) collects into the same summary as discovery,
+  // rather than defaulting to stderr — `onSkip` on expandExistingPluginMembers
+  // is required precisely so this can't be forgotten at a call site.
+  const pluginLoadDiag = createPluginLoadDiagnostics();
   // One-shot: seed global path trust from pluginPaths only when the store file
   // does not exist yet (legacy per-cwd grants). Later boots load the store as-is.
   let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
     config.settings?.pluginPaths ?? [],
-    (p) => expandExistingPluginMembers(p, config.cwd),
+    (p) => expandExistingPluginMembers(p, config.cwd, expandSkipDiagnosticsHandler(pluginLoadDiag)),
     undefined,
     { onMigrated: reportPathTrustMigration },
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
-  const pluginLoadDiag = createPluginLoadDiagnostics();
   const pluginModules = await discoverSessionPlugins({
     cwd: config.cwd,
     ...(config.settings?.pluginPaths !== undefined
@@ -897,13 +901,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       // Persist global path trust only once it resolves to a real plugin, so a
       // bogus path never leaves a dangling entry. Expand marketplaces so each
       // member is trusted (exact-path match on reload). `onSkip` collects into
-      // `addDiag` instead of the default stderr write — same reasoning as
+      // `addDiag` instead of a raw stderr write — same reasoning as
       // `loadPluginEntry` above.
-      const addSkipHandler = expandSkipDiagnosticsHandler(addDiag);
-      const members = await expandPluginPath(
-        abs,
-        addSkipHandler !== undefined ? { onSkip: addSkipHandler } : {},
-      );
+      const members = await expandPluginPath(abs, {
+        onSkip: expandSkipDiagnosticsHandler(addDiag),
+      });
       pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.

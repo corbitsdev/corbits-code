@@ -9,7 +9,9 @@ import {
 } from "../plugins/diagnostics.js";
 import {
   discoverUserPlugins,
+  expandExistingPluginMembers,
   expandPluginPath,
+  expandSkipDiagnosticsHandler,
   loadPluginEntry,
   type ExpandPluginPathSkip,
 } from "../plugins/loader.js";
@@ -160,6 +162,39 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
       // The skip must land in the collector, not just avoid stderr — a write
       // that silently vanishes without reaching diagnostics is the same
       // lost-warning bug reached by a different route.
+      const message = formatPluginWarningsSummary(diag.warnings);
+      expect(message).toBeDefined();
+      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(true);
+    });
+    expect(writes).toBe(0);
+  });
+
+  test("expandExistingPluginMembers: a skipped source is dropped from the result but reaches diagnostics", async () => {
+    // This is the fourth site the same bug turned up in: it wraps
+    // expandPluginPath for a registered `pluginPaths` entry (runner.ts's
+    // startup migration/trust-seed call), so its `onSkip` is required too —
+    // there is no default to silently fall through to anymore. Dropping the
+    // member from the returned list is correct (trust decisions must not
+    // pre-grant a directory that could appear later), but the skip reason
+    // must still surface somewhere, not vanish.
+    const root = await mkdtemp(join(tmpdir(), "diag-existing-members-"));
+    const marketDir = join(root, "market");
+    await mkdir(join(marketDir, ".claude-plugin"), { recursive: true });
+    await writeFile(
+      join(marketDir, ".claude-plugin", "marketplace.json"),
+      JSON.stringify({
+        name: "demo",
+        plugins: [{ name: "bad", source: "/etc/not-a-plugin" }],
+      }),
+    );
+    const { writes } = await withStderrCapture(async () => {
+      const diag = createPluginLoadDiagnostics();
+      const members = await expandExistingPluginMembers(
+        marketDir,
+        root,
+        expandSkipDiagnosticsHandler(diag),
+      );
+      expect(members).toEqual([]);
       const message = formatPluginWarningsSummary(diag.warnings);
       expect(message).toBeDefined();
       expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(true);
