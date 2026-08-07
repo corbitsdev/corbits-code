@@ -8,7 +8,9 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Matches LogTape's Sink shape structurally (see @logtape/logtape's
 // sink.d.ts); not imported directly since only @intx/log is a declared
-// dependency here.
+// dependency here. The real type is strictly wider than this — if LogTape
+// ever renames or narrows one of these fields, nothing here will catch the
+// drift, so keep this in sync by hand if @intx/log's pinned version moves.
 type LogRecord = {
   readonly category: readonly string[];
   readonly level: string;
@@ -54,9 +56,14 @@ export function installFileLogSink(path: string = corbitsLogFilePath()): void {
         appendFileSync(path, formatRecord(record));
       },
     },
+    // "debug" (not "warning"): a file has no screen to corrupt, and several
+    // teardown-race diagnostics (e.g. src/tui/runner.ts, src/exec/runner.ts)
+    // are logger.debug calls that exist specifically to be readable here
+    // after the fact. Filtering them out at the sink would silently disable
+    // the diagnostics the file exists to capture.
     loggers: [
       { category: ["logtape", "meta"], lowestLevel: "warning", sinks: ["file"] },
-      { category: [], lowestLevel: "warning", sinks: ["file"] },
+      { category: [], lowestLevel: "debug", sinks: ["file"] },
     ],
   });
 }
