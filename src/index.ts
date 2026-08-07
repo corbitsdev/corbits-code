@@ -3,6 +3,7 @@ import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/report.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
+import { installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
@@ -20,6 +21,12 @@ export async function mainWithRunners(
   argv: readonly string[],
   runners: Runners,
 ): Promise<number> {
+  // Must run before any other line: @intx/log installs a console sink as a
+  // side effect of import, and loadConfig itself can log (e.g. healed
+  // settings). Once installed, this replaces that default so nothing —
+  // including a vendored dependency's logger — reaches the terminal the
+  // TUI is about to own.
+  installFileLogSink();
   const config = await loadConfig(argv, { allowUnconfigured: true });
   // Resolve the crash-report directory once, up front, while the process is
   // healthy. This is the only place project-key resolution (which shells
