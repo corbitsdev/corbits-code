@@ -26,7 +26,7 @@ import {
   recordScalar,
   type McpRecords,
 } from "../tui/mcp-result-format.js"
-import { summarizeToolResult } from "../tui/tool-formatter.js"
+import { stripTaskReportEnvelope, summarizeToolResult } from "../tui/tool-formatter.js"
 import type { StreamRow, StyledBodyLine } from "./stream.js"
 
 export type McpTone =
@@ -280,6 +280,9 @@ const DETAIL_TEXT_MAX = 72
 /** The tool a capability search arrives through; its result is a catalogue. */
 const TOOL_SEARCH_TOOL = "tool_search"
 
+/** The tool a sub-agent dispatch arrives through; its result is a report. */
+const TASK_TOOL = "task"
+
 function titleCase(word: string): string {
   return word.length === 0 ? word : `${word[0]!.toUpperCase()}${word.slice(1)}`
 }
@@ -448,6 +451,13 @@ function recordSummary(
  */
 function resultSummary(input: ToolResultRowInput): ResultSummary | null {
   const content = input.content
+  if (input.name === TASK_TOOL) {
+    // A worker's reply wraps a "Sub-agent ... reported:" / "## Summary"
+    // envelope. The one-line preview already strips it; the expanded detail
+    // must too, or the raw envelope and heading markers leak as plain text.
+    const { preview } = summarizeToolResult(input.name, content)
+    return { summary: preview, detail: bodyLines(stripTaskReportEnvelope(content)) }
+  }
   if (input.name === TOOL_SEARCH_TOOL) {
     const catalogue = toolCatalogueSummary(content)
     if (catalogue !== null) return catalogue

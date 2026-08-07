@@ -214,6 +214,36 @@ describe("collapsed tool results", () => {
     expect(row.summary).toBe("Read Linear project Alpha")
   })
 
+  test("a sub-agent report collapses to its summary line, envelope and headings stripped from the detail", () => {
+    const row = toolResultRow({
+      name: "task",
+      content:
+        'Sub-agent "explore callers" reported:\n\n## Summary\nFound 3 call sites in src/tui-opentui.\n\n## Findings\n- shell.ts line 40\n- diff.ts line 12',
+    })
+    expect(row.summary).toBe("Found 3 call sites in src/tui-opentui.")
+    expect(isCollapsibleRow(row)).toBe(true)
+    const detailText = (row.detail ?? [])
+      .map((line) => line.map((seg) => seg.text).join(""))
+      .join("\n")
+    expect(detailText).not.toContain("Sub-agent")
+    expect(detailText).not.toContain("## ")
+    expect(detailText).toContain("Found 3 call sites in src/tui-opentui.")
+    expect(detailText).toContain("Findings")
+  })
+
+  test("a short sub-agent report is still curated, not left as raw envelope", () => {
+    const row = toolResultRow({
+      name: "task",
+      content: 'Sub-agent "quick check" reported:\n\n## Summary\nAll clear.',
+    })
+    expect(row.summary).toBe("All clear.")
+    const detailText = (row.detail ?? [])
+      .map((line) => line.map((seg) => seg.text).join(""))
+      .join("\n")
+    expect(detailText).not.toContain("Sub-agent")
+    expect(detailText).not.toContain("## ")
+  })
+
   test("an error result is neither summarised nor collapsed", () => {
     const row = toolResultRow({
       name: "mcp__linear__list_projects",
