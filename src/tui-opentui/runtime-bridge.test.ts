@@ -432,3 +432,61 @@ describe("committed inference retry", () => {
     )
   })
 })
+
+describe("parallel sub-agent dispatch on the live session bridge", () => {
+  // The live main-session path tracks a call's row by callId in its own map
+  // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
+  // pendingCallIndex — this pins that down so a future change to either path
+  // cannot silently reintroduce CL-5562's misattribution on the parent
+  // transcript specifically (the observe overlay and resumed history are
+  // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
+  test("three parallel task calls resolve to three rows, each with its own result", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const events = [
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c1", arguments: { description: "Fix CL-5559" } },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c2", arguments: { description: "Fix CL-5560" } },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: { name: "task", callId: "c3", arguments: { description: "Fix CL-5561" } },
+            },
+            { type: "inference.done", data: {} },
+            { type: "tool.start", data: { call: { id: "c1", name: "task" } } },
+            { type: "tool.start", data: { call: { id: "c2", name: "task" } } },
+            { type: "tool.start", data: { call: { id: "c3", name: "task" } } },
+            // Completion order does not follow dispatch order.
+            { type: "tool.done", data: { result: { callId: "c2", name: "task", content: "done c2" } } },
+            { type: "tool.done", data: { result: { callId: "c1", name: "task", content: "done c1" } } },
+            { type: "tool.done", data: { result: { callId: "c3", name: "task", content: "done c3" } } },
+            { type: "reactor.done", data: {} },
+          ] as const
+          for (const event of events) bridge.handle(event)
+
+          const toolRows = shell.streamLog.filter((r) => r.role === "tool")
+          expect(toolRows.length).toBe(3)
+          expect(toolRows.every((r) => r.pending !== true)).toBe(true)
+          expect(toolRows.every((r) => r.failed !== true)).toBe(true)
+          expect(toolRows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"])
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})

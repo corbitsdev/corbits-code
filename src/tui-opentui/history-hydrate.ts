@@ -24,6 +24,13 @@ export type HistoryBlock = {
   readonly isError?: boolean
   /** tool_call argument payload when `content` is absent (ContentBlockData). */
   readonly arguments?: string
+  /**
+   * Call id carried by a `tool_call` / `tool_result` block. Two saved calls to
+   * the same tool are indistinguishable by name alone — a resumed transcript
+   * with parallel sub-agent dispatches needs this to pair each result with
+   * its own call rather than the newest pending call of that name.
+   */
+  readonly callId?: string
   /** view block payload — validated before it reaches the layout pass. */
   readonly node?: unknown
   /** plan block payload. */
@@ -51,6 +58,7 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
     message?: string
     isError?: boolean
     arguments?: string
+    callId?: string
     node?: unknown
     steps?: unknown
     tasks?: unknown
@@ -60,6 +68,7 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
   if (typeof o.message === "string") out.message = o.message
   if (typeof o.isError === "boolean") out.isError = o.isError
   if (typeof o.arguments === "string") out.arguments = o.arguments
+  if (typeof o.callId === "string") out.callId = o.callId
   if (o.node !== undefined) out.node = o.node
   if (o.steps !== undefined) out.steps = o.steps
   if (o.tasks !== undefined) out.tasks = o.tasks
@@ -135,6 +144,7 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
       return toolCallRow({
         name: block.name ?? "tool",
         ...(args !== undefined ? { arguments: args } : {}),
+        ...(block.callId !== undefined ? { callId: block.callId } : {}),
       })
     }
     case "tool_result":
@@ -142,6 +152,7 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
         name: block.name ?? "tool",
         content: block.content ?? (block.isError ? "error" : "ok"),
         isError: block.isError === true,
+        ...(block.callId !== undefined ? { callId: block.callId } : {}),
       })
     case "view": {
       const text = viewText(block.node) || block.content?.trim() || ""
@@ -211,6 +222,7 @@ function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
     pushToolCall(rows, {
       name: block.name ?? "tool",
       ...(args !== undefined ? { arguments: args } : {}),
+      ...(block.callId !== undefined ? { callId: block.callId } : {}),
     })
     return
   }
@@ -219,6 +231,7 @@ function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
       name: block.name ?? "tool",
       content: block.content ?? (block.isError ? "error" : "ok"),
       isError: block.isError === true,
+      ...(block.callId !== undefined ? { callId: block.callId } : {}),
     })
     return
   }

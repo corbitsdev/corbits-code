@@ -33,12 +33,14 @@ export function rowFromBridgeEvent(event: BridgeInboundEvent): StreamRow | null 
       return toolCallRow({
         name: event.name,
         ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+        ...(event.callId !== undefined ? { callId: event.callId } : {}),
       })
     case "tool_result":
       return toolResultRow({
         name: event.name,
         content: event.detail ?? (event.isError ? "error" : "ok"),
         isError: event.isError === true,
+        ...(event.callId !== undefined ? { callId: event.callId } : {}),
       })
     case "system":
       return { role: "system", text: event.text }
@@ -94,6 +96,7 @@ function pushBridgeEvent(
     pushToolCall(rows, {
       name: event.name,
       ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+      ...(event.callId !== undefined ? { callId: event.callId } : {}),
     })
     return
   }
@@ -102,6 +105,7 @@ function pushBridgeEvent(
       name: event.name,
       content: event.detail ?? (event.isError ? "error" : "ok"),
       isError: event.isError === true,
+      ...(event.callId !== undefined ? { callId: event.callId } : {}),
     })
     return
   }

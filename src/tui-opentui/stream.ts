@@ -72,6 +72,15 @@ export type StreamRow = {
    */
   readonly callKey?: string
   /**
+   * Runtime id of the call this row answers, when the source carried one
+   * (a live reactor callId, a resumed transcript's saved id). A result finds
+   * the exact row it resolves by this id first — the tool name alone is
+   * ambiguous the moment two calls to the same tool are in flight at once,
+   * which parallel sub-agent dispatch does on every turn that fires more
+   * than one `task` call.
+   */
+  readonly callId?: string
+  /**
    * Row standing for a run of repeated calls. Its subject stays the call the
    * run repeats (never a total across them, which would be a claim the
    * payloads do not support); each answer lands in the expanded body.

@@ -9,12 +9,13 @@ import { withTestRenderer } from "./harness"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge"
 import { createAppShell } from "./shell"
 import {
+  isCollapsibleRow,
   paintStreamRow,
   toolSentenceLines,
   type RowLayout,
   type StreamRow,
 } from "./stream"
-import { pushToolCall, pushToolResult } from "./tool-rows"
+import { pendingCallIndex, pushToolCall, pushToolResult } from "./tool-rows"
 
 const LAYOUT: RowLayout = { width: 72, multiAgent: false }
 
@@ -121,6 +122,91 @@ describe("a run of identical calls", () => {
     pushToolCall(rows, { name: "read_file", arguments: JSON.stringify({ path: "b.ts" }) })
     pushToolResult(rows, { name: "read_file", content: "b" })
     expect(rows.length).toBe(2)
+  })
+})
+
+describe("parallel calls to the same tool", () => {
+  // CL-5562: three `task` calls dispatched in one turn all carry
+  // meta === "task" — name alone cannot tell them apart, so a result must
+  // find its own row by call id or it resolves whichever pending "task" row
+  // happens to be newest, leaving the others stranded pending forever and
+  // turning any later same-name result into an orphaned extra row.
+  test("each result resolves its own call by id, not the newest pending call of that name", () => {
+    const rows: StreamRow[] = []
+    pushToolCall(rows, {
+      name: "task",
+      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
+      callId: "c1",
+    })
+    pushToolCall(rows, {
+      name: "task",
+      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5560 approval UI" }),
+      callId: "c2",
+    })
+    pushToolCall(rows, {
+      name: "task",
+      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5561 scroll/history" }),
+      callId: "c3",
+    })
+    expect(rows.length).toBe(3)
+
+    // Results land out of dispatch order, as real sub-agent completion does.
+    pushToolResult(rows, { name: "task", content: "done c2", callId: "c2" })
+    pushToolResult(rows, { name: "task", content: "done c1", callId: "c1" })
+    pushToolResult(rows, { name: "task", content: "done c3", callId: "c3" })
+
+    expect(rows.length).toBe(3)
+    expect(rows.every((r) => r.pending !== true)).toBe(true)
+    expect(rows.every((r) => r.failed !== true)).toBe(true)
+    expect(rows[0]?.summary).toBe("Fix CL-5559 heading shake")
+    expect(rows[0]?.text).toBe("done c1")
+    expect(rows[1]?.summary).toBe("Fix CL-5560 approval UI")
+    expect(rows[1]?.text).toBe("done c2")
+    expect(rows[2]?.summary).toBe("Fix CL-5561 scroll/history")
+    expect(rows[2]?.text).toBe("done c3")
+  })
+
+  // A miss must not fall back to "the newest pending row of that name" — that
+  // fallback is exactly the LIFO misattribution this test file exists to rule
+  // out, and every live caller (the bridge's own call map, subagent session
+  // entries, resumed history with ids) always carries a real id, so a miss
+  // here means the id genuinely does not belong to anything on the log.
+  test("an id that matches nothing on the log answers nothing, not the newest pending call", () => {
+    const rows: StreamRow[] = [
+      { role: "tool", text: "", meta: "task", pending: true, callId: "a1" },
+      { role: "tool", text: "", meta: "task", pending: true, callId: "b1" },
+    ]
+    expect(pendingCallIndex(rows, "task", "zzz-does-not-exist")).toBe(-1)
+
+    pushToolResult(rows, { name: "task", content: "orphan", callId: "zzz-does-not-exist" })
+    // Answers nothing on the log — appended as its own row rather than
+    // resolving (and thereby corrupting) an unrelated in-flight call.
+    expect(rows.length).toBe(3)
+    expect(rows[0]?.pending).toBe(true)
+    expect(rows[1]?.pending).toBe(true)
+  })
+
+  // Acceptance criterion: a failed sub-agent surfaces its error inline
+  // (expandable), not a bare mark with nothing behind it. `mergeToolRows` /
+  // `toolResultRow` already carry the failed result's own text into `detail`
+  // — untouched by this fix, but only reachable per-call once results resolve
+  // to the right row instead of a neighbour's.
+  test("a failed call keeps its error text behind the expand arrow", () => {
+    const rows: StreamRow[] = []
+    pushToolCall(rows, {
+      name: "task",
+      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
+      callId: "c1",
+    })
+    pushToolResult(rows, {
+      name: "task",
+      content: 'Error: sub-agent "Fix CL-5559 heading shake" failed: boom',
+      isError: true,
+      callId: "c1",
+    })
+    expect(rows[0]?.failed).toBe(true)
+    expect(isCollapsibleRow(rows[0]!)).toBe(true)
+    expect(rows[0]?.detail?.[0]?.[0]?.text).toContain("boom")
   })
 })
 
