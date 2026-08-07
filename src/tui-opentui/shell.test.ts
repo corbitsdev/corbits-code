@@ -2,7 +2,7 @@
  * Integration: app shell product skin — sticky, queue/steer/interrupt, overlay Esc.
  */
 import { describe, expect, test } from "bun:test"
-import type { KeyEvent } from "@opentui/core"
+import { MouseEvent, type KeyEvent } from "@opentui/core"
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index"
 import { focusOwner, scrollLease } from "./focus/index"
 import {
@@ -151,6 +151,48 @@ describe("createAppShell", () => {
             shell.transcript.scrollHeight - shell.transcript.height
           await h.renderOnce()
           expect(noticeText(shell)).not.toContain("pinned")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("wheel scroll landing on the prompt moves the transcript, not the prompt", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          for (let i = 0; i < 50; i++) {
+            appendTranscript(shell, `seed-${i}`)
+          }
+          await h.renderOnce()
+          await h.renderOnce()
+          expect(isTranscriptFollowing(shell)).toBe(true)
+          const followingTop = shell.transcript.scrollTop
+
+          const wheelUp = new MouseEvent(shell.prompt, {
+            type: "scroll",
+            button: 0,
+            x: 0,
+            y: 0,
+            modifiers: { shift: false, alt: false, ctrl: false },
+            scroll: { direction: "up", delta: 3 },
+          })
+          ;(
+            shell.prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }
+          ).onMouseEvent(wheelUp)
+          await h.renderOnce()
+
+          // The wheel event was dispatched at the prompt, but the transcript
+          // moved and pinned — the prompt's own (empty) buffer never scrolled.
+          expect(shell.transcript.scrollTop).toBeLessThan(followingTop)
+          expect(isTranscriptFollowing(shell)).toBe(false)
+          expect(stickyMode(shell)).toBe("PINNED")
         } finally {
           shell.dispose()
         }
