@@ -14,8 +14,17 @@ import type {
   PermissionRequest,
 } from "../permission/types.js"
 import type { AppShell, OverlaySelection } from "./shell.js"
-import { appendStreamRow, onOverlayClosed, setOverlayBody } from "./shell.js"
+import {
+  appendStreamRow,
+  closeInsetOverlay,
+  onOverlayClosed,
+  setOverlayBody,
+} from "./shell.js"
 import { EXPAND_KEY } from "./stream.js"
+import type {
+  OperatorGateEvent,
+  PermissionGateEvent,
+} from "../tui/gate-events.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
@@ -218,17 +227,6 @@ function recordDecision(
   appendStreamRow(shell, { role: "system", text, meta: "permission" })
 }
 
-type PermissionGateEvent = {
-  request: PermissionRequest
-  resolve: (outcome: ApprovalOutcome) => void
-}
-
-type OperatorGateEvent = {
-  question: string
-  options: string[]
-  resolve: (result: OperatorResult) => void
-}
-
 /**
  * Subscribe the permission/operator gate events to the shell's overlays.
  * Returns a dispose function that removes exactly the listeners this call added.
@@ -264,6 +262,8 @@ export function wireGates(
     const collapsedAnything =
       formatCommandForApproval(ev.request.subject).payloadCount > 0
     let expanded = false
+    let settled = false
+    let isOpen = false
 
     const onToggleExpand = (): void => {
       expanded = !expanded
@@ -283,29 +283,94 @@ export function wireGates(
       })
     }
 
-    openOrQueue(() => openPermissionsOverlay(shell, {
-      items: choices.items,
-      itemIds: choices.itemIds,
-      body: collapsedBody,
-      ...(collapsedAnything ? { onToggleExpand } : {}),
-      onAccept: (sel: OverlaySelection) => {
-        const gateSelection = {
-          index: sel.index,
-          ...(sel.id !== undefined ? { id: sel.id } : {}),
-        }
-        recordDecision(shell, ev.request, choices, gateSelection)
-        ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
-      },
-    }))
+    const open = (): void => {
+      isOpen = true
+      openPermissionsOverlay(shell, {
+        items: choices.items,
+        itemIds: choices.itemIds,
+        body: collapsedBody,
+        ...(collapsedAnything ? { onToggleExpand } : {}),
+        onAccept: (sel: OverlaySelection) => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          const gateSelection = {
+            index: sel.index,
+            ...(sel.id !== undefined ? { id: sel.id } : {}),
+          }
+          recordDecision(shell, ev.request, choices, gateSelection)
+          ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
+        },
+        // Esc must settle the awaited promise (as a deny), not abandon it —
+        // an unresolved gate hangs the run until the process is killed.
+        onCancel: () => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          ev.resolve(
+            approvalOutcomeFromSelection(choices, {
+              index: 0,
+              id: PERMISSION_DENY_ID,
+            }),
+          )
+        },
+      })
+    }
+
+    // Watchdog abort (tool budget expired / parent run cancelled) and the
+    // goal-mode timeout both race an operator who may never answer — each
+    // must resolve the gate itself rather than leave the overlay (or the
+    // queued open) parked forever. autoDeny wins the race exactly once:
+    // whichever fires first tears down the other and, if the overlay is
+    // already on screen for this gate, closes it so nothing stale lingers.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const clearTimers = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      ev.signal?.removeEventListener("abort", onAbort)
+    }
+    const autoDeny = (message: string): void => {
+      if (settled) return
+      settled = true
+      clearTimers()
+      if (isOpen) {
+        closeInsetOverlay(shell)
+      } else {
+        const idx = pending.indexOf(open)
+        if (idx >= 0) pending.splice(idx, 1)
+      }
+      ev.resolve({ allow: false, message })
+    }
+    function onAbort(): void {
+      autoDeny("tool no longer running; permission request denied")
+    }
+    if (ev.timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        autoDeny(ev.timeoutMessage ?? "approval timed out; request denied")
+      }, ev.timeoutMs)
+    }
+    if (ev.signal?.aborted === true) {
+      autoDeny("tool no longer running; permission request denied")
+      return
+    }
+    ev.signal?.addEventListener("abort", onAbort, { once: true })
+
+    openOrQueue(open)
   }
 
   function onOperator(ev: OperatorGateEvent): void {
     const choices = operatorChoicesFromOptions(ev.options)
+    // Guarded the same way as the permission gate: correctness must not rest
+    // on callers of closeInsetOverlay remembering to null the cancel hook
+    // before dispatching accept — a future accept-via-close path that forgets
+    // would otherwise double-resolve this promise.
+    let settled = false
     openOrQueue(() => openOperatorOverlay(shell, {
       body: ev.question,
       choices: choices.items,
       itemIds: choices.itemIds,
       onAccept: (sel: OverlaySelection) => {
+        if (settled) return
+        settled = true
         ev.resolve(
           operatorResultFromSelection(ev.options, {
             index: sel.index,
@@ -315,7 +380,18 @@ export function wireGates(
       },
       // The ask_operator contract offers a free-form answer, so the overlay
       // must be able to send one back rather than only an option index.
-      onTextAnswer: (text: string) => ev.resolve(operatorCustomResult(text)),
+      onTextAnswer: (text: string) => {
+        if (settled) return
+        settled = true
+        ev.resolve(operatorCustomResult(text))
+      },
+      // Esc must settle the awaited promise (as a cancel), not abandon it —
+      // an unresolved gate hangs the run until the process is killed.
+      onCancel: () => {
+        if (settled) return
+        settled = true
+        ev.resolve(operatorCancelResult())
+      },
     }))
   }
 
