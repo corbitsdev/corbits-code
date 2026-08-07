@@ -538,13 +538,10 @@ describe("buildProviderCatalog", () => {
     });
   });
 
-  test("runtimeSettingsWithCatalog overlays OAuth catalog entries for tier resolution", () => {
+  test("runtimeSettingsWithCatalog overlays OAuth catalog entries for provider resolution", () => {
     const disk = {
       providers: {
         openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk", models: ["gpt-4o"] },
-      },
-      tiers: {
-        clever: { provider: "xai/work", model: "grok-4" },
       },
     };
     const catalog = [
@@ -568,7 +565,6 @@ describe("buildProviderCatalog", () => {
       apiKey: "xai-token",
       models: ["grok-4"],
     });
-    expect(runtime.tiers).toEqual(disk.tiers);
     // Disk persist path still strips OAuth.
     expect(providerCatalogToSettings(catalog, "openai", disk).providers["xai/work"]).toBeUndefined();
   });
@@ -633,7 +629,6 @@ describe("buildProviderCatalog", () => {
       agentModelFallback: "none",
       shell: { timeoutMs: 30_000, maxTimeoutMs: 120_000 },
       tools: { timeoutMs: 60_000 },
-      tiers: { fast: { provider: "fp", model: "fp-large" } },
       workflowProfiles: { fast: { implement: "fp-large" } },
     };
     const settings = providerCatalogToSettings(

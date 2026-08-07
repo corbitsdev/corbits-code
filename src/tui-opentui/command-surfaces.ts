@@ -52,7 +52,7 @@ export type PluginEntry = {
   readonly canRevokeTrust?: boolean
   readonly credentials: readonly PluginCredentialFieldEntry[]
   readonly credentialValues: Readonly<Record<string, string>>
-  readonly agentProfiles?: readonly { readonly id: string; readonly tier?: string; readonly description?: string }[]
+  readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[]
   /** Absolute path an untrusted path-origin plugin was discovered at. */
   readonly originPath?: string
 }

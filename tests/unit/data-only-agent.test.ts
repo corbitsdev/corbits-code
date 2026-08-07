@@ -157,22 +157,22 @@ describe("loadDataOnlyAgentPlugin", () => {
     expect(agent.capabilities!.tools).toEqual(["run_shell"]);
   });
 
-  test("tier alias is accepted", async () => {
+  test("bare tier frontmatter is ignored (tiers were removed)", async () => {
     const dir = await makePlugin({
       "agents/a.md": "---\ntier: clever\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
-    const agent = plugin!.agentPlugin.agents[0] as { tier?: string };
-    expect(agent.tier).toBe("clever");
+    const agent = plugin!.agentPlugin.agents[0] as { inference?: unknown };
+    expect(agent.inference).toBeUndefined();
   });
 
-  test("Claude Code effort:high maps to tier clever", async () => {
+  test("bare Claude Code effort:high is ignored without a model to attach it to", async () => {
     const dir = await makePlugin({
       "agents/a.md": "---\neffort: high\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
-    const agent = plugin!.agentPlugin.agents[0] as { tier?: string };
-    expect(agent.tier).toBe("clever");
+    const agent = plugin!.agentPlugin.agents[0] as { inference?: unknown };
+    expect(agent.inference).toBeUndefined();
   });
 
   test("native inference block (single leg) is accepted", async () => {

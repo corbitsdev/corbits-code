@@ -604,7 +604,7 @@ describe("sub-agent stop helpers", () => {
     expect(parsed.summary).toContain("degenerate repetition");
     expect(parsed.findings).toContain("dig footer/chrome");
         expect(parsed.blockers).toContain("will be refused");
-    expect(parsed.blockers).toContain("not maxTurns or tier alone");
+    expect(parsed.blockers).toContain("not maxTurns alone");
     const hinted = appendSubAgentParentHints(report);
     expect(hinted).toContain("Do not re-dispatch the identical brief");
   });
@@ -1035,16 +1035,11 @@ describe("createTaskTool", () => {
     expect(captured?.maxTurns).toBe(50);
   });
 
-  test("task tier rebuilds provider from settings and wins over profile inference", async () => {
+  test("profile inference rebuilds provider from settings", async () => {
     let captured: RunSubAgentParams | undefined;
     const settings = {
       providers: {
-        "clever-p": { baseURL: "http://clever", apiKey: "k", models: ["clever-model"] },
         "profile-p": { baseURL: "http://profile", apiKey: "k", models: ["profile-model", "pinned-model"] },
-      },
-      tiers: {
-        clever: { provider: "clever-p", model: "clever-model" },
-        standard: { provider: "profile-p", model: "profile-model" },
       },
     };
     const tool = createTaskTool({
@@ -1056,7 +1051,6 @@ describe("createTaskTool", () => {
       profiles: [
         {
           id: "deep",
-          tier: "standard",
           inference: { order: [{ provider: "profile-p", model: "pinned-model" }] },
         },
       ],
@@ -1066,157 +1060,53 @@ describe("createTaskTool", () => {
       },
     });
     await callTask(tool, {
-      description: "tier-override",
+      description: "profile-inference",
       prompt: "x",
       agent: "deep",
-      tier: "clever",
     });
-    expect(captured?.provider.providerName).toBe("clever-p");
-    expect(captured?.provider.model).toBe("clever-model");
-    expect(captured?.tier).toBe("clever");
-  });
-
-  test("profile tier still applies when task omits tier", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const settings = {
-      providers: {
-        "profile-p": { baseURL: "http://profile", apiKey: "k", models: ["profile-model"] },
-      },
-      tiers: {
-        standard: { provider: "profile-p", model: "profile-model" },
-      },
-    };
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      settings,
-      profiles: [{ id: "deep", tier: "standard" }],
-      run: async (params) => {
-        captured = params;
-        return "done";
-      },
-    });
-    await callTask(tool, { description: "profile-tier", prompt: "x", agent: "deep" });
     expect(captured?.provider.providerName).toBe("profile-p");
-    expect(captured?.provider.model).toBe("profile-model");
-    expect(captured?.tier).toBe("standard");
+    expect(captured?.provider.model).toBe("pinned-model");
   });
 
-  test("unconfigured task tier fails closed", async () => {
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      settings: { providers: {} },
-      run: async () => "done",
-    });
-    const out = await callTask(tool, {
-      description: "bad-tier",
-      prompt: "x",
-      tier: "clever",
-    });
-    expect(out).toContain("Error:");
-    expect(out).toContain("clever");
-    expect(out).toContain("not configured");
-  });
-
-  test("task tier targeting OAuth provider resolves via live catalog", async () => {
+  test("profile inference targeting OAuth provider resolves via live catalog", async () => {
     let captured: RunSubAgentParams | undefined;
-    // Realistic disk shape: OAuth never lands in settings.json. Tiers name
-    // xAI; only the live catalog supplies the provider credentials.
     const diskSettings = {
       providers: {},
-      tiers: {
-        clever: { provider: "xai/work", model: "grok-4" },
-        standard: { provider: "xai/work", model: "grok-3" },
-        fast: { provider: "xai/work", model: "grok-3-mini" },
-      },
     };
     const catalog = [
-      {
-        name: "codex/home",
-        baseURL: "https://chatgpt.com/backend-api",
-        apiKey: "codex-token",
-        models: ["gpt-5.3-codex"],
-        codexProfile: "home",
-      },
       {
         name: "xai/work",
         baseURL: "https://api.x.ai/v1",
         apiKey: "xai-token",
-        models: ["grok-4", "grok-3", "grok-3-mini"],
+        models: ["grok-4"],
         xaiProfile: "work",
       },
     ];
-    const parentProvider = {
-      providerName: "codex/home",
-      baseURL: "https://chatgpt.com/backend-api",
-      apiKey: "codex-token",
-      model: "gpt-5.3-codex",
-    };
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
-      provider: parentProvider,
+      provider,
       settings: diskSettings,
       catalog,
+      profiles: [
+        {
+          id: "deep",
+          inference: { order: [{ provider: "xai/work", model: "grok-4" }] },
+        },
+      ],
       run: async (params) => {
         captured = params;
         return "done";
       },
     });
-    await callTask(tool, {
-      description: "oauth-tier",
-      prompt: "x",
-      tier: "clever",
-    });
+    await callTask(tool, { description: "oauth-profile-inference", prompt: "x", agent: "deep" });
     expect(captured?.provider.providerName).toBe("xai/work");
     expect(captured?.provider.model).toBe("grok-4");
     expect(captured?.provider.apiKey).toBe("xai-token");
-    expect(captured?.tier).toBe("clever");
   });
 
-  test("profile tier targeting OAuth resolves via live catalog", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const diskSettings = {
-      providers: {},
-      tiers: {
-        standard: { provider: "xai/work", model: "grok-3" },
-      },
-    };
-    const catalog = [
-      {
-        name: "xai/work",
-        baseURL: "https://api.x.ai/v1",
-        apiKey: "xai-token",
-        models: ["grok-3"],
-        xaiProfile: "work",
-      },
-    ];
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      settings: diskSettings,
-      catalog,
-      profiles: [{ id: "deep", tier: "standard" }],
-      run: async (params) => {
-        captured = params;
-        return "done";
-      },
-    });
-    await callTask(tool, { description: "oauth-profile-tier", prompt: "x", agent: "deep" });
-    expect(captured?.provider.providerName).toBe("xai/work");
-    expect(captured?.provider.model).toBe("grok-3");
-    expect(captured?.tier).toBe("standard");
-  });
-
-  test("task tier targeting OAuth fails closed when catalog lacks the provider", async () => {
+  test("profile inference fails closed when pinned and unavailable", async () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
@@ -1226,16 +1116,11 @@ describe("createTaskTool", () => {
         providers: {
           "api-only": { baseURL: "http://api", apiKey: "k", models: ["m"] },
         },
-        tiers: {
-          clever: { provider: "xai/missing", model: "grok-4" },
-        },
       },
-      catalog: [
+      profiles: [
         {
-          name: "api-only",
-          baseURL: "http://api",
-          apiKey: "k",
-          models: ["m"],
+          id: "deep",
+          inference: { mode: "pin", order: [{ provider: "xai/missing", model: "grok-4" }] },
         },
       ],
       run: async () => "done",
@@ -1243,10 +1128,10 @@ describe("createTaskTool", () => {
     const out = await callTask(tool, {
       description: "missing-oauth",
       prompt: "x",
-      tier: "clever",
+      agent: "deep",
     });
     expect(out).toContain("Error:");
-    expect(out).toContain("not configured");
+    expect(out).toContain("unavailable");
   });
 
   test("rejects task maxTurns above the cap", async () => {

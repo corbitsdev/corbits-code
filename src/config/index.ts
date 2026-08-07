@@ -47,10 +47,6 @@ import {
   normalizeOpenAICompatibleBaseURL,
   resolveProvider,
   type MCPServerConfig,
-  type ProviderTier,
-  type TierAssignment,
-  type TierConfig,
-  type TierDefinition,
   type ResolvedProvider,
   type Settings,
   type ProviderSettings,
@@ -306,9 +302,8 @@ export type Config = {
   workflow?: string;
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
-  tiers?: Partial<Record<ProviderTier, import("./settings.js").TierConfig>>;
   /**
-   * Runtime settings view for tier/provider resolution. Includes OAuth provider
+   * Runtime settings view for provider resolution. Includes OAuth provider
    * projections from the live catalog that are never written to settings.json.
    * Do not pass this object to saveGlobalSettings — rebuild with
    * providerCatalogToSettings (or re-read disk) before any persist.
@@ -580,8 +575,7 @@ export async function loadConfig(
       : settings?.mcpServers !== undefined
         ? { mcpServers: settings.mcpServers, mcpServersSource: "global" as const }
         : { mcpServersSource: "none" as const }),
-    ...(settings?.tiers !== undefined ? { tiers: settings.tiers } : {}),
-    // Runtime view includes OAuth projections so tier resolution can see
+    // Runtime view includes OAuth projections so inference resolution can see
     // Codex/xAI providers that are never written to settings.json. Not safe
     // to persist as-is — use providerCatalogToSettings or re-read disk.
     ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
@@ -613,7 +607,7 @@ export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): Pro
 }
 
 // Overlay the full live catalog (including OAuth profiles) onto settings for
-// runtime tier/provider resolution. OAuth credentials live in home auth stores
+// runtime provider resolution. OAuth credentials live in home auth stores
 // and are stripped from settings.json; the catalog is the source of truth for
 // which OAuth providers are available right now. Never pass the result to a
 // disk write path — use providerCatalogToSettings for persistence.

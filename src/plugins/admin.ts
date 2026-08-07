@@ -8,8 +8,8 @@ export type PluginDescriptor = {
   description?: string;
   credentials: PluginCredentialField[];
   // For kind:"agent" plugins — the profiles contributed, shown so the user can
-  // see which sub-agents and tiers a plugin provides before enabling it.
-  agentProfiles?: { id: string; tier?: string; description?: string }[];
+  // see which sub-agents a plugin provides before enabling it.
+  agentProfiles?: { id: string; description?: string }[];
   /**
    * True when discovery found the plugin but code is not imported yet (project
    * or path origin still untrusted). Enabling records trust and full-loads.

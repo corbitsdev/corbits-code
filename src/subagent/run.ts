@@ -453,11 +453,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 
   const head = { provider: params.provider.providerName, model: params.provider.model };
   const bundle =
-    params.tier !== undefined && params.settings !== undefined && params.catalog !== undefined
+    params.settings !== undefined && params.catalog !== undefined
       ? buildSubagentSources({
           settings: params.settings,
           catalog: params.catalog,
-          tier: params.tier,
           head,
           ...(params.provider.reasoningEffort !== undefined
             ? { reasoningEffort: params.provider.reasoningEffort }

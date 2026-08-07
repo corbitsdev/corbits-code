@@ -68,13 +68,12 @@ function truncateAgentBody(body: string): string {
 // MAX_AGENT_SEARCH_BODY_CHARS are truncated with an ellipsis marker.
 function formatAgentProfileEntry(p: AgentProfile): string {
   const desc = (p.description ?? "").trim();
-  const tier = p.tier !== undefined ? ` [tier: ${p.tier}]` : "";
   const orch = p.orchestrator === true ? " [orchestrator]" : "";
   const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
   const header =
     desc.length > 0
-      ? `### ${p.id}${tier}${orch}${source}\n${desc}`
-      : `### ${p.id}${tier}${orch}${source}`;
+      ? `### ${p.id}${orch}${source}\n${desc}`
+      : `### ${p.id}${orch}${source}`;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
   return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;

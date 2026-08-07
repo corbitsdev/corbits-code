@@ -14,10 +14,9 @@ import type {
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
-import type { Settings, ProviderTier } from "../config/settings.js";
+import type { Settings } from "../config/settings.js";
 import {
   resolveSubAgentMaxTurns,
-  resolveTier,
   resolveInferenceWithPolicy,
   validateTaskMaxTurns,
 } from "../config/settings.js";
@@ -63,14 +62,13 @@ export const TaskToolArgs = type({
   "do_not?": "string[]",
   "report_focus?": "string",
   "maxTurns?": "number",
-  "tier?": "'fast' | 'standard' | 'clever'",
 });
 
 
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns or tier alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
   inputSchema: {
     type: "object",
     properties: {
@@ -118,18 +116,12 @@ export const taskToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description:
-          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify tier, capability restrictions, and role. Role drives reasoning-effort defaults (orchestrator high, leaf medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
+          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, leaf medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
       },
       maxTurns: {
         type: "number",
         description:
           "Optional inference-turn budget for this worker only (not the parent session limit). Defaults to settings or 30; hard cap 100.",
-      },
-      tier: {
-        type: "string",
-        enum: ["fast", "standard", "clever"],
-        description:
-          "Optional provider tier override for this spawn only (fast | standard | clever). Wins over profile inference and profile tier; fails closed when the tier is unconfigured.",
       },
     },
     required: ["description", "prompt"],
@@ -209,7 +201,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         do_not: rawDoNot,
         report_focus: rawReportFocus,
         maxTurns: rawMaxTurns,
-        tier: rawTaskTier,
       } = parsed;
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
@@ -234,21 +225,20 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
 
       let provider: SubAgentProvider =
         typeof deps.provider === "function" ? deps.provider() : deps.provider;
-      // Snapshot parent effort before profile/tier rebuilds so role-default
+      // Snapshot parent effort before profile-inference rebuilds so role-default
       // resolution can fall back to inheritance without reading a mutated provider.
       const parentEffort = provider.reasoningEffort;
-      // Explicit profile inference / task-tier pin (if any). Distinct from the
-      // parent snapshot so resolveEffortForRole can apply pin > role > parent.
+      // Explicit profile inference pin (if any). Distinct from the parent
+      // snapshot so resolveEffortForRole can apply pin > role > parent.
       let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
       let orchestrator = false;
-      let tier: ProviderTier | undefined;
       let profileMaxTurns: number | undefined;
       const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       // OAuth providers live in the live catalog, not settings.json. Overlay so
-      // tier/inference resolution can target Codex/xAI the same way the TUI does.
+      // inference resolution can target Codex/xAI the same way the TUI does.
       const settings =
         catalog !== undefined
           ? runtimeSettingsWithCatalog(diskSettings, catalog)
@@ -256,8 +246,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
       // Rebuild provider from a resolved provider/model assignment. Shared by
-      // task(tier=), profile.inference, and profile.tier so fail-closed effort
-      // validation and settings lookup stay consistent.
+      // profile.inference so fail-closed effort validation and settings
+      // lookup stay consistent.
       const applyResolvedProvider = (
         resolved: {
           provider: string;
@@ -338,64 +328,23 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
           orchestrator = true;
         }
-        // Profile inference/tier apply only when task(tier=) is omitted — the
-        // caller override wins so a cheap/fast dispatch can still use a clever
-        // profile's tools without paying for the profile's pinned model.
-        if (rawTaskTier === undefined && settings !== undefined) {
-          // Per-agent pinned inference (provider/model/effort) wins over the
-          // tier alias when both are declared. Resolution uses policy
-          // (mode: pin / agentModelFallback: none) so a forbidden fallback
-          // surfaces as a dispatch error rather than silently running on the
-          // parent's provider.
-          let resolved:
-            | { provider: string; model: string; reasoningEffort?: ReasoningEffort }
-            | null = null;
-          if (profile.inference !== undefined) {
-            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
-            if (outcome.kind === "unavailable") {
-              return taskToolResult(
-                call.id,
-                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
-              );
-            }
-            if (outcome.kind === "resolved") resolved = outcome.value;
+        // Per-agent pinned inference (provider/model/effort), if declared.
+        // Resolution uses policy (mode: pin / agentModelFallback: none) so a
+        // forbidden fallback surfaces as a dispatch error rather than
+        // silently running on the parent's provider.
+        if (profile.inference !== undefined && settings !== undefined) {
+          const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+          if (outcome.kind === "unavailable") {
+            return taskToolResult(
+              call.id,
+              `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+            );
           }
-          if (resolved === null && profile.tier !== undefined) {
-            const assignment = resolveTier(profile.tier as ProviderTier, settings);
-            if (assignment !== null) {
-              resolved = assignment;
-            }
-          }
-          if (resolved !== null) {
-            const err = applyResolvedProvider(resolved, `agent "${agentId}"`);
+          if (outcome.kind === "resolved") {
+            const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
             if (err !== null) return taskToolResult(call.id, err);
           }
-          if (profile.tier !== undefined) {
-            tier = profile.tier as ProviderTier;
-          }
         }
-      }
-
-      // task(tier=) is highest precedence: overrides profile inference/tier and
-      // the parent provider. Fail closed when settings or the tier chain is missing.
-      if (rawTaskTier !== undefined) {
-        const taskTier = rawTaskTier as ProviderTier;
-        if (settings === undefined) {
-          return taskToolResult(
-            call.id,
-            `Error: task tier "${taskTier}" requires configured settings.providers.`,
-          );
-        }
-        const assignment = resolveTier(taskTier, settings);
-        if (assignment === null) {
-          return taskToolResult(
-            call.id,
-            `Error: task tier "${taskTier}" is not configured. Set settings.tiers.${taskTier} (or the legacy tier assignment) before dispatching.`,
-          );
-        }
-        const err = applyResolvedProvider(assignment, `task tier "${taskTier}"`);
-        if (err !== null) return taskToolResult(call.id, err);
-        tier = taskTier;
       }
 
       // Role-based effort: pin > orchestrator/leaf default > parent inheritance.
@@ -578,7 +527,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             cwd: worktreeCwd ?? deps.cwd,
             workdirBase: deps.getWorkdirBase(),
             provider,
-            ...(tier !== undefined ? { tier } : {}),
             ...(settings !== undefined ? { settings } : {}),
             ...(catalog !== undefined ? { catalog } : {}),
             description,

@@ -8,7 +8,6 @@ export const defaultAgentsPlugin: AgentPlugin = {
     {
       id: "greybeard",
       description: "Seasoned architect — reviews for design, constraint ownership, and backwards compatibility",
-      tier: "clever",
       systemPromptRole:
         "You are a seasoned software architect with decades of experience. " +
         "You review code and designs for architectural soundness, constraint ownership " +
@@ -19,7 +18,6 @@ export const defaultAgentsPlugin: AgentPlugin = {
     {
       id: "critique",
       description: "Code quality reviewer — tests assumptions, finds edge cases and security smells",
-      tier: "standard",
       systemPromptRole:
         "You are a critical code reviewer focused on code quality, test coverage, " +
         "edge cases, and security-adjacent issues. You challenge assumptions, look for " +
