@@ -77,15 +77,20 @@ function countNoun(count: number, noun: string): string {
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true
-  const { pending: _pending, ...answered } = call
+  const { pending: _pending, agentWorking: _agentWorking, stat: _stat, ...answered } = call
   const addendum = failed ? undefined : resultAddendum(result)
+  // A live sub-agent's elapsed-time trailer is scaffolding for the wait, not a
+  // fact about the call the way a diff's own +/- count is — the answer's stat
+  // must win over it rather than being shadowed by whatever it last read.
+  const callStat = call.agentWorking !== undefined ? undefined : call.stat
   const base: StreamRow = {
     ...answered,
     text: result.text,
     summary: call.summary ?? "",
     ...(failed || call.failed === true ? { failed: true } : {}),
     // A diff already states its own +/- counts; nothing the answer says beats it.
-    ...(call.stat === undefined && addendum !== undefined ? { stat: addendum } : {}),
+    ...(callStat === undefined && addendum !== undefined ? { stat: addendum } : {}),
+    ...(callStat !== undefined ? { stat: callStat } : {}),
   }
 
   if (call.coalesced === true) {

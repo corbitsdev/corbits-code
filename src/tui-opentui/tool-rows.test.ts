@@ -86,6 +86,19 @@ describe("a call and its answer", () => {
     expect(rows[0]?.detail?.length).toBeGreaterThan(0)
   })
 
+  test("a resolved sub-agent dispatch drops its live elapsed-time trailer for the real answer", () => {
+    const rows: StreamRow[] = []
+    pushToolCall(rows, {
+      name: "task",
+      arguments: JSON.stringify({ description: "Review mouse/paste" }),
+    })
+    rows[0] = { ...rows[0]!, agentWorking: true, stat: "0:42 · bash" }
+
+    pushToolResult(rows, { name: "task", content: "8 lines" })
+    expect(rows[0]?.pending).toBeUndefined()
+    expect(rows[0]?.stat).toBe("8 lines")
+  })
+
   test("an answer with no call on the log still gets a row", () => {
     const rows: StreamRow[] = []
     pushToolResult(rows, { name: "shell", content: "orphan" })

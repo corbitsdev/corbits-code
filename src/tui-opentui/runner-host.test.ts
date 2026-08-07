@@ -49,6 +49,7 @@ function session(over: Partial<SubAgentSession>): SubAgentSession {
     currentToolName: null,
     entries: [],
     startedAt: 0,
+    lastActivityAt: 0,
     ...over,
   }
 }

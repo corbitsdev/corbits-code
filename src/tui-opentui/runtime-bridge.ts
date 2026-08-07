@@ -66,6 +66,13 @@ import {
 } from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
+import { agentProgress, type AgentProgressSession } from "./agent-progress.js"
+
+/** Tool name a sub-agent dispatch call carries — its row gets live progress. */
+const TASK_TOOL_NAME = "task"
+
+/** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
+export type TaskProgressSession = AgentProgressSession & { readonly id: string }
 import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
@@ -155,6 +162,12 @@ export type SessionBridge = {
   /** Current derived turn phase (progress label, stall clock, quota window). */
   readonly turn: TurnState
   readonly shell: AppShell
+  /**
+   * Refresh outstanding `task` rows with each worker's live progress. The
+   * caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
+   * or similar) on whatever cadence it already polls at.
+   */
+  syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void
 }
 
 const NOOP_PORT: SessionPort = {
@@ -305,6 +318,12 @@ type BridgeBag = {
   toolRows: Map<string, number>
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number
+  /**
+   * callIds of outstanding `task` calls — a subset of `toolRows`' keys. Kept
+   * separate so `syncAgentProgress` never has to walk every in-flight tool to
+   * find the handful that are sub-agent dispatches.
+   */
+  taskCallIds: Set<string>
   /**
    * Row index where the inference attempt in progress began, or null when no
    * boundary is armed. The mapper decides when to mark, clear and roll back;
@@ -484,6 +503,9 @@ function applyToolCall(
     appendStreamRow(shell, row)
   }
   if (event.callId !== undefined) bag.toolRows.set(event.callId, index)
+  if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
+    bag.taskCallIds.add(event.callId)
+  }
   bag.lastToolRow = index
 }
 
@@ -504,7 +526,10 @@ function applyToolResult(
   })
   const tracked =
     event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined
-  if (event.callId !== undefined) bag.toolRows.delete(event.callId)
+  if (event.callId !== undefined) {
+    bag.toolRows.delete(event.callId)
+    bag.taskCallIds.delete(event.callId)
+  }
   const index = tracked ?? bag.lastToolRow
   const call = streamRowAt(shell, index)
   if (call === undefined || call.pending !== true) {
@@ -512,6 +537,48 @@ function applyToolResult(
     return
   }
   replaceStreamRowAt(shell, index, mergeToolRows(call, result))
+}
+
+/**
+ * Refresh every outstanding `task` call's row with its worker's live progress —
+ * elapsed time, current tool, and whether it has gone quiet. Rewrites each row
+ * in place through `replaceStreamRowAt` (the same path a tool result resolves
+ * through); a session that finished, or is missing from `sessions` (already
+ * pruned, or never started), leaves its row untouched rather than reverting to
+ * a bare pending mark.
+ *
+ * Bounded by outstanding task calls, not transcript length: an idle sub-agent
+ * dispatch costs nothing here, and a live one costs exactly one row rewrite.
+ */
+function syncAgentProgress(
+  shell: AppShell,
+  bag: BridgeBag,
+  sessions: readonly TaskProgressSession[],
+  nowMs: number,
+): void {
+  if (bag.taskCallIds.size === 0) return
+  for (const callId of bag.taskCallIds) {
+    const index = bag.toolRows.get(callId)
+    if (index === undefined) {
+      bag.taskCallIds.delete(callId)
+      continue
+    }
+    const row = streamRowAt(shell, index)
+    if (row === undefined || row.pending !== true) {
+      bag.taskCallIds.delete(callId)
+      continue
+    }
+    const session = sessions.find((s) => s.id === callId)
+    if (session === undefined) continue
+    const progress = agentProgress(session, nowMs)
+    if (progress === null) continue
+    if (row.stat === progress.stat && row.agentWorking === progress.working) continue
+    replaceStreamRowAt(shell, index, {
+      ...row,
+      stat: progress.stat,
+      agentWorking: progress.working,
+    })
+  }
 }
 
 /**
@@ -525,7 +592,10 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   if (boundary === null || boundary >= streamRowCount(shell)) return
   truncateStreamRows(shell, boundary)
   for (const [callId, index] of [...bag.toolRows]) {
-    if (index >= boundary) bag.toolRows.delete(callId)
+    if (index >= boundary) {
+      bag.toolRows.delete(callId)
+      bag.taskCallIds.delete(callId)
+    }
   }
   if (bag.lastToolRow >= boundary) bag.lastToolRow = -1
   if (bag.turnThinking !== null && bag.turnThinking.index >= boundary) {
@@ -644,6 +714,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     lastToolRow: -1,
+    taskCallIds: new Set(),
     attemptRow: null,
     turnThinking: null,
   }
@@ -895,6 +966,10 @@ export function attachSessionBridge(
     interrupt: doInterrupt,
     get turn() {
       return bag.turn
+    },
+    syncAgentProgress: (sessions) => {
+      if (bag.disposed) return
+      syncAgentProgress(shell, bag, sessions, now())
     },
     dispose: () => {
       bag.disposed = true
