@@ -163,6 +163,7 @@ import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import { loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
+import { setActiveRun, clearActiveRun, type RunStateHandle } from "../session/active-run.js";
 import { openInBrowser } from "../auth/oauth/browser.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
@@ -470,6 +471,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     mcpServers: resumeSeed.mcpServers,
   });
 
+  // Registered the moment a run starts so the top-level uncaughtException /
+  // unhandledRejection handler in index.ts (which cannot see any local state
+  // in this function) can finalize run.json for crashes that escape without
+  // ever reaching this function's own try/catch — e.g. a throw inside a
+  // fire-and-forget `void` call. Cleared wherever `finalized` below flips
+  // true, since those paths already write a terminal run.json themselves.
+  const activeRunHandle: RunStateHandle = { sessionId, cwd: config.cwd, active: true };
+  setActiveRun(activeRunHandle);
+
   // Crash guard: if anything from setup onward throws all the way out of
   // runTUI instead of reaching the normal finalize block, this still closes
   // out run.json so status and finishedAt never disagree. Declared before the
@@ -496,6 +506,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
+    activeRunHandle.active = false;
+    clearActiveRun();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
       // Best-effort only — still attempt saveState below. Log so a flush
       // failure is not invisible when diagnosing a crash exit.
@@ -1640,6 +1652,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
         await persistRunSnapshot("done", { finishedAt: Date.now() });
         sessionId = generateSessionId();
+        activeRunHandle.sessionId = sessionId;
         startedAt = Date.now();
         runTaskTitle = config.task;
         emitter.emit("session.title", runTaskTitle.trim().length > 0 ? truncateSessionLabel(runTaskTitle) : "Untitled session");
@@ -2254,6 +2267,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // finished run (finishedAt set) can be left reading as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   finalized = true;
+  activeRunHandle.active = false;
+  clearActiveRun();
   await writeRunSnapshot(persistedStatus, {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),

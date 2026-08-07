@@ -14,7 +14,7 @@ const ConnectedMcpServerSchema = type({
 export type ConnectedMcpServer = typeof ConnectedMcpServerSchema.infer;
 
 const RunStateSchema = type({
-  status: "'running' | 'done' | 'failed' | 'cancelled'",
+  status: "'running' | 'done' | 'failed' | 'cancelled' | 'crashed'",
   turnsUsed: "number",
   task: "string",
   startedAt: "number",
@@ -91,6 +91,22 @@ export async function saveState(
   return write;
 }
 
+
+// Crash-time terminal write. Deliberately bypasses writeChains: a hung or
+// still-pending write for this session (possibly the very write mid-flight
+// when the process crashed) must never be awaited here, or a queued write
+// that never settles would block the crash handler's process.exit forever.
+// There is no later write to order against once the process is exiting, so
+// per-session ordering has nothing left to protect.
+export async function saveCrashState(
+  cwd: string,
+  sessionId: string,
+  state: RunState,
+  home?: string,
+): Promise<void> {
+  const path = statePath(cwd, sessionId, home);
+  await atomicWrite(path, JSON.stringify(state, null, 2));
+}
 
 // Returns the parsed state, or the arktype error summary when the shape is
 // invalid, so callers can surface a specific reason rather than "invalid shape".
