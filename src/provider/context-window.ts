@@ -35,12 +35,38 @@ function heuristicWindow(model: string): number {
   if (m.includes("deepseek")) return 128_000;
   if (m.includes("glm")) return 200_000;
   if (m.includes("o3") || m.includes("o4")) return 200_000;
+  if (m.includes("grok") || m.includes("xai")) return 256_000;
   return DEFAULT_CONTEXT_WINDOW;
 }
 
+// Model identity is `provider:model` (model-catalog.ts), and `provider` may
+// itself be a custom account name (`xai/thegreataxios`) rather than the
+// canonical provider models.dev publishes under (`xai`). Try, in order: the
+// full identity as given, the bare model id, and `canonicalProvider/model` —
+// so a custom-named provider still exact-matches the registry instead of
+// silently missing and falling through to the heuristic.
+function lookupCandidates(model: string): string[] {
+  const colonIndex = model.indexOf(":");
+  if (colonIndex === -1) return [model];
+
+  const providerSegment = model.slice(0, colonIndex);
+  const bareModel = model.slice(colonIndex + 1);
+  const canonicalProvider = providerSegment.split("/")[0];
+
+  return [model, bareModel, `${canonicalProvider}/${bareModel}`];
+}
+
+/** True when the registry has an entry for `model` under any known form, so a
+ * caller can distinguish a confident lookup from the heuristic fallback. */
+export function hasContextWindowFor(model: string): boolean {
+  return lookupCandidates(model).some((candidate) => contextWindowRegistry[candidate] !== undefined);
+}
+
 export function contextWindowFor(model: string): number {
-  const exact = contextWindowRegistry[model];
-  if (exact !== undefined) return exact;
+  for (const candidate of lookupCandidates(model)) {
+    const exact = contextWindowRegistry[candidate];
+    if (exact !== undefined) return exact;
+  }
   return heuristicWindow(model);
 }
 
