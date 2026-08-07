@@ -84,27 +84,6 @@ describe("buildPaletteCatalog", () => {
 })
 
 describe("palette row columns", () => {
-  test("residual openers carry a category", () => {
-    const cols = DEFAULT_PALETTE_COMMANDS.map((c) =>
-      paletteRowColumns(c, shortcutForPaletteId),
-    )
-    expect(cols.every((c) => c.category.length > 0)).toBe(true)
-    expect(cols.find((c) => c.label === "Show keymap help")?.category).toBe(
-      "view",
-    )
-  })
-
-  test("registry commands get a category from their name", () => {
-    const catalog = buildPaletteCatalog({
-      commands: [
-        { name: "rename", description: "Name the session" },
-        { name: "wobble", description: "A plugin command" },
-      ],
-    })
-    expect(catalog.find((c) => c.id === "rename")?.category).toBe("session")
-    expect(catalog.find((c) => c.id === "wobble")?.category).toBe("command")
-  })
-
   test("shortcuts come from the shell keybinding table", () => {
     const help = DEFAULT_PALETTE_COMMANDS.find((c) => c.id === "help")
     expect(paletteRowColumns(help!, shortcutForPaletteId).shortcut).toBe("?")
@@ -115,16 +94,15 @@ describe("palette row columns", () => {
 
 describe("formatPaletteRows", () => {
   const ROWS: readonly PaletteRowColumns[] = [
-    { category: "view", label: "Show keymap help", shortcut: "?" },
-    { category: "edit", label: "Copy active message / tool", shortcut: "Alt+C" },
-    { category: "session", label: "Resume prior session", shortcut: "" },
+    { label: "Show keymap help", shortcut: "?" },
+    { label: "Copy active message / tool", shortcut: "Alt+C" },
+    { label: "Resume prior session", shortcut: "" },
   ]
 
-  test("renders category, label, and right-aligned shortcut at full width", () => {
+  test("renders the label and right-aligned shortcut at full width", () => {
     const [help, copy] = formatPaletteRows(ROWS, 55)
     expect(help).toHaveLength(55)
-    expect(help?.startsWith("view    ")).toBe(true)
-    expect(help).toContain("Show keymap help")
+    expect(help?.startsWith("Show keymap help")).toBe(true)
     expect(help?.trimEnd().endsWith("?")).toBe(true)
     expect(copy?.trimEnd().endsWith("Alt+C")).toBe(true)
   })
@@ -137,29 +115,11 @@ describe("formatPaletteRows", () => {
     }
   })
 
-  // The palette host spends the box border and the selection marker before the
-  // row starts, so a terminal N columns wide hands these rows N - 5.
-  const ROW_WIDTH_AT_60 = 55
-  const ROW_WIDTH_AT_48 = 43
-
-  test("the shortcut column drops first as width narrows", () => {
-    expect(paletteRowLayout(ROWS, ROW_WIDTH_AT_60)).toMatchObject({
-      showCategory: true,
-      showShortcut: true,
-    })
-    expect(paletteRowLayout(ROWS, ROW_WIDTH_AT_48)).toMatchObject({
-      showCategory: true,
-      showShortcut: false,
-    })
-    const rows = formatPaletteRows(ROWS, ROW_WIDTH_AT_48)
+  test("the shortcut column drops as width narrows, and the label always survives", () => {
+    expect(paletteRowLayout(ROWS, 40)).toMatchObject({ showShortcut: true })
+    expect(paletteRowLayout(ROWS, 30)).toMatchObject({ showShortcut: false })
+    const rows = formatPaletteRows(ROWS, 30)
     expect(rows[0]?.includes("?")).toBe(false)
-    expect(rows[0]?.startsWith("view")).toBe(true)
-  })
-
-  test("the category drops next, and the label always survives", () => {
-    const layout = paletteRowLayout(ROWS, 34)
-    expect(layout.showCategory).toBe(false)
-    expect(layout.showShortcut).toBe(false)
-    expect(formatPaletteRows(ROWS, 34)[0]?.trimEnd()).toBe("Show keymap help")
+    expect(rows[0]?.trimEnd()).toBe("Show keymap help")
   })
 })

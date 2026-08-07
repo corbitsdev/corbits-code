@@ -1071,10 +1071,20 @@ function overlayAnswerRows(shell: AppShell): number {
   return overlayAnswerState(shell) === null ? 0 : 1
 }
 
+/**
+ * Every other list overlay spends a row on a title rule (`─ permission ─...`);
+ * the palette drops it — the box already reads as the palette, and the filter
+ * row underneath says what's typed, so the rule was a second header for the
+ * same fact.
+ */
+function overlayTitleRows(kind: PrimaryOverlayKind | null): number {
+  return kind === "palette" ? 0 : 1
+}
+
 function overlayChromeRows(shell: AppShell, bodyLineCount: number): number {
   return (
     OVERLAY_HOST_BORDER_ROWS +
-    1 +
+    overlayTitleRows(shell.overlayKind) +
     bodyLineCount +
     overlayZoneRows(shell) +
     overlayAnswerRows(shell)
@@ -1110,8 +1120,14 @@ function floatOverlayHost(
     return
   }
   host.position = "absolute"
-  host.left = 0
-  host.right = 0
+  // Absolute positioning escapes root's padding, so the same sideMargin the
+  // prompt box gets for free in normal flow has to be given back explicitly.
+  // width is set to the same contentWidth the prompt box resolves to via
+  // "100%" of root's padded box — one source, not a second computed here —
+  // rather than left+right insets, since those combine with the existing
+  // width:"100%" to overshoot the right edge.
+  host.left = shell.layout.sideMargin
+  host.width = shell.layout.contentWidth
   host.top = top
   host.zIndex = OVERLAY_FLOAT_Z
 }
@@ -1124,6 +1140,21 @@ function overlayHostRows(
   listRows: number,
 ): number {
   return overlayChromeRows(shell, bodyLineCount) + listRows
+}
+
+/**
+ * Smallest host rows the open overlay can render into without spilling past
+ * its own box: fixed chrome (border, title, body lines) plus one row of the
+ * list when it has anything to show. Below this the resolver must give ground
+ * elsewhere (transcript floor) rather than starve the overlay itself.
+ */
+function overlayMinHostRows(
+  shell: AppShell,
+  bodyLineCount: number,
+  hasItems: boolean,
+): number {
+  const perItem = overlayRowsPerItem(shell.overlayKind)
+  return overlayChromeRows(shell, bodyLineCount) + (hasItems ? perItem : 0)
 }
 
 function addOverlayRow(
@@ -1217,6 +1248,7 @@ function overlayHints(shell: AppShell): readonly string[] {
 function refreshOverlayTitle(shell: AppShell): void {
   const bag = internals.get(shell)
   if (!bag) return
+  shell.overlayTitle.visible = true
   shell.overlayTitle.content = overlayTitleLine(
     bag.overlayTitleText,
     overlayInteriorWidth(shell),
@@ -1229,34 +1261,23 @@ function overlayInteriorWidth(shell: AppShell): number {
   return overlayRowWidth(shell) + 2
 }
 
-/** Columns before the label column: leading space, selection marker, space. */
-const PALETTE_MARKER_WIDTH = 3
-
 /**
- * Palette rows are three columns wide, and the active one is a full-width band
- * rather than a recolored marker. The band is the warm faint tone, not the
- * action orange: a palette selection is a cursor position, not a decision the
- * shell is waiting on.
+ * Selection is a text colour, not a marker or a filled band: the highlighted
+ * row already stands out by sitting under the cursor, so a leading `>` and a
+ * grey block would both be saying the same thing twice.
  */
 function paintPaletteList(shell: AppShell, list: ListViewportState): void {
   const interior = overlayInteriorWidth(shell)
   const columns = shell.paletteCommands.map((cmd) =>
     paletteRowColumns(cmd, shortcutForPaletteId),
   )
-  const lines = formatPaletteRows(
-    columns,
-    Math.max(4, interior - PALETTE_MARKER_WIDTH),
-  )
+  const lines = formatPaletteRows(columns, Math.max(4, interior - 1))
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const line = lines[i] ?? ""
     const active = i === list.activeIndex
-    const content = ` ${active ? ">" : " "} ${line}`.padEnd(interior)
-    if (active) {
-      addOverlayRow(shell, content, UI.text, UI.textFaint)
-    } else {
-      addOverlayRow(shell, content, UI.textDim)
-    }
+    const content = ` ${line}`.padEnd(interior)
+    addOverlayRow(shell, content, active ? UI.text : UI.textDim)
   }
 }
 
@@ -1693,6 +1714,12 @@ export type RelayoutOpts = {
   readonly promptContentRows?: number
   readonly overlayMode?: OverlayMode
   readonly overlayBodyRows?: number
+  /**
+   * Rows the open overlay cannot render without: border + title + at least
+   * one content row. Below this, the box paints past whatever height it was
+   * assigned instead of shrinking, so the resolver must never starve it here.
+   */
+  readonly overlayMinBodyRows?: number
 }
 
 type PriorOverlaySnapshot = {
@@ -1720,6 +1747,7 @@ type ShellInternals = {
   promptContentRows: number | undefined
   overlayMode: OverlayMode
   overlayBodyRows: number | undefined
+  overlayMinBodyRows: number | undefined
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null
   /** Optional stable ids aligned with overlayItems for the open primary. */
@@ -1846,11 +1874,13 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   const promptContentRows = opts?.promptContentRows ?? bag?.promptContentRows
   const overlayMode = opts?.overlayMode ?? bag?.overlayMode ?? "closed"
   const overlayBodyRows = opts?.overlayBodyRows ?? bag?.overlayBodyRows
+  const overlayMinBodyRows = opts?.overlayMinBodyRows ?? bag?.overlayMinBodyRows
   if (bag) {
     bag.visibility = visibility
     bag.promptContentRows = promptContentRows
     bag.overlayMode = overlayMode
     bag.overlayBodyRows = overlayBodyRows
+    bag.overlayMinBodyRows = overlayMinBodyRows
   }
 
   const columns = opts?.columns ?? shell.renderer.width
@@ -1865,6 +1895,9 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
             mode: overlayMode,
             ...(overlayBodyRows !== undefined
               ? { bodyRows: overlayBodyRows }
+              : {}),
+            ...(overlayMinBodyRows !== undefined
+              ? { minBodyRows: overlayMinBodyRows }
               : {}),
           },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
@@ -3191,6 +3224,11 @@ export function openListOverlay(
     shell.overlayBodyLines.length,
     listItems * perItem,
   )
+  const minHostRows = overlayMinHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    listItems > 0,
+  )
 
   shell.overlayList = createListViewport({
     count: labels.length,
@@ -3207,7 +3245,11 @@ export function openListOverlay(
     target: focusTarget,
     scrollOwner: isPalette ? "palette" : "overlay",
   })
-  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  relayout(shell, {
+    overlayMode: "inset",
+    overlayBodyRows: hostRows,
+    overlayMinBodyRows: minHostRows,
+  })
   applyFocus(shell)
   paintOverlayList(shell)
 }
@@ -3304,10 +3346,10 @@ function repaintPalette(shell: AppShell): void {
     body: `> ${state.query}`,
     frameId: "command-palette",
   })
-  shell.overlayTitle.content = paletteTitleLine(
-    state.title,
-    overlayInteriorWidth(shell),
-  )
+  // No title rule row: the box is only ever the palette, and the filter row
+  // underneath already shows what's typed — a second header said nothing new.
+  shell.overlayTitle.visible = false
+  shell.overlayTitle.content = ""
   paintOverlayList(shell)
 }
 
@@ -3429,17 +3471,6 @@ export function handleOverlayAnswerKey(
 }
 
 /**
- * Palette title as a rule broken by the title, left-ish. The overlay host's own
- * border is asserted elsewhere to be unbroken box-drawing, so the titled rule is
- * a row inside the box rather than text written into the border itself.
- */
-function paletteTitleLine(title: string, interior: number): string {
-  const head = `─ ${title} `
-  if (head.length >= interior) return head.slice(0, Math.max(0, interior))
-  return head + "─".repeat(interior - head.length)
-}
-
-/**
  * Which open surface a chord toggles shut, or null when the chord is not a
  * toggling opener.
  *
@@ -3540,6 +3571,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     shell.overlayBodyFgs = prior.bodyFgs
     shell.overlayList = prior.list
     shell.paletteCommands = prior.paletteCommands
+    shell.overlayTitle.visible = true
     shell.overlayTitle.content = prior.title
     bag.overlayItemIds = prior.itemIds
     bag.overlayItemValues = prior.itemValues
@@ -3560,7 +3592,16 @@ export function closeInsetOverlay(shell: AppShell): void {
     }
     const listH = prior.list.height
     const hostRows = overlayHostRows(shell, prior.bodyLines.length, listH)
-    relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+    const minHostRows = overlayMinHostRows(
+      shell,
+      prior.bodyLines.length,
+      prior.list.count > 0,
+    )
+    relayout(shell, {
+      overlayMode: "inset",
+      overlayBodyRows: hostRows,
+      overlayMinBodyRows: minHostRows,
+    })
     applyFocus(shell)
     paintOverlayList(shell)
     return
@@ -3673,7 +3714,16 @@ export function setOverlayBody(
     Math.max(1, shell.overlayItems.length) *
       overlayRowsPerItem(shell.overlayKind),
   )
-  relayout(shell, { overlayMode: "inset", overlayBodyRows: hostRows })
+  const minHostRows = overlayMinHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    shell.overlayItems.length > 0,
+  )
+  relayout(shell, {
+    overlayMode: "inset",
+    overlayBodyRows: hostRows,
+    overlayMinBodyRows: minHostRows,
+  })
   paintOverlayList(shell)
 }
 
@@ -5493,6 +5543,7 @@ export function createAppShell(
     promptContentRows,
     overlayMode: "closed",
     overlayBodyRows: undefined,
+    overlayMinBodyRows: undefined,
     priorOverlay: null,
     overlayItemIds: [],
     overlayItemValues: [],

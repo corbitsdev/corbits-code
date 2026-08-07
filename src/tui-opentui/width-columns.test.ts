@@ -173,8 +173,8 @@ describe("palette rows", () => {
   test("rows are exactly `width` columns wide with CJK labels", () => {
     const rows = formatPaletteRows(
       [
-        { category: "run", label: CJK, shortcut: "ctrl+o" },
-        { category: "会話", label: "resume", shortcut: "?" },
+        { label: CJK, shortcut: "ctrl+o" },
+        { label: "resume", shortcut: "?" },
       ],
       48,
     )
@@ -183,7 +183,7 @@ describe("palette rows", () => {
 
   test("a too-wide label is cut to columns", () => {
     const [row] = formatPaletteRows(
-      [{ category: "", label: `${CJK}${CJK}`, shortcut: "" }],
+      [{ label: `${CJK}${CJK}`, shortcut: "" }],
       12,
     )
     expect(stringWidth(row ?? "")).toBe(12)
