@@ -218,3 +218,41 @@ describe("command palette width", () => {
   })
 })
 
+describe("command palette selection colour", () => {
+  test("marks the active row by text colour, not a filled background", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell)
+        await h.renderOnce()
+        const frame = h.captureSpans()
+        const activeLine = frame.lines.find((line) =>
+          line.spans.some((s) => s.text.includes("Open permissions")),
+        )
+        const groundLine = frame.lines.find((line) =>
+          line.spans.some((s) => s.text.includes("Ask operator question")),
+        )
+        expect(activeLine).toBeDefined()
+        expect(groundLine).toBeDefined()
+        const activeBg = activeLine!.spans[0]!.bg
+        const groundBg = groundLine!.spans[0]!.bg
+        // Same background either way — selection reads through text colour
+        // (fg), not a filled band behind the row.
+        expect(activeBg).toEqual(groundBg)
+        const activeFg = activeLine!.spans.find((s) =>
+          s.text.includes("Open permissions"),
+        )!.fg
+        const groundFg = groundLine!.spans.find((s) =>
+          s.text.includes("Ask operator question"),
+        )!.fg
+        expect(activeFg).not.toEqual(groundFg)
+      },
+      { width: 100, height: 32 },
+    )
+  })
+})
+

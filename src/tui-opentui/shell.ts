@@ -1261,34 +1261,23 @@ function overlayInteriorWidth(shell: AppShell): number {
   return overlayRowWidth(shell) + 2
 }
 
-/** Columns before the label column: leading space, selection marker, space. */
-const PALETTE_MARKER_WIDTH = 3
-
 /**
- * Palette rows are three columns wide, and the active one is a full-width band
- * rather than a recolored marker. The band is the warm faint tone, not the
- * action orange: a palette selection is a cursor position, not a decision the
- * shell is waiting on.
+ * Selection is a text colour, not a marker or a filled band: the highlighted
+ * row already stands out by sitting under the cursor, so a leading `>` and a
+ * grey block would both be saying the same thing twice.
  */
 function paintPaletteList(shell: AppShell, list: ListViewportState): void {
   const interior = overlayInteriorWidth(shell)
   const columns = shell.paletteCommands.map((cmd) =>
     paletteRowColumns(cmd, shortcutForPaletteId),
   )
-  const lines = formatPaletteRows(
-    columns,
-    Math.max(4, interior - PALETTE_MARKER_WIDTH),
-  )
+  const lines = formatPaletteRows(columns, Math.max(4, interior - 1))
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const line = lines[i] ?? ""
     const active = i === list.activeIndex
-    const content = ` ${active ? ">" : " "} ${line}`.padEnd(interior)
-    if (active) {
-      addOverlayRow(shell, content, UI.text, UI.textFaint)
-    } else {
-      addOverlayRow(shell, content, UI.textDim)
-    }
+    const content = ` ${line}`.padEnd(interior)
+    addOverlayRow(shell, content, active ? UI.text : UI.textDim)
   }
 }
 
