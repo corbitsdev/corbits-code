@@ -20,7 +20,7 @@ import {
   attachSessionBridge,
   createRecordingPort,
 } from "./runtime-bridge.js"
-import { makeObserveFixture } from "./residuals.js"
+import type { ObserveSession } from "./residuals.js"
 import {
   openModelPickerOverlay,
   openOperatorOverlay,
@@ -32,14 +32,54 @@ import {
   createAppShell,
   enterSubagentObserve,
   openHelpOverlay,
+  openListOverlay,
   openMentionsOverlay,
-  openPluginsOverlay,
-  openResumeOverlay,
   openSettingsOverlay,
   paintChrome,
   setChromeZones,
   setShellRunState,
 } from "./shell.js"
+
+/** Demo-only rows: never shipped, just something to look at in `s`/`l`/`e`/`n`. */
+const DEMO_SETTINGS_ITEMS: readonly string[] = [
+  "Permissions — revoke remembered approvals",
+  "Compaction — summarize vs drop",
+  "Session mode — auto / ask / plan",
+  "Close settings",
+]
+
+const DEMO_PLUGINS_ITEMS: readonly string[] = [
+  "plugin:linear — enabled",
+  "plugin:github — needs trust",
+  "Close plugins",
+]
+
+const DEMO_RESUME_ITEMS: readonly string[] = [
+  "Fix permissions overflow · 2h ago · idle",
+  "Wave 6 palette work · yesterday · done",
+  "Close resume",
+]
+
+const DEMO_MENTION_ITEMS: readonly string[] = [
+  "@src/tui-opentui/shell.ts",
+  "@AGENTS.md",
+  "Close mentions",
+]
+
+function demoObserveSession(): ObserveSession {
+  return {
+    sessionId: "child-1",
+    agentId: "explore",
+    description: "map callers of openListOverlay",
+    lines: [
+      { role: "system", text: "— child session explore —" },
+      { role: "user", text: "find every openListOverlay caller" },
+      { role: "assistant", text: "Searching src/tui-opentui…" },
+      { role: "tool", text: "grep openListOverlay → 6 hits", meta: "tool.done" },
+      { role: "assistant", text: "Report ready for parent." },
+    ],
+  }
+}
 
 if (!process.stdout.isTTY) {
   console.error("demo requires a TTY (stdout is not a terminal)")
@@ -163,7 +203,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     !key.meta &&
     shell.prompt.value.length === 0
   ) {
-    openSettingsOverlay(shell)
+    openSettingsOverlay(shell, { items: DEMO_SETTINGS_ITEMS })
     return
   }
 
@@ -183,7 +223,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     !key.meta &&
     shell.prompt.value.length === 0
   ) {
-    openPluginsOverlay(shell)
+    openListOverlay(shell, {
+      kind: "plugins",
+      title: "plugins",
+      items: DEMO_PLUGINS_ITEMS,
+      frameId: "overlay-plugins",
+    })
     return
   }
 
@@ -193,7 +238,12 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     !key.meta &&
     shell.prompt.value.length === 0
   ) {
-    openResumeOverlay(shell)
+    openListOverlay(shell, {
+      kind: "resume",
+      title: "resume session",
+      items: DEMO_RESUME_ITEMS,
+      frameId: "overlay-resume",
+    })
     return
   }
 
@@ -203,7 +253,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     !key.meta &&
     shell.prompt.value.length === 0
   ) {
-    openMentionsOverlay(shell)
+    openMentionsOverlay(shell, { items: DEMO_MENTION_ITEMS })
     return
   }
 
@@ -213,7 +263,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     !key.meta &&
     shell.prompt.value.length === 0
   ) {
-    enterSubagentObserve(shell, makeObserveFixture())
+    enterSubagentObserve(shell, demoObserveSession())
     return
   }
 

@@ -21,9 +21,6 @@ export type PaletteActionId =
   | "copy_active"
   | "toggle_mouse"
   | "help"
-  | "settings"
-  | "plugins"
-  | "resume"
   | "mentions"
   | "observe"
 
@@ -37,9 +34,6 @@ const RESIDUAL_ACTION_IDS = new Set<string>([
   "copy_active",
   "toggle_mouse",
   "help",
-  "settings",
-  "plugins",
-  "resume",
   "mentions",
   "observe",
 ])
@@ -128,24 +122,6 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
     id: "help",
     label: "Show keymap help",
     keywords: ["keys", "bindings", "help"],
-    dispatch: "residual",
-  },
-  {
-    id: "settings",
-    label: "Open settings",
-    keywords: ["config", "preferences", "options"],
-    dispatch: "residual",
-  },
-  {
-    id: "plugins",
-    label: "Manage plugins",
-    keywords: ["mcp", "extension", "plugin"],
-    dispatch: "residual",
-  },
-  {
-    id: "resume",
-    label: "Resume prior session",
-    keywords: ["history", "session", "picker"],
     dispatch: "residual",
   },
   {
