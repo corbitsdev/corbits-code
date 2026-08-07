@@ -16,7 +16,7 @@ import {
   isLanding,
   paintLanding,
 } from "./shell"
-import { openOperatorOverlay } from "./overlays"
+import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,
@@ -328,7 +328,7 @@ describe("landing screen", () => {
     )
   })
 
-  test("an overlay covers the landing instead of moving it", async () => {
+  test("an overlay covers the landing, sliding it only as far as its content needs", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -345,21 +345,60 @@ describe("landing screen", () => {
             before.findIndex((row) => row.includes(text)),
           )
           expect(was.every((index) => index > 0)).toBe(true)
+          // The anchors are listed top to bottom, so their positions climb
+          // together before the overlay opens.
+          expect(was).toEqual([...was].sort((a, b) => a - b))
 
           openOperatorOverlay(shell)
           await settle(h)
           const after = rows(h)
-          // Every landing anchor is on the row it was on: the overlay covers
-          // the composition, it does not push it around.
-          expect(
-            anchors.map((text) => after.findIndex((row) => row.includes(text))),
-          ).toEqual(was)
+          // Every landing anchor is still on screen and in the same relative
+          // order: the overlay is not letting the composition it covers spill
+          // off the viewport, overlap itself, or reshuffle. It may still
+          // slide the composition (up or down a little, as the mark re-grids
+          // for its new tier) when its own content needs more room than the
+          // even top/bottom split would otherwise leave it.
+          const nowAt = anchors.map((text) =>
+            after.findIndex((row) => row.includes(text)),
+          )
+          expect(nowAt.every((index) => index > 0)).toBe(true)
+          expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b))
+          expect(new Set(nowAt).size).toBe(nowAt.length)
           expect(h.captureCharFrame()).toContain("operator")
         } finally {
           shell.dispose()
         }
       },
       { width: 100, height: 30 },
+    )
+  })
+
+  // A question with more choices than the even top/bottom split would leave
+  // room for used to get its list starved down to whatever that split
+  // happened to allow — as little as one or two choices — because the float
+  // only asked the split for one choice row of headroom. It now asks for the
+  // overlay's real, already fraction-capped content height, so a terminal
+  // tall enough for that content shows every choice without scrolling.
+  test("a landing overlay with many choices shows them all when there is room", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 36 },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          openOperatorOverlay(shell)
+          await settle(h)
+          const frame = h.captureCharFrame()
+          for (const choice of makeOperatorQuestion().choices) {
+            expect(frame).toContain(choice)
+          }
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 100, height: 36 },
     )
   })
 

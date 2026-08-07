@@ -1515,8 +1515,9 @@ function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): bo
  * A floated overlay is clipped to the rows above the box so it never covers the
  * thing the operator types into. Losing the tail of a long body to that clip is
  * survivable; losing every choice is not, because then the surface cannot be
- * answered. So the box slides down just far enough to keep the overlay's chrome
- * and one choice on screen, and the starters below it pay for the move.
+ * answered. So the box slides down just far enough to keep the overlay's full,
+ * already fraction-capped height on screen, and the starters below it pay for
+ * the move.
  */
 function landingSplitFor(
   landingRows: number,
@@ -1572,14 +1573,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   const bag = internals.get(shell)
   const landing = bag?.landing ?? null
   const landingRows = transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH)
+  // The resolver already sized overlayH to the overlay's real content (list
+  // included) and capped it against the fraction/floor limits, so it is the
+  // correct minimum to ask the landing split to make room for — asking for
+  // less (e.g. just enough for one choice row) starves the list underneath
+  // the title down to nearly nothing once floatOverlayHost pins the host to it.
   const split =
-    landing === null
-      ? null
-      : landingSplitFor(
-          landingRows,
-          overlayH > 0 ? overlayHostRows(shell, shell.overlayBodyLines.length, 1) : 0,
-          padH,
-        )
+    landing === null ? null : landingSplitFor(landingRows, overlayH, padH)
   if (bag !== undefined && landing !== null && split !== null) {
     landing.above.box.height = Math.max(1, split.above)
     // A new zone can seat a different tier, and a tier is a different grid, so
