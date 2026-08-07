@@ -86,7 +86,12 @@ export type PermissionsSurfaceDeps = {
 
 export type PluginsSurfaceDeps = {
   readonly list: () => readonly PluginEntry[]
-  readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void
+  // A trust-grant load can surface skill-miss and similar warnings; the
+  // optional message is shown via `deps.notify` at the call site.
+  readonly setEnabled: (
+    id: string,
+    enabled: boolean,
+  ) => Promise<{ message?: string } | void> | void
   /** Persists credential values for the plugin (does not enable/verify it). */
   readonly saveCredentials: (
     id: string,
@@ -814,7 +819,10 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
         return
       }
       void Promise.resolve(plugins.setEnabled(target.id, !target.enabled)).then(
-        () => openPluginsSurface(shell, deps),
+        (result) => {
+          if (result?.message !== undefined) deps.notify(result.message)
+          openPluginsSurface(shell, deps)
+        },
         (err: unknown) => deps.notify(`Plugin update failed: ${errorText(err)}`),
       )
     },
@@ -847,7 +855,10 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
         case "t":
           if (target.needsTrust !== true) return false
           void Promise.resolve(plugins.setEnabled(target.id, true)).then(
-            () => openPluginsSurface(shell, deps),
+            (result) => {
+              if (result?.message !== undefined) deps.notify(result.message)
+              openPluginsSurface(shell, deps)
+            },
             (err: unknown) => deps.notify(`Trust failed: ${errorText(err)}`),
           )
           return true

@@ -10,6 +10,7 @@ import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
   resolvePluginWarningHandler,
+  stderrPluginWarning,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 import {
@@ -116,9 +117,15 @@ export async function loadPluginEntry(
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer diagnostics collector when provided so batch discovery can summarize;
-  // explicit onWarning is for tests / one-off sinks; default is stderr per line.
-  const onWarning = resolvePluginWarningHandler(opts);
+  // Prefer diagnostics collector so batch discovery can summarize; explicit
+  // onWarning for tests; else stderrPluginWarning.
+  const onWarning = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : opts.onWarning !== undefined
+        ? { onWarning: opts.onWarning }
+        : { onWarning: stderrPluginWarning },
+  );
   const origin = opts.origin;
   let target = entryPath;
   let pluginDir = entryPath;
@@ -255,16 +262,53 @@ export type ExpandPluginPathOptions = {
    * tree is allowed — multi-level relatives ok).
    */
   containRoot?: string;
-  /** Called for each skipped marketplace source (never silent). */
-  onSkip?: (skip: ExpandPluginPathSkip) => void;
+  /**
+   * Called for each skipped marketplace source (never silent). Required —
+   * not optional with a stderr default — because an optional sink with a
+   * silent fallback is exactly the shape that let three review rounds each
+   * turn up one more call site writing raw stderr mid-frame in the
+   * interactive TUI (CL-5411). Making it required turns every call site
+   * into a compile error until it picks a handler on purpose:
+   * `expandSkipDiagnosticsHandler(diagnostics)` for a batching caller,
+   * an explicit stderr writer for a headless caller where that is correct
+   * and visible (see `src/exec/runner.ts`), or `() => {}` to state on the
+   * record that a caller is deliberately ignoring skips.
+   */
+  onSkip: (skip: ExpandPluginPathSkip) => void;
 };
 
-/** Default skip reporter: stderr, same shape as Claude discovery. */
-function defaultExpandSkip(skip: ExpandPluginPathSkip): void {
+/** One-line description of a skip, shared by every `onSkip` sink (diagnostics or stderr). */
+export function formatExpandSkip(skip: ExpandPluginPathSkip): string {
   const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
-  process.stderr.write(
-    `plugins: skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}\n`,
-  );
+  return `marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})${where}`;
+}
+
+/**
+ * The ordinary `onSkip` handler: collect into `diagnostics` instead of
+ * writing raw stderr, so a skipped marketplace member lands in the same
+ * end-of-batch summary as every other plugin-load warning.
+ */
+export function expandSkipDiagnosticsHandler(
+  diagnostics: PluginLoadDiagnostics,
+): (skip: ExpandPluginPathSkip) => void {
+  return (skip) => diagnostics.warnings.push(formatExpandSkip(skip));
+}
+
+/**
+ * `onSkip` when no diagnostics collector is in play: one explicit stderr
+ * line, module-private and only reached by an internal caller's own
+ * deliberate choice (see `resolveExpandSkip` below) — never `expandPluginPath`
+ * falling back to it on its own.
+ */
+function stderrExpandSkip(skip: ExpandPluginPathSkip): void {
+  process.stderr.write(`plugins: ${formatExpandSkip(skip)}\n`);
+}
+
+/** Diagnostics when given, else the explicit stderr line — no silent option. */
+function resolveExpandSkip(
+  diagnostics?: PluginLoadDiagnostics,
+): (skip: ExpandPluginPathSkip) => void {
+  return diagnostics !== undefined ? expandSkipDiagnosticsHandler(diagnostics) : stderrExpandSkip;
 }
 
 /**
@@ -313,11 +357,11 @@ function defaultContainRoot(marketplaceRoot: string): string {
 
 export async function expandPluginPath(
   path: string,
-  opts: ExpandPluginPathOptions = {},
+  opts: ExpandPluginPathOptions,
 ): Promise<string[]> {
   const marketplaceRoot = resolve(path);
   const report = (skip: ExpandPluginPathSkip): void => {
-    (opts.onSkip ?? defaultExpandSkip)(skip);
+    opts.onSkip(skip);
   };
 
   // 1. Declared marketplace: relative `source` list, contained under containRoot
@@ -424,13 +468,17 @@ export async function expandPluginPath(
 // Resolve a registered pluginPaths entry to the member plugin directories that
 // exist on disk: relative entries resolve against cwd, marketplace roots expand
 // to their members. Missing paths are dropped so trust decisions made from this
-// list never pre-grant a directory that could appear later with other content.
+// list never pre-grant a directory that could appear later with other content
+// — that drop is deliberate, but a *skipped* member (bad source, escape) still
+// has a reason worth reaching the caller's diagnostics, so `onSkip` is
+// required rather than silently defaulted (see `ExpandPluginPathOptions`).
 export async function expandExistingPluginMembers(
   registeredPath: string,
   cwd: string,
+  onSkip: (skip: ExpandPluginPathSkip) => void,
 ): Promise<string[]> {
   const abs = isAbsolute(registeredPath) ? registeredPath : resolve(cwd, registeredPath);
-  const members = await expandPluginPath(abs);
+  const members = await expandPluginPath(abs, { onSkip });
   const existing = await Promise.all(members.map((m) => pathExists(m)));
   return members.filter((_, i) => existing[i]);
 }
@@ -456,8 +504,10 @@ async function scanPluginsDir(
 
   const results: PluginModule[] = [];
   for (const entry of entries) {
-    // Each entry may itself be a marketplace, so expand before loading.
-    const dirs = await expandPluginPath(join(dir, entry));
+    // Each entry may itself be a marketplace, so expand before loading. A
+    // skipped member routes into `diagnostics` when the caller has one, same
+    // as loadPluginEntry below — otherwise it would bypass the collector.
+    const dirs = await expandPluginPath(join(dir, entry), { onSkip: resolveExpandSkip(diagnostics) });
     for (const d of dirs) {
       const abs = resolve(d);
       if (originRequiresTrust(origin) && isTrusted !== undefined && !isTrusted(abs)) {
@@ -536,10 +586,13 @@ export async function loadPluginsFromPaths(
     diagnostics?: PluginLoadDiagnostics;
   } = {},
 ): Promise<PluginModule[]> {
+  // A skipped member routes into `diagnostics` when the caller has one, same
+  // reasoning as scanPluginsDir — otherwise it bypasses the collector.
+  const onSkip = resolveExpandSkip(opts.diagnostics);
   const resolved = await Promise.all(
     paths.map(async (p) => {
       const abs = isAbsolute(p) ? p : join(cwd, p);
-      return expandPluginPath(abs);
+      return expandPluginPath(abs, { onSkip });
     }),
   );
   // Anything under <cwd>/.corbits/plugins/ is project origin no matter how it
@@ -611,12 +664,12 @@ export async function discoverClaudeInstalledPlugins(
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Prefer collector when present; else one stderr line (default sink).
+    // Prefer collector when present; else stderrPluginWarning.
     resolvePluginWarningHandler(
-      opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
-    )(
-      `failed to parse ${registryPath}`,
-    );
+      opts.diagnostics !== undefined
+        ? { diagnostics: opts.diagnostics }
+        : { onWarning: stderrPluginWarning },
+    )(`failed to parse ${registryPath}`);
     return [];
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -628,10 +681,12 @@ export async function discoverClaudeInstalledPlugins(
   }
 
   const pluginsRoot = resolve(home, ".claude", "plugins");
-  // Default expand-skip sink respects diagnostics when provided so discovery
-  // can emit one summary; explicit onExpandSkip (tests) still wins.
+  // Default expand-skip sink: diagnostics when provided, else
+  // stderrPluginWarning; explicit onExpandSkip (tests) still wins.
   const warnExpand = resolvePluginWarningHandler(
-    opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {},
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : { onWarning: stderrPluginWarning },
   );
   const onExpandSkip =
     opts.onExpandSkip

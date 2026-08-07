@@ -7,6 +7,7 @@ import {
   discoverUserPlugins,
   expandPluginPath,
   loadPluginsFromPaths,
+  type ExpandPluginPathSkip,
 } from "../../src/plugins/loader.js";
 import {
   isPathPluginTrusted,
@@ -16,6 +17,13 @@ import {
   trustPathPlugins,
 } from "../../src/trust/path-trust.js";
 import { isPluginTrusted, loadProjectTrust, trustPlugin } from "../../src/trust/project-trust.js";
+
+// `onSkip` is required on `expandPluginPath` — no default sink to fall back
+// to. These fixtures expect every declared member to resolve, so a skip here
+// is a test-fixture bug; fail loudly instead of silently passing it through.
+function failOnSkip(skip: ExpandPluginPathSkip): never {
+  throw new Error(`unexpected marketplace skip: ${JSON.stringify(skip)}`);
+}
 
 async function writeCommandPlugin(dir: string, id: string, marker?: string): Promise<void> {
   await mkdir(dir, { recursive: true });
@@ -202,7 +210,7 @@ describe("path plugin trust across working directories", () => {
         "utf8",
       );
 
-      const members = await expandPluginPath(root);
+      const members = await expandPluginPath(root, { onSkip: failOnSkip });
       expect(members).toEqual([alpha, beta]);
       await trustPathPlugins(members, home);
       const pathTrust = await loadPathTrust(home);
@@ -236,7 +244,7 @@ describe("path plugin trust across working directories", () => {
         "utf8",
       );
 
-      const members = await expandPluginPath(root);
+      const members = await expandPluginPath(root, { onSkip: failOnSkip });
       expect(members).toEqual([sibling]);
       await trustPathPlugins(members, home);
       const pathTrust = await loadPathTrust(home);

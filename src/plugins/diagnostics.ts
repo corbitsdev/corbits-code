@@ -2,6 +2,11 @@
 // interactive TUI) accumulate warnings and emit a single summary instead of
 // writing one stderr line per miss mid-frame.
 
+import { getLogger } from "@intx/log";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const pluginDiagnosticsLogger = getLogger([LOG_NAMESPACE_ROOT, "plugins"]);
+
 export type PluginLoadDiagnostics = {
   warnings: string[];
 };
@@ -10,34 +15,28 @@ export function createPluginLoadDiagnostics(): PluginLoadDiagnostics {
   return { warnings: [] };
 }
 
-/**
- * Build an onWarning callback that records into `diag` when provided, else
- * falls back to the given sink (default: one stderr line per message).
- */
-export function pluginWarningSink(
-  diag: PluginLoadDiagnostics | undefined,
-  fallback: (msg: string) => void = (msg) => process.stderr.write(`plugins: ${msg}\n`),
-): (msg: string) => void {
-  if (diag !== undefined) {
-    return (msg) => {
-      diag.warnings.push(msg);
-    };
-  }
-  return fallback;
+/** Build an onWarning callback that records into `diag`. */
+export function pluginWarningSink(diag: PluginLoadDiagnostics): (msg: string) => void {
+  return (msg) => {
+    diag.warnings.push(msg);
+  };
 }
 
 /**
- * Resolve the warning sink for a load call. Prefer a diagnostics collector when
- * provided (so batch callers can emit one summary); else an explicit onWarning;
- * else one stderr line per message.
+ * Resolve the warning sink for a load call. There is no default: callers
+ * must decide between a diagnostics collector (batched into one summary,
+ * safe mid-frame) and an explicit onWarning (e.g. a raw stderr writer for
+ * headless paths where no frame is being held).
  */
-export function resolvePluginWarningHandler(opts: {
-  diagnostics?: PluginLoadDiagnostics;
-  onWarning?: (msg: string) => void;
-}): (msg: string) => void {
-  if (opts.diagnostics !== undefined) return pluginWarningSink(opts.diagnostics);
-  if (opts.onWarning !== undefined) return opts.onWarning;
-  return pluginWarningSink(undefined);
+export function resolvePluginWarningHandler(
+  opts: { diagnostics: PluginLoadDiagnostics } | { onWarning: (msg: string) => void },
+): (msg: string) => void {
+  return "diagnostics" in opts ? pluginWarningSink(opts.diagnostics) : opts.onWarning;
+}
+
+/** Named raw-stderr choice: `{ onWarning: stderrPluginWarning }`. */
+export function stderrPluginWarning(msg: string): void {
+  process.stderr.write(`plugins: ${msg}\n`);
 }
 
 /**
@@ -83,4 +82,17 @@ export function emitPluginWarningSummary(
 ): void {
   const summary = formatPluginWarningsSummary(diag.warnings);
   if (summary !== undefined) write(summary);
+}
+
+/**
+ * Emit a diagnostics summary through the structured logger instead of raw
+ * stderr. Interactive callers (the TUI holds the alternate screen for the
+ * whole session) must use this, not the raw-stderr default above — a bare
+ * write lands mid-frame and corrupts the rendered transcript. The logger is
+ * already routed to `~/.corbits/logs/corbits.log` by `installFileLogSink`
+ * (first statement of `mainWithRunners`), so this reuses that sink rather
+ * than adding a second suppression path.
+ */
+export function emitPluginWarningLog(diag: PluginLoadDiagnostics): void {
+  emitPluginWarningSummary(diag, (line) => pluginDiagnosticsLogger.warn(line));
 }

@@ -47,10 +47,16 @@ import { createInferenceDependencies } from "../provider/inference-dependencies.
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
-import { expandExistingPluginMembers, expandPluginPath, loadPluginEntry, type PluginOrigin } from "../plugins/loader.js";
+import {
+  expandExistingPluginMembers,
+  expandPluginPath,
+  expandSkipDiagnosticsHandler,
+  loadPluginEntry,
+  type PluginOrigin,
+} from "../plugins/loader.js";
 import {
   createPluginLoadDiagnostics,
-  emitPluginWarningSummary,
+  emitPluginWarningLog,
   formatPluginWarningsSummary,
 } from "../plugins/diagnostics.js";
 import {
@@ -387,17 +393,21 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // global path-trust entry, load metadata-only (no import).
   // Claude Code marketplace installs are opt-in via settings.discoverClaudePlugins.
   let projectTrust: ProjectTrustStore = await loadProjectTrust(config.cwd);
+  // Declared before the migration call below so a skipped marketplace member
+  // (bad pluginPaths entry) collects into the same summary as discovery,
+  // rather than defaulting to stderr — `onSkip` on expandExistingPluginMembers
+  // is required precisely so this can't be forgotten at a call site.
+  const pluginLoadDiag = createPluginLoadDiagnostics();
   // One-shot: seed global path trust from pluginPaths only when the store file
   // does not exist yet (legacy per-cwd grants). Later boots load the store as-is.
   let pathTrust: PathTrustStore = await migratePathTrustFromPluginPaths(
     config.settings?.pluginPaths ?? [],
-    (p) => expandExistingPluginMembers(p, config.cwd),
+    (p) => expandExistingPluginMembers(p, config.cwd, expandSkipDiagnosticsHandler(pluginLoadDiag)),
     undefined,
     { onMigrated: reportPathTrustMigration },
   );
   const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
-  const pluginLoadDiag = createPluginLoadDiagnostics();
   const pluginModules = await discoverSessionPlugins({
     cwd: config.cwd,
     ...(config.settings?.pluginPaths !== undefined
@@ -410,7 +420,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     isRegisteredPathTrusted,
     diagnostics: pluginLoadDiag,
   });
-  emitPluginWarningSummary(pluginLoadDiag);
+  emitPluginWarningLog(pluginLoadDiag);
+  // Fire-and-forget startup diagnostics (this + tool-plugin resolution below)
+  // have no result channel back to an operator action, unlike verify/add-path/
+  // trust-grant. A log-only summary is invisible — nobody watches
+  // ~/.corbits/logs/corbits.log — so these are also queued as transcript rows
+  // once the shell mounts (see `systemRow` calls after `mountRunnerHost`).
+  const startupPluginNotices: string[] = [];
+  const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
+  if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -667,6 +685,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Tool plugins are wired in only when enabled AND consented.
   const toolPluginCandidates = collectToolPlugins(executablePlugins());
   // Web and tool plugin resolution are independent, so resolve them concurrently.
+  const toolPluginDiag = createPluginLoadDiagnostics();
   const [activeWeb, extraToolPlugins] = await Promise.all([
     resolveWebProviderFromPlugins({
       candidates: webPluginCandidates,
@@ -676,9 +695,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     resolveToolPlugins({
       candidates: toolPluginCandidates,
       pluginConfig: config.settings?.plugins ?? {},
+      diagnostics: toolPluginDiag,
     }),
   ]);
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
+  emitPluginWarningLog(toolPluginDiag);
+  const toolPluginNotice = formatPluginWarningsSummary(toolPluginDiag.warnings);
+  if (toolPluginNotice !== undefined) startupPluginNotices.push(toolPluginNotice);
 
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
@@ -745,6 +768,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     getWebOverride: () => liveWebOverride,
     saveConfig: async (id, cfg) => {
       livePluginConfig = { ...livePluginConfig, [id]: cfg };
+      // Warnings from the trust-grant load below are collected, not logged:
+      // like `addPath`, the caller has a result channel back to the operator
+      // (the command surface's `deps.notify`), so fold them into the returned
+      // message instead of a log line nobody watches.
+      let trustGrantMessage: string | undefined;
       // Enabling a project/path plugin records trust and full-loads code.
       if (cfg.enabled === true) {
         const stub = livePluginModules.find((m) => m.manifest?.id === id);
@@ -766,7 +794,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             origin: stub.origin,
             diagnostics: trustDiag,
           });
-          emitPluginWarningSummary(trustDiag);
+          trustGrantMessage = formatPluginWarningsSummary(trustDiag.warnings);
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -798,6 +826,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         registerCommandPlugin(mod.commandPlugin!);
       }
       await persistPluginSettings();
+      return trustGrantMessage === undefined ? undefined : { message: trustGrantMessage };
     },
     setWebOverride: async (id) => {
       liveWebOverride = id;
@@ -813,9 +842,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           { [id]: { enabled: true } },
           { diagnostics: verifyDiag },
         );
-        emitPluginWarningSummary(verifyDiag);
         if (profiles.length === 0) return { ok: false, message: "No valid agent profiles found" };
-        return { ok: true, message: `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}` };
+        // Fold warnings into the message (same pattern as `addPath`) instead of
+        // logging them: "loaded — N profiles" must not read identically whether
+        // or not a profile's skill ref actually resolved.
+        const warnings = formatPluginWarningsSummary(verifyDiag.warnings);
+        const base = `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`;
+        return { ok: true, message: warnings === undefined ? base : `${base} (${warnings})` };
       }
       // Tool plugins verify by loading (the factory must construct without
       // error and yield at least one tool).
@@ -867,8 +900,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (descriptor === undefined) return { ok: false, message: "Invalid plugin manifest" };
       // Persist global path trust only once it resolves to a real plugin, so a
       // bogus path never leaves a dangling entry. Expand marketplaces so each
-      // member is trusted (exact-path match on reload).
-      const members = await expandPluginPath(abs);
+      // member is trusted (exact-path match on reload). `onSkip` collects into
+      // `addDiag` instead of a raw stderr write — same reasoning as
+      // `loadPluginEntry` above.
+      const members = await expandPluginPath(abs, {
+        onSkip: expandSkipDiagnosticsHandler(addDiag),
+      });
       pathTrust = await trustPathPlugins(members.length > 0 ? members : [abs]);
       // Replace any existing descriptor/candidate with the same id so re-adding
       // refreshes rather than duplicates.
@@ -946,7 +983,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     config.settings?.plugins ?? {},
     { diagnostics: profileDiag },
   );
-  emitPluginWarningSummary(profileDiag);
+  emitPluginWarningLog(profileDiag);
+  // Same fire-and-forget reasoning as the discovery/tool-plugin notices above:
+  // this runs before `host` exists, so it is queued rather than dropped.
+  const profileNotice = formatPluginWarningsSummary(profileDiag.warnings);
+  if (profileNotice !== undefined) startupPluginNotices.push(profileNotice);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
@@ -2048,7 +2089,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
         setEnabled: async (id, enabled) => {
           const existing = pluginsAdmin.getConfig()[id] ?? {};
-          await pluginsAdmin.saveConfig(id, { ...existing, enabled });
+          return (await pluginsAdmin.saveConfig(id, { ...existing, enabled })) ?? undefined;
         },
         saveCredentials: async (id, credentials) => {
           const existing = pluginsAdmin.getConfig()[id] ?? {};
@@ -2229,6 +2270,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+  // Surface fire-and-forget startup plugin diagnostics now that the shell has
+  // a transcript to write into (queued above, before `host` existed).
+  for (const notice of startupPluginNotices) systemRow(notice);
 
   await host.waitUntilExit();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing

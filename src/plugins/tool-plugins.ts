@@ -3,6 +3,11 @@ import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField } from "./manifest.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
+import {
+  resolvePluginWarningHandler,
+  stderrPluginWarning,
+  type PluginLoadDiagnostics,
+} from "./diagnostics.js";
 
 // A discovered plugin that contributes agent tools: a "tool"-kind manifest plus
 // the factory the loader captured.
@@ -37,18 +42,30 @@ export function isToolPluginActive(config: Record<string, PluginConfig>, id: str
 }
 
 // Instantiate every enabled+consented tool plugin. A factory that throws is
-// logged and skipped rather than aborting the run.
+// reported and skipped rather than aborting the run. Pass `diagnostics` from
+// an interactive caller (the TUI holds the alternate screen for the whole
+// session — a bare stderr write mid-frame corrupts it); without it this falls
+// back to one stderr line per failure, same as `resolvePluginWarningHandler`
+// elsewhere in the plugin loader.
 export async function resolveToolPlugins(args: {
   candidates: ToolPluginCandidate[];
   pluginConfig: Record<string, PluginConfig>;
+  diagnostics?: PluginLoadDiagnostics;
 }): Promise<ToolPlugin[]> {
+  const onWarning = resolvePluginWarningHandler(
+    args.diagnostics !== undefined
+      ? { diagnostics: args.diagnostics }
+      : { onWarning: stderrPluginWarning },
+  );
   const out: ToolPlugin[] = [];
   for (const cand of args.candidates) {
     if (!isToolPluginActive(args.pluginConfig, cand.id)) continue;
     try {
       out.push(await cand.factory(args.pluginConfig[cand.id]?.credentials ?? {}));
     } catch (err) {
-      process.stderr.write(`tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}\n`);
+      onWarning(
+        `tool-plugin: failed to start "${cand.id}": ${scrubSecrets(err instanceof Error ? err.message : String(err))}`,
+      );
     }
   }
   return out;

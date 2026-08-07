@@ -7,6 +7,7 @@ import { loadDataOnlyCommands } from "./data-only-commands.js";
 import { loadSkillCommands } from "./skill-commands.js";
 import {
   resolvePluginWarningHandler,
+  stderrPluginWarning,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 
@@ -80,8 +81,14 @@ export async function loadDataOnlyPlugin(
   } = {},
 ): Promise<DataOnlyPlugin | null> {
   const cwd = opts.cwd ?? process.cwd();
-  // Prefer diagnostics collector; else explicit onWarning; else stderr default.
-  const onWarning = resolvePluginWarningHandler(opts);
+  // Prefer diagnostics collector; else explicit onWarning; else stderrPluginWarning.
+  const onWarning = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : opts.onWarning !== undefined
+        ? { onWarning: opts.onWarning }
+        : { onWarning: stderrPluginWarning },
+  );
 
   const [nativeManifest, claudeManifest, agents, commands, skillCmds] = await Promise.all([
     readManifestJson(pluginDir),
