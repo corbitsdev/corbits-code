@@ -215,7 +215,7 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
 // of turns already in the turns log. The terminal write on close still goes
 // through writeRunSnapshot directly with the real final status, so this
 // only needs to cover progress snapshots taken while the run is live.
-export function isRunSnapshotTurnBoundary(eventType: string): boolean {
+function isRunSnapshotTurnBoundary(eventType: string): boolean {
   return eventType === "inference.done";
 }
 
