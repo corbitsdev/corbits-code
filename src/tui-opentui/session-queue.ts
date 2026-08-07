@@ -112,6 +112,22 @@ export function clearInterruptFlash(
   return { ...state, interruptFlash: false }
 }
 
+/**
+ * Retract the most recently enqueued item, queue or steer alike. Last-only:
+ * an operator who wants an earlier item gone has no path here (see
+ * `applyShellCancelLast` for why that is the shipped scope, not an oversight).
+ */
+export function cancelLast(
+  state: SessionQueueState,
+): { state: SessionQueueState; item: QueueItem | null } {
+  const item = state.items[state.items.length - 1] ?? null
+  if (item === null) return { state, item: null }
+  return {
+    state: { ...state, items: state.items.slice(0, -1) },
+    item,
+  }
+}
+
 /** Drain order: steers first (FIFO within class), then queue (FIFO). */
 export function drainOrder(
   state: SessionQueueState,

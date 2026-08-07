@@ -81,6 +81,19 @@ export type StreamRow = {
    */
   readonly callId?: string
   /**
+   * Id of the queue item this row echoes (see `SessionQueueState`). Lets a
+   * cancel find the exact row a queued/steered message appended, rather than
+   * guessing by position once other rows have interleaved.
+   */
+  readonly queueItemId?: string
+  /**
+   * The queued/steered message this row echoed was cancelled before it
+   * dispatched. Kept as a flag rather than baked into `text` so the stored
+   * body stays what the operator actually typed — the paint layer alone
+   * decides how a cancelled row reads.
+   */
+  readonly cancelled?: boolean
+  /**
    * Row standing for a run of repeated calls. Its subject stays the call the
    * run repeats (never a total across them, which would be a claim the
    * payloads do not support); each answer lands in the expanded body.
@@ -633,7 +646,8 @@ export function paintStreamRow(
 ): PaintedStreamLine {
   const fg = rowFg(row)
   if (row.role === "user") {
-    return { content: userBubbleLines(row.text, layout.width).join("\n"), fg }
+    const text = row.cancelled === true ? `[cancelled] ${row.text}` : row.text
+    return { content: userBubbleLines(text, layout.width).join("\n"), fg }
   }
   if (isThinkingRow(row)) {
     return {

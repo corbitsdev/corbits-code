@@ -15,6 +15,7 @@ import { paintStreamRow } from "./stream"
 import {
   appendStreamRow,
   appendTranscript,
+  applyShellCancelLast,
   closeInsetOverlay,
   createAppShell,
   interruptShell,
@@ -470,6 +471,99 @@ describe("product skin: stream + queue + overlay", () => {
           expect(row).toContain("interrupt")
           // An empty queue is the default state, so it stays off the row.
           expect(row).not.toContain("queue")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+G cancels the last queued message and the screen shows it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "keep this one"
+          submitPrompt(shell, "queue")
+          shell.prompt.value = "oops wrong message"
+          submitPrompt(shell, "queue")
+          expect(shell.pendingQueue).toBe(2)
+
+          const before = shell.streamLog.map((row) => ({
+            text: row.text,
+            meta: row.meta,
+            cancelled: row.cancelled,
+          }))
+          expect(before).toEqual([
+            { text: "keep this one", meta: "queue", cancelled: undefined },
+            { text: "oops wrong message", meta: "queue", cancelled: undefined },
+          ])
+          await h.renderOnce()
+          const frameBefore = h.captureCharFrame()
+          expect(frameBefore).toContain("keep this one")
+          expect(frameBefore).toContain("oops wrong message")
+          expect(frameBefore).not.toContain("[cancelled]")
+
+          applyShellCancelLast(shell)
+
+          expect(shell.pendingQueue).toBe(1)
+          expect(shell.session.items[0]!.text).toBe("keep this one")
+
+          const after = shell.streamLog.map((row) => ({
+            text: row.text,
+            meta: row.meta,
+            cancelled: row.cancelled,
+          }))
+          // The stored text is untouched — the cancel is a flag the paint
+          // layer reads, not a rewrite of what the operator typed.
+          expect(after).toEqual([
+            { text: "keep this one", meta: "queue", cancelled: undefined },
+            { text: "oops wrong message", meta: "cancelled", cancelled: true },
+          ])
+
+          // The screen, not just the model, is asserted on: this is exactly
+          // what the first attempt at this issue got wrong (the row read
+          // back unchanged from streamLog while the model looked cancelled).
+          await h.renderOnce()
+          const frameAfter = h.captureCharFrame()
+          expect(frameAfter).toContain("[cancelled] oops wrong message")
+          expect(frameAfter).toContain("keep this one")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("Ctrl+G cancels a steered message the same way", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        try {
+          shell.prompt.value = "steer me now"
+          submitPrompt(shell, "steer")
+          expect(shell.pendingQueue).toBe(1)
+          expect(shell.session.items[0]!.kind).toBe("steer")
+
+          applyShellCancelLast(shell)
+
+          expect(shell.pendingQueue).toBe(0)
+          expect(shell.session.items).toHaveLength(0)
+          expect(shell.streamLog[0]?.cancelled).toBe(true)
+          expect(shell.streamLog[0]?.meta).toBe("cancelled")
+
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("[cancelled] steer me now")
         } finally {
           shell.dispose()
         }

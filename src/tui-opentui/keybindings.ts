@@ -23,6 +23,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Enter", description: "queue the message mid-run (badge); send straight through when idle" },
   { keys: "Alt+Enter", description: "steer at the next tool boundary; does nothing unless a run is busy" },
   { keys: "Ctrl+C", description: "interrupt the run, or clear the prompt when idle; press twice to exit" },
+  { keys: "Ctrl+G", description: "cancel the most recently queued or steered message before it dispatches" },
   { keys: "Ctrl+O", description: "open the command palette; press again to close it" },
   { keys: "Alt+C", description: "copy mode: pick a message, tool output, or diff; press again to close it" },
   { keys: "Alt+M", description: "release the mouse to the terminal for native drag-select and copy; on by default for wheel scroll and click-to-expand" },

@@ -34,10 +34,12 @@ import {
   setSentMessageHistory,
   setShellBridgeHooks,
   setShellExitHandler,
+  clearShellBridgeHooks,
   setShellRunState,
   shellFocusPrompt,
   shellFocusTranscript,
   streamRowAt,
+  submitPrompt,
   type AppShell,
 } from "./shell.js"
 
@@ -450,6 +452,38 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(exited).toBe(0)
       press(h, chords[0])
       expect(exited).toBe(1)
+      setShellRunState(shell, "idle")
+    },
+  },
+
+  "Ctrl+G": {
+    group: "session",
+    probe: async ({ h, shell, chords }) => {
+      clearShellBridgeHooks(shell)
+      setShellRunState(shell, "busy")
+      shell.prompt.value = "keep"
+      submitPrompt(shell, "queue")
+      shell.prompt.value = "drop me"
+      submitPrompt(shell, "queue")
+      expect(shell.pendingQueue).toBe(2)
+
+      press(h, chords[0])
+
+      expect(shell.pendingQueue).toBe(1)
+      expect(shell.session.items[0]!.text).toBe("keep")
+      const rows = shell.streamLog.map((row) => row.meta)
+      // The retracted message's row is rewritten, not left claiming "queue"
+      // as though it will still dispatch (the bug that got the first attempt
+      // at this pulled).
+      expect(rows).toEqual(["queue", "cancelled"])
+
+      // The chord's whole job is what lands on screen, not the model alone —
+      // assert on the rendered frame, not just streamLog.
+      await h.renderOnce()
+      const frame = h.captureCharFrame()
+      expect(frame).toContain("[cancelled] drop me")
+      expect(frame).toContain("keep")
+
       setShellRunState(shell, "idle")
     },
   },

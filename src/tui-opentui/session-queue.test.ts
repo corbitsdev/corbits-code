@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   badgeCount,
+  cancelLast,
   clearInterruptFlash,
   createSessionQueue,
   drainOne,
@@ -61,6 +62,34 @@ describe("session-queue", () => {
     expect(s.run).toBe("idle")
     s = clearInterruptFlash(s)
     expect(s.interruptFlash).toBe(false)
+  })
+
+  test("cancelLast retracts the newest queue item", () => {
+    let s = createSessionQueue("busy")
+    s = enqueue(s, "keep")
+    s = enqueue(s, "drop")
+    const { state, item } = cancelLast(s)
+    expect(item?.text).toBe("drop")
+    expect(badgeCount(state)).toBe(1)
+    expect(state.items[0]!.text).toBe("keep")
+  })
+
+  test("cancelLast retracts the newest steer item, same as queue", () => {
+    let s = createSessionQueue("busy")
+    s = enqueue(s, "queued")
+    s = enqueueSteer(s, "steered")
+    const { state, item } = cancelLast(s)
+    expect(item?.kind).toBe("steer")
+    expect(item?.text).toBe("steered")
+    expect(badgeCount(state)).toBe(1)
+    expect(state.items[0]!.kind).toBe("queue")
+  })
+
+  test("cancelLast on an empty queue is a no-op", () => {
+    const s = createSessionQueue("busy")
+    const { state, item } = cancelLast(s)
+    expect(item).toBeNull()
+    expect(state).toBe(s)
   })
 
   test("setRunState toggles busy/idle", () => {
