@@ -3931,11 +3931,15 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     await source(token.dir),
     token.fragment,
   )
+  // Quitting mid-lookup tears down the renderer/TextBuffer this function
+  // writes into below; a resolved-but-stale lookup must not touch them.
+  if (shell.disposed) return false
   // The source caps how many entries it returns per directory, so a large
   // directory can cap out before the interior match appears. Asking it to do
   // its own prefix filter puts that cap after the narrowing instead of before.
   if (suggestions.length === 0 && token.fragment.length > 0) {
     suggestions = await source(at.prefix)
+    if (shell.disposed) return false
   }
   if (mentionGenerations.get(shell) !== generation) return false
 
