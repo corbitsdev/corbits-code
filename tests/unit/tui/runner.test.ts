@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import {
   createTUIEventEmitter,
   getTUIRunSummaryStatus,
+  isRunSnapshotTurnBoundary,
   loadLocalSettingsWriteBase,
   resumeTranscriptLoadErrorBlock,
 } from "../../../src/tui/runner.js";
@@ -19,6 +20,19 @@ test("createTUIEventEmitter can emit and receive events", () => {
   emitter.on("event", (data) => received.push(data));
   emitter.emit("event", { type: "test" });
   expect(received.length).toBe(1);
+});
+
+// Regression: run.json's turnsUsed must update every turn, not only once
+// at reactor shutdown. reactor.done fires exactly once, at agent shutdown,
+// so a live multi-turn interactive session never had its progress snapshot
+// re-fire until close — turnsUsed sat frozen at its resume-time value the
+// whole session (CL-5534). inference.done is the turn boundary every
+// reactor cycle guarantees, so that's what a mid-run snapshot must key off.
+test("isRunSnapshotTurnBoundary fires on inference.done, not reactor.done", () => {
+  expect(isRunSnapshotTurnBoundary("inference.done")).toBe(true);
+  expect(isRunSnapshotTurnBoundary("reactor.done")).toBe(false);
+  expect(isRunSnapshotTurnBoundary("reactor.error")).toBe(false);
+  expect(isRunSnapshotTurnBoundary("connector.reply")).toBe(false);
 });
 
 test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", () => {

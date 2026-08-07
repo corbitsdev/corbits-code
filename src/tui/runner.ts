@@ -207,6 +207,18 @@ export function resolveExitCode(args: ResolveExitCodeArgs): number {
   return 0;
 }
 
+// `inference.done` is the turn boundary every reactor cycle guarantees;
+// `reactor.done` fires once, at shutdown, and never between turns of a
+// long-lived interactive session. Keying the mid-run run.json snapshot off
+// `reactor.done` left turnsUsed frozen at its resume-time value for the
+// entire session — a live monorepo session showed turnsUsed: 0 with dozens
+// of turns already in the turns log. The terminal write on close still goes
+// through writeRunSnapshot directly with the real final status, so this
+// only needs to cover progress snapshots taken while the run is live.
+export function isRunSnapshotTurnBoundary(eventType: string): boolean {
+  return eventType === "inference.done";
+}
+
 /** One-line transcript block when resume history fails to load. */
 export function resumeTranscriptLoadErrorBlock(err: unknown): {
   type: "error";
@@ -1440,7 +1452,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
     cycleRecorder.handleEvent(event);
-    if (event.type === "reactor.done") {
+    if (isRunSnapshotTurnBoundary(event.type)) {
       void persistRunSnapshot("running");
     }
   };
