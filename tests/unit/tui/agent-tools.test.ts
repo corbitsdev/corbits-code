@@ -1,4 +1,4 @@
-import { test, expect, mock } from "bun:test";
+import { afterAll, test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
 
@@ -16,6 +16,27 @@ const mockPosixTools = {
   })),
   dispose: mockDispose,
 };
+
+// mock.module replaces the shared module cache for the whole test process, so
+// every other file that imports these modules runs against the mock until it
+// is put back. Capture the real modules up front and restore them in
+// afterAll so this file's mocking is invisible outside its own tests. Bun
+// mutates the imported namespace object in place when a module is mocked, so
+// each capture is shallow-copied immediately -- holding onto the live
+// namespace instead would silently turn into the mocked exports as soon as
+// mock.module below runs, making the "restore" a no-op.
+const realToolsPosix = { ...(await import("@intx/tools-posix")) };
+const realPosixToolPlugins = { ...(await import("../../../src/agent/posix-tool-plugins.js")) };
+const realMcpPlugin = { ...(await import("../../../src/mcp/plugin.js")) };
+const realPathEscapePlugin = { ...(await import("../../../src/plugins/path-escape-plugin.js")) };
+const realAuthzPlugin = { ...(await import("../../../src/plugins/authz-plugin.js")) };
+const realVerifyPlugin = { ...(await import("../../../src/plugins/verify-plugin.js")) };
+const realPermissionPlugin = { ...(await import("../../../src/plugins/permission-plugin.js")) };
+const realSecretGuardPlugin = { ...(await import("../../../src/plugins/secret-guard-plugin.js")) };
+const realShellGuardPlugin = { ...(await import("../../../src/plugins/shell-guard-plugin.js")) };
+const realReadFileGuardPlugin = { ...(await import("../../../src/plugins/read-file-guard-plugin.js")) };
+const realEditFileLineRange = { ...(await import("../../../src/plugins/edit-file-line-range.js")) };
+const realDirector = { ...(await import("../../../src/agent/director.js")) };
 
 mock.module("@intx/tools-posix", () => ({
   createPosixTools: () => mockPosixTools,
@@ -70,10 +91,6 @@ mock.module("../../../src/plugins/edit-file-line-range.js", () => ({
   advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
 }));
 
-mock.module("../../../src/web/plugin.js", () => ({
-  webToolsPlugin: () => ({}),
-}));
-
 mock.module("../../../src/agent/director.js", () => ({
   askOperatorDefinition: {
     name: "ask_operator",
@@ -92,6 +109,21 @@ mock.module("../../../src/agent/director.js", () => ({
   } as ToolDefinition,
   createChatDirector: mock(() => ({})),
 }));
+
+afterAll(() => {
+  mock.module("@intx/tools-posix", () => realToolsPosix);
+  mock.module("../../../src/agent/posix-tool-plugins.js", () => realPosixToolPlugins);
+  mock.module("../../../src/mcp/plugin.js", () => realMcpPlugin);
+  mock.module("../../../src/plugins/path-escape-plugin.js", () => realPathEscapePlugin);
+  mock.module("../../../src/plugins/authz-plugin.js", () => realAuthzPlugin);
+  mock.module("../../../src/plugins/verify-plugin.js", () => realVerifyPlugin);
+  mock.module("../../../src/plugins/permission-plugin.js", () => realPermissionPlugin);
+  mock.module("../../../src/plugins/secret-guard-plugin.js", () => realSecretGuardPlugin);
+  mock.module("../../../src/plugins/shell-guard-plugin.js", () => realShellGuardPlugin);
+  mock.module("../../../src/plugins/read-file-guard-plugin.js", () => realReadFileGuardPlugin);
+  mock.module("../../../src/plugins/edit-file-line-range.js", () => realEditFileLineRange);
+  mock.module("../../../src/agent/director.js", () => realDirector);
+});
 
 const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
