@@ -25,6 +25,10 @@ import type {
   OperatorGateEvent,
   PermissionGateEvent,
 } from "../tui/gate-events.js"
+import {
+  createPermissionRequestQueue,
+  wirePermissionGrantReconciliation,
+} from "../permission/queue.js"
 
 /** Stable sentinel ids for the always-present deny / once rows. */
 export const PERMISSION_DENY_ID = "__deny__" as const
@@ -293,6 +297,14 @@ export function wireGates(
   // nothing on screen to answer — so a gate that arrives while another overlay
   // is up waits here and opens as soon as the host frees up.
   const pending: Array<() => void> = []
+  // Owns queued-approval reconciliation (see src/permission/queue.ts): this
+  // host only enqueues requests and renders whatever settle calls the queue
+  // hands back — it never decides which grant covers which request.
+  const permissionQueue = createPermissionRequestQueue()
+  const disposeReconciliation = wirePermissionGrantReconciliation(
+    emitter,
+    permissionQueue,
+  )
 
   function openOrQueue(open: () => void): void {
     if (shell.overlayList !== null) {
@@ -300,6 +312,11 @@ export function wireGates(
       return
     }
     open()
+  }
+
+  function unqueue(open: () => void): void {
+    const idx = pending.indexOf(open)
+    if (idx >= 0) pending.splice(idx, 1)
   }
 
   const disposeClosed = onOverlayClosed(shell, () => {
@@ -317,8 +334,30 @@ export function wireGates(
     const collapsedAnything =
       formatCommandForApproval(ev.request.subject).payloadCount > 0
     let expanded = false
-    let settled = false
     let isOpen = false
+
+    // The queue is the single settle guard: once an id is removed (accept,
+    // cancel, timeout, abort, or a reconciled grant), a later call is a
+    // no-op instead of double-resolving. Its resolve callback settles
+    // through the onceClosed-wrapped `resolve` (not ev.resolve directly) so
+    // hooks.onGateClosed still fires exactly once regardless of which path
+    // drained this entry. settle's own return value tells a call site
+    // whether it was the one that actually settled, which is also how
+    // recordDecision below is guarded against firing twice — closing the
+    // overlay from inside this callback re-invokes the overlay's own
+    // onCancel (see shell.ts's closeInsetOverlay), and that reentrant call
+    // must find the id already gone.
+    const settle = (outcome: ApprovalOutcome): boolean =>
+      permissionQueue.settle(id, outcome)
+    const id = permissionQueue.enqueue(ev.request, (outcome) => {
+      clearTimers()
+      if (isOpen) {
+        closeInsetOverlay(shell)
+      } else {
+        unqueue(open)
+      }
+      resolve(outcome)
+    })
 
     const onToggleExpand = (): void => {
       expanded = !expanded
@@ -350,25 +389,28 @@ export function wireGates(
         echoChoice: false,
         ...(collapsedAnything ? { onToggleExpand } : {}),
         onAccept: (sel: OverlaySelection) => {
-          if (settled) return
-          settled = true
-          clearTimers()
+          // The shell already closed this overlay (and may have opened the
+          // next queued one) before invoking onAccept — settle must not
+          // closeInsetOverlay a second time and tear down that next overlay.
+          isOpen = false
           const gateSelection = {
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
           }
-          recordDecision(shell, ev.request, choices, gateSelection)
-          resolve(approvalOutcomeFromSelection(choices, gateSelection))
+          if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
+            recordDecision(shell, ev.request, choices, gateSelection)
+          }
         },
         // Esc must settle the awaited promise (as a deny), not abandon it —
-        // an unresolved gate hangs the run until the process is killed.
+        // an unresolved gate hangs the run until the process is killed. The
+        // shell has already closed the overlay by the time onCancel runs, for
+        // the same reason noted in onAccept above.
         onCancel: () => {
-          if (settled) return
-          settled = true
-          clearTimers()
+          isOpen = false
           const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
-          recordDecision(shell, ev.request, choices, gateSelection)
-          resolve(approvalOutcomeFromSelection(choices, gateSelection))
+          if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
+            recordDecision(shell, ev.request, choices, gateSelection)
+          }
         },
       })
     }
@@ -376,29 +418,21 @@ export function wireGates(
     // Watchdog abort (tool budget expired / parent run cancelled) and the
     // goal-mode timeout both race an operator who may never answer — each
     // must resolve the gate itself rather than leave the overlay (or the
-    // queued open) parked forever. autoDeny wins the race exactly once:
-    // whichever fires first tears down the other and, if the overlay is
-    // already on screen for this gate, closes it so nothing stale lingers.
+    // queued open) parked forever. Whichever fires first settles the queue
+    // entry, which is itself the single-resolve guard, so the other side is
+    // simply a no-op once it runs.
     let timer: ReturnType<typeof setTimeout> | undefined
     const clearTimers = (): void => {
       if (timer !== undefined) clearTimeout(timer)
       ev.signal?.removeEventListener("abort", onAbort)
     }
     const autoDeny = (message: string): void => {
-      if (settled) return
-      settled = true
-      clearTimers()
-      recordDecision(shell, ev.request, choices, {
-        index: 0,
-        id: PERMISSION_DENY_ID,
-      })
-      if (isOpen) {
-        closeInsetOverlay(shell)
-      } else {
-        const idx = pending.indexOf(open)
-        if (idx >= 0) pending.splice(idx, 1)
+      if (settle({ allow: false, message })) {
+        recordDecision(shell, ev.request, choices, {
+          index: 0,
+          id: PERMISSION_DENY_ID,
+        })
       }
-      resolve({ allow: false, message })
     }
     function onAbort(): void {
       autoDeny("tool no longer running; permission request denied")
@@ -470,7 +504,11 @@ export function wireGates(
   return () => {
     emitter.off("permission.gate", onPermission)
     emitter.off("operator.gate", onOperator)
+    disposeReconciliation()
     disposeClosed()
     pending.length = 0
+    // Deny anything still queued so its awaited evaluate() call never hangs
+    // past session teardown.
+    permissionQueue.drain()
   }
 }
