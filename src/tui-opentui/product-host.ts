@@ -160,6 +160,13 @@ export type ProductHostConfig = {
   readonly deliver?: ProductHostDeliver
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[]
+  /**
+   * Row id (`provider:model`) of the model the session is actually running,
+   * read live on every picker open so it tracks selections made outside the
+   * picker (e.g. `defaultProvider` at startup). Marks that row "(current)"
+   * instead of guessing from the recents list.
+   */
+  readonly activeModelId?: () => string | undefined
   readonly onModelSelect?: (id: string) => void
   /** Description-zone source for the model picker, keyed by row id. */
   readonly describeModel?: (itemId: string) => ItemDescription | null
@@ -543,7 +550,7 @@ export async function mountProductHost(
             const { groups } = groupModelsForPicker(currentModels)
             const group = groups.get(groupProvider)
             if (group !== undefined) {
-              openLevel(annotateCurrent(group.rows, activeModelId()), openModels)
+              openLevel(annotateCurrent(group.rows, config.activeModelId?.()), openModels)
             }
             return
           }
@@ -567,15 +574,9 @@ export async function mountProductHost(
       })
     }
 
-    // Recent's first row (if any) is the model just switched to — the closest
-    // thing to a live "current model" id without threading one through from
-    // the runner. Used only to mark that row "(current)" wherever it appears.
-    const activeModelId = (): string | undefined =>
-      currentModels.find((r) => r.section === "recent")?.id
-
     openModels = (): void => {
       const { top, groups } = groupModelsForPicker(currentModels)
-      const activeId = activeModelId()
+      const activeId = config.activeModelId?.()
       // The active model's own row already reads "(current)" via annotateCurrent
       // below; when it lives inside a provider group, mark the group row too
       // so the pick is visible without descending into it.

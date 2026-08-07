@@ -208,6 +208,7 @@ describe("mountRunnerHost model picker", () => {
       send: () => {},
       interrupt: () => {},
       providers: { xai: { models: ["grok-4", "grok-3"] } },
+      activeModel: () => ({ provider: "xai", model: "grok-4" }),
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},

@@ -21,6 +21,7 @@ import { chromeFromSession, type ChromeSessionInput } from "./chrome-state.js"
 import {
   buildModelsFirstCatalog,
   describeModelCatalogOption,
+  modelOptionId,
   type ModelCatalogOption,
   type ModelCatalogProvidersInput,
   type ModelCatalogRef,
@@ -67,6 +68,12 @@ export type RunnerHostDeps = {
   readonly favoriteModels?: readonly ModelCatalogRef[]
   /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
   readonly unconnectedProviders?: readonly ModelCatalogUnconnectedProvider[]
+  /**
+   * Provider+model the session is actually running, read live on every
+   * picker open. Marks that row "(current)" — independent of recents, which
+   * only move on an explicit `/model` pick and can go stale.
+   */
+  readonly activeModel?: () => ModelCatalogRef | undefined
   readonly onModelSelect: (id: string) => void
   /** Selecting a "connect →" row; runner owns the actual connect flow. */
   readonly onConnectProvider?: (providerName: string) => void
@@ -233,6 +240,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       ? { onFavoriteToggle: deps.onFavoriteToggle }
       : {}),
     models: catalog,
+    activeModelId: () => {
+      const active = deps.activeModel?.()
+      return active ? modelOptionId(active.provider, active.model) : undefined
+    },
     onModelSelect,
     describeModel,
     commands: buildCommandCatalog(deps.commands),
