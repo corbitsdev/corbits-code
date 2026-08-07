@@ -6,7 +6,7 @@ import type { KeyEvent } from "@opentui/core"
 import type { CostSummary } from "../cost/cost-summary.js"
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
-import { closeInsetOverlay, runOverlayAction } from "./shell.js"
+import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction } from "./shell.js"
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -219,7 +219,7 @@ describe("mountRunnerHost model picker", () => {
       host.refreshModels([{ provider: "xai", model: "grok-4" }], [])
       closeInsetOverlay(host.shell)
       expect(host.openSurface("models")).toBe(true)
-      expect(host.shell.overlayItems[0]).toBe("xai / grok-4")
+      expect(host.shell.overlayItems[0]).toBe("xai / grok-4 (current)")
     } finally {
       host.dispose()
       harness.destroy()
@@ -245,6 +245,9 @@ describe("mountRunnerHost model picker", () => {
     })
     try {
       expect(host.openSurface("models")).toBe(true)
+      // Single provider, single model: top level shows the "xai" provider
+      // group first — descend into it before the model row is focusable.
+      acceptOverlaySelection(host.shell)
       const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])

@@ -170,6 +170,8 @@ export type OpenModelPickerOpts = {
   readonly describe?: (itemId: string) => ItemDescription | null
   /** Bare-key claim on the focused row (e.g. `f` to toggle favorite). */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean
+  /** Per-open Esc/dismiss — the provider-first picker steps back to the provider level instead of closing outright. */
+  readonly onCancel?: () => void
 }
 
 export function openModelPickerOverlay(
@@ -186,5 +188,6 @@ export function openModelPickerOverlay(
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
     ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
+    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
   })
 }

@@ -3527,10 +3527,15 @@ export function closeInsetOverlay(shell: AppShell): void {
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
   // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
   // still settle that promise (as a deny/cancel) or the caller hangs forever.
-  // Palette/mentions/copy have no such awaited caller, so they drop silently.
+  // model_picker's onCancel is how the provider-first picker steps back to
+  // the provider level instead of closing outright; harmless no-op for a
+  // caller that never set one. Palette/mentions/copy have no awaited caller
+  // and no back-navigation, so they drop silently.
   const cancelable =
     !prior &&
-    (shell.overlayKind === "permissions" || shell.overlayKind === "operator")
+    (shell.overlayKind === "permissions" ||
+      shell.overlayKind === "operator" ||
+      shell.overlayKind === "model_picker")
   const onCancel = cancelable ? bag?.overlayOnCancel ?? null : null
 
   shell.overlayList = null
