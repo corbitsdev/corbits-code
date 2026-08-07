@@ -645,6 +645,15 @@ export async function runProviderSetup(
   })
 
   function listHeight(): number {
+    // This budget is a guess, not a derivation: it runs before `root` is
+    // even constructed below, so there has been no layout pass yet and
+    // nothing in OpenTUI to measure — Renderable.height and scrollHeight
+    // only reflect the last completed layout, populated post-mount. -14
+    // is a hand count of the chrome rows above and below the list (header,
+    // intro, step, instruction, summary, statusLine, guidance, footer, and
+    // padding) with slack for a wrapped label; it goes stale if that chrome
+    // changes and nothing here will catch it. A shared, derived chrome
+    // budget for this and shell.ts's picker is tracked separately.
     const rows = renderer.height || 24
     return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14))
   }
@@ -669,25 +678,35 @@ export async function runProviderSetup(
     paddingRight: margin,
   })
 
+  // Every direct child of `root` needs flexShrink: 0, full stop — a plain
+  // TextRenderable defaults to shrinkable, and a short terminal makes the
+  // flex algorithm compress unprotected single-line rows into each other
+  // (garbled overlapping text) instead of clipping the column from the
+  // bottom. header/intro/step/instruction here, and statusLine/guidance/
+  // footer further down, all needed this; it is not specific to one step.
   const header = new TextRenderable(renderer, {
     id: "provider-setup-header",
     content: `${PRODUCT_NAME.toLowerCase()} · setup`,
     fg: UI.inFlightBright,
+    flexShrink: 0,
   })
   const intro = new TextRenderable(renderer, {
     id: "provider-setup-welcome",
     content: "connect an inference provider — switch later with /model",
     fg: UI.textDim,
+    flexShrink: 0,
   })
   const step = new TextRenderable(renderer, {
     id: "provider-setup-step",
     content: "",
     fg: UI.action,
+    flexShrink: 0,
   })
   const instruction = new TextRenderable(renderer, {
     id: "provider-setup-instruction",
     content: "",
     fg: UI.text,
+    flexShrink: 0,
   })
 
   const summary = new BoxRenderable(renderer, {
@@ -777,11 +796,13 @@ export async function runProviderSetup(
     id: "provider-setup-status",
     content: "",
     fg: UI.textDim,
+    flexShrink: 0,
   })
   const guidance = new TextRenderable(renderer, {
     id: "provider-setup-guidance",
     content: "",
     fg: UI.textDim,
+    flexShrink: 0,
   })
   const telemetry = new BoxRenderable(renderer, {
     id: "provider-setup-telemetry",
@@ -816,6 +837,7 @@ export async function runProviderSetup(
     id: "provider-setup-footer",
     content: "",
     fg: UI.textFaint,
+    flexShrink: 0,
   })
 
   root.add(header)

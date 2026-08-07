@@ -8,9 +8,11 @@ import type { KeyEvent } from "@opentui/core"
 
 import { withTestRenderer } from "./harness"
 import { openModelPickerOverlay } from "./overlays"
+import type { PaletteCommand } from "./palette"
 import {
   createAppShell,
   handlePaletteFilterKey,
+  moveOverlaySelection,
   openPalette,
   type AppShell,
 } from "./shell"
@@ -252,6 +254,66 @@ describe("command palette selection colour", () => {
         expect(activeFg).not.toEqual(groundFg)
       },
       { width: 100, height: 32 },
+    )
+  })
+})
+
+describe("command palette height cap", () => {
+  const BIG_CATALOG: readonly PaletteCommand[] = Array.from(
+    { length: 50 },
+    (_, i) => ({
+      id: `cmd_${String(i)}`,
+      label: `Fake command number ${String(i)} with a longish label`,
+      dispatch: "command" as const,
+    }),
+  )
+
+  // Every plugin-inflated catalog and every terminal size gets a bounded
+  // frame: the border-to-border row count above the prompt box never grows
+  // past the terminal, and the box below stays intact and readable.
+  for (const height of [24, 16, 12, 8, 6]) {
+    test(`stays within a ${height}-row terminal and keeps the prompt box intact`, async () => {
+      await withTestRenderer(
+        async (h) => {
+          const shell = createAppShell(h.renderer, {
+            terminal: { columns: 80, rows: height },
+            wireKeys: false,
+            run: "idle",
+          })
+          openPalette(shell, { catalog: BIG_CATALOG, title: "commands · /" })
+          await h.renderOnce()
+          const lines = h.captureCharFrame().split("\n")
+          // captureCharFrame's trailing newline yields one extra split
+          // element — the frame itself must not exceed the terminal rows.
+          expect(lines.length).toBeLessThanOrEqual(height + 1)
+          expect(lines.some((l) => l.includes("message…"))).toBe(true)
+        },
+        { width: 80, height },
+      )
+    })
+  }
+
+  test("scrolling the selection keeps the active row inside the window", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 12 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell, { catalog: BIG_CATALOG, title: "commands · /" })
+        await h.renderOnce()
+        for (let i = 0; i < 20; i++) moveOverlaySelection(shell, 1)
+        await h.renderOnce()
+        expect(shell.overlayList?.activeIndex).toBe(20)
+        const offset = shell.overlayList?.offset ?? 0
+        const height = shell.overlayList?.height ?? 0
+        expect(offset).toBeLessThanOrEqual(20)
+        expect(offset + height).toBeGreaterThan(20)
+        const frame = h.captureCharFrame()
+        expect(frame).toContain(`Fake command number 20`)
+      },
+      { width: 80, height: 12 },
     )
   })
 })
