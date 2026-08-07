@@ -259,6 +259,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     setPromptCostContext(host.shell, {
       contextPercentUsed: summary.contextPercentUsed,
       costLabel: showCost && summary.costHiddenReason === null ? summary.formattedCost : null,
+      contextIsEstimate: summary.contextIsEstimate,
     })
   }
   pushCostContext()

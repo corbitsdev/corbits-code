@@ -155,18 +155,26 @@ describe("composeRule", () => {
 
 describe("composeCostContextMeter", () => {
   test("null when the context window is unknown", () => {
-    expect(composeCostContextMeter({ contextPercentUsed: null })).toBeNull()
+    expect(composeCostContextMeter({ contextPercentUsed: null, contextIsEstimate: false })).toBeNull()
   })
 
   test("carries the percent and cost", () => {
-    const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })
+    const meter = composeCostContextMeter({
+      contextPercentUsed: 68,
+      costLabel: "$0.42",
+      contextIsEstimate: false,
+    })
     expect(meter).not.toBeNull()
     expect(meter!.percentLabel).toBe("68%")
     expect(meter!.costLabel).toBe("$0.42")
   })
 
   test("drops the cost suffix when told to, keeping the percent", () => {
-    const meter = composeCostContextMeter({ contextPercentUsed: 68, costLabel: "$0.42" })!
+    const meter = composeCostContextMeter({
+      contextPercentUsed: 68,
+      costLabel: "$0.42",
+      contextIsEstimate: false,
+    })!
     expect(costContextText(meter, true)).toContain("$0.42")
     expect(costContextText(meter, false)).not.toContain("$0.42")
     expect(costContextText(meter, false)).toContain("68%")
@@ -174,10 +182,21 @@ describe("composeCostContextMeter", () => {
 
   test("turns pressured past the threshold, not before it", () => {
     const thresholdPercent = CONTEXT_PRESSURE_THRESHOLD * 100
-    const below = composeCostContextMeter({ contextPercentUsed: thresholdPercent - 1 })!
-    const atOrAbove = composeCostContextMeter({ contextPercentUsed: thresholdPercent })!
+    const below = composeCostContextMeter({
+      contextPercentUsed: thresholdPercent - 1,
+      contextIsEstimate: false,
+    })!
+    const atOrAbove = composeCostContextMeter({
+      contextPercentUsed: thresholdPercent,
+      contextIsEstimate: false,
+    })!
     expect(below.pressured).toBe(false)
     expect(atOrAbove.pressured).toBe(true)
+  })
+
+  test("flags an estimated percent with a tilde", () => {
+    const meter = composeCostContextMeter({ contextPercentUsed: 68, contextIsEstimate: true })!
+    expect(meter.percentLabel).toBe("~68%")
   })
 })
 

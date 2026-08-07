@@ -1,6 +1,7 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
 import { lookupModelPricing, type ModelPricing, type PricingCache } from "./pricing-fetcher.js";
+import { contextTokensFromUsage } from "../provider/context-window.js";
 
 export type FaremeterConfig = {
   inputPricePerToken: number;
@@ -60,7 +61,7 @@ export function createFaremeter(config: CreateFaremeterConfig = {}): Faremeter {
   return {
     addUsage(usage: TokenUsage): void {
       const { inputPricePerToken, outputPricePerToken, cacheReadPricePerToken } = pricesFor();
-      lastContextSize = usage.input + usage.cacheRead + usage.cacheWrite;
+      lastContextSize = contextTokensFromUsage(usage);
       outputTokens += usage.output + usage.thinking;
       totalCost += usage.input * inputPricePerToken + usage.output * outputPricePerToken + usage.cacheRead * cacheReadPricePerToken;
     },

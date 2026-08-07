@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { ContentBlock, ConversationTurn, MediaSource } from "@intx/types/runtime";
+import type { ContentBlock, ConversationTurn, MediaSource, ToolDefinition } from "@intx/types/runtime";
 import {
   createContextEstimate,
   estimateContentBlockTokens,
   estimateContextTokens,
   estimateMediaSourceTokens,
+  estimateOverheadTokens,
   estimateTokensFromChars,
 } from "./context-estimate.js";
 
@@ -85,7 +86,30 @@ describe("estimateContextTokens", () => {
   });
 });
 
+describe("estimateOverheadTokens", () => {
+  test("counts the system prompt and every tool's name, description, and schema", () => {
+    const systemPrompt = "x".repeat(40);
+    const tools: ToolDefinition[] = [
+      { name: "run_shell", description: "y".repeat(20), inputSchema: { command: "string" } },
+    ];
+    const expectedChars =
+      40 + "run_shell".length + 20 + JSON.stringify({ command: "string" }).length;
+    expect(estimateOverheadTokens(systemPrompt, tools)).toBe(estimateTokensFromChars(expectedChars));
+  });
+
+  test("is zero for an empty prompt and no tools", () => {
+    expect(estimateOverheadTokens("", [])).toBe(0);
+  });
+});
+
 describe("createContextEstimate", () => {
+  test("folds a fixed overhead into every sync", () => {
+    const estimate = createContextEstimate(100);
+    expect(estimate.tokens).toBe(100);
+    expect(estimate.syncFromTurns([textTurn("xxxx")])).toBe(101);
+    expect(estimate.tokens).toBe(101);
+  });
+
   test("re-syncs from the full turn list after each append", () => {
     const estimate = createContextEstimate();
     expect(estimate.tokens).toBe(0);

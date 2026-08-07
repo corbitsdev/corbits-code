@@ -17,6 +17,12 @@ export type CostSummaryInput = {
   outputTokens: number;
   cacheReadTokens: number;
   contextTokens: number;
+  // True when contextTokens came from the local character-count estimate
+  // because the provider omitted or zeroed usage on the latest turn, rather
+  // than from provider-reported usage. Lets the display flag the number as
+  // approximate instead of implying provider-grade precision. The caller
+  // building this input owns the decision; nothing downstream re-derives it.
+  contextIsEstimate: boolean;
 };
 
 export type CostSummary = CostSummaryInput & {
@@ -53,8 +59,13 @@ export type StatusBarCostSegments = {
   contextPercentUsed: number | null;
 };
 
-function formatContextPercent(percent: number | null): string {
-  return percent === null ? "--%" : `${String(percent)}%`;
+// "~" flags a locally estimated number so the operator doesn't read it as
+// provider-confirmed. The one place this rule is encoded; every renderer of
+// a context percentage (status bar, prompt border, /cost output) calls this
+// rather than re-deciding the prefix itself.
+export function formatContextPercentLabel(percent: number | null, isEstimate: boolean): string {
+  if (percent === null) return "--%";
+  return `${isEstimate ? "~" : ""}${String(percent)}%`;
 }
 
 // Status bar space is tight, so cost is omitted entirely (not shown as $0 or
@@ -64,7 +75,7 @@ function formatContextPercent(percent: number | null): string {
 export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegments {
   return {
     ...(summary.costHiddenReason === null ? { costLabel: summary.formattedCost } : {}),
-    contextLabel: `Ctx ${formatContextPercent(summary.contextPercentUsed)}`,
+    contextLabel: `Ctx ${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)}`,
     contextPercentUsed: summary.contextPercentUsed,
   };
 }
@@ -84,7 +95,7 @@ export function formatCostCommandOutput(summary: CostSummary): string {
       ? `Cost: ${summary.formattedCost}`
       : `Cost: hidden (${HIDDEN_REASON_TEXT[summary.costHiddenReason]})`,
     `Tokens: ${String(summary.inputTokens)} in / ${String(summary.outputTokens)} out / ${String(summary.cacheReadTokens)} cache-read`,
-    `Context: ${String(summary.contextTokens)}/${window} (${formatContextPercent(summary.contextPercentUsed)})`,
+    `Context: ${String(summary.contextTokens)}/${window} (${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)})`,
   ];
   return lines.join("\n");
 }

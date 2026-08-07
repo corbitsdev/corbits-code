@@ -1519,7 +1519,11 @@ export function setPromptWorkspace(
  */
 export function setPromptCostContext(
   shell: AppShell,
-  input: { readonly contextPercentUsed: number | null; readonly costLabel?: string | null },
+  input: {
+    readonly contextPercentUsed: number | null
+    readonly costLabel?: string | null
+    readonly contextIsEstimate: boolean
+  },
 ): void {
   const meter = composeCostContextMeter(input)
   if (meterEquals(meter, shell.costContext)) return

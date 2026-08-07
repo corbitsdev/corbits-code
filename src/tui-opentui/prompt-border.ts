@@ -14,6 +14,7 @@
 
 import { stringWidth } from "../tui/view/height.js"
 import { renderRamp } from "./ramp.js"
+import { formatContextPercentLabel } from "../cost/cost-summary.js"
 
 /** Rounded box drawing, all single-cell. */
 export const BORDER = {
@@ -229,6 +230,9 @@ export type CostContextInput = {
   readonly contextPercentUsed: number | null
   /** Already formatted (e.g. `$0.42`); omitted or empty hides the cost suffix. */
   readonly costLabel?: string | null
+  /** True when `contextPercentUsed` came from the local estimate because the
+   * provider omitted or zeroed usage, rather than from reported usage. */
+  readonly contextIsEstimate: boolean
 }
 
 export type CostContextMeter = {
@@ -249,7 +253,7 @@ export function composeCostContextMeter(input: CostContextInput): CostContextMet
   const percent = Math.max(0, Math.min(100, Math.round(input.contextPercentUsed)))
   const cost = input.costLabel?.trim() ?? ""
   return {
-    percentLabel: `${String(percent)}%`,
+    percentLabel: formatContextPercentLabel(percent, input.contextIsEstimate),
     costLabel: cost.length > 0 ? cost : null,
     pressured: percent / 100 >= CONTEXT_PRESSURE_THRESHOLD,
   }

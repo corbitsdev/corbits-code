@@ -31,6 +31,7 @@ function fakeCostSummary(): CostSummary {
     outputTokens: 50,
     cacheReadTokens: 0,
     contextTokens: 1000,
+    contextIsEstimate: false,
     costHiddenReason: null,
     contextWindow: 10000,
     contextPercentUsed: 10,

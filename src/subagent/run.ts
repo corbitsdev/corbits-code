@@ -40,7 +40,7 @@ import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 
-import { createPruningCompactor } from "../session/compactor.js";
+import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "../session/compactor.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { gatherEnvironment } from "../agent/environment.js";
@@ -496,7 +496,7 @@ async function runSubAgentInner(params: RunSubAgentParams): Promise<string> {
     }),
     compactors: {
       "pruning-compactor": createPruningCompactor({
-        keepRecentTurns: 6,
+        keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
         summaryMaxChars: 2500,
         stripResultContent: true,
         // A structured model summary keeps sub-agent context useful across a
