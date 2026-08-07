@@ -3347,7 +3347,7 @@ export function handleOverlayAnswerKey(
     appendStreamRow(shell, {
       role: "system",
       text: `answered: ${text}`,
-      meta: "overlay",
+      meta: overlayKindWord(shell.overlayKind ?? "operator"),
     })
     // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
     // the Esc/cancel path.
@@ -3735,12 +3735,31 @@ export function acceptOverlaySelection(shell: AppShell): void {
   if (bag?.overlayEchoChoice !== false) {
     appendStreamRow(shell, {
       role: "system",
-      text: `chose (${kind}): ${label}`,
-      meta: "overlay",
+      text: overlayChoiceText(label, id),
+      meta: overlayKindWord(kind),
     })
   }
   closeInsetOverlay(shell)
   dispatchOverlayAccept(shell, selection, perOpen)
+}
+
+/**
+ * Plain-English echo of an accepted choice. A cycled settings field's label
+ * carries every option with `‹ ›` around the active one (list-painting detail,
+ * not something an operator asked for) — name the field by its id and report
+ * only the value that won. A plain list item has no such markers, so it is
+ * quoted as-is.
+ */
+function overlayChoiceText(label: string, id: string | undefined): string {
+  const active = label.match(/‹\s*(.+?)\s*›/)
+  if (active === null) return `Chose ${label.trim()}.`
+  const field = id === undefined ? "setting" : id.replace(/[-_]/g, " ")
+  return `Set ${field} to ${active[1]}.`
+}
+
+/** Internal overlay kinds read as words in the transcript, not identifiers. */
+function overlayKindWord(kind: PrimaryOverlayKind): string {
+  return kind.replace(/_/g, " ")
 }
 
 /**
@@ -3843,8 +3862,8 @@ export function runPaletteAction(
       })
       appendStreamRow(shell, {
         role: "system",
-        text: on ? "goal chrome off" : "goal chrome on",
-        meta: "chrome",
+        text: on ? "goal banner off" : "goal banner on",
+        meta: "goal",
       })
       return
     }
@@ -3856,8 +3875,8 @@ export function runPaletteAction(
       })
       appendStreamRow(shell, {
         role: "system",
-        text: on ? "task chrome off" : "task chrome on",
-        meta: "chrome",
+        text: on ? "task banner off" : "task banner on",
+        meta: "task",
       })
       return
     }
@@ -3870,7 +3889,7 @@ export function runPaletteAction(
       appendStreamRow(shell, {
         role: "system",
         text: on ? "agents strip off" : "agents strip on",
-        meta: "chrome",
+        meta: "agents",
       })
       return
     }

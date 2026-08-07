@@ -223,7 +223,8 @@ describe("model / provider picker", () => {
 
           await h.renderOnce()
           frame = h.captureCharFrame()
-          expect(frame).toContain("chose (model_picker)")
+          expect(frame).toContain("model picker")
+          expect(frame).toMatch(/Chose /)
         } finally {
           shell.dispose()
         }
