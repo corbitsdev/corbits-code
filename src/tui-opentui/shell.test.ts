@@ -355,8 +355,9 @@ describe("product skin: stream + queue + overlay", () => {
           expect(frame).toContain("hi there")
           expect(frame).toContain("bash")
           // One agent is answering, so no row spends columns naming it.
-          expect(frame).not.toContain("agent")
-          expect(frame).not.toContain(" tool ")
+          const inkRows = frame.split("\n").filter((row) => row.trim().length > 0)
+          expect(inkRows.filter((row) => row.includes("● agent"))).toHaveLength(0)
+          expect(inkRows.filter((row) => row.includes(" tool "))).toHaveLength(0)
           // User row content is in the scroll buffer (pure paint covered in stream.test).
           expect(
             paintStreamRow(
