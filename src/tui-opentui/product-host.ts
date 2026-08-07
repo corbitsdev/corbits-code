@@ -160,6 +160,13 @@ export type ProductHostConfig = {
   readonly deliver?: ProductHostDeliver
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[]
+  /**
+   * Row id (`provider:model`) of the model the session is actually running,
+   * read live on every picker open so it tracks selections made outside the
+   * picker (e.g. `defaultProvider` at startup). Marks that row "(current)"
+   * instead of guessing from the recents list.
+   */
+  readonly activeModelId?: () => string | undefined
   readonly onModelSelect?: (id: string) => void
   /** Description-zone source for the model picker, keyed by row id. */
   readonly describeModel?: (itemId: string) => ItemDescription | null
@@ -567,11 +574,7 @@ export async function mountProductHost(
       })
     }
 
-    // Recent's first row (if any) is the model just switched to — the closest
-    // thing to a live "current model" id without threading one through from
-    // the runner. Used only to mark that row "(current)" wherever it appears.
-    const activeModelId = (): string | undefined =>
-      currentModels.find((r) => r.section === "recent")?.id
+    const activeModelId = (): string | undefined => config.activeModelId?.()
 
     openModels = (): void => {
       const { top, groups } = groupModelsForPicker(currentModels)

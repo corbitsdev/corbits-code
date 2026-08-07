@@ -1932,6 +1932,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       model: config.model,
       ...(config.reasoningEffort !== undefined ? { effort: config.reasoningEffort } : {}),
     }),
+    activeModel: () => ({ provider: config.providerName, model: config.model }),
     readCostSummary: () => commandContext.getCostSummary?.(),
     showPromptCost: () => liveShowPromptCost,
     onModelSelect: (id) => {
