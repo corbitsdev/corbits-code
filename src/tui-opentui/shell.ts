@@ -110,13 +110,7 @@ import {
   visibleSlice,
   type ListViewportState,
 } from "./list-viewport.js"
-import {
-  LONG_LOG_WINDOW,
-  collapseMarker,
-  mustWindow,
-  retentionOverflow,
-  windowSlice,
-} from "./long-log.js"
+import { retentionOverflow } from "./long-log.js"
 import {
   DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
@@ -1989,34 +1983,67 @@ function labelBefore(shell: AppShell, index: number): string | null {
   return blockLabel(rowBefore(shell, index), row, transcriptRowLayout(shell))
 }
 
-/** Paint + push onto the visible streamLog (child while observing, parent otherwise). */
+/**
+ * Notice painted above the oldest retained row once the cap has evicted
+ * anything. Unlike the pre-CL-5551 collapse marker it replaces, scrolling
+ * never reveals more — these rows are gone, not merely out of the window.
+ */
+function evictedRowsNotice(evicted: number): string {
+  return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`
+}
+
+/**
+ * Paint + push onto the visible streamLog (child while observing, parent
+ * otherwise). The paint tree stays 1:1 with the (retention-capped) log —
+ * CL-5551 already bounds `streamLog` to `MAX_RETAINED_STREAM_ROWS`, so there
+ * is no separate, smaller window to maintain on top of it: every retained
+ * row gets a node, which is also what makes all of it reachable by
+ * scrolling (CL-5553). A trim past the cap costs one node removal here, not
+ * a rebuild.
+ */
 function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
   clearLandingMark(shell)
   const gainedVoice = noteAgentVoice(shell, row)
   shell.streamLog.push(row)
+  const baseBefore = shell.streamLogBase
   shell.streamLogBase = trimRetainedLog(shell.streamLog, shell.streamLogBase)
   shell.lineCount = shell.streamLog.length
 
-  // Under collapse threshold: append one paint node (cheap).
-  // Over threshold: rebuild the windowed paint tree only. The retention cap
-  // sits above the collapse threshold, so a trim never lands here — by the
-  // time eviction starts, appends are already windowed.
-  if (!gainedVoice && !mustWindow(shell.streamLog.length)) {
-    const index = shell.streamLog.length - 1
-    shell.transcript.add(
-      createStreamRowRenderable(
-        shell,
-        row,
-        gapBefore(shell, index),
-        labelBefore(shell, index),
-        shell.streamLogBase + index,
-      ),
-    )
+  if (gainedVoice) {
+    repaintTranscriptWindow(shell)
     paintChrome(shell)
     return
   }
 
-  repaintTranscriptWindow(shell)
+  const dropped = shell.streamLogBase - baseBefore
+  if (dropped > 0) {
+    for (const evicted of transcriptRowChildren(shell).slice(0, dropped)) {
+      shell.transcript.remove(evicted)
+      destroySubtree(evicted)
+    }
+    const marker = transcriptMarker(shell)
+    if (marker instanceof TextRenderable) {
+      marker.content = evictedRowsNotice(shell.streamLogBase)
+    } else {
+      const node = new TextRenderable(shell.renderer as CliRenderer, {
+        content: evictedRowsNotice(shell.streamLogBase),
+        fg: UI.textDim,
+      })
+      evictionMarkers.add(node)
+      shell.transcript.add(node, 1)
+    }
+  }
+
+  const index = shell.streamLog.length - 1
+  shell.transcript.add(
+    createStreamRowRenderable(
+      shell,
+      row,
+      gapBefore(shell, index),
+      labelBefore(shell, index),
+      shell.streamLogBase + index,
+    ),
+  )
   paintChrome(shell)
 }
 
@@ -2070,13 +2097,38 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
 }
 
 /**
+ * Identifies a transcript child as the eviction notice rather than a row.
+ * Identity, not position or state, is the source of truth: `streamLogBase`
+ * flips to nonzero the instant a trim happens, one step before the notice
+ * node itself exists in the paint tree, so deriving "is there a marker"
+ * from state would misalign row indices for exactly that transitional call.
+ */
+const evictionMarkers = new WeakSet<BaseRenderable>()
+
+/**
  * Row-index code paths (below, and the two windowed-rebuild callers) treat
  * `getChildren()` as a 1:1 array with `streamLog`. The leading bottom-anchor
- * spacer (see `transcriptSpacers`) breaks that at index 0, so every consumer
- * that needs the row-only view goes through here rather than the raw call.
+ * spacer (see `transcriptSpacers`) and, once retention has evicted anything,
+ * the eviction notice above the oldest retained row both break that — every
+ * consumer that needs the row-only view goes through here rather than the
+ * raw call.
  */
 function transcriptRowChildren(shell: AppShell): readonly BaseRenderable[] {
-  return shell.transcript.getChildren().slice(1)
+  const children = shell.transcript.getChildren().slice(1)
+  return children.length > 0 && evictionMarkers.has(children[0]!)
+    ? children.slice(1)
+    : children
+}
+
+/** The eviction-notice node, if the retention cap has dropped anything. */
+function transcriptMarker(shell: AppShell): BaseRenderable | undefined {
+  const children = shell.transcript.getChildren().slice(1)
+  return children.length > 0 && evictionMarkers.has(children[0]!) ? children[0] : undefined
+}
+
+/** Raw child-list offset before the first row: the spacer, plus the notice if present. */
+function transcriptRowOffset(shell: AppShell): number {
+  return transcriptMarker(shell) === undefined ? 1 : 2
 }
 
 /**
@@ -2108,8 +2160,8 @@ export function replaceStreamRowAt(
 
   const children = transcriptRowChildren(shell)
   // A raw appendTranscript line breaks the 1:1 node↔row mapping; fall back to
-  // the windowed rebuild, which derives every node from the log.
-  if (mustWindow(shell.streamLog.length) || children.length !== shell.streamLog.length) {
+  // a full repaint, which derives every node from the log.
+  if (children.length !== shell.streamLog.length) {
     repaintTranscriptWindow(shell)
     paintChrome(shell)
     return
@@ -2124,11 +2176,12 @@ export function replaceStreamRowAt(
     shell.transcript.remove(stale)
     destroySubtree(stale)
   }
-  // +1: index 0 in the transcript's own child list is the bottom-anchor
-  // spacer, not a row (see `transcriptRowChildren`).
+  // Raw child list is spacer (+ eviction notice, if any) then rows; see
+  // `transcriptRowOffset` (see `transcriptRowChildren` for why row 0 is not
+  // simply index 1).
   shell.transcript.add(
     createStreamRowRenderable(shell, row, gapBefore(shell, local), labelBefore(shell, local), index),
-    local + 1,
+    local + transcriptRowOffset(shell),
   )
   paintChrome(shell)
 }
@@ -2218,28 +2271,34 @@ function retextStreamRowBody(
   return true
 }
 
-/** Rebuild transcript paint tree from the long-log window (O(window), not O(total)). */
+/**
+ * Rebuild the transcript paint tree from `streamLog` — every retained row,
+ * not a smaller window of it. `streamLog` is already capped at
+ * `MAX_RETAINED_STREAM_ROWS`, so this is O(cap), and painting all of it is
+ * what makes the full retained history reachable by scrolling.
+ */
 export function repaintTranscriptWindow(shell: AppShell): void {
   clearLandingMark(shell)
   shell.agentVoices = new Set(agentVoicesIn(shell.streamLog))
-  // The bottom-anchor spacer (index 0) stays; only row nodes get torn down.
-  const children = transcriptRowChildren(shell)
-  for (const child of [...children]) {
+  // The bottom-anchor spacer (index 0) stays; the eviction notice (if any)
+  // and every row get torn down and rebuilt from the log.
+  for (const child of shell.transcript.getChildren().slice(1)) {
     shell.transcript.remove(child)
     destroySubtree(child)
   }
 
-  const win = windowSlice(shell.streamLog, { windowSize: LONG_LOG_WINDOW })
-  if (win.truncatedAbove) {
-    shell.transcript.add(
-      new TextRenderable(shell.renderer as CliRenderer, {
-        content: ` ${collapseMarker(win.start)}`,
-        fg: UI.textDim,
-      }),
-    )
+  // Rows evicted by the retention cap are gone for good, not just scrolled
+  // past — say so, or the boundary reads as the true start of history.
+  if (shell.streamLogBase > 0) {
+    const marker = new TextRenderable(shell.renderer as CliRenderer, {
+      content: evictedRowsNotice(shell.streamLogBase),
+      fg: UI.textDim,
+    })
+    evictionMarkers.add(marker)
+    shell.transcript.add(marker)
   }
-  win.rows.forEach((row, offset) => {
-    const local = win.start + offset
+
+  shell.streamLog.forEach((row, local) => {
     shell.transcript.add(
       createStreamRowRenderable(
         shell,
