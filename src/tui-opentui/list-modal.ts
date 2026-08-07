@@ -44,9 +44,8 @@ export async function runListModal(
     : await createCliRenderer({
         exitOnCtrlC: false,
         targetFps: 30,
-        // Same trade as the product host (CL-5540): reporting off by default
-        // so the terminal owns drag-select and its own copy in these satellite
-        // pickers too.
+        // Reporting stays off in this satellite picker, unlike the main
+        // shell, so the terminal owns drag-select and its own copy here.
         useMouse: false,
         enableMouseMovement: false,
       })

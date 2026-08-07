@@ -1,10 +1,11 @@
 /**
  * CL-5540: the onboarding provider picker and the satellite list modals
  * (session resume, session mode) mount their own renderer and must disable
- * DEC mouse reporting the same way the product host does, or the terminal
- * never gets button-1 drags to run its own text selection. These tests mock
- * `@opentui/core` so the real (non-test-injected) `createCliRenderer` branch
- * runs, and assert on the options it was actually called with.
+ * DEC mouse reporting, unlike the main shell, or the terminal never gets
+ * button-1 drags to run its own text selection in these pickers. These
+ * tests mock `@opentui/core` so the real (non-test-injected)
+ * `createCliRenderer` branch runs, and assert on the options it was
+ * actually called with.
  */
 import { afterAll, describe, expect, mock, test } from "bun:test"
 import type { Harness } from "./harness.js"
