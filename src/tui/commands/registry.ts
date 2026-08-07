@@ -4,7 +4,6 @@ import type { CostSummary } from "../../cost/cost-summary.js";
 
 export type CommandContext = {
   signalClear: () => void;
-  getMCPServers?: () => Array<{ name: string; tools: string[] }>;
   getCostSummary?: () => CostSummary;
   // Start a workflow by name; returns a status message to surface to the user.
   startWorkflow?: (name: string) => string;
@@ -27,7 +26,7 @@ export type CommandResult =
   | { type: "message"; text: string }
   | { type: "send"; text: string }
   | { type: "view"; view: "tasks" }
-  | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" | "hooks" }
+  | { type: "overlay"; overlay: "help" | "permissions" | "plugins" | "settings" | "hooks" | "mcp" }
   | { type: "modal"; modal: "agent" | "codex-login" | "xai-login" }
   | { type: "workflow"; name: string; args?: string }
   | { type: "paste-image" }

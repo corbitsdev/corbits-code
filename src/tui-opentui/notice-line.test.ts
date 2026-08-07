@@ -8,10 +8,16 @@ const state = (over: Partial<NoticeState> = {}): NoticeState => ({
   pinned: false,
   flash: null,
   attachments: 0,
+  mcpNeedsAuth: 0,
   ...over,
 })
 
 describe("composeNoticeLine", () => {
+  test("unauthorized mcp servers hold a standing segment pointing at /mcp", () => {
+    expect(composeNoticeLine(state({ mcpNeedsAuth: 1 }))).toBe("1 mcp needs auth (/mcp)")
+    expect(composeNoticeLine(state({ mcpNeedsAuth: 2 }))).toBe("2 mcp need auth (/mcp)")
+  })
+
   test("an idle shell has nothing to say and takes no row", () => {
     expect(composeNoticeLine(state())).toBe("")
   })

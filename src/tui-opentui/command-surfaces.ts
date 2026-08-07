@@ -18,6 +18,7 @@ import {
   openHelpOverlay,
   openListOverlay,
   openSettingsOverlay,
+  setStatusFlash,
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
@@ -118,6 +119,24 @@ export type HooksSurfaceDeps = {
   readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void
 }
 
+/** A configured MCP server and its live connection state. */
+export type McpEntry = {
+  readonly name: string
+  readonly state: "connecting" | "connected" | "needs-auth" | "failed"
+  /** Tool count once connected. */
+  readonly toolCount?: number
+  /** Authorization URL while `needs-auth`. */
+  readonly authURL?: string
+  /** Failure reason while `failed`. */
+  readonly error?: string
+}
+
+export type McpSurfaceDeps = {
+  readonly list: () => readonly McpEntry[]
+  /** Open the server's authorization URL in the operator's browser. */
+  readonly openAuthURL: (url: string) => void
+}
+
 /** Live summary for the settings surface's hooks row (owned by another surface). */
 export type HooksSurfaceSummary = {
   readonly discovered: number
@@ -143,6 +162,7 @@ export type CommandSurfaceDeps = {
   readonly permissions?: PermissionsSurfaceDeps
   readonly plugins?: PluginsSurfaceDeps
   readonly hooks?: HooksSurfaceDeps
+  readonly mcp?: McpSurfaceDeps
   readonly settings?: SettingsSurfaceDeps
   /** Opens the host's model/provider picker (owned by the product host). */
   readonly openModels?: () => void
@@ -157,6 +177,7 @@ export type CommandSurfaceKind =
   | "permissions"
   | "plugins"
   | "hooks"
+  | "mcp"
   | "models"
 
 const CLOSE_ID = "__close__"
@@ -882,6 +903,82 @@ export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): voi
   })
 }
 
+export function mcpRowLabel(entry: McpEntry): string {
+  switch (entry.state) {
+    case "connecting":
+      return `${entry.name} — connecting`
+    case "connected": {
+      const n = entry.toolCount ?? 0
+      return `${entry.name} — connected · ${n} tool${n === 1 ? "" : "s"}`
+    }
+    case "needs-auth":
+      return `${entry.name} — needs auth`
+    case "failed":
+      return `${entry.name} — failed`
+  }
+}
+
+function mcpDescription(entry: McpEntry): ItemDescription {
+  switch (entry.state) {
+    case "connecting":
+      return { what: "Connecting — its tools are not dispatchable yet." }
+    case "connected":
+      return { what: "Connected. Its tools are reachable through tool_search." }
+    case "needs-auth":
+      return {
+        what: "Authorization has not completed, so this server contributes no tools.",
+        impact: "Enter opens the authorization page and copies the link.",
+      }
+    case "failed":
+      return { what: entry.error ?? "Did not connect.", tone: "consequence" }
+  }
+}
+
+/** Configured MCP servers and their live state; Enter authorizes an unauthorized one. */
+export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
+  const mcp = deps.mcp
+  if (mcp === undefined) {
+    deps.notify("MCP administration is not available in this session.")
+    return
+  }
+  closeInsetOverlay(shell)
+  const entries = mcp.list()
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.name, label: mcpRowLabel(e) }))
+  if (rows.length === 0) {
+    rows.push({ id: CLOSE_ID, label: "No MCP servers configured" })
+  }
+  rows.push({ id: CLOSE_ID, label: "Close mcp" })
+  const byName = new Map(entries.map((e) => [e.name, e]))
+  openListOverlay(shell, {
+    kind: "mcp",
+    title: "mcp",
+    frameId: "overlay-mcp",
+    ...payload(rows),
+    describe: (id) => {
+      const target = byName.get(id)
+      return target === undefined ? null : mcpDescription(target)
+    },
+    onAccept: (selection) => {
+      const id = selectedId(selection, rows)
+      if (id === undefined || id === CLOSE_ID) return
+      const target = byName.get(id)
+      const url = target?.authURL
+      if (target === undefined || target.state !== "needs-auth" || url === undefined) return
+      mcp.openAuthURL(url)
+      // The copy is the fallback that makes this work over SSH, where the
+      // browser that must receive the redirect is not on this machine.
+      void shell.clipboard.writeText(url)
+      closeInsetOverlay(shell)
+      setStatusFlash(shell, `opening ${target.name} authorization — link copied`, {
+        ttlMs: MCP_AUTH_FLASH_MS,
+      })
+    },
+  })
+}
+
+/** Long enough to notice the browser was asked to open, and why. */
+const MCP_AUTH_FLASH_MS = 6000
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -911,6 +1008,9 @@ export function openCommandSurface(
       return true
     case "hooks":
       openHooksSurface(shell, deps)
+      return true
+    case "mcp":
+      openMcpSurface(shell, deps)
       return true
     case "models":
       if (deps.openModels === undefined) return false

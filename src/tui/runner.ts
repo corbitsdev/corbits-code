@@ -123,7 +123,7 @@ import {
   isGoalApprovalTimeoutActive,
 } from "../permission/goal-approval-timeout.js";
 
-import { createAgentToolset, type OperatorResult } from "../agent/tools.js";
+import { createAgentToolset, type MCPServerState, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
@@ -162,6 +162,7 @@ import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import { loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
+import { openInBrowser } from "../auth/oauth/browser.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";
@@ -1324,6 +1325,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // MCP servers connected so far, keyed by name so a reconnect after a failure
   // replaces rather than duplicates the entry.
   let connectedMcpServers: ConnectedMcpServer[] = [];
+  // Every configured server's latest state, for the /mcp surface. Unlike
+  // `connectedMcpServers` (persisted run metadata) this keeps the ones that
+  // failed or are still waiting on authorization.
+  const mcpStates = new Map<string, MCPServerState>();
 
   const writeRunSnapshot = async (
     status: RunState["status"],
@@ -1676,7 +1681,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const commandContext: CommandContext = {
     signalClear: newSession,
-    getMCPServers: () => connectedMcpServers.map((s) => ({ name: s.name, tools: [] })),
     getCostSummary: (): CostSummary => {
       const usage = runSink.getTokenUsage();
       const lastTurnUsage = runSink.getLastTurnUsage();
@@ -2016,6 +2020,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         currentWebProvider: () => pluginsAdmin.getWebOverride(),
         setWebProvider: (id) => pluginsAdmin.setWebOverride(id),
       },
+      mcp: {
+        list: () =>
+          [...mcpStates.values()].map((status) => ({
+            name: status.name,
+            state: status.state,
+            ...(status.state === "connected" ? { toolCount: status.tools.length } : {}),
+            ...(status.state === "needs-auth" ? { authURL: status.url } : {}),
+            ...(status.state === "failed" ? { error: status.error } : {}),
+          })),
+        openAuthURL: (url) => openInBrowser(url),
+      },
       hooks: {
         list: () =>
           hookManager.getStatuses().map((status) => ({
@@ -2148,6 +2163,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .connectMCP(
       {
         onStatus: (status) => {
+          mcpStates.set(status.name, status);
           emitter.emit("mcp.status", status);
           if (status.state === "connected") {
             connectedMcpServers = [

@@ -27,6 +27,8 @@ export type NoticeState = {
   /** Transient feedback (copy result, attach failure, exit arming). */
   readonly flash: string | null
   readonly attachments: number
+  /** MCP servers connected but unauthorized; their tools stay unavailable. */
+  readonly mcpNeedsAuth: number
 }
 
 /**
@@ -41,6 +43,11 @@ export function composeNoticeLine(state: NoticeState): string {
   if (state.attachments > 0) {
     segments.push(
       `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,
+    )
+  }
+  if (state.mcpNeedsAuth > 0) {
+    segments.push(
+      `${state.mcpNeedsAuth} mcp need${state.mcpNeedsAuth === 1 ? "s" : ""} auth (/mcp)`,
     )
   }
   const flash = state.flash?.trim() ?? ""
