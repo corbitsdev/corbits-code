@@ -424,6 +424,22 @@ function pathFromResult(toolName: string, content: string): string | null {
   return null;
 }
 
+/**
+ * Task tool results wrap a sub-agent's reply in `Sub-agent "desc" reported:`
+ * plus raw `## ` markdown headings. The transcript's expanded detail view
+ * renders plain text, so an unstripped heading would show its literal `##` —
+ * drop the envelope and heading markers, keeping the report's own words.
+ */
+export function stripTaskReportEnvelope(content: string): string {
+  const trimmed = content.trim();
+  const reported = trimmed.match(/^Sub-agent "([^"]*)" reported:\s*([\s\S]*)$/i);
+  const body = (reported?.[2] ?? trimmed).trim();
+  return body
+    .split("\n")
+    .map((line) => line.replace(/^##\s+/, ""))
+    .join("\n");
+}
+
 // Task tool results are either "Sub-agent \"desc\" reported:\n\n## Summary\n..."
 // or a cancel notice. Pull a one-line human preview without leaking markdown headers.
 function summarizeTaskResultPreview(content: string): string {
