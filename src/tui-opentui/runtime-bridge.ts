@@ -29,6 +29,7 @@ import {
   streamRowAt,
   streamRowCount,
   truncateStreamRows,
+  userRowText,
   type AppShell,
 } from "./shell.js"
 import { rampFor, rampLine } from "./ramp.js"
@@ -55,10 +56,7 @@ import {
   turnStateOnSubmit,
   type TurnState,
 } from "./turn-state.js"
-import {
-  formatAttachmentSummary,
-  type PendingImageAttachment,
-} from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "../tui/image-attachments.js"
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import {
@@ -68,16 +66,6 @@ import {
 } from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
-
-/** Transcript echo for a user message, annotated with its attachments. */
-function userRowText(
-  text: string,
-  attachments: readonly PendingImageAttachment[],
-): string {
-  const summary = formatAttachmentSummary(attachments)
-  if (summary.length === 0) return text
-  return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`
-}
 import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
@@ -764,6 +752,13 @@ export function attachSessionBridge(
       )) {
         applyInbound(shell, bag, mapped)
       }
+      // inference.done with tool calls still outstanding doesn't settle the
+      // turn (see turn-state.ts) — the cycle continues, but a boundary still
+      // passed, so a queued message waiting on it should not wait for the
+      // turn's eventual end too.
+      if (event.type === "inference.done" && bag.turn.activeToolCalls.length > 0) {
+        drainAtBoundary(shell, bag)
+      }
       if (settled) settleRun()
       return
     }
@@ -800,10 +795,13 @@ export function attachSessionBridge(
         ? enqueueSteer(shell.session, t, undefined, attachments)
         : enqueue(shell.session, t, "queue", undefined, attachments)
     bag.port.enqueue(t, kind)
+    // Show the message itself, not the internal transition ("queue +1 →
+    // pending N") — the notice row already carries the depth once, in plain
+    // language, so this row's job is making the pending item identifiable.
     appendStreamRow(shell, {
-      role: "system",
-      text: `${kind} +1 → pending ${badgeCount(shell.session)}`,
-      meta: "queue",
+      role: "user",
+      text: userRowText(t, attached),
+      meta: kind === "steer" ? "steer" : "queue",
     })
     paintChrome(shell)
   }
