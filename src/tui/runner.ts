@@ -211,6 +211,29 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
   return { type: "error", message: `Could not load prior session transcript: ${message}` };
 }
 
+export type ResumeSeed = {
+  turnsUsed: number;
+  mcpServers: ConnectedMcpServer[];
+};
+
+const FRESH_RESUME_SEED: ResumeSeed = { turnsUsed: 0, mcpServers: [] };
+
+/**
+ * Fold a resumed session's run.json into a concrete seed once, at the
+ * resume boundary, so every downstream reader (the run sink, the
+ * connected-servers list, the immediate post-resume saveState) trusts a
+ * fully-populated value instead of each repeating its own `?? 0` / `?? []`
+ * default. A fresh (non-resumed) run gets the same shape via
+ * FRESH_RESUME_SEED, so callers never branch on "was this a resume."
+ */
+export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
+  if (pickedState === null) return FRESH_RESUME_SEED;
+  return {
+    turnsUsed: pickedState.turnsUsed,
+    mcpServers: pickedState.mcpServers ?? [],
+  };
+}
+
 const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
   session: "This session",
   project: "This project",
@@ -406,6 +429,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   let resumeSkipInitialTask = config.skipInitialTask === true;
   let startedAt = Date.now();
   let runTaskTitle = config.task;
+  // Resolved once at the resume boundary so turnsUsed/mcpServers reads
+  // downstream never repeat their own omission-handling default.
+  let resumeSeed: ResumeSeed = FRESH_RESUME_SEED;
 
   if (config.resumePicker) {
     const picked = await pickSession(config.cwd, { includeCompleted: config.force });
@@ -413,6 +439,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     sessionId = picked.sessionId;
     resumeSkipInitialTask = true;
     const pickedState = await loadState(config.cwd, sessionId);
+    resumeSeed = resolveResumeSeed(pickedState);
     if (pickedState !== null) {
       startedAt = pickedState.startedAt;
       runTaskTitle = pickedState.task;
@@ -435,11 +462,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // run.json at all.
   await saveState(config.cwd, sessionId, {
     status: "running",
-    turnsUsed: 0,
+    turnsUsed: resumeSeed.turnsUsed,
     task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
     model: `${config.providerName}:${config.model}`,
-    mcpServers: [],
+    mcpServers: resumeSeed.mcpServers,
   });
 
   // Crash guard: if anything from setup onward throws all the way out of
@@ -1313,6 +1340,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const runSink = createRunSink({
     emitter,
     hookManager,
+    initialTurnCount: resumeSeed.turnsUsed,
     onTurnComplete: (ctx) => {
       // provider_id is the canonical provider kind, never ctx.source.sourceId:
       // sourceId is the user-typed label from onboarding/settings, and free
@@ -1332,7 +1360,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
   // replaces rather than duplicates the entry.
-  let connectedMcpServers: ConnectedMcpServer[] = [];
+  let connectedMcpServers: ConnectedMcpServer[] = resumeSeed.mcpServers;
   // Every configured server's latest state, for the /mcp surface. Unlike
   // `connectedMcpServers` (persisted run metadata) this keeps the ones that
   // failed or are still waiting on authorization.
