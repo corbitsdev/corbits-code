@@ -300,7 +300,7 @@ function settingsCycleRows(
       describe: {
         what: "how the transcript is trimmed once the context fills.",
         impact:
-          "summarize (default) spends a call; drop is free but also strips tool output.",
+          "summarize (default) costs a call; drop is free but strips output too.",
         tone: "consequence",
       },
       cycle: (dir) =>
