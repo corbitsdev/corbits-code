@@ -17,6 +17,8 @@ export {
   type ZoneId,
 } from "./zones.js";
 
+export { chromeBudget, type ChromeRow } from "./chrome-budget.js";
+
 export {
   BOTTOM_MARGIN_MIN_ROWS,
   BOTTOM_MARGIN_ROWS,

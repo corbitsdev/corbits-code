@@ -33,6 +33,7 @@ import { codexProviderName } from "../config/codex-providers.js"
 import { xaiProviderName } from "../config/xai-providers.js"
 import { TELEMETRY_NOTICE } from "../telemetry/index.js"
 import { wrapLines } from "../tui/view/height.js"
+import { chromeBudget, type ChromeRow } from "./geometry/chrome-budget.js"
 import { resolveSideMargin } from "./geometry/margins.js"
 import {
   createListViewport,
@@ -565,6 +566,36 @@ const LOGIN_ROWS = 4
 const LIST_ROWS_MAX = 10
 const LIST_ROWS_MIN = 3
 const TELEMETRY_ROWS = 3
+
+/**
+ * Every row `root` reserves outside the list step's scrollable region,
+ * named 1:1 with the `root.add(...)` calls below (`rootPadding` stands for
+ * `root`'s own `paddingTop`, which is not a child but still costs a row).
+ * `listHeight()` derives its budget by summing this list instead of
+ * carrying a hand-counted integer, so a row added to `root` without a
+ * matching entry here is a length mismatch caught by the test that checks
+ * `root`'s children against `CHROME_ROWS` + `ALTERNATE_ROW_IDS`, not a
+ * guess that only shows up as garbled text on a short terminal.
+ *
+ * `loginBox`, `inputFrame`, and `telemetry` are deliberately excluded: the
+ * step machine only ever shows one of them (or the list) at a time, so they
+ * never compete with the list for the same rows.
+ */
+export const CHROME_ROWS: readonly ChromeRow[] = [
+  { id: "rootPadding", rows: 1 },
+  { id: "header", rows: 1 },
+  { id: "intro", rows: 1 },
+  { id: "step", rows: 1 },
+  { id: "instruction", rows: 1 },
+  { id: "summary", rows: 1 + SUMMARY_SLOTS },
+  { id: "listBoxPadding", rows: 1 },
+  { id: "statusLine", rows: 1 },
+  { id: "guidance", rows: 1 },
+  { id: "footer", rows: 1 },
+]
+
+/** `root`'s other direct children — never on screen at the same time as the list. */
+export const ALTERNATE_ROW_IDS = ["loginBox", "inputFrame", "telemetry"] as const
 /**
  * Input capacity. The renderable defaults to 1000 characters and truncates a
  * longer paste silently, which a first run would read as "paste is broken";
@@ -646,7 +677,10 @@ export async function runProviderSetup(
 
   function listHeight(): number {
     const rows = renderer.height || 24
-    return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14))
+    return Math.max(
+      LIST_ROWS_MIN,
+      Math.min(LIST_ROWS_MAX, rows - chromeBudget(CHROME_ROWS)),
+    )
   }
 
   const steps = (): readonly SetupStep[] => stepsFor(choice)

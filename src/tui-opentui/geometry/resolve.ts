@@ -1,6 +1,7 @@
 // Pure geometry resolver: terminal size + zone visibility + overlay mode → rects.
 // Caller passes { columns, rows }; this module never reads process.stdout.
 
+import { chromeBudget, type ChromeRow } from "./chrome-budget.js";
 import { resolveContentWidth, resolveSideMargin } from "./margins.js";
 import {
   COLLAPSE_ORDER,
@@ -161,12 +162,10 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
 }
 
 function sumChrome(heights: MutableHeights): number {
-  let total = 0;
-  for (const id of PAINT_ORDER) {
-    if (id === "transcript" || id === "overlay_host") continue;
-    total += heights[id];
-  }
-  return total;
+  const rows: ChromeRow[] = PAINT_ORDER.filter(
+    (id) => id !== "transcript" && id !== "overlay_host",
+  ).map((id) => ({ id, rows: heights[id] }));
+  return chromeBudget(rows);
 }
 
 function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {

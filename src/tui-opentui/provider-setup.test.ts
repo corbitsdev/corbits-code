@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 
 import { createHarness, type Harness } from "./harness.js"
 import {
+  ALTERNATE_ROW_IDS,
+  CHROME_ROWS,
   CUSTOM_CHOICE_ID,
   failureGuidance,
   LOGIN_CANCELLED_MESSAGE,
@@ -171,6 +173,32 @@ async function mountSetup(
   await harness.renderOnce()
   return { done, harness }
 }
+
+describe("root's fixed-row chrome budget", () => {
+  test("mounts exactly the rows CHROME_ROWS and ALTERNATE_ROW_IDS name", async () => {
+    const { harness, done } = await mountSetup()
+    try {
+      const surface = harness.root
+        .getChildren()
+        .find((child) => child.id === "provider-setup")
+      expect(surface).toBeDefined()
+      // rootPadding is root's own paddingTop, not a child — every other
+      // CHROME_ROWS entry plus every alternate-step row is one child each.
+      // A row mounted without a matching entry in either list throws this
+      // off, so the bug class this guards against (a row added to `root`
+      // without being named anywhere) fails here rather than only showing
+      // up as garbled text on a short terminal.
+      const expectedChildCount =
+        CHROME_ROWS.filter((row) => row.id !== "rootPadding").length +
+        ALTERNATE_ROW_IDS.length
+      expect(surface?.getChildren().length).toBe(expectedChildCount)
+    } finally {
+      harness.pressKey("Ctrl+C")
+      await done
+      harness.destroy()
+    }
+  })
+})
 
 function type(harness: Harness, text: string): void {
   for (const ch of text) harness.pressKey(ch)
