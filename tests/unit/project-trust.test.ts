@@ -284,6 +284,31 @@ describe("project-trust", () => {
     }
   });
 
+  test("readProjectTrustStore: malformed file with wrong types, missing fields, and extra fields drops bad entries and ignores unknown keys", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "good");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath, 7, false, { nope: true }],
+          // trustedMcpFingerprints omitted entirely
+          somethingUnexpected: "should be ignored",
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("interactive requestTrust can grant and persist", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {

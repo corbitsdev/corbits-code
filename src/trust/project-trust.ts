@@ -2,11 +2,22 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import { type } from "arktype";
 import { getLogger } from "@intx/log";
 import type { MCPServerConfig } from "../config/settings.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
+
+// Array fields are typed "unknown[]" rather than "string[]" because, unlike
+// path-trust.ts's strict schema, a mixed-type array here must keep its valid
+// string entries instead of invalidating the whole record — filtering happens
+// after arktype confirms the field is at least an array.
+const ProjectTrustRecordSchema = type({
+  "trustedPluginPaths?": "unknown[]",
+  "trustedMcpFingerprints?": "unknown[]",
+  "repo?": "string",
+});
 
 /** Where a plugin was discovered from. */
 export type PluginOrigin = "repo" | "user" | "project" | "path";
@@ -29,20 +40,14 @@ const emptyStore = (): ProjectTrustStore => ({
 });
 
 /**
- * Coerce a trust-store array field: missing → [], mixed types keep only strings,
- * non-array → invalid (null). Hand-edited partial files must not wipe consent.
+ * Extract a trust-store array field already confirmed to be an array (or
+ * absent) by ProjectTrustRecordSchema: missing → [], mixed types keep only
+ * strings. Hand-edited partial files must not wipe consent.
  */
-function coerceStringArrayField(
-  value: unknown,
-  field: string,
-  path: string,
-): string[] | null {
+function extractStringArrayField(value: unknown[] | undefined, field: string, path: string): string[] {
   if (value === undefined) {
     logger.warn`project trust store missing ${field} at ${path}; defaulting to []`;
     return [];
-  }
-  if (!Array.isArray(value)) {
-    return null;
   }
   const strings: string[] = [];
   let dropped = 0;
@@ -99,39 +104,28 @@ export async function readProjectTrustStore(
     logger.warn`project trust store is not valid JSON at ${path}: ${String(err)}`;
     return { state: "invalid", store: emptyStore() };
   }
-  // Non-object JSON (arrays, null, primitives) cannot be a trust record.
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    logger.warn`project trust store has an invalid shape at ${path}: expected object`;
+  const validated = ProjectTrustRecordSchema(parsed);
+  if (validated instanceof type.errors) {
+    logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
     return { state: "invalid", store: emptyStore() };
   }
-  const record = parsed as Record<string, unknown>;
   // Coerce array fields instead of hard-rejecting: a hand-edited partial file
   // (only one list present) or a mixed-type array must keep valid string grants.
-  const trustedPluginPaths = coerceStringArrayField(
-    record.trustedPluginPaths,
+  const trustedPluginPaths = extractStringArrayField(
+    validated.trustedPluginPaths,
     "trustedPluginPaths",
     path,
   );
-  const trustedMcpFingerprints = coerceStringArrayField(
-    record.trustedMcpFingerprints,
+  const trustedMcpFingerprints = extractStringArrayField(
+    validated.trustedMcpFingerprints,
     "trustedMcpFingerprints",
     path,
   );
-  if (trustedPluginPaths === null || trustedMcpFingerprints === null) {
-    logger.warn`project trust store has an invalid shape at ${path}: array fields must be arrays when present`;
-    return { state: "invalid", store: emptyStore() };
-  }
   // Guard against a stale/copied record keyed to a different repo path: the
   // file records the repo it was written for and must match this cwd.
-  if (record.repo !== undefined) {
-    if (typeof record.repo !== "string") {
-      logger.warn`project trust store has an invalid shape at ${path}: repo must be a string when present`;
-      return { state: "invalid", store: emptyStore() };
-    }
-    if (resolve(record.repo) !== resolve(cwd)) {
-      logger.warn`project trust store repo mismatch at ${path}: recorded ${record.repo}, expected ${resolve(cwd)}`;
-      return { state: "invalid", store: emptyStore() };
-    }
+  if (validated.repo !== undefined && resolve(validated.repo) !== resolve(cwd)) {
+    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
+    return { state: "invalid", store: emptyStore() };
   }
   return {
     state: "valid",
