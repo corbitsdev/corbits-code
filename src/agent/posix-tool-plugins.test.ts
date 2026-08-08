@@ -10,6 +10,8 @@ import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createCompositeBlobReader, createLazyBlobReader } from "./lazy-blob-reader.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
+import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
+import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 
 type ToolHandlerLike = (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
 
@@ -294,5 +296,85 @@ describe("buildCorePosixToolPlugins", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a grep result containing a secret-shaped string is redacted before reaching the model (CL-5717)", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-grep-scrub-"));
+    try {
+      await writeFile(
+        join(cwd, "leaky.env"),
+        "AWS_KEY=AKIAABCDEFGHIJKLMNOP\nOPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456\n",
+      );
+
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+
+      const result = await runner.run(
+        { id: "grep-1", name: "grep", arguments: { pattern: "AKIA|sk-", path: cwd } },
+        new AbortController().signal,
+      );
+
+      expect(result.isError).not.toBe(true);
+      const content = String(result.content);
+      expect(content).not.toContain("AKIAABCDEFGHIJKLMNOP");
+      expect(content).not.toContain("sk-abcdefghijklmnopqrstuvwxyz123456");
+      expect(content).toContain("[redacted: looks like a credential]");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a plugin that returns without calling next() still gets capped and scrubbed (CL-5717)", async () => {
+    // Generic, plugin-shape-agnostic version of the grep case above: any
+    // plugin that answers a scrubbable/truncatable tool directly instead of
+    // delegating to `next` must still be capped and scrubbed, because it is
+    // wrapped by the unconditional outer plugins in buildCorePosixToolPlugins.
+    // This is the assertion that stops the *next* short-circuiting plugin
+    // (not just ripgrepPlugin) from reopening the hole.
+    // The secret sits ahead of the cap boundary so both effects are provable
+    // in one result: still-present-before-truncation content gets scrubbed,
+    // and the oversized tail gets capped.
+    const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
+    const shortCircuitingMiddleware =
+      () =>
+      async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: secretShapedContent,
+      });
+
+    const secretScrubMiddleware = toolResultSecretScrubPlugin().middleware;
+    const resultCapMiddleware = resultTruncationPlugin().middleware;
+    if (secretScrubMiddleware === undefined || resultCapMiddleware === undefined) {
+      throw new Error("expected the scrub and cap plugins to expose middleware");
+    }
+
+    // Order matches buildCorePosixToolPlugins: both are outer wrappers of the
+    // rest of the chain, so this short-circuiting plugin standing in for
+    // ripgrepPlugin (or any future plugin with the same shape) is still
+    // captured — it never has to call `next` for the guarantee to hold.
+    const composed = composeMiddleware(
+      [secretScrubMiddleware, resultCapMiddleware, shortCircuitingMiddleware],
+      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+    );
+
+    const result = await composed(
+      { id: "short-1", name: "grep", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).not.toBe(true);
+    const content = String(result.content);
+    expect(content).not.toContain("AKIAABCDEFGHIJKLMNOP");
+    expect(content).toContain("[redacted: looks like a credential]");
+    expect(content.length).toBeLessThan(secretShapedContent.length);
+    expect(content).toContain("[output truncated");
   });
 });
