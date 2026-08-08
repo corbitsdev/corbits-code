@@ -227,6 +227,7 @@ describe("turn progress label", () => {
       try {
         t.bridge.handle({ type: "inference.start", data: {} })
         t.shell.overlayKind = "permissions"
+        t.bridge.gateOpened()
         t.tick()
         expect(t.shell.turnPhase).toEndWith("blocked")
 
@@ -341,6 +342,48 @@ describe("stall watchdog", () => {
         t.advance(10_000)
         t.tick()
         expect(t.port.calls).toHaveLength(1)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("an open gate is exempt no matter how long the operator takes", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+        t.bridge.gateOpened()
+
+        // Far past the stall timeout — an operator reading an approval must
+        // never have the run torn down underneath them.
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("a gate queued but not yet displayed gets the same exemption", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+        // The gate is raised but nothing else has changed `shell.overlayKind`
+        // — this is the "queued behind another overlay" shape from
+        // gate-wire.ts, where the gate is not nominally displayed yet.
+        t.bridge.gateOpened()
+        expect(t.shell.overlayKind).toBeNull()
+
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
       } finally {
         t.bridge.dispose()
       }

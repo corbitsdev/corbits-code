@@ -135,6 +135,16 @@ export type TurnState = {
    * gets long enough to trip `detectRepetition` on its own.
    */
   readonly consecutiveMatchingCycles: number
+  /**
+   * Outstanding approval/operator gates, counted from the moment each is
+   * raised — queued behind another overlay or already on screen, both count.
+   * `status` reads "blocked" whenever this is above zero, which is what
+   * exempts the turn from the stall watchdog: an operator reading a prompt
+   * must be indistinguishable from a live tool call as far as the silence
+   * clock is concerned. Painter and watchdog both read this one field rather
+   * than each re-deriving blocked-ness from the shell's overlay.
+   */
+  readonly blockedGateCount: number
 }
 
 export function initialTurnState(nowMs: number): TurnState {
@@ -155,6 +165,7 @@ export function initialTurnState(nowMs: number): TurnState {
     repeatingSinceTokenCount: null,
     cycleFingerprint: null,
     consecutiveMatchingCycles: 0,
+    blockedGateCount: 0,
   }
 }
 
@@ -177,6 +188,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     repeatingSinceTokenCount: null,
     cycleFingerprint: null,
     consecutiveMatchingCycles: 0,
+    blockedGateCount: 0,
   }
 }
 
@@ -185,9 +197,36 @@ export function turnStateOnInterrupt(_state: TurnState, nowMs: number): TurnStat
   return { ...initialTurnState(nowMs), status: "stopped" }
 }
 
-/** A pending approval gate blocks the turn without ending it. */
-export function turnStateBlocked(state: TurnState): TurnState {
-  return { ...state, status: "blocked", isProcessing: true }
+/**
+ * A gate was raised — queued or opened, the turn does not distinguish.
+ * The first outstanding gate blocks the turn without ending it; further
+ * gates just add to the count so the turn stays blocked until all clear.
+ */
+export function turnStateGateOpened(state: TurnState): TurnState {
+  const blockedGateCount = state.blockedGateCount + 1
+  return {
+    ...state,
+    status: "blocked",
+    isProcessing: true,
+    blockedGateCount,
+  }
+}
+
+/**
+ * A gate resolved. Only the last outstanding gate clearing returns the turn
+ * to "running" — earlier ones just decrement the count. `lastActivityAt`
+ * moves to `nowMs` so the stall clock restarts from the moment the operator
+ * actually answered, rather than crediting silence spent reading the prompt.
+ */
+export function turnStateGateClosed(state: TurnState, nowMs: number): TurnState {
+  const blockedGateCount = Math.max(0, state.blockedGateCount - 1)
+  if (blockedGateCount > 0) return { ...state, blockedGateCount }
+  return {
+    ...state,
+    status: state.status === "blocked" ? "running" : state.status,
+    lastActivityAt: nowMs,
+    blockedGateCount,
+  }
 }
 
 export function clearQuotaWait(state: TurnState): TurnState {

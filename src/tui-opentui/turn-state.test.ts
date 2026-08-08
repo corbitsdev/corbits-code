@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test"
 
 import {
   initialTurnState,
-  turnStateBlocked,
   turnStateFromEvent,
+  turnStateGateClosed,
+  turnStateGateOpened,
   turnStateOnInterrupt,
   turnStateOnSubmit,
 } from "./turn-state.js"
@@ -184,9 +185,26 @@ describe("turn transitions", () => {
   })
 
   test("gate blocks without ending the turn", () => {
-    const s = turnStateBlocked(turnStateOnSubmit(initialTurnState(0), 1))
+    const s = turnStateGateOpened(turnStateOnSubmit(initialTurnState(0), 1))
     expect(s.status).toBe("blocked")
     expect(s.isProcessing).toBe(true)
+    expect(s.blockedGateCount).toBe(1)
+  })
+
+  test("a second queued gate keeps the turn blocked until both clear", () => {
+    const running = turnStateOnSubmit(initialTurnState(0), 1)
+    const bothOpen = turnStateGateOpened(turnStateGateOpened(running))
+    expect(bothOpen.status).toBe("blocked")
+    expect(bothOpen.blockedGateCount).toBe(2)
+
+    const oneClosed = turnStateGateClosed(bothOpen, 5)
+    expect(oneClosed.status).toBe("blocked")
+    expect(oneClosed.blockedGateCount).toBe(1)
+
+    const allClosed = turnStateGateClosed(oneClosed, 9)
+    expect(allClosed.status).toBe("running")
+    expect(allClosed.blockedGateCount).toBe(0)
+    expect(allClosed.lastActivityAt).toBe(9)
   })
 })
 
