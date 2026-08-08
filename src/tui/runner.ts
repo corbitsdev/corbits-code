@@ -147,6 +147,7 @@ import {
   appendStreamRow,
   attachClipboardImage,
   setMentionSuggestionSource,
+  setPromptRecognitionSource,
   setSentMessageHistory,
   setShellRunState,
 } from "../tui-opentui/shell.js";
@@ -2242,6 +2243,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   disposeHost = host.dispose;
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
+
+  // Same names the operator can already reach by typing them: skills the
+  // session discovered at startup, agents from the live profile registry
+  // (which trust changes can update mid-session, so read through the
+  // closure rather than snapshotting it here).
+  setPromptRecognitionSource(host.shell, () => ({
+    skillNames: skills.map((skill) => skill.name),
+    agentNames: liveAgentProfiles.map((profile) => profile.id),
+  }));
 
   // Recall spans the whole session, including what was sent before a resume.
   void loadSentMessages(config.cwd, sessionId)
