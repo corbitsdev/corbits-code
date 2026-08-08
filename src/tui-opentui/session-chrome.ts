@@ -23,8 +23,53 @@ export type TurnLabelInput = {
   readonly awaitingResponse: boolean
   readonly currentToolName: string | null
   readonly streamingType: "text" | "thinking" | "tool" | null
-  /** Text deltas seen so far this turn; read only while `streamingType` is `text`. */
-  readonly streamTokenCount?: number
+}
+
+/**
+ * Closed set the status ticker is allowed to render. Every path through
+ * `resolveTurnLabel` returns one of these — never a tool identifier, MCP
+ * server name, or plugin name. This is what the leak-prevention test checks
+ * membership against, so it must stay the single source of truth for "what
+ * can appear in the ticker."
+ */
+export const ACTIVITY_STATES = [
+  "thinking",
+  "planning",
+  "researching",
+  "building",
+  "working",
+  "waiting",
+  "stalled",
+  "stopping",
+] as const
+
+export type ActivityState = (typeof ACTIVITY_STATES)[number]
+
+/**
+ * Execution → activity-state mapping, kept in this one place with an
+ * explicit fallback so a newly added tool (built-in, MCP, or plugin) renders
+ * a generic "working" state instead of leaking its identifier — no ticker
+ * change is required to add a tool correctly.
+ */
+const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
+  read_file: "researching",
+  search_files: "researching",
+  grep: "researching",
+  list_dir: "researching",
+  web_search: "researching",
+  web_fetch: "researching",
+  write_file: "building",
+  edit_file: "building",
+  run_shell: "building",
+  manage_tasks: "planning",
+  task: "planning",
+  ask_operator: "waiting",
+  submit_output: "working",
+}
+
+function activityStateForTool(name: string | null): ActivityState {
+  if (name === null) return "working"
+  return TOOL_ACTIVITY_STATES[name] ?? "working"
 }
 
 /**
@@ -32,22 +77,23 @@ export type TurnLabelInput = {
  * unpunctuated — the ramp's color and motion carry the state, so the word only
  * has to name it. Returns undefined when idle so the phase segment disappears.
  *
- * Text streaming carries a live count (`streaming 7 tok`) rather than the
- * bare word: it is the one phase with something to count, and the count is
- * what tells the operator the slot is not stalled.
+ * `isStalled` is the caller's own `shouldNoticeStall`/`isStalledForDisplay`
+ * result (see stall-watchdog.ts) — this function does not re-derive
+ * staleness, it only ranks "stalled" against the other phases so the ticker
+ * and the ramp never disagree about which runs look stuck.
  */
-export function resolveTurnLabel(input: TurnLabelInput): string | undefined {
+export function resolveTurnLabel(
+  input: TurnLabelInput,
+  isStalled: boolean = false,
+): ActivityState | undefined {
   if (!input.isProcessing) return undefined
-  if (input.status === "blocked") return "blocked"
+  if (input.status === "blocked") return "waiting"
   if (input.status === "stopping" || input.status === "stopped") {
     return "stopping"
   }
-  if (input.currentToolName !== null) return input.currentToolName
-  if (input.streamingType === "tool") return "tool"
+  if (isStalled) return "stalled"
+  if (input.currentToolName !== null) return activityStateForTool(input.currentToolName)
   if (input.streamingType === "thinking") return "thinking"
-  if (input.streamingType === "text") {
-    return `streaming ${String(input.streamTokenCount ?? 0)} tok`
-  }
   return "working"
 }
 

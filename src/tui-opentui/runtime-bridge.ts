@@ -805,9 +805,8 @@ export function attachSessionBridge(
       awaitingResponse: turn.awaitingResponse,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
-      streamTokenCount: turn.streamTokenCount,
     }
-    const label = resolveTurnLabel(input)
+    const label = resolveTurnLabel(input, isStalled)
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.

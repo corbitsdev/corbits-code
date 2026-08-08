@@ -47,7 +47,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
         streamingType: "tool",
       })
       expect(label).not.toBe(currentToolName)
-      expect(ACTIVITY_STATES).toContain(label)
+      expect(ACTIVITY_STATES).toContain(label!)
     })
   }
 
@@ -63,7 +63,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
       true,
     )
     expect(label).toBe("stalled")
-    expect(ACTIVITY_STATES).toContain(label)
+    expect(ACTIVITY_STATES).toContain(label!)
   })
 
   test("waiting on the operator is distinguishable from working", () => {
@@ -76,7 +76,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     })
     expect(label).toBe("waiting")
     expect(label).not.toBe("working")
-    expect(ACTIVITY_STATES).toContain(label)
+    expect(ACTIVITY_STATES).toContain(label!)
   })
 })
 
@@ -93,7 +93,7 @@ describe("resolveTurnLabel", () => {
     ).toBeUndefined()
   })
 
-  test("blocked gate shows approval wait", () => {
+  test("blocked gate shows a waiting-on-operator state", () => {
     expect(
       resolveTurnLabel({
         isProcessing: true,
@@ -102,7 +102,7 @@ describe("resolveTurnLabel", () => {
         currentToolName: "run_shell",
         streamingType: "tool",
       }),
-    ).toBe("blocked")
+    ).toBe("waiting")
   })
 
   test("stopping beats tool phase", () => {
@@ -117,7 +117,7 @@ describe("resolveTurnLabel", () => {
     ).toBe("stopping")
   })
 
-  test("tool phase beats generic working", () => {
+  test("tool phase maps to its semantic activity, never the raw name", () => {
     expect(
       resolveTurnLabel({
         isProcessing: true,
@@ -126,7 +126,7 @@ describe("resolveTurnLabel", () => {
         currentToolName: "grep",
         streamingType: "tool",
       }),
-    ).toBe("grep")
+    ).toBe("researching")
   })
 
   test("thinking and text phases", () => {
@@ -140,8 +140,8 @@ describe("resolveTurnLabel", () => {
       resolveTurnLabel({ ...base, streamingType: "thinking" }),
     ).toBe("thinking")
     expect(
-      resolveTurnLabel({ ...base, streamingType: "text", streamTokenCount: 7 }),
-    ).toBe("streaming 7 tok")
+      resolveTurnLabel({ ...base, streamingType: "text" }),
+    ).toBe("working")
     expect(
       resolveTurnLabel({
         ...base,
@@ -149,18 +149,6 @@ describe("resolveTurnLabel", () => {
         streamingType: null,
       }),
     ).toBe("working")
-  })
-
-  test("text phase with no count yet reads zero", () => {
-    expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "running",
-        awaitingResponse: false,
-        currentToolName: null,
-        streamingType: "text",
-      }),
-    ).toBe("streaming 0 tok")
   })
 })
 

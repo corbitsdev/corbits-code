@@ -73,16 +73,18 @@ describe("turn progress label", () => {
         expect(t.shell.lockupPhase).toBe("thinking")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
-        expect(t.shell.lockupPhase).toBe("streaming 1 tok")
+        expect(t.shell.lockupPhase).toBe("working")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: " there" } })
-        expect(t.shell.lockupPhase).toBe("streaming 2 tok")
+        expect(t.shell.lockupPhase).toBe("working")
 
         t.bridge.handle({
           type: "inference.tool_call.end",
           data: { name: "bash", callId: "c1" },
         })
-        expect(t.shell.lockupPhase).toBe("bash")
+        // Unmapped tool identifiers fall back to the generic working state
+        // rather than leaking the raw name.
+        expect(t.shell.lockupPhase).toBe("working")
 
         t.bridge.handle({ type: "reactor.done", data: {} })
         expect(t.shell.lockupPhase).toBeNull()
@@ -223,7 +225,7 @@ describe("turn progress label", () => {
     })
   })
 
-  test("an open permission overlay freezes the ramp and reads blocked", async () => {
+  test("an open permission overlay freezes the ramp and reads waiting", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
       try {
@@ -231,7 +233,7 @@ describe("turn progress label", () => {
         t.shell.overlayKind = "permissions"
         t.bridge.gateOpened()
         t.tick()
-        expect(t.shell.lockupPhase).toBe("blocked")
+        expect(t.shell.lockupPhase).toBe("waiting")
 
         // Frozen is the signal: the ramp must not move while a human is asked.
         const frozen = t.shell.lockupPhase
