@@ -206,6 +206,44 @@ describe("turn transitions", () => {
     expect(allClosed.blockedGateCount).toBe(0)
     expect(allClosed.lastActivityAt).toBe(9)
   })
+
+  test("a gate still open at interrupt keeps its count into the next turn", () => {
+    // The overlay is not closed by an interrupt — nothing else resolves it —
+    // so a turn that ends while a gate is still outstanding must not lose
+    // count of it: the eventual close belongs to this gate, not to whatever
+    // turn happens to be live when the operator finally answers.
+    const interrupted = turnStateOnInterrupt(
+      turnStateGateOpened(turnStateOnSubmit(initialTurnState(0), 1)),
+      2,
+    )
+    expect(interrupted.status).toBe("stopped")
+    expect(interrupted.blockedGateCount).toBe(1)
+
+    const nextTurn = turnStateOnSubmit(interrupted, 3)
+    expect(nextTurn.status).toBe("blocked")
+    expect(nextTurn.blockedGateCount).toBe(1)
+
+    // The stale gate from before the interrupt finally resolves — it must
+    // settle the count the new turn inherited, not resurrect a status the
+    // new turn never asked for.
+    const resolved = turnStateGateClosed(nextTurn, 9)
+    expect(resolved.status).toBe("running")
+    expect(resolved.blockedGateCount).toBe(0)
+  })
+
+  test("closing a stale gate after the turn settled does not resurrect it", () => {
+    const done = turnStateFromEvent(
+      turnStateGateOpened(turnStateOnSubmit(initialTurnState(0), 1)),
+      { type: "inference.done", data: {} },
+      2,
+    )
+    expect(done.status).toBe("done")
+    expect(done.blockedGateCount).toBe(1)
+
+    const resolved = turnStateGateClosed(done, 9)
+    expect(resolved.status).toBe("done")
+    expect(resolved.blockedGateCount).toBe(0)
+  })
 })
 
 describe("repetition tracking", () => {

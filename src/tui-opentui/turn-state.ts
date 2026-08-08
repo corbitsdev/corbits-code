@@ -169,11 +169,31 @@ export function initialTurnState(nowMs: number): TurnState {
   }
 }
 
+/**
+ * Reset to a fresh turn state, except an outstanding gate's count carries
+ * across the boundary rather than being dropped. Interrupting or settling a
+ * turn does not close the permission/operator overlay still on screen —
+ * nothing else resolves it — so losing count of it here would let its
+ * eventual `turnStateGateClosed` decrement an unrelated later turn's count
+ * instead, either dropping that turn's own exemption early or masking a
+ * stall it never earned. The status this resets to (`"stopped"`, `"done"`,
+ * ...) is left as given: every one of those is already `!== "running"`,
+ * which is all the watchdog requires, so there is no need to relabel it
+ * `"blocked"` and risk `turnStateGateClosed` later reviving it to `"running"`.
+ */
+function carryBlockedGateCount(prior: TurnState, fresh: TurnState): TurnState {
+  return prior.blockedGateCount === 0
+    ? fresh
+    : { ...fresh, blockedGateCount: prior.blockedGateCount }
+}
+
 /** Operator submitted a prompt: the run is live and awaiting first tokens. */
 export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
   return {
     ...state,
-    status: "running",
+    // A gate left over from a prior turn still blocks the operator from
+    // doing anything else, so the new turn inherits the exemption too.
+    status: state.blockedGateCount > 0 ? "blocked" : "running",
     isProcessing: true,
     awaitingResponse: true,
     streamingType: null,
@@ -188,13 +208,15 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     repeatingSinceTokenCount: null,
     cycleFingerprint: null,
     consecutiveMatchingCycles: 0,
-    blockedGateCount: 0,
   }
 }
 
 /** Ctrl+C / watchdog abort: nothing is in flight and no prompt may be replayed. */
-export function turnStateOnInterrupt(_state: TurnState, nowMs: number): TurnState {
-  return { ...initialTurnState(nowMs), status: "stopped" }
+export function turnStateOnInterrupt(state: TurnState, nowMs: number): TurnState {
+  return carryBlockedGateCount(state, {
+    ...initialTurnState(nowMs),
+    status: "stopped",
+  })
 }
 
 /**
@@ -529,11 +551,11 @@ export function turnStateFromEvent(
           lastActivityAt: nowMs,
         }
       }
-      return {
+      return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "done",
         quota: state.quota,
-      }
+      })
 
     /**
      * The other turn terminator: `agent.send()` resolves on connector.reply,
@@ -545,11 +567,11 @@ export function turnStateFromEvent(
       if (state.activeToolCalls.length > 0) {
         return { ...state, awaitingResponse: false, lastActivityAt: nowMs }
       }
-      return {
+      return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "done",
         quota: state.quota,
-      }
+      })
 
     case "inference.error": {
       const quota = quotaFromInferenceError(event.data, nowMs)
@@ -561,15 +583,24 @@ export function turnStateFromEvent(
     }
 
     case "reactor.done":
-      return { ...initialTurnState(nowMs), quota: state.quota }
+      return carryBlockedGateCount(state, {
+        ...initialTurnState(nowMs),
+        quota: state.quota,
+      })
 
     case "reactor.error":
-      return { ...initialTurnState(nowMs), status: "failed" }
+      return carryBlockedGateCount(state, {
+        ...initialTurnState(nowMs),
+        status: "failed",
+      })
 
     case "run":
       return event.state === "busy"
         ? turnStateOnSubmit(state, nowMs)
-        : { ...initialTurnState(nowMs), quota: state.quota }
+        : carryBlockedGateCount(state, {
+            ...initialTurnState(nowMs),
+            quota: state.quota,
+          })
 
     default:
       return state
