@@ -1,0 +1,20 @@
+{
+  "name": "@corbits/exa-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "interchange": {
+    "tools": "./src/tools.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/tools.ts",
+      "default": "./src/tools.ts"
+    }
+  },
+  "dependencies": {
+    "@corbits/mcp-adapter": "0.1.0",
+    "@intx/agent": "0.2.2"
+  }
+}
