@@ -3940,7 +3940,6 @@ export function acceptOverlaySelection(shell: AppShell): void {
       appendStreamRow(shell, {
         role: "system",
         text: `palette: no action for ${label}`,
-        meta: "palette",
       })
     }
     return
@@ -4016,7 +4015,6 @@ export function dispatchPaletteSelection(
     appendStreamRow(shell, {
       role: "system",
       text: `palette: /${cmd.id} (no onCommand handler)`,
-      meta: "palette",
     })
     return
   }
@@ -4027,7 +4025,6 @@ export function dispatchPaletteSelection(
   appendStreamRow(shell, {
     role: "system",
     text: `palette: unknown residual ${cmd.id}`,
-    meta: "palette",
   })
 }
 
