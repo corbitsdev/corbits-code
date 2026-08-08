@@ -149,7 +149,9 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const { drawProg, fillProg, alpha } = markFrame(seconds, input.still)
   const revealed = drawProg * shape.cols
   const fillLine = shape.rows * (1 - fillProg)
-  const snowOn = !input.still
+  // Fade out drops the snow too so the decoration doesn't outlast the mark
+  // it drifts over.
+  const snowOn = !input.still && alpha === 1
 
   const grid: MarkCell[][] = []
   for (let row = 0; row < shape.rows; row++) {

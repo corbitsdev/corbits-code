@@ -209,4 +209,13 @@ describe("renderMark", () => {
     expect(markText(b)).toBe(markText(a))
     expect(a.flat().some((cell) => isSnow(cell.char))).toBe(false)
   })
+
+  test("snow drops out during the fade-out phase, matching the mark", () => {
+    const fading = renderMark({
+      nowMs: 0.995 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+      grid: MARK_LARGE,
+    })
+    expect(fading.flat().some((cell) => isSnow(cell.char))).toBe(false)
+  })
 })
