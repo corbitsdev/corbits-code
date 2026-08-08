@@ -95,12 +95,25 @@ export type ChromeLiveState = {
   } | null
 }
 
+/**
+ * One rendered agents-panel row. `stalled` is a fact the formatter already
+ * knows from `agentProgress` — carried explicitly so the renderer never has
+ * to recover it by sniffing `text` for a marker string. `label` (agentId +
+ * description) is the part the renderer may ellipsize under width pressure;
+ * `tail` (elapsed/tool/stalled) must never be trimmed away.
+ */
+export type AgentPanelRow = {
+  readonly label: string
+  readonly tail: string
+  readonly stalled: boolean
+}
+
 /** Always-populated result for setChromeZones (null = hide zone). */
 export type FormattedChromeZones = {
   readonly goal: string | null
   readonly task: string | null
-  /** One line per rendered agents-panel row (null = hide zone, zero rows). */
-  readonly agents: readonly string[] | null
+  /** One row per rendered agents-panel line (null = hide zone, zero rows). */
+  readonly agents: readonly AgentPanelRow[] | null
 }
 
 const PHASE_SHORT: Record<string, string> = {
@@ -225,47 +238,51 @@ export function formatAgentsPanel(
   nowMs: number,
   maxVisible: number = AGENTS_PANEL_MAX_VISIBLE,
   stallMs: number = DEFAULT_STALL_MS,
-): readonly string[] | null {
-  const observeLine = formatObserveLine(observe)
-  if (observeLine !== undefined) return observeLine === null ? null : [observeLine]
+): readonly AgentPanelRow[] | null {
+  const observeRow = formatObserveRow(observe)
+  if (observeRow !== undefined) return observeRow === null ? null : [observeRow]
 
   if (agents === null || agents === undefined || agents.length === 0) return null
 
   const running = agents.filter((s) => s.status === "running")
   if (running.length === 0) return null
 
-  // Oldest last-activity first: when a fan-out exceeds maxVisible, the
-  // agent most likely to be stalled must stay on screen, not the caller's
-  // input order (the real feed sorts running sessions newest-first, which
-  // would otherwise fold the stalled worker into "+N more" and hide it).
-  const byStaleness = [...running].sort(
-    (a, b) => (a.lastActivityAt ?? a.startedAt ?? 0) - (b.lastActivityAt ?? b.startedAt ?? 0),
+  // Two different sorts for two different jobs. Selection (which N survive
+  // a fan-out past maxVisible) must key on staleness, or the stalest —
+  // most likely stalled — agent is exactly the one that gets folded into
+  // "+N more". Presentation must NOT key on staleness: lastActivityAt is
+  // the most rapidly-changing field in the record, so sorting rows by it
+  // reshuffles the panel on every tool event. startedAt never changes for
+  // a live agent, so it gives stable row order; agentId breaks ties since
+  // a simultaneous fan-out can share a startedAt and the input feed's own
+  // order (newest-first, itself not stable under updates) must not leak
+  // through as a tiebreak.
+  const selected = [...running]
+    .sort(
+      (a, b) => (a.lastActivityAt ?? a.startedAt ?? 0) - (b.lastActivityAt ?? b.startedAt ?? 0),
+    )
+    .slice(0, maxVisible)
+  const hidden = running.length - selected.length
+
+  const presented = [...selected].sort(
+    (a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.agentId.localeCompare(b.agentId),
   )
-  const visible = byStaleness.slice(0, maxVisible)
-  const rows = visible.map((s) => formatAgentRow(s, nowMs, stallMs))
-  const hidden = running.length - visible.length
-  if (hidden > 0) rows.push(`+${hidden} more`)
+  const rows = presented.map((s) => formatAgentRow(s, nowMs, stallMs))
+  if (hidden > 0) rows.push({ label: `+${hidden} more`, tail: "", stalled: false })
   return rows
 }
 
-function formatObserveLine(observe: ChromeLiveState["observe"]): string | null | undefined {
+function formatObserveRow(observe: ChromeLiveState["observe"]): AgentPanelRow | null | undefined {
   if (observe === null || observe === undefined) return undefined
   const id = observe.agentId.trim()
   const desc = observe.description.trim()
   if (id.length === 0 && desc.length === 0) return null
   const label =
     id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc
-  return `observe: ${label}`
+  return { label: `observe: ${label}`, tail: "", stalled: false }
 }
 
-/**
- * Suffix marking a stalled row. Exported so the renderer (`shell.ts`) can
- * detect stalled rows from the same literal this module writes, instead of
- * each side hand-maintaining its own copy of the string to sniff.
- */
-export const STALLED_ROW_SUFFIX = " · stalled"
-
-function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: number): string {
+function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: number): AgentPanelRow {
   const label = `${session.agentId}: ${session.description}`.trim()
   const progress =
     session.startedAt !== undefined
@@ -282,16 +299,15 @@ function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: num
       : null
 
   if (progress !== null) {
-    const stalledSuffix = progress.stalled ? STALLED_ROW_SUFFIX : ""
-    return `${label} · ${progress.stat}${stalledSuffix}`
+    const tail = progress.stalled ? ` · ${progress.stat} · stalled` : ` · ${progress.stat}`
+    return { label, tail, stalled: progress.stalled }
   }
 
   // No startedAt to compute a clock from (host omitted it) — still surface
   // the tool name so the row is not silently missing detail it has.
   const tool = session.currentToolName
-  return tool !== undefined && tool !== null && tool.length > 0
-    ? `${label} · ${tool}`
-    : label
+  const tail = tool !== undefined && tool !== null && tool.length > 0 ? ` · ${tool}` : ""
+  return { label, tail, stalled: false }
 }
 
 /**

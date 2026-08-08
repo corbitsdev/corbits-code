@@ -290,7 +290,7 @@ describe("Wave 6: chrome zones", () => {
           setChromeZones(shell, {
             goal: "goal: Wave 6",
             task: "task: chrome zones",
-            agents: ["explore: map callers"],
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
           expect(shell.layout.heights.goal).toBe(1)
@@ -330,7 +330,9 @@ describe("Wave 6: chrome zones", () => {
           wireKeys: false,
         })
         try {
-          setChromeZones(shell, { agents: ["explore: map callers"] })
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
           const rowsBefore = [...shell.agentsBox.getChildren()]
           expect(rowsBefore).toHaveLength(1)
 
@@ -339,13 +341,56 @@ describe("Wave 6: chrome zones", () => {
           expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
 
           // Pushing the exact same agent lines again must not rebuild either.
-          setChromeZones(shell, { agents: ["explore: map callers"] })
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
           expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
 
           // Changed lines must rebuild.
-          setChromeZones(shell, { agents: ["explore: map callers · 0:01"] })
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: " · 0:01", stalled: false }],
+          })
           expect([...shell.agentsBox.getChildren()]).not.toEqual(rowsBefore)
           expect(shell.agentsBox.getChildren()).toHaveLength(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a long agent description is ellipsized to the zone width, never wrapped or clipped", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const longDescription =
+            "investigate why the reactor loop keeps re-emitting duplicate tool_call.start events under concurrent subagent dispatch"
+          setChromeZones(shell, {
+            agents: [
+              { label: `explore: ${longDescription}`, tail: " · 0:42 · grep", stalled: false },
+            ],
+          })
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"))
+          expect(agentLine).toBeDefined()
+          // The frame line includes the shell's left side margin ahead of
+          // the zone's own content width.
+          expect(agentLine?.trimEnd().length).toBeLessThanOrEqual(
+            shell.layout.sideMargin + shell.layout.contentWidth,
+          )
+          // The tail (what an operator glances at the panel to see) survives
+          // whole; only the free-form label is ellipsized.
+          expect(agentLine).toContain("…")
+          expect(agentLine).not.toContain(longDescription)
         } finally {
           shell.dispose()
         }

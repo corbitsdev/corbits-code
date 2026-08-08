@@ -124,6 +124,25 @@ describe("resolveGeometry — agents panel", () => {
     const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
+
+  test("under pressure the panel shrinks one row at a time rather than vanishing in one step", () => {
+    // A short terminal plus a couple of banners leaves a deficit banner
+    // rows alone cannot cover, forcing the resolver into the agents zone.
+    // A cliff bug would jump straight from the full request to 0; the fix
+    // must land partway, still nonzero and still under its full request.
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 20 },
+      visibility: {
+        commandBanner: 1,
+        settingsNotice: 1,
+        pluginBanner: true,
+        agents: AGENTS_PANEL_MAX_VISIBLE + 1,
+      },
+    });
+    expect(layout.heights.agents).toBeGreaterThan(0);
+    expect(layout.heights.agents).toBeLessThan(AGENTS_PANEL_MAX_VISIBLE + 1);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+  });
 });
 
 describe("resolveGeometry — collapse rules", () => {

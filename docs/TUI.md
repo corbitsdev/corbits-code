@@ -75,6 +75,26 @@ terminal state (done/failed/cancelled) do not occupy a row; zero running
 agents is zero rows and zero chrome. `observe` mode overrides the panel with a
 single `observe: <agentId> — <description>` line instead of per-agent rows.
 
+Which agents survive a fan-out past `AGENTS_PANEL_MAX_VISIBLE`, and the order
+those survivors render in, are two different questions with two different
+answers (`formatAgentsPanel` in `chrome-state.ts`). Selection — which N
+agents are shown before the rest fold into `+N more` — keys on staleness
+(`lastActivityAt`), so the agent most likely to be stalled is guaranteed a
+row rather than the caller's feed order (which sorts running sessions
+newest-first) silently hiding it. Presentation — the order the surviving
+rows paint in — keys on `startedAt` instead: `lastActivityAt` changes on
+every tool event, so sorting the visible rows by it would reshuffle the
+panel on every repaint. `startedAt` is stable for the life of a running
+agent, with `agentId` as a tiebreak for a simultaneous fan-out.
+
+Under space pressure, the zone shrinks one row at a time toward 1 rather
+than collapsing straight to 0 (`COLLAPSE_ORDER` treats it like `progress`,
+not like the single-row `goal`/`task` strips) — a 1-row panel still carries
+the stalest agent plus its `+N more` trailer, so it stays meaningful all
+the way down. Only once every other collapsible zone ahead of it in
+`COLLAPSE_ORDER` and the panel itself are exhausted does it reach 0, the
+same last-resort floor every other optional zone shares.
+
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider

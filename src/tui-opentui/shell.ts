@@ -6,7 +6,7 @@
  */
 
 import { homedir } from "node:os"
-import { STALLED_ROW_SUFFIX } from "./chrome-state.js"
+import type { AgentPanelRow } from "./chrome-state.js"
 
 import {
   BoxRenderable,
@@ -739,6 +739,10 @@ function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
     notice: false,
     progress: false,
     progressDivider: false,
+    // Explicit 0 rather than left undefined: the agents field is now a row
+    // count, and setChromeZones compares it by ===, so an undefined start
+    // forces one needless relayout the first time it is ever compared.
+    agents: 0,
     ...visibility,
   }
 }
@@ -1806,7 +1810,7 @@ type ShellInternals = {
     goal: string
     task: string
     /** Agents panel rows (empty array = zone off), one row per rendered line. */
-    agents: readonly string[]
+    agents: readonly AgentPanelRow[]
   }
 }
 
@@ -4000,7 +4004,9 @@ export function runPaletteAction(
       const bag = internals.get(shell)
       const on = (bag?.chrome.agents.length ?? 0) > 0
       setChromeZones(shell, {
-        agents: on ? null : ["explore: map callers"],
+        agents: on
+          ? null
+          : [{ label: "explore: map callers", tail: "", stalled: false }],
       })
       appendStreamRow(shell, {
         role: "system",
@@ -4044,29 +4050,48 @@ export function runPaletteAction(
 export type ChromeZoneContent = {
   readonly goal?: string | null
   readonly task?: string | null
-  /** One line per agents-panel row. Null/empty = hide the zone. */
-  readonly agents?: readonly string[] | null
+  /** One row per agents-panel line. Null/empty = hide the zone. */
+  readonly agents?: readonly AgentPanelRow[] | null
 }
 
-/** A stalled row reads distinct from a working one by both label and color. */
-function isStalledAgentRow(line: string): boolean {
-  return line.endsWith(STALLED_ROW_SUFFIX)
+/**
+ * Fit a row's label + tail into `maxWidth` columns, ellipsizing the label
+ * (agentId + description — free-form, model-authored, routinely long)
+ * before ever touching the tail (elapsed/tool/stalled). The tail carries
+ * the fact an operator glances at the panel to see, so it is preserved
+ * whole or not shown at all.
+ */
+function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
+  const full = ` ${row.label}${row.tail}`
+  if (full.length <= maxWidth) return full
+
+  const budget = maxWidth - 1 - row.tail.length - 1 // leading space + ellipsis
+  if (budget <= 0) {
+    // Not even the tail fits — show as much of the tail as there is room
+    // for rather than an unreadable sliver of the label.
+    return ` ${full.slice(1, Math.max(0, maxWidth))}`
+  }
+  return ` ${row.label.slice(0, budget)}…${row.tail}`
 }
 
-/** Rebuild agentsBox's row children to match the requested lines exactly. */
-function renderAgentsRows(shell: AppShell, lines: readonly string[]): void {
+/** Rebuild agentsBox's row children to match the requested rows exactly. */
+function renderAgentsRows(
+  shell: AppShell,
+  rows: readonly AgentPanelRow[],
+  maxWidth: number,
+): void {
   for (const child of [...shell.agentsBox.getChildren()]) {
     shell.agentsBox.remove(child)
     destroySubtree(child)
   }
-  for (const line of lines) {
+  for (const row of rows) {
     // Green for working, not the task zone's bronze immediately above it —
     // adjacent zones sharing a hue read as one undifferentiated block.
-    const row = new TextRenderable(shell.renderer as CliRenderer, {
-      content: ` ${line}`,
-      fg: isStalledAgentRow(line) ? UI.textDim : UI.done,
+    const text = new TextRenderable(shell.renderer as CliRenderer, {
+      content: fitAgentRow(row, maxWidth),
+      fg: row.stalled ? UI.textDim : UI.done,
     })
-    shell.agentsBox.add(row)
+    shell.agentsBox.add(text)
   }
 }
 
@@ -4092,7 +4117,15 @@ export function setChromeZones(
     const next = content.agents ?? []
     agentsChanged =
       next.length !== bag.chrome.agents.length ||
-      next.some((line, i) => line !== bag.chrome.agents[i])
+      next.some((row, i) => {
+        const prev = bag.chrome.agents[i]
+        return (
+          prev === undefined ||
+          row.label !== prev.label ||
+          row.tail !== prev.tail ||
+          row.stalled !== prev.stalled
+        )
+      })
     bag.chrome.agents = next
   }
 
@@ -4105,7 +4138,9 @@ export function setChromeZones(
   // Rebuilding N TextRenderable children is real node churn; skip it unless
   // the panel's actual lines changed (not every goal/task/agents push carries
   // new agent data).
-  if (agentsChanged) renderAgentsRows(shell, bag.chrome.agents)
+  if (agentsChanged) {
+    renderAgentsRows(shell, bag.chrome.agents, shell.layout.contentWidth)
+  }
 
   // Only a zone appearing/disappearing or its row count changing alters the
   // row budget; retitling a zone whose row count is unchanged must not
@@ -4275,7 +4310,13 @@ export function enterSubagentObserve(
 
   shell.focus = openObserve(shell.focus, `observe-${session.sessionId}`)
   setChromeZones(shell, {
-    agents: [`observe: ${session.agentId} — ${session.description}`],
+    agents: [
+      {
+        label: `observe: ${session.agentId} — ${session.description}`,
+        tail: "",
+        stalled: false,
+      },
+    ],
   })
   // Child chrome toast — must not route to parent snapshot.
   appendObserveStreamRow(shell, {

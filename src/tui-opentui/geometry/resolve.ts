@@ -238,6 +238,22 @@ function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | nu
       return "progress";
     }
 
+    if (id === "agents") {
+      // Shrink one row at a time rather than zeroing in one step: a 1-row
+      // panel still carries the stalest agent plus a "+N more" trailer
+      // (formatAgentsPanel's selection sort guarantees that ordering), so
+      // it stays meaningful all the way down instead of the zone vanishing
+      // under exactly the pressure an operator most needs to see it.
+      if (h > 1) {
+        heights.agents = h - 1;
+        if (!collapsed.includes("agents")) collapsed.push("agents");
+        return "agents";
+      }
+      heights.agents = 0;
+      if (!collapsed.includes("agents")) collapsed.push("agents");
+      return "agents";
+    }
+
     // Drop optional / shrinkable to 0.
     heights[id] = 0;
     if (!collapsed.includes(id)) collapsed.push(id);
