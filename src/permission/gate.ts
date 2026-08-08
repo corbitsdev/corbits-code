@@ -6,6 +6,7 @@ import {
   buildRequests,
   isAutoAllowedShellCall,
   isAutoAllowedShellSegment,
+  isSingleShellCommand,
   callTargetsRestricted,
   commandTargetsRestricted,
   MEGA_CHAIN_SEGMENT_THRESHOLD,
@@ -29,17 +30,6 @@ import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
-
-// A run_shell pre-approval must name exactly one real command — not a chain
-// (`a && b`), not a pipeline (`a | b`), not an empty or whitespace-only string.
-// Rejecting anything else here keeps ask_operator's `command` argument from
-// minting a grant broader than the single command the operator actually saw.
-function isSingleShellCommand(command: string): boolean {
-  const trimmed = command.trim();
-  if (trimmed.length === 0) return false;
-  if (splitChainedCommand(trimmed).length !== 1) return false;
-  return tokenize(trimmed).length > 0;
-}
 
 // Multi-segment shell may only short-circuit on an exact full-command grant.
 // Prefix globs like `npm *` must not match `npm i && curl x` — the unapproved

