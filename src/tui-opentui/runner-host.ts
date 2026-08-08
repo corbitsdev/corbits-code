@@ -132,10 +132,16 @@ export type RunnerHost = ProductHost & {
    * Recompute the models-first catalog from fresh recent/favorite refs and
    * push it into the already-open host — the picker's Recent/Favorites
    * sections would otherwise never reflect a same-session selection.
+   *
+   * `providers`/`unconnected` default to the values last passed here (or the
+   * mount-time deps) — pass fresh ones after a live provider connect so a
+   * newly authorized provider's models appear without a restart.
    */
   readonly refreshModels: (
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
+    providers?: ModelCatalogProvidersInput,
+    unconnected?: readonly ModelCatalogUnconnectedProvider[],
   ) => void
   /** Re-reads `showPromptCost` and cost/context state, repainting the border immediately. */
   readonly refreshCostContext: () => void
@@ -210,16 +216,20 @@ export function observeSessionFromSubAgents(
 
 /** Mount the OpenTUI host for a live session. */
 export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost> {
+  // Mutable so a live provider connect (see refreshModels below) can replace
+  // the catalog source without remounting the host.
+  let liveProviders = deps.providers
+  let liveUnconnected = deps.unconnectedProviders ?? []
   let catalog: readonly ModelCatalogOption[] = buildModelsFirstCatalog({
-    providers: deps.providers,
+    providers: liveProviders,
     recent: deps.recentModels ?? [],
     favorites: deps.favoriteModels ?? [],
-    unconnected: deps.unconnectedProviders ?? [],
+    unconnected: liveUnconnected,
   })
   const describeModel = (itemId: string): ItemDescription | null =>
     describeModelCatalogOption(
       catalog.find((o) => o.id === itemId) ?? { id: itemId, label: itemId },
-      { unconnected: deps.unconnectedProviders ?? [] },
+      { unconnected: liveUnconnected },
     )
   const readModelLabel = deps.modelLabel
   const onModelSelect = (id: string): void => {
@@ -323,12 +333,16 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const refreshModels = (
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
+    providers?: ModelCatalogProvidersInput,
+    unconnected?: readonly ModelCatalogUnconnectedProvider[],
   ): void => {
+    if (providers !== undefined) liveProviders = providers
+    if (unconnected !== undefined) liveUnconnected = unconnected
     catalog = buildModelsFirstCatalog({
-      providers: deps.providers,
+      providers: liveProviders,
       recent: recentModels,
       favorites: favoriteModels,
-      unconnected: deps.unconnectedProviders ?? [],
+      unconnected: liveUnconnected,
     })
     host.setModels?.(catalog, describeModel)
   }

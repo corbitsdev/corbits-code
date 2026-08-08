@@ -13,7 +13,13 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { getLogger } from "@intx/log";
 import { createOptimizedContextStore, loadRecentTurns } from "../session/optimized-context-store.js";
 import { type } from "arktype";
-import { buildCodexSource, buildOpenAISource, buildXaiSource, type Config } from "../config/index.js";
+import {
+  buildCodexSource,
+  buildOpenAISource,
+  buildXaiSource,
+  refreshLiveProviderCatalog,
+  type Config,
+} from "../config/index.js";
 import {
   globalSettingsPath,
   loadLocalSettings,
@@ -31,11 +37,13 @@ import {
   markLastChangelogVersion,
   toggleFavoriteModel,
   type ModelRef,
+  type ResolvedProvider,
   type Settings,
   type LocalSettings,
   type PluginConfig,
 } from "../config/settings.js";
-import { providerChoices } from "../tui-opentui/provider-setup.js";
+import { unconnectedProviderChoices } from "../tui-opentui/provider-setup.js";
+import { connectProviderInline } from "../tui-opentui/provider-connect.js";
 import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { createGateRequestApproval } from "./request-approval.js";
@@ -1930,6 +1938,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Mount OpenTUI before the initial task is sent so gate and stream listeners
   // are registered first. Ctrl+C stays with the shell (interrupt the run);
   // OpenTUI owns the alternate screen and mouse reporting itself.
+  // Providers the picker offers as "connect →" rows: known choices minus
+  // whatever is already in the live catalog. Recomputed after a live connect
+  // so a newly authorized provider drops out of this list immediately.
+  const computeUnconnectedProviders = (providers: Config["providers"]) =>
+    unconnectedProviderChoices(providers).map((choice) => ({
+      name: choice.id,
+      label: choice.label,
+      modelCount: choice.models.length,
+      authKind: choice.oauth !== null ? ("oauth" as const) : ("key" as const),
+    }));
+
   const host = await mountRunnerHost({
     // An unnamed session shows nothing rather than a placeholder.
     title: runTaskTitle,
@@ -1954,21 +1973,50 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     providers: config.providers,
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
-    unconnectedProviders: providerChoices()
-      .filter((choice) => !choice.custom)
-      .filter((choice) => !config.providers.some((p) => p.name === choice.id))
-      .map((choice) => ({
-        name: choice.id,
-        label: choice.label,
-        modelCount: choice.models.length,
-        authKind: choice.oauth !== null ? ("oauth" as const) : ("key" as const),
-      })),
+    unconnectedProviders: computeUnconnectedProviders(config.providers),
     onConnectProvider: (providerName) => {
-      // Live inline connect (CL-5499) needs a text-input-capable overlay that
-      // does not exist in shell.ts's list-overlay kit yet — see AGENTS report.
-      systemRow(
-        `Connecting ${providerName} from the running session isn't wired up yet — run /model after restarting, or reconnect via onboarding.`,
-      );
+      void (async () => {
+        let result: Awaited<ReturnType<typeof connectProviderInline>>;
+        try {
+          result = await connectProviderInline({
+            providerId: providerName,
+            settingsPath: trueGlobalSettingsPath,
+            localSettingsPath: localSettingsFile,
+            cwd: config.cwd,
+            existing: config.settings ?? null,
+          });
+        } catch (err) {
+          systemRow(
+            `Connecting ${providerName} failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return;
+        }
+        if (!result.connected) return;
+
+        const onDisk = await loadSettings(trueGlobalSettingsPath);
+        const resolvedForCatalog: ResolvedProvider = {
+          apiKey: config.apiKey,
+          baseURL: config.baseURL,
+          model: config.model,
+          providerName: config.providerName,
+          ...(config.keyless !== undefined ? { keyless: config.keyless } : {}),
+        };
+        const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
+        config = { ...config, providers, ...(onDisk !== null ? { settings: onDisk } : {}) };
+        liveSubAgentCatalog.current = providers;
+        liveSubAgentSettings.current = config.settings;
+        host.refreshModels(
+          listRecentModels(config.settings ?? { providers: {} }),
+          listFavoriteModels(config.settings ?? { providers: {} }),
+          providers,
+          computeUnconnectedProviders(providers),
+        );
+        systemRow(`Connected ${result.providerName ?? providerName}. Open /model to pick a model.`);
+      })().catch((err: unknown) => {
+        tuiLogger.debug("provider connect failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     },
     modelLabel: () => ({
       profile: config.providerName,

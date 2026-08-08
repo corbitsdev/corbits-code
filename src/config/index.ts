@@ -557,11 +557,7 @@ export async function loadConfig(
     noWorkflow,
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
-    providers: [
-      ...buildProviderCatalog(settings, resolved).filter((e) => !isCodexProviderName(e.name) && !isXaiProviderName(e.name)),
-      ...codexProfilesToCatalogEntries(codexProfiles),
-      ...xaiProfilesToCatalogEntries(xaiProfiles),
-    ],
+    providers: mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
@@ -581,6 +577,35 @@ export async function loadConfig(
     ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
     ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
   };
+}
+
+// Settings-file providers plus Codex/xAI OAuth profile-store entries, merged
+// the same way loadConfig assembles Config.providers. Exposed so a live
+// provider connect (mid-session, no restart) can rebuild the picker's
+// catalog after writing new credentials, instead of only taking effect on
+// the next process start.
+function mergeOAuthCatalog(
+  settings: Settings | null,
+  resolved: ResolvedProvider,
+  codexProfiles: readonly CodexProfile[],
+  xaiProfiles: readonly XaiProfile[],
+): ProviderCatalogEntry[] {
+  return [
+    ...buildProviderCatalog(settings, resolved).filter(
+      (e) => !isCodexProviderName(e.name) && !isXaiProviderName(e.name),
+    ),
+    ...codexProfilesToCatalogEntries(codexProfiles),
+    ...xaiProfilesToCatalogEntries(xaiProfiles),
+  ];
+}
+
+/** Rescans home-level Codex/xAI credential stores and rebuilds the live provider catalog. */
+export async function refreshLiveProviderCatalog(
+  settings: Settings | null,
+  resolved: ResolvedProvider,
+): Promise<ProviderCatalogEntry[]> {
+  const [codexProfiles, xaiProfiles] = await Promise.all([listCodexProfiles(), listXaiProfiles()]);
+  return mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles);
 }
 
 export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
