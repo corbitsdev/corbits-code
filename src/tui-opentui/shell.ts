@@ -2111,8 +2111,13 @@ function evictedRowsNotice(evicted: number): string {
  * mounted the wording rides the notice strip and the row is held for flush
  * once a real session row ends the landing; after that it is a normal system
  * row.
+ *
+ * Every producer of a system-class row belongs here rather than at
+ * `appendStreamRow`. CL-5618 fixed the MCP and hook producers one at a time
+ * and the plugin producer kept the defect, which is what per-call-site rules
+ * buy you. Reaching for `appendStreamRow` directly is the bug.
  */
-export function surfaceStartupNotice(shell: AppShell, text: string): void {
+export function surfaceSystemNotice(shell: AppShell, text: string): void {
   if (isLanding(shell)) {
     const bag = internals.get(shell)
     if (bag !== undefined) {
@@ -3933,7 +3938,6 @@ export function acceptOverlaySelection(shell: AppShell): void {
       appendStreamRow(shell, {
         role: "system",
         text: `palette: no action for ${label}`,
-        meta: "palette",
       })
     }
     return
@@ -4009,7 +4013,6 @@ export function dispatchPaletteSelection(
     appendStreamRow(shell, {
       role: "system",
       text: `palette: /${cmd.id} (no onCommand handler)`,
-      meta: "palette",
     })
     return
   }
@@ -4020,7 +4023,6 @@ export function dispatchPaletteSelection(
   appendStreamRow(shell, {
     role: "system",
     text: `palette: unknown residual ${cmd.id}`,
-    meta: "palette",
   })
 }
 

@@ -65,9 +65,25 @@ export const LANDING_HINTS: readonly {
   { key: "?", rest: "for shortcuts" },
 ]
 
+/**
+ * Columns held for the key, so the descriptions beside them start on one
+ * column. Ragged, the pair reads as two unrelated lines rather than as a set.
+ */
+export const LANDING_KEY_WIDTH = LANDING_HINTS.reduce(
+  (widest, hint) => Math.max(widest, hint.key.length),
+  0,
+)
+
+/** Air between the key column and the description it labels. */
+const LANDING_KEY_GAP = 2
+
 /** Columns the hint block needs, its longest line deciding. */
 export const LANDING_HINT_WIDTH = Math.max(
-  LANDING_HINTS.reduce((widest, hint) => Math.max(widest, hint.key.length + 1 + hint.rest.length), 0),
+  LANDING_HINTS.reduce(
+    (widest, hint) =>
+      Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
+    0,
+  ),
   LANDING_VERSION.length,
 )
 
@@ -336,17 +352,30 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     backgroundColor: UI.ground,
   })
   LANDING_HINTS.forEach((hint, index) => {
+    const gap = " ".repeat(
+      LANDING_KEY_WIDTH - hint.key.length + LANDING_KEY_GAP,
+    )
     block.add(
       new TextRenderable(ctx, {
         id: `shell-landing-hint-${index}`,
         height: 1,
         content: new StyledText([
           fgChunk(UI.text)(hint.key),
-          fgChunk(UI.textDim)(` ${hint.rest}`),
+          fgChunk(UI.textDim)(`${gap}${hint.rest}`),
         ]),
       }),
     )
   })
+  // The build is a fact about what is running, not a third door. Flush against
+  // the two keys it read as one of them.
+  block.add(
+    new TextRenderable(ctx, {
+      id: "shell-landing-version-gap",
+      height: 1,
+      content: "",
+      fg: UI.ground,
+    }),
+  )
   block.add(
     new TextRenderable(ctx, {
       id: "shell-landing-version",
@@ -364,7 +393,9 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
  */
 export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
   above.grid = grid
-  const rows = grid?.rows ?? LANDING_HINTS.length + 1
+  // With no mark, the hero is exactly the hint block: the two keys, the blank
+  // row, and the version.
+  const rows = grid?.rows ?? LANDING_HINTS.length + 2
   above.hero.height = rows
   above.markColumn.visible = grid !== null
   above.markColumn.width = grid?.cols ?? 0

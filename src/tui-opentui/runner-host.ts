@@ -31,12 +31,12 @@ import type { ItemDescription } from "./shell.js"
 import { mountProductHost, type ProductHost } from "./product-host.js"
 import { onTurnBoundary } from "../agent/reactor-events.js"
 import {
-  appendStreamRow,
   clearShellExitHandler,
   setPromptCostContext,
   setPromptModelLabel,
   setPromptWorkspace,
   setShellExitHandler,
+  surfaceSystemNotice,
 } from "./shell.js"
 import type { CostSummary } from "../cost/cost-summary.js"
 import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
@@ -326,8 +326,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const surfaceDeps: CommandSurfaceDeps = {
     ...(deps.surfaces ?? {}),
     ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
-    notify: (text) =>
-      appendStreamRow(host.shell, { role: "system", text, meta: "command" }),
+    notify: (text) => surfaceSystemNotice(host.shell, text),
   }
 
   const refreshModels = (
