@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { createTelemetryToggleHandler, type TelemetryToggleDeps } from "../../src/telemetry/toggle.js";
-import { createTelemetry } from "../../src/telemetry/index.js";
+import { createTelemetry, getSessionId } from "../../src/telemetry/index.js";
 import type { Settings } from "../../src/config/settings.js";
 import type { Telemetry } from "../../src/telemetry/index.js";
 
@@ -177,4 +177,40 @@ test("toggle on re-enables after settings load/save resolve", async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(saved?.telemetry?.enabled).toBe(true);
   expect(getInstance().enabled).toBe(true);
+});
+
+test("session_id on captured payloads stays constant across an enable/disable/enable toggle cycle", async () => {
+  const capturedBodies: { properties: Record<string, unknown> }[] = [];
+  const fetchFn = ((_url: string, init: RequestInit) => {
+    capturedBodies.push(JSON.parse(init.body as string));
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  const { deps, getInstance } = fakeDeps({
+    createTelemetry: (opts) =>
+      createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
+  });
+  const handler = createTelemetryToggleHandler("/fake/path", deps);
+
+  // Re-enable once up front so the captured instance is one built through
+  // deps.createTelemetry (and thus fetchFn) rather than fakeDeps' bootstrap
+  // instance, which is wired to its own separate fetch counter.
+  handler(true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  getInstance().capture("cli_start");
+
+  handler(false);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  getInstance().capture("cli_start"); // disabled: no fetch, but proves the swapped instance is live
+
+  handler(true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  getInstance().capture("cli_start");
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(capturedBodies.length).toBe(2);
+  const sessionId = capturedBodies[0].properties.session_id;
+  expect(typeof sessionId).toBe("string");
+  expect((sessionId as string).length).toBeGreaterThan(0);
+  expect(capturedBodies[1].properties.session_id).toBe(sessionId);
+  expect(sessionId).toBe(getSessionId());
 });

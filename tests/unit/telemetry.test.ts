@@ -2,7 +2,12 @@ import { test, expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTelemetry, resolveTelemetryEnabled, telemetryDisabledByEnv } from "../../src/telemetry/index.js";
+import {
+  createTelemetry,
+  getSessionId,
+  resolveTelemetryEnabled,
+  telemetryDisabledByEnv,
+} from "../../src/telemetry/index.js";
 import { ensureTelemetrySettings } from "../../src/config/settings.js";
 import type { Settings } from "../../src/config/settings.js";
 
@@ -238,6 +243,30 @@ test("flush resolves even when the underlying fetch rejects", async () => {
 test("flush resolves immediately when nothing is pending", async () => {
   const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, apiKey: "" });
   await expect(telemetry.flush()).resolves.toBeUndefined();
+});
+
+test("capture attaches the same session_id across multiple events in one process", async () => {
+  const calls: unknown[] = [];
+  const impl = ((_url: string, init: RequestInit) => {
+    calls.push(JSON.parse(init.body as string));
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  const telemetry = createTelemetry({
+    settings: settingsWith("my-install-id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
+  telemetry.capture("cli_start");
+  telemetry.capture("session_end", { status: "ok" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls.length).toBe(2);
+  const bodies = calls as { properties: Record<string, unknown> }[];
+  const sessionId = bodies[0].properties.session_id;
+  expect(typeof sessionId).toBe("string");
+  expect((sessionId as string).length).toBeGreaterThan(0);
+  expect(bodies[1].properties.session_id).toBe(sessionId);
+  expect(sessionId).toBe(getSessionId());
 });
 
 test("ensureTelemetrySettings called twice keeps installationId and enabled flag unchanged", async () => {
