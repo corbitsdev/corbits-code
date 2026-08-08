@@ -227,6 +227,45 @@ describe("mountRunnerHost model picker", () => {
     }
   })
 
+  test("refreshModels swaps in a freshly connected provider and drops its connect row", async () => {
+    // Mount-time deps are a snapshot; a live provider connect (CL-5602) must be
+    // able to replace them without remounting the host, or the newly connected
+    // provider's models never appear and its "connect →" row never clears.
+    const harness = await createHarness({ width: 80, height: 24 })
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      unconnectedProviders: [
+        { name: "openai", label: "OpenAI", modelCount: 1, authKind: "key" },
+      ],
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ goal: null, agents: [] }),
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      host.refreshModels(
+        [],
+        [],
+        { xai: { models: ["grok-4"] }, openai: { models: ["gpt-5"] } },
+        [],
+      )
+      expect(host.openSurface("models")).toBe(true)
+      // The connect row is gone and the provider now has its own group row
+      // (drilling into it would surface "gpt-5") instead of a stub message.
+      expect(host.shell.overlayItems).toContain("openai")
+      expect(host.shell.overlayItems).not.toContain("OpenAI — connect →")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
   test("f toggles favorite on the focused row via onFavoriteToggle", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     const toggled: string[] = []

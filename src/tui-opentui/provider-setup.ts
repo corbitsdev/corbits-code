@@ -277,6 +277,30 @@ export function providerChoiceById(id: string): ProviderChoice | undefined {
   return providerChoices().find((c) => c.id === id)
 }
 
+/**
+ * Whether `choice` already has a connected provider in `providers`. OAuth
+ * choices (`codex`, `xai`) are keyed by vendor id, but a signed-in account
+ * lands in the catalog as `codex/<profile>` / `xai/<profile>` — one row per
+ * account — so exact-id matching alone never clears the "connect" row after
+ * a successful browser login. Key-based choices still match by exact id.
+ */
+export function isChoiceConnected(
+  choice: ProviderChoice,
+  providers: readonly { readonly name: string }[],
+): boolean {
+  return providers.some(
+    (p) => p.name === choice.id || (choice.oauth !== null && p.name.startsWith(`${choice.id}/`)),
+  )
+}
+
+/** Known choices with no connected provider yet — the picker's "connect →" rows. */
+export function unconnectedProviderChoices(
+  providers: readonly { readonly name: string }[],
+  choices: readonly ProviderChoice[] = providerChoices(),
+): readonly ProviderChoice[] {
+  return choices.filter((choice) => !choice.custom && !isChoiceConnected(choice, providers))
+}
+
 /** Pick-list rows for the provider step. */
 export function providerChoiceRows(
   choices: readonly ProviderChoice[] = providerChoices(),

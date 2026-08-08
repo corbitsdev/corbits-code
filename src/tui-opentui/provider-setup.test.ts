@@ -4,6 +4,7 @@ import { createHarness, type Harness } from "./harness.js"
 import {
   CUSTOM_CHOICE_ID,
   failureGuidance,
+  isChoiceConnected,
   LOGIN_CANCELLED_MESSAGE,
   LOGIN_TIMEOUT_MESSAGE,
   maskEcho,
@@ -20,6 +21,7 @@ import {
   stepsFor,
   summaryRows,
   TYPE_MODEL_ID,
+  unconnectedProviderChoices,
   type OAuthLoginStarter,
   type ProviderFormValues,
   type ProviderSetupSubmit,
@@ -109,6 +111,23 @@ describe("provider setup pure helpers", () => {
       expect(choice.defaultModel.length).toBeGreaterThan(0)
     }
     expect(providerChoiceRows(choices)[0]?.label).toContain("OpenAI")
+  })
+
+  test("a connected Codex account clears the ChatGPT connect row (CL-5606)", () => {
+    // The ChatGPT-via-browser choice is keyed "codex", but a signed-in
+    // account lands in the catalog as "codex/<profile>" — one row per
+    // account. Exact-id matching alone would leave the connect row stuck
+    // forever after a successful login.
+    const connected = [{ name: "codex/default" }]
+    expect(unconnectedProviderChoices(connected).map((c) => c.id)).not.toContain("codex")
+    expect(unconnectedProviderChoices([]).map((c) => c.id)).toContain("codex")
+  })
+
+  test("isChoiceConnected does not prefix-match key-based providers", () => {
+    const openaiChoice = providerChoiceById("openai")
+    if (openaiChoice === undefined) throw new Error("expected an openai choice")
+    expect(isChoiceConnected(openaiChoice, [{ name: "openai-eu" }])).toBe(false)
+    expect(isChoiceConnected(openaiChoice, [{ name: "openai" }])).toBe(true)
   })
 
   test("model rows come from the provider catalog plus a free-text escape", () => {
