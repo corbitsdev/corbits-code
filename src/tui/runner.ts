@@ -553,12 +553,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
-    // Clear the active-run handle up front, before the awaits below, so a
-    // second crash mid-flush can't see this run as still live and race the
-    // finalize write issued here. finalizeRunState (state.ts) would otherwise
-    // do this itself, but only after saveState resolves — too late for that
-    // guard, so it's done here and finalizeRunState's own clear becomes a
-    // no-op repeat of the same fact rather than a second independent write.
+    // Clear the active-run handle up front, before the awaits below. This
+    // handler isn't the only reader of the handle: index.ts installs its own
+    // uncaughtException/unhandledRejection listeners that call getActiveRun()
+    // directly and, if it's still set, write a competing "crashed" record via
+    // saveCrashState. An escaped throw during flushPartialOnCrash or the
+    // finalizeRunState await below would otherwise reach that listener while
+    // the handle still reads as live, racing its write against the "failed"
+    // write in progress here. finalizeRunState (state.ts) also clears the
+    // handle, but only after its own saveState resolves — too late to close
+    // that window, so the clear is duplicated here. finalizeRunState is left
+    // unchanged: its other callers (normal completion, session rotation) rely
+    // on it being the one that clears the handle.
     clearActiveRun();
     clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
