@@ -244,7 +244,10 @@ export async function listSessions(cwd: string, home: string = homedir()): Promi
       });
       continue;
     }
-    // TUI sessions persist conversation under context/ before run.json exists.
+    // A session directory with context/ but no readable run.json never
+    // reached its first saveState call (see src/tui/runner.ts's early
+    // "running" write) and therefore isn't actually running: report it as
+    // crashed rather than fabricating liveness.
     try {
       const dirStat = await stat(sessionDir(cwd, entry, home));
       await stat(sessionContextDir(cwd, entry, home));
@@ -252,7 +255,7 @@ export async function listSessions(cwd: string, home: string = homedir()): Promi
         sessionId: entry,
         task: "(conversation)",
         startedAt: dirStat.birthtimeMs > 0 ? dirStat.birthtimeMs : dirStat.mtimeMs,
-        status: "running",
+        status: "crashed",
       });
     } catch {
       // Not a resumable session directory.
