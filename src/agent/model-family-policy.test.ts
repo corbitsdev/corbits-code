@@ -6,18 +6,17 @@ describe("resolveModelFamilyPolicy", () => {
     const policy = resolveModelFamilyPolicy({ providerName: "anthropic", model: "claude-sonnet-4" });
     expect(policy.family).toBe("default");
     expect(policy.applyGrokFinishBias).toBe(false);
-    expect(policy.toolOnlyTurnNudgeAt).toBeGreaterThan(8);
-    expect(policy.toolOnlyTurnPauseAt).toBeGreaterThan(policy.toolOnlyTurnNudgeAt);
+    expect(policy.toolOnlyTurnNudgeAt).toBeGreaterThan(20);
+    expect(policy.toolOnlyNoProgressRepeatLimit).toBeGreaterThan(1);
   });
 
-  test("grok is tightened below the default thresholds", () => {
+  test("grok no longer tightens the tool-only nudge/pause thresholds below the default", () => {
     const grok = resolveModelFamilyPolicy({ providerName: "xai/default", model: "grok-4.5" });
     const base = resolveModelFamilyPolicy({ providerName: "anthropic", model: "claude-sonnet-4" });
     expect(grok.family).toBe("grok");
-    expect(grok.toolOnlyTurnNudgeAt).toBeLessThan(base.toolOnlyTurnNudgeAt);
-    expect(grok.toolOnlyTurnPauseAt).toBeLessThan(base.toolOnlyTurnPauseAt);
+    expect(grok.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
+    expect(grok.toolOnlyNoProgressRepeatLimit).toBe(base.toolOnlyNoProgressRepeatLimit);
     expect(grok.subAgentStallTimeoutMs).toBeLessThan(base.subAgentStallTimeoutMs);
-    expect(grok.toolOnlyTurnNudgeAt).toBeLessThan(grok.toolOnlyTurnPauseAt);
   });
 
   test("grok finish-bias applies to leaves but not orchestrators", () => {
@@ -32,14 +31,15 @@ describe("resolveModelFamilyPolicy", () => {
     const base = resolveModelFamilyPolicy({ providerName: "anthropic", model: "claude-sonnet-4" });
     expect(kimi.family).toBe("kimi");
     expect(kimi.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
-    expect(kimi.toolOnlyTurnPauseAt).toBe(base.toolOnlyTurnPauseAt);
+    expect(kimi.toolOnlyNoProgressRepeatLimit).toBe(base.toolOnlyNoProgressRepeatLimit);
     expect(kimi.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
   });
 
-  test("thresholds are internally consistent (nudge strictly before pause)", () => {
+  test("no-progress repeat limit is a small, real number for every family", () => {
     for (const providerName of ["xai/default", "moonshot", "anthropic"]) {
       const policy = resolveModelFamilyPolicy({ providerName });
-      expect(policy.toolOnlyTurnNudgeAt).toBeLessThan(policy.toolOnlyTurnPauseAt);
+      expect(policy.toolOnlyNoProgressRepeatLimit).toBeGreaterThanOrEqual(2);
+      expect(policy.toolOnlyNoProgressRepeatLimit).toBeLessThan(policy.toolOnlyTurnNudgeAt);
     }
   });
 });
