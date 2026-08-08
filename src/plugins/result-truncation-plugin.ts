@@ -9,9 +9,10 @@ export const MAX_RESULT_CHARS = 80_000;
 // The single primitive for size truncation: callers may pass their own
 // threshold but never invent their own wording, so a result can never carry
 // two differently-worded "truncated" notices. Called directly by runners this
-// middleware does not wrap — the MCP tool runner (src/mcp/plugin.ts), and
-// ripgrep-plugin.ts, which answers grep without calling next and so never
-// reaches this middleware despite sitting earlier in the same plugin array.
+// middleware does not wrap — the MCP tool runner (src/mcp/plugin.ts). The
+// posix chain gets this middleware prepended unconditionally in
+// posix-tool-plugins.ts, so plugins like ripgrepPlugin that answer without
+// calling next() no longer need to apply the cap themselves.
 export function truncateToolResultContent(
   content: string,
   maxChars: number = MAX_RESULT_CHARS,

@@ -35,8 +35,18 @@ export type CorePosixToolPluginsArgs = {
 };
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
-// with shell-guard after permission so blocked commands never spawn. Secret-shaped
-// result scrub runs immediately before truncation so credentials are redacted first.
+// with shell-guard after permission so blocked commands never spawn.
+//
+// The secret scrub and the character cap are prepended unconditionally, ahead
+// of every other plugin, rather than left in call order. composeMiddleware
+// wraps outer-to-inner in array order, so a plugin earlier in this array
+// still observes the final result even when a later plugin (ripgrepPlugin,
+// notably) answers a call directly without invoking its own `next()` and so
+// never reaches whatever sits after it. A mandatory terminal concern like
+// redacting a credential cannot depend on every middleware author remembering
+// to call `next()` — see vendor/intx-inference/src/assembly.ts's
+// sizeCapTransform for the same reasoning upstream. Scrub sits outermost so it
+// runs on the already-capped content, matching the previous in-chain order.
 export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolPlugin[] {
   const {
     cwd,
@@ -47,6 +57,8 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     shellEnv,
   } = args;
   return [
+    toolResultSecretScrubPlugin(),
+    resultTruncationPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd)),
     deleteFilePlugin(cwd),
     toolOutputUriPlugin(),
@@ -65,8 +77,6 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     editFileDiagnosticsPlugin(),
     lspHintPlugin(),
     createLSPPlugin({ cwd, minSeverity: 1 }),
-    toolResultSecretScrubPlugin(),
-    resultTruncationPlugin(),
     ...extraToolPlugins,
   ];
 }
