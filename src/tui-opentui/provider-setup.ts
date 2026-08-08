@@ -605,6 +605,10 @@ const RAMP_TICK_MS = 120
 export async function runProviderSetup(
   config: ProviderSetupConfig,
 ): Promise<boolean> {
+  // A caller-supplied renderer (a headless test harness, or a live session's
+  // renderer reused for a mid-session reconnect) is owned by that caller —
+  // teardown here must not destroy it out from under them.
+  const externalRenderer = config.createRenderer !== undefined
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
@@ -1075,10 +1079,12 @@ export async function runProviderSetup(
     } catch {
       // already unmounted
     }
-    try {
-      renderer.destroy()
-    } catch {
-      // already destroyed
+    if (!externalRenderer) {
+      try {
+        renderer.destroy()
+      } catch {
+        // already destroyed
+      }
     }
   }
 

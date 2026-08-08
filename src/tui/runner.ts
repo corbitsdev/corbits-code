@@ -443,7 +443,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // connection test — warn now instead of a bare adapter error on first send.
   if (config.verified === false) {
     startupPluginNotices.push(
-      `Provider "${config.providerName}" was saved without a passing connection test. If the first message fails with an auth error, run onboarding again to reconnect it.`,
+      `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,
     );
   }
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
