@@ -305,7 +305,7 @@ describe("landing screen", () => {
         expect(ruleRow).toBe(SIZE.height - 1)
         const row = painted[ruleRow]!
         // Left end of the rule, inside the shell gutter, costing no row.
-        expect(row.startsWith("  ╰─ ")).toBe(true)
+        expect(row.startsWith(" ╰─ ")).toBe(true)
         expect(row.trimEnd().endsWith("╯")).toBe(true)
       } finally {
         shell.dispose()

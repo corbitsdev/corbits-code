@@ -36,6 +36,15 @@ goal/task/agents strips, then progress, then the prompt itself shrinks one
 row at a time down to its 3-row base — never the transcript
 (`COLLAPSE_ORDER` in `zones.ts`).
 
+Horizontally, every surface sits inside one shared gutter
+(`resolveSideMargin`, `src/tui-opentui/geometry/margins.ts`) so the shell reads
+as a single column of content rather than stacked panes. The gutter is one
+column per side at every width that can afford it, and zero below
+`MARGIN_MIN_COLUMNS` (40), where every column belongs to content. There is no
+middle tier: one column is already enough to keep content off the frame edge,
+which is the gutter's entire job, and anything wider only read as excess air on
+a wide pane. The gutter costs no rows.
+
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule; the brand
 lockup sits at the left of the bottom rule with the working directory and git

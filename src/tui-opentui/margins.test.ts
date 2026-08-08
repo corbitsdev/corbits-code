@@ -6,9 +6,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   BOTTOM_MARGIN_MIN_ROWS,
-  MARGIN_FULL_MIN_COLUMNS,
   MARGIN_MIN_COLUMNS,
-  NARROW_SIDE_MARGIN,
   SIDE_MARGIN,
   resolveBottomMarginRows,
   resolveContentWidth,
@@ -29,15 +27,22 @@ function frameRows(h: Harness): readonly string[] {
 }
 
 describe("side margin resolution", () => {
-  test("steps down with width and floors at zero", () => {
-    expect(resolveSideMargin(120)).toBe(SIDE_MARGIN)
-    expect(resolveSideMargin(MARGIN_FULL_MIN_COLUMNS)).toBe(SIDE_MARGIN)
-    expect(resolveSideMargin(MARGIN_FULL_MIN_COLUMNS - 1)).toBe(
-      NARROW_SIDE_MARGIN,
-    )
-    expect(resolveSideMargin(MARGIN_MIN_COLUMNS)).toBe(NARROW_SIDE_MARGIN)
+  test("one column at every affordable width, and zero below the floor", () => {
+    expect(SIDE_MARGIN).toBe(1)
+    for (const columns of [MARGIN_MIN_COLUMNS, 60, 80, 120, 200]) {
+      expect(resolveSideMargin(columns)).toBe(1)
+    }
     expect(resolveSideMargin(MARGIN_MIN_COLUMNS - 1)).toBe(0)
     expect(resolveSideMargin(10)).toBe(0)
+    expect(resolveSideMargin(0)).toBe(0)
+  })
+
+  test("content never touches the first or last column of the frame", () => {
+    // The gutter's whole job. A one-column gutter is the narrowest thing that
+    // can do it, so this is what would break if it were ever spent.
+    for (const columns of [80, 120, 200]) {
+      expect(resolveContentWidth(columns)).toBe(columns - 2)
+    }
   })
 
   test("content width never collapses below one column", () => {
