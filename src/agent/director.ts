@@ -27,6 +27,7 @@ import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family
 import {
   fingerprintToolCalls,
   detectToolFingerprintThrash,
+  detectRawToolOnlyBackstop,
   TOOL_FINGERPRINT_HISTORY_CAP,
   type ToolFingerprintThrashCheck,
 } from "../subagent/stop-policy.js";
@@ -342,10 +343,12 @@ class ChatDirectorImpl extends DefaultDirector {
   // spins in place on one thread of tool calls still converges to the pause,
   // regardless of what it calls in between (same reset discipline as the
   // idle/declined nudge budgets above). The streak alone only drives the soft
-  // nudge; the hard pause requires the tool-fingerprint history to actually
-  // repeat as a cycle (see applyToolOnlyLoopProtection and
-  // detectToolFingerprintThrash) — busy-but-varied tool calls never trip it,
-  // however long the streak runs.
+  // nudge and the raw-count backstop; the hard pause normally requires the
+  // tool-fingerprint history to actually repeat as a cycle (see
+  // applyToolOnlyLoopProtection and detectToolFingerprintThrash) — busy-but-
+  // varied tool calls never trip that fast path, however long the streak
+  // runs, but the same streak still eventually trips
+  // detectRawToolOnlyBackstop, which requires no pattern at all.
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
@@ -355,6 +358,11 @@ class ChatDirectorImpl extends DefaultDirector {
   // scan unbounded — detection only ever looks at the tail.
   private toolFingerprintHistory: string[] = [];
   private lastThrashCheck: ToolFingerprintThrashCheck | null = null;
+  // Which mechanism triggered pausedForToolOnly — the period-detection fast
+  // path (a recognized cycle) or the raw-count backstop (no pattern
+  // required, fires only once period detection has had its chance and
+  // missed). Drives the pause message wording so the two are distinguishable.
+  private toolOnlyPauseReason: "thrash" | "backstop" | null = null;
 
   constructor(
     systemPrompt: string,
@@ -425,11 +433,16 @@ class ChatDirectorImpl extends DefaultDirector {
    * Rewrites the infer action in a fall-through batch once pending tool
    * calls have resolved: pause wins over a still-armed nudge, and each
    * rewrite is one-shot — cleared as soon as it is actually applied to an
-   * infer. The pause is driven by tool-fingerprint period detection
-   * (detectToolFingerprintThrash), not the tool-only streak length — a
-   * repeating cycle (identical calls, or an alternating/rotating pattern)
-   * can and often does trip the pause well before the streak reaches
-   * toolOnlyTurnNudgeAt, so the nudge is not a precondition for the pause.
+   * infer. The pause has two independent triggers, checked in order: the
+   * fast path is tool-fingerprint period detection (detectToolFingerprintThrash)
+   * — a repeating cycle (identical calls, or an alternating/rotating
+   * pattern) can and often does trip the pause well before the streak
+   * reaches toolOnlyTurnNudgeAt, so the nudge is not a precondition for the
+   * pause. The backstop (detectRawToolOnlyBackstop) is the raw tool-only
+   * streak length alone, with no pattern required — it only gets a turn once
+   * period detection has not already fired, and exists to catch cycles
+   * period detection structurally cannot (above its period ceiling, or
+   * phase-broken).
    */
   private applyToolOnlyLoopProtection(
     actions: ReactorAction[],
@@ -441,14 +454,18 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (this.pausedForToolOnly) {
       const check = this.lastThrashCheck;
-      const detail =
-        check !== null && check.period === 1
-          ? `repeated the same tool call ${check.repeats} times in a row`
-          : check !== null && check.period !== null
-            ? `repeated a ${check.period}-call cycle ${check.repeats} times in a row`
-            : "repeated tool calls in a cycle";
       const pauseMessage =
-        `Auto-paused: the model ${detail} without making progress. Send a message to resume.`;
+        this.toolOnlyPauseReason === "backstop"
+          ? `Auto-paused: ran ${this.toolOnlyStreak} tool-only turns without narrating progress. Send a message to resume.`
+          : (() => {
+              const detail =
+                check !== null && check.period === 1
+                  ? `repeated the same tool call ${check.repeats} times in a row`
+                  : check !== null && check.period !== null
+                    ? `repeated a ${check.period}-call cycle ${check.repeats} times in a row`
+                    : "repeated tool calls in a cycle";
+              return `Auto-paused: the model ${detail} without making progress. Send a message to resume.`;
+            })();
       return [
         capabilities.checkpoint("tool-only-loop-paused"),
         capabilities.reply(pauseMessage),
@@ -550,6 +567,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.pausedForToolOnly = false;
       this.toolFingerprintHistory = [];
       this.lastThrashCheck = null;
+      this.toolOnlyPauseReason = null;
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -632,9 +650,20 @@ class ChatDirectorImpl extends DefaultDirector {
         this.pausedForToolOnly = false;
         this.toolFingerprintHistory = [];
         this.lastThrashCheck = null;
+        this.toolOnlyPauseReason = null;
       }
+      // Period detection is the fast path — it fires well before the raw
+      // count on any cycle it can recognize. The raw-count backstop only
+      // gets a turn once period detection has not already fired, so it can
+      // never preempt the fast path (see detectRawToolOnlyBackstop in
+      // subagent/stop-policy.ts for what it catches that period detection
+      // structurally cannot: periods above the ceiling, phase-broken cycles).
       if (this.lastThrashCheck?.repeating === true) {
         this.pausedForToolOnly = true;
+        this.toolOnlyPauseReason = "thrash";
+      } else if (detectRawToolOnlyBackstop(this.toolOnlyStreak)) {
+        this.pausedForToolOnly = true;
+        this.toolOnlyPauseReason = "backstop";
       } else if (
         this.toolOnlyStreak === this.modelFamilyPolicy.toolOnlyTurnNudgeAt &&
         !this.toolOnlyNudgeFired

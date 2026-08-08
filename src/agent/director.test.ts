@@ -314,6 +314,199 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(reply).toBeDefined();
   });
 
+  // Period detection is the fast path: for cycles it can see, it must fire
+  // — and be identifiable as the fast path, not the backstop — well before
+  // the raw-count backstop threshold could ever be reached.
+  test("period detection fires as the fast path, not the backstop, on A,B", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const alternatingTurn = (id: string): ReactorInboundEvent => {
+      const path = Number(id.split("-")[1]) % 2 === 0 ? "a.ts" : "b.ts";
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    // A,B,A,B,A,B pauses at 6 turns per the fast-path floors — nowhere near
+    // the 60-turn backstop.
+    const actions = await runToolOnlyStreak(director, capabilities, 6, alternatingTurn);
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("repeated a 2-call cycle");
+    expect(reply.content).not.toContain("tool-only turns without narrating progress");
+  });
+
+  test("period detection fires as the fast path, not the backstop, on A,B,C", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const paths = ["a.ts", "b.ts", "c.ts"];
+    const cycleTurn = (id: string): ReactorInboundEvent => {
+      const path = paths[Number(id.split("-")[1]) % 3];
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    // A,B,C cycle pauses at 9 turns per the fast-path floors.
+    const actions = await runToolOnlyStreak(director, capabilities, 9, cycleTurn);
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("repeated a 3-call cycle");
+    expect(reply.content).not.toContain("tool-only turns without narrating progress");
+  });
+
+  // Required by round 3: any fixed period ceiling has an escape above it. A
+  // 9-element rotation never repeats within TOOL_FINGERPRINT_MAX_PERIOD (8),
+  // so period detection can never fire on it — only the raw-count backstop
+  // can, once the streak clears 60.
+  test("a 9-element rotation escapes period detection but pauses via the backstop", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const paths = Array.from({ length: 9 }, (_, i) => `f${i}.ts`);
+    const rotationTurn = (id: string): ReactorInboundEvent => {
+      const path = paths[Number(id.split("-")[1]) % 9];
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    // 59 turns: below the backstop, still not paused (proves it isn't
+    // period detection sneaking a win here either).
+    const before = await runToolOnlyStreak(director, capabilities, 59, rotationTurn);
+    expect(before.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+
+    const actions = actionsArray(await runToolOnlyStreak(director, capabilities, 1, rotationTurn));
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("tool-only turns without narrating progress");
+    expect(reply.content).not.toContain("cycle");
+  });
+
+  // Required by round 3: a "phase-broken" cycle inserts one varying element
+  // per window (A,B,A,B,UNIQUE,...), so the fingerprint tail never settles
+  // into an exact repeat at any period — period detection can never fire.
+  test("a phase-broken cycle escapes period detection but pauses via the backstop", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const phaseBrokenTurn = (id: string): ReactorInboundEvent => {
+      const i = Number(id.split("-")[1]);
+      const window = i % 5;
+      const path = window === 0 ? "a.ts" : window === 1 ? "b.ts" : window === 2 ? "a.ts" : window === 3 ? "b.ts" : `unique-${i}.ts`;
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    const actions = await runToolOnlyStreak(director, capabilities, 61, phaseBrokenTurn);
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("tool-only turns without narrating progress");
+    expect(reply.content).not.toContain("cycle");
+  });
+
+  // Required by round 3: the backstop is well above any legitimate streak
+  // length in the forensic data (max observed 28 turns) — long varied
+  // productive work must not pause before it.
+  test("long varied productive work does not pause before the backstop threshold", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    const actions = await runToolOnlyStreak(director, capabilities, 59);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
   test("resumes after the operator sends a new message", async () => {
     const director = createChatDirector(
       "system",

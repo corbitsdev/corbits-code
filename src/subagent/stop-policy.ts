@@ -133,8 +133,17 @@ export type ToolFingerprintThrashCheck = SequencePeriodCheck;
 // No legitimate orchestration pattern needs a longer repeating unit than
 // this to be recognized as thrash. A local forensic scan (see
 // scripts/tool-fingerprint-forensics.ts) over 328 real session traces (559
-// tool-only runs) found zero cycles of any period 1-8 at all — this ceiling
-// has wide headroom above anything actually observed.
+// tool-only runs) found zero cycles of any period 1-6 at all — the scan only
+// checks periods up to 6 (MAX_PERIOD_SCANNED in the script), so this ceiling
+// has no forensic backing above period 6, only headroom.
+//
+// This is a ceiling, not a guarantee: any period above it (a 7+ rotation),
+// and any "phase-broken" cycle that inserts a varying element between
+// otherwise-repeating windows (e.g. A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...), never
+// matches here and can escape period detection indefinitely. That is exactly
+// what TOOL_ONLY_RAW_STREAK_BACKSTOP below exists to catch — a raw tool-only
+// turn count with no pattern requirement, checked as a secondary/final net
+// after period detection has had its chance to fire.
 const TOOL_FINGERPRINT_MAX_PERIOD = 8;
 
 // A truly identical consecutive tool call (period 1) is the one shape a
@@ -164,6 +173,11 @@ const CYCLE_REPEAT_MIN = 3;
  * — not just immediate repeats, which previously let an alternating A,B
  * pattern escape detection at any length. See docs/ARCHITECTURE.md for the
  * forensic basis of the thresholds.
+ *
+ * This is the fast path, not the only path: TOOL_FINGERPRINT_MAX_PERIOD is a
+ * ceiling, so a cycle above it (or a phase-broken cycle that never settles
+ * into an exact repeating tail) never fires here. detectRawToolOnlyBackstop
+ * below is the final net for those cases.
  */
 export function detectToolFingerprintThrash(
   history: readonly string[],
@@ -174,6 +188,33 @@ export function detectToolFingerprintThrash(
     minRepeats: (period) => (period === 1 ? IDENTICAL_REPEAT_MIN : CYCLE_REPEAT_MIN),
     minDistinct: (period) => (period === 1 ? 1 : 2),
   });
+}
+
+// Secondary/final-net check: a raw tool-only-turn count, independent of
+// whether the tool calls ever form a detectable pattern. Period detection
+// (above) is the fast path and stays primary — it fires well before this on
+// any cycle it can see (A,B at 6 turns, A,B,C at 9). This backstop exists for
+// the cycles it structurally cannot see: any period above
+// TOOL_FINGERPRINT_MAX_PERIOD (e.g. a 9-element rotation), and
+// "phase-broken" cycles that insert a varying element between repeats (e.g.
+// A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...) and so never settle into an exact
+// repeating tail at any period. Both escape period detection forever without
+// this.
+//
+// Threshold justification (scripts/tool-fingerprint-forensics.ts, current
+// run against 328 local sessions with a tool-only run / 559 total tool-only
+// runs): run-length p50 3, p90 8, p99 16, max 28 turns. 60 is more than
+// double the single longest healthy tool-only streak ever observed (28) and
+// nearly 4x p99 (16) — a comfortable margin above real productive work,
+// while still being a real ceiling instead of no ceiling at all. This must
+// not repeat CL-5611's original complaint: the old hard-pause-at-10 killed
+// sessions that were still making real progress, and 60 sits nowhere near
+// any streak length this scan has ever measured as legitimate.
+export const TOOL_ONLY_RAW_STREAK_BACKSTOP = 60;
+
+/** True once a raw tool-only streak reaches the backstop, independent of any pattern. */
+export function detectRawToolOnlyBackstop(toolOnlyStreak: number): boolean {
+  return toolOnlyStreak >= TOOL_ONLY_RAW_STREAK_BACKSTOP;
 }
 
 // Bounds the rolling fingerprint buffer director.ts keeps for the thrash

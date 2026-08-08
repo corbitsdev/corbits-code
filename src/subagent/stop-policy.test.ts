@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { detectToolFingerprintThrash, TOOL_FINGERPRINT_HISTORY_CAP } from "./stop-policy.js";
+import {
+  detectToolFingerprintThrash,
+  detectRawToolOnlyBackstop,
+  TOOL_FINGERPRINT_HISTORY_CAP,
+  TOOL_ONLY_RAW_STREAK_BACKSTOP,
+} from "./stop-policy.js";
 
 describe("detectToolFingerprintThrash", () => {
   test("does not flag 4 identical fingerprints — legitimate polling", () => {
@@ -48,5 +53,31 @@ describe("detectToolFingerprintThrash", () => {
   test("varied, non-repeating history never flags", () => {
     const history = Array.from({ length: 40 }, (_, i) => `read_file:{"path":"file-${i}.ts"}`);
     expect(detectToolFingerprintThrash(history).repeating).toBe(false);
+  });
+
+  // Any period this check scans (up to TOOL_FINGERPRINT_MAX_PERIOD) never
+  // fires on a rotation longer than that ceiling — this is exactly the gap
+  // detectRawToolOnlyBackstop below exists to close.
+  test("a 9-element rotation never flags, regardless of length", () => {
+    const paths = Array.from({ length: 9 }, (_, i) => `file-${i}.ts`);
+    const history = Array.from(
+      { length: 90 },
+      (_, i) => `read_file:{"path":"${paths[i % 9]}"}`,
+    );
+    expect(detectToolFingerprintThrash(history).repeating).toBe(false);
+  });
+});
+
+describe("detectRawToolOnlyBackstop", () => {
+  test("does not fire below the threshold", () => {
+    expect(detectRawToolOnlyBackstop(TOOL_ONLY_RAW_STREAK_BACKSTOP - 1)).toBe(false);
+  });
+
+  test("fires at the threshold", () => {
+    expect(detectRawToolOnlyBackstop(TOOL_ONLY_RAW_STREAK_BACKSTOP)).toBe(true);
+  });
+
+  test("threshold sits well above the measured healthy streak ceiling (max 28 turns)", () => {
+    expect(TOOL_ONLY_RAW_STREAK_BACKSTOP).toBeGreaterThan(28 * 2);
   });
 });
