@@ -69,6 +69,7 @@ import {
   type LockupInput,
 } from "./lockup.js"
 import type { RampPhase, StallAge } from "./ramp.js"
+import type { ActivityState } from "./session-chrome.js"
 import {
   BORDER,
   composeCostContextMeter,
@@ -641,8 +642,12 @@ export type AppShell = {
    */
   lockupNowMs: number
   lockupAnimating: boolean
-  /** Live phase word the slot shows, or null for the idle wordmark. */
-  lockupPhase: string | null
+  /**
+   * Live activity state the slot shows, or null for the idle wordmark.
+   * Typed to the closed set (not `string`) so a raw tool/MCP/plugin
+   * identifier reaching this field is a compile error, not just a test one.
+   */
+  lockupPhase: ActivityState | null
   /** Clock reading when `lockupPhase` last changed — the fade's origin. */
   lockupChangedMs: number
   /** Density ramp phase for the same turn — drives the slot's pulse cell and tint. */
@@ -876,8 +881,11 @@ function syncLandingSuggestions(shell: AppShell): void {
 export type LockupFrame = {
   readonly nowMs: number
   readonly animating: boolean
-  /** Live phase word, or null for the idle wordmark. */
-  readonly phase: string | null
+  /**
+   * Live activity state, or null for the idle wordmark. Typed to the closed
+   * set so the caller cannot hand this a raw tool identifier.
+   */
+  readonly phase: ActivityState | null
   /** The turn's ramp phase, or null when idle. */
   readonly rampPhase: RampPhase | null
   /** How long the turn has been stalled, or null when it is not stalled. */

@@ -802,12 +802,10 @@ export function attachSessionBridge(
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
-      awaitingResponse: turn.awaitingResponse,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
-      streamTokenCount: turn.streamTokenCount,
     }
-    const label = resolveTurnLabel(input)
+    const label = resolveTurnLabel(input, isStalled)
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.
@@ -1037,7 +1035,10 @@ export function attachSessionBridge(
       setStatusFlash(shell, STALL_NOTICE_MESSAGE)
     }
 
-    paintPhaseAt(nowMs, level !== "quiet")
+    // Same "is this stalled at all" question `paintPhase` asks above — call
+    // the one definition (`isStalledForDisplay`) rather than re-deriving it
+    // from `stallLevel`'s result, so the two call sites can never disagree.
+    paintPhaseAt(nowMs, isStalledForDisplay(stallArgs))
   }
 
   setShellBridgeHooks(shell, {

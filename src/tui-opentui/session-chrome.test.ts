@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  ACTIVITY_STATES,
   classifyAgentSendFailure,
   classifySendFailureMessage,
   resolveRampPhase,
@@ -9,94 +10,157 @@ import {
   shouldSettleUiAfterSendFailure,
 } from "./session-chrome.js"
 
+// The load-bearing guarantee: whatever tool identifier, MCP server name, or
+// plugin name the runtime hands us, the rendered ticker string must land in
+// the small closed set of human activity states — never the raw identifier.
+// A previously-unmapped tool (or one this test doesn't enumerate) must still
+// fall back into the set rather than leaking through verbatim.
+describe("resolveTurnLabel closed-set guarantee", () => {
+  const leakingIdentifiers = [
+    "run_shell",
+    "grep",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "search_files",
+    "list_dir",
+    "web_search",
+    "web_fetch",
+    "manage_tasks",
+    "task",
+    "submit_output",
+    "ask_operator",
+    "mcp__glitchtip__authenticate",
+    "mcp__railway__deploy",
+    "some_未knownしplugin_tool",
+    "a-plugin-defined-tool-name",
+    "totally_unmapped_future_tool",
+  ]
+
+  for (const currentToolName of leakingIdentifiers) {
+    test(`"${currentToolName}" resolves to a member of the closed set`, () => {
+      const label = resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "running",
+          currentToolName,
+          streamingType: "tool",
+        },
+        false,
+      )
+      expect(label).not.toBe(currentToolName)
+      expect(ACTIVITY_STATES).toContain(label!)
+    })
+  }
+
+  test("a stalled turn renders a distinct stalled state", () => {
+    const label = resolveTurnLabel(
+      {
+        isProcessing: true,
+        status: "running",
+        currentToolName: "run_shell",
+        streamingType: "tool",
+      },
+      true,
+    )
+    expect(label).toBe("stalled")
+    expect(ACTIVITY_STATES).toContain(label!)
+  })
+
+  test("waiting on the operator is distinguishable from working", () => {
+    const label = resolveTurnLabel(
+      {
+        isProcessing: true,
+        status: "blocked",
+        currentToolName: "run_shell",
+        streamingType: "tool",
+      },
+      false,
+    )
+    expect(label).toBe("waiting")
+    expect(label).not.toBe("working")
+    expect(ACTIVITY_STATES).toContain(label!)
+  })
+})
+
 describe("resolveTurnLabel", () => {
   test("idle processing off yields no label", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: false,
-        status: "idle",
-        awaitingResponse: false,
-        currentToolName: null,
-        streamingType: null,
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: false,
+          status: "idle",
+          currentToolName: null,
+          streamingType: null,
+        },
+        false,
+      ),
     ).toBeUndefined()
   })
 
-  test("blocked gate shows approval wait", () => {
+  test("blocked gate shows a waiting-on-operator state", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "blocked",
-        awaitingResponse: false,
-        currentToolName: "run_shell",
-        streamingType: "tool",
-      }),
-    ).toBe("blocked")
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "blocked",
+          currentToolName: "run_shell",
+          streamingType: "tool",
+        },
+        false,
+      ),
+    ).toBe("waiting")
   })
 
   test("stopping beats tool phase", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "stopping",
-        awaitingResponse: false,
-        currentToolName: "grep",
-        streamingType: "tool",
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "stopping",
+          currentToolName: "grep",
+          streamingType: "tool",
+        },
+        false,
+      ),
     ).toBe("stopping")
   })
 
-  test("tool phase beats generic working", () => {
+  test("tool phase maps to its semantic activity, never the raw name", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "running",
-        awaitingResponse: true,
-        currentToolName: "grep",
-        streamingType: "tool",
-      }),
-    ).toBe("grep")
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "running",
+          currentToolName: "grep",
+          streamingType: "tool",
+        },
+        false,
+      ),
+    ).toBe("researching")
   })
 
   test("thinking and text phases", () => {
     const base = {
       isProcessing: true,
       status: "running" as const,
-      awaitingResponse: false,
       currentToolName: null,
     }
     expect(
-      resolveTurnLabel({ ...base, streamingType: "thinking" }),
+      resolveTurnLabel({ ...base, streamingType: "thinking" }, false),
     ).toBe("thinking")
     expect(
-      resolveTurnLabel({ ...base, streamingType: "text", streamTokenCount: 7 }),
-    ).toBe("streaming 7 tok")
-    expect(
-      resolveTurnLabel({
-        ...base,
-        awaitingResponse: true,
-        streamingType: null,
-      }),
+      resolveTurnLabel({ ...base, streamingType: "text" }, false),
     ).toBe("working")
-  })
-
-  test("text phase with no count yet reads zero", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "running",
-        awaitingResponse: false,
-        currentToolName: null,
-        streamingType: "text",
-      }),
-    ).toBe("streaming 0 tok")
+      resolveTurnLabel({ ...base, streamingType: null }, false),
+    ).toBe("working")
   })
 })
 
 describe("resolveRampPhase", () => {
   const base = {
     isProcessing: true,
-    awaitingResponse: false,
     currentToolName: null,
     streamingType: null,
   }
