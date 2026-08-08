@@ -10,6 +10,7 @@ import { withTestRenderer, type Harness } from "./harness"
 import {
   acceptOverlaySelection,
   attachClipboardImage,
+  clearPendingAttachments,
   createAppShell,
   moveOverlaySelection,
   noticeText,
@@ -27,6 +28,25 @@ const CLIP: PendingImageAttachment = {
   name: "clipboard.png",
   contentType: "image/png",
   data: new Uint8Array([137, 80, 78, 71]),
+  contentHash: "hash-a",
+}
+
+// A second read of the same clipboard content: distinct id/name/timestamp
+// (as a real re-paste would produce) but identical decoded bytes and hash.
+const CLIP_SAME_CONTENT: PendingImageAttachment = {
+  id: "clip-2",
+  name: "clipboard-later.png",
+  contentType: "image/png",
+  data: new Uint8Array([137, 80, 78, 71]),
+  contentHash: "hash-a",
+}
+
+const CLIP_OTHER: PendingImageAttachment = {
+  id: "clip-3",
+  name: "clipboard-other.png",
+  contentType: "image/png",
+  data: new Uint8Array([1, 2, 3, 4]),
+  contentHash: "hash-b",
 }
 
 function withShell(
@@ -139,6 +159,44 @@ describe("image attachments", () => {
       )
     })
   }
+
+  test("re-pasting the same clipboard content does not attach a second copy", async () => {
+    await withShell(async (shell) => {
+      let calls = 0
+      setPromptImageSource(shell, async () => {
+        calls += 1
+        return { ok: true, attachment: calls === 1 ? CLIP : CLIP_SAME_CONTENT }
+      })
+      expect(await attachClipboardImage(shell)).toBe(true)
+      expect(await attachClipboardImage(shell)).toBe(false)
+      expect(shell.pendingAttachments).toHaveLength(1)
+      expect(shell.pendingAttachments[0]?.id).toBe("clip-1")
+      expect(shell.statusFlash).toContain("already attached")
+    })
+  })
+
+  test("a genuinely different image still attaches alongside the first", async () => {
+    await withShell(async (shell) => {
+      let calls = 0
+      setPromptImageSource(shell, async () => {
+        calls += 1
+        return { ok: true, attachment: calls === 1 ? CLIP : CLIP_OTHER }
+      })
+      expect(await attachClipboardImage(shell)).toBe(true)
+      expect(await attachClipboardImage(shell)).toBe(true)
+      expect(shell.pendingAttachments).toHaveLength(2)
+    })
+  })
+
+  test("removing all attachments and re-pasting the same content re-attaches it", async () => {
+    await withShell(async (shell) => {
+      setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }))
+      expect(await attachClipboardImage(shell)).toBe(true)
+      clearPendingAttachments(shell)
+      expect(await attachClipboardImage(shell)).toBe(true)
+      expect(shell.pendingAttachments).toHaveLength(1)
+    })
+  })
 
   test("submit hands pending attachments to the bridge and clears them", async () => {
     await withShell(async (shell) => {
