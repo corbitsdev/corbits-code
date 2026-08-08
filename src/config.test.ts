@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEntryAsProviderSettings, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
+import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
@@ -654,12 +655,17 @@ describe("buildProviderCatalog", () => {
     // This exercises every field that relationship carries over, so a field
     // added to ProviderSettings and forgotten in the two conversion sites
     // below fails here instead of being silently dropped at runtime.
+    // `anthropic` and `opencodeGo` are exercised separately below: both are
+    // protocol markers that also normalize `baseURL` in buildProviderCatalog,
+    // so a provider combining them with an arbitrary baseURL isn't a real
+    // round trip (the healing logic rewrites baseURL by design).
     const provider: Settings["providers"][string] = {
       baseURL: "https://fp/v1",
       apiKey: "fp-key",
       models: ["fp-large"],
       defaultModel: "fp-large",
       free: true,
+      keyless: true,
       bifrostVirtualKey: true,
     };
     const settings: Settings = { providers: { fp: provider } };
@@ -672,6 +678,44 @@ describe("buildProviderCatalog", () => {
     const entry = catalog.find((c) => c.name === "fp")!;
     const roundTripped = { fp: catalogEntryAsProviderSettings(entry) };
     expect(roundTripped).toEqual({ fp: provider });
+  });
+
+  test("round-trips the anthropic protocol marker", () => {
+    const provider: Settings["providers"][string] = {
+      baseURL: "https://api.anthropic.com/v1",
+      apiKey: "an-key",
+      models: ["claude"],
+      anthropic: true,
+    };
+    const settings: Settings = { providers: { an: provider } };
+    const catalog = buildProviderCatalog(settings, {
+      providerName: "an",
+      baseURL: provider.baseURL,
+      apiKey: "an-key",
+      model: "claude",
+    } as ResolvedProvider);
+    const entry = catalog.find((c) => c.name === "an")!;
+    const roundTripped = { an: catalogEntryAsProviderSettings(entry) };
+    expect(roundTripped).toEqual({ an: provider });
+  });
+
+  test("round-trips the opencodeGo protocol marker", () => {
+    const provider: Settings["providers"][string] = {
+      baseURL: OPENCODE_GO_BASE_URL,
+      apiKey: "go-key",
+      models: ["go-model"],
+      opencodeGo: true,
+    };
+    const settings: Settings = { providers: { go: provider } };
+    const catalog = buildProviderCatalog(settings, {
+      providerName: "go",
+      baseURL: provider.baseURL,
+      apiKey: "go-key",
+      model: "go-model",
+    } as ResolvedProvider);
+    const entry = catalog.find((c) => c.name === "go")!;
+    const roundTripped = { go: catalogEntryAsProviderSettings(entry) };
+    expect(roundTripped).toEqual({ go: provider });
   });
 });
 

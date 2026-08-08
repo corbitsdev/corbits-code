@@ -92,13 +92,17 @@ export function buildOpenAISource(fields: {
 // One configured provider the /agent modal can switch to. Carries credentials
 // because live switching builds an InferenceSource from it; the modal only ever
 // receives fields needed for provider management, never the key. Derived from
-// ProviderSettings (the persisted record) so a field added there is never
-// silently missing here: `name` becomes required (every catalog entry is
-// resolved to a concrete provider id) and `contextWindow` is dropped (it is a
-// settings-only override, never surfaced to the /agent modal). The
-// OAuth-profile markers below have no ProviderSettings counterpart because
-// such entries are never written to settings.json (their credentials live in
-// the Codex/xAI auth stores).
+// ProviderSettings (the persisted record) so the field *set* stays tied to it:
+// a newly required ProviderSettings field forces every catalog-entry literal
+// to supply it. `name` becomes required (every catalog entry is resolved to a
+// concrete provider id) and `contextWindow` is dropped (it is a settings-only
+// override, never surfaced to the /agent modal). The OAuth-profile markers
+// below have no ProviderSettings counterpart because such entries are never
+// written to settings.json (their credentials live in the Codex/xAI auth
+// stores). Optional fields still need the round-trip test in config.test.ts —
+// TS does not flag a missing optional property against an explicitly-typed
+// object literal, so forwarding of an optional field can only be caught at
+// runtime.
 export type ProviderCatalogEntry = Omit<ProviderSettings, "name" | "contextWindow"> & {
   name: string;
   // Set when this entry is a Codex OAuth profile rather than an API-key
