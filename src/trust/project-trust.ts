@@ -104,6 +104,14 @@ export async function readProjectTrustStore(
     logger.warn`project trust store is not valid JSON at ${path}: ${String(err)}`;
     return { state: "invalid", store: emptyStore() };
   }
+  // arktype's plain object schema accepts arrays (Array.isArray(x) && typeof x
+  // === "object"), so a top-level JSON array must be rejected explicitly before
+  // validation — otherwise it degrades to an empty-but-"valid" store instead of
+  // being flagged corrupt.
+  if (Array.isArray(parsed)) {
+    logger.warn`project trust store has an invalid shape at ${path}: expected object, got array`;
+    return { state: "invalid", store: emptyStore() };
+  }
   const validated = ProjectTrustRecordSchema(parsed);
   if (validated instanceof type.errors) {
     logger.warn`project trust store has an invalid shape at ${path}: ${validated.summary}`;
