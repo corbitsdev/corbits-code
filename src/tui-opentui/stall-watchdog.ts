@@ -19,6 +19,7 @@ export type ShouldAbortForStallArgs = {
   readonly stallTimeoutMs: number
   readonly isProcessing: boolean
   readonly streamingType: "text" | "thinking" | "tool" | null
+  readonly activeToolCalls: readonly string[]
 }
 
 // The captured incident looped two sentences with no line break between them
@@ -116,7 +117,10 @@ function silentPastThreshold(
 ): boolean {
   if (args.status !== "running") return false
   if (args.nowMs - args.lastActivityAt < thresholdMs) return false
-  if (args.awaitingResponse) return true
+  // A parallel fan-out flips `awaitingResponse` true the moment any one
+  // sub-agent's tool call finishes, even while siblings are still running.
+  // Outstanding calls mean the run is not silent, regardless of that flag.
+  if (args.awaitingResponse && args.activeToolCalls.length === 0) return true
   // Mid-stream hang: model stream stalled after first token. Long in-flight
   // tool runs do not emit parent stream events; do not abort those.
   return (

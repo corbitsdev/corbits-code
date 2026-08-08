@@ -20,7 +20,18 @@ describe("shouldAbortForStall", () => {
     stallTimeoutMs: STALL_TIMEOUT_MS,
     isProcessing: true,
     streamingType: null,
+    activeToolCalls: [],
   }
+
+  test("a parallel fan-out with sibling tools still running is not a stall", () => {
+    const args = {
+      ...base,
+      activeToolCalls: ["call-2"],
+      lastActivityAt: 0,
+      nowMs: 20 * 60_000,
+    }
+    expect(shouldAbortForStall(args)).toBe(false)
+  })
 
   test("aborts an awaiting run past the timeout", () => {
     expect(shouldAbortForStall(base)).toBe(true)
@@ -183,7 +194,14 @@ describe("shouldNoticeStall", () => {
     isProcessing: true,
     streamingType: null,
     repeating: false,
+    activeToolCalls: [],
   }
+
+  test("a parallel fan-out with sibling tools still running does not notice", () => {
+    expect(
+      shouldNoticeStall({ ...base, activeToolCalls: ["call-2"] }),
+    ).toBe(false)
+  })
 
   test("stays quiet while repeating, even if also silent by the clock", () => {
     expect(shouldNoticeStall({ ...base, repeating: true })).toBe(false)
