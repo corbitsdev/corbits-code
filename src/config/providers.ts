@@ -19,6 +19,16 @@ export type ProviderSubmission = {
   opencodeGo?: boolean;
 };
 
+// Precedence for the active/backup model of a provider: defaultModel wins
+// when present and non-empty, otherwise the first configured model.
+export function resolveDefaultModel(
+  entry: { defaultModel?: string; models: readonly string[] } | undefined,
+): string | undefined {
+  const defaultModel = entry?.defaultModel;
+  if (defaultModel !== undefined && defaultModel.length > 0) return defaultModel;
+  return entry?.models[0];
+}
+
 export type ProviderEntryResult =
   | { ok: true; entry: ProviderCatalogEntry; catalog: ProviderCatalogEntry[]; selectedModel: string }
   | { ok: false; error: string };
@@ -83,7 +93,7 @@ export function buildProviderEntry(
   const catalog = currentCatalog
     .filter((p) => p.name !== submission.name && p.name !== submission.originalName)
     .concat(entry);
-  const selectedModel = entry.defaultModel ?? entry.models[0];
+  const selectedModel = resolveDefaultModel(entry);
   if (selectedModel === undefined) {
     return { ok: false, error: "Provider must include at least one model" };
   }

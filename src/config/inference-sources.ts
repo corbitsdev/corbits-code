@@ -13,6 +13,7 @@ import type { Settings } from "./settings.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
+import { resolveDefaultModel } from "./providers.js";
 
 export type BuildSourceContext = {
   sessionId: string;
@@ -40,7 +41,7 @@ function backupRefsFromSettings(
   const tail: ProviderRef[] = [];
   for (const [provider, p] of Object.entries(settings.providers)) {
     if (seenProviders.has(provider)) continue;
-    const model = p.defaultModel ?? p.models[0];
+    const model = resolveDefaultModel(p);
     if (model === undefined || model.length === 0) continue;
     seenProviders.add(provider);
     tail.push({ provider, model });
