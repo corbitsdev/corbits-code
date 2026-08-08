@@ -1,6 +1,6 @@
 import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
 
-import { applyManageTasks, parseManageTasksArgs, type Task } from "../agent/tasks.js";
+import type { Task } from "../agent/tasks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
 type PlanBlockStep = { file: string; action: string; reason?: string };
@@ -78,7 +78,7 @@ function stringifyToolContent(content: unknown): string {
 
 function upsertResumeBlock(
   blocks: ContentBlockData[],
-  block: { type: "plan"; steps: PlanBlockStep[] } | { type: "tasks"; tasks: Task[] },
+  block: { type: "plan"; steps: PlanBlockStep[] },
 ): ContentBlockData[] {
   const next = [...blocks];
   const existing = next.findIndex((entry) => entry.type === block.type);
@@ -90,7 +90,7 @@ function upsertResumeBlock(
   return next;
 }
 
-/** Mirror live-stream tool.done handling for plan/tasks when hydrating a session. */
+/** Mirror live-stream tool.done handling for plan (submit_plan) when hydrating a session. */
 function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[] {
   const callIdToCallIndex = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
@@ -100,7 +100,6 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     }
   }
 
-  let tasks: Task[] = [];
   let planSteps: PlanBlockStep[] | null = null;
   const indicesToRemove = new Set<number>();
 
@@ -110,52 +109,31 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     const callIndex = callIdToCallIndex.get(result.callId);
     if (callIndex === undefined) continue;
     const call = blocks[callIndex];
-    if (call?.type !== "tool_call") continue;
+    if (call?.type !== "tool_call" || call.name !== "submit_plan") continue;
 
-    if (call.name === "submit_plan") {
-      indicesToRemove.add(callIndex);
-      indicesToRemove.add(i);
-      let steps: PlanBlockStep[] = [];
-      try {
-        const parsed = JSON.parse(call.arguments) as {
-          steps?: Array<{ file: string; action: string; reason?: string }>;
-        };
-        if (Array.isArray(parsed.steps)) {
-          steps = parsed.steps.map((s) => ({
-            file: s.file,
-            action: s.action,
-            ...(s.reason !== undefined ? { reason: s.reason } : {}),
-          }));
-        }
-      } catch {
-        /* invalid args → empty plan */
+    indicesToRemove.add(callIndex);
+    indicesToRemove.add(i);
+    let steps: PlanBlockStep[] = [];
+    try {
+      const parsed = JSON.parse(call.arguments) as {
+        steps?: Array<{ file: string; action: string; reason?: string }>;
+      };
+      if (Array.isArray(parsed.steps)) {
+        steps = parsed.steps.map((s) => ({
+          file: s.file,
+          action: s.action,
+          ...(s.reason !== undefined ? { reason: s.reason } : {}),
+        }));
       }
-      planSteps = steps;
-      continue;
+    } catch {
+      /* invalid args → empty plan */
     }
-
-    if (call.name === "manage_tasks") {
-      indicesToRemove.add(callIndex);
-      indicesToRemove.add(i);
-      let raw: unknown;
-      try {
-        raw = JSON.parse(call.arguments);
-      } catch {
-        continue;
-      }
-      const parsed = parseManageTasksArgs(raw);
-      if (parsed !== null) {
-        tasks = applyManageTasks(tasks, parsed);
-      }
-    }
+    planSteps = steps;
   }
 
   let out = blocks.filter((_, index) => !indicesToRemove.has(index));
   if (planSteps !== null) {
     out = upsertResumeBlock(out, { type: "plan", steps: planSteps });
-  }
-  if (tasks.length > 0) {
-    out = upsertResumeBlock(out, { type: "tasks", tasks });
   }
   return out;
 }

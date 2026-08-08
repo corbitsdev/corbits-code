@@ -408,6 +408,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
           },
           inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
           totalTimeoutMs: config.totalTimeoutMs,
+          // Exec mode has no live task panel or task stdout output today (unlike
+          // the TUI's chrome zone) — debug logging is the closest match to how
+          // this mode already surfaces other in-session state changes.
+          onTasksChange: (tasks) => {
+            logger.debug("tasks updated: {tasks}", {
+              tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+            });
+          },
           requestContinuation: () => {
             // Compaction governor self-delivers after compact so the loop re-enters.
             currentAgent?.deliver(buildCompactionContinuationMessage());

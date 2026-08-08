@@ -772,3 +772,38 @@ describe("goal continue-rule", () => {
   });
 });
 
+describe("onTasksChange live wiring", () => {
+  test("a manage_tasks tool call invokes the wired onTasksChange with the updated task list", async () => {
+    const updates: Array<Array<{ id: string; title: string; status: string }>> = [];
+    const director = createChatDirector("base", [], {
+      onTasksChange: (tasks) => updates.push(tasks),
+    });
+
+    await director.decide(
+      makeInferenceDoneEvent([
+        { id: "m", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "work", status: "doing" }] } },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual([{ id: "t1", title: "work", status: "doing" }]);
+  });
+
+  test("onTasksChange is not invoked for tool calls that are not manage_tasks", async () => {
+    const updates: unknown[] = [];
+    const director = createChatDirector("base", [], {
+      onTasksChange: (tasks) => updates.push(tasks),
+    });
+
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]),
+      mockState,
+      mockCapabilities,
+    );
+
+    expect(updates).toHaveLength(0);
+  });
+});
+

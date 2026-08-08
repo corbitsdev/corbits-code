@@ -119,7 +119,7 @@ import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/i
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
-import { createChatDirector } from "../agent/director.js";
+import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
 import { createGoalGovernor } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
@@ -1174,6 +1174,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         onActivateTools: (names) => promoteTools(names),
         inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
         totalTimeoutMs: config.totalTimeoutMs,
+        onTasksChange: (tasks) => emitter.emit("tasks", tasks),
         requestContinuation: () => {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
@@ -2077,6 +2078,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
     chrome: () => ({
       goal: goalGovernor.get(),
+      tasks: directorHolder.instance?.getTasks() ?? null,
       agents: subAgentSessions.listForStrip().map((s) => ({
         agentId: s.agentId,
         id: s.id,
@@ -2090,9 +2092,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     subscribeChrome: (notify) => {
       const unsubscribeAgents = subAgentSessions.subscribe(notify);
       emitter.on("goal", notify);
+      emitter.on("tasks", notify);
       return () => {
         unsubscribeAgents();
         emitter.off("goal", notify);
+        emitter.off("tasks", notify);
       };
     },
     subAgentSessions: () => subAgentSessions.list(),
@@ -2267,6 +2271,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   void loadRecentTurns(workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
+      const tasks = hydrateTasksFromTurns(turns);
+      if (tasks.length > 0) blocks.unshift({ type: "tasks", tasks });
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {
