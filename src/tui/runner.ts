@@ -176,6 +176,7 @@ import { generateSessionId, initSessionDir, renameSession, sessionContextDir, se
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
 import { loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
 import { setActiveRun, clearActiveRun, type RunStateHandle } from "../session/active-run.js";
+import { setActiveDisposeHost, clearActiveDisposeHost } from "../session/active-host.js";
 import { openInBrowser } from "../auth/oauth/browser.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
@@ -538,6 +539,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     finalized = true;
     activeRunHandle.active = false;
     clearActiveRun();
+    clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
       // Best-effort only — still attempt saveState below. Log so a flush
       // failure is not invisible when diagnosing a crash exit.
@@ -2241,6 +2243,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   disposeHost = host.dispose;
+  setActiveDisposeHost(disposeHost);
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
 
@@ -2354,6 +2357,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   finalized = true;
   activeRunHandle.active = false;
   clearActiveRun();
+  clearActiveDisposeHost();
   await writeRunSnapshot(persistedStatus, {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
