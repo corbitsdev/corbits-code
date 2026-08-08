@@ -791,6 +791,19 @@ describe("onTasksChange live wiring", () => {
     expect(updates[0]).toEqual([{ id: "t1", title: "work", status: "doing" }]);
   });
 
+  test("restoreTasks seeds a resumed session's task list and notifies the consumer", () => {
+    const updates: Array<Array<{ id: string; title: string; status: string }>> = [];
+    const director = createChatDirector("base", [], {
+      onTasksChange: (tasks) => updates.push(tasks),
+    });
+
+    const restored = [{ id: "t1", title: "from transcript", status: "doing" as const }];
+    director.restoreTasks(restored);
+
+    expect(director.getTasks()).toEqual(restored);
+    expect(updates).toEqual([restored]);
+  });
+
   test("onTasksChange is not invoked for tool calls that are not manage_tasks", async () => {
     const updates: unknown[] = [];
     const director = createChatDirector("base", [], {

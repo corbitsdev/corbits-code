@@ -404,6 +404,15 @@ class ChatDirectorImpl extends DefaultDirector {
     return [...this.tasks];
   }
 
+  // A resumed session's task list lives in the transcript, not in the freshly
+  // constructed director. Without this the chrome panel would read an empty
+  // list until the model happened to call manage_tasks again, disagreeing
+  // with the task block already painted in the transcript.
+  restoreTasks(tasks: Task[]): void {
+    this.tasks = [...tasks];
+    this.onTasksChange?.(this.tasks);
+  }
+
   // The status bar's context meter falls back to this when a provider omits
   // or zeroes usage on the latest turn — a local lower-then-corrected bound
   // beats displaying a number the provider never actually reported.
@@ -828,5 +837,6 @@ export interface ChatDirector extends ReactorDirector {
   setGoalGovernor(goal: GoalGovernor | undefined): void;
   getGoalGovernor(): GoalGovernor | undefined;
   getTasks(): Task[];
+  restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };
 }

@@ -90,7 +90,12 @@ function upsertResumeBlock(
   return next;
 }
 
-/** Mirror live-stream tool.done handling for plan (submit_plan) when hydrating a session. */
+/**
+ * Mirror live-stream tool.done handling when hydrating a session: submit_plan
+ * collapses into a single plan block, and manage_tasks rows are dropped
+ * entirely because the resumed task list is rendered as one aggregated block
+ * (see hydrateTasksFromTurns) rather than as one row per call.
+ */
 function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[] {
   const callIdToCallIndex = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
@@ -109,7 +114,14 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     const callIndex = callIdToCallIndex.get(result.callId);
     if (callIndex === undefined) continue;
     const call = blocks[callIndex];
-    if (call?.type !== "tool_call" || call.name !== "submit_plan") continue;
+    if (call?.type !== "tool_call") continue;
+
+    if (call.name === "manage_tasks") {
+      indicesToRemove.add(callIndex);
+      indicesToRemove.add(i);
+      continue;
+    }
+    if (call.name !== "submit_plan") continue;
 
     indicesToRemove.add(callIndex);
     indicesToRemove.add(i);

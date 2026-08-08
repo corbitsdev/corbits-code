@@ -34,6 +34,20 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
     const blocks = turnsToContentBlocks(turns);
     expect(blocks.some((b) => b.type === "tasks")).toBe(false);
   });
+
+  // The aggregated task block is unshifted separately on resume, so leaving
+  // the raw rows in would show every manage_tasks call twice over.
+  test("manage_tasks call and result rows are stripped from the resumed transcript", () => {
+    const turns = [
+      manageTasksTurn("m1", "todo"),
+      toolResultTurn("m1", false),
+      manageTasksTurn("m2", "doing"),
+      toolResultTurn("m2", false),
+    ];
+    const blocks = turnsToContentBlocks(turns);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks")).toBe(false);
+  });
 });
 
 describe("hydrateTasksFromTurns", () => {

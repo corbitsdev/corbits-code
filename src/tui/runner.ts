@@ -2272,7 +2272,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
       const tasks = hydrateTasksFromTurns(turns);
-      if (tasks.length > 0) blocks.unshift({ type: "tasks", tasks });
+      if (tasks.length > 0) {
+        blocks.unshift({ type: "tasks", tasks });
+        directorHolder.instance?.restoreTasks(tasks);
+      }
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {
