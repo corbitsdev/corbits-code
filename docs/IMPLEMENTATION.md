@@ -137,7 +137,8 @@ src/
     command-catalog.ts, model-catalog.ts, chrome-state.ts, palette.ts,
     provider-setup.ts       Onboarding provider setup flow
 docs/
-  PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, HOOKS.md, MCP.md, PLUGINS.md
+  PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, TUI.md, HOOKS.md, MCP.md,
+  PLUGINS.md, TELEMETRY.md, PERFTRACE.md
 ```
 
 ### Auto Mode
