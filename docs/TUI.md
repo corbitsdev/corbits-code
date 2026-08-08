@@ -53,6 +53,28 @@ uses the bronze/sand/ember chrome ramp and green (`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
 removed line), not a decision marker, and no decision-marker shares that row.
 
+## The live agents panel
+
+The `agents` chrome zone renders a standing panel above the transcript, one
+row per currently-running sub-agent — not a count. Each row reads
+`agentId: description · elapsed · tool`, sourced from the same
+`agentProgress()` clock/tool/stall computation used to trail a task row in the
+transcript (`src/tui-opentui/agent-progress.ts`); the panel does not compute
+progress a second way. A worker silent past the stall window (`DEFAULT_STALL_MS`)
+gets a `· stalled` suffix so it reads distinct from one still working, without
+relying on color alone.
+
+The panel is bounded to `AGENTS_PANEL_MAX_VISIBLE` rows
+(`src/tui-opentui/geometry/zones.ts`); a larger fan-out degrades to a trailing
+`+N more` row rather than growing the zone — and therefore the chrome
+budget — without limit. Its height is requested from the geometry resolver
+like every other zone, never guessed: the caller passes the exact row count it
+is about to render (`ZoneVisibility.agents: boolean | number`), and the
+resolver clamps it to the zone's registered max. Agents that have reached a
+terminal state (done/failed/cancelled) do not occupy a row; zero running
+agents is zero rows and zero chrome. `observe` mode overrides the panel with a
+single `observe: <agentId> — <description>` line instead of per-agent rows.
+
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider

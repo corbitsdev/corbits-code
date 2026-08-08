@@ -531,8 +531,8 @@ export type AppShell = {
   readonly goalText: TextRenderable
   readonly taskBox: BoxRenderable
   readonly taskText: TextRenderable
+  /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
   readonly agentsBox: BoxRenderable
-  readonly agentsText: TextRenderable
   readonly transcript: ScrollBoxRenderable
   readonly overlayHost: BoxRenderable
   readonly overlayTitle: TextRenderable
@@ -1804,7 +1804,8 @@ type ShellInternals = {
   chrome: {
     goal: string
     task: string
-    agents: string
+    /** Agents panel rows (empty array = zone off), one row per rendered line. */
+    agents: readonly string[]
   }
 }
 
@@ -3998,7 +3999,7 @@ export function runPaletteAction(
       const bag = internals.get(shell)
       const on = (bag?.chrome.agents.length ?? 0) > 0
       setChromeZones(shell, {
-        agents: on ? null : "agents: 0 running",
+        agents: on ? null : ["explore: map callers"],
       })
       appendStreamRow(shell, {
         role: "system",
@@ -4042,7 +4043,28 @@ export function runPaletteAction(
 export type ChromeZoneContent = {
   readonly goal?: string | null
   readonly task?: string | null
-  readonly agents?: string | null
+  /** One line per agents-panel row. Null/empty = hide the zone. */
+  readonly agents?: readonly string[] | null
+}
+
+/** A stalled row reads distinct from a working one by both label and color. */
+function isStalledAgentRow(line: string): boolean {
+  return line.endsWith(" · stalled")
+}
+
+/** Rebuild agentsBox's row children to match the requested lines exactly. */
+function renderAgentsRows(shell: AppShell, lines: readonly string[]): void {
+  for (const child of [...shell.agentsBox.getChildren()]) {
+    shell.agentsBox.remove(child)
+    destroySubtree(child)
+  }
+  for (const line of lines) {
+    const row = new TextRenderable(shell.renderer as CliRenderer, {
+      content: ` ${line}`,
+      fg: isStalledAgentRow(line) ? UI.textDim : UI.inFlight,
+    })
+    shell.agentsBox.add(row)
+  }
 }
 
 /**
@@ -4063,23 +4085,25 @@ export function setChromeZones(
     bag.chrome.task = content.task ?? ""
   }
   if (content.agents !== undefined) {
-    bag.chrome.agents = content.agents ?? ""
+    bag.chrome.agents = content.agents ?? []
   }
 
   const goalOn = bag.chrome.goal.length > 0
   const taskOn = bag.chrome.task.length > 0
-  const agentsOn = bag.chrome.agents.length > 0
+  const agentsRowCount = bag.chrome.agents.length
+  const agentsOn = agentsRowCount > 0
 
   shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
-  shell.agentsText.content = agentsOn ? ` ${bag.chrome.agents}` : ""
+  renderAgentsRows(shell, bag.chrome.agents)
 
-  // Only a zone appearing or disappearing changes the row budget; retitling a
-  // zone that is already on must not re-resolve and re-apply the whole layout.
+  // Only a zone appearing/disappearing or its row count changing alters the
+  // row budget; retitling a zone whose row count is unchanged must not
+  // re-resolve and re-apply the whole layout.
   if (
     goalOn === bag.visibility.goal &&
     taskOn === bag.visibility.task &&
-    agentsOn === bag.visibility.agents
+    agentsRowCount === bag.visibility.agents
   ) {
     paintChrome(shell)
     return
@@ -4090,7 +4114,7 @@ export function setChromeZones(
       ...bag.visibility,
       goal: goalOn,
       task: taskOn,
-      agents: agentsOn,
+      agents: agentsRowCount,
     },
     overlayMode: bag.overlayMode,
     ...(bag.overlayBodyRows !== undefined
@@ -4241,7 +4265,7 @@ export function enterSubagentObserve(
 
   shell.focus = openObserve(shell.focus, `observe-${session.sessionId}`)
   setChromeZones(shell, {
-    agents: `observe: ${session.agentId} — ${session.description}`,
+    agents: [`observe: ${session.agentId} — ${session.description}`],
   })
   // Child chrome toast — must not route to parent snapshot.
   appendObserveStreamRow(shell, {
@@ -4779,15 +4803,10 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
+    flexDirection: "column",
     backgroundColor: UI.ground,
     visible: false,
   })
-  const agentsText = new TextRenderable(ctx, {
-    id: "shell-agents-text",
-    content: "",
-    fg: UI.done,
-  })
-  agentsBox.add(agentsText)
 
   const transcript = new ScrollBoxRenderable(ctx, {
     id: "shell-transcript",
@@ -5430,7 +5449,6 @@ export function createAppShell(
     taskBox,
     taskText,
     agentsBox,
-    agentsText,
     transcript,
     overlayHost,
     overlayTitle,
@@ -5525,7 +5543,7 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
-    chrome: { goal: "", task: "", agents: "" },
+    chrome: { goal: "", task: "", agents: [] },
   })
   transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)

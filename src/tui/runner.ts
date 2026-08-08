@@ -2037,6 +2037,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         description: s.description,
         status: s.status,
         currentToolName: s.currentToolName,
+        startedAt: s.startedAt,
+        lastActivityAt: s.lastActivityAt,
       })),
     }),
     subscribeChrome: (notify) => {

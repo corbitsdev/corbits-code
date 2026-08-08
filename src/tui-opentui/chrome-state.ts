@@ -22,15 +22,21 @@
  * stale. Observe mode can override the agents line via `state.observe`.
  */
 
+import { agentProgress, DEFAULT_STALL_MS } from "./agent-progress.js"
+import { AGENTS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
 import type { ChromeZoneContent } from "./shell.js"
 
-/** Subagent row shape for the agents chrome line (store-agnostic). */
+/** Subagent row shape for the agents chrome panel (store-agnostic). */
 export type ChromeAgentSession = {
   readonly agentId: string
   readonly description: string
   readonly status: "running" | "done" | "failed" | "cancelled"
   /** Current tool while running (optional detail). */
   readonly currentToolName?: string | null
+  /** Clock the worker started; feeds the panel row's elapsed time. */
+  readonly startedAt?: number
+  /** Clock of the worker's last reported activity; feeds stalled detection. */
+  readonly lastActivityAt?: number
 }
 
 /**
@@ -93,7 +99,8 @@ export type ChromeLiveState = {
 export type FormattedChromeZones = {
   readonly goal: string | null
   readonly task: string | null
-  readonly agents: string | null
+  /** One line per rendered agents-panel row (null = hide zone, zero rows). */
+  readonly agents: readonly string[] | null
 }
 
 const PHASE_SHORT: Record<string, string> = {
@@ -109,11 +116,14 @@ const PHASE_SHORT: Record<string, string> = {
  * Empty / partial / inactive inputs yield null for the corresponding zone
  * so geometry collapses that strip (idleDefault 0).
  */
-export function formatChromeZones(state: ChromeLiveState): FormattedChromeZones {
+export function formatChromeZones(
+  state: ChromeLiveState,
+  nowMs: number = Date.now(),
+): FormattedChromeZones {
   return {
     goal: formatGoalLine(state.goal),
     task: formatTaskLine(state.task),
-    agents: formatAgentsLine(state.agents, state.observe),
+    agents: formatAgentsPanel(state.agents, state.observe, nowMs),
   }
 }
 
@@ -202,63 +212,72 @@ function formatTaskLineFromRows(rows: readonly ChromeTaskRow[]): string | null {
   return compactLine("task", `${title}${suffix}`)
 }
 
-export function formatAgentsLine(
+/**
+ * Format the live agents panel: one row per running agent, bounded to
+ * `maxVisible` with a trailing "+N more" row, sourced from the same
+ * `agentProgress` clock/tool/stall computation the transcript trailer uses.
+ * Terminal-only sessions (done/failed/cancelled) render no rows — the panel
+ * shows live work, not a history; Ctrl+E / agents-nav covers inspection.
+ */
+export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
-  observe?: ChromeLiveState["observe"],
-): string | null {
-  if (observe !== null && observe !== undefined) {
-    const id = observe.agentId.trim()
-    const desc = observe.description.trim()
-    if (id.length === 0 && desc.length === 0) return null
-    const label =
-      id.length > 0 && desc.length > 0
-        ? `${id} — ${desc}`
-        : id.length > 0
-          ? id
-          : desc
-    return `observe: ${label}`
-  }
+  observe: ChromeLiveState["observe"],
+  nowMs: number,
+  maxVisible: number = AGENTS_PANEL_MAX_VISIBLE,
+  stallMs: number = DEFAULT_STALL_MS,
+): readonly string[] | null {
+  const observeLine = formatObserveLine(observe)
+  if (observeLine !== undefined) return observeLine === null ? null : [observeLine]
 
-  if (agents === null || agents === undefined || agents.length === 0) {
-    return null
-  }
+  if (agents === null || agents === undefined || agents.length === 0) return null
 
   const running = agents.filter((s) => s.status === "running")
-  const done = agents.filter((s) => s.status === "done").length
-  const failed = agents.filter((s) => s.status === "failed").length
-  const cancelled = agents.filter((s) => s.status === "cancelled").length
+  if (running.length === 0) return null
 
-  const parts: string[] = []
-  if (running.length > 0) {
-    parts.push(`${running.length} live`)
-  }
-  if (done > 0) parts.push(`${done} done`)
-  if (failed > 0) parts.push(`${failed} failed`)
-  if (cancelled > 0) parts.push(`${cancelled} cancelled`)
+  const visible = running.slice(0, maxVisible)
+  const rows = visible.map((s) => formatAgentRow(s, nowMs, stallMs))
+  const hidden = running.length - visible.length
+  if (hidden > 0) rows.push(`+${hidden} more`)
+  return rows
+}
 
-  // Prefer a summary count line; when a single agent is live, add its label.
-  if (running.length === 1) {
-    const s = running[0]!
-    const tool =
-      s.currentToolName !== undefined &&
-      s.currentToolName !== null &&
-      s.currentToolName.length > 0
-        ? ` · ${s.currentToolName}`
-        : ""
-    const label = `${s.agentId}: ${s.description}${tool}`.trim()
-    if (label.length > 2) {
-      // "agents: 1 live · explore: map callers"
-      const summary = parts.length > 0 ? parts.join(" · ") : "1 live"
-      return compactLine("agents", `${summary} · ${label}`)
-    }
+function formatObserveLine(observe: ChromeLiveState["observe"]): string | null | undefined {
+  if (observe === null || observe === undefined) return undefined
+  const id = observe.agentId.trim()
+  const desc = observe.description.trim()
+  if (id.length === 0 && desc.length === 0) return null
+  const label =
+    id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc
+  return `observe: ${label}`
+}
+
+function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: number): string {
+  const label = `${session.agentId}: ${session.description}`.trim()
+  const progress =
+    session.startedAt !== undefined
+      ? agentProgress(
+          {
+            status: "running",
+            currentToolName: session.currentToolName ?? null,
+            startedAt: session.startedAt,
+            lastActivityAt: session.lastActivityAt ?? session.startedAt,
+          },
+          nowMs,
+          stallMs,
+        )
+      : null
+
+  if (progress !== null) {
+    const stalledSuffix = progress.stalled ? " · stalled" : ""
+    return `${label} · ${progress.stat}${stalledSuffix}`
   }
 
-  if (parts.length === 0) {
-    // Only terminal sessions present — still show a count so inspect chrome
-    // can surface "agents: 2 done" when host passes full listForStrip().
-    return compactLine("agents", `${agents.length}`)
-  }
-  return compactLine("agents", parts.join(" · "))
+  // No startedAt to compute a clock from (host omitted it) — still surface
+  // the tool name so the row is not silently missing detail it has.
+  const tool = session.currentToolName
+  return tool !== undefined && tool !== null && tool.length > 0
+    ? `${label} · ${tool}`
+    : label
 }
 
 /**
@@ -330,6 +349,8 @@ export type ChromeSessionAgent = {
   readonly description: string
   readonly status: "running" | "done" | "failed" | "cancelled"
   readonly currentToolName?: string | null
+  readonly startedAt?: number
+  readonly lastActivityAt?: number
 }
 
 /**
@@ -423,6 +444,10 @@ function mapSessionAgents(
       status: a.status,
       ...(a.currentToolName !== undefined
         ? { currentToolName: a.currentToolName }
+        : {}),
+      ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
+      ...(a.lastActivityAt !== undefined
+        ? { lastActivityAt: a.lastActivityAt }
         : {}),
     }
   })

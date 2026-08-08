@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGENTS_PANEL_MAX_VISIBLE,
   COLLAPSE_ORDER,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_TRANSCRIPT_FLOOR,
@@ -95,6 +96,33 @@ describe("resolveGeometry — 80×24 idle floor", () => {
       visibility: { progress: true, goal: true },
     });
     expect(layout.regions.transcript?.height).toBe(layout.transcriptHeight);
+  });
+});
+
+describe("resolveGeometry — agents panel", () => {
+  test("N running agents request N rows, bounded by the zone max", () => {
+    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
+      const requested = Math.min(n, AGENTS_PANEL_MAX_VISIBLE + 1);
+      const layout = idle80x24({ visibility: { agents: n } });
+      expect(layout.heights.agents).toBe(requested);
+    }
+  });
+
+  test("zero agents costs zero chrome", () => {
+    const layout = idle80x24({ visibility: { agents: 0 } });
+    expect(layout.heights.agents).toBe(0);
+    expect(layout.regions.agents).toBeUndefined();
+  });
+
+  test("a large fan-out never grows the zone past its bounded max", () => {
+    const layout = idle80x24({ visibility: { agents: 50 } });
+    expect(layout.heights.agents).toBe(ZONE_REGISTRY.agents.max);
+    expect(layout.heights.agents).toBe(AGENTS_PANEL_MAX_VISIBLE + 1);
+  });
+
+  test("a bounded agents panel never eats the transcript floor", () => {
+    const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
 });
 

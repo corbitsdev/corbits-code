@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test"
 import {
   annotateAgentTools,
   chromeFromSession,
-  formatAgentsLine,
+  formatAgentsPanel,
   formatChromeZones,
   formatGoalLine,
   formatTaskLine,
   type ChromeLiveState,
 } from "./chrome-state"
+
+const NOW = 1_000_000
 
 describe("formatChromeZones", () => {
   test("empty state hides all zones", () => {
@@ -70,6 +72,8 @@ describe("formatChromeZones", () => {
           description: "map setChromeZones callers",
           status: "running",
           currentToolName: "grep",
+          startedAt: NOW - 5_000,
+          lastActivityAt: NOW,
         },
         {
           agentId: "general",
@@ -78,32 +82,32 @@ describe("formatChromeZones", () => {
         },
       ],
     }
-    const out = formatChromeZones(state)
+    const out = formatChromeZones(state, NOW)
     expect(out.goal).toBe("goal: review · 2/4 · 1:1 OpenTUI cutover")
     expect(out.task).toBe("task: chrome live helper (+2)")
-    expect(out.agents).toContain("1 live")
-    expect(out.agents).toContain("explore:")
-    expect(out.agents).toContain("grep")
-    expect(out.agents).toContain("1 done")
+    expect(out.agents).toEqual(["explore: map setChromeZones callers · 0:05 · grep"])
   })
 
-  test("observe overrides agents line", () => {
-    const out = formatChromeZones({
-      agents: [
-        {
+  test("observe overrides the agents panel", () => {
+    const out = formatChromeZones(
+      {
+        agents: [
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+          },
+        ],
+        observe: {
           agentId: "explore",
-          description: "map callers",
-          status: "running",
+          description: "map callers of openListOverlay",
         },
-      ],
-      observe: {
-        agentId: "explore",
-        description: "map callers of openListOverlay",
       },
-    })
-    expect(out.agents).toBe(
-      "observe: explore — map callers of openListOverlay",
+      NOW,
     )
+    expect(out.agents).toEqual([
+      "observe: explore — map callers of openListOverlay",
+    ])
   })
 })
 
@@ -195,41 +199,71 @@ describe("formatTaskLine", () => {
   })
 })
 
-describe("formatAgentsLine", () => {
+describe("formatAgentsPanel", () => {
   test("empty hides", () => {
-    expect(formatAgentsLine(null)).toBeNull()
-    expect(formatAgentsLine([])).toBeNull()
+    expect(formatAgentsPanel(null, undefined, NOW)).toBeNull()
+    expect(formatAgentsPanel([], undefined, NOW)).toBeNull()
   })
 
-  test("multi live summary without single-agent detail", () => {
+  test("one row per running agent", () => {
     expect(
-      formatAgentsLine([
+      formatAgentsPanel(
+        [
+          { agentId: "a", description: "one", status: "running", startedAt: NOW - 1_000, lastActivityAt: NOW },
+          { agentId: "b", description: "two", status: "running", startedAt: NOW - 2_000, lastActivityAt: NOW },
+        ],
+        undefined,
+        NOW,
+      ),
+    ).toEqual(["a: one · 0:01", "b: two · 0:02"])
+  })
+
+  test("terminal-only list renders zero rows", () => {
+    expect(
+      formatAgentsPanel(
+        [
+          { agentId: "a", description: "x", status: "done" },
+          { agentId: "b", description: "y", status: "failed" },
+        ],
+        undefined,
+        NOW,
+      ),
+    ).toBeNull()
+  })
+
+  test("stalled agent is visually distinct in its label", () => {
+    const rows = formatAgentsPanel(
+      [
         {
           agentId: "a",
-          description: "one",
+          description: "quiet worker",
           status: "running",
+          startedAt: NOW - 60_000,
+          lastActivityAt: NOW - 40_000,
         },
-        {
-          agentId: "b",
-          description: "two",
-          status: "running",
-        },
-      ]),
-    ).toBe("agents: 2 live")
+      ],
+      undefined,
+      NOW,
+    )
+    expect(rows).toEqual(["a: quiet worker · 1:00 · stalled"])
   })
 
-  test("terminal-only list still counts", () => {
-    expect(
-      formatAgentsLine([
-        { agentId: "a", description: "x", status: "done" },
-        { agentId: "b", description: "y", status: "failed" },
-      ]),
-    ).toBe("agents: 1 done · 1 failed")
+  test("bounds fan-out to maxVisible plus a +N more row", () => {
+    const running = Array.from({ length: 8 }, (_, i) => ({
+      agentId: `agent-${i}`,
+      description: "working",
+      status: "running" as const,
+      startedAt: NOW,
+      lastActivityAt: NOW,
+    }))
+    const rows = formatAgentsPanel(running, undefined, NOW, 5)
+    expect(rows).toHaveLength(6)
+    expect(rows?.[5]).toBe("+3 more")
   })
 
   test("observe empty id+desc hides", () => {
     expect(
-      formatAgentsLine([], { agentId: "  ", description: "  " }),
+      formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW),
     ).toBeNull()
   })
 })
@@ -280,10 +314,10 @@ describe("chromeFromSession", () => {
       },
     ])
 
-    const zones = formatChromeZones(state)
+    const zones = formatChromeZones(state, NOW)
     expect(zones.goal).toBe("goal: impl · 1/2 · ship cutover")
     expect(zones.task).toBe("task: wire catalogs (+1)")
-    expect(zones.agents).toContain("1 live")
+    expect(zones.agents).toEqual(["explore: map callers · grep"])
   })
 
   test("falls back agent id and goal condition; empty bags hide", () => {
@@ -313,9 +347,9 @@ describe("chromeFromSession", () => {
       agentId: "explore",
       description: "watch",
     })
-    expect(formatChromeZones(state).agents).toBe(
+    expect(formatChromeZones(state, NOW).agents).toEqual([
       "observe: explore — watch",
-    )
+    ])
   })
 })
 

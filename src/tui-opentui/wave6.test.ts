@@ -290,7 +290,7 @@ describe("Wave 6: chrome zones", () => {
           setChromeZones(shell, {
             goal: "goal: Wave 6",
             task: "task: chrome zones",
-            agents: "agents: 0",
+            agents: ["explore: map callers"],
           })
 
           expect(shell.layout.heights.goal).toBe(1)
@@ -306,7 +306,7 @@ describe("Wave 6: chrome zones", () => {
           const frame = h.captureCharFrame()
           expect(frame).toContain("goal: Wave 6")
           expect(frame).toContain("task: chrome zones")
-          expect(frame).toContain("agents: 0")
+          expect(frame).toContain("explore: map callers")
 
           setChromeZones(shell, { goal: null, task: null, agents: null })
           expect(shell.layout.heights.goal).toBe(0)

@@ -48,7 +48,8 @@ export type ZoneVisibility = {
   readonly progressDivider?: boolean;
   readonly goal?: boolean;
   readonly task?: boolean;
-  readonly agents?: boolean;
+  /** Agents panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
+  readonly agents?: boolean | number;
   readonly pluginBanner?: boolean;
   /** Command banner: true → 1 row, or explicit 1|2. */
   readonly commandBanner?: boolean | 1 | 2;
@@ -141,7 +142,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     prompt: promptRows,
     goal: vis.goal ? 1 : 0,
     task: vis.task ? 1 : 0,
-    agents: vis.agents ? 1 : 0,
+    agents: clamp(boolOrRows(vis.agents, 1), 0, ZONE_REGISTRY.agents.max),
     plugin_banner: vis.pluginBanner ? 1 : 0,
     command_banner: clamp(
       boolOrRows(vis.commandBanner, 1),
