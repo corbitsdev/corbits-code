@@ -50,6 +50,19 @@ describe("shouldAbortForStall", () => {
     expect(shouldAbortForStall({ ...base, status: "stopping" })).toBe(false)
   })
 
+  // Two independent exemptions (a gate open on the operator, a sibling tool
+  // call still outstanding) must both keep exempting when combined — neither
+  // one's guard may accidentally require the other's condition to also hold.
+  test("a gate open and a sibling tool call each exempt alone, and together", () => {
+    const gateOnly = { ...base, status: "blocked" as const }
+    const toolCallOnly = { ...base, activeToolCalls: ["call-2"] }
+    const both = { ...base, status: "blocked" as const, activeToolCalls: ["call-2"] }
+
+    expect(shouldAbortForStall(gateOnly)).toBe(false)
+    expect(shouldAbortForStall(toolCallOnly)).toBe(false)
+    expect(shouldAbortForStall(both)).toBe(false)
+  })
+
   test("a settled turn with nothing in flight is not a stall", () => {
     expect(
       shouldAbortForStall({

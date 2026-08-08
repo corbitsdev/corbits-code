@@ -410,6 +410,36 @@ describe("stall watchdog", () => {
       }
     })
   })
+
+  // The gate exemption (this fix) and the parallel-tool-call exemption
+  // (CL-5641) are independent guards feeding the same stall check — a run
+  // with both outstanding must stay exempt, and closing the gate while the
+  // tool call is still out must not re-expose it to the clock.
+  test("a gate open alongside a live sibling tool call stays exempt", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "task", callId: "c1" },
+        })
+        t.bridge.gateOpened()
+        t.port.clear()
+
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+
+        t.bridge.gateClosed()
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
 })
 
 describe("repetition guard", () => {
