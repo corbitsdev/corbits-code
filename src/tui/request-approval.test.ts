@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createGateRequestApproval } from "./request-approval.js";
+import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import {
   getToolApprovalBudget,
   runWithToolExecutionWatchdog,
@@ -101,5 +101,50 @@ describe("createGateRequestApproval", () => {
     expect(captured?.signal).toBeUndefined();
     captured?.resolve({ allow: true });
     expect((await pending).allow).toBe(true);
+  });
+});
+
+// attachApprovalBudget is the mechanism createGateRequestApproval builds on
+// (see above) and is reused directly by the operator-gate emission sites in
+// runner.ts (ask_operator, MCP TOFU) — it must generalize past
+// ApprovalOutcome and enforce single-resolution on its own.
+describe("attachApprovalBudget", () => {
+  test("pauses the budget at call time and resumes exactly once no matter how many times finish is called", async () => {
+    let resolveCount = 0;
+    let lastValue: string | undefined;
+    await runWithToolExecutionWatchdog(
+      { id: "3", name: "ask_operator", arguments: {} },
+      new AbortController().signal,
+      60,
+      async () => {
+        const { finish } = attachApprovalBudget<string>(
+          (value) => {
+            resolveCount += 1;
+            lastValue = value;
+          },
+          { tool: "ask_operator", kind: "operator" },
+        );
+        // Longer than the budget — frozen while the question is pending,
+        // exactly like the permission gate's budget pause.
+        await new Promise((r) => setTimeout(r, 120));
+        expect(getToolApprovalBudget()?.signal.aborted).toBe(false);
+        finish("answered");
+        finish("answered again");
+        return { callId: "3", content: "done" };
+      },
+      { salvageGraceMs: 80, waitForApproval: true },
+    );
+    expect(resolveCount).toBe(1);
+    expect(lastValue).toBe("answered");
+  });
+
+  test("has no signal when called outside a tool run", () => {
+    let resolved: unknown;
+    const { finish, signal } = attachApprovalBudget<string>((value) => {
+      resolved = value;
+    }, { tool: "ask_operator", kind: "operator" });
+    expect(signal).toBeUndefined();
+    finish("cancel");
+    expect(resolved).toBe("cancel");
   });
 });

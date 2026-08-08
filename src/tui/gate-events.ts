@@ -5,6 +5,19 @@ export type OperatorGateEvent = {
   question: string;
   options: string[];
   resolve: (result: OperatorResult) => void;
+  /**
+   * When set (goal mode active), auto-cancel if the operator has not answered
+   * within this many ms so an unattended goal cannot park on the modal forever.
+   */
+  timeoutMs?: number;
+  /** Override the agent-facing cancel message on timeout. */
+  timeoutMessage?: string;
+  /**
+   * Tool-execution budget signal. When aborted (watchdog timeout or parent
+   * cancel), this operator entry is auto-cancelled even if it is not the head
+   * of the queue — so the modal cannot outlive a tool that already finished.
+   */
+  signal?: AbortSignal;
 };
 
 export type PermissionGateEvent = {
