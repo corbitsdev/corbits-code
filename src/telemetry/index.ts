@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import pkg from "../../package.json" with { type: "json" };
 import { ENV_PREFIX } from "../branding.js";
 import type { Settings } from "../config/settings.js";
@@ -26,10 +28,22 @@ export const TELEMETRY_NOTICE =
 
 export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
 
+// One id per interactive process (TUI session or CLI invocation), generated
+// once at module load and reused by every createTelemetry() instance for the
+// life of the process — including across the toggle handler's re-creation on
+// enable/disable — so PostHog can group every event this process emits into
+// one session. Future emitters (AI turn events, feedback) read this via
+// getSessionId() rather than generating their own.
+const SESSION_ID = randomUUID();
+
+export function getSessionId(): string {
+  return SESSION_ID;
+}
+
 // Per-event property allowlist. Anything not listed here is stripped before
 // the payload leaves the process. Together with the fixed common properties
-// capture() appends (service_version, os_type, os_arch, schema_version),
-// this bounds everything telemetry can ever contain.
+// capture() appends (service_version, os_type, os_arch, schema_version,
+// session_id), this bounds everything telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
   session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
@@ -140,6 +154,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
         os_type: process.platform,
         os_arch: process.arch,
         schema_version: 1,
+        session_id: SESSION_ID,
       },
     };
 
