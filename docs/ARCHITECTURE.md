@@ -274,6 +274,8 @@ tool call
 
 Approval scopes offered: Allow Once (persist nothing), Allow Always for a file or its directory (file tools), or a command shape (shell). There is intentionally no "all files" rung.
 
+**Known live gap.** A queued gate's display-dependent timers (goal-mode auto-skip, tool-budget pause ceiling) currently arm when the request is *received*, not when it is actually shown to the operator — a request sitting behind others in the queue can burn its whole timeout invisibly. `ask_operator` also has no timeout/abort safety net at all, unlike the permission gate, so a queued operator question behind a stuck overlay can hang a run. Both live in `src/tui-opentui/gate-wire.ts`'s `onPermission`/`onOperator`. This callout should be removed once that fix ships — do not let it become permanent known-issue debt.
+
 ### TUI (`src/tui-opentui/`)
 
 OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been deleted from the repo. The runner (`src/tui/runner.ts`) mounts the host via `mountRunnerHost` (`src/tui-opentui/runner-host.ts`), which mounts `mountProductHost` (`src/tui-opentui/product-host.ts`) over the shell (`src/tui-opentui/shell.ts`).
