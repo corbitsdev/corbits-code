@@ -13,6 +13,7 @@ import {
   CliRenderEvents,
   MarkdownRenderable,
   ScrollBoxRenderable,
+  SyntaxStyle,
   TextRenderable,
   TextTableRenderable,
   StyledText,
@@ -47,6 +48,11 @@ import {
   type SentHistoryBrowse,
 } from "../tui/sent-message-history.js"
 import { spliceMentionCompletion } from "./prompt-attachments.js"
+import {
+  resolvePromptHighlightSpans,
+  resolvePromptRecognitionMatcher,
+  type PromptRecognitionSource,
+} from "./prompt-recognition.js"
 import {
   createPromptInput,
   promptCaretAtFirstRow,
@@ -352,6 +358,17 @@ export function setMentionSuggestionSource(
 ): void {
   if (source) shellMentionSource.set(shell, source)
   else shellMentionSource.delete(shell)
+}
+
+/** Names the prompt is allowed to highlight as recognized skills/agents. */
+const shellRecognitionSource = new WeakMap<AppShell, PromptRecognitionSource>()
+
+export function setPromptRecognitionSource(
+  shell: AppShell,
+  source: PromptRecognitionSource | undefined,
+): void {
+  if (source) shellRecognitionSource.set(shell, source)
+  else shellRecognitionSource.delete(shell)
 }
 
 /**
@@ -1702,6 +1719,50 @@ export function syncPromptRows(shell: AppShell): void {
   const rows = promptBoxRows(promptRowCount(shell.prompt), shell.renderer.height)
   if (rows === shell.layout.heights.prompt) return
   relayout(shell, { promptContentRows: rows })
+}
+
+let cachedPromptSyntaxStyle: SyntaxStyle | null = null
+let cachedPromptRecognizedStyleId: number | null = null
+
+/**
+ * The style registry backing the prompt's highlights, plus the one style id
+ * this feature uses. Lazy for the same reason as `transcriptSyntaxStyle`:
+ * construction reaches into the native render lib.
+ */
+function promptRecognizedStyleId(): number {
+  if (cachedPromptSyntaxStyle === null) {
+    cachedPromptSyntaxStyle = SyntaxStyle.fromStyles({
+      recognized: { fg: UI.action },
+    })
+  }
+  if (cachedPromptRecognizedStyleId === null) {
+    cachedPromptRecognizedStyleId = cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0
+  }
+  return cachedPromptRecognizedStyleId
+}
+
+const promptHighlightedValue = new WeakMap<AppShell, string>()
+
+/**
+ * Re-mark recognized skill/agent tokens in the prompt. Runs once per frame
+ * (see `onFrame` in `createShell`), and only does anything when the prompt's
+ * text actually changed since the last frame — typing that doesn't touch a
+ * token, and every non-typing frame, is a no-op string comparison.
+ */
+export function syncPromptHighlights(shell: AppShell): void {
+  const source = shellRecognitionSource.get(shell)
+  if (source === undefined) return
+  const value = shell.prompt.value
+  if (promptHighlightedValue.get(shell) === value) return
+  promptHighlightedValue.set(shell, value)
+
+  const styleId = promptRecognizedStyleId()
+  shell.prompt.syntaxStyle = cachedPromptSyntaxStyle
+  shell.prompt.clearAllHighlights()
+  const matcher = resolvePromptRecognitionMatcher(source)
+  for (const span of resolvePromptHighlightSpans(value, matcher)) {
+    shell.prompt.addHighlightByCharRange({ start: span.start, end: span.end, styleId })
+  }
 }
 
 export type RelayoutOpts = {
@@ -5471,6 +5532,7 @@ export function createAppShell(
   const onFrame = (): void => {
     if (disposed) return
     syncPromptRows(shell)
+    syncPromptHighlights(shell)
     // Applied after a natural render, not at mutation time: a row's own box
     // needs a layout pass to size itself, and claiming the padding first
     // starves that pass of room to lay the row out in.
