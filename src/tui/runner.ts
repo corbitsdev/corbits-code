@@ -145,6 +145,7 @@ import {
   surfaceSystemNotice,
 } from "../tui-opentui/shell.js";
 import {
+  captureAuthFailure,
   classifyAgentSendFailure,
   shouldSettleUiAfterSendFailure,
 } from "../tui-opentui/session-chrome.js";
@@ -1772,9 +1773,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       isCodexAuthError,
       isXaiAuthError,
     );
-    if (kind === "codex_auth" || kind === "xai_auth") {
-      getTelemetry().capture("auth_failure", { error_class: kind });
-    }
+    captureAuthFailure(getTelemetry(), kind);
     if (!shouldSettleUiAfterSendFailure(kind)) return;
     recordRunError(err);
     systemNotice(err instanceof Error ? err.message : String(err));

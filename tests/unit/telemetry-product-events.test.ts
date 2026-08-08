@@ -23,6 +23,10 @@ import {
   classifyPermissionKind,
 } from "../../src/telemetry/classify.js";
 import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
+import {
+  captureAuthFailure,
+  classifyAgentSendFailure,
+} from "../../src/tui-opentui/session-chrome.js";
 
 type BatchBody = {
   batch: { event: string; properties: Record<string, unknown> }[];
@@ -254,6 +258,41 @@ test("crash reports language error types by name and buckets everything else", a
     "non_error",
   ]);
   expect(await wire()).not.toContain("AcmeCorp");
+});
+
+// ---------------------------------------------------------------------------
+// auth_failure — the provider's rejection message names the profile
+// ---------------------------------------------------------------------------
+
+test("auth_failure names the provider and never ships the rejection message", async () => {
+  const { telemetry, wire, events } = harness();
+  const isCodexAuth = (e: unknown) => e instanceof Error && /codex profile/i.test(e.message);
+  const isXaiAuth = (e: unknown) => e instanceof Error && /xai profile/i.test(e.message);
+
+  const codexRejection = new Error('Codex profile "acmecorp-eng" is not authorized.');
+  const rejections = [
+    codexRejection,
+    new Error('xai profile "acmecorp-eng" is not authorized.'),
+    new Error("connection reset by /Users/someone/acmecorp"),
+  ];
+  for (const err of rejections) {
+    captureAuthFailure(
+      telemetry,
+      classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth),
+    );
+  }
+  // An aborted send outranks the auth match, so it must emit nothing.
+  captureAuthFailure(
+    telemetry,
+    classifyAgentSendFailure(codexRejection, true, isCodexAuth, isXaiAuth),
+  );
+
+  const captured = await events();
+  expect(captured.map((e) => e.event)).toEqual(["auth_failure", "auth_failure"]);
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual(["codex", "xai"]);
+  const body = await wire();
+  expect(body).not.toContain("acmecorp");
+  expect(body).not.toContain("error_class");
 });
 
 // ---------------------------------------------------------------------------

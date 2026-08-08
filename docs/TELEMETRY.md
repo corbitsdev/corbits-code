@@ -21,7 +21,7 @@ Each event carries a small set of properties:
 | `permission_prompt` | An approval prompt is answered (or abandoned) | `decision`, `permission_kind` |
 | `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
 | `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
-| `auth_failure` | A provider rejects the stored credentials | `error_class` |
+| `auth_failure` | A provider rejects the stored credentials | `auth_provider` |
 
 `compaction` is deliberately silent on the runs where the compactor decides
 there is nothing to compact — an event that also fires on no-ops makes its own
@@ -62,7 +62,14 @@ all and `plugin_loaded` carries only `origin`, the discovery tier
 
 `error_class` is bucketed the same way: only the error types defined by the
 language are reported by name, because an error subclass defined in
-application or plugin code is as author-chosen as any other string.
+application or plugin code is as author-chosen as any other string. It appears
+on `crash` and nowhere else, so the column means one thing everywhere it is
+recorded.
+
+`auth_provider` is a separate property for that reason: it names which
+provider's sign-in was rejected (`codex`, `xai`), chosen from a fixed
+first-party set in `src/tui-opentui/session-chrome.ts`. No part of the
+provider's rejection message is sent.
 
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each
 emission site a deliberately identifying name and assert it reaches no part of

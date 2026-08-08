@@ -101,7 +101,9 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   permission_prompt: ["decision", "permission_kind"],
   compaction: ["mode", "duration_ms", "turns_before", "turns_after"],
   crash: ["kind", "error_class"],
-  auth_failure: ["error_class"],
+  // Which provider rejected the credentials, not why — the rejection detail is
+  // provider-authored text and error_class means a JS constructor name.
+  auth_failure: ["auth_provider"],
 };
 
 const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.keys(EVENT_PROPERTY_ALLOWLIST));
