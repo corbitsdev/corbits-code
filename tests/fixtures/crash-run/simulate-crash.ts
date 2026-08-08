@@ -26,7 +26,7 @@ await saveState(cwd, sessionId, {
   model,
 });
 
-setActiveRun({ sessionId, cwd, active: true, task, startedAt, model });
+setActiveRun({ sessionId, cwd, task, startedAt, model });
 installCrashHandlers();
 
 process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);

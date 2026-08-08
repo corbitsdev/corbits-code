@@ -241,6 +241,24 @@ export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
   };
 }
 
+/**
+ * Why a run.json snapshot is being written. Only "run-end" ends the run
+ * itself and so clears the active-run handle that the crash handler in
+ * index.ts reads.
+ *
+ * RunState.status cannot stand in for this. A /clear or /new rotation
+ * persists a terminal "done" for the outgoing session while the process
+ * keeps running under a fresh session id, so inferring "the run is over"
+ * from a non-"running" status disarms crash finalization for everything
+ * after the first rotation -- the session that dies then never gets its
+ * terminal record and reads as "running" forever.
+ */
+export type SnapshotKind = "progress" | "session-rotation" | "run-end";
+
+export function clearsActiveRun(kind: SnapshotKind): boolean {
+  return kind === "run-end";
+}
+
 const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
   session: "This session",
   project: "This project",
@@ -1364,6 +1382,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const writeRunSnapshot = async (
     status: RunState["status"],
     extra?: Pick<RunState, "finishedAt" | "error">,
+    kind: SnapshotKind = "progress",
   ): Promise<void> => {
     const task = runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)";
     const model = `${liveSource.id}:${liveSource.model}`;
@@ -1381,28 +1400,29 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       mcpServers: connectedMcpServers,
       ...extra,
     };
-    // "running" is the only non-terminal status writeRunSnapshot ever
-    // receives (progress snapshots); anything else closes the run out, so
-    // the active-run handle is cleared in the same call as the disk write
-    // rather than by a separate statement at each terminal call site.
-    if (status === "running") {
-      await saveState(config.cwd, sessionId, state);
-    } else {
+    if (clearsActiveRun(kind)) {
       await finalizeRunState(config.cwd, sessionId, state);
+    } else {
+      await saveState(config.cwd, sessionId, state);
     }
   };
 
   // Progress snapshots are fired unsequenced (model switch, MCP connect, turn
   // completion), so a straggler could otherwise land after the terminal write
   // and resurrect status "running" — atomicWrite is last-rename-wins. Once the
-  // run is finalized, drop them; the terminal paths write through
+  // run is finalized, drop them; the run-ending path writes through
   // writeRunSnapshot directly.
+  //
+  // Never a "run-end" write: everything routed here happens while the process
+  // is still alive and must stay crash-coverable, including the rotation
+  // "done" that closes out a session on /clear or /new.
   const persistRunSnapshot = async (
     status: RunState["status"],
     extra?: Pick<RunState, "finishedAt" | "error">,
+    kind: Exclude<SnapshotKind, "run-end"> = "progress",
   ): Promise<void> => {
     if (finalized) return;
-    await writeRunSnapshot(status, extra);
+    await writeRunSnapshot(status, extra, kind);
   };
 
   // Cycles persist to the context store only on inference.done; the recorder
@@ -1641,8 +1661,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             error: err instanceof Error ? err.message : String(err),
           });
         });
-        await persistRunSnapshot("done", { finishedAt: Date.now() });
+        await persistRunSnapshot("done", { finishedAt: Date.now() }, "session-rotation");
         sessionId = generateSessionId();
+        // Repointed, not cleared: the process lives on, so the crash handler
+        // must keep finding this handle and close out the *new* session.
         activeRunHandle.sessionId = sessionId;
         startedAt = Date.now();
         runTaskTitle = config.task;
@@ -2309,13 +2331,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // finished run (finishedAt set) can be left reading as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   finalized = true;
-  // writeRunSnapshot clears the active-run handle itself for a terminal
-  // status (via finalizeRunState in state.ts), pairing the on-disk write
-  // with the in-memory one instead of setting them at two call sites.
-  await writeRunSnapshot(persistedStatus, {
-    finishedAt,
-    ...(sinkError !== undefined ? { error: sinkError } : {}),
-  });
+  // The run itself is over here, so this write clears the active-run handle
+  // (via finalizeRunState in state.ts) in the same call, rather than pairing
+  // the on-disk write with a separate in-memory statement at this call site.
+  await writeRunSnapshot(
+    persistedStatus,
+    {
+      finishedAt,
+      ...(sinkError !== undefined ? { error: sinkError } : {}),
+    },
+    "run-end",
+  );
   const runSummary = createRunSummary({
     task: runTaskTitle.length > 0 ? runTaskTitle : config.task,
     status: summaryStatus,
