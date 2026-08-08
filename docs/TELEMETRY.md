@@ -15,7 +15,7 @@ Three events, each with a small set of properties:
 | `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
 
 Common properties attached to every event: a random installation UUID
-(`distinct_id`), `service_version`, `os_type`, `os_arch`, and a
+(`distinct_id`), `session_id`, `service_version`, `os_type`, `os_arch`, and a
 `schema_version` for forward compatibility.
 
 Approximate country-level location is derived server-side by PostHog from the
@@ -80,6 +80,11 @@ prompt is later submitted.
 first run and stored in `~/.corbits/settings.json`. It identifies an
 installation, not a person — there is no account, email, or other PII behind
 it.
+
+`session_id` is a separate random UUID minted fresh each time the CLI
+process starts; it lives only in memory and is never written to disk or to
+`~/.corbits/settings.json`. It lets events be correlated within a single run
+and cannot be used to link one run to another.
 
 ## Backend
 
