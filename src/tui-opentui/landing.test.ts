@@ -11,10 +11,13 @@ import {
   appendStreamRow,
   applyLandingSuggestion,
   createAppShell,
+  noticeText,
   paintChrome,
   setPromptWorkspace,
   isLanding,
   paintLanding,
+  streamRowCount,
+  surfaceStartupNotice,
 } from "./shell"
 import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
@@ -484,6 +487,55 @@ describe("landing screen", () => {
         expect(painted.findIndex((row) => /[└╰]/.test(row))).toBeGreaterThan(
           SIZE.height - 4,
         )
+      } finally {
+        shell.dispose()
+      }
+    }, SIZE)
+  })
+
+  test("startup MCP/load errors keep the mountain and ride the notice strip", async () => {
+    // CL-5618 / CL-5600: system notices on load used to appendStreamRow →
+    // clearLandingMark, wiping the brand hero. They must surface as secondary
+    // chrome while geometry still seats MARK_SMALL or larger.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "idle",
+      })
+      try {
+        await settle(h)
+        expect(isLanding(shell)).toBe(true)
+        const before = markRows(h)
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          before.length,
+        )
+
+        const mcpError =
+          "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail"
+        surfaceStartupNotice(shell, mcpError)
+        await settle(h)
+
+        // The mountain stays; the notice strip carries the wording.
+        expect(isLanding(shell)).toBe(true)
+        expect(streamRowCount(shell)).toBe(0)
+        expect(shell.statusFlash).toBe(mcpError)
+        expect(noticeText(shell)).toContain("mcp github did not connect")
+        const after = markRows(h)
+        expect(after.length).toBe(before.length)
+        expect([MARK_LARGE, MARK_MID, MARK_SMALL].map((g) => g.rows)).toContain(
+          after.length,
+        )
+
+        // A real session row still ends the landing; deferred notices become
+        // durable transcript rows rather than vanishing with the flash.
+        appendStreamRow(shell, { role: "user", text: "first prompt" })
+        await settle(h)
+        expect(isLanding(shell)).toBe(false)
+        expect(markRows(h)).toEqual([])
+        const frame = h.captureCharFrame()
+        expect(frame).toContain("first prompt")
+        expect(frame).toContain("mcp github did not connect")
       } finally {
         shell.dispose()
       }
