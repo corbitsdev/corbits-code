@@ -4,14 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools, composeMiddleware } from "@intx/tools-posix";
+import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createCompositeBlobReader, createLazyBlobReader } from "./lazy-blob-reader.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
-import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
-import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 
 type ToolHandlerLike = (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
 
@@ -337,31 +336,31 @@ describe("buildCorePosixToolPlugins", () => {
     // plugin that answers a scrubbable/truncatable tool directly instead of
     // delegating to `next` must still be capped and scrubbed, because it is
     // wrapped by the unconditional outer plugins in buildCorePosixToolPlugins.
-    // This is the assertion that stops the *next* short-circuiting plugin
-    // (not just ripgrepPlugin) from reopening the hole.
-    // The secret sits ahead of the cap boundary so both effects are provable
-    // in one result: still-present-before-truncation content gets scrubbed,
-    // and the oversized tail gets capped.
+    // This composes the REAL production array from the builder — not a
+    // hand-picked middleware order — with a short-circuiting stand-in spliced
+    // in at ripgrepPlugin's own position, so a future reordering of the real
+    // array (e.g. swapping the cap and scrub back) fails this test.
     const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
-    const shortCircuitingMiddleware =
-      () =>
-      async (call: ToolCall): Promise<ToolResult> => ({
+    const shortCircuitingPlugin: ToolPlugin = {
+      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
         callId: call.id,
         content: secretShapedContent,
-      });
+      }),
+    };
 
-    const secretScrubMiddleware = toolResultSecretScrubPlugin().middleware;
-    const resultCapMiddleware = resultTruncationPlugin().middleware;
-    if (secretScrubMiddleware === undefined || resultCapMiddleware === undefined) {
-      throw new Error("expected the scrub and cap plugins to expose middleware");
-    }
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      cwd: "/tmp",
+    });
+    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
+    expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
+    plugins[ripgrepIndex] = shortCircuitingPlugin;
 
-    // Order matches buildCorePosixToolPlugins: both are outer wrappers of the
-    // rest of the chain, so this short-circuiting plugin standing in for
-    // ripgrepPlugin (or any future plugin with the same shape) is still
-    // captured — it never has to call `next` for the guarantee to hold.
     const composed = composeMiddleware(
-      [secretScrubMiddleware, resultCapMiddleware, shortCircuitingMiddleware],
+      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
       async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
     );
 
@@ -376,5 +375,55 @@ describe("buildCorePosixToolPlugins", () => {
     expect(content).toContain("[redacted: looks like a credential]");
     expect(content.length).toBeLessThan(secretShapedContent.length);
     expect(content).toContain("[output truncated");
+  });
+
+  test("a secret straddling the character-cap boundary is still fully redacted, not left as a bare fragment (CL-5717)", async () => {
+    // Regression guard for the exploitable ordering: if truncation ran before
+    // the scrub, a secret split mid-pattern at the cap boundary would no
+    // longer match the scrub's regex, and a bare, unredacted fragment of the
+    // credential would reach the model with no redaction marker at all.
+    const { MAX_RESULT_CHARS } = await import("../plugins/result-truncation-plugin.js");
+    // A newline immediately ahead of the key gives the scrub regex's `\b` a
+    // real word boundary; the padding length puts the cap boundary partway
+    // through the 20-char key that follows, so a truncate-then-scrub bug
+    // would cut the key down to an unmatchable, unredacted fragment.
+    const padding = `${"x".repeat(MAX_RESULT_CHARS - 10)}\n`;
+    const straddlingSecret = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, cap lands mid-key
+    const secretShapedContent = `${padding}${straddlingSecret}`;
+    const shortCircuitingPlugin: ToolPlugin = {
+      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: secretShapedContent,
+      }),
+    };
+
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      cwd: "/tmp",
+    });
+    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
+    expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
+    plugins[ripgrepIndex] = shortCircuitingPlugin;
+
+    const composed = composeMiddleware(
+      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+    );
+
+    const result = await composed(
+      { id: "straddle-1", name: "grep", arguments: {} },
+      new AbortController().signal,
+    );
+
+    // The redaction marker is longer than the key it replaces, so the cap can
+    // still trim its tail — that's fine, it's already-redacted text. The
+    // security property under test is narrower: no bare, matchable-or-partial
+    // fragment of the raw key survives into the result.
+    const content = String(result.content);
+    expect(content).not.toContain(straddlingSecret);
+    expect(content).not.toMatch(/AKIA[0-9A-Z]*/);
   });
 });

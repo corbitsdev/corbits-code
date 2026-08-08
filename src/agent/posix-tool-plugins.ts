@@ -45,8 +45,17 @@ export type CorePosixToolPluginsArgs = {
 // never reaches whatever sits after it. A mandatory terminal concern like
 // redacting a credential cannot depend on every middleware author remembering
 // to call `next()` — see vendor/intx-inference/src/assembly.ts's
-// sizeCapTransform for the same reasoning upstream. Scrub sits outermost so it
-// runs on the already-capped content, matching the previous in-chain order.
+// sizeCapTransform for the same reasoning upstream.
+//
+// Truncation must run outermost, ahead of (i.e. after "seeing the result of")
+// the scrub — meaning the scrub sits closer to the base handler, at index 1,
+// so it runs on the FULL, untruncated content and truncation only trims what
+// the scrub already produced. The reverse order is exploitable: a secret
+// straddling the character-cap boundary gets cut mid-pattern (e.g.
+// `AKIA[0-9A-Z]{16}` losing its tail), the scrub's regex no longer matches
+// the fragment, and a bare, unredacted piece of the credential reaches the
+// model with no redaction marker. Scrub-then-truncate is always safe, since
+// truncating already-redacted text loses nothing sensitive.
 export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolPlugin[] {
   const {
     cwd,
@@ -57,8 +66,8 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     shellEnv,
   } = args;
   return [
-    toolResultSecretScrubPlugin(),
     resultTruncationPlugin(),
+    toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd)),
     deleteFilePlugin(cwd),
     toolOutputUriPlugin(),
