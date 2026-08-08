@@ -273,8 +273,10 @@ describe("chatDirector compaction", () => {
 
   test("schedules idle compaction after an over-threshold text-only reply", async () => {
     let continuations = 0;
-    const director = createChatDirector("", [], undefined, undefined, undefined, undefined, undefined, undefined, () => {
-      continuations++;
+    const director = createChatDirector("", [], {
+      requestContinuation: () => {
+        continuations++;
+      },
     });
     // One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
     // so the arming check finds a history actually worth compacting.
@@ -326,7 +328,7 @@ describe("chatDirector compaction", () => {
   }
 
   function chatDirectorWithContinuation(onContinuation?: () => void) {
-    return createChatDirector("", [], undefined, undefined, undefined, undefined, undefined, undefined, onContinuation ?? (() => {}));
+    return createChatDirector("", [], { requestContinuation: onContinuation ?? (() => {}) });
   }
 
   test("compacts at the tool.done pause once over threshold", async () => {
@@ -437,7 +439,7 @@ describe("chatDirector compaction", () => {
 describe("chatDirector LSP auto-activation", () => {
   test("reading a code file activates the lsp tool on success", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
+    const director = createChatDirector("", [], { onActivateTools: (names: string[]) => activated.push(names) });
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
@@ -445,7 +447,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("editing a code file activates lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
+    const director = createChatDirector("", [], { onActivateTools: (names: string[]) => activated.push(names) });
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "edit_file", args: { path: "lib/bar.rs" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
@@ -453,7 +455,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("a non-code file does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
+    const director = createChatDirector("", [], { onActivateTools: (names: string[]) => activated.push(names) });
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "README.md" } }]), mockState, mockCapabilities);
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
@@ -461,7 +463,7 @@ describe("chatDirector LSP auto-activation", () => {
 
   test("a failed read does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], undefined, (names: string[]) => activated.push(names));
+    const director = createChatDirector("", [], { onActivateTools: (names: string[]) => activated.push(names) });
     await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
     await director.decide(makeToolErrorEvent("c", "Error: not found"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
@@ -598,7 +600,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
   test("the new-task path also carries the current tools", async () => {
     const classifier = async (_msg: string, _meta: SessionMetadata) => ({ kind: "new_task" as const, reason: "pivot" } as TaskBoundary);
-    const director = createChatDirector("base-prompt", [], classifier);
+    const director = createChatDirector("base-prompt", [], { taskClassifier: classifier });
     director.updateToolDefinitions([lateTool]);
 
     const result = await director.decide(makeMessageReceivedEvent("new thing"), mockState, capabilitiesWithInferArgs);
@@ -767,6 +769,41 @@ describe("goal continue-rule", () => {
     const actions = actionsArray(await director.decide(textTurn(), stateWithTurns, mockCapabilities));
     expect(actions.some((a) => a.type === "infer")).toBe(true);
     expect(evals).toBe(0);
+  });
+});
+
+describe("onTasksChange live wiring", () => {
+  test("a manage_tasks tool call invokes the wired onTasksChange with the updated task list", async () => {
+    const updates: Array<Array<{ id: string; title: string; status: string }>> = [];
+    const director = createChatDirector("base", [], {
+      onTasksChange: (tasks) => updates.push(tasks),
+    });
+
+    await director.decide(
+      makeInferenceDoneEvent([
+        { id: "m", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "work", status: "doing" }] } },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual([{ id: "t1", title: "work", status: "doing" }]);
+  });
+
+  test("onTasksChange is not invoked for tool calls that are not manage_tasks", async () => {
+    const updates: unknown[] = [];
+    const director = createChatDirector("base", [], {
+      onTasksChange: (tasks) => updates.push(tasks),
+    });
+
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]),
+      mockState,
+      mockCapabilities,
+    );
+
+    expect(updates).toHaveLength(0);
   });
 });
 

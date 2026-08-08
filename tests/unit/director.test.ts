@@ -105,9 +105,7 @@ const manyTurnsState: ReactorState = {
 };
 
 function makeChatDirectorWithContinuation(onContinue: () => void) {
-  return createChatDirector(
-    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, onContinue,
-  );
+  return createChatDirector("sys", [], { requestContinuation: onContinue });
 }
 
 test("current context over threshold emits compact and a continuation request, not a dead loop", async () => {
@@ -180,17 +178,13 @@ async function runToolOnlyStreak(director: ReturnType<typeof createChatDirector>
 }
 
 test("a grok provider pauses the session after 10 tool-only turns, tighter than the default 20", async () => {
-  const grokDirector = createChatDirector(
-    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-    { providerName: "xai", model: "grok-4" },
-  );
+  const grokDirector = createChatDirector("sys", [], { provider: { providerName: "xai", model: "grok-4" } });
   const grokActions = await runToolOnlyStreak(grokDirector, 10);
   expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
 
-  const defaultDirector = createChatDirector(
-    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-    { providerName: "openai", model: "gpt-4" },
-  );
+  const defaultDirector = createChatDirector("sys", [], {
+    provider: { providerName: "openai", model: "gpt-4" },
+  });
   const defaultActions = await runToolOnlyStreak(defaultDirector, 10);
   expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
 });

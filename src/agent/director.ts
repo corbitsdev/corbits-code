@@ -303,6 +303,35 @@ function isCodeFile(path: string): boolean {
   return CODE_FILE_EXT.test(path);
 }
 
+// Single implementation of "what does a manage_tasks tool call do to the
+// task list", shared by the live decide() loop below and hydrateTasksFromTurns.
+// Returns null when the call is not manage_tasks or its arguments don't
+// parse, so callers can distinguish "no valid manage_tasks call here" from
+// "a valid call that happened to be a no-op" — the latter still counts as an
+// update for onTasksChange purposes, matching prior behavior.
+function applyManageTasksToolCall(tasks: Task[], block: { name: string; arguments: unknown }): Task[] | null {
+  if (block.name !== "manage_tasks") return null;
+  const taskArgs = parseManageTasksArgs(block.arguments);
+  return taskArgs !== null ? applyManageTasks(tasks, taskArgs) : null;
+}
+
+export type ChatDirectorOptions = {
+  taskClassifier?: ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>) | undefined;
+  onActivateTools?: ((names: string[]) => void) | undefined;
+  inactivityTimeoutMs?: number | undefined;
+  totalTimeoutMs?: number | undefined;
+  workflowCoordinator?: WorkflowCoordinator | undefined;
+  onTasksChange?: ((tasks: Task[]) => void) | undefined;
+  requestContinuation?: (() => void) | undefined;
+  provider?: { providerName: string; model?: string } | undefined;
+};
+
+// The constructor takes the resolved ModelFamilyPolicy rather than the raw
+// `provider` input the factory function accepts and resolves on its behalf.
+type ChatDirectorImplOptions = Omit<ChatDirectorOptions, "provider"> & {
+  modelFamilyPolicy?: ModelFamilyPolicy | undefined;
+};
+
 class ChatDirectorImpl extends DefaultDirector {
   private readonly workflowCalls = new Map<string, { name: string; args: unknown }>();
   private readonly lspTriggerCalls = new Set<string>();
@@ -341,29 +370,18 @@ class ChatDirectorImpl extends DefaultDirector {
   private pendingToolOnlyNudge = false;
   private pausedForToolOnly = false;
 
-  constructor(
-    systemPrompt: string,
-    toolDefinitions: ToolDefinition[],
-    taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
-    onActivateTools?: (names: string[]) => void,
-    inactivityTimeoutMs?: number,
-    totalTimeoutMs?: number,
-    workflowCoordinator?: WorkflowCoordinator,
-    onTasksChange?: (tasks: Task[]) => void,
-    requestContinuation?: () => void,
-    modelFamilyPolicy?: ModelFamilyPolicy,
-  ) {
+  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions = {}) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
-    this.inactivityTimeoutMs = inactivityTimeoutMs;
-    this.totalTimeoutMs = totalTimeoutMs;
-    this.taskClassifier = taskClassifier;
-    this.onActivateTools = onActivateTools;
-    this.workflowCoordinator = workflowCoordinator;
-    this.onTasksChange = onTasksChange;
-    this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
-    this.modelFamilyPolicy = modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
+    this.inactivityTimeoutMs = options.inactivityTimeoutMs;
+    this.totalTimeoutMs = options.totalTimeoutMs;
+    this.taskClassifier = options.taskClassifier;
+    this.onActivateTools = options.onActivateTools;
+    this.workflowCoordinator = options.workflowCoordinator;
+    this.onTasksChange = options.onTasksChange;
+    this.compaction = createCompactionGovernor(options.requestContinuation, systemPrompt, toolDefinitions);
+    this.modelFamilyPolicy = options.modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -617,9 +635,9 @@ class ChatDirectorImpl extends DefaultDirector {
       for (const block of event.turn.content) {
         if (block.type !== "tool_call") continue;
         if (block.name === "manage_tasks") {
-          const taskArgs = parseManageTasksArgs(block.arguments);
-          if (taskArgs !== null) {
-            this.tasks = applyManageTasks(this.tasks, taskArgs);
+          const next = applyManageTasksToolCall(this.tasks, block);
+          if (next !== null) {
+            this.tasks = next;
             this.onTasksChange?.(this.tasks);
           }
         } else if (block.name === "read_file" || block.name === "edit_file") {
@@ -775,27 +793,33 @@ class ChatDirectorImpl extends DefaultDirector {
 export function createChatDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
-  taskClassifier?: (message: string, metadata: SessionMetadata) => Promise<TaskBoundary>,
-  onActivateTools?: (names: string[]) => void,
-  inactivityTimeoutMs?: number,
-  totalTimeoutMs?: number,
-  workflowCoordinator?: WorkflowCoordinator,
-  onTasksChange?: (tasks: Task[]) => void,
-  requestContinuation?: () => void,
-  provider?: { providerName: string; model?: string },
+  options: ChatDirectorOptions = {},
 ): ChatDirector {
-  return new ChatDirectorImpl(
-    systemPrompt,
-    toolDefinitions,
-    taskClassifier,
-    onActivateTools,
-    inactivityTimeoutMs,
-    totalTimeoutMs,
-    workflowCoordinator,
-    onTasksChange,
-    requestContinuation,
-    provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
-  );
+  const { provider, ...rest } = options;
+  return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
+    ...rest,
+    // `provider` is raw {providerName, model} input; the constructor wants
+    // the resolved ModelFamilyPolicy, not the input it was resolved from.
+    modelFamilyPolicy: provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
+  });
+}
+
+// Task state on hydrate is derived with the same manage_tasks-handling logic
+// live sessions use (applyManageTasksToolCall), applied unconditionally on
+// each tool_call regardless of whether its tool_result later errors — a
+// resumed transcript's task list matches what a live session would have
+// held at that point, rather than a looser hydrate-only interpretation.
+export function hydrateTasksFromTurns(turns: ConversationTurn[]): Task[] {
+  let tasks: Task[] = [];
+  for (const turn of turns) {
+    if (turn.role !== "assistant") continue;
+    for (const block of turn.content) {
+      if (block.type !== "tool_call") continue;
+      const next = applyManageTasksToolCall(tasks, block);
+      if (next !== null) tasks = next;
+    }
+  }
+  return tasks;
 }
 
 export interface ChatDirector extends ReactorDirector {

@@ -70,13 +70,7 @@ export async function openIntegrationSession(
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
-      createChatDirector(
-        agentCtx.systemPrompt,
-        [...agentCtx.toolDefinitions],
-        undefined,
-        undefined,
-        750_000,
-      ),
+      createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], { inactivityTimeoutMs: 750_000 }),
   });
 
   const toolsFactory = defineTool({
