@@ -1088,9 +1088,9 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
-  test("auto mode prompts for git worktree add inside the workspace", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
+  test("auto mode auto-allows contained git worktree add/remove/prune", async () => {
     let asked = 0;
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => { asked++; return { allow: false }; },
@@ -1101,25 +1101,37 @@ describe("createPermissionGate", () => {
       rootsProvider: () => [],
     });
 
-    for (const command of ["git worktree add feature", "git worktree add feature main"]) {
+    for (const command of [
+      "git worktree add feature",
+      "git worktree add feature main",
+      "git worktree add -b feature-branch ../corbits-dispatch-wts/CL-5602 origin/main",
+      "git worktree add ../.worktrees/CL-5602",
+      "git worktree remove feature",
+      "git worktree prune",
+      "git worktree prune -n -v",
+      "git worktree prune --expire=2.weeks.ago",
+    ]) {
       asked = 0;
-      expect((await gate.evaluate(shellCall(command))).allowed).toBe(false);
-      expect(asked).toBe(1);
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(true);
+      expect(asked).toBe(0);
     }
   });
 
   test("auto mode prompts for unsafe git worktree operations", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
-    const outside = join(cwd, "..", "outside-worktree");
+    const outsideAbs = join(tmpdir(), "outside-worktree-absolute");
     const commands = [
-      `git worktree add ${outside}`,
+      `git worktree add ${outsideAbs}`,
+      "git worktree add /tmp/evil-worktree",
       "git worktree add ~/outside",
       "git worktree add ~other/outside",
       "git worktree add feature-*",
       "git worktree add --force feature",
       "git worktree add -f feature",
-      "git worktree remove feature",
-      "git worktree prune",
+      "git worktree add ../.ssh/x",
+      "git worktree add ../../escape",
+      "git worktree remove --force feature",
+      "git worktree move feature other",
       "git --no-pager worktree remove feature",
     ];
 
@@ -1476,24 +1488,44 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(true);
   });
 
-  test("auto mode peels shell -c for git worktree ask", async () => {
+  test("auto mode peels shell -c for contained git worktree allow and force ask", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-wrapper-"));
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [],
-      requestApproval: async () => {
-        asked++;
-        return { allow: false };
-      },
-      interactive: true,
-      skipPermissions: false,
-      auto: true,
-      cwd,
-      rootsProvider: () => [],
-    });
-    const verdict = await gate.evaluate(shellCall("bash -c 'git worktree add feature'"));
-    expect(verdict.allowed).toBe(false);
-    expect(asked).toBe(1);
+    {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return { allow: false };
+        },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+        cwd,
+        rootsProvider: () => [],
+      });
+      const verdict = await gate.evaluate(shellCall("bash -c 'git worktree add feature'"));
+      expect(verdict.allowed).toBe(true);
+      expect(asked).toBe(0);
+    }
+    {
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: [],
+        requestApproval: async () => {
+          asked++;
+          return { allow: false };
+        },
+        interactive: true,
+        skipPermissions: false,
+        auto: true,
+        cwd,
+        rootsProvider: () => [],
+      });
+      const verdict = await gate.evaluate(shellCall("bash -c 'git worktree add -f feature'"));
+      expect(verdict.allowed).toBe(false);
+      expect(asked).toBe(1);
+    }
   });
 
   test("auto mode asks for opaque unparseable shell wrappers", async () => {
