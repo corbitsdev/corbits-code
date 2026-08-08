@@ -186,8 +186,10 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
-  // Required by CL-5611: genuine no-progress (identical tool fingerprint
-  // repeating) must still be caught and stop the session.
+  // Required by CL-5611 (reworked): genuine no-progress (identical tool
+  // fingerprint repeating) must still be caught and stop the session. The
+  // period-1 (identical-consecutive) repeat floor is 5, not 4 — see
+  // "does not pause after 4 identical polls" below for why 4 must not fire.
   test("pauses when the same tool call repeats without progress", async () => {
     const director = createChatDirector(
       "system",
@@ -203,14 +205,113 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    // Default family's no-progress repeat limit is 4 identical calls in a row.
-    const actions = await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    const actions = await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
     expect(actions.some((a) => a.type === "infer")).toBe(false);
     const reply = actions.find((a) => a.type === "reply");
     expect(reply).toBeDefined();
     if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
     expect(reply.content).toContain("Auto-paused");
     expect(reply.content).toContain("Send a message to resume");
+  });
+
+  // Required by the CL-5611 rework: a short run of identical calls is
+  // legitimate (rerunning a flaky test, polling a build) — critique found the
+  // old 4-repeat hard pause false-positived on exactly this. Four identical
+  // polls followed by varied work must run straight through with no pause.
+  test("does not pause after 4 identical polls followed by varied work", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    const actions = await runToolOnlyStreak(director, capabilities, 3, toolOnlyTurn);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  // Critique's exact repro on the original PR: identicalToolFingerprintStreak
+  // only compared each turn to the one before it, so an alternating pattern
+  // never triggered a pause at any length (proved over 200 turns). Period
+  // detection catches the period-2 cycle instead.
+  test("catches an alternating A,B tool-call pattern over 200 turns", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const alternatingTurn = (id: string): ReactorInboundEvent => {
+      const path = Number(id.split("-")[1]) % 2 === 0 ? "a.ts" : "b.ts";
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    const actions = await runToolOnlyStreak(director, capabilities, 200, alternatingTurn);
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
+  });
+
+  // Period detection generalizes past period 1 and 2: a rotating three-call
+  // cycle must also be recognized as thrash.
+  test("catches a 3-cycle A,B,C tool-call pattern", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+    const paths = ["a.ts", "b.ts", "c.ts"];
+    const cycleTurn = (id: string): ReactorInboundEvent => {
+      const path = paths[Number(id.split("-")[1]) % 3];
+      return {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent;
+    };
+
+    const actions = await runToolOnlyStreak(director, capabilities, 12, cycleTurn);
+    const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(reply).toBeDefined();
   });
 
   test("resumes after the operator sends a new message", async () => {
@@ -228,7 +329,7 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
     await director.decide(messageReceived("keep going"), mockState, capabilities);
     // A fresh tool-only streak from zero must not immediately re-pause.
     const actions = await runToolOnlyStreak(director, capabilities, 1, repeatedToolOnlyTurn);
@@ -359,7 +460,7 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    const actions = await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    const actions = await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
     expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
   });
 

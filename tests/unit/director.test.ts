@@ -213,6 +213,10 @@ test("a grok provider still pauses when the same tool call repeats without progr
     "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     { providerName: "xai", model: "grok-4" },
   );
-  const grokActions = await runToolOnlyStreak(grokDirector, 4, /* varyPath */ false);
+  // Identical-consecutive (period 1) needs 5 repeats, not 4 — 4 identical
+  // calls in a row is legitimate polling (rerunning a flaky test, checking a
+  // build) and must not false-positive. See src/agent/director.test.ts for
+  // the dedicated coverage of that distinction.
+  const grokActions = await runToolOnlyStreak(grokDirector, 5, /* varyPath */ false);
   expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
 });
