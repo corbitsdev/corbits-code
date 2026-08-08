@@ -307,10 +307,15 @@ function isContainedWorktreePath(
   rootsProvider: RootsProvider,
 ): boolean {
   if (!pathArg) return false;
-  // Shell-syntax the containment check below cannot resolve correctly:
-  // `resolve()` treats a leading `~` as a literal path segment rather than
-  // expanding it, so a home-relative path would otherwise read as "inside
-  // cwd"; a glob is not a single concrete destination at all.
+  // Shell-syntax `isRestricted` below cannot resolve correctly: `resolve()`
+  // treats a leading `~` as a literal path segment rather than expanding it,
+  // so a home-relative path would otherwise read as "inside cwd" on the very
+  // next line; a glob is not a single concrete destination at all. This
+  // duplicates isPermittedSiblingWorktreePath's own guard against the same
+  // two forms, but that duplication is required, not incidental: this check
+  // has to run before the isRestricted() shortcut below even executes, while
+  // isPermittedSiblingWorktreePath's copy protects direct/standalone callers
+  // of that exported function.
   if (/[*?[]/.test(pathArg)) return false;
   if (pathArg.startsWith("~")) return false;
 
