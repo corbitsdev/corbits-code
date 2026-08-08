@@ -439,6 +439,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const startupPluginNotices: string[] = [];
   const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
   if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
+  // Saved through onboarding's "save anyway" bypass without a passing
+  // connection test — warn now instead of a bare adapter error on first send.
+  if (config.verified === false) {
+    startupPluginNotices.push(
+      `Provider "${config.providerName}" was saved without a passing connection test. If the first message fails with an auth error, run onboarding again to reconnect it.`,
+    );
+  }
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;

@@ -1,0 +1,99 @@
+import {
+  localSettingsPath,
+  mergeProviderIntoSettings,
+  saveGlobalSettings,
+  saveLocalSettings,
+  type Settings,
+} from "../config/settings.js";
+import { validateProviderConnection } from "../provider/validate-connection.js";
+import type { ProviderSetupSubmit } from "../tui-opentui/provider-setup.js";
+
+/**
+ * The single write path every provider-setup exit takes, shared by first-run
+ * onboarding and mid-session "connect a new provider" so a credential is
+ * validated (or explicitly marked unverified) the same way regardless of
+ * where the form was opened from.
+ */
+export function buildProviderSubmitHandler(
+  settingsPath: string,
+  existing: Settings | null,
+  cwd: string,
+): ProviderSetupSubmit {
+  return async (values, setPhase, { skipValidation, preset, oauth }) => {
+    const { name, baseURL, apiKey, model } = values;
+    const providerName = name.trim();
+    const trimmedBaseURL = baseURL.trim();
+    const trimmedKey = apiKey.trim();
+
+    // A signed-in subscription provider has no key to test or store: the
+    // tokens are already in the home-level auth store, and config load
+    // projects that store into the provider catalog. Only the selection is
+    // persisted here — the same two files /model writes when switching.
+    if (oauth !== undefined) {
+      setPhase("saving");
+      const base = existing ?? { providers: {} };
+      await saveGlobalSettings(settingsPath, {
+        ...base,
+        defaultProvider: oauth.providerName,
+      });
+      await saveLocalSettings(localSettingsPath(cwd), {
+        provider: oauth.providerName,
+        model: model.trim(),
+      });
+      return;
+    }
+
+    // A known preset (anything but the custom/manual endpoint) always speaks
+    // to a real provider that requires a key; only the manual path is
+    // genuinely keyless-capable (e.g. a local OpenAI-compatible runtime).
+    // Reject an empty key here rather than silently downgrading it to
+    // `keyless: true` and letting resolveProvider skip the missing-key check
+    // entirely.
+    if (preset !== undefined && trimmedKey.length === 0) {
+      throw new Error(`${providerName || preset.id} requires an API key.`);
+    }
+
+    // Fail fast on a bad base URL/key here rather than mid-conversation
+    // during the first real stream request. The operator can bypass the
+    // check (Ctrl+S) for providers that don't expose /models. Anthropic
+    // Messages endpoints are exempt: the probe is an OpenAI-compatible GET
+    // /models with a bearer token, which that surface always rejects.
+    if (!skipValidation && preset?.anthropic !== true) {
+      const check = await validateProviderConnection({
+        baseURL: trimmedBaseURL,
+        apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
+      });
+      if (!check.ok) {
+        throw new Error(check.error);
+      }
+    }
+
+    setPhase("saving");
+    const selectedModel = model.trim();
+    // A picked provider seeds its whole catalog so /model has more than the
+    // one model chosen here; the protocol flags cannot be expressed by the
+    // four form values and come from the catalog entry.
+    const models =
+      preset !== undefined && preset.models.includes(selectedModel)
+        ? [...preset.models]
+        : [selectedModel];
+    const newProvider = {
+      baseURL: trimmedBaseURL,
+      models,
+      defaultModel: selectedModel,
+      ...(trimmedKey.length > 0 ? { apiKey: trimmedKey } : { keyless: true }),
+      ...(preset?.anthropic === true ? { anthropic: true } : {}),
+      ...(preset?.opencodeGo === true ? { opencodeGo: true } : {}),
+      // "Save anyway" (Ctrl+S) persists a credential the connection test
+      // never passed. Mark it so the running session can warn on first use
+      // instead of surfacing a bare adapter error.
+      ...(skipValidation ? { verified: false } : {}),
+    };
+    // Merge new provider with any pre-existing ones. Single write — the form
+    // stays open (phase label) until saveGlobalSettings resolves, so the user
+    // sees confirmation before the screen is cleared. Full-spread merge so
+    // plugins/pluginPaths/sessionMode/shell/tools survive re-onboarding.
+    const merged = mergeProviderIntoSettings(existing, providerName, newProvider);
+    await saveGlobalSettings(settingsPath, merged);
+  };
+}
