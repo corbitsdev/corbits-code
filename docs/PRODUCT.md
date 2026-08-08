@@ -90,11 +90,13 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ## Failure Modes and Recovery
 
-### Stall (idle cycles)
+### Stall (tool-only turns with no narration)
 
-**What the user sees:** The agent stops producing tool calls. After 3 idle turns the run aborts with `Agent stalled: no tool calls for 3 turns.`
+**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a one-shot nudge to explain itself, if the pattern continues the session **auto-pauses**: it stops issuing new inferences and replies with "Auto-paused: the model ran N steps in a row without explaining its progress. Send a message to resume." The session is not aborted — sending any message resumes it.
 
-**Recovery:** State is saved; inspect `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated), adjust the task or prompt, and start a new run.
+The exact turn thresholds are model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
+
+**Recovery:** Send a message to resume. To inspect state first, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
 
 
 ### Permission denied (exec)

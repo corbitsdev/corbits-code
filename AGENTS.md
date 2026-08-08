@@ -90,3 +90,4 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 - `docs/PLUGINS.md` — plugin manifest system and discovery
 - `docs/TELEMETRY.md` — what usage telemetry is collected and why
 - `docs/PERFTRACE.md` — local PerfTrace and opt-in OTEL export settings
+- `docs/plans/` — non-normative working notes and design spikes; check before starting related work
