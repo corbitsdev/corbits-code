@@ -660,7 +660,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
   });
 
-
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
   // Track the active subagent provider so a live /agent switch (provider, model,

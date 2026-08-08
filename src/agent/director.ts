@@ -65,8 +65,8 @@ function inferWithNudge(
 // Assumes a bare wait always means the turn is over. That holds for every
 // current wait path: DefaultDirector in conversational mode (the only mode
 // ChatDirector uses) yields a bare wait only on an empty model turn, and its
-// halt path already carries a reply; the compaction, workflow, open-task, and
-// goal rewrites either keep those terminals or replace them with an infer.
+// halt path already carries a reply; the compaction, workflow, and open-task
+// rewrites either keep those terminals or replace them with an infer.
 // A future wait that pauses mid-turn while expecting more work must not be
 // settled here.
 function ensureCycleSettlesWithReply(

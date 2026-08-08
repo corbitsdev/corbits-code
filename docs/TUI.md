@@ -17,7 +17,7 @@ palette," a plain question — never the word "overlay."
 
 There is no titlebar, no status strip, and no key-hint row as permanent
 chrome. The prompt box is the only permanent chrome in the shell: it is
-anchored at the bottom in every state, and everything else — goal/task/agents
+anchored at the bottom in every state, and everything else — task/agents
 strips, notices, banners, the overlay host — is optional and collapses to
 zero rows when it has nothing to say (`src/tui-opentui/geometry/zones.ts`).
 The transcript is residual: whatever rows remain after chrome and any open
@@ -32,7 +32,7 @@ terminal with nothing optional showing, the transcript floor is 12 rows
 proposed 8 rows (`OVERLAY_TRANSCRIPT_FLOOR`) so the log stays glanceable
 underneath a permission prompt. When space is scarce, collapse follows a
 fixed order — transient banners first, then settings/plugin notices, then
-goal/task/agents strips, then progress, then the prompt itself shrinks one
+task/agents strips, then progress, then the prompt itself shrinks one
 row at a time down to its 3-row base — never the transcript
 (`COLLAPSE_ORDER` in `zones.ts`).
 
@@ -134,7 +134,7 @@ agent, with `agentId` as a tiebreak for a simultaneous fan-out.
 
 Under space pressure, the zone shrinks one row at a time toward 1 rather
 than collapsing straight to 0 (`COLLAPSE_ORDER` treats it like `progress`,
-not like the single-row `goal`/`task` strips) — a 1-row panel still carries
+not like the single-row `task` strip) — a 1-row panel still carries
 the stalest agent plus its `+N more` trailer, so it stays meaningful all
 the way down. Only once every other collapsible zone ahead of it in
 `COLLAPSE_ORDER` and the panel itself are exhausted does it reach 0, the
