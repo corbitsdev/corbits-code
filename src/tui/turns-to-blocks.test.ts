@@ -48,6 +48,23 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
     expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
     expect(blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks")).toBe(false);
   });
+
+  // hydrateTasksFromTurns applies manage_tasks on the tool_call regardless of
+  // the result's outcome, so the strip must match: an errored or missing
+  // result must not leave the raw call/result rows behind next to the
+  // aggregated block runner.ts unshifts from hydrateTasksFromTurns.
+  test("strips a manage_tasks call whose result errored", () => {
+    const turns = [manageTasksTurn("m1", "doing"), toolResultTurn("m1", true)];
+    const blocks = turnsToContentBlocks(turns);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+    expect(blocks.some((b) => b.type === "tool_result" && b.name === "manage_tasks")).toBe(false);
+  });
+
+  test("strips a manage_tasks call with no result at all (interrupted turn)", () => {
+    const turns = [manageTasksTurn("m1", "doing")];
+    const blocks = turnsToContentBlocks(turns);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+  });
 });
 
 describe("hydrateTasksFromTurns", () => {
@@ -68,5 +85,32 @@ describe("hydrateTasksFromTurns", () => {
       { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as ConversationTurn,
     ];
     expect(hydrateTasksFromTurns(turns)).toEqual([]);
+  });
+});
+
+describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)", () => {
+  test("a manage_tasks call whose result errored shows the task exactly once", () => {
+    const turns = [manageTasksTurn("m1", "doing"), toolResultTurn("m1", true)];
+
+    const blocks = turnsToContentBlocks(turns);
+    const tasks = hydrateTasksFromTurns(turns);
+    if (tasks.length > 0) blocks.unshift({ type: "tasks", tasks });
+
+    const taskBlocks = blocks.filter((b) => b.type === "tasks");
+    expect(taskBlocks).toHaveLength(1);
+    expect(taskBlocks[0]).toEqual({ type: "tasks", tasks: [{ id: "t1", title: "work", status: "doing" }] });
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
+  });
+
+  test("a manage_tasks call with no result at all shows the task exactly once", () => {
+    const turns = [manageTasksTurn("m1", "doing")];
+
+    const blocks = turnsToContentBlocks(turns);
+    const tasks = hydrateTasksFromTurns(turns);
+    if (tasks.length > 0) blocks.unshift({ type: "tasks", tasks });
+
+    const taskBlocks = blocks.filter((b) => b.type === "tasks");
+    expect(taskBlocks).toHaveLength(1);
+    expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
   });
 });

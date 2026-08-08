@@ -98,15 +98,30 @@ function upsertResumeBlock(
  */
 function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[] {
   const callIdToCallIndex = new Map<string, number>();
+  const callIdToResultIndex = new Map<string, number>();
   for (let i = 0; i < blocks.length; i += 1) {
     const block = blocks[i];
     if (block?.type === "tool_call" && block.callId !== undefined) {
       callIdToCallIndex.set(block.callId, i);
+    } else if (block?.type === "tool_result") {
+      callIdToResultIndex.set(block.callId, i);
     }
   }
 
   let planSteps: PlanBlockStep[] | null = null;
   const indicesToRemove = new Set<number>();
+
+  // manage_tasks strips regardless of its result's outcome, matching
+  // applyManageTasksToolCall: the tool_call is the authoritative event, not
+  // whatever the (side-effect-free) handler's tool_result happens to say —
+  // so an errored or missing result must not leave the raw rows behind.
+  for (let i = 0; i < blocks.length; i += 1) {
+    const call = blocks[i];
+    if (call?.type !== "tool_call" || call.name !== "manage_tasks") continue;
+    indicesToRemove.add(i);
+    const resultIndex = call.callId !== undefined ? callIdToResultIndex.get(call.callId) : undefined;
+    if (resultIndex !== undefined) indicesToRemove.add(resultIndex);
+  }
 
   for (let i = 0; i < blocks.length; i += 1) {
     const result = blocks[i];
@@ -114,14 +129,7 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     const callIndex = callIdToCallIndex.get(result.callId);
     if (callIndex === undefined) continue;
     const call = blocks[callIndex];
-    if (call?.type !== "tool_call") continue;
-
-    if (call.name === "manage_tasks") {
-      indicesToRemove.add(callIndex);
-      indicesToRemove.add(i);
-      continue;
-    }
-    if (call.name !== "submit_plan") continue;
+    if (call?.type !== "tool_call" || call.name !== "submit_plan") continue;
 
     indicesToRemove.add(callIndex);
     indicesToRemove.add(i);

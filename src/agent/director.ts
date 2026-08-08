@@ -305,10 +305,15 @@ function isCodeFile(path: string): boolean {
 
 // Single implementation of "what does a manage_tasks tool call do to the
 // task list", shared by the live decide() loop below and hydrateTasksFromTurns.
+// Task state is owned by the director, not by the tool: manage_tasks's
+// handler (src/agent/tools.ts) performs no side effect of its own — it
+// parses the same arguments and returns a fixed "Tasks updated." string. The
+// tool_call is therefore the authoritative event, and applying it here does
+// not need to wait on a tool_result the handler never varies.
 // Returns null when the call is not manage_tasks or its arguments don't
 // parse, so callers can distinguish "no valid manage_tasks call here" from
 // "a valid call that happened to be a no-op" — the latter still counts as an
-// update for onTasksChange purposes, matching prior behavior.
+// update for onTasksChange purposes.
 function applyManageTasksToolCall(tasks: Task[], block: { name: string; arguments: unknown }): Task[] | null {
   if (block.name !== "manage_tasks") return null;
   const taskArgs = parseManageTasksArgs(block.arguments);
@@ -321,7 +326,7 @@ export type ChatDirectorOptions = {
   inactivityTimeoutMs?: number | undefined;
   totalTimeoutMs?: number | undefined;
   workflowCoordinator?: WorkflowCoordinator | undefined;
-  onTasksChange?: ((tasks: Task[]) => void) | undefined;
+  onTasksChange: (tasks: Task[]) => void;
   requestContinuation?: (() => void) | undefined;
   provider?: { providerName: string; model?: string } | undefined;
 };
@@ -370,7 +375,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private pendingToolOnlyNudge = false;
   private pausedForToolOnly = false;
 
-  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions = {}) {
+  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
@@ -802,7 +807,7 @@ class ChatDirectorImpl extends DefaultDirector {
 export function createChatDirector(
   systemPrompt: string,
   toolDefinitions: ToolDefinition[],
-  options: ChatDirectorOptions = {},
+  options: ChatDirectorOptions,
 ): ChatDirector {
   const { provider, ...rest } = options;
   return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
@@ -813,11 +818,11 @@ export function createChatDirector(
   });
 }
 
-// Task state on hydrate is derived with the same manage_tasks-handling logic
-// live sessions use (applyManageTasksToolCall), applied unconditionally on
-// each tool_call regardless of whether its tool_result later errors — a
-// resumed transcript's task list matches what a live session would have
-// held at that point, rather than a looser hydrate-only interpretation.
+// Uses the same applyManageTasksToolCall a live session's decide() loop uses,
+// so hydrate necessarily reaches the same task state live decide() would
+// have produced from this transcript: the tool_call is the authoritative
+// event (see applyManageTasksToolCall), and there is only the one function
+// that knows how to turn a manage_tasks call into a task list.
 export function hydrateTasksFromTurns(turns: ConversationTurn[]): Task[] {
   let tasks: Task[] = [];
   for (const turn of turns) {
