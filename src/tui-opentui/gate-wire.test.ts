@@ -599,6 +599,212 @@ describe("each gate decision appends exactly one transcript row", () => {
       }
     })
   })
+
+  // The queue (settle-once guard) and the transcript recorder (record-once
+  // per decision) are two independent mechanisms layered on the same set of
+  // terminal paths. Racing a timeout against an abort on the same request
+  // exercises both at once: clearTimers must retire the loser before it can
+  // run autoDeny a second time, so ev.resolve fires exactly once and exactly
+  // one row lands, no matter which trigger wins.
+  test("a timeout and an abort racing the same request settle once and record once", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {
+            resolveCount += 1
+          },
+          timeoutMs: 5,
+          signal: controller.signal,
+        })
+
+        await new Promise((r) => setTimeout(r, 20))
+        // The timeout already fired and cleared the abort listener — this
+        // must be a no-op, not a second settle.
+        controller.abort()
+
+        expect(resolveCount).toBe(1)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("a queued gate's timeout settles once and records once without ever opening", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+        })
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest({ tool: "queued_tool" }),
+          resolve: () => {
+            resolveCount += 1
+          },
+          timeoutMs: 5,
+        })
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        expect(resolveCount).toBe(1)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  // reconcile() (src/permission/queue.ts) settles a queued request directly
+  // when a grant covers it, with no accept/cancel/autoDeny callback of its
+  // own to hang a row on — this is the one terminal path that has no natural
+  // call site, so it needs its own coverage.
+  test("a grant draining a queued request without ever displaying it", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      let resolved: unknown
+      try {
+        wireGates(emitter, shell)
+        // Occupies the overlay host so the second request queues instead of
+        // opening — the drain below must resolve it without ever opening it.
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+        })
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest({ tool: "queued_tool" }),
+          resolve: (outcome: unknown) => {
+            resolveCount += 1
+            resolved = outcome
+          },
+        })
+
+        emitter.emit("permission.grant", {
+          approval: { tool: "queued_tool", pattern: "bun test" },
+          covers: (r: { tool: string }) => r.tool === "queued_tool",
+        })
+
+        expect(resolveCount).toBe(1)
+        expect(resolved).toEqual({ allow: true })
+        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.at(-1)?.text).toContain(
+          "Auto-approved (already granted)",
+        )
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("a grant draining the currently displayed request closes it and records once", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {
+            resolveCount += 1
+          },
+        })
+        expect(shell.overlayKind).toBe("permissions")
+
+        emitter.emit("permission.grant", {
+          approval: { tool: "run_shell", pattern: "bun test" },
+          covers: () => true,
+        })
+
+        expect(resolveCount).toBe(1)
+        expect(shell.overlayList).toBeNull()
+        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.at(-1)?.text).toContain(
+          "Auto-approved (already granted)",
+        )
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  // drain() (src/permission/queue.ts) denies whatever is still queued on
+  // teardown — the same no-call-site path as a grant drain, but the
+  // opposite outcome. Mislabeling this "Auto-approved" would tell the
+  // operator a request ran when it was actually dropped unanswered.
+  test("disposing with a request still queued records it as denied, not approved", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      // The currently-open request has no accept/cancel/autoDeny call site
+      // triggered before teardown either, so dispose must record it too —
+      // both entries go through the same no-call-site fallback as the
+      // queued one.
+      let openResolveCount = 0
+      let queuedResolveCount = 0
+      let queuedResolved: unknown
+      const dispose = wireGates(emitter, shell)
+      emitter.emit("permission.gate", {
+        request: baseRequest(),
+        resolve: () => {
+          openResolveCount += 1
+        },
+      })
+      // Occupies the overlay host so this second request queues instead of
+      // opening — dispose must deny it without ever displaying it.
+      const before = shell.streamLog.length
+      emitter.emit("permission.gate", {
+        request: baseRequest({ tool: "queued_tool" }),
+        resolve: (outcome: unknown) => {
+          queuedResolveCount += 1
+          queuedResolved = outcome
+        },
+      })
+
+      dispose()
+
+      expect(openResolveCount).toBe(1)
+      expect(queuedResolveCount).toBe(1)
+      expect(queuedResolved).toEqual({ allow: false })
+      expect(shell.streamLog.length - before).toBe(2)
+      for (const row of shell.streamLog.slice(-2)) {
+        expect(row.text).toContain("Denied (session ended)")
+        expect(row.text).not.toContain("Auto-approved")
+      }
+      shell.dispose()
+    })
+  })
 })
 
 describe("permission.gate auto-deny", () => {
