@@ -10,7 +10,7 @@
  *   Ctrl+O=palette · Alt+C=copy
  *   p=permissions · o=operator · m=model
  *   s=settings · h=help · l=plugins · e=resume · n=mentions · v=observe
- *   g/t/a=toggle goal/task/agents chrome
+ *   t/a=toggle task/agents chrome
  *   f=replay fixture · r=busy · q=quit when idle
  */
 import { createCliRenderer, type KeyEvent } from "@opentui/core"
@@ -264,27 +264,6 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     shell.prompt.value.length === 0
   ) {
     enterSubagentObserve(shell, demoObserveSession())
-    return
-  }
-
-  if (
-    key.name === "g" &&
-    !key.ctrl &&
-    !key.meta &&
-    shell.prompt.value.length === 0
-  ) {
-    const on = shell.layout.heights.goal > 0
-    setChromeZones(shell, {
-      goal: on
-        ? null
-        : formatChromeZones({
-            goal: {
-              title: "Wave 7 residual surfaces + observe",
-              phase: "implementing",
-              status: "active",
-            },
-          }).goal,
-    })
     return
   }
 

@@ -487,7 +487,7 @@ export function wireGates(
     }
 
     // Watchdog abort (tool budget expired / parent run cancelled) and the
-    // goal-mode timeout both race an operator who may never answer — each
+    // auto-deny timeout both race an operator who may never answer — each
     // must resolve the gate itself rather than leave the overlay (or the
     // queued open) parked forever. Whichever fires first settles the queue
     // entry, which is itself the single-resolve guard, so the other side is

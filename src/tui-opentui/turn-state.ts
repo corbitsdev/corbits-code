@@ -643,8 +643,8 @@ export function turnStateFromEvent(
     /**
      * A cycle with no active tool calls left is also a turn's real
      * terminator: `connector.reply` (below) is the usual signal, but a
-     * workflow/goal-governor cycle that keeps self-continuing may never
-     * emit one, and `reactor.done` fires once at shutdown, never between
+     * self-continuing workflow cycle may never emit one, and `reactor.done`
+     * fires once at shutdown, never between
      * turns. Without settling here, the phase line stays hot ("working")
      * forever once nothing more arrives. A cycle that just requested tools
      * only ends here, not the turn — those calls are already reflected in

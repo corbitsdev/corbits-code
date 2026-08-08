@@ -87,7 +87,7 @@ describe("palette row columns", () => {
   test("shortcuts come from the shell keybinding table", () => {
     const help = DEFAULT_PALETTE_COMMANDS.find((c) => c.id === "help")
     expect(paletteRowColumns(help!, shortcutForPaletteId).shortcut).toBe("?")
-    const toggle = DEFAULT_PALETTE_COMMANDS.find((c) => c.id === "toggle_goal")
+    const toggle = DEFAULT_PALETTE_COMMANDS.find((c) => c.id === "toggle_task")
     expect(paletteRowColumns(toggle!, shortcutForPaletteId).shortcut).toBe("")
   })
 })

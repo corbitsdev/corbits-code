@@ -373,7 +373,7 @@ export async function mountProductHost(
   const subAgentTools = new Map<string, string>()
   const paintChromeZones = (): void => {
     if (chromeState === null) {
-      setChromeZones(shell, { goal: null, task: null, agents: null })
+      setChromeZones(shell, { task: null, agents: null })
       return
     }
     setChromeZones(
@@ -406,8 +406,8 @@ export async function mountProductHost(
       // running agent existing: paintChromeZones() re-enters setChromeZones,
       // which already calls paintChrome(shell) on its own unchanged-zone
       // path, so calling it unconditionally would repaint chrome twice a
-      // tick for the common case (goal/task only, no agents) that has
-      // nothing time-based to refresh.
+      // tick for the common case (task only, no agents) that has nothing
+      // time-based to refresh.
       if (chromeState !== null && (chromeState.agents ?? []).some((a) => a.status === "running")) {
         paintChromeZones()
       }

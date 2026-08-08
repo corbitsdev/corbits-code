@@ -831,7 +831,7 @@ describe("permission.gate auto-deny", () => {
             resolved = outcome
           },
           timeoutMs: 5,
-          timeoutMessage: "goal mode: no answer in time",
+          timeoutMessage: "auto-deny: no answer in time",
         })
         expect(shell.overlayKind).toBe("permissions")
 
@@ -839,7 +839,7 @@ describe("permission.gate auto-deny", () => {
 
         expect(resolved).toEqual({
           allow: false,
-          message: "goal mode: no answer in time",
+          message: "auto-deny: no answer in time",
         })
         expect(shell.overlayList).toBeNull()
       } finally {

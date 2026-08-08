@@ -46,7 +46,6 @@ export type ZoneVisibility = {
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
   readonly progressDivider?: boolean;
-  readonly goal?: boolean;
   readonly task?: boolean;
   /** Agents panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
   readonly agents?: boolean | number;
@@ -140,7 +139,6 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     progress_divider: progressDivider,
     notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
     prompt: promptRows,
-    goal: vis.goal ? 1 : 0,
     task: vis.task ? 1 : 0,
     agents: clamp(boolOrRows(vis.agents, 1), 0, ZONE_REGISTRY.agents.max),
     plugin_banner: vis.pluginBanner ? 1 : 0,
@@ -304,7 +302,6 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   // Full-shell modal: hide transcript and bottom chrome; overlay owns residual.
   if (mode === "full_shell") {
     heights.transcript = 0;
-    heights.goal = 0;
     heights.task = 0;
     heights.agents = 0;
     heights.plugin_banner = 0;

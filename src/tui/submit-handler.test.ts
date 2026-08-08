@@ -35,8 +35,8 @@ describe("composer submit handler", () => {
 
   test("passes slash command arguments through", () => {
     const h = harness();
-    h.submit("/goal 12 ship the feature");
-    expect(h.dispatched).toEqual([{ name: "goal", args: "12 ship the feature" }]);
+    h.submit("/rename ship the feature");
+    expect(h.dispatched).toEqual([{ name: "rename", args: "ship the feature" }]);
     expect(h.prompts).toEqual([]);
   });
 

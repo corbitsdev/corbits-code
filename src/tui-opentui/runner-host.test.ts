@@ -134,7 +134,7 @@ describe("mountRunnerHost command surfaces", () => {
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       surfaces: {
@@ -184,7 +184,7 @@ describe("mountRunnerHost model picker", () => {
       ],
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -212,7 +212,7 @@ describe("mountRunnerHost model picker", () => {
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -244,7 +244,7 @@ describe("mountRunnerHost model picker", () => {
       ],
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -279,7 +279,7 @@ describe("mountRunnerHost model picker", () => {
       onFavoriteToggle: (id) => toggled.push(id),
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -310,7 +310,7 @@ describe("bottom border cost run", () => {
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -337,7 +337,7 @@ describe("bottom border cost run", () => {
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -375,7 +375,7 @@ describe("mountRunnerHost quit key", () => {
     onModelSelect: () => {},
     commands: [],
     onCommand: () => {},
-    chrome: () => ({ goal: null, agents: [] }),
+    chrome: () => ({ agents: [] }),
     subAgentSessions: () => [],
     createRenderer: async () => harness.renderer,
   })

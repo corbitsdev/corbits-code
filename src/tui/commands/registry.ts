@@ -1,4 +1,3 @@
-import type { GoalSnapshot, GoalSetOpts, GoalResumeOpts } from "../../agent/goal.js";
 import type { CostSummary } from "../../cost/cost-summary.js";
 
 export type CommandContext = {
@@ -8,17 +7,6 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
   renameSession?: (name: string) => string | undefined;
-  /** Goal mode operator surface. */
-  goal?: {
-    get: () => GoalSnapshot | null;
-    set: (condition: string, opts?: GoalSetOpts) => GoalSnapshot;
-    pause: () => GoalSnapshot | null;
-    resume: (opts?: GoalResumeOpts) => GoalSnapshot | null;
-    clear: () => void;
-    /** Kick off a turn after set/resume so the agent starts working immediately. */
-    /** Kick the agent after set/resume. phase defaults to set. */
-    kickoff?: (condition: string, phase?: "set" | "resume") => void;
-  };
 };
 
 export type CommandResult =

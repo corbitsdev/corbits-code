@@ -22,7 +22,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   "run_shell",
   "ask_operator",
   "manage_tasks",
-  "manage_goal",
   "tool_search",
   "use_skill",
   "search_agents",
@@ -38,16 +37,9 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"
 // Session-start facts that gate a core tool's advertisement. Each must be
 // knowable once, before the first inference call, and must never change for
 // the life of the session — the tools array is a provider cache prefix (see
-// ADVERTISED_TOOL_NAMES below), so a value that could flip mid-session (e.g.
-// "is a goal active right now") would force a re-prefill worse than the
-// schema bytes it saves. `manage_tasks` is intentionally NOT gated here: the
-// goal-kickoff sequence (see goalKickoffUserMessage in ./goal.ts) instructs
-// the model to call manage_goal then manage_tasks back to back, so hiding
-// manage_tasks would trade one tool_search round trip for two.
+// ADVERTISED_TOOL_NAMES below), so a value that could flip mid-session would
+// force a re-prefill worse than the schema bytes it saves.
 export type ToolAvailability = {
-  // Whether the session was resumed with an active/paused/budget-limited goal
-  // already persisted — not whether one exists at the current instant.
-  hasGoalAtLaunch: boolean;
   // Whether a language server was resolvable for this project at startup —
   // not whether one currently responds.
   languageServerAvailable: boolean;
@@ -60,7 +52,6 @@ export function coreToolNamesForSessionMode(
   const orchestratorEnabled = sessionModeEnablesSubAgents(mode);
   return CORE_TOOL_NAMES.filter((name) => {
     if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name)) return false;
-    if (name === "manage_goal") return availability.hasGoalAtLaunch;
     if (name === "lsp") return availability.languageServerAvailable;
     return true;
   });

@@ -655,7 +655,7 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
       onModelSelect: () => {},
       commands: [],
       onCommand: () => {},
-      chrome: () => ({ goal: null, agents: [] }),
+      chrome: () => ({ agents: [] }),
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })

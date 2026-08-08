@@ -55,3 +55,37 @@ test("listSessions prefers run.json task title when present", async () => {
   const row = listed.find((s) => s.sessionId === sessionId);
   expect(row?.task).toBe("fix resume");
 });
+
+// The goal subsystem persisted its own goal.json inside the session dir
+// (src/session/goal-state.ts, removed). Nothing reads that file anymore, so
+// a session dir left over from before the removal must still list cleanly —
+// dropped on read, never fatal.
+test("listSessions ignores a leftover goal.json from a pre-removal session", async () => {
+  const sessionId = generateSessionId();
+  await initSessionDir(cwd, sessionId, home);
+  await writeFile(
+    join(sessionDir(cwd, sessionId, home), "run.json"),
+    JSON.stringify({
+      status: "running",
+      turnsUsed: 1,
+      task: "pre-removal session",
+      startedAt: 1_700_000_000_000,
+    }),
+  );
+  await writeFile(
+    join(sessionDir(cwd, sessionId, home), "goal.json"),
+    JSON.stringify({
+      status: "active",
+      condition: "all tests pass",
+      startedAt: 1_700_000_000_000,
+      turnBudget: 0,
+      turnsUsed: 3,
+      mainTokens: 100,
+      evalTokens: 20,
+    }),
+  );
+  const listed = await listSessions(cwd, home);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row).toBeDefined();
+  expect(row?.task).toBe("pre-removal session");
+});

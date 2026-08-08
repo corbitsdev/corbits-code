@@ -3,7 +3,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 
 // A task is a unit of work the agent registered for itself. The agent owns the
 // list — it adds, renames, cancels, and status-updates items as the plan
-// evolves mid-run (especially under /goal Work vs Acceptance).
+// evolves mid-run.
 export const TaskStatusSchema = type("'todo' | 'doing' | 'done' | 'cancelled'");
 export type TaskStatus = typeof TaskStatusSchema.infer;
 
@@ -46,7 +46,6 @@ export const manageTasksDefinition: ToolDefinition = {
     "action=\"update\" patches by id: status (todo→doing→done/cancelled), title edits, " +
     "and appends when the id is new and title is set. " +
     "Keep this list live — add, cancel, and re-title steps as you learn more. " +
-    "Under /goal this is Work (how you get there); manage_goal is Acceptance (what done means). " +
     "Skip for trivial single-step changes.",
   inputSchema: {
     type: "object",
