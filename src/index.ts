@@ -154,6 +154,13 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
     process.stderr.write("failed to write crash report\n");
   }
   await finalizeActiveRunOnCrash(error);
+  // kind is one of the two fixed process-level handler names, and error_class
+  // is the constructor name only — never the raw message/stack, which can
+  // carry local paths or interpolated secrets.
+  getTelemetry().capture("crash", {
+    error_class: error instanceof Error ? error.constructor.name : kind,
+  });
+  await getTelemetry().flush();
   process.exit(1);
 }
 

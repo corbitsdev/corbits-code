@@ -2,6 +2,7 @@ import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { registerCommandPlugin } from "../tui/commands/registry.js";
 import { registerWorkflowPlugin } from "../workflows/index.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 
 export function isPluginEnabled(config: Record<string, PluginConfig>, id: string): boolean {
   return config[id]?.enabled === true;
@@ -47,6 +48,7 @@ export function registerCommandPlugins(
     if (!isEnabledCommandPlugin(mod, config)) continue;
     registerCommandPlugin(mod.commandPlugin!);
     registered.push(mod.manifest!.id);
+    getTelemetry().capture("plugin_used", { plugin_id: mod.manifest!.id });
   }
   return registered;
 }
@@ -60,6 +62,7 @@ export function registerWorkflowPlugins(
     if (!isEnabledWorkflowPlugin(mod, config)) continue;
     registerWorkflowPlugin(mod.workflowPlugin!);
     registered.push(mod.manifest!.id);
+    getTelemetry().capture("plugin_used", { plugin_id: mod.manifest!.id });
   }
   return registered;
 }

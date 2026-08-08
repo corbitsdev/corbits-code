@@ -8,6 +8,7 @@ import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 import {
   resolvePluginWarningHandler,
   stderrPluginWarning,
@@ -163,6 +164,9 @@ export async function loadPluginEntry(
             mod.origin = origin;
             mod.pluginPath = resolve(entryPath);
           }
+          if (origin !== undefined && dataOnly.manifest.id.length > 0) {
+            getTelemetry().capture("plugin_loaded", { plugin_id: dataOnly.manifest.id, origin });
+          }
           return mod;
         }
         return null;
@@ -208,6 +212,9 @@ export async function loadPluginEntry(
     if (origin !== undefined) {
       result.origin = origin;
       result.pluginPath = resolve(pluginDir);
+    }
+    if (origin !== undefined && manifest !== null && manifest.id.length > 0) {
+      getTelemetry().capture("plugin_loaded", { plugin_id: manifest.id, origin });
     }
     return result;
   } catch (err) {

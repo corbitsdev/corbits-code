@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { resolveSkillBody } from "../extensions/skills.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 
 // Lazy skill loading: the available skills are listed by name + description in
 // the system prompt, but their full instructions are pulled into context only
@@ -34,6 +35,9 @@ export function createUseSkillTool(cwd: string, skillDirs: string[] = []): Agent
       if (name.length === 0) return "Error: use_skill requires a non-empty name.";
       const body = await resolveSkillBody(cwd, name, skillDirs);
       if (body === undefined) return `No skill named "${name}" is available.`;
+      // Only send the name once resolved against a real skill — never the
+      // raw, unvalidated model-supplied string.
+      getTelemetry().capture("skill_used", { skill_name: name });
       return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
     },
   });

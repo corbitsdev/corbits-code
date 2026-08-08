@@ -28,6 +28,13 @@ import {
 import type { MCPClient } from "../mcp/client.js";
 import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
+import { getTelemetry } from "../telemetry/singleton.js";
+
+// request.tool is drawn from the fixed set of built-in/registered tool ids
+// (never free text), so it doubles as the permission_kind enum.
+function permissionDecision(outcome: ApprovalOutcome | undefined): "allow" | "deny" {
+  return outcome !== undefined && outcome.allow ? "allow" : "deny";
+}
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -469,6 +476,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
               ? { decision: outcome.allow ? "allow" : "deny" }
               : undefined,
           );
+          getTelemetry().capture("permission_prompt", {
+            decision: permissionDecision(outcome),
+            permission_kind: request.tool,
+          });
         }
         if (outcome === undefined || !outcome.allow) {
           const suffix =
@@ -522,6 +533,10 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             ? { decision: outcome.allow ? "allow" : "deny" }
             : undefined,
         );
+        getTelemetry().capture("permission_prompt", {
+          decision: permissionDecision(outcome),
+          permission_kind: request.tool,
+        });
       }
       if (outcome === undefined || !outcome.allow) {
         const suffix =

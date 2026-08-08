@@ -40,6 +40,7 @@ import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 
 // ---------------------------------------------------------------------------
 // 1. Sub-agent provider literal
@@ -252,9 +253,28 @@ export type SessionPruningCompactorArgs = {
 export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
-  return createPruningCompactor({
+  const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     ...(args.compactionMode !== "pruning" ? { summarize: args.summarize } : {}),
   });
+  return {
+    ...compactor,
+    async apply(turns, ctx) {
+      const turnsBefore = turns.length;
+      const startedAt = Date.now();
+      const result = await compactor.apply(turns, ctx);
+      // "no compaction needed" is a distinct trigger from an actual prune —
+      // both are captured so the event reflects compactor activity, not just
+      // successful compactions.
+      const trigger = result.record.decisions.summarizedTurnCount !== undefined ? "pruning" : "no_op";
+      getTelemetry().capture("compaction", {
+        trigger,
+        duration_ms: Date.now() - startedAt,
+        turns_before: turnsBefore,
+        turns_after: result.output.length,
+      });
+      return result;
+    },
+  };
 }

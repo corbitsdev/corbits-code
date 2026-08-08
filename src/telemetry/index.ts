@@ -24,12 +24,35 @@ const FLUSH_DEADLINE_MS = 500;
 export const TELEMETRY_NOTICE =
   "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
 
-export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
+export type TelemetryEvent =
+  | "cli_start"
+  | "session_end"
+  | "inference_turn"
+  | "slash_command"
+  | "skill_used"
+  | "plugin_loaded"
+  | "plugin_used"
+  | "subagent_start"
+  | "subagent_end"
+  | "permission_prompt"
+  | "compaction"
+  | "crash"
+  | "auth_failure";
+
+// A per-process identifier, minted once and reused for every capture() call
+// in this process (see CL-5727). It links events from the same run without
+// ever carrying identity: it is not persisted and not derived from anything
+// user-controlled.
+const sessionId = crypto.randomUUID();
+
+export function getSessionId(): string {
+  return sessionId;
+}
 
 // Per-event property allowlist. Anything not listed here is stripped before
 // the payload leaves the process. Together with the fixed common properties
-// capture() appends (service_version, os_type, os_arch, schema_version),
-// this bounds everything telemetry can ever contain.
+// capture() appends (service_version, os_type, os_arch, schema_version,
+// session_id), this bounds everything telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
   session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
@@ -43,7 +66,27 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "thinking_tokens",
     "duration_ms",
   ],
+  // command_name is the canonical registry name only (e.g. "feedback") —
+  // never the raw command line or any argument text typed after it.
+  slash_command: ["command_name"],
+  // skill_name is the resolved, known-skill identifier only, and only sent
+  // when resolution succeeded — never a filesystem path.
+  skill_used: ["skill_name"],
+  // plugin_id is the manifest-declared id, never the plugin's local path.
+  plugin_loaded: ["plugin_id", "origin"],
+  plugin_used: ["plugin_id"],
+  subagent_start: ["agent_name", "parent_session_id"],
+  subagent_end: ["agent_name", "parent_session_id", "status", "duration_ms"],
+  // decision and permission_kind are fixed enums — never the literal
+  // command, tool args, or file path being approved.
+  permission_prompt: ["decision", "permission_kind"],
+  compaction: ["trigger", "duration_ms", "turns_before", "turns_after"],
+  // error_class is a fixed/allowlisted code — never a raw error message.
+  crash: ["error_class"],
+  auth_failure: ["error_class"],
 };
+
+const KNOWN_EVENTS = new Set<TelemetryEvent>(Object.keys(EVENT_PROPERTY_ALLOWLIST) as TelemetryEvent[]);
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -128,7 +171,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!(event === "cli_start" || event === "session_end" || event === "inference_turn")) return;
+    if (!KNOWN_EVENTS.has(event)) return;
 
     const body = {
       api_key: apiKey,
@@ -140,6 +183,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
         os_type: process.platform,
         os_arch: process.arch,
         schema_version: 1,
+        session_id: sessionId,
       },
     };
 

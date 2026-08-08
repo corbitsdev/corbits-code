@@ -1852,6 +1852,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       isCodexAuthError,
       isXaiAuthError,
     );
+    if (kind === "codex_auth" || kind === "xai_auth") {
+      getTelemetry().capture("auth_failure", { error_class: kind });
+    }
     if (!shouldSettleUiAfterSendFailure(kind)) return;
     recordRunError(err);
     systemRow(err instanceof Error ? err.message : String(err));
@@ -1961,6 +1964,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       systemRow(`Unknown command: ${name}`);
       return;
     }
+    getTelemetry().capture("slash_command", { command_name: command.name });
     applyCommandResult(command.handler(args, commandContext));
   };
 

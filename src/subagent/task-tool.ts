@@ -43,6 +43,8 @@ import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "
 import { generateSessionId } from "../session/index.js";
 import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
+import { getSessionId } from "../telemetry/index.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -484,6 +486,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(turnId !== null && turnId.length > 0 ? { turn_id: turnId } : {}),
         },
       });
+      const subagentStartedAt = Date.now();
+      // agentLabel is either a resolved, known profile id or the fixed
+      // "worker" fallback — never raw free text.
+      getTelemetry().capture("subagent_start", {
+        agent_name: agentLabel,
+        parent_session_id: getSessionId(),
+      });
+      let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
       try {
         if (deps.useWorktree === true) {
           const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
@@ -562,6 +572,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
           };
           if (wasCancelled) {
+            subagentStatus = "cancelled";
             if (
               session !== undefined &&
               deps.sessions?.get(session.id)?.status === "running"
@@ -585,6 +596,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             (session !== undefined &&
               deps.sessions?.get(session.id)?.status === "cancelled")
           ) {
+            subagentStatus = "cancelled";
             briefLedger.recordOutcome(fingerprint, "cancelled");
             if (
               session !== undefined &&
@@ -594,6 +606,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
             return await finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
           }
+          subagentStatus = "failed";
           // Run never produced a body — undo the admit so turn-budget retry budget
           // is not burned by auth/provider crashes.
           briefLedger.release(fingerprint);
@@ -613,6 +626,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
 
       } finally {
         end(subagentSpanId);
+        getTelemetry().capture("subagent_end", {
+          agent_name: agentLabel,
+          parent_session_id: getSessionId(),
+          status: subagentStatus,
+          duration_ms: Date.now() - subagentStartedAt,
+        });
       }
     },
   });
