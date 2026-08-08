@@ -327,7 +327,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     ...(deps.surfaces ?? {}),
     ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
     notify: (text) =>
-      appendStreamRow(host.shell, { role: "system", text, meta: "command" }),
+      appendStreamRow(host.shell, { role: "system", text }),
   }
 
   const refreshModels = (

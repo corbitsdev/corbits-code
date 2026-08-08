@@ -150,6 +150,7 @@ import {
   setPromptRecognitionSource,
   setSentMessageHistory,
   setShellRunState,
+  surfaceStartupNotice,
 } from "../tui-opentui/shell.js";
 import {
   classifyAgentSendFailure,
@@ -1841,7 +1842,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   };
 
   const systemRow = (text: string): void => {
-    appendStreamRow(host.shell, { role: "system", text, meta: "command" });
+    appendStreamRow(host.shell, { role: "system", text });
   };
 
   /** Settle the shell after a rejected send so the run does not look live. */
@@ -2370,9 +2371,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     });
 
-  // Surface fire-and-forget startup plugin diagnostics now that the shell has
-  // a transcript to write into (queued above, before `host` existed).
-  for (const notice of startupPluginNotices) systemRow(notice);
+  // Startup diagnostics ride the notice strip, not the transcript: an
+  // `appendStreamRow` here calls `clearLandingMark` and takes the whole landing
+  // hero with it — mark, the hints beside it, the composition — so a single
+  // plugin warning left a first run with no landing at all. Same reason
+  // CL-5618 routed MCP and hook failures here; this is the path it missed.
+  for (const notice of startupPluginNotices) surfaceStartupNotice(host.shell, notice);
 
   await host.waitUntilExit();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing

@@ -49,20 +49,28 @@ export function formatPluginWarningsSummary(
 ): string | undefined {
   if (warnings.length === 0) return undefined;
 
+  // Deduped: one skill referenced by three plugins produces three warnings,
+  // and listing it three times makes the printed count disagree with the list.
+  const seenSkills = new Set<string>();
   const skillMisses: string[] = [];
+  let skillWarningCount = 0;
   for (const w of warnings) {
     const m = /skill "([^"]+)" referenced but not found/.exec(w);
-    if (m?.[1] !== undefined) skillMisses.push(m[1]);
+    if (m?.[1] === undefined) continue;
+    skillWarningCount += 1;
+    if (seenSkills.has(m[1])) continue;
+    seenSkills.add(m[1]);
+    skillMisses.push(m[1]);
   }
 
-  if (skillMisses.length > 0 && skillMisses.length === warnings.length) {
+  if (skillMisses.length > 0 && skillWarningCount === warnings.length) {
     const n = skillMisses.length;
     return `plugins: ${n} skill${n === 1 ? "" : "s"} missing: ${skillMisses.join(", ")}`;
   }
 
   if (skillMisses.length > 0) {
     const n = skillMisses.length;
-    const other = warnings.length - n;
+    const other = warnings.length - skillWarningCount;
     return `plugins: ${n} skill${n === 1 ? "" : "s"} missing (${skillMisses.join(", ")}); ${other} other warning${other === 1 ? "" : "s"}`;
   }
 
