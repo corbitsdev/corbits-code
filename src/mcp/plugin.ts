@@ -5,10 +5,7 @@ import { gateToolCall } from "../plugins/permission-plugin.js";
 import { scrubSecretShapedToolResultContent } from "../plugins/tool-result-secret-scrub.js";
 import { truncateToolResultContent } from "../plugins/result-truncation-plugin.js";
 import type { MCPClient } from "./client.js";
-
-function mcpToolName(serverName: string, toolName: string): string {
-  return `mcp__${serverName}__${toolName}`;
-}
+import { mcpToolName } from "./tool-name.js";
 
 // MCP results never reach the posix runner, so the secret-scrub and truncation
 // middleware in src/plugins never see them. Apply the same scrub-then-truncate
