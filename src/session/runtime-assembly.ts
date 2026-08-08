@@ -40,6 +40,7 @@ import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 
 // ---------------------------------------------------------------------------
 // 1. Sub-agent provider literal
@@ -122,14 +123,17 @@ export type DiscoverSessionPluginsArgs = {
   isRegisteredPathTrusted: (pluginPath: string) => boolean;
   /** When set, skill/load warnings collect here for one end-of-batch summary. */
   diagnostics?: PluginLoadDiagnostics;
+  telemetry?: Telemetry;
 };
 
 /** Discover + dedupe plugins from repo, user, optional Claude, and registered paths. */
 export async function discoverSessionPlugins(
   args: DiscoverSessionPluginsArgs,
 ): Promise<PluginModule[]> {
-  const diag =
-    args.diagnostics !== undefined ? { diagnostics: args.diagnostics } : {};
+  const diag = {
+    ...(args.diagnostics !== undefined ? { diagnostics: args.diagnostics } : {}),
+    ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
+  };
   const claudePlugins =
     args.discoverClaudePlugins === true
       ? await discoverClaudeInstalledPlugins(args.cwd, diag)
@@ -246,15 +250,38 @@ const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 export type SessionPruningCompactorArgs = {
   compactionMode: "llm" | "pruning";
   summarize: (turns: ConversationTurn[]) => Promise<string>;
+  telemetry?: Telemetry;
 };
 
 /** Shared pruning-compactor defaults for the main session agent. */
 export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
-  return createPruningCompactor({
+  const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     ...(args.compactionMode !== "pruning" ? { summarize: args.summarize } : {}),
   });
+  const telemetry = args.telemetry ?? NOOP_TELEMETRY;
+  return {
+    ...compactor,
+    async apply(turns, ctx) {
+      const turnsBefore = turns.length;
+      const startedAt = Date.now();
+      const result = await compactor.apply(turns, ctx);
+      // summarizedTurnCount is only set on the branch that actually folded
+      // turns away. The other branch is a no-op (or image aging alone), and
+      // reporting it as compaction would drag the duration and turn-count
+      // averages toward the runs where nothing happened.
+      if (result.record.decisions.summarizedTurnCount !== undefined) {
+        telemetry.capture("compaction", {
+          mode: args.compactionMode,
+          duration_ms: Date.now() - startedAt,
+          turns_before: turnsBefore,
+          turns_after: result.output.length,
+        });
+      }
+      return result;
+    },
+  };
 }

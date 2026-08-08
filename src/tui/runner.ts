@@ -95,7 +95,8 @@ import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
-import { getTelemetry, setTelemetry } from "../telemetry/singleton.js";
+import { classifyCommandName } from "../telemetry/classify.js";
+import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { loadStartupChangelogMarkdown } from "../changelog/index.js";
 import pkg from "../../package.json" with { type: "json" };
@@ -421,6 +422,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     isProjectPluginTrusted,
     isRegisteredPathTrusted,
     diagnostics: pluginLoadDiag,
+    telemetry: liveTelemetry,
   });
   emitPluginWarningLog(pluginLoadDiag);
   // Fire-and-forget startup diagnostics (this + tool-plugin resolution below)
@@ -652,6 +654,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
   const permissionGate = createPermissionGate({
     approvals: seededApprovals,
+    telemetry: liveTelemetry,
     cwd: config.cwd,
     rootsProvider: createWorktreeRootsProvider(config.cwd),
     providerName: config.providerName,
@@ -1050,6 +1053,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     cwd: config.cwd,
     permissionGate,
     skillDirs,
+    telemetry: liveTelemetry,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
     toolWatchdog: liveToolWatchdog,
@@ -1318,6 +1322,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         "pruning-compactor": createSessionPruningCompactor({
           compactionMode: liveCompactionMode,
           summarize: summarizeForCompaction,
+          telemetry: liveTelemetry,
         }),
       },
     });
@@ -1767,6 +1772,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       isCodexAuthError,
       isXaiAuthError,
     );
+    if (kind === "codex_auth" || kind === "xai_auth") {
+      getTelemetry().capture("auth_failure", { error_class: kind });
+    }
     if (!shouldSettleUiAfterSendFailure(kind)) return;
     recordRunError(err);
     systemNotice(err instanceof Error ? err.message : String(err));
@@ -1876,6 +1884,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       systemNotice(`Unknown command: ${name}`);
       return;
     }
+    // Plugins register into the same command registry as the built-ins, so an
+    // unrecognised name is plugin-authored and is bucketed rather than sent.
+    getTelemetry().capture("slash_command", { command_name: classifyCommandName(command.name) });
     applyCommandResult(command.handler(args, commandContext));
   };
 

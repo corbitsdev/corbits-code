@@ -43,6 +43,8 @@ import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "
 import { generateSessionId } from "../session/index.js";
 import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
+import { classifyAgentName } from "../telemetry/classify.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,
@@ -171,6 +173,9 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
    * fails. Omit (default) to keep today's shared-cwd dispatch.
    */
   useWorktree?: boolean;
+  // Records sub-agent starts and outcomes. Injected so the tool has no
+  // process-wide dependency; omitting it makes dispatch silent.
+  telemetry?: Telemetry;
 };
 
 function taskToolResult(callId: string, content: string): ToolResult {
@@ -180,6 +185,7 @@ function taskToolResult(callId: string, content: string): ToolResult {
 
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run;
+  const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Session-scoped re-dispatch ledger: one per parent task tool instance.
   const briefLedger = createBriefDispatchLedger();
   return tool({
@@ -484,6 +490,15 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           ...(turnId !== null && turnId.length > 0 ? { turn_id: turnId } : {}),
         },
       });
+      const subagentStartedAt = Date.now();
+      // Profile ids come from project and plugin directories, so only the
+      // runtime's own "worker" fallback is reportable by name; anything else
+      // is bucketed. Sub-agents run in this process against the same session
+      // id, so there is no parent id worth sending — it would always equal
+      // the session_id already on the payload.
+      const agentName = classifyAgentName(agentLabel);
+      telemetry.capture("subagent_start", { agent_name: agentName });
+      let subagentStatus: "completed" | "cancelled" | "failed" = "completed";
       try {
         if (deps.useWorktree === true) {
           const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
@@ -562,6 +577,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
           };
           if (wasCancelled) {
+            subagentStatus = "cancelled";
             if (
               session !== undefined &&
               deps.sessions?.get(session.id)?.status === "running"
@@ -585,6 +601,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             (session !== undefined &&
               deps.sessions?.get(session.id)?.status === "cancelled")
           ) {
+            subagentStatus = "cancelled";
             briefLedger.recordOutcome(fingerprint, "cancelled");
             if (
               session !== undefined &&
@@ -594,6 +611,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
             return await finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
           }
+          subagentStatus = "failed";
           // Run never produced a body — undo the admit so turn-budget retry budget
           // is not burned by auth/provider crashes.
           briefLedger.release(fingerprint);
@@ -613,6 +631,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
 
       } finally {
         end(subagentSpanId);
+        telemetry.capture("subagent_end", {
+          agent_name: agentName,
+          status: subagentStatus,
+          duration_ms: Date.now() - subagentStartedAt,
+        });
       }
     },
   });

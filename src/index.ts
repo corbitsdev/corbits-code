@@ -9,6 +9,7 @@ import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.j
 import { installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
+import { classifyErrorClass } from "./telemetry/classify.js";
 import { getTelemetry, setTelemetry } from "./telemetry/singleton.js";
 import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
@@ -154,6 +155,12 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
     process.stderr.write("failed to write crash report\n");
   }
   await finalizeActiveRunOnCrash(error);
+  // kind is one of the two process-level handler names. A constructor name is
+  // author-chosen — an application or plugin error subclass can be as
+  // identifying as any other free text — so only the language's own error
+  // types are reported by name.
+  getTelemetry().capture("crash", { kind, error_class: classifyErrorClass(error) });
+  await getTelemetry().flush();
   process.exit(1);
 }
 

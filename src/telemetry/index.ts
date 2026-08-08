@@ -42,7 +42,19 @@ export type BatchTuning = {
 export const TELEMETRY_NOTICE =
   "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
 
-export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
+export type TelemetryEvent =
+  | "cli_start"
+  | "session_end"
+  | "inference_turn"
+  | "slash_command"
+  | "skill_used"
+  | "plugin_loaded"
+  | "subagent_start"
+  | "subagent_end"
+  | "permission_prompt"
+  | "compaction"
+  | "crash"
+  | "auth_failure";
 
 // One id per interactive process (TUI session or CLI invocation), generated
 // once at module load and reused by every createTelemetry() instance for the
@@ -73,7 +85,26 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "thinking_tokens",
     "duration_ms",
   ],
+  // Every identifier below is a first-party enum produced by
+  // src/telemetry/classify.ts, not the name the user or author wrote. The
+  // allowlist bounds which keys travel; the classifiers bound which values
+  // can, and the two are independent guards on purpose.
+  slash_command: ["command_name"],
+  // Skill names are project- or plugin-authored with no first-party set to
+  // match against, so the event counts skill use and carries nothing else.
+  skill_used: [],
+  // origin is the discovery tier (repo/user/project/path); the manifest id is
+  // author-chosen free text and is not sent.
+  plugin_loaded: ["origin"],
+  subagent_start: ["agent_name"],
+  subagent_end: ["agent_name", "status", "duration_ms"],
+  permission_prompt: ["decision", "permission_kind"],
+  compaction: ["mode", "duration_ms", "turns_before", "turns_after"],
+  crash: ["kind", "error_class"],
+  auth_failure: ["error_class"],
 };
+
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.keys(EVENT_PROPERTY_ALLOWLIST));
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -154,6 +185,18 @@ export type Telemetry = {
   discard(): void;
 };
 
+// Stand-in for callers that were constructed without a telemetry handle —
+// tests, and any code path that runs before startup has built the real one.
+// Modules take Telemetry as an injected dependency rather than reaching for a
+// global, and this is what makes "not injected" mean "emits nothing" instead
+// of "throws".
+export const NOOP_TELEMETRY: Telemetry = {
+  enabled: false,
+  capture: () => {},
+  flush: async () => {},
+  discard: () => {},
+};
+
 // Fire-and-forget PostHog batch client. Never throws, never blocks the
 // caller — errors (including timeouts) are swallowed silently since
 // telemetry must never affect product behavior.
@@ -218,7 +261,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!(event === "cli_start" || event === "session_end" || event === "inference_turn")) return;
+    if (!KNOWN_EVENTS.has(event)) return;
 
     queue.push({
       event,

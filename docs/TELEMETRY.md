@@ -6,13 +6,26 @@ includes prompts, code, file contents, or paths.
 
 ## What's collected
 
-Three events, each with a small set of properties:
+Each event carries a small set of properties:
 
 | Event | When | Properties |
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
 | `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
+| `slash_command` | A slash command is dispatched in the TUI | `command_name` |
+| `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
+| `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
+| `subagent_start` | A `task` dispatch begins | `agent_name` |
+| `subagent_end` | A `task` dispatch finishes | `agent_name`, `status`, `duration_ms` |
+| `permission_prompt` | An approval prompt is answered (or abandoned) | `decision`, `permission_kind` |
+| `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
+| `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
+| `auth_failure` | A provider rejects the stored credentials | `error_class` |
+
+`compaction` is deliberately silent on the runs where the compactor decides
+there is nothing to compact — an event that also fires on no-ops makes its own
+duration and turn-count averages meaningless.
 
 Common properties attached to every event: a random installation UUID
 (`distinct_id`), `session_id`, `service_version`, `os_type`, `os_arch`, and a
@@ -30,10 +43,38 @@ onboarding or settings. `model_id` is the model identifier exactly as
 configured — it is the one user-entered string that is sent, so do not put
 anything identifying in a model name.
 
+## Names are never sent, only categories
+
+Most of the things a usage event would naturally want to name are named by
+someone other than us: an MCP server key is a key in your settings, a skill is
+a directory in your repo, a plugin id is chosen by its author, an agent profile
+and a plugin's slash commands are project-local. On a private repo those names
+are your employer, your internal services, or fragments of your paths.
+
+So none of them are transmitted. Each is matched against a fixed list of names
+this project itself ships and reported as that name, or as `custom` when it
+matches nothing — with `mcp` as its own bucket for `permission_kind`, so the
+share of prompts driven by MCP stays visible without the server key coming
+with it. `skill_used` and `plugin_loaded` go further: there is no first-party
+list of skills or plugins to match against, so `skill_used` carries no name at
+all and `plugin_loaded` carries only `origin`, the discovery tier
+(`repo`, `user`, `project`, `path`).
+
+`error_class` is bucketed the same way: only the error types defined by the
+language are reported by name, because an error subclass defined in
+application or plugin code is as author-chosen as any other string.
+
+The mapping is `src/telemetry/classify.ts`, and the tests that feed each
+emission site a deliberately identifying name and assert it reaches no part of
+the payload are in `tests/unit/telemetry-product-events.test.ts`.
+
 ## What's never collected
 
 - Prompts, model output, or any conversation content
 - File paths, file contents, or repo/project names
+- Names anyone but this project chose: MCP servers, skills, plugins, agent
+  profiles, plugin-registered slash commands, error subclasses (see above)
+- Shell commands, tool arguments, or tool results
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above
 
@@ -123,5 +164,5 @@ in force.
 
 Local performance tracing and optional OpenTelemetry export to an operator-owned
 collector (Phoenix, PostHog OTEL, Jaeger, generic OTLP) are documented in
-`docs/PERFTRACE.md`. That pipe is separate: it does not expand these three
-events, and product telemetry opt-out does not control OTEL export.
+`docs/PERFTRACE.md`. That pipe is separate: it does not expand the events
+above, and product telemetry opt-out does not control OTEL export.

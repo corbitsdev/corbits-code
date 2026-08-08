@@ -3,6 +3,8 @@
  */
 
 import { mkdir } from "node:fs/promises";
+
+import { liveTelemetry } from "../telemetry/singleton.js";
 import { join } from "node:path";
 
 import {
@@ -326,6 +328,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         // Pass the public entry so nested workers still go through the outer
         // slot/refresh path; avoids task-tool importing runSubAgent (cycle).
         run: runSubAgent,
+        telemetry: liveTelemetry,
         ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
         ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
         ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),

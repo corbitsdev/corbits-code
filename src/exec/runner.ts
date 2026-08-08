@@ -53,6 +53,7 @@ import type {
   PermissionRequest,
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
+import { liveTelemetry } from "../telemetry/singleton.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   expandExistingPluginMembers,
@@ -262,6 +263,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isProjectPluginTrusted,
       isRegisteredPathTrusted,
       diagnostics: pluginLoadDiag,
+      telemetry: liveTelemetry,
     });
     emitPluginWarningSummary(pluginLoadDiag, (line) => logger.warn(line));
     // Metadata-only (untrusted) modules stay out of executable plugins.
@@ -298,6 +300,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const permissionGate = createPermissionGate({
       approvals: seededApprovals,
+      telemetry: liveTelemetry,
       cwd: config.cwd,
       rootsProvider: createWorktreeRootsProvider(config.cwd),
       providerName: config.providerName,
@@ -326,6 +329,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       cwd: config.cwd,
       permissionGate,
       skillDirs,
+      telemetry: liveTelemetry,
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
@@ -544,6 +548,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
           "pruning-compactor": createSessionPruningCompactor({
             compactionMode: liveCompactionMode,
             summarize: summarizeForCompaction,
+            telemetry: liveTelemetry,
           }),
         },
       });

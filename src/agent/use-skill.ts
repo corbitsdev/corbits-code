@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { resolveSkillBody } from "../extensions/skills.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 
 // Lazy skill loading: the available skills are listed by name + description in
 // the system prompt, but their full instructions are pulled into context only
@@ -24,7 +25,11 @@ const useSkillDefinition: ToolDefinition = {
 
 const UseSkillArgs = type({ name: "string" });
 
-export function createUseSkillTool(cwd: string, skillDirs: string[] = []): AgentTool {
+export function createUseSkillTool(
+  cwd: string,
+  skillDirs: string[] = [],
+  telemetry: Telemetry = NOOP_TELEMETRY,
+): AgentTool {
   return stringTool({
     definition: useSkillDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -34,6 +39,10 @@ export function createUseSkillTool(cwd: string, skillDirs: string[] = []): Agent
       if (name.length === 0) return "Error: use_skill requires a non-empty name.";
       const body = await resolveSkillBody(cwd, name, skillDirs);
       if (body === undefined) return `No skill named "${name}" is available.`;
+      // Skills are project- or plugin-authored, so the name is as identifying
+      // as any other user-written string and never leaves the process; the
+      // event records only that a skill was loaded.
+      telemetry.capture("skill_used");
       return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
     },
   });
