@@ -1,5 +1,3 @@
-import { resolve, sep } from "node:path";
-import { realpathSync } from "node:fs";
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
 import { splitChainedCommand, deriveCommandScopes, tokenize, isShellCommentOnly, isShellNoOp } from "./command.js";
@@ -10,6 +8,8 @@ import {
   isSensitivePath,
 } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
+import { resolveWorkspacePath } from "./path-restriction.js";
+import type { RootsProvider } from "./worktree-roots.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -235,18 +235,15 @@ const EXEC_FLAG = /^(--pre|--pre-glob|--hostname-bin|--search-zip|-z)(=|$)/;
 // keys) additionally never auto-allow; the permission gate asks so the operator
 // can approve legitimate shell uses (e.g. `--env-file`). Path-keyed secret
 // reads remain a hard deny in secret-guard.
-function realpathOr(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
-
-function escapesWorkspace(token: string, realCwd: string): boolean {
+// Containment is delegated to path-restriction.ts's resolveWorkspacePath —
+// the same authority gate.ts's restriction check uses — so a path inside a
+// registered worktree root is never auto-allow-eligible under a stricter (or
+// looser) rule than the one that judges it restricted. `rootsProvider`
+// defaults to no extra roots, so callers that don't pass one keep exactly
+// today's cwd-only behavior.
+function escapesWorkspace(token: string, cwd: string, rootsProvider: RootsProvider): boolean {
   if (token.startsWith("~")) return true;
-  const realTarget = realpathOr(resolve(realCwd, token));
-  return realTarget !== realCwd && !realTarget.startsWith(realCwd + sep);
+  return resolveWorkspacePath(cwd, token, rootsProvider) === undefined;
 }
 
 // grep/rg read a file through a flag value (`--file=PATH`, `-fPATH`), so a path
@@ -261,26 +258,34 @@ function flagPathValue(token: string): string | null {
   return glued !== null ? (glued[1] ?? null) : null;
 }
 
-function argEscapesWorkspace(token: string, realCwd: string): boolean {
-  if (!token.startsWith("-")) return escapesWorkspace(token, realCwd);
+function argEscapesWorkspace(token: string, cwd: string, rootsProvider: RootsProvider): boolean {
+  if (!token.startsWith("-")) return escapesWorkspace(token, cwd, rootsProvider);
   const value = flagPathValue(token);
-  return value !== null && value.length > 0 && escapesWorkspace(value, realCwd);
+  return value !== null && value.length > 0 && escapesWorkspace(value, cwd, rootsProvider);
 }
+
+// No-extra-roots default: callers that don't pass a rootsProvider (existing
+// tests, callers with no worktree registry) keep exactly today's cwd-only
+// containment behavior.
+const NO_ROOTS: RootsProvider = () => [];
 
 // Segment-only allowlist check (no authz policy). Used when a pipeline segment is
 // judged in isolation — authz applies to the full command string, not each stage.
-export function isAutoAllowedShellSegment(segment: string, cwd: string = process.cwd()): boolean {
+export function isAutoAllowedShellSegment(
+  segment: string,
+  cwd: string = process.cwd(),
+  rootsProvider: RootsProvider = NO_ROOTS,
+): boolean {
   const trimmed = segment.trim();
   // Empty is not auto-allowed as a "command"; full-line comments and pure shell
   // no-ops (true/false/: and bare control-flow keywords) never need approval.
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
-  const realCwd = realpathOr(cwd);
-  return isAutoAllowedSegment(segment, realCwd);
+  return isAutoAllowedSegment(segment, cwd, rootsProvider);
 }
 
-function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
+function isAutoAllowedSegment(segment: string, cwd: string, rootsProvider: RootsProvider): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
@@ -310,13 +315,17 @@ function isAutoAllowedSegment(segment: string, realCwd: string): boolean {
   if (args.some((token) => isSensitivePath(token))) return false;
   // Pure directory listing may target outside-workspace paths (names only).
   // Content readers must stay inside the workspace.
-  if (!pureListing && args.some((token) => argEscapesWorkspace(token, realCwd))) {
+  if (!pureListing && args.some((token) => argEscapesWorkspace(token, cwd, rootsProvider))) {
     return false;
   }
   return true;
 }
 
-export function isAutoAllowedShellCommand(command: string, cwd: string = process.cwd()): boolean {
+export function isAutoAllowedShellCommand(
+  command: string,
+  cwd: string = process.cwd(),
+  rootsProvider: RootsProvider = NO_ROOTS,
+): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
   // Single-line full comments and pure shell no-ops are inert.
@@ -332,16 +341,17 @@ export function isAutoAllowedShellCommand(command: string, cwd: string = process
   if (DANGEROUS_METACHARACTERS.test(trimmed)) return false;
 
   // Split on pipe and require every segment to be a safe read-only program.
-  // The workspace realpath is constant across every path token in the command,
-  // so resolve it once here rather than per token inside escapesWorkspace.
-  const realCwd = realpathOr(cwd);
   const segments = trimmed.split("|");
-  return segments.every((seg) => isAutoAllowedSegment(seg, realCwd));
+  return segments.every((seg) => isAutoAllowedSegment(seg, cwd, rootsProvider));
 }
 
-export function isAutoAllowedShellCall(call: ToolCall, cwd: string = process.cwd()): boolean {
+export function isAutoAllowedShellCall(
+  call: ToolCall,
+  cwd: string = process.cwd(),
+  rootsProvider: RootsProvider = NO_ROOTS,
+): boolean {
   if (call.name !== "run_shell") return false;
-  return isAutoAllowedShellCommand(stringArg(call, "command"), cwd);
+  return isAutoAllowedShellCommand(stringArg(call, "command"), cwd, rootsProvider);
 }
 
 // File scopes intentionally stop at the directory level. There is no "every
