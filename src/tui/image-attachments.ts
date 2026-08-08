@@ -112,7 +112,7 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
 
 /** SHA-256 of decoded image bytes, used to identify identical pastes regardless of filename or timing. */
 export async function hashImageBytes(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 

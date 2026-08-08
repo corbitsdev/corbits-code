@@ -557,6 +557,7 @@ function attachOnNextPrompt(shell: AppShell, id: string): Promise<void> {
         name: `${id}.png`,
         contentType: "image/png",
         data: new Uint8Array([137, 80, 78, 71]),
+        contentHash: `hash-${id}`,
       },
     }
   })
