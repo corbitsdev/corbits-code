@@ -266,6 +266,31 @@ describe("formatAgentsPanel", () => {
       formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW),
     ).toBeNull()
   })
+
+  test("a stalled agent stays visible over newer agents when the fan-out is truncated", () => {
+    // The real feed (listForStrip) sorts running agents newest-first; the
+    // panel must not blindly take that order, or the one worker most likely
+    // to need attention is exactly the one that gets folded into "+N more".
+    const newest = Array.from({ length: 5 }, (_, i) => ({
+      agentId: `fresh-${i}`,
+      description: "just started",
+      status: "running" as const,
+      startedAt: NOW,
+      lastActivityAt: NOW,
+    }))
+    const stalled = {
+      agentId: "quiet",
+      description: "gone silent",
+      status: "running" as const,
+      startedAt: NOW - 300_000,
+      lastActivityAt: NOW - 250_000,
+    }
+    const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 5)
+    expect(rows?.some((r) => r.includes("quiet"))).toBe(true)
+    expect(rows?.some((r) => r.includes("stalled"))).toBe(true)
+    expect(rows).toHaveLength(6)
+    expect(rows?.[5]).toBe("+1 more")
+  })
 })
 
 describe("chromeFromSession", () => {

@@ -234,7 +234,14 @@ export function formatAgentsPanel(
   const running = agents.filter((s) => s.status === "running")
   if (running.length === 0) return null
 
-  const visible = running.slice(0, maxVisible)
+  // Oldest last-activity first: when a fan-out exceeds maxVisible, the
+  // agent most likely to be stalled must stay on screen, not the caller's
+  // input order (the real feed sorts running sessions newest-first, which
+  // would otherwise fold the stalled worker into "+N more" and hide it).
+  const byStaleness = [...running].sort(
+    (a, b) => (a.lastActivityAt ?? a.startedAt ?? 0) - (b.lastActivityAt ?? b.startedAt ?? 0),
+  )
+  const visible = byStaleness.slice(0, maxVisible)
   const rows = visible.map((s) => formatAgentRow(s, nowMs, stallMs))
   const hidden = running.length - visible.length
   if (hidden > 0) rows.push(`+${hidden} more`)
@@ -250,6 +257,13 @@ function formatObserveLine(observe: ChromeLiveState["observe"]): string | null |
     id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc
   return `observe: ${label}`
 }
+
+/**
+ * Suffix marking a stalled row. Exported so the renderer (`shell.ts`) can
+ * detect stalled rows from the same literal this module writes, instead of
+ * each side hand-maintaining its own copy of the string to sniff.
+ */
+export const STALLED_ROW_SUFFIX = " · stalled"
 
 function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: number): string {
   const label = `${session.agentId}: ${session.description}`.trim()
@@ -268,7 +282,7 @@ function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: num
       : null
 
   if (progress !== null) {
-    const stalledSuffix = progress.stalled ? " · stalled" : ""
+    const stalledSuffix = progress.stalled ? STALLED_ROW_SUFFIX : ""
     return `${label} · ${progress.stat}${stalledSuffix}`
   }
 

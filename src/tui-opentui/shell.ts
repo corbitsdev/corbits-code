@@ -6,6 +6,7 @@
  */
 
 import { homedir } from "node:os"
+import { STALLED_ROW_SUFFIX } from "./chrome-state.js"
 
 import {
   BoxRenderable,
@@ -4049,7 +4050,7 @@ export type ChromeZoneContent = {
 
 /** A stalled row reads distinct from a working one by both label and color. */
 function isStalledAgentRow(line: string): boolean {
-  return line.endsWith(" · stalled")
+  return line.endsWith(STALLED_ROW_SUFFIX)
 }
 
 /** Rebuild agentsBox's row children to match the requested lines exactly. */
@@ -4059,9 +4060,11 @@ function renderAgentsRows(shell: AppShell, lines: readonly string[]): void {
     destroySubtree(child)
   }
   for (const line of lines) {
+    // Green for working, not the task zone's bronze immediately above it —
+    // adjacent zones sharing a hue read as one undifferentiated block.
     const row = new TextRenderable(shell.renderer as CliRenderer, {
       content: ` ${line}`,
-      fg: isStalledAgentRow(line) ? UI.textDim : UI.inFlight,
+      fg: isStalledAgentRow(line) ? UI.textDim : UI.done,
     })
     shell.agentsBox.add(row)
   }
@@ -4096,7 +4099,6 @@ export function setChromeZones(
   const goalOn = bag.chrome.goal.length > 0
   const taskOn = bag.chrome.task.length > 0
   const agentsRowCount = bag.chrome.agents.length
-  const agentsOn = agentsRowCount > 0
 
   shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
