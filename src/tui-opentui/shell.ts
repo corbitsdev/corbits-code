@@ -4084,8 +4084,13 @@ export function setChromeZones(
   if (content.task !== undefined) {
     bag.chrome.task = content.task ?? ""
   }
+  let agentsChanged = false
   if (content.agents !== undefined) {
-    bag.chrome.agents = content.agents ?? []
+    const next = content.agents ?? []
+    agentsChanged =
+      next.length !== bag.chrome.agents.length ||
+      next.some((line, i) => line !== bag.chrome.agents[i])
+    bag.chrome.agents = next
   }
 
   const goalOn = bag.chrome.goal.length > 0
@@ -4095,7 +4100,10 @@ export function setChromeZones(
 
   shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
-  renderAgentsRows(shell, bag.chrome.agents)
+  // Rebuilding N TextRenderable children is real node churn; skip it unless
+  // the panel's actual lines changed (not every goal/task/agents push carries
+  // new agent data).
+  if (agentsChanged) renderAgentsRows(shell, bag.chrome.agents)
 
   // Only a zone appearing/disappearing or its row count changing alters the
   // row budget; retitling a zone whose row count is unchanged must not

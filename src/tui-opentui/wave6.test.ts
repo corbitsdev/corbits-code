@@ -321,6 +321,38 @@ describe("Wave 6: chrome zones", () => {
       { width: 80, height: 24 },
     )
   })
+
+  test("agents panel rows are only rebuilt when the panel's lines actually change", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, { agents: ["explore: map callers"] })
+          const rowsBefore = [...shell.agentsBox.getChildren()]
+          expect(rowsBefore).toHaveLength(1)
+
+          // An unrelated goal push must not touch the agents rows.
+          setChromeZones(shell, { goal: "goal: unrelated" })
+          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+
+          // Pushing the exact same agent lines again must not rebuild either.
+          setChromeZones(shell, { agents: ["explore: map callers"] })
+          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+
+          // Changed lines must rebuild.
+          setChromeZones(shell, { agents: ["explore: map callers · 0:01"] })
+          expect([...shell.agentsBox.getChildren()]).not.toEqual(rowsBefore)
+          expect(shell.agentsBox.getChildren()).toHaveLength(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
 })
 
 describe("Wave 6: keyboard copy path", () => {

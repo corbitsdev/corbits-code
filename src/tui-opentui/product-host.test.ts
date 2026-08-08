@@ -47,6 +47,8 @@ async function mountHeadless(
   host: Awaited<ReturnType<typeof mountProductHost>>
   emitter: EventEmitter
   destroyHarness: () => void
+  renderOnce: () => Promise<void>
+  captureCharFrame: () => string
 }> {
   const harness = await createHarness({ width: 80, height: 24 })
   const emitter = new EventEmitter()
@@ -60,7 +62,13 @@ async function mountHeadless(
     createRenderer: async () => harness.renderer,
     ...overrides,
   })
-  return { host, emitter, destroyHarness: harness.destroy }
+  return {
+    host,
+    emitter,
+    destroyHarness: harness.destroy,
+    renderOnce: harness.renderOnce,
+    captureCharFrame: harness.captureCharFrame,
+  }
 }
 
 function makeRequest(
@@ -269,6 +277,36 @@ describe("mountProductHost", () => {
       emitter.emit("event", { type: "user", text: "late" }),
     ).not.toThrow()
     expect(host.shell.streamLog).toEqual([])
+  })
+
+  test("the agents panel's elapsed clock advances on the sticky poll tick, without another chrome push", async () => {
+    const now = Date.now()
+    const { host, renderOnce, captureCharFrame } = await mountHeadless({
+      chrome: {
+        agents: [
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+            startedAt: now - 59_000,
+            lastActivityAt: now,
+          },
+        ],
+      },
+    })
+    try {
+      await renderOnce()
+      expect(captureCharFrame()).toContain("0:59")
+
+      // No further chrome push or event — only wall-clock time passing.
+      // Only the 200ms sticky poll can be responsible for the clock moving.
+      await new Promise((r) => setTimeout(r, 1_100))
+      await renderOnce()
+      expect(captureCharFrame()).not.toContain("0:59")
+      expect(captureCharFrame()).toMatch(/1:0\d/)
+    } finally {
+      host.dispose()
+    }
   })
 })
 

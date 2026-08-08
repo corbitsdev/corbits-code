@@ -392,6 +392,11 @@ export async function mountProductHost(
       if (config.subAgentSessions !== undefined) {
         bridge.syncAgentProgress(config.subAgentSessions())
       }
+      // The agents panel's elapsed clock and stalled flag are a function of
+      // wall time, not just of the last event — repaint on the same tick as
+      // the transcript trailer so a worker that goes quiet still flips to
+      // "stalled" without waiting on an unrelated chrome push.
+      if (chromeState !== null) paintChromeZones()
     } catch {
       clearInterval(stickyPoll)
     }
