@@ -24,6 +24,7 @@ import {
   streamRowCount,
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
+import { stringWidth } from "../tui/view/height"
 
 describe("Wave 6: command palette", () => {
   test("open → navigate → Esc restores prompt", async () => {
@@ -391,6 +392,47 @@ describe("Wave 6: chrome zones", () => {
           // whole; only the free-form label is ellipsized.
           expect(agentLine).toContain("…")
           expect(agentLine).not.toContain(longDescription)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a wide-character (CJK/emoji) description fits the laid-out width in columns, not UTF-16 units", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          // Each CJK character is one UTF-16 code unit but two terminal
+          // columns; .length would undercount this description's true width
+          // by roughly half, letting the row overflow the zone and wrap —
+          // exactly the bug width-clamping exists to prevent.
+          const wideDescription = "调查代理循环中重复出现的工具调用事件问题 across every dispatched worker"
+          setChromeZones(shell, {
+            agents: [
+              { label: `explore: ${wideDescription}`, tail: " · 0:42 · grep", stalled: false },
+            ],
+          })
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"))
+          expect(agentLine).toBeDefined()
+          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(
+            shell.layout.sideMargin + shell.layout.contentWidth,
+          )
+          expect(agentLine).toContain("…")
+          expect(agentLine).toContain("· 0:42 · grep")
+
+          // No wrap: the zone stays a single row for a single agent.
+          expect(shell.layout.heights.agents).toBe(1)
         } finally {
           shell.dispose()
         }

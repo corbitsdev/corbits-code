@@ -30,7 +30,7 @@ import {
   composePromptActionBarModelLabel,
   type PromptActionBarModelLabelInput,
 } from "../tui/components/prompt-action-bar-label.js"
-import { stringWidth } from "../tui/view/height.js"
+import { sliceTailToWidth, sliceToWidth, stringWidth } from "../tui/view/height.js"
 import { listPathSuggestions } from "../tui/components/at-mention/list.js"
 import { parseAtState } from "../tui/components/at-mention/parse.js"
 import {
@@ -4055,23 +4055,30 @@ export type ChromeZoneContent = {
 }
 
 /**
- * Fit a row's label + tail into `maxWidth` columns, ellipsizing the label
- * (agentId + description — free-form, model-authored, routinely long)
+ * Fit a row's label + tail into `maxWidth` terminal columns, ellipsizing the
+ * label (agentId + description — free-form, model-authored, routinely long,
+ * and not guaranteed narrow: CJK and emoji run two columns per code point)
  * before ever touching the tail (elapsed/tool/stalled). The tail carries
  * the fact an operator glances at the panel to see, so it is preserved
- * whole or not shown at all.
+ * whole or not shown at all. Measured and sliced in columns via
+ * `stringWidth`/`sliceToWidth` (`src/tui/view/height.ts`) rather than UTF-16
+ * code units — `.length` undercounts wide glyphs, which is exactly the class
+ * of bug that would make a row overflow its zone and wrap.
  */
 function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
   const full = ` ${row.label}${row.tail}`
-  if (full.length <= maxWidth) return full
+  if (stringWidth(full) <= maxWidth) return full
 
-  const budget = maxWidth - 1 - row.tail.length - 1 // leading space + ellipsis
+  const leadingSpace = 1
+  const ellipsis = 1
+  const budget = maxWidth - leadingSpace - stringWidth(row.tail) - ellipsis
   if (budget <= 0) {
-    // Not even the tail fits — show as much of the tail as there is room
-    // for rather than an unreadable sliver of the label.
-    return ` ${full.slice(1, Math.max(0, maxWidth))}`
+    // Not even the tail fits at full width — keep as much of the tail's
+    // trailing end (where the "stalled" marker lives) as there is room for,
+    // rather than an unreadable sliver of the label.
+    return ` ${sliceTailToWidth(row.tail, maxWidth - leadingSpace)}`
   }
-  return ` ${row.label.slice(0, budget)}…${row.tail}`
+  return ` ${sliceToWidth(row.label, budget)}…${row.tail}`
 }
 
 /** Rebuild agentsBox's row children to match the requested rows exactly. */
