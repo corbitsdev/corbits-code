@@ -12,7 +12,6 @@ Each event carries a small set of properties:
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
 | `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens` |
 | `$ai_span` | Once per top-level tool call in a completed turn | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error` |
 | `slash_command` | A slash command is dispatched in the TUI | `command_name` |
@@ -39,10 +38,9 @@ request IP; no location data is collected by the client.
 Every event is capped to an explicit property allowlist before it leaves the
 process — no other field can ever be attached, even by accident.
 
-`provider_id` (and its AI-event equivalent `$ai_provider`) is the canonical
-provider kind resolved by the runtime (e.g. `openai-compatible`), never the
-free-text name you gave the provider in onboarding or settings. `model_id`
-(equivalently `$ai_model`) is the model identifier exactly as
+`$ai_provider` is the canonical provider kind resolved by the runtime (e.g.
+`openai-compatible`), never the free-text name you gave the provider in
+onboarding or settings. `$ai_model` is the model identifier exactly as
 configured — it is the one user-entered string that is sent, so do not put
 anything identifying in a model name.
 

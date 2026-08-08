@@ -78,6 +78,9 @@ export function emitAiObservability(
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
+    // The canonical provider kind, never ctx.source.sourceId: sourceId is the
+    // user-typed label from onboarding/settings, and free text must not leave
+    // the process under the no-PII contract.
     $ai_provider: ctx.source.provider,
     $ai_model: ctx.source.model,
     $ai_input_tokens: ctx.usage.input,

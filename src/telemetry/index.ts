@@ -45,7 +45,6 @@ export const TELEMETRY_NOTICE =
 export type TelemetryEvent =
   | "cli_start"
   | "session_end"
-  | "inference_turn"
   | "$ai_generation"
   | "$ai_span"
   | "slash_command"
@@ -92,16 +91,6 @@ export function getSessionId(): string {
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   cli_start: [],
   session_end: ["status", "turn_count", "duration_ms", "session_mode", "exit_reason"],
-  inference_turn: [
-    "provider_id",
-    "model_id",
-    "input_tokens",
-    "output_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "thinking_tokens",
-    "duration_ms",
-  ],
   // PostHog's LLM analytics views read the $ai_-prefixed properties and
   // nothing else, so every field these two events exist to surface has to
   // carry the documented name: an unprefixed property still arrives, but

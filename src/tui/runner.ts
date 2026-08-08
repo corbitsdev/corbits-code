@@ -1341,22 +1341,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     emitter,
     hookManager,
     initialTurnCount: resumeSeed.turnsUsed,
-    onTurnComplete: (ctx) => {
-      // provider_id is the canonical provider kind, never ctx.source.sourceId:
-      // sourceId is the user-typed label from onboarding/settings, and free
-      // text must not leave the process under the no-PII contract.
-      getTelemetry().capture("inference_turn", {
-        provider_id: ctx.source.provider,
-        model_id: ctx.source.model,
-        input_tokens: ctx.usage.input,
-        output_tokens: ctx.usage.output,
-        cache_read_tokens: ctx.usage.cacheRead,
-        cache_write_tokens: ctx.usage.cacheWrite,
-        thinking_tokens: ctx.usage.thinking,
-        duration_ms: ctx.durationMs,
-      });
-      turnObserver.onTurnComplete(ctx);
-    },
+    onTurnComplete: turnObserver.onTurnComplete,
     onTurnFailed: turnObserver.onTurnFailed,
     // persistRunSnapshot is defined below but not invoked until the stream
     // starts consuming events, well after this closure captures it.

@@ -144,40 +144,6 @@ test("capture strips properties not in the event's allowlist", async () => {
   expect(body.properties.secret_field).toBeUndefined();
 });
 
-test("capture strips properties not in inference_turn's allowlist", async () => {
-  const { impl, events } = recordingFetch();
-  const telemetry = createTelemetry({
-    settings: settingsWith("id"),
-    env: {},
-    fetchFn: impl,
-    apiKey: "test-key",
-  });
-  telemetry.capture("inference_turn", {
-    provider_id: "anthropic",
-    model_id: "claude-x",
-    input_tokens: 10,
-    output_tokens: 20,
-    cache_read_tokens: 1,
-    cache_write_tokens: 2,
-    thinking_tokens: 3,
-    duration_ms: 400,
-    prompt: "should-not-appear",
-  });
-  await telemetry.flush();
-  expect(events().length).toBe(1);
-  const body = events()[0];
-  expect(body.event).toBe("inference_turn");
-  expect(body.properties.provider_id).toBe("anthropic");
-  expect(body.properties.model_id).toBe("claude-x");
-  expect(body.properties.input_tokens).toBe(10);
-  expect(body.properties.output_tokens).toBe(20);
-  expect(body.properties.cache_read_tokens).toBe(1);
-  expect(body.properties.cache_write_tokens).toBe(2);
-  expect(body.properties.thinking_tokens).toBe(3);
-  expect(body.properties.duration_ms).toBe(400);
-  expect(body.properties.prompt).toBeUndefined();
-});
-
 test("capture strips properties not in $ai_generation's allowlist", async () => {
   const { impl, events } = recordingFetch();
   const telemetry = createTelemetry({
