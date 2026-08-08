@@ -2,13 +2,19 @@ import { describe, expect, test } from "bun:test"
 
 import {
   MARK_PERIOD_SECONDS,
+  SNOW_CHAR,
   markFrame,
   markText,
   renderMark,
   smooth,
 } from "./mark-anim"
-import { MARK_COLS, MARK_COVERAGE, MARK_LARGE, MARK_ROWS } from "./mark-shape"
+import { MARK_COLS, MARK_LARGE, MARK_ROWS, MARK_SMALL } from "./mark-shape"
 import { UI } from "./theme"
+
+const MOUNTAIN_CHARS = "▁▂▃▄▅▆▇█"
+
+const isMountain = (char: string): boolean => MOUNTAIN_CHARS.includes(char)
+const isSnow = (char: string): boolean => char === SNOW_CHAR
 
 describe("smooth", () => {
   test("clamps outside [0, 1] and eases inside it", () => {
@@ -62,8 +68,17 @@ describe("markFrame", () => {
 })
 
 describe("renderMark", () => {
-  const emptyCells = (grid: readonly (readonly { char: string }[])[]): number =>
-    grid.flat().filter((cell) => cell.char === " ").length
+  /** Mountain-block weight only — snow must not pollute silhouette metrics. */
+  const mountainWeight = (
+    grid: readonly (readonly { char: string }[])[],
+  ): number =>
+    grid
+      .flat()
+      .reduce((sum, cell) => sum + Math.max(0, MOUNTAIN_CHARS.indexOf(cell.char) + 1), 0)
+
+  const mountainCells = (
+    grid: readonly (readonly { char: string }[])[],
+  ): number => grid.flat().filter((cell) => isMountain(cell.char)).length
 
   test("is the mark's cell dimensions", () => {
     const grid = renderMark({ nowMs: 0, still: true })
@@ -71,11 +86,18 @@ describe("renderMark", () => {
     for (const row of grid) expect(row).toHaveLength(MARK_COLS)
   })
 
-  test("never paints outside the silhouette", () => {
-    const grid = renderMark({ nowMs: 2000, still: false })
+  test("sky is empty or snow; mountain cells never hold snow", () => {
+    const grid = renderMark({ nowMs: 2000, still: false, grid: MARK_LARGE })
     grid.forEach((row, y) => {
       row.forEach((cell, x) => {
-        if ((MARK_COVERAGE[y]?.[x] ?? 0) === 0) expect(cell.char).toBe(" ")
+        const coverage = MARK_LARGE.coverage[y]?.[x] ?? 0
+        if (coverage === 0) {
+          expect(cell.char === " " || isSnow(cell.char)).toBe(true)
+          if (isSnow(cell.char)) expect(cell.fg).toBe(UI.textFaint)
+        } else if (isMountain(cell.char)) {
+          expect(cell.fg).toBe(UI.action)
+          expect(isSnow(cell.char)).toBe(false)
+        }
       })
     })
   })
@@ -84,17 +106,19 @@ describe("renderMark", () => {
     const grid = renderMark({ nowMs: 0, still: true, grid: MARK_LARGE })
     grid.forEach((row, y) => {
       row.forEach((cell, x) => {
-        expect(" ▁▂▃▄▅▆▇█").toContain(cell.char)
+        // Still mode has no snow — only space or mountain blocks.
+        expect(` ${MOUNTAIN_CHARS}`).toContain(cell.char)
         if ((MARK_LARGE.coverage[y]?.[x] ?? 0) === 1) expect(cell.char).toBe("█")
       })
     })
   })
 
-  test("the still frame is clock-independent", () => {
+  test("the still frame is clock-independent and has no snow", () => {
     const a = markText(renderMark({ nowMs: 0, still: true }))
     const b = markText(renderMark({ nowMs: 987_654, still: true }))
     expect(b).toBe(a)
     expect(a.replace(/[\s\n]/g, "").length).toBeGreaterThan(0)
+    expect(a.includes(SNOW_CHAR)).toBe(false)
   })
 
   test("the animated frame advances with the injected clock", () => {
@@ -105,14 +129,14 @@ describe("renderMark", () => {
   })
 
   test("the outline reveals left to right", () => {
-    // Early in the draw phase only the leftmost columns may be lit.
+    // Early in the draw phase only the leftmost mountain columns may be lit.
     const grid = renderMark({ nowMs: 0.06 * MARK_PERIOD_SECONDS * 1000, still: false })
     const lit = grid.flatMap((row) =>
-      row.flatMap((cell, col) => (cell.char === " " ? [] : [col])),
+      row.flatMap((cell, col) => (isMountain(cell.char) ? [col] : [])),
     )
     expect(Math.max(...lit, -1)).toBeLessThan(MARK_COLS)
     const full = renderMark({ nowMs: 0.4 * MARK_PERIOD_SECONDS * 1000, still: false })
-    expect(emptyCells(grid)).toBeGreaterThan(emptyCells(full))
+    expect(mountainCells(full)).toBeGreaterThan(mountainCells(grid))
   })
 
   test("the fade thins the mark out toward empty", () => {
@@ -121,12 +145,10 @@ describe("renderMark", () => {
       nowMs: 0.995 * MARK_PERIOD_SECONDS * 1000,
       still: false,
     })
-    expect(emptyCells(fading)).toBeGreaterThan(emptyCells(held))
+    expect(mountainCells(held)).toBeGreaterThan(mountainCells(fading))
   })
 
   test("filling makes the mark denser than its outline alone", () => {
-    const weight = (grid: readonly (readonly { char: string }[])[]): number =>
-      grid.flat().reduce((sum, cell) => sum + " ▁▂▃▄▅▆▇█".indexOf(cell.char), 0)
     const outlineOnly = renderMark({
       nowMs: 0.42 * MARK_PERIOD_SECONDS * 1000,
       still: false,
@@ -135,6 +157,65 @@ describe("renderMark", () => {
       nowMs: 0.8 * MARK_PERIOD_SECONDS * 1000,
       still: false,
     })
-    expect(weight(filled)).toBeGreaterThan(weight(outlineOnly))
+    expect(mountainWeight(filled)).toBeGreaterThan(mountainWeight(outlineOnly))
+  })
+
+  test("snow drifts over time without overwriting the silhouette", () => {
+    // Sample across several seconds so flakes advance even at a slow fall rate.
+    const times = [0, 1500, 3000, 4500, 6000, 7500]
+    const snowSets = times.map((nowMs) => {
+      const grid = renderMark({ nowMs, still: false, grid: MARK_LARGE })
+      const snow: string[] = []
+      grid.forEach((row, y) => {
+        row.forEach((cell, x) => {
+          if (isSnow(cell.char)) {
+            snow.push(`${y},${x}`)
+            // Flakes live only in sky cells — never on mountain coverage.
+            expect(MARK_LARGE.coverage[y]?.[x] ?? 0).toBe(0)
+          }
+        })
+      })
+      return snow.join("|")
+    })
+
+    const withSnow = snowSets.filter((s) => s.length > 0)
+    expect(withSnow.length).toBeGreaterThan(1)
+    expect(new Set(withSnow).size).toBeGreaterThan(1)
+
+    // During the full-hold phase the ridgeline dominates the flake field.
+    const held = renderMark({
+      nowMs: 0.82 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+      grid: MARK_LARGE,
+    })
+    let flakes = 0
+    let mountains = 0
+    held.forEach((row, y) => {
+      row.forEach((cell, x) => {
+        if (isSnow(cell.char)) {
+          flakes += 1
+          expect(MARK_LARGE.coverage[y]?.[x] ?? 0).toBe(0)
+        }
+        if (isMountain(cell.char)) mountains += 1
+      })
+    })
+    expect(mountains).toBeGreaterThan(20)
+    expect(mountains).toBeGreaterThan(flakes)
+  })
+
+  test("still mode freezes the mark with no snow motion", () => {
+    const a = renderMark({ nowMs: 0, still: true, grid: MARK_SMALL })
+    const b = renderMark({ nowMs: 50_000, still: true, grid: MARK_SMALL })
+    expect(markText(b)).toBe(markText(a))
+    expect(a.flat().some((cell) => isSnow(cell.char))).toBe(false)
+  })
+
+  test("snow drops out during the fade-out phase, matching the mark", () => {
+    const fading = renderMark({
+      nowMs: 0.995 * MARK_PERIOD_SECONDS * 1000,
+      still: false,
+      grid: MARK_LARGE,
+    })
+    expect(fading.flat().some((cell) => isSnow(cell.char))).toBe(false)
   })
 })
