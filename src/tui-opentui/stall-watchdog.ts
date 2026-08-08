@@ -1,4 +1,5 @@
 import type { TurnStatus } from "./session-chrome.js"
+import { detectSequencePeriod, type SequencePeriodCheck } from "../util/period-detection.js"
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
@@ -55,55 +56,25 @@ const REPETITION_MAX_PERIOD_CAP = 2_000
 // cycle spans two full sentences, comfortably above it.
 const REPETITION_MIN_DISTINCT_CHARS = 8
 
-export type RepetitionCheck = {
-  readonly repeating: boolean
-  readonly period: number | null
-  readonly repeats: number
-}
-
-/**
- * Length of the exact-period run ending at the last character of `text`,
- * including the base period itself. `text[i] === text[i - period]` walked
- * backwards from the end; stops at the first mismatch or the start of the
- * string.
- */
-function periodicSuffixLength(text: string, period: number): number {
-  let i = text.length - 1
-  let j = i - period
-  let matched = 0
-  while (j >= 0 && text[i] === text[j]) {
-    matched++
-    i--
-    j--
-  }
-  return matched + period
-}
+export type RepetitionCheck = SequencePeriodCheck
 
 /**
  * Whether the tail of `text` is an exact repeat of some short span at least
  * `REPETITION_MIN_REPEATS` times. Pure text-in, decision-out: the caller owns
  * accumulating the buffer across deltas and cycles within a turn.
  *
- * Periods longer than `text.length / REPETITION_MIN_REPEATS` are skipped, not
- * as an arbitrary cutoff but because they cannot mathematically reach the
- * occurrence threshold within the given text — a loop with a longer period
- * needs a longer buffer to confirm, which is a buffer-size trade-off owned by
- * the caller, not a second detection path here.
+ * Delegates to the generic detectSequencePeriod over the character array —
+ * periods longer than `text.length / REPETITION_MIN_REPEATS` are skipped
+ * there, not as an arbitrary cutoff but because they cannot mathematically
+ * reach the occurrence threshold within the given text.
  */
 export function detectRepetition(text: string): RepetitionCheck {
-  const maxPeriod = Math.min(
-    REPETITION_MAX_PERIOD_CAP,
-    Math.floor(text.length / REPETITION_MIN_REPEATS),
-  )
-  for (let period = REPETITION_MIN_PERIOD; period <= maxPeriod; period++) {
-    const matched = periodicSuffixLength(text, period)
-    const repeats = matched / period
-    if (repeats < REPETITION_MIN_REPEATS) continue
-    const unit = text.slice(text.length - period)
-    if (new Set(unit).size < REPETITION_MIN_DISTINCT_CHARS) continue
-    return { repeating: true, period, repeats }
-  }
-  return { repeating: false, period: null, repeats: 0 }
+  return detectSequencePeriod(text.split(""), {
+    minPeriod: REPETITION_MIN_PERIOD,
+    maxPeriod: REPETITION_MAX_PERIOD_CAP,
+    minRepeats: REPETITION_MIN_REPEATS,
+    minDistinct: () => REPETITION_MIN_DISTINCT_CHARS,
+  })
 }
 
 /**
