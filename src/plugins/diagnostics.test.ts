@@ -50,6 +50,33 @@ describe("formatPluginWarningsSummary", () => {
     expect(summary).toContain("1 skill missing");
     expect(summary).toContain("1 other warning");
   });
+
+  test("names a skill once however many sources missed it", () => {
+    // The same skill missing from three plugins is one missing skill, not
+    // three: the operator installs it once to fix all of them.
+    const summary = formatPluginWarningsSummary([
+      'agent a: skill "brand-identity" referenced but not found in skill search path',
+      'agent a: skill "style" referenced but not found in skill search path',
+      'agent b: skill "philosophy" referenced but not found in skill search path',
+      'agent b: skill "style" referenced but not found in skill search path',
+      'agent c: skill "philosophy" referenced but not found in skill search path',
+      'agent c: skill "style" referenced but not found in skill search path',
+      'agent c: skill "brand-identity" referenced but not found in skill search path',
+    ]);
+    expect(summary).toBe(
+      "plugins: 3 skills missing: brand-identity, style, philosophy",
+    );
+  });
+
+  test("mixed-warning count also counts distinct skills", () => {
+    const summary = formatPluginWarningsSummary([
+      'agent a: skill "style" referenced but not found in skill search path',
+      'agent b: skill "style" referenced but not found in skill search path',
+      "other problem",
+    ]);
+    expect(summary).toContain("1 skill missing (style)");
+    expect(summary).toContain("1 other warning");
+  });
 });
 
 describe("emitPluginWarningSummary", () => {

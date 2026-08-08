@@ -43,31 +43,40 @@ export function stderrPluginWarning(msg: string): void {
  * One-line summary for a batch of load warnings. Skill-miss messages are
  * collapsed to `N skills missing: a, b, c`; mixed warnings get a count line.
  * Returns undefined when there is nothing to report.
+ *
+ * Skill names are deduplicated because a skill is missing once no matter how
+ * many plugins referenced it — the operator installs it once to fix all of
+ * them — and the count is taken from the deduplicated list so the number can
+ * never disagree with the names printed beside it.
  */
 export function formatPluginWarningsSummary(
   warnings: readonly string[],
 ): string | undefined {
   if (warnings.length === 0) return undefined;
 
-  const skillMisses: string[] = [];
+  const missedSkills = new Set<string>();
+  let skillMissWarnings = 0;
   for (const w of warnings) {
     const m = /skill "([^"]+)" referenced but not found/.exec(w);
-    if (m?.[1] !== undefined) skillMisses.push(m[1]);
+    if (m?.[1] === undefined) continue;
+    skillMissWarnings += 1;
+    missedSkills.add(m[1]);
   }
 
-  if (skillMisses.length > 0 && skillMisses.length === warnings.length) {
-    const n = skillMisses.length;
-    return `plugins: ${n} skill${n === 1 ? "" : "s"} missing: ${skillMisses.join(", ")}`;
+  const names = [...missedSkills];
+  const n = names.length;
+
+  if (n > 0 && skillMissWarnings === warnings.length) {
+    return `plugins: ${n} skill${n === 1 ? "" : "s"} missing: ${names.join(", ")}`;
   }
 
-  if (skillMisses.length > 0) {
-    const n = skillMisses.length;
-    const other = warnings.length - n;
-    return `plugins: ${n} skill${n === 1 ? "" : "s"} missing (${skillMisses.join(", ")}); ${other} other warning${other === 1 ? "" : "s"}`;
+  if (n > 0) {
+    const other = warnings.length - skillMissWarnings;
+    return `plugins: ${n} skill${n === 1 ? "" : "s"} missing (${names.join(", ")}); ${other} other warning${other === 1 ? "" : "s"}`;
   }
 
-  const n = warnings.length;
-  return `plugins: ${n} warning${n === 1 ? "" : "s"} during load`;
+  const total = warnings.length;
+  return `plugins: ${total} warning${total === 1 ? "" : "s"} during load`;
 }
 
 /**
