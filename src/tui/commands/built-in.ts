@@ -254,7 +254,7 @@ export function registerBuiltInCommands(): void {
         if (snap === null) {
           return { type: "message", text: "No paused or budget-limited goal to resume." };
         }
-        api.kickoff?.(snap.brief || snap.condition, "resume");
+        api.kickoff(snap.brief || snap.condition, "resume");
         return { type: "message", text: `Goal resumed.\n${formatGoalStatus(snap)}` };
       }
       if (parsed.sub === "clear") {
@@ -283,7 +283,7 @@ export function registerBuiltInCommands(): void {
         };
       }
       api.set(condition, parsed.opts);
-      api.kickoff?.(condition, "set");
+      api.kickoff(condition, "set");
       // One-shot banner only — brief lives in GoalView chrome (multi-line here
       // used to overflow chrome row accounting and collide with Work).
       return { type: "message", text: "Goal set." };

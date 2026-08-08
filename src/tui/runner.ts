@@ -113,6 +113,7 @@ import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
 import { createGoalGovernor } from "../agent/goal.js";
+import { createGoalKickoff } from "./goal-kickoff.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
@@ -1756,6 +1757,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // session can show them.
   }
 
+  const systemRow = (text: string): void => {
+    appendStreamRow(host.shell, { role: "system", text, meta: "command" });
+  };
+
+  /** Settle the shell after a rejected send so the run does not look live. */
+  const handleSendFailure = (err: unknown): void => {
+    const kind = classifyAgentSendFailure(
+      err,
+      sendAborted,
+      isCodexAuthError,
+      isXaiAuthError,
+    );
+    if (!shouldSettleUiAfterSendFailure(kind)) return;
+    recordRunError(err);
+    systemRow(err instanceof Error ? err.message : String(err));
+    setShellRunState(host.shell, "idle");
+  };
+
   const commandContext: CommandContext = {
     signalClear: newSession,
     getCostSummary: (): CostSummary => {
@@ -1800,25 +1819,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       pause: () => goalGovernor.pause(),
       resume: (opts) => goalGovernor.resume(opts),
       clear: () => goalGovernor.clear(),
+      // Routed through agentProxy.send, the same queue-safe path every typed
+      // prompt and command "send" result uses: it awaits any in-flight
+      // turn's tail first, so a goal set mid-run cannot corrupt it — the
+      // kickoff simply starts once the turn settles.
+      kickoff: createGoalKickoff({
+        send: (text) => agentProxy.send(text),
+        onSendFailure: handleSendFailure,
+      }),
     },
-  };
-
-  const systemRow = (text: string): void => {
-    appendStreamRow(host.shell, { role: "system", text, meta: "command" });
-  };
-
-  /** Settle the shell after a rejected send so the run does not look live. */
-  const handleSendFailure = (err: unknown): void => {
-    const kind = classifyAgentSendFailure(
-      err,
-      sendAborted,
-      isCodexAuthError,
-      isXaiAuthError,
-    );
-    if (!shouldSettleUiAfterSendFailure(kind)) return;
-    recordRunError(err);
-    systemRow(err instanceof Error ? err.message : String(err));
-    setShellRunState(host.shell, "idle");
   };
 
   // The permissions surface addresses grants by their position in the last

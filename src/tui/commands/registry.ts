@@ -15,9 +15,8 @@ export type CommandContext = {
     pause: () => GoalSnapshot | null;
     resume: (opts?: GoalResumeOpts) => GoalSnapshot | null;
     clear: () => void;
-    /** Kick off a turn after set/resume so the agent starts working immediately. */
-    /** Kick the agent after set/resume. phase defaults to set. */
-    kickoff?: (condition: string, phase?: "set" | "resume") => void;
+    /** Kick the agent after set/resume so a turn actually starts. Phase defaults to "set". */
+    kickoff: (condition: string, phase?: "set" | "resume") => void;
   };
 };
 

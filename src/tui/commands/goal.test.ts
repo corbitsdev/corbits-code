@@ -157,6 +157,7 @@ describe("/goal command", () => {
         pause: () => null,
         resume: () => null,
         clear: () => {},
+        kickoff: () => {},
       },
     };
     const result = getCommand("goal")!.handler("", ctx);
