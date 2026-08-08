@@ -36,6 +36,13 @@ export type ZoneDeclaration = {
 };
 
 /**
+ * Bound on rendered agent rows in the live agents panel. A large fan-out
+ * degrades to a trailing "+N more" row instead of growing the zone (and
+ * therefore the chrome budget) without limit.
+ */
+export const AGENTS_PANEL_MAX_VISIBLE = 5;
+
+/**
  * Fixed-with-test budgets from the constitution table.
  * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
  * actual heights are assigned by the geometry resolver.
@@ -63,7 +70,15 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
   },
   goal: { id: "goal", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
-  agents: { id: "agents", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
+  // One row per running agent (bounded by AGENTS_PANEL_MAX_VISIBLE) plus an
+  // optional trailing "+N more" row.
+  agents: {
+    id: "agents",
+    min: 0,
+    max: AGENTS_PANEL_MAX_VISIBLE + 1,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
   plugin_banner: {
     id: "plugin_banner",
     min: 0,

@@ -48,7 +48,8 @@ export type ZoneVisibility = {
   readonly progressDivider?: boolean;
   readonly goal?: boolean;
   readonly task?: boolean;
-  readonly agents?: boolean;
+  /** Agents panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
+  readonly agents?: boolean | number;
   readonly pluginBanner?: boolean;
   /** Command banner: true → 1 row, or explicit 1|2. */
   readonly commandBanner?: boolean | 1 | 2;
@@ -141,7 +142,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     prompt: promptRows,
     goal: vis.goal ? 1 : 0,
     task: vis.task ? 1 : 0,
-    agents: vis.agents ? 1 : 0,
+    agents: clamp(boolOrRows(vis.agents, 1), 0, ZONE_REGISTRY.agents.max),
     plugin_banner: vis.pluginBanner ? 1 : 0,
     command_banner: clamp(
       boolOrRows(vis.commandBanner, 1),
@@ -235,6 +236,22 @@ function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | nu
       heights.progress = 0;
       if (!collapsed.includes("progress")) collapsed.push("progress");
       return "progress";
+    }
+
+    if (id === "agents") {
+      // Shrink one row at a time rather than zeroing in one step: a 1-row
+      // panel still carries the stalest agent plus a "+N more" trailer
+      // (formatAgentsPanel's selection sort guarantees that ordering), so
+      // it stays meaningful all the way down instead of the zone vanishing
+      // under exactly the pressure an operator most needs to see it.
+      if (h > 1) {
+        heights.agents = h - 1;
+        if (!collapsed.includes("agents")) collapsed.push("agents");
+        return "agents";
+      }
+      heights.agents = 0;
+      if (!collapsed.includes("agents")) collapsed.push("agents");
+      return "agents";
     }
 
     // Drop optional / shrinkable to 0.

@@ -310,13 +310,21 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     shell.prompt.value.length === 0
   ) {
     const on = shell.layout.heights.agents > 0
-    // Empty list → null (hide). Demo forces a zero-live summary string when on.
     setChromeZones(shell, {
       agents: on
         ? null
         : formatChromeZones({
-            agents: [],
-          }).agents ?? "agents: 0 live",
+            agents: [
+              {
+                agentId: "explore",
+                description: "map callers",
+                status: "running",
+                currentToolName: "grep",
+                startedAt: Date.now() - 42_000,
+                lastActivityAt: Date.now(),
+              },
+            ],
+          }).agents,
     })
     return
   }

@@ -24,6 +24,7 @@ import {
   streamRowCount,
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
+import { stringWidth } from "../tui/view/height"
 
 describe("Wave 6: command palette", () => {
   test("open → navigate → Esc restores prompt", async () => {
@@ -290,7 +291,7 @@ describe("Wave 6: chrome zones", () => {
           setChromeZones(shell, {
             goal: "goal: Wave 6",
             task: "task: chrome zones",
-            agents: "agents: 0",
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
           expect(shell.layout.heights.goal).toBe(1)
@@ -306,7 +307,7 @@ describe("Wave 6: chrome zones", () => {
           const frame = h.captureCharFrame()
           expect(frame).toContain("goal: Wave 6")
           expect(frame).toContain("task: chrome zones")
-          expect(frame).toContain("agents: 0")
+          expect(frame).toContain("explore: map callers")
 
           setChromeZones(shell, { goal: null, task: null, agents: null })
           expect(shell.layout.heights.goal).toBe(0)
@@ -314,6 +315,124 @@ describe("Wave 6: chrome zones", () => {
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
             IDLE_TRANSCRIPT_FLOOR,
           )
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("agents panel rows are only rebuilt when the panel's lines actually change", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
+          const rowsBefore = [...shell.agentsBox.getChildren()]
+          expect(rowsBefore).toHaveLength(1)
+
+          // An unrelated goal push must not touch the agents rows.
+          setChromeZones(shell, { goal: "goal: unrelated" })
+          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+
+          // Pushing the exact same agent lines again must not rebuild either.
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
+          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+
+          // Changed lines must rebuild.
+          setChromeZones(shell, {
+            agents: [{ label: "explore: map callers", tail: " · 0:01", stalled: false }],
+          })
+          expect([...shell.agentsBox.getChildren()]).not.toEqual(rowsBefore)
+          expect(shell.agentsBox.getChildren()).toHaveLength(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a long agent description is ellipsized to the zone width, never wrapped or clipped", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          const longDescription =
+            "investigate why the reactor loop keeps re-emitting duplicate tool_call.start events under concurrent subagent dispatch"
+          setChromeZones(shell, {
+            agents: [
+              { label: `explore: ${longDescription}`, tail: " · 0:42 · grep", stalled: false },
+            ],
+          })
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"))
+          expect(agentLine).toBeDefined()
+          // The frame line includes the shell's left side margin ahead of
+          // the zone's own content width.
+          expect(agentLine?.trimEnd().length).toBeLessThanOrEqual(
+            shell.layout.sideMargin + shell.layout.contentWidth,
+          )
+          // The tail (what an operator glances at the panel to see) survives
+          // whole; only the free-form label is ellipsized.
+          expect(agentLine).toContain("…")
+          expect(agentLine).not.toContain(longDescription)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a wide-character (CJK/emoji) description fits the laid-out width in columns, not UTF-16 units", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          // Each CJK character is one UTF-16 code unit but two terminal
+          // columns; .length would undercount this description's true width
+          // by roughly half, letting the row overflow the zone and wrap —
+          // exactly the bug width-clamping exists to prevent.
+          const wideDescription = "调查代理循环中重复出现的工具调用事件问题 across every dispatched worker"
+          setChromeZones(shell, {
+            agents: [
+              { label: `explore: ${wideDescription}`, tail: " · 0:42 · grep", stalled: false },
+            ],
+          })
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          const agentLine = frame
+            .split("\n")
+            .find((line) => line.includes("· 0:42 · grep"))
+          expect(agentLine).toBeDefined()
+          expect(stringWidth(agentLine!.trimEnd())).toBeLessThanOrEqual(
+            shell.layout.sideMargin + shell.layout.contentWidth,
+          )
+          expect(agentLine).toContain("…")
+          expect(agentLine).toContain("· 0:42 · grep")
+
+          // No wrap: the zone stays a single row for a single agent.
+          expect(shell.layout.heights.agents).toBe(1)
         } finally {
           shell.dispose()
         }

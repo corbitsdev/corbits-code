@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  AGENTS_PANEL_MAX_VISIBLE,
   COLLAPSE_ORDER,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_TRANSCRIPT_FLOOR,
@@ -95,6 +96,52 @@ describe("resolveGeometry — 80×24 idle floor", () => {
       visibility: { progress: true, goal: true },
     });
     expect(layout.regions.transcript?.height).toBe(layout.transcriptHeight);
+  });
+});
+
+describe("resolveGeometry — agents panel", () => {
+  test("N running agents request N rows, bounded by the zone max", () => {
+    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
+      const requested = Math.min(n, AGENTS_PANEL_MAX_VISIBLE + 1);
+      const layout = idle80x24({ visibility: { agents: n } });
+      expect(layout.heights.agents).toBe(requested);
+    }
+  });
+
+  test("zero agents costs zero chrome", () => {
+    const layout = idle80x24({ visibility: { agents: 0 } });
+    expect(layout.heights.agents).toBe(0);
+    expect(layout.regions.agents).toBeUndefined();
+  });
+
+  test("a large fan-out never grows the zone past its bounded max", () => {
+    const layout = idle80x24({ visibility: { agents: 50 } });
+    expect(layout.heights.agents).toBe(ZONE_REGISTRY.agents.max);
+    expect(layout.heights.agents).toBe(AGENTS_PANEL_MAX_VISIBLE + 1);
+  });
+
+  test("a bounded agents panel never eats the transcript floor", () => {
+    const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+  });
+
+  test("under pressure the panel shrinks one row at a time rather than vanishing in one step", () => {
+    // A short terminal plus a couple of banners leaves a deficit banner
+    // rows alone cannot cover, forcing the resolver into the agents zone.
+    // A cliff bug would jump straight from the full request to 0; the fix
+    // must land partway, still nonzero and still under its full request.
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 20 },
+      visibility: {
+        commandBanner: 1,
+        settingsNotice: 1,
+        pluginBanner: true,
+        agents: AGENTS_PANEL_MAX_VISIBLE + 1,
+      },
+    });
+    expect(layout.heights.agents).toBeGreaterThan(0);
+    expect(layout.heights.agents).toBeLessThan(AGENTS_PANEL_MAX_VISIBLE + 1);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
 });
 

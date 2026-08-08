@@ -6,6 +6,7 @@
  */
 
 import { homedir } from "node:os"
+import type { AgentPanelRow } from "./chrome-state.js"
 
 import {
   BoxRenderable,
@@ -29,7 +30,7 @@ import {
   composePromptActionBarModelLabel,
   type PromptActionBarModelLabelInput,
 } from "../tui/components/prompt-action-bar-label.js"
-import { stringWidth } from "../tui/view/height.js"
+import { sliceTailToWidth, sliceToWidth, stringWidth } from "../tui/view/height.js"
 import { listPathSuggestions } from "../tui/components/at-mention/list.js"
 import { parseAtState } from "../tui/components/at-mention/parse.js"
 import {
@@ -531,8 +532,8 @@ export type AppShell = {
   readonly goalText: TextRenderable
   readonly taskBox: BoxRenderable
   readonly taskText: TextRenderable
+  /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
   readonly agentsBox: BoxRenderable
-  readonly agentsText: TextRenderable
   readonly transcript: ScrollBoxRenderable
   readonly overlayHost: BoxRenderable
   readonly overlayTitle: TextRenderable
@@ -738,6 +739,10 @@ function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
     notice: false,
     progress: false,
     progressDivider: false,
+    // Explicit 0 rather than left undefined: the agents field is now a row
+    // count, and setChromeZones compares it by ===, so an undefined start
+    // forces one needless relayout the first time it is ever compared.
+    agents: 0,
     ...visibility,
   }
 }
@@ -1804,7 +1809,8 @@ type ShellInternals = {
   chrome: {
     goal: string
     task: string
-    agents: string
+    /** Agents panel rows (empty array = zone off), one row per rendered line. */
+    agents: readonly AgentPanelRow[]
   }
 }
 
@@ -4000,7 +4006,9 @@ export function runPaletteAction(
       const bag = internals.get(shell)
       const on = (bag?.chrome.agents.length ?? 0) > 0
       setChromeZones(shell, {
-        agents: on ? null : "agents: 0 running",
+        agents: on
+          ? null
+          : [{ label: "explore: map callers", tail: "", stalled: false }],
       })
       appendStreamRow(shell, {
         role: "system",
@@ -4044,7 +4052,56 @@ export function runPaletteAction(
 export type ChromeZoneContent = {
   readonly goal?: string | null
   readonly task?: string | null
-  readonly agents?: string | null
+  /** One row per agents-panel line. Null/empty = hide the zone. */
+  readonly agents?: readonly AgentPanelRow[] | null
+}
+
+/**
+ * Fit a row's label + tail into `maxWidth` terminal columns, ellipsizing the
+ * label (agentId + description — free-form, model-authored, routinely long,
+ * and not guaranteed narrow: CJK and emoji run two columns per code point)
+ * before ever touching the tail (elapsed/tool/stalled). The tail carries
+ * the fact an operator glances at the panel to see, so it is preserved
+ * whole or not shown at all. Measured and sliced in columns via
+ * `stringWidth`/`sliceToWidth` (`src/tui/view/height.ts`) rather than UTF-16
+ * code units — `.length` undercounts wide glyphs, which is exactly the class
+ * of bug that would make a row overflow its zone and wrap.
+ */
+function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
+  const full = ` ${row.label}${row.tail}`
+  if (stringWidth(full) <= maxWidth) return full
+
+  const leadingSpace = 1
+  const ellipsis = 1
+  const budget = maxWidth - leadingSpace - stringWidth(row.tail) - ellipsis
+  if (budget <= 0) {
+    // Not even the tail fits at full width — keep as much of the tail's
+    // trailing end (where the "stalled" marker lives) as there is room for,
+    // rather than an unreadable sliver of the label.
+    return ` ${sliceTailToWidth(row.tail, maxWidth - leadingSpace)}`
+  }
+  return ` ${sliceToWidth(row.label, budget)}…${row.tail}`
+}
+
+/** Rebuild agentsBox's row children to match the requested rows exactly. */
+function renderAgentsRows(
+  shell: AppShell,
+  rows: readonly AgentPanelRow[],
+  maxWidth: number,
+): void {
+  for (const child of [...shell.agentsBox.getChildren()]) {
+    shell.agentsBox.remove(child)
+    destroySubtree(child)
+  }
+  for (const row of rows) {
+    // Green for working, not the task zone's bronze immediately above it —
+    // adjacent zones sharing a hue read as one undifferentiated block.
+    const text = new TextRenderable(shell.renderer as CliRenderer, {
+      content: fitAgentRow(row, maxWidth),
+      fg: row.stalled ? UI.textDim : UI.done,
+    })
+    shell.agentsBox.add(text)
+  }
 }
 
 /**
@@ -4064,24 +4121,43 @@ export function setChromeZones(
   if (content.task !== undefined) {
     bag.chrome.task = content.task ?? ""
   }
+  let agentsChanged = false
   if (content.agents !== undefined) {
-    bag.chrome.agents = content.agents ?? ""
+    const next = content.agents ?? []
+    agentsChanged =
+      next.length !== bag.chrome.agents.length ||
+      next.some((row, i) => {
+        const prev = bag.chrome.agents[i]
+        return (
+          prev === undefined ||
+          row.label !== prev.label ||
+          row.tail !== prev.tail ||
+          row.stalled !== prev.stalled
+        )
+      })
+    bag.chrome.agents = next
   }
 
   const goalOn = bag.chrome.goal.length > 0
   const taskOn = bag.chrome.task.length > 0
-  const agentsOn = bag.chrome.agents.length > 0
+  const agentsRowCount = bag.chrome.agents.length
 
   shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
-  shell.agentsText.content = agentsOn ? ` ${bag.chrome.agents}` : ""
+  // Rebuilding N TextRenderable children is real node churn; skip it unless
+  // the panel's actual lines changed (not every goal/task/agents push carries
+  // new agent data).
+  if (agentsChanged) {
+    renderAgentsRows(shell, bag.chrome.agents, shell.layout.contentWidth)
+  }
 
-  // Only a zone appearing or disappearing changes the row budget; retitling a
-  // zone that is already on must not re-resolve and re-apply the whole layout.
+  // Only a zone appearing/disappearing or its row count changing alters the
+  // row budget; retitling a zone whose row count is unchanged must not
+  // re-resolve and re-apply the whole layout.
   if (
     goalOn === bag.visibility.goal &&
     taskOn === bag.visibility.task &&
-    agentsOn === bag.visibility.agents
+    agentsRowCount === bag.visibility.agents
   ) {
     paintChrome(shell)
     return
@@ -4092,7 +4168,7 @@ export function setChromeZones(
       ...bag.visibility,
       goal: goalOn,
       task: taskOn,
-      agents: agentsOn,
+      agents: agentsRowCount,
     },
     overlayMode: bag.overlayMode,
     ...(bag.overlayBodyRows !== undefined
@@ -4243,7 +4319,13 @@ export function enterSubagentObserve(
 
   shell.focus = openObserve(shell.focus, `observe-${session.sessionId}`)
   setChromeZones(shell, {
-    agents: `observe: ${session.agentId} — ${session.description}`,
+    agents: [
+      {
+        label: `observe: ${session.agentId} — ${session.description}`,
+        tail: "",
+        stalled: false,
+      },
+    ],
   })
   // Child chrome toast — must not route to parent snapshot.
   appendObserveStreamRow(shell, {
@@ -4781,15 +4863,10 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
+    flexDirection: "column",
     backgroundColor: UI.ground,
     visible: false,
   })
-  const agentsText = new TextRenderable(ctx, {
-    id: "shell-agents-text",
-    content: "",
-    fg: UI.done,
-  })
-  agentsBox.add(agentsText)
 
   const transcript = new ScrollBoxRenderable(ctx, {
     id: "shell-transcript",
@@ -5432,7 +5509,6 @@ export function createAppShell(
     taskBox,
     taskText,
     agentsBox,
-    agentsText,
     transcript,
     overlayHost,
     overlayTitle,
@@ -5527,7 +5603,7 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
-    chrome: { goal: "", task: "", agents: "" },
+    chrome: { goal: "", task: "", agents: [] },
   })
   transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)

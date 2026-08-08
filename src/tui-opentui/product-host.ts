@@ -392,6 +392,18 @@ export async function mountProductHost(
       if (config.subAgentSessions !== undefined) {
         bridge.syncAgentProgress(config.subAgentSessions())
       }
+      // The agents panel's elapsed clock and stalled flag are a function of
+      // wall time, not just of the last event — repaint on the same tick as
+      // the transcript trailer so a worker that goes quiet still flips to
+      // "stalled" without waiting on an unrelated chrome push. Gated on a
+      // running agent existing: paintChromeZones() re-enters setChromeZones,
+      // which already calls paintChrome(shell) on its own unchanged-zone
+      // path, so calling it unconditionally would repaint chrome twice a
+      // tick for the common case (goal/task only, no agents) that has
+      // nothing time-based to refresh.
+      if (chromeState !== null && (chromeState.agents ?? []).some((a) => a.status === "running")) {
+        paintChromeZones()
+      }
     } catch {
       clearInterval(stickyPoll)
     }

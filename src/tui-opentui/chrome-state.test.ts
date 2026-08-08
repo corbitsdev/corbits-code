@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test"
 import {
   annotateAgentTools,
   chromeFromSession,
-  formatAgentsLine,
+  formatAgentsPanel,
   formatChromeZones,
   formatGoalLine,
   formatTaskLine,
   type ChromeLiveState,
 } from "./chrome-state"
+
+const NOW = 1_000_000
 
 describe("formatChromeZones", () => {
   test("empty state hides all zones", () => {
@@ -70,6 +72,8 @@ describe("formatChromeZones", () => {
           description: "map setChromeZones callers",
           status: "running",
           currentToolName: "grep",
+          startedAt: NOW - 5_000,
+          lastActivityAt: NOW,
         },
         {
           agentId: "general",
@@ -78,32 +82,42 @@ describe("formatChromeZones", () => {
         },
       ],
     }
-    const out = formatChromeZones(state)
+    const out = formatChromeZones(state, NOW)
     expect(out.goal).toBe("goal: review · 2/4 · 1:1 OpenTUI cutover")
     expect(out.task).toBe("task: chrome live helper (+2)")
-    expect(out.agents).toContain("1 live")
-    expect(out.agents).toContain("explore:")
-    expect(out.agents).toContain("grep")
-    expect(out.agents).toContain("1 done")
+    expect(out.agents).toEqual([
+      {
+        label: "explore: map setChromeZones callers",
+        tail: " · 0:05 · grep",
+        stalled: false,
+      },
+    ])
   })
 
-  test("observe overrides agents line", () => {
-    const out = formatChromeZones({
-      agents: [
-        {
+  test("observe overrides the agents panel", () => {
+    const out = formatChromeZones(
+      {
+        agents: [
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+          },
+        ],
+        observe: {
           agentId: "explore",
-          description: "map callers",
-          status: "running",
+          description: "map callers of openListOverlay",
         },
-      ],
-      observe: {
-        agentId: "explore",
-        description: "map callers of openListOverlay",
       },
-    })
-    expect(out.agents).toBe(
-      "observe: explore — map callers of openListOverlay",
+      NOW,
     )
+    expect(out.agents).toEqual([
+      {
+        label: "observe: explore — map callers of openListOverlay",
+        tail: "",
+        stalled: false,
+      },
+    ])
   })
 })
 
@@ -195,42 +209,127 @@ describe("formatTaskLine", () => {
   })
 })
 
-describe("formatAgentsLine", () => {
+describe("formatAgentsPanel", () => {
   test("empty hides", () => {
-    expect(formatAgentsLine(null)).toBeNull()
-    expect(formatAgentsLine([])).toBeNull()
+    expect(formatAgentsPanel(null, undefined, NOW)).toBeNull()
+    expect(formatAgentsPanel([], undefined, NOW)).toBeNull()
   })
 
-  test("multi live summary without single-agent detail", () => {
+  test("one row per running agent, oldest-started first", () => {
+    const rows = formatAgentsPanel(
+      [
+        { agentId: "a", description: "one", status: "running", startedAt: NOW - 1_000, lastActivityAt: NOW },
+        { agentId: "b", description: "two", status: "running", startedAt: NOW - 2_000, lastActivityAt: NOW },
+      ],
+      undefined,
+      NOW,
+    )
+    expect(rows).toEqual([
+      { label: "b: two", tail: " · 0:02", stalled: false },
+      { label: "a: one", tail: " · 0:01", stalled: false },
+    ])
+  })
+
+  test("terminal-only list renders zero rows", () => {
     expect(
-      formatAgentsLine([
+      formatAgentsPanel(
+        [
+          { agentId: "a", description: "x", status: "done" },
+          { agentId: "b", description: "y", status: "failed" },
+        ],
+        undefined,
+        NOW,
+      ),
+    ).toBeNull()
+  })
+
+  test("stalled agent is visually distinct in its label", () => {
+    const rows = formatAgentsPanel(
+      [
         {
           agentId: "a",
-          description: "one",
+          description: "quiet worker",
           status: "running",
+          startedAt: NOW - 60_000,
+          lastActivityAt: NOW - 40_000,
         },
-        {
-          agentId: "b",
-          description: "two",
-          status: "running",
-        },
-      ]),
-    ).toBe("agents: 2 live")
+      ],
+      undefined,
+      NOW,
+    )
+    expect(rows).toEqual([
+      { label: "a: quiet worker", tail: " · 1:00 · stalled", stalled: true },
+    ])
   })
 
-  test("terminal-only list still counts", () => {
-    expect(
-      formatAgentsLine([
-        { agentId: "a", description: "x", status: "done" },
-        { agentId: "b", description: "y", status: "failed" },
-      ]),
-    ).toBe("agents: 1 done · 1 failed")
+  test("bounds fan-out to maxVisible plus a +N more row", () => {
+    const running = Array.from({ length: 8 }, (_, i) => ({
+      agentId: `agent-${i}`,
+      description: "working",
+      status: "running" as const,
+      startedAt: NOW,
+      lastActivityAt: NOW,
+    }))
+    const rows = formatAgentsPanel(running, undefined, NOW, 5)
+    expect(rows).toHaveLength(6)
+    expect(rows?.[5]).toEqual({ label: "+3 more", tail: "", stalled: false })
   })
 
   test("observe empty id+desc hides", () => {
     expect(
-      formatAgentsLine([], { agentId: "  ", description: "  " }),
+      formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW),
     ).toBeNull()
+  })
+
+  test("row order is stable across an activity update between frames", () => {
+    // Selection may key on staleness (lastActivityAt), but presentation must
+    // not: lastActivityAt is the field a tool event updates most often, so
+    // keying the visible row order on it would reshuffle the panel every
+    // time any agent made progress — unreadable at a busy 200ms repaint.
+    const frame1 = [
+      { agentId: "b", description: "second", status: "running" as const, startedAt: NOW - 1_000, lastActivityAt: NOW - 1_000 },
+      { agentId: "a", description: "first", status: "running" as const, startedAt: NOW - 2_000, lastActivityAt: NOW - 2_000 },
+      { agentId: "c", description: "third", status: "running" as const, startedAt: NOW - 500, lastActivityAt: NOW - 500 },
+    ]
+    const rowsBefore = formatAgentsPanel(frame1, undefined, NOW)
+
+    // Same agents, one tick later: "b" reported activity (its lastActivityAt
+    // moved), the others did not. startedAt — what row order actually keys
+    // on — is unchanged for all three.
+    const frame2 = frame1.map((a) => (a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a))
+    const rowsAfter = formatAgentsPanel(frame2, undefined, NOW + 200)
+
+    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(
+      rowsAfter?.map((r) => r.label.split(":")[0]),
+    )
+    // Sanity: presentation order is oldest-started first (a, b, c), matching
+    // the tiebreak-free startedAt sort.
+    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(["a", "b", "c"])
+  })
+
+  test("a stalled agent stays visible over newer agents when the fan-out is truncated", () => {
+    // The real feed (listForStrip) sorts running agents newest-first; the
+    // panel must not blindly take that order, or the one worker most likely
+    // to need attention is exactly the one that gets folded into "+N more".
+    const newest = Array.from({ length: 5 }, (_, i) => ({
+      agentId: `fresh-${i}`,
+      description: "just started",
+      status: "running" as const,
+      startedAt: NOW,
+      lastActivityAt: NOW,
+    }))
+    const stalled = {
+      agentId: "quiet",
+      description: "gone silent",
+      status: "running" as const,
+      startedAt: NOW - 300_000,
+      lastActivityAt: NOW - 250_000,
+    }
+    const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 5)
+    expect(rows?.some((r) => r.label.includes("quiet"))).toBe(true)
+    expect(rows?.some((r) => r.stalled)).toBe(true)
+    expect(rows).toHaveLength(6)
+    expect(rows?.[5]).toEqual({ label: "+1 more", tail: "", stalled: false })
   })
 })
 
@@ -280,10 +379,12 @@ describe("chromeFromSession", () => {
       },
     ])
 
-    const zones = formatChromeZones(state)
+    const zones = formatChromeZones(state, NOW)
     expect(zones.goal).toBe("goal: impl · 1/2 · ship cutover")
     expect(zones.task).toBe("task: wire catalogs (+1)")
-    expect(zones.agents).toContain("1 live")
+    expect(zones.agents).toEqual([
+      { label: "explore: map callers", tail: " · grep", stalled: false },
+    ])
   })
 
   test("falls back agent id and goal condition; empty bags hide", () => {
@@ -313,9 +414,9 @@ describe("chromeFromSession", () => {
       agentId: "explore",
       description: "watch",
     })
-    expect(formatChromeZones(state).agents).toBe(
-      "observe: explore — watch",
-    )
+    expect(formatChromeZones(state, NOW).agents).toEqual([
+      { label: "observe: explore — watch", tail: "", stalled: false },
+    ])
   })
 })
 
