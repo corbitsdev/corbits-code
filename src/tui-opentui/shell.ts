@@ -1797,6 +1797,13 @@ type ShellInternals = {
    * rather than a screen the first prompt wipes.
    */
   landingNotice: string | null
+  /**
+   * System/runtime notices that arrived while the landing was still up (MCP
+   * load failures, width-contract warnings, hook failures). Held here and
+   * painted on the notice strip so they never call `clearLandingMark`; flushed
+   * into the transcript when the first real session row ends the landing.
+   */
+  landingDeferredRows: StreamRow[]
   /** What the rows below the box are painting, so they can be repainted. */
   landingBelow: LandingBelowContent | null
   /** Starters are offered only while the prompt is empty. */
@@ -2029,6 +2036,28 @@ function labelBefore(shell: AppShell, index: number): string | null {
  */
 function evictedRowsNotice(evicted: number): string {
   return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`
+}
+
+/**
+ * Surface a runtime/load notice without stealing the landing hero.
+ *
+ * MCP connection failures, hook failures and similar startup chatter used to
+ * call `appendStreamRow` → `clearLandingMark`, wiping the mountain the moment
+ * anything went wrong on load (CL-5618 / CL-5600). While the landing is still
+ * mounted the wording rides the notice strip and the row is held for flush
+ * once a real session row ends the landing; after that it is a normal system
+ * row.
+ */
+export function surfaceStartupNotice(shell: AppShell, text: string): void {
+  if (isLanding(shell)) {
+    const bag = internals.get(shell)
+    if (bag !== undefined) {
+      bag.landingDeferredRows.push({ role: "system", text })
+    }
+    setStatusFlash(shell, text)
+    return
+  }
+  appendStreamRow(shell, { role: "system", text })
 }
 
 /**
@@ -2356,6 +2385,10 @@ export function repaintTranscriptWindow(shell: AppShell): void {
  * The prompt box travels from the middle of the screen to the bottom, which is
  * a jump; it happens on the same frame as the operator's own first row so it
  * reads as the screen answering them rather than as the layout twitching.
+ *
+ * System/runtime notices deferred while the hero was up are flushed into the
+ * transcript here so they stay durable once the session has content, without
+ * ever having stolen the mountain on the way in.
  */
 function clearLandingMark(shell: AppShell): void {
   const bag = internals.get(shell)
@@ -2372,6 +2405,15 @@ function clearLandingMark(shell: AppShell): void {
   if (notice !== null) {
     bag.landingNotice = null
     appendStreamRow(shell, { role: "system", text: notice })
+  }
+
+  const deferred = bag.landingDeferredRows
+  if (deferred.length > 0) {
+    bag.landingDeferredRows = []
+    // The notice strip held the latest wording while the mark was up; the
+    // rows themselves are durable now, so drop the flash rather than double-paint.
+    setStatusFlash(shell, null)
+    for (const row of deferred) appendStreamRow(shell, row)
   }
 }
 
@@ -5599,6 +5641,7 @@ export function createAppShell(
     paletteFilter: null,
     landing: { above: landingAbove, below: landingBelow },
     landingNotice: options?.telemetryNotice ?? null,
+    landingDeferredRows: [],
     landingBelow: landingBelowState,
     landingSuggestionsVisible: true,
     landingAnimating: false,
