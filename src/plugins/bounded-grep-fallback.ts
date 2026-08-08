@@ -12,16 +12,12 @@ export const BOUNDED_GREP_MAX_DIRECTORY_ENTRIES = 25_000;
 /** Max bytes read from any single file during content search. */
 export const BOUNDED_GREP_MAX_PER_FILE_BYTES = 512_000;
 
-/** Max bytes in the formatted result string. */
-export const BOUNDED_GREP_MAX_OUTPUT_BYTES = 512_000;
-
 export const BOUNDED_GREP_DEFAULT_MAX_RESULTS = 500;
 export const BOUNDED_SEARCH_DEFAULT_MAX_RESULTS = 1000;
 
 export type BoundedGrepLimits = {
   maxDirectoryEntries?: number;
   maxPerFileBytes?: number;
-  maxOutputBytes?: number;
 };
 
 export type BoundedGrepArgs = {
@@ -95,15 +91,6 @@ function globToRegex(pattern: string): RegExp {
 
 function isBinary(buf: Buffer): boolean {
   return buf.includes(0);
-}
-
-function capOutput(text: string, maxBytes: number): string {
-  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-  let cut = text;
-  while (cut.length > 0 && Buffer.byteLength(cut, "utf8") > maxBytes) {
-    cut = cut.slice(0, Math.floor(cut.length * 0.9));
-  }
-  return `${cut}\n... (output truncated at ${maxBytes} bytes; narrow path/glob or pattern)`;
 }
 
 async function collectFilePaths(
@@ -270,7 +257,6 @@ export async function runBoundedGrep(
 
   const maxDirectoryEntries = limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
   const maxPerFileBytes = limits.maxPerFileBytes ?? BOUNDED_GREP_MAX_PER_FILE_BYTES;
-  const maxOutputBytes = limits.maxOutputBytes ?? BOUNDED_GREP_MAX_OUTPUT_BYTES;
 
   const basePath = resolve(baseCwd, args.path ?? ".");
   const contextLines = args.context ?? 0;
@@ -329,7 +315,7 @@ export async function runBoundedGrep(
   if (walkTruncated) {
     output += `\n... (directory walk capped at ${maxDirectoryEntries} files; narrow path/glob)`;
   }
-  return capOutput(output, maxOutputBytes);
+  return output;
 }
 
 export async function runBoundedSearchFiles(
@@ -341,7 +327,6 @@ export async function runBoundedSearchFiles(
   signal.throwIfAborted();
 
   const maxDirectoryEntries = limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
-  const maxOutputBytes = limits.maxOutputBytes ?? BOUNDED_GREP_MAX_OUTPUT_BYTES;
 
   const basePath = resolve(baseCwd, args.path ?? ".");
   const maxResults = args.max_results ?? BOUNDED_SEARCH_DEFAULT_MAX_RESULTS;
@@ -391,6 +376,6 @@ export async function runBoundedSearchFiles(
   if (walkTruncated) {
     result += `\n... (directory walk capped at ${maxDirectoryEntries} files; narrow path/glob)`;
   }
-  return capOutput(result, maxOutputBytes);
+  return result;
 }
 
