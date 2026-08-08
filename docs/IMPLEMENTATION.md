@@ -335,7 +335,7 @@ session; that tree re-write is inherent to git and left as residual cost.
 `agent.stream()` emits `ReactorEmittedEvent` objects. `docs/ARCHITECTURE.md`'s
 "Events" section names the two turn-boundary/shutdown events the directors
 guard on; the full set of reactor and stream event types is
-`PRODUCTION_REACTOR_TYPES` in `src/tui-opentui/stream-event-map.ts:66-80` —
+`PRODUCTION_REACTOR_TYPES` in `src/tui-opentui/stream-event-map.ts:62-78` —
 treat that as the canonical list rather than maintaining a second one here.
 
 Mid-run queue/steer/interrupt state is a pure state machine in `src/tui-opentui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui-opentui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.

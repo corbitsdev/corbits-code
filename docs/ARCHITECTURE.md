@@ -14,16 +14,19 @@ The reactor (from `@intx/agent`) drives a single agent turn-by-turn. Each turn i
 
 This repeats until the director emits `capabilities.done()`.
 
-### Events the turn-boundary guards distinguish
+### Events this section talks about
 
-This table is not the full reactor/stream event vocabulary — it names only
-the two events `src/agent/reactor-events.ts` exports guards for. The
-complete set of reactor and stream event types the TUI maps is
-`PRODUCTION_REACTOR_TYPES` in `src/tui-opentui/stream-event-map.ts:66-80`
-(15 types as of this writing, including `message.received`,
-`inference.start`, `inference.text.delta`, `inference.tool_call.start` /
-`.delta` / `.end`, `tool.start`, and `connector.reply`) — treat that as
-canonical rather than this table or any other doc's partial list.
+This table is not the full reactor/stream event vocabulary. `tool.done` is
+here because the sub-sections below reference it; `inference.done` and
+`reactor.done` are the two events `src/agent/reactor-events.ts` exports
+guards for (`onTurnBoundary` / `onReactorShutdown`) — see the paragraph
+after the table. The complete set of reactor and stream event types the TUI
+maps is `PRODUCTION_REACTOR_TYPES` in
+`src/tui-opentui/stream-event-map.ts:62-78` (15 types as of this writing,
+including `message.received`, `inference.start`, `inference.text.delta`,
+`inference.tool_call.start` / `.delta` / `.end`, `tool.start`, and
+`connector.reply`) — treat that as canonical rather than this table or any
+other doc's partial list.
 
 | Event | When it fires |
 |---|---|
