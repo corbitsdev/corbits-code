@@ -20,6 +20,7 @@ import { middleEllipsis } from "./command-display.js"
 import { renderDiff } from "./diff.js"
 import { wrapLanding } from "./landing.js"
 import { lockupWidth } from "./lockup.js"
+import type { RampPhase } from "./ramp.js"
 import { formatPaletteRows } from "./palette.js"
 import { composeDecisionBody, decisionChoiceRows, wrapWords } from "./overlay-body.js"
 import { thinkingScrollLine, thinkingSettledLine } from "./thinking.js"
@@ -191,8 +192,23 @@ describe("palette rows", () => {
 })
 
 describe("lockup", () => {
+  const slot = (phase: string | null, rampPhase: RampPhase | null) => ({
+    nowMs: 0,
+    still: phase === null,
+    phase,
+    changedMs: 0,
+    rampPhase,
+    stalledForMs: null,
+  })
+
   test("reports painted columns", () => {
-    expect(lockupWidth(null)).toBe(stringWidth("corbits code"))
-    expect(lockupWidth(CJK)).toBe(stringWidth(CJK))
+    expect(lockupWidth(slot(null, null))).toBe(stringWidth("corbits code"))
+    expect(lockupWidth(slot(CJK, null))).toBe(stringWidth(CJK))
+  })
+
+  test("a live slot reserves the pulse cell and its space too", () => {
+    // Reserved off the cells that get painted, so a wide label cannot make
+    // the reservation and the paint disagree by a column.
+    expect(lockupWidth(slot(CJK, "working"))).toBe(stringWidth(CJK) + 2)
   })
 })

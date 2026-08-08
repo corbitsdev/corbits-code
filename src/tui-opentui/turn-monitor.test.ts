@@ -51,39 +51,41 @@ const quotaEvent = (retryAfterMs: number) => ({
   data: { error: { category: "quota_exhausted", retryAfterMs } },
 })
 
-const RAMP = /[░▒▓█]/
 
 describe("turn progress label", () => {
   test("tracks the live phase and clears when the run settles", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
       try {
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
 
         t.bridge.handle({ type: "inference.start", data: {} })
-        expect(t.shell.turnPhase).toMatch(RAMP)
-        expect(t.shell.turnPhase).toEndWith("working")
+        // What the slot paints from this phase is asserted against the
+        // rendered border row in the ramp paint tests; here it is only that
+        // the phase itself tracks the run.
+        expect(t.shell.lockupRampPhase).toBe("working")
+        expect(t.shell.lockupPhase).toBe("working")
 
         t.bridge.handle({
           type: "inference.thinking.delta",
           data: { token: "hm" },
         })
-        expect(t.shell.turnPhase).toEndWith("thinking")
+        expect(t.shell.lockupPhase).toBe("thinking")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
-        expect(t.shell.turnPhase).toEndWith("streaming 1 tok")
+        expect(t.shell.lockupPhase).toBe("streaming 1 tok")
 
         t.bridge.handle({ type: "inference.text.delta", data: { token: " there" } })
-        expect(t.shell.turnPhase).toEndWith("streaming 2 tok")
+        expect(t.shell.lockupPhase).toBe("streaming 2 tok")
 
         t.bridge.handle({
           type: "inference.tool_call.end",
           data: { name: "bash", callId: "c1" },
         })
-        expect(t.shell.turnPhase).toEndWith("bash")
+        expect(t.shell.lockupPhase).toBe("bash")
 
         t.bridge.handle({ type: "reactor.done", data: {} })
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
       } finally {
         t.bridge.dispose()
       }
@@ -146,7 +148,7 @@ describe("turn progress label", () => {
 
         // The cycle's reply lands while bash is still out: the turn continues.
         t.bridge.handle({ type: "connector.reply", data: { content: "" } })
-        expect(t.shell.turnPhase).not.toBeNull()
+        expect(t.shell.lockupPhase).not.toBeNull()
 
         t.bridge.handle({
           type: "tool.start",
@@ -162,7 +164,7 @@ describe("turn progress label", () => {
         t.bridge.handle({ type: "inference.done", data: {} })
         t.bridge.handle({ type: "connector.reply", data: { content: "done." } })
 
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
         expect(t.bridge.turn.isProcessing).toBe(false)
         expect(noticeText(t.shell)).not.toContain("working")
         // The session is handed back and the transient row empties with it.
@@ -172,7 +174,7 @@ describe("turn progress label", () => {
         // A later tick must not resurrect it.
         t.advance(250)
         t.tick()
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
       } finally {
         t.bridge.dispose()
       }
@@ -185,13 +187,13 @@ describe("turn progress label", () => {
       try {
         t.bridge.handle({ type: "inference.start", data: {} })
         t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } })
-        expect(t.shell.turnPhase).not.toBeNull()
+        expect(t.shell.lockupPhase).not.toBeNull()
 
         t.bridge.interrupt()
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
         t.advance(250)
         t.tick()
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
       } finally {
         t.bridge.dispose()
       }
@@ -207,13 +209,13 @@ describe("turn progress label", () => {
           type: "inference.tool_call.end",
           data: { name: "bash", callId: "c1" },
         })
-        expect(t.shell.turnPhase).not.toBeNull()
+        expect(t.shell.lockupPhase).not.toBeNull()
 
         t.bridge.handle({
           type: "reactor.error",
           data: { fatal: true, error: "boom" },
         })
-        expect(t.shell.turnPhase).toBeNull()
+        expect(t.shell.lockupPhase).toBeNull()
         expect(t.bridge.turn.isProcessing).toBe(false)
       } finally {
         t.bridge.dispose()
@@ -229,12 +231,12 @@ describe("turn progress label", () => {
         t.shell.overlayKind = "permissions"
         t.bridge.gateOpened()
         t.tick()
-        expect(t.shell.turnPhase).toEndWith("blocked")
+        expect(t.shell.lockupPhase).toBe("blocked")
 
         // Frozen is the signal: the ramp must not move while a human is asked.
-        const frozen = t.shell.turnPhase
+        const frozen = t.shell.lockupPhase
         t.advance(1_000)
-        expect(t.shell.turnPhase).toBe(frozen)
+        expect(t.shell.lockupPhase).toBe(frozen)
 
         // The running state lives in the border, not the transient row: the
         // row would be a second indicator one line above the first.
@@ -315,7 +317,7 @@ describe("stall watchdog", () => {
         expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
         // A notice, not a timeout: the run is still going.
         expect(t.port.calls).toEqual([])
-        expect(t.shell.turnPhase).not.toBeNull()
+        expect(t.shell.lockupPhase).not.toBeNull()
       } finally {
         t.bridge.dispose()
       }

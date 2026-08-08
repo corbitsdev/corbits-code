@@ -25,14 +25,13 @@ import {
   setLockupFrame,
   setShellBridgeHooks,
   setStatusFlash,
-  setTurnPhase,
   streamRowAt,
   streamRowCount,
   truncateStreamRows,
   userRowText,
   type AppShell,
 } from "./shell.js"
-import { rampFor, rampLine } from "./ramp.js"
+import { rampAnimating } from "./ramp.js"
 import { onTurnBoundary } from "../agent/reactor-events.js"
 import {
   resolveRampPhase,
@@ -43,8 +42,9 @@ import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
 import {
   applyStallRecovery,
   repetitionRecoveryMessage,
+  isStalledForDisplay,
   shouldAbortForStall,
-  shouldNoticeStall,
+  stallLevel,
   STALL_NOTICE_MESSAGE,
   STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
@@ -133,11 +133,11 @@ const DEFAULT_TICK_MS = 250
 /**
  * Poll period while something on this clock is animating.
  *
- * The ramp traverses in `RAMP_CYCLE_MS` (1200 ms) and the landing mark runs a
- * 4.6 s timeline; at 250 ms that is 5 and 19 samples respectively, so the ramp
- * head jumps three cells a frame and the mark strobes. ~12 fps is the coarsest
- * cadence at which both read as motion, and it costs nothing when idle because
- * the monitor stops entirely then.
+ * The status slot's pulse steps through its glyphs in `RAMP_CYCLE_MS` (1200 ms)
+ * and the landing mark runs a 4.6 s timeline; at 250 ms that is 5 and 19
+ * samples respectively, so the pulse skips steps and the mark strobes. ~12 fps
+ * is the coarsest cadence at which both read as motion, and it costs nothing
+ * when idle because the monitor stops entirely then.
  */
 const ANIMATION_TICK_MS = 80
 
@@ -756,16 +756,48 @@ export function attachSessionBridge(
     }
   }
 
-  const paintPhase = (): void => {
+  /**
+   * The watchdog's inputs for the current turn. Built here rather than at each
+   * call site so the indicator and the abort can never be judging different
+   * facts about the same turn.
+   */
+  const stallArgsFor = (nowMs: number) => ({
+    status: bag.turn.status,
+    awaitingResponse: bag.turn.awaitingResponse,
+    lastActivityAt: bag.turn.lastActivityAt,
+    nowMs,
+    stallTimeoutMs,
+    isProcessing: bag.turn.isProcessing,
+    streamingType: bag.turn.streamingType,
+    activeToolCalls: bag.turn.activeToolCalls,
+    stallNoticeMs,
+    repeating: bag.turn.repeating,
+  })
+
+  /**
+   * How long the turn has been stalled, measured from the moment silence
+   * crossed the notice threshold, or null when it is not stalled.
+   *
+   * Derived from `lastActivityAt` rather than stamped when the stall is first
+   * seen, which gets two cases right for free: a session resumed with already
+   * stale activity reports a stall older than the blink burst and so paints the
+   * settled glyph immediately instead of alarming about an event the operator
+   * was not present for, and a stall that breaks and re-arms is measured from
+   * the new silence, so a second stall in a long session bursts again.
+   */
+  const stalledForMs = (nowMs: number, isStalled: boolean): number | null =>
+    isStalled ? nowMs - bag.turn.lastActivityAt - stallNoticeMs : null
+
+  const paintPhaseAt = (nowMs: number, isStalled: boolean): void => {
     const turn = bag.turn
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
-    paintLanding(shell, now(), turn.isProcessing)
+    paintLanding(shell, nowMs, turn.isProcessing)
     // The reveal position rides the same re-entry as the ramp and landing
     // mark: it needs to keep crawling through already-arrived text even when
     // no new delta has landed this tick.
     if (bag.openRow !== null && bag.openRow.kind === "thinking") {
-      advanceOpenReveal(shell, bag.openRow, now())
+      advanceOpenReveal(shell, bag.openRow, nowMs)
     }
     const input = {
       isProcessing: turn.isProcessing,
@@ -776,24 +808,46 @@ export function attachSessionBridge(
       streamTokenCount: turn.streamTokenCount,
     }
     const label = resolveTurnLabel(input)
-    // The bottom-left status slot rides the same re-entry as the landing mark,
-    // so it crossfades between phases without a timer of its own.
-    setLockupFrame(shell, now(), turn.isProcessing, label ?? null)
     if (label === undefined) {
-      setTurnPhase(shell, null)
+      // The bottom-left status slot rides the same re-entry as the landing
+      // mark, so it crossfades between phases without a timer of its own.
+      setLockupFrame(shell, {
+        nowMs,
+        animating: turn.isProcessing,
+        phase: null,
+        rampPhase: null,
+        stalledForMs: null,
+      })
       // Nothing animates and nothing is being waited on, so the loop stops
       // rather than repainting an unchanging frame forever. The next event
       // re-enters here and re-arms it.
       applyCadence(bag.turn.quota !== null ? frozenTickMs : null)
       return
     }
-    // The monitor tick re-enters here, so reading the clock is all the
-    // animation the ramp needs — no second timer.
-    const ramp = rampFor({ phase: resolveRampPhase(input), nowMs: now() })
-    setTurnPhase(shell, rampLine(ramp, label))
-    // A frozen ramp (blocked on a gate) still needs the stall and quota clocks,
-    // just not animation frames.
-    applyCadence(ramp.animating ? animationTickMs : frozenTickMs)
+    const rampPhase = resolveRampPhase(input, isStalled)
+    const stalledFor = stalledForMs(nowMs, rampPhase === "stalled")
+    setLockupFrame(shell, {
+      nowMs,
+      animating: turn.isProcessing,
+      phase: label,
+      rampPhase,
+      stalledForMs: stalledFor,
+    })
+    // A frozen ramp (blocked on a gate, or a stall past its blink burst) still
+    // needs the stall and quota clocks, just not animation frames.
+    applyCadence(
+      rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs,
+    )
+  }
+
+  /**
+   * The clock is read once here and threaded through everything the frame
+   * draws. Reading it per-consumer let the pulse and the cadence land on
+   * opposite sides of a blink boundary and disagree about the same frame.
+   */
+  const paintPhase = (): void => {
+    const nowMs = now()
+    paintPhaseAt(nowMs, isStalledForDisplay(stallArgsFor(nowMs)))
   }
 
   /** True when this event is what ended the turn. */
@@ -966,16 +1020,7 @@ export function attachSessionBridge(
       return
     }
 
-    const stallArgs = {
-      status: bag.turn.status,
-      awaitingResponse: bag.turn.awaitingResponse,
-      lastActivityAt: bag.turn.lastActivityAt,
-      nowMs,
-      stallTimeoutMs,
-      isProcessing: bag.turn.isProcessing,
-      streamingType: bag.turn.streamingType,
-      activeToolCalls: bag.turn.activeToolCalls,
-    }
+    const stallArgs = stallArgsFor(nowMs)
 
     if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery(
@@ -987,17 +1032,12 @@ export function attachSessionBridge(
 
     // Notice only — the phase still paints below, because a ramp that stops
     // moving is the very thing that reads as a hang.
-    if (
-      shouldNoticeStall({
-        ...stallArgs,
-        stallNoticeMs,
-        repeating: bag.turn.repeating,
-      })
-    ) {
+    const level = stallLevel(stallArgs)
+    if (level === "notice") {
       setStatusFlash(shell, STALL_NOTICE_MESSAGE)
     }
 
-    paintPhase()
+    paintPhaseAt(nowMs, level !== "quiet")
   }
 
   setShellBridgeHooks(shell, {
@@ -1031,7 +1071,6 @@ export function attachSessionBridge(
       bag.disposed = true
       applyCadence(null)
       clearShellBridgeHooks(shell)
-      setTurnPhase(shell, null)
       bridges.delete(shell)
     },
   }

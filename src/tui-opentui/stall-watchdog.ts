@@ -142,16 +142,37 @@ export type ShouldNoticeStallArgs = ShouldAbortForStallArgs & {
   readonly repeating: boolean
 }
 
+export type StallLevel = "quiet" | "notice" | "abort"
+
+/**
+ * How stuck the run is. Three levels, because the two consumers want different
+ * cuts of the same clock: the status flash wants "silent, but not yet handled"
+ * so it does not shout over the abort's own message, while the phase indicator
+ * wants "silent at all" — it must keep reading as a problem right through the
+ * abort threshold rather than flipping back to healthy at the worst possible
+ * instant. Both read this one function so they can never disagree about which
+ * runs are stalled, only about what to do at each level.
+ *
+ * Quiet while repeating: that run is producing output, just not useful output,
+ * and "no response" would misdescribe it.
+ */
+export function stallLevel(args: ShouldNoticeStallArgs): StallLevel {
+  if (args.repeating) return "quiet"
+  if (shouldAbortForStall(args)) return "abort"
+  return silentPastThreshold(args, args.stallNoticeMs) ? "notice" : "quiet"
+}
+
 /**
  * Returns true while the run has been silent long enough to say so but not yet
- * long enough to abort. False once the abort takes over, so the two never
- * paint at the same time, and false while repeating — that run is producing
- * output, just not useful output, and "no response" would misdescribe it.
+ * long enough to abort, so the notice and the abort never speak at once.
  */
 export function shouldNoticeStall(args: ShouldNoticeStallArgs): boolean {
-  if (args.repeating) return false
-  if (shouldAbortForStall(args)) return false
-  return silentPastThreshold(args, args.stallNoticeMs)
+  return stallLevel(args) === "notice"
+}
+
+/** Whether the phase indicator should paint the run as stalled. */
+export function isStalledForDisplay(args: ShouldNoticeStallArgs): boolean {
+  return stallLevel(args) !== "quiet"
 }
 
 /**

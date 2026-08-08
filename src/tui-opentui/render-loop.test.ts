@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { withTestRenderer } from "./harness"
-import { RAMP_CYCLE_MS } from "./ramp"
+import { RAMP_CYCLE_MS, rampPulse } from "./ramp"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge"
 import { appendStreamRow, createAppShell } from "./shell"
 
@@ -64,7 +64,7 @@ describe("monitor cadence", () => {
         expect(m.running()).toBe(true)
 
         bridge.handle({ type: "reactor.done", data: {} })
-        expect(shell.turnPhase).toBeNull()
+        expect(shell.lockupPhase).toBeNull()
         expect(m.running()).toBe(false)
       } finally {
         bridge.dispose()
@@ -86,12 +86,20 @@ describe("monitor cadence", () => {
         // samples fewer times than that jumps cells instead of travelling.
         expect(RAMP_CYCLE_MS / (tickMs ?? 1)).toBeGreaterThanOrEqual(14)
 
-        const frames = new Set<string>()
+        // Every step the status slot's pulse has must actually get sampled;
+        // a cadence that skips steps turns the cycle into a stutter.
+        const glyphs = new Set<string>()
         for (let elapsed = 0; elapsed < RAMP_CYCLE_MS; elapsed += tickMs ?? 1) {
           m.advance(tickMs ?? 1)
-          if (shell.turnPhase !== null) frames.add(shell.turnPhase)
+          glyphs.add(
+            rampPulse({
+              phase: "working",
+              nowMs: shell.lockupNowMs,
+              stalledForMs: null,
+            }),
+          )
         }
-        expect(frames.size).toBeGreaterThanOrEqual(10)
+        expect(glyphs.size).toBeGreaterThanOrEqual(4)
       } finally {
         bridge.dispose()
       }
