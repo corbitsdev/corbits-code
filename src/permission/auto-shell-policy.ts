@@ -3,6 +3,8 @@ import { commandHasRecursiveRm, expandShellSubjects } from "../shell/run-shell-a
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { commandHasUnboundedDirectoryListing, commandTargetsRestricted } from "./classify.js";
 import { splitChainedCommand, tokenize } from "./command.js";
+import { isPermittedSiblingWorktreePath } from "./path-restriction.js";
+import type { RootsProvider } from "./worktree-roots.js";
 
 // Auto-mode shell policy: a flat table of rules that constrain what a run_shell
 // command may do when auto mode is on. Auto mode otherwise rubber-stamps every
@@ -232,7 +234,7 @@ const WORKTREE_ASK_RULE: AutoShellRule = {
   name: "git-worktree",
   effect: "ask",
   reason:
-    "Git worktree add, remove, and prune change the workspace boundary and need explicit operator approval in auto mode. Only read-only git worktree list can run unattended.",
+    "This git worktree command uses a force flag, an uncontained path, or a subcommand that still needs explicit operator approval in auto mode. Contained non-force add/remove/prune and read-only list can run unattended.",
   patterns: [],
 };
 
@@ -283,8 +285,88 @@ const UNBOUNDED_LISTING_ASK_RULE: AutoShellRule = {
 };
 
 const WORKTREE_LIST_FLAGS = new Set(["--porcelain", "-v", "--verbose", "-z"]);
+const WORKTREE_PRUNE_FLAGS = new Set(["-n", "--dry-run", "-v", "--verbose"]);
+// Flags that take a following value on `git worktree add` (branch name, lock reason).
+const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
 
-function safeWorktreeCommand(command: string): boolean | undefined {
+function isWorktreeForceFlag(arg: string): boolean {
+  return arg === "-f" || arg === "--force";
+}
+
+// True when the path is safe for unattended worktree add/remove: inside the
+// session workspace (the unified containment authority's normal notion), or a
+// not-yet-registered sibling location the same authority's narrow
+// isPermittedSiblingWorktreePath rule allows (path-restriction.ts). No
+// bespoke denylist or depth counter here — everything routes through that one
+// authority so a path is never judged "contained" under a looser or stricter
+// rule than the one gate.ts uses to decide restriction.
+function isContainedWorktreePath(
+  pathArg: string,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): boolean {
+  if (!pathArg) return false;
+  // Shell-syntax `isRestricted` below cannot resolve correctly: `resolve()`
+  // treats a leading `~` as a literal path segment rather than expanding it,
+  // so a home-relative path would otherwise read as "inside cwd" on the very
+  // next line; a glob is not a single concrete destination at all. This
+  // duplicates isPermittedSiblingWorktreePath's own guard against the same
+  // two forms, but that duplication is required, not incidental: this check
+  // has to run before the isRestricted() shortcut below even executes, while
+  // isPermittedSiblingWorktreePath's copy protects direct/standalone callers
+  // of that exported function.
+  if (/[*?[]/.test(pathArg)) return false;
+  if (pathArg.startsWith("~")) return false;
+
+  // Workspace (cwd + registered worktree roots) — always contained.
+  if (!isRestricted(pathArg, true)) return true;
+
+  return isPermittedSiblingWorktreePath(cwd, pathArg, rootsProvider);
+}
+
+// Walks worktree args, recording force and every positional path. Value-taking
+// flags consume the next token so branch names are not mistaken for paths.
+function worktreePathArgs(
+  args: string[],
+  valueFlags: Set<string>,
+): { force: boolean; paths: string[] } {
+  const paths: string[] = [];
+  let force = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") {
+      paths.push(...args.slice(i + 1));
+      break;
+    }
+    if (isWorktreeForceFlag(arg)) {
+      force = true;
+      continue;
+    }
+    if (arg.startsWith("-") && arg !== "-") {
+      // `--flag=value` carries its value inline; no following token to skip.
+      if (arg.includes("=")) continue;
+      if (valueFlags.has(arg)) {
+        i += 1;
+        continue;
+      }
+      continue;
+    }
+    paths.push(arg);
+  }
+  return { force, paths };
+}
+
+// `true` = auto-allow, `false` = ask, `undefined` = not a worktree command.
+// Contained non-force add/remove and ordinary prune/list auto-allow so dispatch
+// can create sibling worktrees without a human click; force flags, uncontained
+// paths, and uncommon subcommands still ask.
+function safeWorktreeCommand(
+  command: string,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+  cwd: string,
+  rootsProvider: RootsProvider,
+): boolean | undefined {
   const tokens = tokenize(command);
   if (tokens[0] !== "git" || !tokens.slice(1).includes("worktree")) return undefined;
   // Worktree policy applies only to one plain command with no git cwd override;
@@ -294,7 +376,32 @@ function safeWorktreeCommand(command: string): boolean | undefined {
   const args = tokens.slice(3);
 
   if (subcommand === "list") return args.every((arg) => WORKTREE_LIST_FLAGS.has(arg));
-  // Boundary-changing subcommands always route to ask, even when the destination is inside cwd.
+
+  if (subcommand === "prune") {
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (WORKTREE_PRUNE_FLAGS.has(arg)) continue;
+      if (arg.startsWith("--expire=")) continue;
+      if (arg === "--expire") {
+        i += 1;
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  if (subcommand === "add" || subcommand === "remove") {
+    const valueFlags = subcommand === "add" ? WORKTREE_ADD_VALUE_FLAGS : new Set<string>();
+    const { force, paths } = worktreePathArgs(args, valueFlags);
+    if (force) return false;
+    // add/remove require a path; no path → ask rather than guess.
+    if (paths.length === 0) return false;
+    // First positional is the worktree path; later tokens on add are commit-ish.
+    return isContainedWorktreePath(paths[0]!, isRestricted, cwd, rootsProvider);
+  }
+
+  // move / lock / unlock / repair / unknown — still ask until proven safe.
   return false;
 }
 
@@ -307,9 +414,13 @@ function preferRule(a: AutoShellRule | undefined, b: AutoShellRule | undefined):
   return a;
 }
 
+const NO_ROOTS: RootsProvider = () => [];
+
 export function autoShellRuleForCall(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
+  cwd: string = process.cwd(),
+  rootsProvider: RootsProvider = NO_ROOTS,
 ): AutoShellRule | undefined {
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
@@ -349,14 +460,16 @@ export function autoShellRuleForCall(
 
   // Containment: a command whose path arguments resolve outside the workspace
   // (including through a symlink) must ask rather than auto-run, the same way
-  // path-arg tool calls already do. Checked per expanded subject so a wrapped
-  // payload (bash -c, xargs, env -S) is judged on its real target, not the wrapper.
+  // path-arg tool calls already do. Contained worktree ops are exempt — their
+  // destinations are often intentional siblings (`../corbits-dispatch-wts/…`)
+  // and are judged by the worktree path policy below instead.
   for (const subject of subjects) {
+    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === true) continue;
     if (commandTargetsRestricted(subject, isRestricted)) return OUTSIDE_WORKSPACE_ASK_RULE;
   }
 
   for (const subject of subjects) {
-    if (safeWorktreeCommand(subject) === false) return WORKTREE_ASK_RULE;
+    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === false) return WORKTREE_ASK_RULE;
   }
 
   if (matched !== undefined) return matched;
