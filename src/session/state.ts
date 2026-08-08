@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { sessionDir } from "./index.js";
-import { getTestWriteGate, isCrashed } from "./active-run.js";
+import { clearActiveRun, getTestWriteGate, isCrashed } from "./active-run.js";
 import { COMMAND_NAME } from "../branding.js";
 
 const ConnectedMcpServerSchema = type({
@@ -108,6 +108,21 @@ export async function saveState(
   return write;
 }
 
+// Single write path for a terminal RunState: pairs the on-disk status with
+// clearing the in-memory active-run handle (active-run.ts) so the two facts
+// are set together instead of at two independent call sites that could drift.
+// Callers writing a non-terminal ("running") snapshot should call saveState
+// directly — clearing the active-run handle on a running snapshot would be
+// wrong, not merely redundant.
+export async function finalizeRunState(
+  cwd: string,
+  sessionId: string,
+  state: RunState,
+  home?: string,
+): Promise<void> {
+  await saveState(cwd, sessionId, state, home);
+  clearActiveRun();
+}
 
 // Crash-time terminal write. Deliberately bypasses writeChains: a hung or
 // still-pending write for this session (possibly the very write mid-flight
