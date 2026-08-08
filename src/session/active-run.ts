@@ -9,10 +9,14 @@
 // crash path has the exact failure mode primeCrashReporting (src/crash/
 // report.ts) exists to avoid for git: a stalled disk or network mount would
 // block process.exit forever.
+//
+// Liveness has exactly one representation: presence of this handle in the
+// module-level slot (see getActiveRun below). There is no separate "active"
+// flag on the handle itself — a second field would just be a copy of the
+// same fact, free to drift from the slot it's meant to describe.
 export type RunStateHandle = {
   sessionId: string;
   cwd: string;
-  active: boolean;
   task: string;
   startedAt: number;
   model?: string;
