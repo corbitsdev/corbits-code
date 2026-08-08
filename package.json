@@ -1,6 +1,6 @@
 {
   "name": "@corbits/code",
-  "version": "0.2.92",
+  "version": "0.2.93",
   "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
@@ -65,11 +65,11 @@
     "@intx/tools-lsp": "0.2.2",
     "@intx/tools-posix": "0.2.2",
     "@intx/types": "0.2.2",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentui/core": "0.5.1",
     "@opentui/keymap": "0.5.1",
     "@opentui/solid": "0.5.1",
-    "arktype": "catalog:",
+    "arktype": "^2.2.3",
     "highlight.js": "^11.11.1",
     "solid-js": "1.9.14"
   },
@@ -77,8 +77,8 @@
     "@intx/inference-testing": "0.2.2",
     "@types/bun": "1.3.9",
     "typescript": "5.9.3",
-    "typescript-language-server": "^4.3.4",
-    "ws": "^8.21.0"
+    "typescript-language-server": "^4.4.1",
+    "ws": "^8.21.3"
   },
   "optionalDependencies": {
     "@opentui/core-darwin-arm64": "0.5.1",
