@@ -24,3 +24,6 @@ evals/capability/results/*
 !evals/capability/results/baseline-0286.json
 local-harness-bench/
 subagents/
+
+# Working notes and design spikes — local only, never committed
+docs/plans/
