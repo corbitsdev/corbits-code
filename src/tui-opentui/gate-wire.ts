@@ -493,7 +493,7 @@ export function wireGates(
     // entry, which is itself the single-resolve guard, so the other side is
     // simply a no-op once it runs.
     //
-    // The goal-mode timeout is display-dependent and arms inside `open`
+    // The auto-deny timeout is display-dependent and arms inside `open`
     // (below), not here: a request sitting behind others in `pending` must
     // not burn its timeout while the operator has never seen it. Abort is not
     // display-dependent — it reflects the tool having already finished or
@@ -540,7 +540,7 @@ export function wireGates(
     // whether the host has since moved on to a newer one.
     let openedGeneration: number | undefined
 
-    // Mirrors the permission gate: watchdog abort and the goal-mode timeout
+    // Mirrors the permission gate: watchdog abort and the auto-deny timeout
     // both race an operator who may never answer, and unlike the permission
     // path this gate previously had no safety net at all — a queued question
     // behind a stuck overlay hung the run forever. The timeout is

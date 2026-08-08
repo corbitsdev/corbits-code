@@ -985,7 +985,7 @@ describe("operator.gate auto-cancel", () => {
             resolved = result
           },
           timeoutMs: 5,
-          timeoutMessage: "goal mode: no answer in time",
+          timeoutMessage: "auto-cancel: no answer in time",
         })
         expect(shell.overlayKind).toBe("operator")
 
