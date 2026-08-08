@@ -164,6 +164,42 @@ describe("project-trust", () => {
     }
   });
 
+  test("readProjectTrustStore: top-level JSON array is invalid", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(path, JSON.stringify([1, 2, 3]), "utf8");
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: non-string repo field is invalid", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: 7,
+          trustedPluginPaths: [],
+          trustedMcpFingerprints: [],
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("readProjectTrustStore: partial file with only trustedPluginPaths stays valid", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
@@ -279,6 +315,31 @@ describe("project-trust", () => {
         home,
       });
       expect(allowed).toEqual([server]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("readProjectTrustStore: malformed file with wrong types, missing fields, and extra fields drops bad entries and ignores unknown keys", async () => {
+    const { cwd, home, cleanup } = await scratch();
+    try {
+      const pluginPath = join(cwd, "plugins", "good");
+      const path = projectTrustPath(cwd, home);
+      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: [pluginPath, 7, false, { nope: true }],
+          // trustedMcpFingerprints omitted entirely
+          somethingUnexpected: "should be ignored",
+        }),
+        "utf8",
+      );
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
     } finally {
       await cleanup();
     }
