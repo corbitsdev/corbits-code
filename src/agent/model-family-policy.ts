@@ -37,12 +37,13 @@ const GROK_WRAP_UP_NUDGE_TEXT =
   "actually still making progress.";
 
 // Forensics on real session traces (see CL-5611, and the extended scan in
-// scripts/tool-fingerprint-forensics.ts) found healthy tool-only streaks
-// topping out at 13-28 consecutive turns and zero sessions with any
-// repeating tool-fingerprint cycle at all (period 1 through 8). 25 sits
-// comfortably above the observed healthy ceiling; the nudge is a check-in,
-// not a stop, so erring high costs nothing. Tightened only for families with
-// observed runaway tool-only behavior (see grok below).
+// scripts/tool-fingerprint-forensics.ts, 328 sessions with a tool-only run /
+// 559 tool-only runs) found healthy tool-only streaks topping out at 28
+// consecutive turns (p50 3, p90 8, p99 16) and zero repeating
+// tool-fingerprint cycles for any period the scan checked (1 through 6). 25
+// sits comfortably above the observed healthy ceiling; the nudge is a
+// check-in, not a stop, so erring high costs nothing. Tightened only for
+// families with observed runaway tool-only behavior (see grok below).
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: 25,
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
@@ -50,10 +51,9 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   applyGrokFinishBias: false,
 };
 
-// xAI's own CLI ships main-session auto-pause for grok ("Goal auto-paused
-// after N consecutive non-completing turns"), which motivated a tightened
-// nudge/pause pair here previously (6/10). That pair was miscalibrated: it
-// fired on a directly observed 10-turn session that was making real progress
+// A directly observed 14-turn pure-tool-call session for this family
+// previously motivated a tightened nudge/pause pair here (6/10). That pair
+// was miscalibrated: it fired on a session that was making real progress
 // through Linear lookups and code reads (CL-5611), well inside the healthy
 // range other families tolerate. Grok keeps its own nudge copy and shorter
 // sub-agent stall timeout — both still warranted — but shares the default
