@@ -91,24 +91,19 @@ export function buildOpenAISource(fields: {
 
 // One configured provider the /agent modal can switch to. Carries credentials
 // because live switching builds an InferenceSource from it; the modal only ever
-// receives fields needed for provider management, never the key.
-export type ProviderCatalogEntry = {
+// receives fields needed for provider management, never the key. Derived from
+// ProviderSettings (the persisted record) so a field added there is never
+// silently missing here: `name` becomes required (every catalog entry is
+// resolved to a concrete provider id) and `contextWindow` is dropped (it is a
+// settings-only override, never surfaced to the /agent modal). The
+// OAuth-profile markers below have no ProviderSettings counterpart because
+// such entries are never written to settings.json (their credentials live in
+// the Codex/xAI auth stores).
+export type ProviderCatalogEntry = Omit<ProviderSettings, "name" | "contextWindow"> & {
   name: string;
-  baseURL: string;
-  // Absent for keyless providers (see `keyless`). When present, carries the
-  // secret key the harness injects as a Bearer credential.
-  apiKey?: string;
-  models: string[];
-  defaultModel?: string;
-  // True for local providers that require no authentication (e.g. Ollama).
-  // When set, `apiKey` is omitted and resolution skips the key check.
-  keyless?: boolean;
-  // Manual override suppressing the status-bar dollar cost for this provider.
-  free?: boolean;
   // Set when this entry is a Codex OAuth profile rather than an API-key
   // provider. Holds the profile name; the send path uses it to refresh the
-  // access token before each turn. Such entries are never written to
-  // settings.json (their credentials live in the Codex auth store).
+  // access token before each turn.
   codexProfile?: string;
   // ChatGPT account id for a Codex profile, sent as the chatgpt-account-id
   // header by the Responses adapter. Present only on Codex entries.
@@ -116,17 +111,6 @@ export type ProviderCatalogEntry = {
   // Set when this entry is an xAI/Grok OAuth profile. It still routes through
   // openai-compatible; the marker only controls token refresh and persistence.
   xaiProfile?: string;
-  // When true this provider is backed by a Bifrost virtual key. Inference
-  // sources for it are built with provider "bifrost" so the adapter can
-  // inject the x-bf-vk header (in addition to Authorization). The flag is
-  // also used to enable /models auto-discovery scoped to the key.
-  bifrostVirtualKey?: boolean;
-  // Anthropic Messages API (x-api-key). Used by first-class Anthropic and by
-  // OpenCode Go models that speak the messages protocol.
-  anthropic?: boolean;
-  // OpenCode Go multi-protocol provider. Per-model routing picks
-  // openai-compatible, openai-responses, or anthropic at source-build time.
-  opencodeGo?: boolean;
 };
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the

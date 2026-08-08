@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEntryAsProviderSettings, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 
@@ -647,6 +647,31 @@ describe("buildProviderCatalog", () => {
       oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
     });
     expect(restOut).toEqual(restExisting);
+  });
+
+  test("round-trips every ProviderSettings field a catalog entry can carry through buildProviderCatalog and back", () => {
+    // ProviderCatalogEntry is defined as Omit<ProviderSettings, "name" | "contextWindow">.
+    // This exercises every field that relationship carries over, so a field
+    // added to ProviderSettings and forgotten in the two conversion sites
+    // below fails here instead of being silently dropped at runtime.
+    const provider: Settings["providers"][string] = {
+      baseURL: "https://fp/v1",
+      apiKey: "fp-key",
+      models: ["fp-large"],
+      defaultModel: "fp-large",
+      free: true,
+      bifrostVirtualKey: true,
+    };
+    const settings: Settings = { providers: { fp: provider } };
+    const catalog = buildProviderCatalog(settings, {
+      providerName: "fp",
+      baseURL: provider.baseURL,
+      apiKey: "fp-key",
+      model: "fp-large",
+    } as ResolvedProvider);
+    const entry = catalog.find((c) => c.name === "fp")!;
+    const roundTripped = { fp: catalogEntryAsProviderSettings(entry) };
+    expect(roundTripped).toEqual({ fp: provider });
   });
 });
 
