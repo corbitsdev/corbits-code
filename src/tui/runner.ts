@@ -1170,20 +1170,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
-      const d = createChatDirector(
-        agentCtx.systemPrompt,
-        computeAdvertised([...agentCtx.toolDefinitions]),
-        undefined,
-        (names) => promoteTools(names),
-        config.inactivityTimeoutMs ?? 750_000,
-        config.totalTimeoutMs,
-        undefined,
-        undefined,
-        () => {
+      const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
+        onActivateTools: (names) => promoteTools(names),
+        inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+        totalTimeoutMs: config.totalTimeoutMs,
+        requestContinuation: () => {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
-        { providerName: config.providerName, model: config.model },
-      );
+        provider: { providerName: config.providerName, model: config.model },
+      });
       d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;
       return d;

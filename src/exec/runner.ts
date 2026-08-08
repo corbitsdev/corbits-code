@@ -399,26 +399,21 @@ export async function runExec(config: Config): Promise<ExecResult> {
       id: `${ID_PREFIX}/chat`,
       configSchema: type({}),
       factory: (_cfg, _env, agentCtx) => {
-        const d = createChatDirector(
-          agentCtx.systemPrompt,
-          computeAdvertised([...agentCtx.toolDefinitions]),
-          undefined,
-          (names) => {
+        const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
+          onActivateTools: (names) => {
             if (!activatedToolNames.activate(names)) return;
             directorHolder.instance?.updateToolDefinitions(
               computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
             );
           },
-          config.inactivityTimeoutMs ?? 750_000,
-          config.totalTimeoutMs,
-          undefined,
-          undefined,
-          () => {
+          inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+          totalTimeoutMs: config.totalTimeoutMs,
+          requestContinuation: () => {
             // Compaction governor self-delivers after compact so the loop re-enters.
             currentAgent?.deliver(buildCompactionContinuationMessage());
           },
-          { providerName: config.providerName, model: config.model },
-        );
+          provider: { providerName: config.providerName, model: config.model },
+        });
         directorHolder.instance = d;
         return d;
       },
