@@ -14,7 +14,7 @@ import {
 } from "./command.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall, isSingleShellCommand } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
@@ -2024,6 +2024,26 @@ describe("preApprove", () => {
     const scopeLadderTreatsAsSingle = requests[0]!.scopes.length > 1;
 
     expect(preApproveTreatsAsSingle).toBe(scopeLadderTreatsAsSingle);
+  });
+
+  test("isSingleShellCommand narrows a pure-comment command to false", () => {
+    // Before the shared realShellSegments predicate, gate.ts's own
+    // isSingleShellCommand did not filter comment-only segments, so a
+    // pure-comment "command" like "# just a comment" counted as one real
+    // segment and was treated as single. The shared predicate filters it
+    // out, leaving zero segments, so this must now be false.
+    expect(isSingleShellCommand("# just a comment")).toBe(false);
+  });
+
+  test("isSingleShellCommand treats a leading-comment-then-chain as its trailing real segment", () => {
+    // splitChainedCommand splits on "&&" before recognizing that "#" extends
+    // a comment to end of line, so "# a && b" splits into ["# a", "b"] even
+    // though a real shell treats the whole line as one comment (nothing
+    // after "#" ever runs). Filtering the comment-only "# a" segment leaves
+    // exactly one real segment, "b", so this is scored as a single command —
+    // matching shellApprovalScopes' existing behavior, not a regression
+    // introduced here.
+    expect(isSingleShellCommand("# a && b")).toBe(true);
   });
 });
 
