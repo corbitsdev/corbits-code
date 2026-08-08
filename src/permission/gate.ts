@@ -346,7 +346,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
-    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, effectiveCwd)) {
+    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)) {
       return { allowed: true };
     }
     if (auto) {
@@ -452,7 +452,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
           // Containment is judged against the process cwd, not the session cwd.
-          if (isAutoAllowedShellSegment(segment, effectiveCwd)) {
+          if (isAutoAllowedShellSegment(segment, effectiveCwd, rootsProvider)) {
             continue;
           }
           needsOperator = true;
