@@ -932,6 +932,13 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
     setStatusFlash(shell, `image attach failed: ${result.reason}`)
     return false
   }
+  const isDuplicate = shell.pendingAttachments.some(
+    (attachment) => attachment.contentHash === result.attachment.contentHash,
+  )
+  if (isDuplicate) {
+    setStatusFlash(shell, `${result.attachment.name} is already attached`)
+    return false
+  }
   addPendingAttachment(shell, result.attachment)
   setStatusFlash(shell, `attached ${result.attachment.name}`)
   return true
