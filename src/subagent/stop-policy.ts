@@ -5,6 +5,7 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
+import { detectSequencePeriod, type SequencePeriodCheck } from "../util/period-detection.js";
 import {
   evaluateThrashStop,
   type ThrashConfig,
@@ -126,6 +127,62 @@ export function fingerprintToolCalls(
   parts.sort();
   return parts.join("|");
 }
+
+export type ToolFingerprintThrashCheck = SequencePeriodCheck;
+
+// No legitimate orchestration pattern needs a longer repeating unit than
+// this to be recognized as thrash. A local forensic scan (see
+// scripts/tool-fingerprint-forensics.ts) over 328 real session traces (559
+// tool-only runs) found zero cycles of any period 1-8 at all — this ceiling
+// has wide headroom above anything actually observed.
+const TOOL_FINGERPRINT_MAX_PERIOD = 8;
+
+// A truly identical consecutive tool call (period 1) is the one shape a
+// legitimate agent can plausibly produce on purpose — rerunning a flaky
+// test, polling a build. The forensic scan found zero occurrences of even
+// two consecutive identical fingerprints in local trace history (a stronger
+// result than CL-5611's original "zero 3+" finding), so there is no
+// *measured* floor for legitimate period-1 repetition — this threshold is
+// inferred headroom for that plausible-but-unobserved case, and deliberately
+// set above 4: review on CL-5611 found the previous 4-repeat hard pause
+// false-positived on exactly this kind of legitimate polling.
+const IDENTICAL_REPEAT_MIN = 5;
+
+// Any cycle of length 2+ (A,B,A,B,..., A,B,C,A,B,C,...) has no plausible
+// legitimate justification — nobody deliberately re-issues a *different*
+// tool call with identical arguments in a fixed rotation. Fire fast: three
+// full cycles, per the operator's explicit "trigger fairly quickly" target
+// (A,B,A,B,A,B pauses at 6 turns; A,B,C,A,B,C,A,B,C at 9), still comfortably
+// above the observed healthy ceiling of zero.
+const CYCLE_REPEAT_MIN = 3;
+
+/**
+ * Thrash check over a rolling history of consecutive tool-only-turn
+ * fingerprints, via exact-period detection (detectSequencePeriod in
+ * util/period-detection.ts). Generalizes the old consecutive-identical-only
+ * check to catch any repeating cycle — A,A,A,..., A,B,A,B,..., A,B,C,A,B,C,...
+ * — not just immediate repeats, which previously let an alternating A,B
+ * pattern escape detection at any length. See docs/ARCHITECTURE.md for the
+ * forensic basis of the thresholds.
+ */
+export function detectToolFingerprintThrash(
+  history: readonly string[],
+): ToolFingerprintThrashCheck {
+  return detectSequencePeriod(history, {
+    minPeriod: 1,
+    maxPeriod: TOOL_FINGERPRINT_MAX_PERIOD,
+    minRepeats: (period) => (period === 1 ? IDENTICAL_REPEAT_MIN : CYCLE_REPEAT_MIN),
+    minDistinct: (period) => (period === 1 ? 1 : 2),
+  });
+}
+
+// Bounds the rolling fingerprint buffer director.ts keeps for the thrash
+// check above. Detection only ever looks at the tail, so history older than
+// the longest possible confirming window (max period * max repeats-needed)
+// carries no signal — capping keeps a very long productive tool-only streak
+// (e.g. 200+ turns) from growing the buffer or the per-turn scan unbounded.
+export const TOOL_FINGERPRINT_HISTORY_CAP =
+  TOOL_FINGERPRINT_MAX_PERIOD * IDENTICAL_REPEAT_MIN;
 
 export type SubAgentStopReason =
   | "complete"
