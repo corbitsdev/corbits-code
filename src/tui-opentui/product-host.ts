@@ -486,7 +486,10 @@ export async function mountProductHost(
   // leave the terminal wedged with nobody able to restore it.
   let disposeGates: () => void
   try {
-    disposeGates = wireGates(config.eventEmitter, shell)
+    disposeGates = wireGates(config.eventEmitter, shell, {
+      onGateOpened: () => bridge.gateOpened(),
+      onGateClosed: () => bridge.gateClosed(),
+    })
   } catch (err: unknown) {
     try {
       renderer.destroy()

@@ -243,12 +243,50 @@ function recordOperatorDecision(
 }
 
 /**
+ * Blocked-ness is domain state, not a paint detail: the turn watchdog and the
+ * painter both need to know a gate is outstanding, whether or not it has
+ * reached the screen yet. This is the only place that sees a gate's full
+ * lifecycle (raised, possibly queued, eventually resolved), so it is the one
+ * that reports it — callers fold the pair into their own turn state.
+ */
+export type GateLifecycleHooks = {
+  /** A gate was raised — queued or opened, whichever comes first. */
+  readonly onGateOpened: () => void
+  /** A previously raised gate resolved. */
+  readonly onGateClosed: () => void
+}
+
+const NOOP_GATE_HOOKS: GateLifecycleHooks = {
+  onGateOpened: () => {},
+  onGateClosed: () => {},
+}
+
+/**
+ * Wrap a gate's `resolve` so `onGateClosed` fires exactly once no matter
+ * which of accept / cancel / auto-deny settles it first.
+ */
+function onceClosed<T>(
+  onGateClosed: () => void,
+  resolve: (value: T) => void,
+): (value: T) => void {
+  let closed = false
+  return (value) => {
+    if (!closed) {
+      closed = true
+      onGateClosed()
+    }
+    resolve(value)
+  }
+}
+
+/**
  * Subscribe the permission/operator gate events to the shell's overlays.
  * Returns a dispose function that removes exactly the listeners this call added.
  */
 export function wireGates(
   emitter: EventEmitter,
   shell: AppShell,
+  hooks: GateLifecycleHooks = NOOP_GATE_HOOKS,
 ): () => void {
   // The shell has one overlay host, and opening onto a busy one is a no-op.
   // Gates cannot be dropped that way — a lost ask_operator blocks the run with
@@ -270,6 +308,8 @@ export function wireGates(
   })
 
   function onPermission(ev: PermissionGateEvent): void {
+    hooks.onGateOpened()
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
     const choices = permissionChoicesFromRequest(ev.request)
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true })
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
@@ -318,7 +358,7 @@ export function wireGates(
             ...(sel.id !== undefined ? { id: sel.id } : {}),
           }
           recordDecision(shell, ev.request, choices, gateSelection)
-          ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
+          resolve(approvalOutcomeFromSelection(choices, gateSelection))
         },
         // Esc must settle the awaited promise (as a deny), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
@@ -328,7 +368,7 @@ export function wireGates(
           clearTimers()
           const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
           recordDecision(shell, ev.request, choices, gateSelection)
-          ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
+          resolve(approvalOutcomeFromSelection(choices, gateSelection))
         },
       })
     }
@@ -358,7 +398,7 @@ export function wireGates(
         const idx = pending.indexOf(open)
         if (idx >= 0) pending.splice(idx, 1)
       }
-      ev.resolve({ allow: false, message })
+      resolve({ allow: false, message })
     }
     function onAbort(): void {
       autoDeny("tool no longer running; permission request denied")
@@ -378,6 +418,8 @@ export function wireGates(
   }
 
   function onOperator(ev: OperatorGateEvent): void {
+    hooks.onGateOpened()
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
     const choices = operatorChoicesFromOptions(ev.options)
     // Guarded the same way as the permission gate: correctness must not rest
     // on callers of closeInsetOverlay remembering to null the cancel hook
@@ -396,7 +438,7 @@ export function wireGates(
         if (settled) return
         settled = true
         recordOperatorDecision(shell, ev.question, sel.label)
-        ev.resolve(
+        resolve(
           operatorResultFromSelection(ev.options, {
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
@@ -409,7 +451,7 @@ export function wireGates(
         if (settled) return
         settled = true
         recordOperatorDecision(shell, ev.question, text)
-        ev.resolve(operatorCustomResult(text))
+        resolve(operatorCustomResult(text))
       },
       // Esc must settle the awaited promise (as a cancel), not abandon it —
       // an unresolved gate hangs the run until the process is killed.
@@ -417,7 +459,7 @@ export function wireGates(
         if (settled) return
         settled = true
         recordOperatorDecision(shell, ev.question, "Cancelled")
-        ev.resolve(operatorCancelResult())
+        resolve(operatorCancelResult())
       },
     }))
   }

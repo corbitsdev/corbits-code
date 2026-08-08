@@ -54,7 +54,8 @@ import {
   clearQuotaWait,
   initialTurnState,
   turnStateFromEvent,
-  turnStateBlocked,
+  turnStateGateClosed,
+  turnStateGateOpened,
   turnStateOnInterrupt,
   turnStateOnSubmit,
   type TurnState,
@@ -161,6 +162,14 @@ export type SessionBridge = {
     attachments?: readonly PendingImageAttachment[],
   ) => void
   interrupt: () => void
+  /**
+   * A permission or operator gate was raised — queued or already displayed.
+   * Blocks the turn (and exempts it from the stall watchdog) until a matching
+   * `gateClosed` call. Multiple outstanding gates nest correctly.
+   */
+  gateOpened: () => void
+  /** A previously raised gate resolved. */
+  gateClosed: () => void
   dispose: () => void
   /** Current derived turn phase (progress label, stall clock, quota window). */
   readonly turn: TurnState
@@ -748,11 +757,7 @@ export function attachSessionBridge(
   }
 
   const paintPhase = (): void => {
-    // The gate overlay is the only "blocked" signal the shell sees; the gate
-    // wiring resolves approvals itself and emits no bridge event.
-    const gated =
-      shell.overlayKind === "permissions" || shell.overlayKind === "operator"
-    const turn = gated ? turnStateBlocked(bag.turn) : bag.turn
+    const turn = bag.turn
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
     paintLanding(shell, now(), turn.isProcessing)
@@ -893,6 +898,24 @@ export function attachSessionBridge(
     paintPhase()
   }
 
+  /**
+   * A permission or operator gate was raised — queued or already on screen,
+   * the turn does not distinguish. Called from the gate wiring itself, not
+   * derived from `shell.overlayKind`, so a gate still waiting behind another
+   * overlay exempts the turn from the stall watchdog just as an open one does.
+   */
+  const gateOpened = (): void => {
+    if (bag.disposed) return
+    bag.turn = turnStateGateOpened(bag.turn)
+    paintPhase()
+  }
+
+  const gateClosed = (): void => {
+    if (bag.disposed) return
+    bag.turn = turnStateGateClosed(bag.turn, now())
+    paintPhase()
+  }
+
   const tick = (): void => {
     if (bag.disposed) return
     const nowMs = now()
@@ -995,6 +1018,8 @@ export function attachSessionBridge(
     },
     submit,
     interrupt: doInterrupt,
+    gateOpened,
+    gateClosed,
     get turn() {
       return bag.turn
     },

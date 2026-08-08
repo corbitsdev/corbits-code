@@ -227,6 +227,7 @@ describe("turn progress label", () => {
       try {
         t.bridge.handle({ type: "inference.start", data: {} })
         t.shell.overlayKind = "permissions"
+        t.bridge.gateOpened()
         t.tick()
         expect(t.shell.turnPhase).toEndWith("blocked")
 
@@ -347,6 +348,48 @@ describe("stall watchdog", () => {
     })
   })
 
+  test("an open gate is exempt no matter how long the operator takes", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+        t.bridge.gateOpened()
+
+        // Far past the stall timeout — an operator reading an approval must
+        // never have the run torn down underneath them.
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("a gate queued but not yet displayed gets the same exemption", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+        // The gate is raised but nothing else has changed `shell.overlayKind`
+        // — this is the "queued behind another overlay" shape from
+        // gate-wire.ts, where the gate is not nominally displayed yet.
+        t.bridge.gateOpened()
+        expect(t.shell.overlayKind).toBeNull()
+
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   test("a live tool run is not treated as a stall", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
@@ -360,6 +403,36 @@ describe("stall watchdog", () => {
         t.port.clear()
 
         t.advance(10_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  // The gate exemption (this fix) and the parallel-tool-call exemption
+  // (CL-5641) are independent guards feeding the same stall check — a run
+  // with both outstanding must stay exempt, and closing the gate while the
+  // tool call is still out must not re-expose it to the clock.
+  test("a gate open alongside a live sibling tool call stays exempt", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "task", callId: "c1" },
+        })
+        t.bridge.gateOpened()
+        t.port.clear()
+
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+
+        t.bridge.gateClosed()
+        t.advance(20 * 60_000)
         t.tick()
         expect(t.port.calls).toEqual([])
       } finally {
