@@ -146,6 +146,12 @@ export type Telemetry = {
   // exit. Callers use this to bound exit against dropped fire-and-forget
   // requests without ever making capture() itself blocking.
   flush(): Promise<void>;
+  // Throws away everything queued and disarms the batch timer, so nothing
+  // captured before this call can ever reach the network. Opting out uses
+  // this: a user who says stop mid-session is saying they do not want the
+  // activity they have already generated sent, which makes discarding the
+  // queue the honest reading of that intent and flushing it a betrayal.
+  discard(): void;
 };
 
 // Fire-and-forget PostHog batch client. Never throws, never blocks the
@@ -260,5 +266,12 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     ]);
   }
 
-  return { enabled, capture, flush };
+  // A request already on the wire cannot be unsent, but nothing still held
+  // in memory follows it.
+  function discard(): void {
+    cancelTimer();
+    queue.length = 0;
+  }
+
+  return { enabled, capture, flush, discard };
 }
