@@ -127,6 +127,9 @@ export type ProviderCatalogEntry = {
   // OpenCode Go multi-protocol provider. Per-model routing picks
   // openai-compatible, openai-responses, or anthropic at source-build time.
   opencodeGo?: boolean;
+  // False when this credential was persisted without a passing connection
+  // test. See ProviderSettings.verified in settings.ts.
+  verified?: boolean;
 };
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the
@@ -263,6 +266,9 @@ export type Config = {
   model: string;
   providerName: string;
   keyless?: boolean;
+  // False when the active provider's credential was persisted without a
+  // passing connection test. See ProviderSettings.verified in settings.ts.
+  verified?: boolean;
   cwd: string;
   task: string;
   force: boolean;
@@ -628,6 +634,7 @@ export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): Pro
     ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
     ...(entry.anthropic === true ? { anthropic: true } : {}),
     ...(go ? { opencodeGo: true } : {}),
+    ...(entry.verified === false ? { verified: false } : {}),
   };
 }
 
@@ -690,6 +697,7 @@ export function buildProviderCatalog(
         ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
         ...(p.anthropic === true ? { anthropic: true } : {}),
         ...(go ? { opencodeGo: true } : {}),
+        ...(p.verified === false ? { verified: false } : {}),
       };
     });
   }

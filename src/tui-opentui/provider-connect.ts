@@ -5,13 +5,8 @@
  * implemented there) — reused via `initialProviderId`, not reimplemented.
  */
 
-import {
-  mergeProviderIntoSettings,
-  saveGlobalSettings,
-  saveLocalSettings,
-  type Settings,
-} from "../config/settings.js"
-import { validateProviderConnection } from "../provider/validate-connection.js"
+import type { Settings } from "../config/settings.js"
+import { buildProviderSubmitHandler } from "../tui/provider-setup-submit.js"
 import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js"
 
 export type ConnectProviderInput = {
@@ -40,58 +35,22 @@ export async function connectProviderInline(
   input: ConnectProviderInput,
 ): Promise<ConnectProviderResult> {
   let result: ConnectProviderResult = { connected: false }
+  const submitProvider = buildProviderSubmitHandler(input.settingsPath, input.existing, input.cwd)
 
   const submitted = await runProviderSetup({
     showTelemetryNotice: false,
     initialProviderId: input.providerId,
     ...(input.createRenderer !== undefined ? { createRenderer: input.createRenderer } : {}),
     ...(input.startLogin !== undefined ? { startLogin: input.startLogin } : {}),
-    onSubmit: async (values, setPhase, { skipValidation, preset, oauth }) => {
-      const { name, baseURL, apiKey, model } = values
-      const providerName = name.trim()
-      const trimmedBaseURL = baseURL.trim()
-      const trimmedKey = apiKey.trim()
-
-      if (oauth !== undefined) {
-        setPhase("saving")
-        const base = input.existing ?? { providers: {} }
-        await saveGlobalSettings(input.settingsPath, {
-          ...base,
-          defaultProvider: oauth.providerName,
-        })
-        await saveLocalSettings(input.localSettingsPath, {
-          provider: oauth.providerName,
-          model: model.trim(),
-        })
-        result = { connected: true, providerName: oauth.providerName, model: model.trim() }
-        return
-      }
-
-      if (!skipValidation && preset?.anthropic !== true) {
-        const check = await validateProviderConnection({
-          baseURL: trimmedBaseURL,
-          apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
-        })
-        if (!check.ok) throw new Error(check.error)
-      }
-
-      setPhase("saving")
-      const selectedModel = model.trim()
-      const models =
-        preset !== undefined && preset.models.includes(selectedModel)
-          ? [...preset.models]
-          : [selectedModel]
-      const newProvider = {
-        baseURL: trimmedBaseURL,
-        models,
-        defaultModel: selectedModel,
-        ...(trimmedKey.length > 0 ? { apiKey: trimmedKey } : { keyless: true }),
-        ...(preset?.anthropic === true ? { anthropic: true } : {}),
-        ...(preset?.opencodeGo === true ? { opencodeGo: true } : {}),
-      }
-      const merged = mergeProviderIntoSettings(input.existing, providerName, newProvider)
-      await saveGlobalSettings(input.settingsPath, merged)
-      result = { connected: true, providerName, model: selectedModel }
+    onSubmit: async (values, setPhase, opts) => {
+      // Persistence and validation (empty-key rejection, connection test,
+      // unverified marking) live in the one funnel every provider-setup exit
+      // path shares — see buildProviderSubmitHandler.
+      await submitProvider(values, setPhase, opts)
+      result =
+        opts.oauth !== undefined
+          ? { connected: true, providerName: opts.oauth.providerName, model: values.model.trim() }
+          : { connected: true, providerName: values.name.trim(), model: values.model.trim() }
     },
   })
 
