@@ -43,6 +43,17 @@ export type ProviderSettings = {
   anthropic?: boolean;
   // OpenCode Go multi-protocol provider; per-model adapter selection.
   opencodeGo?: boolean;
+  // False when this credential was persisted without a passing connection
+  // test (e.g. the onboarding "save anyway" bypass). Absent/true means either
+  // the test passed or the provider is exempt from it by design. Read once at
+  // startup to warn the operator instead of surfacing a raw auth error.
+  //
+  // Deliberately defaults to trusted: this field did not exist before it was
+  // introduced, so every provider in an existing settings.json has no value
+  // for it, and that must not retroactively flag every current user's
+  // already-working setup as unverified. Only paths that persist a
+  // credential without testing it write `false` explicitly.
+  verified?: boolean;
 };
 
 // Provider+model identity used by the models-first picker (recent / favorites).
@@ -333,6 +344,7 @@ export type ResolvedProvider = {
   model: string;
   providerName: string;
   keyless?: boolean;
+  verified?: boolean;
 };
 
 const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
@@ -394,6 +406,7 @@ const ProviderSettingsSchema = type({
   "bifrostVirtualKey?": "boolean",
   "anthropic?": "boolean",
   "opencodeGo?": "boolean",
+  "verified?": "boolean",
 });
 
 const ModelRefSchema = type({
@@ -1113,6 +1126,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     apiKey: apiKey ?? "",
     model,
     ...(keyless ? { keyless: true } : {}),
+    ...(selected?.verified === false ? { verified: false } : {}),
   };
 }
 

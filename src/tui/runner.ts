@@ -439,6 +439,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const startupPluginNotices: string[] = [];
   const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
   if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
+  // Saved through onboarding's "save anyway" bypass without a passing
+  // connection test — warn now instead of a bare adapter error on first send.
+  if (config.verified === false) {
+    startupPluginNotices.push(
+      `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,
+    );
+  }
   // Mutable list so trusting a project/path plugin can replace a metadata-only stub
   // with a fully loaded module without restarting the process.
   let livePluginModules = pluginModules;
@@ -2062,7 +2069,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
           providers: {},
         };
-        const next = pushRecentModel({ ...onDisk, defaultProvider: provider }, ref);
+        const next = pushRecentModel(onDisk, ref);
         await saveGlobalSettings(trueGlobalSettingsPath, next);
         config = { ...config, settings: next };
         host.refreshModels(listRecentModels(next), listFavoriteModels(next));
