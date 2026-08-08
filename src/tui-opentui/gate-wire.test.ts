@@ -599,6 +599,79 @@ describe("each gate decision appends exactly one transcript row", () => {
       }
     })
   })
+
+  // The queue (settle-once guard) and the transcript recorder (record-once
+  // per decision) are two independent mechanisms layered on the same set of
+  // terminal paths. Racing a timeout against an abort on the same request
+  // exercises both at once: clearTimers must retire the loser before it can
+  // run autoDeny a second time, so ev.resolve fires exactly once and exactly
+  // one row lands, no matter which trigger wins.
+  test("a timeout and an abort racing the same request settle once and record once", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {
+            resolveCount += 1
+          },
+          timeoutMs: 5,
+          signal: controller.signal,
+        })
+
+        await new Promise((r) => setTimeout(r, 20))
+        // The timeout already fired and cleared the abort listener — this
+        // must be a no-op, not a second settle.
+        controller.abort()
+
+        expect(resolveCount).toBe(1)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("a queued gate's timeout settles once and records once without ever opening", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+        })
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest({ tool: "queued_tool" }),
+          resolve: () => {
+            resolveCount += 1
+          },
+          timeoutMs: 5,
+        })
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        expect(resolveCount).toBe(1)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
 })
 
 describe("permission.gate auto-deny", () => {
