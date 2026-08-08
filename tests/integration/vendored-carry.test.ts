@@ -93,7 +93,7 @@ describe("integration — vendored feature carry", () => {
     const workdir = join(cwd, ".agent-state", "carry-session");
 
     // Minimal director: every user message infers with an ephemeral nudge
-    // attached, exactly the shape the chat director and goal governor emit.
+    // attached, exactly the shape the chat director's terminal rewrites emit.
     const nudgeDirectorDef = defineDirector({
       id: `${ID_PREFIX}/carry-nudge`,
       configSchema: type({}),
