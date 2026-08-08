@@ -20,11 +20,13 @@ import { PROMPT_KEY_BINDINGS } from "./prompt-input.js"
 import { SHELL_SHORTCUTS } from "./keybindings.js"
 import { createHarness, withTestRenderer, type Harness } from "./harness.js"
 import { mountRunnerHost } from "./runner-host.js"
+import { openCommandSurface } from "./command-surfaces.js"
 import { focusOwner } from "./focus/focus-state.js"
 import {
   appendStreamRow,
   createAppShell,
   isSlashPopupOpen,
+  openHelpOverlay,
   setMentionSuggestionSource,
   setPaletteCatalog,
   setPromptImageSource,
@@ -333,24 +335,6 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       press(h, chords[0])
       await escapeSettles()
       expect(shell.overlayKind).toBeNull()
-      shell.prompt.value = ""
-    },
-  },
-  "?": {
-    group: "surfaces",
-    probe: ({ h, shell, chords }) => {
-      shellFocusPrompt(shell)
-      shell.prompt.value = ""
-      press(h, chords[0])
-      // The condition, not just the chord: at the prompt it is a character.
-      expect(shell.overlayKind).toBeNull()
-
-      shellFocusTranscript(shell)
-      press(h, chords[0])
-      expect(shell.overlayKind).toBe("help")
-      press(h, chords[0])
-      expect(shell.overlayKind).toBeNull()
-      shellFocusPrompt(shell)
       shell.prompt.value = ""
     },
   },
@@ -675,6 +659,76 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
       })
     } finally {
       host.dispose()
+      harness.destroy()
+    }
+  })
+})
+
+describe("? no longer opens help", () => {
+  test("bare ? types a literal character instead of opening the shortcut list", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    try {
+      const shell = createAppShell(harness.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: true,
+        run: "idle",
+      })
+      try {
+        shellFocusPrompt(shell)
+        shell.prompt.value = ""
+        harness.pressKey("?")
+        expect(shell.overlayKind).toBeNull()
+        expect(shell.prompt.value).toBe("?")
+
+        shellFocusTranscript(shell)
+        harness.pressKey("?")
+        // No binding claims it with the transcript focused either — help has
+        // no chord left at all, only the /help command.
+        expect(shell.overlayKind).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    } finally {
+      harness.destroy()
+    }
+  })
+})
+
+describe("help stays reachable as a command", () => {
+  test("/help still opens the shortcut list", async () => {
+    const notifications: string[] = []
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      try {
+        expect(shell.overlayKind).toBeNull()
+        const opened = openCommandSurface(shell, "help", {
+          notify: (text) => notifications.push(text),
+        })
+        expect(opened).toBe(true)
+        expect(shell.overlayKind).toBe("help")
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("openHelpOverlay (the /help handler) opens the same overlay the removed ? chord used to", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    try {
+      const shell = createAppShell(harness.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      try {
+        openHelpOverlay(shell)
+        expect(shell.overlayKind).toBe("help")
+      } finally {
+        shell.dispose()
+      }
+    } finally {
       harness.destroy()
     }
   })

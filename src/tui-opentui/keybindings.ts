@@ -40,9 +40,8 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Ctrl+Y", description: "yank the last kill at the cursor" },
   { keys: "Alt+Y", description: "replace the text just yanked with the next-older kill" },
   { keys: "Ctrl+V / Ctrl+P", description: "attach an image from the clipboard to the next message" },
-  { keys: "?", description: "with the transcript focused, open this shortcut list; press again to close it" },
   { keys: "@", description: "at the start of a word, open file suggestions for the @mention being typed" },
-  { keys: "/", description: "at an empty prompt, open the command list (Tab completes, Enter runs)" },
+  { keys: "/", description: "at an empty prompt, open the command list (Tab completes, Enter runs); also lists /help" },
   { keys: "Up / Down", description: "recall previously sent messages, from the prompt's first / last row" },
   { keys: "Arrow keys", description: "move the cursor left / right / up / down in the prompt" },
   {

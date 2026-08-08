@@ -200,7 +200,7 @@ same last-resort floor every other optional zone shares.
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
-picker, settings, help, the command palette, …) shares one overlay host and
+picker, settings, help, the `/` command list, …) shares one overlay host and
 one height path — there is no second modal stack with independent row
 accounting (`src/tui-opentui/geometry/resolve.ts`,
 `src/tui-opentui/shell.ts:openListOverlay`). Opening a second surface either
@@ -238,7 +238,7 @@ rather than a background fill.
 ## How selectors should work
 
 Every list surface — permissions, the operator question, the model picker,
-the command palette, resume/session-mode pickers, settings — shares one list
+the `/` command list, resume/session-mode pickers, settings — shares one list
 viewport kit: shared windowing, keep-active-visible, and page/jump behavior.
 There is exactly one scroll lease at a time; keyboard paging and the mouse
 wheel both follow whichever surface currently holds it, so a modal open on
@@ -273,6 +273,23 @@ overlay this reuses is still internally called `"palette"` (`shell.ts`'s
 `PrimaryOverlayKind`), a naming leftover from when a Ctrl+O command palette
 also opened it; that chord is gone (see keybindings.ts), and the identifier
 stayed because renaming an internal overlay tag has no user-facing effect.
+
+`?` no longer binds anything — it is a literal character everywhere, prompt
+or transcript. The shortcut list it used to open is still reachable, as
+`/help` (`src/tui/commands/built-in.ts`, routed to `shell.ts:openHelpOverlay`
+via `openCommandSurface`'s `"help"` case, `command-surfaces.ts`); the `/` row
+in `SHELL_SHORTCUTS` documents that in place of a dedicated `?` row.
+
+The running build version is chrome, not part of the landing composition:
+`shell.ts`'s `versionRow`/`versionBadge`, a dedicated row pinned to the
+terminal's last line and right-aligned, distinct from `landing.ts`'s hero and
+below sections. It only reserves that row while the landing screen is
+showing (`relayout`'s `versionReserved`/`terminalForGeometry`) — once there
+is real transcript content the row goes back to whatever needed it, and the
+badge stops rendering. On a narrow or short terminal it hides
+(`versionBadgeVisible`, thresholds `VERSION_BADGE_MIN_COLUMNS`/
+`VERSION_BADGE_MIN_ROWS` in `landing.ts`) well before the prompt box or any
+other actionable chrome would need to shrink.
 
 The model/provider picker is provider-first
 (`src/tui-opentui/product-host.ts:groupModelsForPicker`/`openLevel`): recent

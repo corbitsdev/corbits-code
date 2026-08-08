@@ -88,7 +88,9 @@ describe("prompt box height", () => {
   })
 
   test("stops growing at the cap fraction and scrolls instead", async () => {
-    await withShell({ columns: 80, rows: 40 }, async (shell, h) => {
+    // +1 row: this shell never sends a message, so it stays on the landing
+    // screen, where the version badge reserves the terminal's last row.
+    await withShell({ columns: 80, rows: 41 }, async (shell, h) => {
       const cap = Math.floor(40 * PROMPT_CAP_FRACTION)
       await compose(shell, h, lines(60))
       expect(shell.layout.heights.prompt).toBe(cap)
@@ -126,7 +128,9 @@ describe("prompt box height", () => {
   })
 
   test("the box stays anchored at the foot of the terminal", async () => {
-    await withShell({ columns: 80, rows: 30 }, async (shell, h) => {
+    // +1 row: composing without sending stays on the landing screen, where
+    // the version badge reserves the terminal's last row.
+    await withShell({ columns: 80, rows: 31 }, async (shell, h) => {
       await compose(shell, h, lines(5))
       const box = shell.layout.regions.prompt
       expect(box).toBeDefined()
@@ -212,12 +216,9 @@ describe("openers toggle their surface shut", () => {
     })
   })
 
-  test("? opens the shortcut list and closes it", async () => {
+  test("? no longer opens the shortcut list (removed; use /help)", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
       toggleShellFocus(shell)
-      h.pressKey("?")
-      expect(shell.overlayKind).toBe("help")
-
       h.pressKey("?")
       expect(shell.overlayKind).toBeNull()
     })

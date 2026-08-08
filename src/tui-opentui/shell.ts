@@ -108,12 +108,14 @@ import {
   createLandingAbove,
   createLandingBelow,
   fitLandingMark,
+  LANDING_VERSION,
   landingBelowContent,
   landingSuggestionFor,
   paintLandingBelow,
   paintLandingMark,
   resolveMarkGrid,
   splitLandingRows,
+  versionBadgeVisible,
   type LandingAbove,
   type LandingBelowContent,
 } from "./landing.js"
@@ -547,6 +549,13 @@ export type AppShell = {
   /** Blank row below the prompt box (0 on short terminals). */
   readonly bottomPad: BoxRenderable
   /**
+   * Build version's row, pinned to the terminal's last line and right-aligned
+   * (persistent chrome, not part of the landing composition — visible
+   * whether or not landing is showing). Hides on a narrow/short terminal,
+   * ahead of anything actionable (`versionBadgeVisible`).
+   */
+  readonly versionRow: BoxRenderable
+  /**
    * Optional chrome zones (constitution task/agents). Distinct panels: a
    * task is a unit of work with a status, an agent is an executor.
    * One row per rendered task-panel line; rebuilt whenever the line count
@@ -754,6 +763,22 @@ function terminalOf(
     columns: Math.max(1, Math.floor(renderer.width || 80)),
     rows: Math.max(1, Math.floor(renderer.height || 24)),
   }
+}
+
+/**
+ * The version row is real chrome, not a float — it holds its own reserved
+ * row at the foot of the shell rather than overlaying content that already
+ * fills every row (there is no other spare one; `BOTTOM_MARGIN_ROWS` is 0).
+ * The geometry resolver gets one fewer row to lay the rest of the shell out
+ * in whenever that row will actually be reserved, so the badge never clips
+ * something else instead of showing, and nothing else has to know about it.
+ */
+function terminalForGeometry(terminal: {
+  readonly columns: number
+  readonly rows: number
+}): { columns: number; rows: number } {
+  if (!versionBadgeVisible(terminal.columns, terminal.rows)) return terminal
+  return { columns: terminal.columns, rows: Math.max(1, terminal.rows - 1) }
 }
 
 function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
@@ -1625,6 +1650,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.root.paddingLeft = layout.sideMargin
   shell.root.paddingRight = layout.sideMargin
 
+  // Raw renderer size, not `layout.terminal` — that is already net of the row
+  // this badge itself reserves (see `terminalForGeometry`), which would make
+  // the threshold check its own effect. Landing-only: see `relayout`.
+  shell.versionRow.visible =
+    isLanding(shell) &&
+    versionBadgeVisible(shell.renderer.width, shell.renderer.height)
+
   const taskH = Math.max(0, h.task)
   shell.taskBox.height = taskH > 0 ? taskH : 1
   shell.taskBox.visible = taskH > 0
@@ -1979,8 +2011,14 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
 
   const columns = opts?.columns ?? shell.renderer.width
   const rows = opts?.rows ?? shell.renderer.height
+  const terminal = terminalOf(shell.renderer, { columns, rows })
+  // Only the landing screen ever gives up a row for the version badge — once
+  // a session has real transcript content every row is that content's, and
+  // the badge simply stops showing (see `applyLayout`) rather than taking
+  // space back from it.
+  const versionReserved = isLanding(shell)
   const layout = resolveGeometry({
-    terminal: terminalOf(shell.renderer, { columns, rows }),
+    terminal: versionReserved ? terminalForGeometry(terminal) : terminal,
     visibility,
     overlay:
       overlayMode === "closed"
@@ -3622,9 +3660,6 @@ function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
   if ((key.meta || key.option) && !key.ctrl && (key.name === "c" || key.name === "C")) {
     return "copy"
   }
-  if (!key.ctrl && !key.meta && !key.option && key.sequence === "?") {
-    return "help"
-  }
   return null
 }
 
@@ -4848,7 +4883,7 @@ export function createAppShell(
 
   const terminal = terminalOf(renderer, options?.terminal)
   const layout = resolveGeometry({
-    terminal,
+    terminal: terminalForGeometry(terminal),
     visibility,
     overlay: { mode: "closed" },
     promptContentRows,
@@ -4884,6 +4919,32 @@ export function createAppShell(
     flexShrink: 0,
     backgroundColor: UI.ground,
   })
+
+  // Persistent chrome, not part of the landing composition (`landing.ts`
+  // never renders it, unlike the old in-hero version line): its own row at
+  // the very foot of root's column, after everything else, right-aligned.
+  // Every other zone here already toggles a reserved row on/off by terminal
+  // size (taskBox, agentsBox, bottomPad) rather than floating over content,
+  // so this follows the same pattern — the row only exists (and can only
+  // move the prompt box up by exactly one line) at the size threshold where
+  // `versionBadgeVisible` already says the badge itself should degrade away,
+  // well before anything else in the shell would need to.
+  const versionRow = new BoxRenderable(ctx, {
+    id: "shell-version-row",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    backgroundColor: UI.ground,
+    visible: versionBadgeVisible(terminal.columns, terminal.rows),
+  })
+  const versionBadge = new TextRenderable(ctx, {
+    id: "shell-version-badge",
+    content: LANDING_VERSION,
+    fg: UI.textFaint,
+  })
+  versionRow.add(versionBadge)
 
   // Optional chrome zones (off by default; setChromeZones turns them on).
   const taskBox = new BoxRenderable(ctx, {
@@ -5045,6 +5106,7 @@ export function createAppShell(
   root.add(promptBox)
   root.add(landingBelow)
   root.add(bottomPad)
+  root.add(versionRow)
 
   if (mount) {
     renderer.root.add(root)
@@ -5434,20 +5496,6 @@ export function createAppShell(
       }
     }
 
-    // Bare key, so it is live only while the transcript holds focus and can
-    // never shadow a `?` typed into the prompt.
-    if (
-      !key.ctrl &&
-      !key.meta &&
-      !key.option &&
-      key.sequence === "?" &&
-      focusOwner(shell.focus) === "transcript"
-    ) {
-      key.preventDefault()
-      openHelpOverlay(shell)
-      return
-    }
-
     if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
       // Alt+C: keyboard copy path (no mouse drag-select).
       key.preventDefault()
@@ -5543,6 +5591,7 @@ export function createAppShell(
     root,
     topPad,
     bottomPad,
+    versionRow,
     taskBox,
     agentsBox,
     transcript,
