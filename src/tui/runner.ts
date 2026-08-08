@@ -119,7 +119,7 @@ import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/i
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
-import { createChatDirector } from "../agent/director.js";
+import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
 import { createGoalGovernor } from "../agent/goal.js";
 import { createGoalEvaluator } from "../agent/goal-evaluator.js";
 import { loadGoalState, saveGoalState } from "../session/goal-state.js";
@@ -1193,20 +1193,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) => {
-      const d = createChatDirector(
-        agentCtx.systemPrompt,
-        computeAdvertised([...agentCtx.toolDefinitions]),
-        undefined,
-        (names) => promoteTools(names),
-        config.inactivityTimeoutMs ?? 750_000,
-        config.totalTimeoutMs,
-        undefined,
-        undefined,
-        () => {
+      const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
+        onActivateTools: (names) => promoteTools(names),
+        inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+        totalTimeoutMs: config.totalTimeoutMs,
+        onTasksChange: (tasks) => emitter.emit("tasks", tasks),
+        requestContinuation: () => {
           enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
         },
-        { providerName: config.providerName, model: config.model },
-      );
+        provider: { providerName: config.providerName, model: config.model },
+      });
       d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;
       return d;
@@ -2105,6 +2101,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
     chrome: () => ({
       goal: goalGovernor.get(),
+      tasks: directorHolder.instance?.getTasks() ?? null,
       agents: subAgentSessions.listForStrip().map((s) => ({
         agentId: s.agentId,
         id: s.id,
@@ -2118,9 +2115,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     subscribeChrome: (notify) => {
       const unsubscribeAgents = subAgentSessions.subscribe(notify);
       emitter.on("goal", notify);
+      emitter.on("tasks", notify);
       return () => {
         unsubscribeAgents();
         emitter.off("goal", notify);
+        emitter.off("tasks", notify);
       };
     },
     subAgentSessions: () => subAgentSessions.list(),
@@ -2295,6 +2294,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   void loadRecentTurns(workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
+      const tasks = hydrateTasksFromTurns(turns);
+      if (tasks.length > 0) {
+        blocks.unshift({ type: "tasks", tasks });
+        directorHolder.instance?.restoreTasks(tasks);
+      }
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {

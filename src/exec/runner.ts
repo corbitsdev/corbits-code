@@ -399,26 +399,29 @@ export async function runExec(config: Config): Promise<ExecResult> {
       id: `${ID_PREFIX}/chat`,
       configSchema: type({}),
       factory: (_cfg, _env, agentCtx) => {
-        const d = createChatDirector(
-          agentCtx.systemPrompt,
-          computeAdvertised([...agentCtx.toolDefinitions]),
-          undefined,
-          (names) => {
+        const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
+          onActivateTools: (names) => {
             if (!activatedToolNames.activate(names)) return;
             directorHolder.instance?.updateToolDefinitions(
               computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
             );
           },
-          config.inactivityTimeoutMs ?? 750_000,
-          config.totalTimeoutMs,
-          undefined,
-          undefined,
-          () => {
+          inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+          totalTimeoutMs: config.totalTimeoutMs,
+          // Exec mode has no live task panel or task stdout output today (unlike
+          // the TUI's chrome zone) — debug logging is the closest match to how
+          // this mode already surfaces other in-session state changes.
+          onTasksChange: (tasks) => {
+            logger.debug("tasks updated: {tasks}", {
+              tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+            });
+          },
+          requestContinuation: () => {
             // Compaction governor self-delivers after compact so the loop re-enters.
             currentAgent?.deliver(buildCompactionContinuationMessage());
           },
-          { providerName: config.providerName, model: config.model },
-        );
+          provider: { providerName: config.providerName, model: config.model },
+        });
         directorHolder.instance = d;
         return d;
       },

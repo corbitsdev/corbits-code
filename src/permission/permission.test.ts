@@ -972,10 +972,27 @@ describe("createPermissionGate", () => {
     const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
     expect(editVerdict.allowed).toBe(true);
     // Benign built-ins a hands-off run should not stop for.
-    for (const name of ["manage_tasks", "present", "tool_search", "use_skill", "search_agents", "task"]) {
+    for (const name of ["present", "tool_search", "use_skill", "search_agents", "task"]) {
       const verdict = await gate.evaluate({ id: "c", name, arguments: {} });
       expect(verdict.allowed).toBe(true);
     }
+    expect(asked).toBe(0);
+  });
+
+  // manage_tasks's handler has no side effect — the task list is mutated
+  // earlier by the director, before this tool ever executes — so denying it
+  // cannot undo anything. It auto-allows unconditionally, not just in auto
+  // mode, unlike the tools above.
+  test("manage_tasks auto-allows outside auto mode too", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    const verdict = await gate.evaluate({ id: "c", name: "manage_tasks", arguments: {} });
+    expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
 

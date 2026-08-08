@@ -100,18 +100,7 @@ describe("ChatDirector tool-only loop protection", () => {
   const providerlessPolicy = { providerName: "test-provider" };
 
   test("nudges once at the family threshold, after pending tools execute", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     // Default family nudges at 12 consecutive tool-only turns.
@@ -122,18 +111,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("the nudge is one-shot — it does not repeat on the next tool-only turn", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     await runToolOnlyStreak(director, capabilities, 12);
@@ -144,18 +122,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("pauses and stops issuing infers at the family pause threshold", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     // Default family pauses at 20 consecutive tool-only turns.
@@ -169,18 +136,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("resumes after the operator sends a new message", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     await runToolOnlyStreak(director, capabilities, 20);
@@ -191,18 +147,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("a dismissed ask_operator counts toward the streak like any other tool-only turn", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     // 11 ordinary tool-only turns, then a turn whose only tool call is a
@@ -252,18 +197,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("a busy-but-progressing session (text interleaved with tools) never trips", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      providerlessPolicy,
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
     const capabilities = makeCapabilities();
 
     let lastActions: ReactorAction[] = [];
@@ -278,18 +212,7 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("grok's tightened thresholds fire earlier than the default family", async () => {
-    const director = createChatDirector(
-      "system",
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      { providerName: "xai/default", model: "grok-4.5" },
-    );
+    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: { providerName: "xai/default", model: "grok-4.5" } });
     const capabilities = makeCapabilities();
 
     // Grok nudges at 6, well below the default family's 12.

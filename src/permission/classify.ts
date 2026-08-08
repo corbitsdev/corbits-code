@@ -14,10 +14,16 @@ import type { RootsProvider } from "./worktree-roots.js";
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
 // it is activated dynamically mid-session (see director.ts onActivateTools) —
-// hover/definition/reference lookups are as inert as a grep. Every other posix
-// tool is consequential and defaults to the "ask" tier. Catastrophic commands
-// are denied earlier by the authorization plugin, so they never reach here.
-const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp"]);
+// hover/definition/reference lookups are as inert as a grep. `manage_tasks` is
+// included for a related but distinct reason: its handler (src/agent/tools.ts)
+// has no side effect of its own — the task list is mutated earlier, by the
+// director's decide() loop at the tool_call event, before this tool ever
+// executes (see applyManageTasksToolCall in src/agent/director.ts). By the
+// time an operator would see an approval prompt for it, there is nothing left
+// for a denial to prevent. Every other posix tool is consequential and
+// defaults to the "ask" tier. Catastrophic commands are denied earlier by the
+// authorization plugin, so they never reach here.
+const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "manage_tasks"]);
 
 // Tools that take a single path-like argument the gate should check against
 // restriction (outside the workspace boundary, or writes under the session state root).
