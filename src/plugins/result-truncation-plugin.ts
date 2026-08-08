@@ -6,14 +6,23 @@ const TRUNCATABLE_TOOLS = new Set(["read_file", "grep", "run_shell", "search_fil
 // 80 000 chars ≈ 20 000 tokens. Keeps a single result from dominating context.
 const MAX_RESULT_CHARS = 80_000;
 
-// Shared with the MCP tool runner (src/mcp/plugin.ts), which is not part of the
-// posix runner this middleware wraps and so applies the same truncation directly.
-export function truncateToolResultContent(content: string): string {
-  if (content.length <= MAX_RESULT_CHARS) return content;
+// Shared with the MCP tool runner (src/mcp/plugin.ts), which is not part of
+// the posix runner this middleware wraps and so applies the same truncation
+// directly. This is the single primitive that produces a truncation notice —
+// callers may pass their own threshold but never invent their own wording, so
+// a result can never carry two differently-worded "truncated" notices. The
+// grep-specific caps in rg-output.ts and ripgrep-plugin.ts deliberately don't
+// call this: they trim silently and leave notice duty to this middleware,
+// which runs after them in the plugin chain and sees the final content.
+export function truncateToolResultContent(
+  content: string,
+  maxChars: number = MAX_RESULT_CHARS,
+): string {
+  if (content.length <= maxChars) return content;
 
-  const remaining = content.length - MAX_RESULT_CHARS;
+  const remaining = content.length - maxChars;
   return (
-    content.slice(0, MAX_RESULT_CHARS) +
+    content.slice(0, maxChars) +
     `\n[output truncated — ${remaining.toLocaleString()} characters omitted. ` +
     `Use offset/limit params or a more targeted query to see the rest.]`
   );

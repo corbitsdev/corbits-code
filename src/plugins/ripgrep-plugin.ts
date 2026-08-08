@@ -21,19 +21,25 @@ import { MAX_OUTPUT_BYTES, runRg, type RgLimits, type SpawnRg } from "./rg-run.j
 const DEFAULT_GREP_MAX = 500;
 const DEFAULT_SEARCH_MAX = 1000;
 
+// Caps the number of matches shown; carries no notice of its own. The final
+// tool result still passes through result-truncation-plugin.ts, which is the
+// single place a "truncated" notice gets attached — a count-based notice
+// here would double up with that pass whenever both conditions are true.
 function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
-  if (lines.length <= max) return lines.join("\n");
-  return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ lines; narrow path/glob)`;
+  return lines.slice(0, max).join("\n");
 }
 
 // Mirrors read_file's truncate-and-offer behavior: a cap or timeout still
 // surfaces whatever matches were collected before it fired, instead of
-// discarding them behind a bare error.
-function partialContent(stdout: string, maxResults: number, notice: string): string {
+// discarding them behind a bare error. `notice` is only set for conditions
+// result-truncation-plugin.ts can't see, like a run timing out.
+function partialContent(stdout: string, maxResults: number, notice?: string): string {
   const capped = capLines(stdout, maxResults);
-  if (capped.length === 0) return `no matches collected before ${notice}`;
-  return `${capped}\n... ${notice}`;
+  if (capped.length === 0) {
+    return notice === undefined ? "no matches collected" : `no matches collected before ${notice}`;
+  }
+  return notice === undefined ? capped : `${capped}\n... ${notice}`;
 }
 
 // The fallback walker collects its whole result in memory before returning, so
