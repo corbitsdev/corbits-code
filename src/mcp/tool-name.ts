@@ -9,6 +9,14 @@ export function isMcpToolName(name: string): boolean {
   return name.startsWith(MCP_PREFIX);
 }
 
+export function mcpToolPrefix(serverName: string): string {
+  return `${MCP_PREFIX}${serverName}__`;
+}
+
+export function mcpToolName(serverName: string, toolName: string): string {
+  return `${mcpToolPrefix(serverName)}${toolName}`;
+}
+
 export function parseMcpToolName(name: string): { server: string; tool: string } | null {
   if (!isMcpToolName(name)) return null;
   const rest = name.slice(MCP_PREFIX.length);

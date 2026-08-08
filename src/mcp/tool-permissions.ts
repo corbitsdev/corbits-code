@@ -1,5 +1,5 @@
 import type { Tier } from "../permission/classify.js";
-import { isReadOnlyMcpTool } from "./tool-name.js";
+import { isReadOnlyMcpTool, mcpToolName, mcpToolPrefix } from "./tool-name.js";
 
 // Subset of MCP ToolAnnotations used for permission tiering (hints from tools/list).
 export type McpToolAnnotations = {
@@ -23,7 +23,7 @@ export function createMcpToolPermissionRegistry(): McpToolPermissionRegistry {
       tiers.set(name, tier);
     },
     removeToolsForServer(serverName) {
-      const prefix = `mcp__${serverName}__`;
+      const prefix = mcpToolPrefix(serverName);
       for (const key of tiers.keys()) {
         if (key.startsWith(prefix)) tiers.delete(key);
       }
@@ -35,10 +35,6 @@ export function createMcpToolPermissionRegistry(): McpToolPermissionRegistry {
       tiers.clear();
     },
   };
-}
-
-function mcpAgentToolName(serverName: string, toolName: string): string {
-  return `mcp__${serverName}__${toolName}`;
 }
 
 function hasAnnotationHints(annotations: McpToolAnnotations | undefined): boolean {
@@ -60,7 +56,7 @@ export function tierFromMcpTool(
   if (hasAnnotationHints(annotations)) {
     return annotations!.readOnlyHint === true ? "allow" : "ask";
   }
-  return isReadOnlyMcpTool(mcpAgentToolName(serverName, toolName)) ? "allow" : "ask";
+  return isReadOnlyMcpTool(mcpToolName(serverName, toolName)) ? "allow" : "ask";
 }
 
 export function registerMcpClientTools(
@@ -69,6 +65,6 @@ export function registerMcpClientTools(
   tools: ReadonlyArray<{ name: string; annotations?: McpToolAnnotations }>,
 ): void {
   for (const tool of tools) {
-    registry.setTier(mcpAgentToolName(serverName, tool.name), tierFromMcpTool(tool.annotations, serverName, tool.name));
+    registry.setTier(mcpToolName(serverName, tool.name), tierFromMcpTool(tool.annotations, serverName, tool.name));
   }
 }
