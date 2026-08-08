@@ -232,6 +232,24 @@ function recordDecision(
 }
 
 /**
+ * Write a row for a request a newly-minted grant drained without a prompt.
+ * Every other terminal path (accept, Esc, timeout, abort) writes its own row
+ * at its own call site; this one covers the path that has none — reconcile()
+ * settles the queue entry directly, with no accept/cancel/autoDeny callback
+ * to hang a record onto. Without this, the operator's only trace of the
+ * highest-consequence event in the queue (a request that ran without being
+ * shown) is the transient grant-recorded flash, gone once it scrolls off.
+ */
+function recordGrantDrain(shell: AppShell, request: PermissionRequest): void {
+  const body = middleEllipsis(permissionBodyFromRequest(request), 500)
+  appendStreamRow(shell, {
+    role: "system",
+    text: `${body}\n→ Auto-approved (already granted)`,
+    meta: "permission",
+  })
+}
+
+/**
  * Write the operator's question and answer to the transcript, once decided.
  * Mirrors recordDecision: the overlay already shows this text while it is
  * open, so an immediate echo would print every operator question twice.
@@ -368,13 +386,26 @@ export function wireGates(
     // fires exactly once per gate instead of once per reentry.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome)
+    // Set immediately before every call to settle() from a known call site
+    // (accept, Esc, autoDeny), each of which writes its own row right after.
+    // reconcile() (src/permission/queue.ts) settles an entry directly, with
+    // no call site of its own — the resolve callback below falls back to
+    // recordGrantDrain whenever this is still false, so a request that ran
+    // without ever being shown still leaves a trace.
+    let recorded = false
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers()
+      // Captured before closeInsetOverlay below, which — when this entry is
+      // the one on screen — reentrantly invokes this same overlay's onCancel
+      // (see the comment on `settle` above) and would otherwise set
+      // `recorded` out from under this check before it runs.
+      const needsGrantDrainRecord = !recorded
       if (openedGeneration === undefined) {
         unqueue(open)
       } else if (openedGeneration === overlayGeneration) {
         closeInsetOverlay(shell)
       }
+      if (needsGrantDrainRecord) recordGrantDrain(shell, ev.request)
       resolve(outcome)
     })
 
@@ -412,6 +443,7 @@ export function wireGates(
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
           }
+          recorded = true
           if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
             recordDecision(shell, ev.request, choices, gateSelection)
           }
@@ -420,6 +452,7 @@ export function wireGates(
         // an unresolved gate hangs the run until the process is killed.
         onCancel: () => {
           const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
+          recorded = true
           if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
             recordDecision(shell, ev.request, choices, gateSelection)
           }
@@ -439,6 +472,7 @@ export function wireGates(
       ev.signal?.removeEventListener("abort", onAbort)
     }
     const autoDeny = (message: string): void => {
+      recorded = true
       if (settle({ allow: false, message })) {
         recordDecision(shell, ev.request, choices, {
           index: 0,

@@ -672,6 +672,83 @@ describe("each gate decision appends exactly one transcript row", () => {
       }
     })
   })
+
+  // reconcile() (src/permission/queue.ts) settles a queued request directly
+  // when a grant covers it, with no accept/cancel/autoDeny callback of its
+  // own to hang a row on — this is the one terminal path that has no natural
+  // call site, so it needs its own coverage.
+  test("a grant draining a queued request without ever displaying it", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      let resolved: unknown
+      try {
+        wireGates(emitter, shell)
+        // Occupies the overlay host so the second request queues instead of
+        // opening — the drain below must resolve it without ever opening it.
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+        })
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest({ tool: "queued_tool" }),
+          resolve: (outcome: unknown) => {
+            resolveCount += 1
+            resolved = outcome
+          },
+        })
+
+        emitter.emit("permission.grant", {
+          approval: { tool: "queued_tool", pattern: "bun test" },
+          covers: (r: { tool: string }) => r.tool === "queued_tool",
+        })
+
+        expect(resolveCount).toBe(1)
+        expect(resolved).toEqual({ allow: true })
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("a grant draining the currently displayed request closes it and records once", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {
+            resolveCount += 1
+          },
+        })
+        expect(shell.overlayKind).toBe("permissions")
+
+        emitter.emit("permission.grant", {
+          approval: { tool: "run_shell", pattern: "bun test" },
+          covers: () => true,
+        })
+
+        expect(resolveCount).toBe(1)
+        expect(shell.overlayList).toBeNull()
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
 })
 
 describe("permission.gate auto-deny", () => {
