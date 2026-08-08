@@ -42,8 +42,19 @@ describe("callbackPageHtml", () => {
     );
   });
 
-  test("the page reaches for nothing off the machine", () => {
+  test("success footer links to corbits.dev and the GitHub org", () => {
     const html = callbackPageHtml({ subject: "linear" });
-    expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org)/);
+    expect(html).toContain('href="https://corbits.dev"');
+    expect(html).toContain('href="https://github.com/corbitsdev"');
+    expect(html).toContain(">corbits.dev<");
+    expect(html).toContain(">github.com/corbitsdev<");
+  });
+
+  test("the page loads no off-machine assets", () => {
+    const html = callbackPageHtml({ subject: "linear" });
+    // Product links in the footer are intentional; nothing else may fetch.
+    expect(html).not.toMatch(/<(?:link|script)\b[^>]+\bsrc=/i);
+    expect(html).not.toMatch(/@import\b/);
+    expect(html).not.toMatch(/url\(\s*["']?https?:/i);
   });
 });

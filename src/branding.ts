@@ -11,6 +11,10 @@ export const PRODUCT_NAME = "Corbits Code";
 // Short attribution form used in compact UI (status lines, footers).
 export const PRODUCT_SHORT_NAME = "Corbits";
 
+// Canonical public URLs shown on the OAuth callback page and other brand surfaces.
+export const PRODUCT_SITE_URL = "https://corbits.dev";
+export const PRODUCT_GITHUB_URL = "https://github.com/corbitsdev";
+
 export const COMMAND_NAME = "corbits";
 
 export const SETTINGS_DIR_NAME = ".corbits";
