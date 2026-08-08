@@ -1387,6 +1387,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         duration_ms: ctx.durationMs,
       });
     },
+    // persistRunSnapshot is defined below but not invoked until the stream
+    // starts consuming events, well after this closure captures it.
+    onTurnBoundarySnapshot: () => {
+      void persistRunSnapshot("running");
+    },
   });
 
   // MCP servers connected so far, keyed by name so a reconnect after a failure
@@ -1440,9 +1445,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const streamSink = (event: Parameters<typeof runSink.sink>[0]): void => {
     runSink.sink(event);
     cycleRecorder.handleEvent(event);
-    if (event.type === "reactor.done") {
-      void persistRunSnapshot("running");
-    }
   };
 
   // Tool count before any MCP server connects; a reload is only worthwhile if

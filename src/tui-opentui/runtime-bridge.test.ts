@@ -298,6 +298,49 @@ describe("attachSessionBridge", () => {
     )
   })
 
+  test("run returns to idle between two consecutive turns, not only at reactor shutdown", async () => {
+    // CL-5570: `run` must flip back to idle at every turn boundary
+    // (`inference.done`), so a second Enter after the first reply sends
+    // immediately instead of routing through the queue. reactor.done is
+    // shutdown, not a turn boundary, and never fires between turns.
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.submit("first turn", "immediate")
+          expect(shell.session.run).toBe("busy")
+          bridge.handle({ type: "inference.start" })
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "hi" },
+          })
+          bridge.handle({ type: "inference.done" })
+          expect(shell.session.run).toBe("idle")
+
+          bridge.submit("second turn", "immediate")
+          expect(shell.session.run).toBe("busy")
+          bridge.handle({ type: "inference.start" })
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "hi again" },
+          })
+          bridge.handle({ type: "inference.done" })
+          expect(shell.session.run).toBe("idle")
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("run stays busy after inference.done while a tool call is still outstanding", async () => {
     await withTestRenderer(
       async (h) => {
