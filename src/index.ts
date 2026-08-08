@@ -148,7 +148,7 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
 // would block process.exit indefinitely, defeating this handler's one job.
 async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
   const run = getActiveRun();
-  if (run === null || !run.active) return;
+  if (run === null) return;
   const message = error instanceof Error ? error.message : String(error);
   try {
     await saveCrashState(run.cwd, run.sessionId, {

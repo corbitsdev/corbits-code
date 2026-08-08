@@ -174,7 +174,7 @@ import {
 import { createRunSink } from "../session/run-sink.js";
 import { generateSessionId, initSessionDir, renameSession, sessionContextDir, sessionDir } from "../session/index.js";
 import { resolveSessionLabel, truncateSessionLabel } from "../session/session-label.js";
-import { loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
+import { finalizeRunState, loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
 import { setActiveRun, clearActiveRun, type RunStateHandle } from "../session/active-run.js";
 import { openInBrowser } from "../auth/oauth/browser.js";
 import { pickSession } from "./pick-session.js";
@@ -503,7 +503,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const activeRunHandle: RunStateHandle = {
     sessionId,
     cwd: config.cwd,
-    active: true,
     task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
     model: `${config.providerName}:${config.model}`,
@@ -536,7 +535,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const finalizeOnCrash = async (err: unknown): Promise<void> => {
     if (finalized) return;
     finalized = true;
-    activeRunHandle.active = false;
+    // Clear the active-run handle up front, before the awaits below, so a
+    // second crash mid-flush can't see this run as still live and race the
+    // finalize write issued here. finalizeRunState (state.ts) would otherwise
+    // do this itself, but only after saveState resolves — too late for that
+    // guard, so it's done here and finalizeRunState's own clear becomes a
+    // no-op repeat of the same fact rather than a second independent write.
     clearActiveRun();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
       // Best-effort only — still attempt saveState below. Log so a flush
@@ -546,7 +550,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       process.stderr.write(`${COMMAND_NAME}: crash finalize partial flush failed: ${flushMessage}\n`);
     });
     const message = err instanceof Error ? err.message : String(err);
-    await saveState(config.cwd, sessionId, {
+    await finalizeRunState(config.cwd, sessionId, {
       status: "failed",
       turnsUsed: 0,
       task: runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
@@ -1422,7 +1426,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     activeRunHandle.task = task;
     activeRunHandle.startedAt = startedAt;
     activeRunHandle.model = model;
-    await saveState(config.cwd, sessionId, {
+    const state: RunState = {
       status,
       turnsUsed: runSink.getTurnCount(),
       task,
@@ -1430,7 +1434,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       model,
       mcpServers: connectedMcpServers,
       ...extra,
-    });
+    };
+    // "running" is the only non-terminal status writeRunSnapshot ever
+    // receives (progress snapshots); anything else closes the run out, so
+    // the active-run handle is cleared in the same call as the disk write
+    // rather than by a separate statement at each terminal call site.
+    if (status === "running") {
+      await saveState(config.cwd, sessionId, state);
+    } else {
+      await finalizeRunState(config.cwd, sessionId, state);
+    }
   };
 
   // Progress snapshots are fired unsequenced (model switch, MCP connect, turn
@@ -2352,8 +2365,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // finished run (finishedAt set) can be left reading as still in progress.
   const persistedStatus: RunState["status"] = summaryStatus;
   finalized = true;
-  activeRunHandle.active = false;
-  clearActiveRun();
+  // writeRunSnapshot clears the active-run handle itself for a terminal
+  // status (via finalizeRunState in state.ts), pairing the on-disk write
+  // with the in-memory one instead of setting them at two call sites.
   await writeRunSnapshot(persistedStatus, {
     finishedAt,
     ...(sinkError !== undefined ? { error: sinkError } : {}),
