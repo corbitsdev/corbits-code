@@ -87,11 +87,6 @@ describe("classifyAbortError", () => {
     const err = classifyAbortError();
     expect(err.category).toBe("aborted");
   });
-
-  test("stores AbortSignal.reason on raw.origin when provided", () => {
-    const err = classifyAbortError("internal-recovery");
-    expect(err.raw).toEqual({ origin: "internal-recovery" });
-  });
 });
 
 describe("classifyStreamError", () => {

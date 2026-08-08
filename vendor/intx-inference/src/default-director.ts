@@ -10,6 +10,8 @@
 //   inference.error           → checkpoint + reply (error message to user)
 //   abort                     → done
 //   reactor.gate.cleared      → checkpoint + infer (resume after gate)
+//   resume.execute_tools      → execute_tools (re-run a parked approved call)
+//   resume.tool_result        → checkpoint + infer (parked call denied/timed out)
 //
 // The inference.done branch additionally runs the optional afterInferenceDone
 // policy hook, whose continue/abort/halt decisions route independently of the
@@ -19,15 +21,16 @@
 // reply so the problem is visible, and the agent remains alive for retries.
 
 import { getLogger } from "@intx/log";
-import type {
-  ReactorDirector,
-  ReactorInboundEvent,
-  ReactorState,
-  ReactorCapabilities,
-  ReactorAction,
-  AssistantTurn,
-  ToolCall,
-  ToolDefinition,
+import {
+  formatSafetyRatingText,
+  type ReactorDirector,
+  type ReactorInboundEvent,
+  type ReactorState,
+  type ReactorCapabilities,
+  type ReactorAction,
+  type AssistantTurn,
+  type ToolCall,
+  type ToolDefinition,
 } from "@intx/types/runtime";
 
 const logger = getLogger(["interchange", "inference", "default-director"]);
@@ -150,20 +153,21 @@ function extractToolCalls(turn: AssistantTurn): ToolCall[] {
 }
 
 function extractTextContent(turn: AssistantTurn): string {
-  // Both regular text and refusal blocks carry human-readable model
-  // output that the connector needs to surface — a refusal-only turn
-  // (OpenAI strict-mode policy decline) would otherwise route through
-  // the empty-response branch below and never reach the reply path,
-  // leaving the human waiting for an answer the model already
-  // declined to give. The structural "this was a refusal" signal is
-  // preserved at the persistence layer (event-collector emits a
-  // refusal turn-part); the reply path only needs the words.
+  // Text, refusal, and safety_rating blocks all carry human-readable
+  // output the connector needs to surface. A refusal-only or
+  // safety-only turn would otherwise route through the empty-response
+  // branch below and never reach the reply path, leaving the human
+  // waiting for an answer the model already declined or blocked.
+  // Structural part kinds are preserved at the persistence layer;
+  // the reply path only needs the words.
   const parts: string[] = [];
   for (const block of turn.content) {
     if (block.type === "text") {
       parts.push(block.text);
     } else if (block.type === "refusal") {
       parts.push(block.reason);
+    } else if (block.type === "safety_rating") {
+      parts.push(formatSafetyRatingText(block));
     }
   }
   return parts.join("\n").trim();
@@ -295,6 +299,32 @@ export class DefaultDirector implements ReactorDirector {
         // the next inbound message. The reactor only shuts down on explicit
         // stop (abort), never because the model produced an empty turn.
         return [capabilities.checkpoint("inference-done"), capabilities.wait()];
+      }
+
+      case "resume.execute_tools": {
+        // A resumed approval re-runs its parked tool call. The reactor drives
+        // the execution; this director owns the outstanding-result count, so
+        // seed it to the number of calls about to run — exactly as the
+        // inference.done branch seeds it for a fresh tool batch. Without this
+        // seed the count stays zero and the re-dispatched call's tool.done
+        // would decrement to -1 and re-infer off a negative count by accident.
+        this.pendingToolResults = event.calls.length;
+        return capabilities.executeTools(event.calls, false, true);
+      }
+
+      case "resume.tool_result": {
+        // A parked approval ended without running its tool (rejected or timed
+        // out). The reactor appends the synthetic error result that answers the
+        // parked call, then this re-infers once so the model sees the failure
+        // and continues. No tool ran, so pendingToolResults is untouched — the
+        // counter only gates batches of real executions.
+        return [
+          capabilities.checkpoint("resume-tool-result"),
+          capabilities.infer({
+            systemPrompt: this.systemPrompt,
+            tools: this.toolDefinitions,
+          }),
+        ];
       }
 
       case "tool.done": {

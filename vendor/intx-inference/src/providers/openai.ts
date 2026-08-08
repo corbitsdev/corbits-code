@@ -9,6 +9,7 @@ import type {
   PartialMessage,
   TokenUsage,
 } from "@intx/types/runtime";
+import { formatSafetyRatingText } from "@intx/types/runtime";
 import type { ProviderAdapter, BuiltRequest } from "../adapter";
 import { BEARER_CREDENTIAL_SENTINEL } from "../auth";
 import { ProtocolMismatchError } from "../errors";
@@ -26,6 +27,46 @@ const OPENAI_TOOL_NAME_LIMIT: ToolNameLimit = {
   maxLength: 64,
 };
 
+// Per-source accommodations for the OpenAI-compatible backends this adapter
+// serves. Every field is optional; an absent field resolves to the strict
+// protocol default, so a source that supplies no quirks gets no accommodation
+// and must opt into lenient behavior explicitly.
+export const OpenAIQuirks = type({
+  // When true, emit `reasoning_content` on every assistant message even when
+  // the turn carried no thinking (kimi requires it whenever thinking is
+  // enabled). Defaults to false: the field is emitted only on turns that
+  // actually have thinking.
+  "forceAssistantReasoningContent?": "boolean",
+  // Which delta fields to read reasoning tokens from, in precedence order.
+  // Constrained to the fields the chunk schema declares so the type cannot
+  // promise a field the parser would drop before reading.
+  "reasoningFieldNames?": "('reasoning_content' | 'reasoning')[]",
+  // Which field carries the output-token cap. First-party OpenAI gpt-5.x
+  // rejects `max_tokens` and requires `max_completion_tokens`; relays served
+  // through the same adapter (e.g. OpenCode Zen) still take `max_tokens`.
+  // Defaults to `max_tokens` so every existing deployment is unchanged.
+  "maxTokensField?": "'max_tokens' | 'max_completion_tokens'",
+  // Reject unknown keys so a mistyped quirk name fails loudly at construction
+  // rather than being silently ignored and running with default behavior.
+  "+": "reject",
+});
+export type OpenAIQuirks = typeof OpenAIQuirks.infer;
+
+type ReasoningField = "reasoning_content" | "reasoning";
+
+const DEFAULT_REASONING_FIELDS: readonly ReasoningField[] = [
+  "reasoning_content",
+  "reasoning",
+];
+
+// Quirks resolved to concrete values at the factory edge, so interior code
+// never re-decides a default.
+type ResolvedOpenAIQuirks = {
+  forceAssistantReasoningContent: boolean;
+  reasoningFieldNames: readonly ReasoningField[];
+  maxTokensField: "max_tokens" | "max_completion_tokens";
+};
+
 // ---------------------------------------------------------------------------
 // Request building
 // ---------------------------------------------------------------------------
@@ -34,12 +75,15 @@ function buildRequest(
   messages: ConversationTurn[],
   model: string,
   options: InferenceOptions,
+  quirks: ResolvedOpenAIQuirks,
 ): BuiltRequest {
-  const convertedMessages: unknown[] = messages.flatMap(toOpenAIMessage);
+  const convertedMessages: unknown[] = messages.flatMap((msg) =>
+    toOpenAIMessage(msg, quirks.forceAssistantReasoningContent),
+  );
 
   const body: Record<string, unknown> = {
     model,
-    max_tokens: options.maxTokens ?? 4096,
+    [quirks.maxTokensField]: options.maxTokens ?? 4096,
     messages: convertedMessages,
     stream: true,
   };
@@ -57,6 +101,17 @@ function buildRequest(
         parameters: t.inputSchema,
       },
     }));
+    // gpt-5.6 Chat Completions rejects function tools unless
+    // reasoning_effort is explicitly "none" (reasoned tool use is on
+    // the Responses API). Keep this list aligned with the discovery
+    // protocol builder's TOOL_CALL_REASONING_NONE_MODELS set.
+    if (
+      model === "gpt-5.6-sol" ||
+      model === "gpt-5.6-terra" ||
+      model === "gpt-5.6-luna"
+    ) {
+      body["reasoning_effort"] = "none";
+    }
   }
 
   if (options.systemPrompt) {
@@ -108,7 +163,10 @@ function toOpenAIResponseFormat(
   }
 }
 
-function toOpenAIMessage(msg: ConversationTurn): unknown[] {
+function toOpenAIMessage(
+  msg: ConversationTurn,
+  forceAssistantReasoningContent: boolean,
+): unknown[] {
   if (msg.role === "system") {
     const text = msg.content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -145,7 +203,17 @@ function toOpenAIMessage(msg: ConversationTurn): unknown[] {
     if (parts.every((p) => typeof p === "string")) {
       return [{ role: "user", content: parts.join("") }];
     }
-    return [{ role: "user", content: parts }];
+    // Multimodal messages must use typed content parts. Bare strings next
+    // to image_url / file parts are not the Chat Completions wire shape
+    // (live vision and document captures use { type: "text", text }).
+    return [
+      {
+        role: "user",
+        content: parts.map((p) =>
+          typeof p === "string" ? { type: "text", text: p } : p,
+        ),
+      },
+    ];
   }
 
   if (msg.role === "assistant") {
@@ -172,6 +240,10 @@ function toOpenAIMessage(msg: ConversationTurn): unknown[] {
     const textBlocks = msg.content.filter(
       (b): b is { type: "text"; text: string } => b.type === "text",
     );
+    const safetyBlocks = msg.content.filter(
+      (b): b is Extract<ContentBlock, { type: "safety_rating" }> =>
+        b.type === "safety_rating",
+    );
     const thinkingBlocks = msg.content.filter(
       (b): b is { type: "thinking"; thinking: string } => b.type === "thinking",
     );
@@ -180,22 +252,41 @@ function toOpenAIMessage(msg: ConversationTurn): unknown[] {
         b.type === "tool_call",
     );
 
+    // safety_rating-only assistant turns become a textual content
+    // string so the turn is not a hollow `{content: null}` message
+    // that confuses multi-turn Chat Completions history.
+    const textContent = [
+      ...textBlocks.map((b) => b.text),
+      ...safetyBlocks.map((b) => formatSafetyRatingText(b)),
+    ].join("");
+
+    // Skip empty assistant turns that only carried dropped metadata.
+    if (
+      textContent.length === 0 &&
+      toolCalls.length === 0 &&
+      thinkingBlocks.length === 0
+    ) {
+      return [];
+    }
+
     const result: Record<string, unknown> = { role: "assistant" };
 
-    if (textBlocks.length > 0) {
-      result["content"] = textBlocks.map((b) => b.text).join("");
+    if (textContent.length > 0) {
+      result["content"] = textContent;
     } else {
       result["content"] = null;
     }
 
-    // Some providers (e.g. kimi) require reasoning_content on ALL assistant
-    // messages when thinking is enabled. If thinking blocks exist anywhere in
-    // the conversation, every assistant message must carry reasoning_content —
-    // even if empty for that particular turn.
-    result["reasoning_content"] =
-      thinkingBlocks.length > 0
-        ? thinkingBlocks.map((b) => b.thinking).join("")
-        : "";
+    // kimi requires reasoning_content on every assistant message once thinking
+    // is enabled anywhere in the conversation, even on turns that carried no
+    // thinking of their own. A source serving such a backend sets
+    // forceAssistantReasoningContent true, which keeps the field always
+    // present, empty on a turn with no thinking. The default is false: the
+    // field is emitted only on turns that actually have thinking.
+    const reasoning = thinkingBlocks.map((b) => b.thinking).join("");
+    if (forceAssistantReasoningContent || thinkingBlocks.length > 0) {
+      result["reasoning_content"] = reasoning;
+    }
 
     if (toolCalls.length > 0) {
       result["tool_calls"] = toolCalls.map((tc) => ({
@@ -212,6 +303,14 @@ function toOpenAIMessage(msg: ConversationTurn): unknown[] {
   }
 
   return [{ role: msg.role, content: "" }];
+}
+
+function filenameForDocumentMime(mimeType: string): string {
+  if (mimeType === "application/pdf") return "document.pdf";
+  throw new Error(
+    `OpenAI Chat Completions document input currently supports ` +
+      `application/pdf only; received mimeType: ${mimeType}`,
+  );
 }
 
 function toOpenAIContentPart(block: ContentBlock): unknown {
@@ -266,20 +365,41 @@ function toOpenAIContentPart(block: ContentBlock): unknown {
       throw new Error(
         `OpenAI adapter does not yet handle ${block.type} content blocks.`,
       );
-    case "document":
-      // OpenAI's Chat Completions added a `file` content type with
-      // `file_data`/`file_id` for PDF inputs, but the exact field
-      // names and required metadata (filename, content disposition)
-      // are version-sensitive and the OpenCode-Zen capture corpus
-      // carries no OpenAI document-input fixtures to ground-truth
-      // against. Surface the failure with explicit context rather
-      // than emitting an unverified wire shape that may 400 or — worse
-      // — silently land as malformed input the model ignores.
-      throw new Error(
-        "OpenAI adapter does not yet emit document content blocks; the " +
-          "Chat Completions file-content-type wire shape needs a captured " +
-          "fixture before the adapter can be wired against it.",
-      );
+    case "document": {
+      // Grounded on packages/inference-discovery-openai/sessions/openai/
+      // gpt-5.5/document-input/exchanges/0: Chat Completions takes
+      // { type: "file", file: { filename, file_data } } with file_data
+      // as a data URI. MediaSource has no filename field, so base64
+      // inputs synthesize a deterministic name from mimeType.
+      const source = block.source;
+      if (source.kind === "base64") {
+        return {
+          type: "file",
+          file: {
+            filename: filenameForDocumentMime(source.mimeType),
+            file_data: `data:${source.mimeType};base64,${source.data}`,
+          },
+        };
+      }
+      if (source.kind === "file-reference") {
+        // Only meaningful when `reference` is an OpenAI Files API
+        // file_id. Handles minted by other providers will 400; that
+        // is correct — the adapter does not translate across providers.
+        return {
+          type: "file",
+          file: { file_id: source.reference },
+        };
+      }
+      if (source.kind === "url") {
+        throw new Error(
+          `OpenAI Chat Completions does not accept url document sources; ` +
+            `the file content type only takes base64 data URIs (file_data) ` +
+            `or uploaded file_id handles. Received url: ${source.url}`,
+        );
+      }
+      source satisfies never;
+      throw new Error(`unreachable: unknown MediaSource kind`);
+    }
     case "citation":
       // Citation blocks are server-emitted attribution metadata for
       // content the model already produced; they're not part of the
@@ -291,6 +411,13 @@ function toOpenAIContentPart(block: ContentBlock): unknown {
       // across provider switches reads the finalized turn's content[]
       // directly. See INFERENCE.md § Cross-Provider Message
       // Transformation for the general policy on history-drop fields.
+      return "";
+    case "safety_rating":
+      // Assistant history rewrites safety_rating via
+      // formatSafetyRatingText before this multimodal path. A
+      // safety_rating on a user multimodal turn has no input wire
+      // shape; return empty rather than throw so mixed user content
+      // can still marshal (same silent skip as citation).
       return "";
     case "code_execution_request":
     case "code_execution_result":
@@ -438,10 +565,26 @@ function getOrAssignToolCallIndex(
   return assigned;
 }
 
+// Maps OpenAI's wire usage object onto the internal TokenUsage, reading the
+// cached-token and reasoning-token detail sub-objects. Shared by both
+// streaming usage branches (usage on a choices-empty chunk and usage riding a
+// choice-bearing chunk) and the non-streaming parseJSONResponse, whose usage
+// objects carry the same field names.
+function toInferenceUsage(usage: typeof OpenAIChunkUsage.infer): TokenUsage {
+  return {
+    input: usage.prompt_tokens ?? 0,
+    output: usage.completion_tokens ?? 0,
+    cacheRead: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cacheWrite: 0,
+    thinking: usage.completion_tokens_details?.reasoning_tokens ?? 0,
+  };
+}
+
 function parseResponse(
   sseData: string,
   indexer: OpenAIBlockIndexer,
   source: LastCycleSource,
+  reasoningFieldNames: readonly ReasoningField[],
 ): InferenceEvent[] {
   // parseSSE strips the `[DONE]` sentinel before yielding payloads, so
   // anything that reaches us here is supposed to be a JSON chunk. A
@@ -479,15 +622,12 @@ function parseResponse(
     // Check for usage-only events (some providers send a final event with usage).
     const { usage } = chunk;
     if (usage != null) {
-      const tokenUsage: TokenUsage = {
-        input: usage.prompt_tokens ?? 0,
-        output: usage.completion_tokens ?? 0,
-        cacheRead: usage.prompt_tokens_details?.cached_tokens ?? 0,
-        cacheWrite: 0,
-        thinking: usage.completion_tokens_details?.reasoning_tokens ?? 0,
-      };
       return [
-        { type: "inference.usage", seq, data: { usage: tokenUsage, source } },
+        {
+          type: "inference.usage",
+          seq,
+          data: { usage: toInferenceUsage(usage), source },
+        },
       ];
     }
     return [];
@@ -500,19 +640,30 @@ function parseResponse(
   const events: InferenceEvent[] = [];
 
   // Providers stream reasoning tokens under different field names:
-  //   - kimi (via OpenRouter): delta.reasoning
-  //   - kimi (direct): delta.reasoning_content
-  //   - DeepSeek / others: delta.reasoning_content
+  // reasoning_content (kimi direct, DeepSeek) or reasoning (kimi via
+  // OpenRouter). `reasoningFieldNames` gives the fields to read and their
+  // precedence; the first field carrying a non-null value wins. An
+  // empty-string value still claims its slot (matching the prior
+  // `reasoning_content ?? reasoning` short-circuit) and is filtered by the
+  // length gate below.
   //
-  // OpenAI's Chat Completions ships reasoning_content and content as
-  // separate logical content blocks without a wire-level block index.
-  // The parser assigns indices on first observation in arrival order
-  // via the per-request `indexer`: whichever kind streams first lands
-  // at 0, the other (if it appears) at 1. This satisfies the harness's
-  // per-index routing contract — distinct kinds get distinct indices
-  // and the harness's collision detection between block kinds at the
-  // same index never fires from a normal OpenAI response.
-  const reasoning = delta.reasoning_content ?? delta.reasoning;
+  // OpenAI's Chat Completions ships reasoning and content as separate
+  // logical content blocks without a wire-level block index. The parser
+  // assigns indices on first observation in arrival order via the
+  // per-request `indexer`: whichever kind streams first lands at 0, the
+  // other (if it appears) at 1. This satisfies the harness's per-index
+  // routing contract — distinct kinds get distinct indices and the
+  // harness's collision detection between block kinds at the same index
+  // never fires from a normal OpenAI response.
+  let reasoning: string | null | undefined;
+  for (const field of reasoningFieldNames) {
+    const value =
+      field === "reasoning_content" ? delta.reasoning_content : delta.reasoning;
+    if (value !== undefined && value !== null) {
+      reasoning = value;
+      break;
+    }
+  }
   if (typeof reasoning === "string" && reasoning.length > 0) {
     events.push({
       type: "inference.thinking.delta",
@@ -643,19 +794,216 @@ function parseResponse(
   // Usage at end of stream (stream_options: { include_usage: true }).
   const usageInChunk = chunk.usage;
   if (usageInChunk != null) {
-    const tokenUsage: TokenUsage = {
-      input: usageInChunk.prompt_tokens ?? 0,
-      output: usageInChunk.completion_tokens ?? 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      thinking: 0,
-    };
     events.push({
       type: "inference.usage",
       seq,
-      data: { usage: tokenUsage, source },
+      data: { usage: toInferenceUsage(usageInChunk), source },
     });
   }
+
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Non-streaming response parsing
+//
+// The non-streaming Chat Completions endpoint returns the whole assistant
+// message in one JSON body. parseJSONResponse re-expresses it as the same
+// InferenceEvent vocabulary parseResponse emits from the stream, so a
+// replayed non-streaming capture feeds the harness accumulator identically to
+// its streaming sibling. See parseResponse for the streaming counterpart.
+// ---------------------------------------------------------------------------
+
+// A complete non-streaming tool call carries its id, type, and function name
+// and arguments in full — unlike a streaming delta, where these arrive
+// incrementally and are optional per chunk. Require them: a complete body
+// missing them is malformed and should fail loudly at the boundary rather
+// than decode into a tool call with a synthesized id or empty name.
+const NonStreamingToolCall = type({
+  "index?": "number",
+  id: "string",
+  type: "string",
+  function: {
+    name: "string",
+    arguments: "string",
+  },
+});
+
+const NonStreamingMessage = type({
+  "role?": "string",
+  "content?": "string | null",
+  "reasoning_content?": "string | null",
+  "reasoning?": "string | null",
+  "refusal?": "string | null",
+  "tool_calls?": NonStreamingToolCall.array(),
+});
+
+const NonStreamingCompletion = type({
+  object: "'chat.completion'",
+  choices: type({
+    "index?": "number",
+    message: NonStreamingMessage,
+    "finish_reason?": "string | null",
+  }).array(),
+  usage: OpenAIChunkUsage,
+});
+
+function parseJSONResponse(
+  body: string,
+  source: LastCycleSource,
+  reasoningFieldNames: readonly ReasoningField[],
+): InferenceEvent[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new ProtocolMismatchError(
+      `openai parseJSONResponse: malformed JSON response body: ${message}`,
+      body,
+    );
+  }
+
+  const completion = NonStreamingCompletion(parsed);
+  if (completion instanceof type.errors) {
+    throw new ProtocolMismatchError(
+      `openai parseJSONResponse: response failed schema validation: ${completion.summary}`,
+      parsed,
+    );
+  }
+
+  const seq = 0;
+
+  const choice = completion.choices[0];
+  if (choice === undefined) {
+    // No choices: emit only usage, mirroring a usage-only streaming chunk.
+    return [
+      {
+        type: "inference.usage",
+        seq,
+        data: { usage: toInferenceUsage(completion.usage), source },
+      },
+    ];
+  }
+  const { message } = choice;
+
+  // A fresh indexer per body. Content-block indices are synthesized on first
+  // observation, so this must not share the adapter-instance counter the
+  // streaming parser advances.
+  const indexer: OpenAIBlockIndexer = {
+    nextIndex: 0,
+    textIndex: null,
+    thinkingIndex: null,
+    refusalIndex: null,
+    toolCallBlockIndex: new Map<number, number>(),
+  };
+
+  const events: InferenceEvent[] = [];
+
+  // Walk the message fields in the SAME order the streaming parser processes a
+  // delta chunk (reasoning -> content -> refusal -> tool_calls) through the
+  // same getOrAssign* helpers. For OpenAI this reproduces the streaming
+  // arrival-order index assignment: reasoning models flush reasoning before
+  // answer text, refusal is exclusive with content, and text/thinking/refusal
+  // each collapse to a single cached slot — so a complete message's field
+  // order matches the order the stream would have assigned indices. Empty
+  // fields must NOT claim an index (every getOrAssign call stays behind a
+  // non-empty gate, as on the streaming path), or the decoded turn would carry
+  // a phantom block the stream never produced.
+  let reasoning: string | null | undefined;
+  for (const field of reasoningFieldNames) {
+    const value =
+      field === "reasoning_content"
+        ? message.reasoning_content
+        : message.reasoning;
+    if (value !== undefined && value !== null) {
+      reasoning = value;
+      break;
+    }
+  }
+  if (typeof reasoning === "string" && reasoning.length > 0) {
+    events.push({
+      type: "inference.thinking.delta",
+      seq,
+      data: {
+        token: reasoning,
+        partial: EMPTY_PARTIAL,
+        index: getOrAssignThinkingIndex(indexer),
+      },
+    });
+  }
+
+  const { content } = message;
+  if (typeof content === "string" && content.length > 0) {
+    events.push({
+      type: "inference.text.delta",
+      seq,
+      data: {
+        token: content,
+        partial: EMPTY_PARTIAL,
+        index: getOrAssignTextIndex(indexer),
+      },
+    });
+  }
+
+  const { refusal } = message;
+  if (typeof refusal === "string" && refusal.length > 0) {
+    events.push({
+      type: "inference.refusal.delta",
+      seq,
+      data: {
+        token: refusal,
+        partial: EMPTY_PARTIAL,
+        index: getOrAssignRefusalIndex(indexer),
+      },
+    });
+  }
+
+  for (const [position, toolCall] of (message.tool_calls ?? []).entries()) {
+    // Genuine OpenAI non-streaming responses omit `index` on tool_calls[]
+    // (only the streaming deltas carry it, and the opencode-zen backends
+    // include it on the array too). Key the block-index slot on the array
+    // position when the wire index is absent, so parallel tool calls get
+    // distinct slots instead of all collapsing onto slot 0 and colliding in
+    // the harness's per-index accumulator.
+    const blockIndex = getOrAssignToolCallIndex(
+      indexer,
+      toolCall.index ?? position,
+    );
+    // Mirror the streaming convention exactly: the start carries the real id
+    // and the block index; the args delta carries String(blockIndex) as its
+    // callId placeholder, which the harness resolves via the indexToCallId
+    // mapping it registers from the start event's index. Start must precede
+    // the delta, or the harness silently drops the fragment.
+    events.push({
+      type: "inference.tool_call.start",
+      seq,
+      data: {
+        callId: toolCall.id,
+        name: decodeToolName(toolCall.function.name),
+        partial: EMPTY_PARTIAL,
+        index: blockIndex,
+      },
+    });
+    if (toolCall.function.arguments.length > 0) {
+      events.push({
+        type: "inference.tool_call.delta",
+        seq,
+        data: {
+          callId: String(blockIndex),
+          argumentFragment: toolCall.function.arguments,
+          partial: EMPTY_PARTIAL,
+          index: blockIndex,
+        },
+      });
+    }
+  }
+
+  events.push({
+    type: "inference.usage",
+    seq,
+    data: { usage: toInferenceUsage(completion.usage), source },
+  });
 
   return events;
 }
@@ -713,7 +1061,22 @@ function parseDuration(value: string): number | undefined {
   return total > 0 ? Math.ceil(total) : undefined;
 }
 
-export function createOpenAIAdapter(source: LastCycleSource): ProviderAdapter {
+export function createOpenAIAdapter(
+  source: LastCycleSource,
+  quirks?: unknown,
+): ProviderAdapter {
+  const parsedQuirks = OpenAIQuirks(quirks ?? {});
+  if (parsedQuirks instanceof type.errors) {
+    throw new Error(`openai adapter: invalid quirks: ${parsedQuirks.summary}`);
+  }
+  const resolvedQuirks: ResolvedOpenAIQuirks = {
+    forceAssistantReasoningContent:
+      parsedQuirks.forceAssistantReasoningContent ?? false,
+    reasoningFieldNames:
+      parsedQuirks.reasoningFieldNames ?? DEFAULT_REASONING_FIELDS,
+    maxTokensField: parsedQuirks.maxTokensField ?? "max_tokens",
+  };
+
   // Per-request indexer state. Adapter instances are created per
   // request (see `adapter.ts`), so each call to `createOpenAIAdapter`
   // gets a fresh counter for assigning block indices to reasoning vs.
@@ -726,8 +1089,17 @@ export function createOpenAIAdapter(source: LastCycleSource): ProviderAdapter {
     toolCallBlockIndex: new Map<number, number>(),
   };
   return {
-    buildRequest,
-    parseResponse: (sseData) => parseResponse(sseData, indexer, source),
+    buildRequest: (messages, model, options) =>
+      buildRequest(messages, model, options, resolvedQuirks),
+    parseResponse: (sseData) =>
+      parseResponse(
+        sseData,
+        indexer,
+        source,
+        resolvedQuirks.reasoningFieldNames,
+      ),
+    parseJSONResponse: (body) =>
+      parseJSONResponse(body, source, resolvedQuirks.reasoningFieldNames),
     extractRetryAfterMs,
     extractPacingDelayMs,
   };
