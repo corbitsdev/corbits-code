@@ -20,7 +20,6 @@ export type TurnStatus =
 export type TurnLabelInput = {
   readonly isProcessing: boolean
   readonly status: TurnStatus
-  readonly awaitingResponse: boolean
   readonly currentToolName: string | null
   readonly streamingType: "text" | "thinking" | "tool" | null
 }
@@ -61,8 +60,12 @@ const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
   write_file: "building",
   edit_file: "building",
   run_shell: "building",
+  delete_file: "building",
   manage_tasks: "planning",
   task: "planning",
+  advance_workflow: "planning",
+  tool_search: "researching",
+  search_agents: "researching",
   ask_operator: "waiting",
   submit_output: "working",
 }
@@ -77,14 +80,16 @@ function activityStateForTool(name: string | null): ActivityState {
  * unpunctuated — the ramp's color and motion carry the state, so the word only
  * has to name it. Returns undefined when idle so the phase segment disappears.
  *
- * `isStalled` is the caller's own `shouldNoticeStall`/`isStalledForDisplay`
- * result (see stall-watchdog.ts) — this function does not re-derive
- * staleness, it only ranks "stalled" against the other phases so the ticker
- * and the ramp never disagree about which runs look stuck.
+ * `isStalled` is the caller's own `isStalledForDisplay` result (see
+ * stall-watchdog.ts) — this function does not re-derive staleness, it only
+ * ranks "stalled" against the other phases so the ticker and the ramp never
+ * disagree about which runs look stuck. Required, not defaulted: a caller
+ * that forgets to pass it is exactly the bug this state exists to prevent —
+ * a wedged run silently painted as ordinary work.
  */
 export function resolveTurnLabel(
   input: TurnLabelInput,
-  isStalled: boolean = false,
+  isStalled: boolean,
 ): ActivityState | undefined {
   if (!input.isProcessing) return undefined
   if (input.status === "blocked") return "waiting"

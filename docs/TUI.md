@@ -52,9 +52,14 @@ branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui-opentui/shell.ts`). Both rules cost zero transcript rows because they
 ride the prompt box's own border.
 
-While a turn is live the lockup slot swaps the wordmark for the phase word —
-`thinking`, `streaming 12 tok`, the running tool's name — led by a single
-density cell (`rampPulse`, `src/tui-opentui/ramp.ts`). The cell, not the word,
+While a turn is live the lockup slot swaps the wordmark for a semantic
+activity word — never the raw tool, MCP server, or plugin identifier that is
+actually executing. `resolveTurnLabel` (`src/tui-opentui/session-chrome.ts`)
+maps execution onto the closed set `ACTIVITY_STATES` exported from that
+module (`thinking`, `planning`, `researching`, `building`, `working`,
+`waiting`, `stalled`, `stopping`); that export is the source of truth for
+what the slot can say, not this list. It is led by a single density cell
+(`rampPulse`, `src/tui-opentui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
 | State | Cell | Reads as |

@@ -80,10 +80,10 @@ describe("turn progress label", () => {
 
         t.bridge.handle({
           type: "inference.tool_call.end",
-          data: { name: "bash", callId: "c1" },
+          data: { name: "mcp__glitchtip__resolve_issue", callId: "c1" },
         })
-        // Unmapped tool identifiers fall back to the generic working state
-        // rather than leaking the raw name.
+        // Unmapped tool identifiers — including MCP tools — fall back to the
+        // generic working state rather than leaking the raw name.
         expect(t.shell.lockupPhase).toBe("working")
 
         t.bridge.handle({ type: "reactor.done", data: {} })

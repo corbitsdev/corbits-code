@@ -802,7 +802,6 @@ export function attachSessionBridge(
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
-      awaitingResponse: turn.awaitingResponse,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
     }
@@ -1036,7 +1035,10 @@ export function attachSessionBridge(
       setStatusFlash(shell, STALL_NOTICE_MESSAGE)
     }
 
-    paintPhaseAt(nowMs, level !== "quiet")
+    // Same "is this stalled at all" question `paintPhase` asks above — call
+    // the one definition (`isStalledForDisplay`) rather than re-deriving it
+    // from `stallLevel`'s result, so the two call sites can never disagree.
+    paintPhaseAt(nowMs, isStalledForDisplay(stallArgs))
   }
 
   setShellBridgeHooks(shell, {

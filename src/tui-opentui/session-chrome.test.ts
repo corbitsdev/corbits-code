@@ -39,13 +39,15 @@ describe("resolveTurnLabel closed-set guarantee", () => {
 
   for (const currentToolName of leakingIdentifiers) {
     test(`"${currentToolName}" resolves to a member of the closed set`, () => {
-      const label = resolveTurnLabel({
-        isProcessing: true,
-        status: "running",
-        awaitingResponse: false,
-        currentToolName,
-        streamingType: "tool",
-      })
+      const label = resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "running",
+          currentToolName,
+          streamingType: "tool",
+        },
+        false,
+      )
       expect(label).not.toBe(currentToolName)
       expect(ACTIVITY_STATES).toContain(label!)
     })
@@ -56,7 +58,6 @@ describe("resolveTurnLabel closed-set guarantee", () => {
       {
         isProcessing: true,
         status: "running",
-        awaitingResponse: false,
         currentToolName: "run_shell",
         streamingType: "tool",
       },
@@ -67,13 +68,15 @@ describe("resolveTurnLabel closed-set guarantee", () => {
   })
 
   test("waiting on the operator is distinguishable from working", () => {
-    const label = resolveTurnLabel({
-      isProcessing: true,
-      status: "blocked",
-      awaitingResponse: false,
-      currentToolName: "run_shell",
-      streamingType: "tool",
-    })
+    const label = resolveTurnLabel(
+      {
+        isProcessing: true,
+        status: "blocked",
+        currentToolName: "run_shell",
+        streamingType: "tool",
+      },
+      false,
+    )
     expect(label).toBe("waiting")
     expect(label).not.toBe("working")
     expect(ACTIVITY_STATES).toContain(label!)
@@ -83,49 +86,57 @@ describe("resolveTurnLabel closed-set guarantee", () => {
 describe("resolveTurnLabel", () => {
   test("idle processing off yields no label", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: false,
-        status: "idle",
-        awaitingResponse: false,
-        currentToolName: null,
-        streamingType: null,
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: false,
+          status: "idle",
+          currentToolName: null,
+          streamingType: null,
+        },
+        false,
+      ),
     ).toBeUndefined()
   })
 
   test("blocked gate shows a waiting-on-operator state", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "blocked",
-        awaitingResponse: false,
-        currentToolName: "run_shell",
-        streamingType: "tool",
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "blocked",
+          currentToolName: "run_shell",
+          streamingType: "tool",
+        },
+        false,
+      ),
     ).toBe("waiting")
   })
 
   test("stopping beats tool phase", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "stopping",
-        awaitingResponse: false,
-        currentToolName: "grep",
-        streamingType: "tool",
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "stopping",
+          currentToolName: "grep",
+          streamingType: "tool",
+        },
+        false,
+      ),
     ).toBe("stopping")
   })
 
   test("tool phase maps to its semantic activity, never the raw name", () => {
     expect(
-      resolveTurnLabel({
-        isProcessing: true,
-        status: "running",
-        awaitingResponse: true,
-        currentToolName: "grep",
-        streamingType: "tool",
-      }),
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "running",
+          currentToolName: "grep",
+          streamingType: "tool",
+        },
+        false,
+      ),
     ).toBe("researching")
   })
 
@@ -133,21 +144,16 @@ describe("resolveTurnLabel", () => {
     const base = {
       isProcessing: true,
       status: "running" as const,
-      awaitingResponse: false,
       currentToolName: null,
     }
     expect(
-      resolveTurnLabel({ ...base, streamingType: "thinking" }),
+      resolveTurnLabel({ ...base, streamingType: "thinking" }, false),
     ).toBe("thinking")
     expect(
-      resolveTurnLabel({ ...base, streamingType: "text" }),
+      resolveTurnLabel({ ...base, streamingType: "text" }, false),
     ).toBe("working")
     expect(
-      resolveTurnLabel({
-        ...base,
-        awaitingResponse: true,
-        streamingType: null,
-      }),
+      resolveTurnLabel({ ...base, streamingType: null }, false),
     ).toBe("working")
   })
 })
@@ -155,7 +161,6 @@ describe("resolveTurnLabel", () => {
 describe("resolveRampPhase", () => {
   const base = {
     isProcessing: true,
-    awaitingResponse: false,
     currentToolName: null,
     streamingType: null,
   }
