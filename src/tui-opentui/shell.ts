@@ -6,7 +6,7 @@
  */
 
 import { homedir } from "node:os"
-import type { AgentPanelRow } from "./chrome-state.js"
+import type { AgentPanelRow, TaskPanelRow } from "./chrome-state.js"
 
 import {
   BoxRenderable,
@@ -551,9 +551,13 @@ export type AppShell = {
   readonly topPad: BoxRenderable
   /** Blank row below the prompt box (0 on short terminals). */
   readonly bottomPad: BoxRenderable
-  /** Optional chrome zones (constitution task/agents). */
+  /**
+   * Optional chrome zones (constitution task/agents). Distinct panels: a
+   * task is a unit of work with a status, an agent is an executor.
+   * One row per rendered task-panel line; rebuilt whenever the line count
+   * or any row's status changes.
+   */
   readonly taskBox: BoxRenderable
-  readonly taskText: TextRenderable
   /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
   readonly agentsBox: BoxRenderable
   readonly transcript: ScrollBoxRenderable
@@ -762,9 +766,10 @@ function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
     notice: false,
     progress: false,
     progressDivider: false,
-    // Explicit 0 rather than left undefined: the agents field is now a row
-    // count, and setChromeZones compares it by ===, so an undefined start
-    // forces one needless relayout the first time it is ever compared.
+    // Explicit 0 rather than left undefined: task and agents are row
+    // counts, and setChromeZones compares them by ===, so an undefined
+    // start forces one needless relayout the first time either is compared.
+    task: 0,
     agents: 0,
     ...visibility,
   }
@@ -1892,12 +1897,22 @@ type ShellInternals = {
   landingAnimating: boolean
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number
-  /** Chrome text content (empty = zone off). */
+  /** Chrome content (empty array = zone off). */
   chrome: {
-    task: string
+    /**
+     * Rendered task rows — empty when there is nothing to show OR the panel
+     * is hidden by the operator toggle. `tasksRaw` holds the live data
+     * independent of that toggle, so un-hiding shows the current list
+     * without waiting on the next task-tool write.
+     */
+    task: readonly TaskPanelRow[]
+    /** Last live task rows pushed via setChromeZones, regardless of hidden state. */
+    tasksRaw: readonly TaskPanelRow[]
     /** Agents panel rows (empty array = zone off), one row per rendered line. */
     agents: readonly AgentPanelRow[]
   }
+  /** Operator toggle for the task panel; in-memory, held for the life of the shell. */
+  tasksPanelHidden: boolean
 }
 
 const internals = new WeakMap<AppShell, ShellInternals>()
@@ -4100,16 +4115,7 @@ export function runPaletteAction(
       return
     }
     case "toggle_task": {
-      const bag = internals.get(shell)
-      const on = (bag?.chrome.task.length ?? 0) > 0
-      setChromeZones(shell, {
-        task: on ? null : "task: implement Wave 6 acceptance",
-      })
-      appendStreamRow(shell, {
-        role: "system",
-        text: on ? "task banner off" : "task banner on",
-        meta: "task",
-      })
+      toggleTasksPanel(shell)
       return
     }
     case "toggle_agents": {
@@ -4160,9 +4166,26 @@ export function runPaletteAction(
 }
 
 export type ChromeZoneContent = {
-  readonly task?: string | null
+  /** One row per task-panel line. Null/empty = hide the zone. */
+  readonly task?: readonly TaskPanelRow[] | null
   /** One row per agents-panel line. Null/empty = hide the zone. */
   readonly agents?: readonly AgentPanelRow[] | null
+}
+
+/** Bracket marker per task status; a trailer row (status null) gets none. */
+function taskStatusMarker(status: TaskPanelRow["status"]): string {
+  switch (status) {
+    case "todo":
+      return "[ ] "
+    case "doing":
+      return "[~] "
+    case "done":
+      return "[x] "
+    case "cancelled":
+      return "[-] "
+    case null:
+      return ""
+  }
 }
 
 /**
@@ -4192,6 +4215,42 @@ function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
   return ` ${sliceToWidth(row.label, budget)}…${row.tail}`
 }
 
+/**
+ * Fit a task row's status marker + label into `maxWidth` columns, same
+ * ellipsis discipline as `fitAgentRow`: the marker (what says done vs.
+ * pending) is preserved whole, the free-form title is what gives way.
+ */
+function fitTaskRow(row: TaskPanelRow, maxWidth: number): string {
+  const marker = taskStatusMarker(row.status)
+  const full = ` ${marker}${row.label}`
+  if (stringWidth(full) <= maxWidth) return full
+
+  const leadingSpace = 1
+  const ellipsis = 1
+  const budget = maxWidth - leadingSpace - stringWidth(marker) - ellipsis
+  if (budget <= 0) return ` ${sliceToWidth(marker, maxWidth - leadingSpace)}`
+  return ` ${marker}${sliceToWidth(row.label, budget)}…`
+}
+
+/** Rebuild taskBox's row children to match the requested rows exactly. */
+function renderTasksRows(
+  shell: AppShell,
+  rows: readonly TaskPanelRow[],
+  maxWidth: number,
+): void {
+  for (const child of [...shell.taskBox.getChildren()]) {
+    shell.taskBox.remove(child)
+    destroySubtree(child)
+  }
+  for (const row of rows) {
+    const text = new TextRenderable(shell.renderer as CliRenderer, {
+      content: fitTaskRow(row, maxWidth),
+      fg: row.status === "done" ? UI.done : row.status === "doing" ? UI.text : UI.textDim,
+    })
+    shell.taskBox.add(text)
+  }
+}
+
 /** Rebuild agentsBox's row children to match the requested rows exactly. */
 function renderAgentsRows(
   shell: AppShell,
@@ -4217,6 +4276,16 @@ function renderAgentsRows(
  * Set agents/task chrome zone content (null/empty = hide zone).
  * Heights come from geometry resolve — never guessed.
  */
+function taskRowsEqual(a: readonly TaskPanelRow[], b: readonly TaskPanelRow[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((row, i) => {
+      const other = b[i]
+      return other !== undefined && row.label === other.label && row.status === other.status
+    })
+  )
+}
+
 export function setChromeZones(
   shell: AppShell,
   content: ChromeZoneContent,
@@ -4224,8 +4293,12 @@ export function setChromeZones(
   const bag = internals.get(shell)
   if (!bag) return
 
+  let taskChanged = false
   if (content.task !== undefined) {
-    bag.chrome.task = content.task ?? ""
+    bag.chrome.tasksRaw = content.task ?? []
+    const rendered = bag.tasksPanelHidden ? [] : bag.chrome.tasksRaw
+    taskChanged = !taskRowsEqual(rendered, bag.chrome.task)
+    bag.chrome.task = rendered
   }
   let agentsChanged = false
   if (content.agents !== undefined) {
@@ -4244,13 +4317,14 @@ export function setChromeZones(
     bag.chrome.agents = next
   }
 
-  const taskOn = bag.chrome.task.length > 0
+  const taskRowCount = bag.chrome.task.length
   const agentsRowCount = bag.chrome.agents.length
 
-  shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
   // Rebuilding N TextRenderable children is real node churn; skip it unless
-  // the panel's actual lines changed (not every task/agents push carries
-  // new agent data).
+  // the panel's actual lines changed (not every push carries new data).
+  if (taskChanged) {
+    renderTasksRows(shell, bag.chrome.task, shell.layout.contentWidth)
+  }
   if (agentsChanged) {
     renderAgentsRows(shell, bag.chrome.agents, shell.layout.contentWidth)
   }
@@ -4259,7 +4333,7 @@ export function setChromeZones(
   // row budget; retitling a zone whose row count is unchanged must not
   // re-resolve and re-apply the whole layout.
   if (
-    taskOn === bag.visibility.task &&
+    taskRowCount === bag.visibility.task &&
     agentsRowCount === bag.visibility.agents
   ) {
     paintChrome(shell)
@@ -4269,13 +4343,33 @@ export function setChromeZones(
   relayout(shell, {
     visibility: {
       ...bag.visibility,
-      task: taskOn,
+      task: taskRowCount,
       agents: agentsRowCount,
     },
     overlayMode: bag.overlayMode,
     ...(bag.overlayBodyRows !== undefined
       ? { overlayBodyRows: bag.overlayBodyRows }
       : {}),
+  })
+}
+
+/**
+ * Toggle the task-list panel visible/hidden without touching the live task
+ * data underneath it — un-hiding shows whatever the task tool last wrote,
+ * not a stale snapshot from before the hide. The flag lives on the shell's
+ * internals in memory for the shell's lifetime; nothing is written to
+ * storage, so it does not survive a restart.
+ */
+export function toggleTasksPanel(shell: AppShell): void {
+  const bag = internals.get(shell)
+  if (!bag) return
+  bag.tasksPanelHidden = !bag.tasksPanelHidden
+  const hiding = bag.tasksPanelHidden
+  setChromeZones(shell, { task: bag.chrome.tasksRaw })
+  appendStreamRow(shell, {
+    role: "system",
+    text: hiding ? "task list hidden" : "task list shown",
+    meta: "task",
   })
 }
 
@@ -4935,15 +5029,10 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
+    flexDirection: "column",
     backgroundColor: UI.ground,
     visible: false,
   })
-  const taskText = new TextRenderable(ctx, {
-    id: "shell-task-text",
-    content: "",
-    fg: UI.inFlight,
-  })
-  taskBox.add(taskText)
 
   const agentsBox = new BoxRenderable(ctx, {
     id: "shell-agents",
@@ -5592,7 +5681,6 @@ export function createAppShell(
     topPad,
     bottomPad,
     taskBox,
-    taskText,
     agentsBox,
     transcript,
     overlayHost,
@@ -5690,7 +5778,8 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
-    chrome: { task: "", agents: [] },
+    chrome: { task: [], tasksRaw: [], agents: [] },
+    tasksPanelHidden: false,
   })
   transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)

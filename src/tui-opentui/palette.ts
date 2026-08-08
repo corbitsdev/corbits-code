@@ -88,8 +88,8 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
   },
   {
     id: "toggle_task",
-    label: "Toggle task chrome",
-    keywords: ["task", "work", "chrome"],
+    label: "Toggle task list panel",
+    keywords: ["task", "work", "chrome", "list", "panel"],
     dispatch: "residual",
   },
   {

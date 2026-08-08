@@ -657,6 +657,7 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })

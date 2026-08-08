@@ -19,9 +19,11 @@ import {
   openInsetOverlay,
   openPalette,
   replaceStreamRowAt,
+  runPaletteAction,
   setChromeZones,
   streamRowAt,
   streamRowCount,
+  toggleTasksPanel,
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
 import { stringWidth } from "../tui/view/height"
@@ -288,7 +290,7 @@ describe("Wave 6: chrome zones", () => {
           expect(shell.taskBox.visible).toBe(false)
 
           setChromeZones(shell, {
-            task: "task: chrome zones",
+            task: [{ label: "chrome zones", status: "doing" }],
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
@@ -301,7 +303,7 @@ describe("Wave 6: chrome zones", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("task: chrome zones")
+          expect(frame).toContain("chrome zones")
           expect(frame).toContain("explore: map callers")
 
           setChromeZones(shell, { task: null, agents: null })
@@ -333,7 +335,7 @@ describe("Wave 6: chrome zones", () => {
           expect(rowsBefore).toHaveLength(1)
 
           // An unrelated task push must not touch the agents rows.
-          setChromeZones(shell, { task: "task: unrelated" })
+          setChromeZones(shell, { task: [{ label: "unrelated", status: "todo" }] })
           expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
 
           // Pushing the exact same agent lines again must not rebuild either.
@@ -428,6 +430,179 @@ describe("Wave 6: chrome zones", () => {
 
           // No wrap: the zone stays a single row for a single agent.
           expect(shell.layout.heights.agents).toBe(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
+// CL-5731: the task list and the agents panel are distinct concepts — a
+// task is a unit of work with a status, an agent is an executor — and must
+// render as distinct panels, never merged.
+describe("CL-5731: task list panel", () => {
+  test("each task entry renders with its own status, distinct from the agents panel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, {
+            task: [
+              { label: "wire task panel", status: "doing" },
+              { label: "add toggle", status: "todo" },
+              { label: "write docs", status: "done" },
+            ],
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
+
+          expect(shell.layout.heights.task).toBe(3)
+          expect(shell.taskBox.getChildren()).toHaveLength(3)
+          // A distinct zone/box from the agents panel — not folded into it.
+          expect(shell.taskBox).not.toBe(shell.agentsBox)
+          expect(shell.agentsBox.getChildren()).toHaveLength(1)
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("wire task panel")
+          expect(frame).toContain("add toggle")
+          expect(frame).toContain("write docs")
+          expect(frame).toContain("explore: map callers")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("takes zero vertical space when the task list is empty", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, { task: [] })
+          expect(shell.layout.heights.task).toBe(0)
+          expect(shell.taskBox.visible).toBe(false)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("updates live as the task list changes, without touching the agents panel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, {
+            task: [{ label: "first task", status: "todo" }],
+            agents: [{ label: "explore: map callers", tail: "", stalled: false }],
+          })
+          const agentsRowsBefore = [...shell.agentsBox.getChildren()]
+
+          setChromeZones(shell, {
+            task: [{ label: "first task", status: "done" }],
+          })
+
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("[x] first task")
+          expect([...shell.agentsBox.getChildren()]).toEqual(agentsRowsBefore)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("toggling hides the panel without losing the live task data, and un-hiding restores it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, {
+            task: [{ label: "wire toggle", status: "doing" }],
+          })
+          expect(shell.taskBox.visible).toBe(true)
+
+          toggleTasksPanel(shell)
+          expect(shell.taskBox.visible).toBe(false)
+          expect(shell.layout.heights.task).toBe(0)
+
+          // A live push while hidden must not resurrect the panel...
+          setChromeZones(shell, {
+            task: [{ label: "wire toggle", status: "done" }],
+          })
+          expect(shell.taskBox.visible).toBe(false)
+
+          // ...but un-hiding shows the current data, not a stale snapshot
+          // from before the hide.
+          toggleTasksPanel(shell)
+          expect(shell.taskBox.visible).toBe(true)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("[x] wire toggle")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("the toggle persists across further chrome pushes for the life of the shell", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
+          toggleTasksPanel(shell)
+          expect(shell.taskBox.visible).toBe(false)
+
+          // Several unrelated live pushes later, the hidden choice still holds.
+          setChromeZones(shell, { task: [{ label: "a", status: "doing" }] })
+          setChromeZones(shell, { agents: [{ label: "x: y", tail: "", stalled: false }] })
+          setChromeZones(shell, { task: [{ label: "a", status: "done" }] })
+          expect(shell.taskBox.visible).toBe(false)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("the palette 'toggle_task' action drives the same toggle", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
+          expect(shell.taskBox.visible).toBe(true)
+          runPaletteAction(shell, "toggle_task")
+          expect(shell.taskBox.visible).toBe(false)
         } finally {
           shell.dispose()
         }

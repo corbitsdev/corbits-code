@@ -8,6 +8,7 @@ import {
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_ROWS,
   SIDE_MARGIN,
+  TASKS_PANEL_MAX_VISIBLE,
   ZONE_IDS,
   ZONE_REGISTRY,
   resolveGeometry,
@@ -140,6 +141,80 @@ describe("resolveGeometry — agents panel", () => {
     expect(layout.heights.agents).toBeGreaterThan(0);
     expect(layout.heights.agents).toBeLessThan(AGENTS_PANEL_MAX_VISIBLE + 1);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+  });
+});
+
+describe("resolveGeometry — task panel", () => {
+  test("N tasks request N rows, bounded by the zone max", () => {
+    for (let n = 0; n <= TASKS_PANEL_MAX_VISIBLE + 3; n++) {
+      const requested = Math.min(n, TASKS_PANEL_MAX_VISIBLE + 1);
+      const layout = idle80x24({ visibility: { task: n } });
+      expect(layout.heights.task).toBe(requested);
+    }
+  });
+
+  test("zero tasks (empty or hidden) costs zero chrome", () => {
+    const layout = idle80x24({ visibility: { task: 0 } });
+    expect(layout.heights.task).toBe(0);
+    expect(layout.regions.task).toBeUndefined();
+  });
+
+  test("a large task list never grows the zone past its bounded max", () => {
+    const layout = idle80x24({ visibility: { task: 50 } });
+    expect(layout.heights.task).toBe(ZONE_REGISTRY.task.max);
+    expect(layout.heights.task).toBe(TASKS_PANEL_MAX_VISIBLE + 1);
+  });
+
+  test("task and agents panels are distinct zones with independent budgets", () => {
+    const layout = idle80x24({
+      visibility: { task: 3, agents: 2 },
+    });
+    expect(layout.heights.task).toBe(3);
+    expect(layout.heights.agents).toBe(2);
+    expect(layout.regions.task).not.toEqual(layout.regions.agents);
+  });
+
+  test("under pressure the task panel shrinks one row at a time rather than vanishing in one step", () => {
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 20 },
+      visibility: {
+        commandBanner: 1,
+        settingsNotice: 1,
+        pluginBanner: true,
+        task: TASKS_PANEL_MAX_VISIBLE + 1,
+      },
+    });
+    expect(layout.heights.task).toBeGreaterThan(0);
+    expect(layout.heights.task).toBeLessThan(TASKS_PANEL_MAX_VISIBLE + 1);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+  });
+
+  test("on a short terminal the task panel is fully collapsed before the prompt is ever shrunk below its idle rows", () => {
+    // Shrink the terminal until something has to give. Two mechanisms can
+    // land the prompt below its idle rows here: PROMPT_CAP_FRACTION caps the
+    // *requested* prompt before collapse ever runs (the one that actually
+    // fires across most of this range, since a short terminal caps prompt
+    // rows well before a 6-row task panel could account for the deficit on
+    // its own), and collapseOnce would additionally shrink prompt only after
+    // draining every zone ahead of it in COLLAPSE_ORDER — task included.
+    // Either way the invariant holds: whenever prompt is below its idle
+    // rows, task is already at zero, so the task panel never survives at
+    // the prompt's expense.
+    for (let rows = 24; rows >= 10; rows--) {
+      const layout = resolveGeometry({
+        terminal: { columns: 80, rows },
+        visibility: { task: TASKS_PANEL_MAX_VISIBLE + 1 },
+      });
+      if (layout.heights.prompt < PROMPT_IDLE_ROWS) {
+        expect(layout.heights.task).toBe(0);
+      }
+    }
+  });
+
+  test("the task panel is ahead of the prompt in collapse order", () => {
+    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(
+      COLLAPSE_ORDER.indexOf("prompt"),
+    );
   });
 });
 

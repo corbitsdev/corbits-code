@@ -103,6 +103,58 @@ uses the bronze/sand/ember chrome ramp and green (`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
 removed line), not a decision marker, and no decision-marker shares that row.
 
+## The live task list panel
+
+The `task` chrome zone renders a standing panel above the transcript, one row
+per task the task tool has written (`manage_tasks`) — distinct from the
+`agents` panel below it. A task is a unit of work with a status; an agent is
+an executor with its own context and transcript. The two are never merged
+into one panel: `formatTasksPanel` (`src/tui-opentui/chrome-state.ts`) and
+`formatAgentsPanel` are separate formatters feeding separate zones with
+separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
+
+Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
+`[-]` cancelled) ahead of the title. Terminal tasks still render — the panel
+is a live list of work, not just what remains — so an operator watching it
+sees a task move to `[x]` rather than have it silently vanish. The panel is
+bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
+longer list degrades to a trailing `+N more` row rather than growing the zone
+without limit, and it shrinks one row at a time under space pressure
+(`COLLAPSE_ORDER` in `geometry/zones.ts`) rather than vanishing in one step.
+
+Two independent mechanisms keep the task panel from ever costing the prompt
+box a row on a short terminal, and they guarantee different things.
+`COLLAPSE_ORDER` places `task` ahead of `prompt`, so `collapseOnce`
+(`geometry/resolve.ts`) always drains `task` to zero before it ever reduces
+`prompt` — that loop only runs when the transcript floor is not yet met, and
+it never touches a zone later in the order while an earlier one still has
+rows to give up. Separately, `PROMPT_CAP_FRACTION` in `desiredHeights` caps
+how tall a *requested* prompt is allowed to start at (`PROMPT_CAP_FRACTION *
+terminal.rows`), independent of collapse and before it ever runs. Neither
+mechanism substitutes for the other: the cap bounds the prompt's own growth
+on any terminal, tall or short; the collapse order bounds what other zones
+are allowed to take from it once the transcript floor is at risk.
+
+The panel is toggleable independent of its live data: `toggleTasksPanel`
+(bound to the `toggle_task` palette action) flips a hidden flag held on the
+shell for its lifetime — in memory only, nothing written to storage — while
+the live task list keeps updating underneath it. Un-hiding shows the current
+list, not a stale snapshot from before the hide. Hidden or empty, the zone
+costs zero rows.
+
+The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
+which calls `onTasksChange` on every `manage_tasks` tool call and on session
+resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
+`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui-opentui/runner-host.ts`):
+`subscribeChrome` is a required dependency, not optional. The production
+caller has always passed a real subscription, so this did not fix an
+observed break; it closes a shape that could have been omitted and would
+still have type-checked — the same "callback that types fine when absent"
+hazard this feature's own callback (`onTasksChange`) is named after in the
+tracking issue. `runner-host.test.ts` drives a live `subscribeChrome` notify
+end to end and asserts the panel actually repaints, so an omission would now
+fail a test as well as the type checker.
+
 ## The live agents panel
 
 The `agents` chrome zone renders a standing panel above the transcript, one
