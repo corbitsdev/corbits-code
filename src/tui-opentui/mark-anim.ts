@@ -7,6 +7,11 @@
  * wave; at hero size a terminal renders that as visible noise rather than as
  * shimmer, so the terminal mark is opaque instead.
  *
+ * Over the sky (zero-coverage cells) a sparse field of pixel snow falls on the
+ * same injected clock. Density and speed stay low so the ridgeline keeps its
+ * silhouette; `still` (idle or reduced motion) freezes the mark and drops the
+ * snow entirely. Mountain cells always win over flakes.
+ *
  * Everything here is pure and clock-injected: `nowMs` is the only time source,
  * so the caller's existing 250 ms status tick drives the animation and tests
  * drive it deterministically. There is no timer in this module.
@@ -70,6 +75,18 @@ const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as cons
  */
 const FILL_GAMMA = 0.6
 
+/** One snowflake pixel. Exported so tests can distinguish sky from mountain. */
+export const SNOW_CHAR = "·"
+
+/**
+ * Fraction of columns that host a flake. Kept low so the sky reads as empty
+ * with occasional drift rather than a storm.
+ */
+const SNOW_COLUMN_FRACTION = 0.18
+
+/** Baseline rows-per-second fall rate. Slow enough to feel like drift. */
+const SNOW_FALL_SPEED = 0.55
+
 export type MarkCell = {
   readonly char: string
   readonly fg: string
@@ -84,12 +101,44 @@ export type MarkInput = {
 }
 
 /**
+ * Stable unit hash in [0, 1) from integer seeds. Pure and clock-independent so
+ * flake columns and phases never jitter between frames.
+ */
+function unitHash(a: number, b = 0): number {
+  const n = Math.imul(a + 1, 374761393) ^ Math.imul(b + 1, 668265263)
+  const x = Math.imul(n ^ (n >>> 13), 1274126177)
+  return ((x >>> 0) % 10_000) / 10_000
+}
+
+/**
+ * Whether a sky cell at (row, col) holds a flake at `seconds`. Sparse columns
+ * only; each active column carries one flake with a private phase and a slight
+ * speed variation so the field does not march as a rigid lattice.
+ */
+function snowflakeAt(
+  row: number,
+  col: number,
+  seconds: number,
+  rows: number,
+): boolean {
+  if (rows <= 0) return false
+  if (unitHash(col, 1) > SNOW_COLUMN_FRACTION) return false
+  const phase = unitHash(col, 2) * rows
+  const speed = SNOW_FALL_SPEED * (0.75 + unitHash(col, 3) * 0.5)
+  const wrapped = (((seconds * speed + phase) % rows) + rows) % rows
+  return Math.floor(wrapped) === row
+}
+
+/**
  * Composite one frame into a row-major cell grid.
  *
  * The silhouette is drawn solid: a wholly covered cell is `█` and a partly
  * covered one is the eighth block matching its coverage, so the ridgeline
  * slopes instead of staircasing. No dither texture survives inside the shape —
  * the mark is a mountain, and a mountain is opaque.
+ *
+ * Sky cells (zero coverage) may hold a single falling snow pixel. Flakes never
+ * overwrite mountain coverage, and `still` suppresses them entirely.
  *
  * `alpha` has no terminal equivalent, so it scales the block height instead:
  * the mark sinks toward empty rather than blending to black.
@@ -100,6 +149,7 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const { drawProg, fillProg, alpha } = markFrame(seconds, input.still)
   const revealed = drawProg * shape.cols
   const fillLine = shape.rows * (1 - fillProg)
+  const snowOn = !input.still
 
   const grid: MarkCell[][] = []
   for (let row = 0; row < shape.rows; row++) {
@@ -110,7 +160,17 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
       const coverage = shape.coverage[row]?.[col] ?? 0
       const reveal = clamp01(revealed - col)
       if (coverage === 0 || reveal === 0) {
-        cells.push({ char: " ", fg: UI.action })
+        // Snow only in true sky. Unrevealed mountain cells stay empty so the
+        // left-to-right draw still reads as a clean silhouette edge.
+        if (
+          snowOn &&
+          coverage === 0 &&
+          snowflakeAt(row, col, seconds, shape.rows)
+        ) {
+          cells.push({ char: SNOW_CHAR, fg: UI.textFaint })
+        } else {
+          cells.push({ char: " ", fg: UI.action })
+        }
         continue
       }
       // The outline states the shape at its true coverage; filling lifts it
