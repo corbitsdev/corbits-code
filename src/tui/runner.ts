@@ -144,13 +144,14 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "../tui-opentui/runner-host.js";
 import {
-  appendStreamRow,
   attachClipboardImage,
   setMentionSuggestionSource,
   setPromptRecognitionSource,
   setSentMessageHistory,
   setShellRunState,
+  surfaceStartupNotice,
 } from "../tui-opentui/shell.js";
+import { flushStartupNotices } from "../tui-opentui/startup-notices.js";
 import {
   classifyAgentSendFailure,
   shouldSettleUiAfterSendFailure,
@@ -434,8 +435,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Fire-and-forget startup diagnostics (this + tool-plugin resolution below)
   // have no result channel back to an operator action, unlike verify/add-path/
   // trust-grant. A log-only summary is invisible — nobody watches
-  // ~/.corbits/logs/corbits.log — so these are also queued as transcript rows
-  // once the shell mounts (see `systemRow` calls after `mountRunnerHost`).
+  // ~/.corbits/logs/corbits.log — so these are queued and handed to
+  // `flushStartupNotices` once the shell mounts.
   const startupPluginNotices: string[] = [];
   const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
   if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
@@ -1840,8 +1841,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   };
 
-  const systemRow = (text: string): void => {
-    appendStreamRow(host.shell, { role: "system", text, meta: "command" });
+  // Routed through the shell's notice path rather than straight into the
+  // transcript: anything the runner says before the first turn arrives while
+  // the landing hero still owns the screen, and a transcript row there wipes
+  // the whole composition. Once a session row has ended the landing this is an
+  // ordinary system row, so there is no second behaviour to reason about.
+  const systemNotice = (text: string): void => {
+    surfaceStartupNotice(host.shell, text);
   };
 
   /** Settle the shell after a rejected send so the run does not look live. */
@@ -1854,7 +1860,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     );
     if (!shouldSettleUiAfterSendFailure(kind)) return;
     recordRunError(err);
-    systemRow(err instanceof Error ? err.message : String(err));
+    systemNotice(err instanceof Error ? err.message : String(err));
     setShellRunState(host.shell, "idle");
   };
 
@@ -1899,29 +1905,29 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const applyCommandResult = (result: CommandResult): void => {
     switch (result.type) {
       case "message":
-        systemRow(result.text);
+        systemNotice(result.text);
         return;
       case "send":
         void agentProxy.send(result.text).catch(handleSendFailure);
         return;
       case "workflow":
-        systemRow(workflowController.start(result.name));
+        systemNotice(workflowController.start(result.name));
         return;
       case "noop":
         return;
       case "overlay":
         if (!host.openSurface(result.overlay)) {
-          systemRow(`No surface for /${result.overlay}.`);
+          systemNotice(`No surface for /${result.overlay}.`);
         }
         return;
       case "modal":
         // /model is the only modal reachable from a command; provider login is
         // reached from the picker itself.
         if (result.modal === "agent" && host.openSurface("models")) return;
-        systemRow(`${result.modal} is not available in this renderer yet`);
+        systemNotice(`${result.modal} is not available in this renderer yet`);
         return;
       case "view":
-        systemRow(`${result.view} is not available in this renderer yet`);
+        systemNotice(`${result.view} is not available in this renderer yet`);
         return;
       case "paste-image":
         void attachClipboardImage(host.shell);
@@ -1958,7 +1964,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const dispatchCommand = (name: string, args: string): void => {
     const command = getCommand(name);
     if (command === undefined) {
-      systemRow(`Unknown command: ${name}`);
+      systemNotice(`Unknown command: ${name}`);
       return;
     }
     applyCommandResult(command.handler(args, commandContext));
@@ -2015,7 +2021,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             existing: config.settings ?? null,
           });
         } catch (err) {
-          systemRow(
+          systemNotice(
             `Connecting ${providerName} failed: ${err instanceof Error ? err.message : String(err)}`,
           );
           return;
@@ -2040,7 +2046,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           providers,
           computeUnconnectedProviders(providers),
         );
-        systemRow(`Connected ${result.providerName ?? providerName}. Open /model to pick a model.`);
+        systemNotice(`Connected ${result.providerName ?? providerName}. Open /model to pick a model.`);
       })().catch((err: unknown) => {
         tuiLogger.debug("provider connect failed: {error}", {
           error: err instanceof Error ? err.message : String(err),
@@ -2370,9 +2376,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     });
 
-  // Surface fire-and-forget startup plugin diagnostics now that the shell has
-  // a transcript to write into (queued above, before `host` existed).
-  for (const notice of startupPluginNotices) systemRow(notice);
+  // Surface fire-and-forget startup plugin diagnostics now that there is a
+  // shell to say them to (queued above, before `host` existed).
+  flushStartupNotices(host.shell, startupPluginNotices);
 
   await host.waitUntilExit();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing

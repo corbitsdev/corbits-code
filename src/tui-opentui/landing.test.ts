@@ -19,6 +19,7 @@ import {
   streamRowCount,
   surfaceStartupNotice,
 } from "./shell"
+import { flushStartupNotices } from "./startup-notices"
 import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
   LANDING_HINTS,
@@ -536,6 +537,65 @@ describe("landing screen", () => {
         const frame = h.captureCharFrame()
         expect(frame).toContain("first prompt")
         expect(frame).toContain("mcp github did not connect")
+      } finally {
+        shell.dispose()
+      }
+    }, SIZE)
+  })
+
+  test("startup plugin diagnostics keep the mountain too", async () => {
+    // CL-5718: CL-5618 routed MCP and hook notices away from the transcript
+    // but left plugin diagnostics going through the runner's own system-row
+    // helper, so any missing skill wiped the whole hero on load. The flush is
+    // a named seam now precisely so no producer of a startup diagnostic gets
+    // to decide this again.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "idle",
+      })
+      try {
+        await settle(h)
+        expect(isLanding(shell)).toBe(true)
+        const before = markRows(h)
+        expect(before.length).toBeGreaterThan(0)
+
+        const summary = "plugins: 3 skills missing: brand-identity, style, philosophy"
+        flushStartupNotices(shell, [summary])
+        await settle(h)
+
+        expect(isLanding(shell)).toBe(true)
+        expect(markRows(h).length).toBe(before.length)
+        expect(streamRowCount(shell)).toBe(0)
+        expect(noticeText(shell)).toContain("3 skills missing")
+      } finally {
+        shell.dispose()
+      }
+    }, SIZE)
+  })
+
+  test("a flushed startup notice never carries a plumbing gutter label", async () => {
+    // The transcript must never label a row "command": a system row's text
+    // already says what it is, and the meta column is the operator's, not the
+    // wiring's.
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        run: "idle",
+      })
+      try {
+        await settle(h)
+        flushStartupNotices(shell, ["plugins: 1 skill missing: style"])
+        appendStreamRow(shell, { role: "user", text: "first prompt" })
+        await settle(h)
+
+        expect(isLanding(shell)).toBe(false)
+        const frame = h.captureCharFrame()
+        expect(frame).toContain("1 skill missing")
+        expect(frame).not.toContain("command")
+        expect(frame).not.toContain("overlay")
       } finally {
         shell.dispose()
       }
