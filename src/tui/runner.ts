@@ -149,9 +149,8 @@ import {
   setPromptRecognitionSource,
   setSentMessageHistory,
   setShellRunState,
-  surfaceStartupNotice,
+  surfaceSystemNotice,
 } from "../tui-opentui/shell.js";
-import { flushStartupNotices } from "../tui-opentui/startup-notices.js";
 import {
   classifyAgentSendFailure,
   shouldSettleUiAfterSendFailure,
@@ -436,7 +435,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // have no result channel back to an operator action, unlike verify/add-path/
   // trust-grant. A log-only summary is invisible — nobody watches
   // ~/.corbits/logs/corbits.log — so these are queued and handed to
-  // `flushStartupNotices` once the shell mounts.
+  // the shell one at a time once it mounts.
   const startupPluginNotices: string[] = [];
   const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
   if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
@@ -1847,7 +1846,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // the whole composition. Once a session row has ended the landing this is an
   // ordinary system row, so there is no second behaviour to reason about.
   const systemNotice = (text: string): void => {
-    surfaceStartupNotice(host.shell, text);
+    surfaceSystemNotice(host.shell, text);
   };
 
   /** Settle the shell after a rejected send so the run does not look live. */
@@ -2378,7 +2377,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Surface fire-and-forget startup plugin diagnostics now that there is a
   // shell to say them to (queued above, before `host` existed).
-  flushStartupNotices(host.shell, startupPluginNotices);
+  for (const notice of startupPluginNotices)
+    surfaceSystemNotice(host.shell, notice);
 
   await host.waitUntilExit();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing

@@ -36,7 +36,7 @@ import {
   setPromptModelLabel,
   setPromptWorkspace,
   setShellExitHandler,
-  surfaceStartupNotice,
+  surfaceSystemNotice,
 } from "./shell.js"
 import type { CostSummary } from "../cost/cost-summary.js"
 import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
@@ -326,7 +326,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const surfaceDeps: CommandSurfaceDeps = {
     ...(deps.surfaces ?? {}),
     ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
-    notify: (text) => surfaceStartupNotice(host.shell, text),
+    notify: (text) => surfaceSystemNotice(host.shell, text),
   }
 
   const refreshModels = (

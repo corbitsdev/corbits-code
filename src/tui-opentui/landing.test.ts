@@ -17,9 +17,8 @@ import {
   isLanding,
   paintLanding,
   streamRowCount,
-  surfaceStartupNotice,
+  surfaceSystemNotice,
 } from "./shell"
-import { flushStartupNotices } from "./startup-notices"
 import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
   LANDING_HINTS,
@@ -519,7 +518,7 @@ describe("landing screen", () => {
 
         const mcpError =
           "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail"
-        surfaceStartupNotice(shell, mcpError)
+        surfaceSystemNotice(shell, mcpError)
         await settle(h)
 
         // The mountain stays; the notice strip carries the wording.
@@ -567,7 +566,7 @@ describe("landing screen", () => {
         expect(before.length).toBeGreaterThan(0)
 
         const summary = "plugins: 3 skills missing: brand-identity, style, philosophy"
-        flushStartupNotices(shell, [summary])
+        surfaceSystemNotice(shell, summary)
         await settle(h)
 
         expect(isLanding(shell)).toBe(true)
@@ -592,7 +591,7 @@ describe("landing screen", () => {
       })
       try {
         await settle(h)
-        flushStartupNotices(shell, ["plugins: 1 skill missing: style"])
+        surfaceSystemNotice(shell, "plugins: 1 skill missing: style")
         appendStreamRow(shell, { role: "user", text: "first prompt" })
         await settle(h)
 

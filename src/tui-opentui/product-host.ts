@@ -47,7 +47,7 @@ import {
   setPaletteOnCommand,
   setMcpNeedsAuth,
   setStatusFlash,
-  surfaceStartupNotice,
+  surfaceSystemNotice,
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
@@ -348,7 +348,7 @@ export async function mountProductHost(
   // before the first turn (CL-5618).
   const widthReport = checkWidthContract(renderer.widthMethod)
   if (!widthReport.agrees) {
-    surfaceStartupNotice(shell, widthContractNotice(widthReport))
+    surfaceSystemNotice(shell, widthContractNotice(widthReport))
   }
 
   const port = createLiveSessionPort({
@@ -465,9 +465,9 @@ export async function mountProductHost(
     if (notice === null) return
     if (notice.kind === "row") {
       // MCP load failures and hook failures must not wipe the landing mark.
-      // surfaceStartupNotice keeps the mountain while the notice strip carries
+      // surfaceSystemNotice keeps the mountain while the notice strip carries
       // the wording, then flushes a durable row once the session starts.
-      surfaceStartupNotice(shell, notice.text)
+      surfaceSystemNotice(shell, notice.text)
       return
     }
     setStatusFlash(shell, notice.text, { ttlMs: RUNTIME_FLASH_MS })
