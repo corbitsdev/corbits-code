@@ -3,9 +3,11 @@ import { describe, expect, test } from "bun:test"
 import {
   applyStallRecovery,
   detectRepetition,
+  isStalledForDisplay,
   repetitionRecoveryMessage,
   shouldAbortForStall,
   shouldNoticeStall,
+  stallLevel,
   STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
@@ -242,5 +244,43 @@ describe("shouldNoticeStall", () => {
         streamingType: "tool",
       }),
     ).toBe(false)
+  })
+})
+
+describe("the stall level the indicator reads", () => {
+  const base = {
+    status: "running" as const,
+    awaitingResponse: true,
+    lastActivityAt: 0,
+    nowMs: STALL_NOTICE_MS,
+    stallTimeoutMs: STALL_TIMEOUT_MS,
+    stallNoticeMs: STALL_NOTICE_MS,
+    isProcessing: true,
+    streamingType: null,
+    activeToolCalls: [],
+    repeating: false,
+  }
+
+  test("quiet, notice and abort partition the same silence clock", () => {
+    expect(stallLevel({ ...base, nowMs: STALL_NOTICE_MS - 1 })).toBe("quiet")
+    expect(stallLevel({ ...base, nowMs: STALL_NOTICE_MS })).toBe("notice")
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("abort")
+  })
+
+  test("the indicator keeps reading stalled across the abort threshold", () => {
+    // The notice hands over to the abort so the two never speak at once, but
+    // the phase must not flip back to healthy at the exact moment the run is
+    // most stuck — that was the whole complaint the indicator answers.
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(false)
+    expect(isStalledForDisplay({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(true)
+    expect(isStalledForDisplay({ ...base, nowMs: STALL_TIMEOUT_MS * 3 })).toBe(
+      true,
+    )
+  })
+
+  test("a repeating run is not a stall on any surface", () => {
+    const looping = { ...base, nowMs: STALL_TIMEOUT_MS, repeating: true }
+    expect(stallLevel(looping)).toBe("quiet")
+    expect(isStalledForDisplay(looping)).toBe(false)
   })
 })

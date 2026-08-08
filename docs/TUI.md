@@ -43,6 +43,42 @@ branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui-opentui/shell.ts`). Both rules cost zero transcript rows because they
 ride the prompt box's own border.
 
+While a turn is live the lockup slot swaps the wordmark for the phase word —
+`thinking`, `streaming 12 tok`, the running tool's name — led by a single
+density cell (`rampPulse`, `src/tui-opentui/ramp.ts`). The cell, not the word,
+is what says whether the session is healthy, and it carries four states:
+
+| State | Cell | Reads as |
+|---|---|---|
+| `working` | cycles `░ ▒ ▓ █` on `RAMP_CYCLE_MS` | moving |
+| `done` | static `█` | finished |
+| `blocked` | static `▌` | waiting on the operator |
+| `stalled` | `!` blinking against `█`, then a static `!` | a problem |
+
+Every state is separated by glyph and motion before colour, so all four survive
+a monochrome terminal and are readable without stopping to read the word. A
+static `working` word was the original failure: a live run and a hung one
+printed identically, so the only way to tell them apart was to wait.
+
+`blocked` and `stalled` share the orange deliberately — both name a turn
+waiting on something outside itself — and are told apart by motion: `blocked`
+holds perfectly still, which is the signal that the session is waiting on *you*.
+
+The stall phase is driven by the watchdog's own silence clock
+(`stallLevel`, `src/tui-opentui/stall-watchdog.ts`), so the indicator and the
+abort can never disagree about which runs are stuck. It arms at
+`STALL_NOTICE_MS` and keeps reading as stalled straight through the abort
+threshold. Its blink is a bounded burst (`STALL_BLINK_BURST_MS`) that settles
+to a static `!`: an alarm that strobes for the whole stall window becomes
+wallpaper, and settling also lets the render loop drop back to the slow
+cadence. The burst is measured from the moment silence crossed the notice
+threshold, so a resumed session with already-stale activity shows the settled
+glyph immediately rather than alarming about silence the operator missed, and
+a stall that breaks and re-arms bursts again.
+
+An idle session animates nothing at all: the monitor tick stops entirely
+rather than repainting an unchanging frame.
+
 Color is a small, deliberate palette, not decoration
 (`src/tui-opentui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
 gray, so every emphasis level keeps the same warm hue. Orange

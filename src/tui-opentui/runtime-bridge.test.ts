@@ -282,7 +282,7 @@ describe("attachSessionBridge", () => {
           })
           bridge.handle({ type: "inference.done" })
           expect(shell.session.run).toBe("idle")
-          expect(shell.turnPhase).toBeNull()
+          expect(shell.lockupPhase).toBeNull()
 
           port.clear()
           bridge.submit("are you still there", "queue")

@@ -51,10 +51,19 @@ export function resolveTurnLabel(input: TurnLabelInput): string | undefined {
   return "working"
 }
 
-/** Which ramp the turn paints: frozen-orange, solid-green, or animating blue. */
-export function resolveRampPhase(input: TurnLabelInput): RampPhase {
+/**
+ * Which ramp the turn paints: frozen-orange (blocked), solid-green (done),
+ * blinking-orange (stalled), or animating bronze (working). `isStalled` is
+ * the caller's own `shouldNoticeStall` result — this function does not
+ * re-derive staleness, it only orders it against the other phases.
+ */
+export function resolveRampPhase(
+  input: TurnLabelInput,
+  isStalled: boolean,
+): RampPhase {
   if (input.status === "blocked") return "blocked"
   if (input.status === "done") return "done"
+  if (isStalled) return "stalled"
   return "working"
 }
 
