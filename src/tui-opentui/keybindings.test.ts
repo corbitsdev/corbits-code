@@ -22,6 +22,7 @@ import { createHarness, withTestRenderer, type Harness } from "./harness.js"
 import { mountRunnerHost } from "./runner-host.js"
 import { openCommandSurface } from "./command-surfaces.js"
 import { focusOwner } from "./focus/focus-state.js"
+import { setChromeZones } from "./shell.js"
 import {
   appendStreamRow,
   createAppShell,
@@ -295,6 +296,17 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       press(h, chords[0])
       expect(captured).toBe(false)
       shell.mouseCapture = null
+    },
+  },
+  "Alt+T": {
+    group: "surfaces",
+    probe: ({ h, shell, chords }) => {
+      setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
+      expect(shell.taskBox.visible).toBe(true)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(false)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(true)
     },
   },
   "Alt+E": {

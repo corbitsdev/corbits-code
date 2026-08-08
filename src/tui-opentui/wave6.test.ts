@@ -19,7 +19,6 @@ import {
   openInsetOverlay,
   openPalette,
   replaceStreamRowAt,
-  runPaletteAction,
   setChromeZones,
   streamRowAt,
   streamRowCount,
@@ -593,25 +592,6 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
-  test("the palette 'toggle_task' action drives the same toggle", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        })
-        try {
-          setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
-          expect(shell.taskBox.visible).toBe(true)
-          runPaletteAction(shell, "toggle_task")
-          expect(shell.taskBox.visible).toBe(false)
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
 })
 
 describe("Wave 6: keyboard copy path", () => {
