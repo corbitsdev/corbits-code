@@ -61,11 +61,10 @@ export type TaskPanelRow = {
  */
 export type ChromeLiveState = {
   /**
-   * Task list: string shorthand (rendered as a single unstyled row) or the
-   * structured rows the task tool writes. Distinct from `agents` — a task is
-   * a unit of work with a status, not an executor.
+   * Task list: the structured rows the task tool writes. Distinct from
+   * `agents` — a task is a unit of work with a status, not an executor.
    */
-  readonly task?: readonly ChromeTaskRow[] | string | null
+  readonly task?: readonly ChromeTaskRow[] | null
   /** Subagent sessions for the strip summary (running preferred). */
   readonly agents?: readonly ChromeAgentSession[] | null
   /**
@@ -131,19 +130,13 @@ export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
  *
  * Terminal tasks (done/cancelled) still render — the panel is a live list of
  * work, not just what remains — so an operator watching it sees a task move
- * to "done" rather than silently vanish. A bare string input renders as one
- * row with no status marker: it is free-form summary text, not a task record.
+ * to "done" rather than silently vanish.
  */
 export function formatTasksPanel(
-  task: readonly ChromeTaskRow[] | string | null | undefined,
+  task: readonly ChromeTaskRow[] | null | undefined,
   maxVisible: number = TASKS_PANEL_MAX_VISIBLE,
 ): readonly TaskPanelRow[] | null {
   if (task === null || task === undefined) return null
-
-  if (typeof task === "string") {
-    const t = task.trim()
-    return t.length === 0 ? null : [{ label: t, status: null }]
-  }
 
   const rows: TaskPanelRow[] = task
     .map((t) => ({ label: t.title.trim(), status: t.status }))

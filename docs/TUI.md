@@ -116,26 +116,39 @@ bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
 longer list degrades to a trailing `+N more` row rather than growing the zone
 without limit, and it shrinks one row at a time under space pressure
 (`COLLAPSE_ORDER` in `geometry/zones.ts`) rather than vanishing in one step.
-`task` sits ahead of `agents` in `COLLAPSE_ORDER`, so on a short terminal the
-task panel is always fully collapsed before the prompt box is ever touched —
-the prompt is never pushed off screen by a competing chrome zone.
+
+Two independent mechanisms keep the task panel from ever costing the prompt
+box a row on a short terminal, and they guarantee different things.
+`COLLAPSE_ORDER` places `task` ahead of `prompt`, so `collapseOnce`
+(`geometry/resolve.ts`) always drains `task` to zero before it ever reduces
+`prompt` — that loop only runs when the transcript floor is not yet met, and
+it never touches a zone later in the order while an earlier one still has
+rows to give up. Separately, `PROMPT_CAP_FRACTION` in `desiredHeights` caps
+how tall a *requested* prompt is allowed to start at (`PROMPT_CAP_FRACTION *
+terminal.rows`), independent of collapse and before it ever runs. Neither
+mechanism substitutes for the other: the cap bounds the prompt's own growth
+on any terminal, tall or short; the collapse order bounds what other zones
+are allowed to take from it once the transcript floor is at risk.
 
 The panel is toggleable independent of its live data: `toggleTasksPanel`
-(bound to the `toggle_task` palette action) flips a hidden flag that persists
-on the shell for the life of the session, while the live task list keeps
-updating underneath it — un-hiding shows the current list, not a stale
-snapshot from before the hide. Hidden or empty, the zone costs zero rows.
+(bound to the `toggle_task` palette action) flips a hidden flag held on the
+shell for its lifetime — in memory only, nothing written to storage — while
+the live task list keeps updating underneath it. Un-hiding shows the current
+list, not a stale snapshot from before the hide. Hidden or empty, the zone
+costs zero rows.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
 resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
 `RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui-opentui/runner-host.ts`):
-`subscribeChrome` is a required dependency, not optional, because an omitted
-subscription used to type-check cleanly while silently leaving the panel
-frozen at its mount-time snapshot — a mechanism built and never wired, hidden
-behind an optional callback. `runner-host.test.ts` drives a live
-`subscribeChrome` notify end to end and asserts the panel actually repaints,
-so that class of regression fails a test again if it recurs.
+`subscribeChrome` is a required dependency, not optional. The production
+caller has always passed a real subscription, so this did not fix an
+observed break; it closes a shape that could have been omitted and would
+still have type-checked — the same "callback that types fine when absent"
+hazard this feature's own callback (`onTasksChange`) is named after in the
+tracking issue. `runner-host.test.ts` drives a live `subscribeChrome` notify
+end to end and asserts the panel actually repaints, so an omission would now
+fail a test as well as the type checker.
 
 ## The live agents panel
 

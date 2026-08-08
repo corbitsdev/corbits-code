@@ -190,10 +190,16 @@ describe("resolveGeometry — task panel", () => {
   });
 
   test("on a short terminal the task panel is fully collapsed before the prompt is ever shrunk below its idle rows", () => {
-    // Shrink the terminal until something has to give. The task panel sits
-    // ahead of the prompt in COLLAPSE_ORDER, so collapseOnce always drains it
-    // to zero before touching the prompt — the prompt degrades last, never
-    // first, so it is never pushed off screen by a competing chrome zone.
+    // Shrink the terminal until something has to give. Two mechanisms can
+    // land the prompt below its idle rows here: PROMPT_CAP_FRACTION caps the
+    // *requested* prompt before collapse ever runs (the one that actually
+    // fires across most of this range, since a short terminal caps prompt
+    // rows well before a 6-row task panel could account for the deficit on
+    // its own), and collapseOnce would additionally shrink prompt only after
+    // draining every zone ahead of it in COLLAPSE_ORDER — task included.
+    // Either way the invariant holds: whenever prompt is below its idle
+    // rows, task is already at zero, so the task panel never survives at
+    // the prompt's expense.
     for (let rows = 24; rows >= 10; rows--) {
       const layout = resolveGeometry({
         terminal: { columns: 80, rows },

@@ -28,9 +28,11 @@ describe("formatChromeZones", () => {
     })
   })
 
-  test("partial: task string only", () => {
-    const out = formatChromeZones({ task: "cutover readiness" })
-    expect(out.task).toEqual([{ label: "cutover readiness", status: null }])
+  test("partial: task rows only", () => {
+    const out = formatChromeZones({
+      task: [{ title: "cutover readiness", status: "doing" }],
+    })
+    expect(out.task).toEqual([{ label: "cutover readiness", status: "doing" }])
     expect(out.agents).toBeNull()
   })
 
@@ -100,13 +102,9 @@ describe("formatChromeZones", () => {
 })
 
 describe("formatTasksPanel", () => {
-  test("string / empty", () => {
+  test("null / undefined hide the zone", () => {
     expect(formatTasksPanel(null)).toBeNull()
-    expect(formatTasksPanel("")).toBeNull()
-    expect(formatTasksPanel("  ")).toBeNull()
-    expect(formatTasksPanel("wire host")).toEqual([
-      { label: "wire host", status: null },
-    ])
+    expect(formatTasksPanel(undefined)).toBeNull()
   })
 
   test("each row carries its own status", () => {

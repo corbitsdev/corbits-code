@@ -277,7 +277,9 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     setChromeZones(shell, {
       task: on
         ? null
-        : formatChromeZones({ task: "cutover readiness" }).task,
+        : formatChromeZones({
+            task: [{ title: "cutover readiness", status: "doing" }],
+          }).task,
     })
     return
   }

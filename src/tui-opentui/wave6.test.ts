@@ -566,7 +566,7 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
-  test("the toggle persists across further chrome pushes for the life of the shell (the session)", async () => {
+  test("the toggle persists across further chrome pushes for the life of the shell", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {

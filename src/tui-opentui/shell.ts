@@ -761,9 +761,10 @@ function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
     notice: false,
     progress: false,
     progressDivider: false,
-    // Explicit 0 rather than left undefined: the agents field is now a row
-    // count, and setChromeZones compares it by ===, so an undefined start
-    // forces one needless relayout the first time it is ever compared.
+    // Explicit 0 rather than left undefined: task and agents are row
+    // counts, and setChromeZones compares them by ===, so an undefined
+    // start forces one needless relayout the first time either is compared.
+    task: 0,
     agents: 0,
     ...visibility,
   }
@@ -1895,7 +1896,7 @@ type ShellInternals = {
     /** Agents panel rows (empty array = zone off), one row per rendered line. */
     agents: readonly AgentPanelRow[]
   }
-  /** Operator toggle for the task panel; persists for the life of the shell (session). */
+  /** Operator toggle for the task panel; in-memory, held for the life of the shell. */
   tasksPanelHidden: boolean
 }
 
@@ -4341,7 +4342,8 @@ export function setChromeZones(
  * Toggle the task-list panel visible/hidden without touching the live task
  * data underneath it — un-hiding shows whatever the task tool last wrote,
  * not a stale snapshot from before the hide. The flag lives on the shell's
- * internals for the life of the process, i.e. persists for the session.
+ * internals in memory for the shell's lifetime; nothing is written to
+ * storage, so it does not survive a restart.
  */
 export function toggleTasksPanel(shell: AppShell): void {
   const bag = internals.get(shell)
