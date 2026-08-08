@@ -711,6 +711,9 @@ describe("each gate decision appends exactly one transcript row", () => {
         expect(resolveCount).toBe(1)
         expect(resolved).toEqual({ allow: true })
         expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.at(-1)?.text).toContain(
+          "Auto-approved (already granted)",
+        )
       } finally {
         shell.dispose()
       }
@@ -744,9 +747,62 @@ describe("each gate decision appends exactly one transcript row", () => {
         expect(resolveCount).toBe(1)
         expect(shell.overlayList).toBeNull()
         expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.at(-1)?.text).toContain(
+          "Auto-approved (already granted)",
+        )
       } finally {
         shell.dispose()
       }
+    })
+  })
+
+  // drain() (src/permission/queue.ts) denies whatever is still queued on
+  // teardown — the same no-call-site path as a grant drain, but the
+  // opposite outcome. Mislabeling this "Auto-approved" would tell the
+  // operator a request ran when it was actually dropped unanswered.
+  test("disposing with a request still queued records it as denied, not approved", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      // The currently-open request has no accept/cancel/autoDeny call site
+      // triggered before teardown either, so dispose must record it too —
+      // both entries go through the same no-call-site fallback as the
+      // queued one.
+      let openResolveCount = 0
+      let queuedResolveCount = 0
+      let queuedResolved: unknown
+      const dispose = wireGates(emitter, shell)
+      emitter.emit("permission.gate", {
+        request: baseRequest(),
+        resolve: () => {
+          openResolveCount += 1
+        },
+      })
+      // Occupies the overlay host so this second request queues instead of
+      // opening — dispose must deny it without ever displaying it.
+      const before = shell.streamLog.length
+      emitter.emit("permission.gate", {
+        request: baseRequest({ tool: "queued_tool" }),
+        resolve: (outcome: unknown) => {
+          queuedResolveCount += 1
+          queuedResolved = outcome
+        },
+      })
+
+      dispose()
+
+      expect(openResolveCount).toBe(1)
+      expect(queuedResolveCount).toBe(1)
+      expect(queuedResolved).toEqual({ allow: false })
+      expect(shell.streamLog.length - before).toBe(2)
+      for (const row of shell.streamLog.slice(-2)) {
+        expect(row.text).toContain("Denied (session ended)")
+        expect(row.text).not.toContain("Auto-approved")
+      }
+      shell.dispose()
     })
   })
 })

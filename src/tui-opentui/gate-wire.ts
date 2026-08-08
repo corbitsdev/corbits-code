@@ -232,19 +232,28 @@ function recordDecision(
 }
 
 /**
- * Write a row for a request a newly-minted grant drained without a prompt.
- * Every other terminal path (accept, Esc, timeout, abort) writes its own row
- * at its own call site; this one covers the path that has none — reconcile()
- * settles the queue entry directly, with no accept/cancel/autoDeny callback
- * to hang a record onto. Without this, the operator's only trace of the
- * highest-consequence event in the queue (a request that ran without being
- * shown) is the transient grant-recorded flash, gone once it scrolls off.
+ * Write a row for a request settled with no accept/cancel/autoDeny call site
+ * of its own to hang a record onto: reconcile() (a newly-minted grant
+ * covering this queued request) and drain() (session teardown denying
+ * whatever is still queued) both settle the queue entry directly. Every
+ * other terminal path (accept, Esc, timeout, abort) already writes its own
+ * row at its own call site. Without this, the operator's only trace of the
+ * highest-consequence event in the queue — a request that ran, or was
+ * dropped, without ever being shown — is the transient grant-recorded flash
+ * (nothing at all for teardown), gone once it scrolls off.
  */
-function recordGrantDrain(shell: AppShell, request: PermissionRequest): void {
+function recordSilentSettle(
+  shell: AppShell,
+  request: PermissionRequest,
+  outcome: ApprovalOutcome,
+): void {
   const body = middleEllipsis(permissionBodyFromRequest(request), 500)
+  const label = outcome.allow
+    ? "Auto-approved (already granted)"
+    : "Denied (session ended)"
   appendStreamRow(shell, {
     role: "system",
-    text: `${body}\n→ Auto-approved (already granted)`,
+    text: `${body}\n→ ${label}`,
     meta: "permission",
   })
 }
@@ -388,10 +397,11 @@ export function wireGates(
       permissionQueue.settle(id, outcome)
     // Set immediately before every call to settle() from a known call site
     // (accept, Esc, autoDeny), each of which writes its own row right after.
-    // reconcile() (src/permission/queue.ts) settles an entry directly, with
-    // no call site of its own — the resolve callback below falls back to
-    // recordGrantDrain whenever this is still false, so a request that ran
-    // without ever being shown still leaves a trace.
+    // reconcile() and drain() (src/permission/queue.ts) both settle an entry
+    // directly, with no call site of their own — the resolve callback below
+    // falls back to recordSilentSettle whenever this is still false, so a
+    // request that ran, or was dropped, without ever being shown still
+    // leaves a trace.
     let recorded = false
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers()
@@ -399,13 +409,13 @@ export function wireGates(
       // the one on screen — reentrantly invokes this same overlay's onCancel
       // (see the comment on `settle` above) and would otherwise set
       // `recorded` out from under this check before it runs.
-      const needsGrantDrainRecord = !recorded
+      const needsSilentSettleRecord = !recorded
       if (openedGeneration === undefined) {
         unqueue(open)
       } else if (openedGeneration === overlayGeneration) {
         closeInsetOverlay(shell)
       }
-      if (needsGrantDrainRecord) recordGrantDrain(shell, ev.request)
+      if (needsSilentSettleRecord) recordSilentSettle(shell, ev.request, outcome)
       resolve(outcome)
     })
 
