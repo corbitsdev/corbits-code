@@ -131,6 +131,15 @@ export async function finalizeRunState(
 // Callers must call markCrashed() (src/session/active-run.ts) before this, so
 // any snapshot write still queued behind another one in the chain steps
 // aside instead of racing this write's rename().
+//
+// This is a second terminal write path alongside finalizeRunState, and stays
+// separate on purpose: its only callers are index.ts's process-level
+// uncaughtException/unhandledRejection and signal handlers, reached when a
+// crash escapes runTUI's own try/catch entirely. finalizeRunState routes
+// through saveState's per-session write chain so writes apply in call order;
+// that chain is exactly what a crash exit cannot afford to wait on, since
+// process.exit must happen deterministically and a stuck earlier write
+// (possibly the one that caused the crash) would otherwise hang it.
 export async function saveCrashState(
   cwd: string,
   sessionId: string,
