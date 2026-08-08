@@ -338,8 +338,15 @@ describe("buildCorePosixToolPlugins", () => {
     // wrapped by the unconditional outer plugins in buildCorePosixToolPlugins.
     // This composes the REAL production array from the builder — not a
     // hand-picked middleware order — with a short-circuiting stand-in spliced
-    // in at ripgrepPlugin's own position, so a future reordering of the real
-    // array (e.g. swapping the cap and scrub back) fails this test.
+    // in at ripgrepPlugin's own position, so moving both terminal concerns
+    // away from the front of the real array fails this test.
+    //
+    // This guards their PREPENDED POSITION only, not the RELATIVE order
+    // between the two of them: the secret here sits at the very front of the
+    // payload, nowhere near the cap boundary, so it survives even under the
+    // exploitable cap-then-scrub order. The relative order is guarded solely
+    // by the boundary-straddle test below — do not treat this test as
+    // redundant with it.
     const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
     const shortCircuitingPlugin: ToolPlugin = {
       middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
