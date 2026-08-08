@@ -19,6 +19,66 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink.
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks.
 
+## [0.2.93] - 2026-08-08
+
+Running several sub-agents at once was close to unusable. The watchdog meant to
+catch a hung run was killing healthy ones, approvals piled up one at a time and
+printed twice, and the panel showing what each agent was doing had collapsed to
+a line of counts. This release fixes that path end to end.
+
+### Sub-agents were being killed mid-run
+
+- **The stall watchdog aborted healthy parallel fan-outs.** Any silence counted
+  as a hang, and in a fan-out the first sub-agent to finish flipped the run back
+  to awaiting-a-response while the rest still worked. Since the parent emits
+  nothing while children run, the whole run read as silent: a no-response notice
+  at ninety seconds, then an abort of everything in flight at fifteen minutes.
+  The watchdog now consults the outstanding tool calls it was already tracking.
+  (CL-5641)
+- **The clock also ran while you read an approval.** Blocked-on-the-operator is
+  now part of the turn state rather than something only the painter derived, so
+  the watchdog and the phase line read one source. Gates still queued behind
+  another are covered, not only the one on screen. (CL-5642)
+
+### Approvals
+
+- **A grant no longer has to be given once per agent.** Minting one now settles
+  every queued request it already covers. The reconciliation lives in the
+  permission layer behind a single idempotent settle, so it holds for any
+  surface and cannot double-resolve or strand a request. Session teardown denies
+  whatever is still queued instead of abandoning it. (CL-4995)
+- **Every approval wrote two transcript rows.** A screen of approvals read as
+  twice as many requests as had happened. There is now exactly one row per
+  decision — including denials, timeouts, and aborts, which previously wrote
+  nothing, so a refused permission was indistinguishable from a hang. (CL-5644)
+- **Project-scoped grants never matched a sub-agent.** A grant was stamped with
+  the session root while a sub-agent asks from its own git worktree, and the two
+  were compared as plain strings — so the agents generating the approvals could
+  never benefit from an earlier answer. Both sides now resolve through the
+  worktree registry that already governs path containment, by exact match rather
+  than prefix. (CL-5662)
+
+### Watching the work
+
+- **The live agents panel is back above the prompt** — one row per running
+  sub-agent with elapsed time, current tool, and whether it has gone quiet.
+  Rows hold position instead of reordering on each event, the zone shrinks a row
+  at a time under a short terminal rather than disappearing, and when a fan-out
+  exceeds the space the quietest agent stays visible. Rows are measured in
+  terminal columns, so a wide-character description cannot overflow the zone.
+  (CL-5646)
+
+### Turns that never ended
+
+- **Goal mode stuck at "working" indefinitely.** Two events registered the same
+  tool call under different identities — one by id, one by name — so a call was
+  counted twice and cleared once, and the turn waited forever on work that had
+  finished. Goal mode was worst affected because it continues on its own and
+  never emits the fallback that settles a stalled turn. (CL-5645)
+- `run.json` records its turn count at every turn boundary rather than only at
+  session start and end, so a resumed session reports what it actually did.
+  (CL-5570, CL-5534)
+
 ## [0.2.92] - 2026-08-07
 
 A second sweep over the OpenTUI cutover, plus a rebuilt model surface. Two of
