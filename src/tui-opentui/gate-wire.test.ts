@@ -424,6 +424,183 @@ describe("wireGates", () => {
   })
 })
 
+describe("each gate decision appends exactly one transcript row", () => {
+  test("permission accept", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", { request: baseRequest(), resolve: () => {} })
+
+        const before = shell.streamLog.length
+        acceptOverlaySelection(shell)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission Esc/deny", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", { request: baseRequest(), resolve: () => {} })
+
+        const before = shell.streamLog.length
+        closeInsetOverlay(shell)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("operator accept", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: () => {},
+        })
+
+        const before = shell.streamLog.length
+        acceptOverlaySelection(shell)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("operator Esc/cancel", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: () => {},
+        })
+
+        const before = shell.streamLog.length
+        closeInsetOverlay(shell)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("operator typed answer", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Cancel", "Continue"],
+          resolve: () => {},
+        })
+
+        setOverlayAnswerActive(shell, true)
+        const before = shell.streamLog.length
+        for (const ch of "yes") {
+          handleOverlayAnswerKey(shell, {
+            name: ch,
+            sequence: ch,
+            ctrl: false,
+            meta: false,
+            option: false,
+          } as unknown as KeyEvent)
+        }
+        handleOverlayAnswerKey(shell, {
+          name: "return",
+          sequence: "",
+          ctrl: false,
+          meta: false,
+          option: false,
+        } as unknown as KeyEvent)
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission auto-deny on timeout", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+          timeoutMs: 5,
+        })
+        await new Promise((r) => setTimeout(r, 20))
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission auto-deny on abort", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+          signal: controller.signal,
+        })
+        controller.abort()
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+})
+
 describe("permission.gate auto-deny", () => {
   test("timeoutMs elapsing auto-denies with the timeout message and closes the overlay", async () => {
     await withTestRenderer(async (h) => {

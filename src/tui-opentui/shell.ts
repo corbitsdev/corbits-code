@@ -3434,14 +3434,16 @@ export function handleOverlayAnswerKey(
     if (answer.text.length === 0) return true
     const text = answer.text
     const submit = answer.onSubmit
-    appendStreamRow(shell, {
-      role: "system",
-      text: `answered: ${text}`,
-      meta: overlayKindWord(shell.overlayKind ?? "operator"),
-    })
+    const bag = internals.get(shell)
+    if (bag?.overlayEchoChoice !== false) {
+      appendStreamRow(shell, {
+        role: "system",
+        text: `answered: ${text}`,
+        meta: overlayKindWord(shell.overlayKind ?? "operator"),
+      })
+    }
     // Deliberate submit, not a dismiss — closeInsetOverlay must not also fire
     // the Esc/cancel path.
-    const bag = internals.get(shell)
     if (bag) bag.overlayOnCancel = null
     closeInsetOverlay(shell)
     submit(text)

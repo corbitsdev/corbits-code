@@ -228,6 +228,21 @@ function recordDecision(
 }
 
 /**
+ * Write the operator's question and answer to the transcript, once decided.
+ * Mirrors recordDecision: the overlay already shows this text while it is
+ * open, so an immediate echo would print every operator question twice.
+ */
+function recordOperatorDecision(
+  shell: AppShell,
+  question: string,
+  label: string,
+): void {
+  const body = middleEllipsis(question, 500)
+  const text = `${body}\n→ ${label}`
+  appendStreamRow(shell, { role: "system", text, meta: "operator" })
+}
+
+/**
  * Subscribe the permission/operator gate events to the shell's overlays.
  * Returns a dispose function that removes exactly the listeners this call added.
  */
@@ -289,6 +304,10 @@ export function wireGates(
         items: choices.items,
         itemIds: choices.itemIds,
         body: collapsedBody,
+        // recordDecision below is the authoritative transcript row for every
+        // terminal path — the overlay's own accept/answer echo would
+        // duplicate it.
+        echoChoice: false,
         ...(collapsedAnything ? { onToggleExpand } : {}),
         onAccept: (sel: OverlaySelection) => {
           if (settled) return
@@ -307,12 +326,9 @@ export function wireGates(
           if (settled) return
           settled = true
           clearTimers()
-          ev.resolve(
-            approvalOutcomeFromSelection(choices, {
-              index: 0,
-              id: PERMISSION_DENY_ID,
-            }),
-          )
+          const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
+          recordDecision(shell, ev.request, choices, gateSelection)
+          ev.resolve(approvalOutcomeFromSelection(choices, gateSelection))
         },
       })
     }
@@ -332,6 +348,10 @@ export function wireGates(
       if (settled) return
       settled = true
       clearTimers()
+      recordDecision(shell, ev.request, choices, {
+        index: 0,
+        id: PERMISSION_DENY_ID,
+      })
       if (isOpen) {
         closeInsetOverlay(shell)
       } else {
@@ -368,9 +388,14 @@ export function wireGates(
       body: ev.question,
       choices: choices.items,
       itemIds: choices.itemIds,
+      // recordOperatorDecision below is the authoritative transcript row for
+      // every terminal path — the overlay's own accept/answer echo would
+      // duplicate it.
+      echoChoice: false,
       onAccept: (sel: OverlaySelection) => {
         if (settled) return
         settled = true
+        recordOperatorDecision(shell, ev.question, sel.label)
         ev.resolve(
           operatorResultFromSelection(ev.options, {
             index: sel.index,
@@ -383,6 +408,7 @@ export function wireGates(
       onTextAnswer: (text: string) => {
         if (settled) return
         settled = true
+        recordOperatorDecision(shell, ev.question, text)
         ev.resolve(operatorCustomResult(text))
       },
       // Esc must settle the awaited promise (as a cancel), not abandon it —
@@ -390,6 +416,7 @@ export function wireGates(
       onCancel: () => {
         if (settled) return
         settled = true
+        recordOperatorDecision(shell, ev.question, "Cancelled")
         ev.resolve(operatorCancelResult())
       },
     }))
