@@ -478,3 +478,68 @@ describe("accept echo reads the chosen value structurally", () => {
     )
   })
 })
+
+describe("echoChoice defaults to on for callers with no recorder of their own", () => {
+  test("openPermissionsOverlay with no echoChoice opt still echoes on accept", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          openPermissionsOverlay(shell, { items: makePermissionItems(3) })
+          const before = shell.streamLog.length
+          acceptOverlaySelection(shell)
+          expect(shell.streamLog.length - before).toBe(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("openPermissionsOverlay with echoChoice: false suppresses it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          openPermissionsOverlay(shell, {
+            items: makePermissionItems(3),
+            echoChoice: false,
+          })
+          const before = shell.streamLog.length
+          acceptOverlaySelection(shell)
+          expect(shell.streamLog.length - before).toBe(0)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("openOperatorOverlay with no echoChoice opt still echoes on accept", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          openOperatorOverlay(shell, { choices: ["A", "B"] })
+          const before = shell.streamLog.length
+          acceptOverlaySelection(shell)
+          expect(shell.streamLog.length - before).toBe(1)
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})

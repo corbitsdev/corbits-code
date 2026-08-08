@@ -552,6 +552,53 @@ describe("each gate decision appends exactly one transcript row", () => {
       }
     })
   })
+
+  test("permission auto-deny on timeout", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+          timeoutMs: 5,
+        })
+        await new Promise((r) => setTimeout(r, 20))
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("permission auto-deny on abort", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+          signal: controller.signal,
+        })
+        controller.abort()
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
 })
 
 describe("permission.gate auto-deny", () => {
