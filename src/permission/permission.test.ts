@@ -260,16 +260,22 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
     { tool: "write_file", pattern: "src/*" },
     { tool: "run_shell", pattern: "rm -rf build/\\*" },
   ];
+  // No approval in these fixtures carries a cwd, so the workspace passed here
+  // is never actually consulted (cwdMatchesGrant short-circuits on
+  // grantCwd === undefined) — an explicit no-op value is threaded through
+  // instead of an optional param, so a future call site can't silently
+  // narrow the security check by forgetting to pass one.
+  const noWorkspace = { resolvedCwd: "/unused", roots: [] };
 
   test("allows package-compatible wildcard grants", async () => {
     expect(
-      await evaluateApprovals({ tool: "run_shell", subject: "npm test", approvals }),
+      await evaluateApprovals({ tool: "run_shell", subject: "npm test", approvals, workspace: noWorkspace }),
     ).toBe(true);
     expect(
-      await evaluateApprovals({ tool: "run_shell", subject: "curl x", approvals }),
+      await evaluateApprovals({ tool: "run_shell", subject: "curl x", approvals, workspace: noWorkspace }),
     ).toBe(false);
     expect(
-      await evaluateApprovals({ tool: "write_file", subject: "src/a.ts", approvals }),
+      await evaluateApprovals({ tool: "write_file", subject: "src/a.ts", approvals, workspace: noWorkspace }),
     ).toBe(true);
   });
 
@@ -279,6 +285,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         tool: "run_shell",
         subject: "rm -rf build/*",
         approvals,
+        workspace: noWorkspace,
       }),
     ).toBe(true);
     expect(
@@ -286,6 +293,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         tool: "run_shell",
         subject: "rm -rf build/../../etc",
         approvals,
+        workspace: noWorkspace,
       }),
     ).toBe(false);
   });
@@ -301,6 +309,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "npm test",
         approvals: scoped,
         activeProviderModel: "openai:gpt-4o",
+        workspace: noWorkspace,
       }),
     ).toBe(true);
     expect(
@@ -309,6 +318,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "npm test",
         approvals: scoped,
         activeProviderModel: "anthropic:opus",
+        workspace: noWorkspace,
       }),
     ).toBe(false);
     expect(
@@ -317,6 +327,7 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "git status",
         approvals: scoped,
         requestCwd: "/repo-a",
+        workspace: noWorkspace,
       }),
     ).toBe(true);
     expect(
@@ -325,8 +336,68 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         subject: "git status",
         approvals: scoped,
         requestCwd: "/repo-b",
+        workspace: noWorkspace,
       }),
     ).toBe(false);
+  });
+
+  test("a project grant minted at the session root matches a request whose cwd is a registered worktree of that root", async () => {
+    const scoped: Approval[] = [{ tool: "run_shell", pattern: "git *", cwd: "/session-root" }];
+    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "git status",
+        approvals: scoped,
+        requestCwd: "/sibling-dispatch-wts/agent-1",
+        workspace,
+      }),
+    ).toBe(true);
+  });
+
+  // Security test: a grant minted for one project must never authorize a
+  // request whose cwd belongs to a completely different project, even when
+  // that other project also happens to be a git worktree somewhere. Must
+  // pass both before and after the worktree-matching fix.
+  test("a project grant does not match a request from an unrelated project root", async () => {
+    const scoped: Approval[] = [{ tool: "run_shell", pattern: "git *", cwd: "/session-root" }];
+    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "git status",
+        approvals: scoped,
+        requestCwd: "/some-other-unrelated-project",
+        workspace,
+      }),
+    ).toBe(false);
+  });
+
+  test("session and provider-model scopes (no cwd) are unaffected by workspace membership", async () => {
+    const scoped: Approval[] = [
+      { tool: "run_shell", pattern: "npm *" },
+      { tool: "run_shell", pattern: "git *", providerModel: "openai:gpt-4o" },
+    ];
+    const workspace = { resolvedCwd: "/session-root", roots: ["/sibling-dispatch-wts/agent-1"] };
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals: scoped,
+        requestCwd: "/anywhere-at-all",
+        workspace,
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "git status",
+        approvals: scoped,
+        activeProviderModel: "openai:gpt-4o",
+        requestCwd: "/anywhere-at-all",
+        workspace,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -2913,6 +2984,124 @@ describe("sub-agent identity on permission requests", () => {
     expect(withA?.cwd).toBe("/repo-a");
     expect(withB?.agentLabel).toBe("Worker B");
     expect(withB?.cwd).toBe("/repo-b");
+  });
+});
+
+describe("project-scoped grants match sub-agent worktree requests (CL-5662)", () => {
+  const git = (cwd: string, ...args: string[]): void => {
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  };
+
+  // A sibling worktree, not nested under the session root — mirrors CL-4929's
+  // real-world layout where a sub-agent's worktree lives outside the repo
+  // entirely (e.g. a dispatch worktrees directory next to the checkout).
+  const createRepoWithSiblingWorktree = (): { repo: string; worktree: string } => {
+    const base = mkdtempSync(join(tmpdir(), "corbits-project-grant-"));
+    const repo = join(base, "repo");
+    const worktree = join(base, "sibling-worktree");
+    mkdirSync(repo);
+    git(repo, "init", "-b", "main");
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init");
+    git(repo, "worktree", "add", worktree);
+    return { repo, worktree };
+  };
+
+  test("a project grant minted at the session root matches a sub-agent request whose cwd is a worktree under that root", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { repo, worktree } = createRepoWithSiblingWorktree();
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" } };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    // First call, from the session root, mints the project grant.
+    const first = await gate.evaluate(shellCall("npm test"));
+    expect(first.allowed).toBe(true);
+    expect(asked).toBe(1);
+
+    // Second call, from a sub-agent running in the sibling worktree, must
+    // replay the same project grant instead of asking again.
+    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: worktree }, () =>
+      gate.evaluate(shellCall("npm run build")),
+    );
+    expect(second.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  // Security test: a project grant must never leak to a request from a
+  // genuinely unrelated project's directory, even though that directory is
+  // just as "foreign" on disk as a legitimate worktree would look to a naive
+  // check. Must pass both before and after the worktree-matching fix.
+  test("a project grant does not match a request from an unrelated project root", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { repo } = createRepoWithSiblingWorktree();
+    const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" } };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    const first = await gate.evaluate(shellCall("npm test"));
+    expect(first.allowed).toBe(true);
+    expect(asked).toBe(1);
+
+    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: unrelated }, () =>
+      gate.evaluate(shellCall("npm run build")),
+    );
+    expect(second.allowed).toBe(true);
+    // The unrelated cwd must still ask — the grant did not leak across
+    // projects — even though the operator happens to approve it again here.
+    expect(asked).toBe(2);
+  });
+
+  // Uses write_file rather than run_shell: every bare shell token is itself
+  // judged for path containment against the calling agent's cwd (a
+  // pre-existing, unrelated restriction — see classify.ts's
+  // commandTargetsRestricted), so a shell command issued from a genuinely
+  // foreign cwd always asks regardless of any grant. write_file's subject is
+  // the target path, not the agent's cwd, so it isolates the thing this test
+  // actually checks: that an unscoped (no-cwd) grant matches irrespective of
+  // where the request originated.
+  test("session and provider-model grants still match a sub-agent request regardless of cwd", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { repo } = createRepoWithSiblingWorktree();
+    const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
+    const target = join(repo, "notes.md");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: repo,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: target, grant: "session" } };
+      },
+      interactive: true,
+      skipPermissions: false,
+    });
+
+    const first = await gate.evaluate({ id: "a", name: "write_file", arguments: { path: target } });
+    expect(first.allowed).toBe(true);
+    expect(asked).toBe(1);
+
+    const second = await runWithSubAgentIdentity({ description: "Worker", cwd: unrelated }, () =>
+      gate.evaluate({ id: "b", name: "write_file", arguments: { path: target } }),
+    );
+    expect(second.allowed).toBe(true);
+    expect(asked).toBe(1);
   });
 });
 

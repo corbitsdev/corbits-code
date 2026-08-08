@@ -60,7 +60,9 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
         cwd,
       };
       const grant: Approval = { tool: "run_shell", pattern: command };
-      expect(isRequestCoveredByGrant(request, grant, undefined, isRestricted)).toBe(false);
+      expect(
+        isRequestCoveredByGrant(request, grant, undefined, isRestricted, { resolvedCwd: cwd, roots: [] }),
+      ).toBe(false);
     });
 
     test(`${name}: evaluate() never allows outright`, async () => {
@@ -85,7 +87,9 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
     };
     expect(preGrantGuardReason(request, isRestricted)).toBeUndefined();
     const grant: Approval = { tool: "run_shell", pattern: "npm test" };
-    expect(isRequestCoveredByGrant(request, grant, undefined, isRestricted)).toBe(true);
+    expect(
+      isRequestCoveredByGrant(request, grant, undefined, isRestricted, { resolvedCwd: cwd, roots: [] }),
+    ).toBe(true);
   });
 });
 
@@ -122,7 +126,12 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
       cwd: agentCwd,
     };
     const grant: Approval = { tool: "run_shell", pattern: "cat *" };
-    expect(isRequestCoveredByGrant(request, grant, undefined, sessionRestricted)).toBe(false);
+    expect(
+      isRequestCoveredByGrant(request, grant, undefined, sessionRestricted, {
+        resolvedCwd: sessionCwd,
+        roots: [],
+      }),
+    ).toBe(false);
   });
 
   test("a relative path inside the registered worktree is not forced-restricted", () => {
@@ -135,6 +144,11 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
       cwd: agentCwd,
     };
     const grant: Approval = { tool: "run_shell", pattern: "cat *" };
-    expect(isRequestCoveredByGrant(request, grant, undefined, sessionRestricted)).toBe(true);
+    expect(
+      isRequestCoveredByGrant(request, grant, undefined, sessionRestricted, {
+        resolvedCwd: sessionCwd,
+        roots: [],
+      }),
+    ).toBe(true);
   });
 });
