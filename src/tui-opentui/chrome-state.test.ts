@@ -4,7 +4,7 @@ import {
   chromeFromSession,
   formatAgentsPanel,
   formatChromeZones,
-  formatTaskLine,
+  formatTasksPanel,
   type ChromeLiveState,
 } from "./chrome-state"
 
@@ -30,17 +30,17 @@ describe("formatChromeZones", () => {
 
   test("partial: task string only", () => {
     const out = formatChromeZones({ task: "cutover readiness" })
-    expect(out.task).toBe("task: cutover readiness")
+    expect(out.task).toEqual([{ label: "cutover readiness", status: null }])
     expect(out.agents).toBeNull()
   })
 
   test("full state formats both zones", () => {
     const state: ChromeLiveState = {
-      task: {
-        title: "chrome live helper",
-        status: "doing",
-        remaining: 2,
-      },
+      task: [
+        { title: "chrome live helper", status: "doing" },
+        { title: "wire chrome zone", status: "todo" },
+        { title: "wire agents zone", status: "todo" },
+      ],
       agents: [
         {
           agentId: "explore",
@@ -58,7 +58,11 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    expect(out.task).toBe("task: chrome live helper (+2)")
+    expect(out.task).toEqual([
+      { label: "chrome live helper", status: "doing" },
+      { label: "wire chrome zone", status: "todo" },
+      { label: "wire agents zone", status: "todo" },
+    ])
     expect(out.agents).toEqual([
       {
         label: "explore: map setChromeZones callers",
@@ -95,53 +99,54 @@ describe("formatChromeZones", () => {
   })
 })
 
-describe("formatTaskLine", () => {
+describe("formatTasksPanel", () => {
   test("string / empty", () => {
-    expect(formatTaskLine(null)).toBeNull()
-    expect(formatTaskLine("")).toBeNull()
-    expect(formatTaskLine("  ")).toBeNull()
-    expect(formatTaskLine("wire host")).toBe("task: wire host")
+    expect(formatTasksPanel(null)).toBeNull()
+    expect(formatTasksPanel("")).toBeNull()
+    expect(formatTasksPanel("  ")).toBeNull()
+    expect(formatTasksPanel("wire host")).toEqual([
+      { label: "wire host", status: null },
+    ])
   })
 
-  test("structured with remaining", () => {
+  test("each row carries its own status", () => {
     expect(
-      formatTaskLine({
-        title: "format chrome",
-        status: "doing",
-        remaining: 1,
-      }),
-    ).toBe("task: format chrome (+1)")
-  })
-
-  test("terminal structured hides", () => {
-    expect(
-      formatTaskLine({ title: "done item", status: "done" }),
-    ).toBeNull()
-  })
-
-  test("rows pick doing and remaining", () => {
-    expect(
-      formatTaskLine([
+      formatTasksPanel([
         { title: "first", status: "done" },
         { title: "second", status: "doing" },
         { title: "third", status: "todo" },
       ]),
-    ).toBe("task: second (+1)")
+    ).toEqual([
+      { label: "first", status: "done" },
+      { label: "second", status: "doing" },
+      { label: "third", status: "todo" },
+    ])
   })
 
-  test("rows all terminal hide", () => {
+  test("terminal (done/cancelled) rows still render — the panel is a live list, not just what remains", () => {
     expect(
-      formatTaskLine([
+      formatTasksPanel([
         { title: "a", status: "done" },
         { title: "b", status: "cancelled" },
       ]),
-    ).toBeNull()
+    ).toEqual([
+      { label: "a", status: "done" },
+      { label: "b", status: "cancelled" },
+    ])
   })
 
-  test("does not double-prefix", () => {
-    expect(formatTaskLine("task: already prefixed")).toBe(
-      "task: already prefixed",
-    )
+  test("empty array hides", () => {
+    expect(formatTasksPanel([])).toBeNull()
+  })
+
+  test("bounds fan-out to maxVisible plus a +N more row", () => {
+    const rows = Array.from({ length: 8 }, (_, i) => ({
+      title: `task ${i}`,
+      status: "todo" as const,
+    }))
+    const out = formatTasksPanel(rows, 5)
+    expect(out).toHaveLength(6)
+    expect(out?.[5]).toEqual({ label: "+3 more", status: null })
   })
 })
 
@@ -300,7 +305,10 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    expect(zones.task).toBe("task: wire catalogs (+1)")
+    expect(zones.task).toEqual([
+      { label: "wire catalogs", status: "doing" },
+      { label: "export index", status: "todo" },
+    ])
     expect(zones.agents).toEqual([
       { label: "explore: map callers", tail: " · grep", stalled: false },
     ])

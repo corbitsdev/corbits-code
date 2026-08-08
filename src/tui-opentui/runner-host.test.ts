@@ -122,6 +122,63 @@ describe("observeSessionFromSubAgents", () => {
   })
 })
 
+describe("mountRunnerHost chrome wiring", () => {
+  // CL-5731: the task-change callback was built (director writes tasks,
+  // getTasks()/onTasksChange exist) but had no live consumer — the chrome
+  // push mechanism type-checked fine with `subscribeChrome` omitted, so a
+  // director's task update never reached the shell. `subscribeChrome` is now
+  // a required dep (not optional) so that regression cannot type-check
+  // again, but the type alone does not prove the wiring actually runs: this
+  // test drives a real notify() call through mountRunnerHost end to end and
+  // asserts the task panel painted from it, the way the real runner's
+  // `emitter.emit("tasks", ...)` -> `subscribeChrome` -> `pushChrome` chain
+  // does. If `subscribeChrome`'s notify callback were ever dropped again
+  // (e.g. `deps.subscribeChrome?.(pushChrome)` silently no-op on undefined),
+  // this test fails because the second push never reaches the panel.
+  test("a live chrome push (subscribeChrome notify) repaints the task panel", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    let liveTasks: readonly { title: string; status: "todo" | "doing" | "done" | "cancelled" }[] = []
+    let notify: (() => void) | undefined
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ tasks: liveTasks, agents: [] }),
+      subscribeChrome: (n) => {
+        notify = n
+        return () => {
+          notify = undefined
+        }
+      },
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.shell.taskBox.visible).toBe(false)
+      expect(notify).toBeDefined()
+
+      // Mirrors createChatDirector's onTasksChange firing after a
+      // manage_tasks tool call: the live source changes, then the runner
+      // notifies the host — it does not push the new snapshot itself.
+      liveTasks = [{ title: "wire task panel", status: "doing" }]
+      notify?.()
+
+      expect(host.shell.taskBox.visible).toBe(true)
+      await harness.renderOnce()
+      const frame = harness.captureCharFrame()
+      expect(frame).toContain("wire task panel")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+})
+
 describe("mountRunnerHost command surfaces", () => {
   test("routes settings and models, and reports surfaces with no data source", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
@@ -135,6 +192,7 @@ describe("mountRunnerHost command surfaces", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       surfaces: {
@@ -185,6 +243,7 @@ describe("mountRunnerHost model picker", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -213,6 +272,7 @@ describe("mountRunnerHost model picker", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -245,6 +305,7 @@ describe("mountRunnerHost model picker", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -280,6 +341,7 @@ describe("mountRunnerHost model picker", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
     })
@@ -311,6 +373,7 @@ describe("bottom border cost run", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -338,6 +401,7 @@ describe("bottom border cost run", () => {
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
       subAgentSessions: () => [],
       createRenderer: async () => harness.renderer,
       readCostSummary: () => fakeCostSummary(),
@@ -376,6 +440,7 @@ describe("mountRunnerHost quit key", () => {
     commands: [],
     onCommand: () => {},
     chrome: () => ({ agents: [] }),
+    subscribeChrome: () => () => {},
     subAgentSessions: () => [],
     createRenderer: async () => harness.renderer,
   })
