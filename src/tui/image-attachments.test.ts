@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { deflateSync } from "node:zlib";
 import { unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   extractPastedImagePaths,
   findImagePathMentions,
   imageMimeTypeForPath,
   capImageForIngestion,
+  imageAttachmentFromPath,
   MAX_IMAGE_DIMENSION,
 } from "./image-attachments.js";
 
@@ -149,5 +152,32 @@ describe("image attachment helpers", () => {
     const result = await capImageForIngestion(large, "image/png");
     expect(result.data).toBe(large);
     expect(result.contentType).toBe("image/png");
+  });
+
+  // The dedupe fix (see shell.ts attachClipboardImage) rests entirely on this:
+  // two ingests of identical source bytes must hash identically even though
+  // capImageForIngestion re-encodes oversized images through `sips`, whose
+  // JPEG output is not byte-stable across runs. Sizing the fixture above
+  // DOWNSCALE_THRESHOLD_BYTES (300 KB) exercises that re-encode path -- a
+  // small fixture would pass even if the hash were taken after capping.
+  test("hashes identical source bytes the same regardless of filename, even through the sips recompression path", async () => {
+    const bytes = buildTestPng(1200, 1200);
+    expect(bytes.byteLength).toBeGreaterThan(300 * 1024);
+
+    const pathA = join(tmpdir(), `corbits-hash-test-a-${process.pid}-${Date.now()}.png`);
+    const pathB = join(tmpdir(), `corbits-hash-test-b-${process.pid}-${Date.now()}.png`);
+    await Bun.write(pathA, bytes);
+    await Bun.write(pathB, bytes);
+    try {
+      const resultA = await imageAttachmentFromPath(pathA);
+      const resultB = await imageAttachmentFromPath(pathB);
+      if (!resultA.ok || !resultB.ok) throw new Error("expected both ingests to succeed");
+
+      expect(resultA.attachment.contentHash).toBe(resultB.attachment.contentHash);
+      expect(resultA.attachment.id).not.toBe(resultB.attachment.id);
+    } finally {
+      await unlink(pathA).catch(() => undefined);
+      await unlink(pathB).catch(() => undefined);
+    }
   });
 });

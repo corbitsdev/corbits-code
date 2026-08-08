@@ -27,7 +27,7 @@ const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
 export type PendingImageAttachment = MessageAttachment & {
   id: string;
   path?: string;
-  /** SHA-256 of the decoded image bytes, used to dedupe repeat pastes. */
+  /** SHA-256 of the source image file's bytes, used to dedupe repeat pastes. */
   contentHash: string;
 };
 
@@ -110,9 +110,12 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
   };
 }
 
-/** SHA-256 of decoded image bytes, used to identify identical pastes regardless of filename or timing. */
-export async function hashImageBytes(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+/** SHA-256 of the source image file's bytes, used to identify identical pastes regardless of filename or timing. */
+async function hashImageBytes(bytes: Buffer): Promise<string> {
+  // Buffer's type parameter is the looser ArrayBufferLike (it may back onto a
+  // pooled allocation), but readFile never actually hands back a
+  // SharedArrayBuffer-backed view, so this is a type-only cast, not a copy.
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
