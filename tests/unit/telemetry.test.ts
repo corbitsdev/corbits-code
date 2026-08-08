@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createTelemetry,
+  FLUSH_DEADLINE_MS,
   getSessionId,
   resolveTelemetryEnabled,
   telemetryDisabledByEnv,
@@ -443,4 +444,20 @@ test("a hung endpoint caps the queue and never opens a second request", async ()
   // Only the newest queueLimit events survived the overflow; everything
   // between the in-flight batch and them was shed rather than buffered.
   expect(gate.bodies.slice(1).flatMap(turnCounts)).toEqual([17, 18, 19, 20]);
+});
+
+test("flush gives up within its deadline even when the request never settles", async () => {
+  const gate = gatedFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: gate.impl,
+    apiKey: "test-key",
+  });
+  telemetry.capture("cli_start");
+  const start = Date.now();
+  // Gate is never opened: this proves flush() returns on its own deadline
+  // rather than because the request happened to resolve.
+  await telemetry.flush();
+  expect(Date.now() - start).toBeLessThan(2 * FLUSH_DEADLINE_MS);
 });

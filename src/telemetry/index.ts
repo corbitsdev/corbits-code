@@ -17,8 +17,9 @@ export const POSTHOG_HOST = process.env[TELEMETRY_HOST_ENV] ?? DEFAULT_POSTHOG_H
 export const POSTHOG_API_KEY = process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG_API_KEY;
 
 // Upper bound on how long flush() may hold up process exit; anything still
-// in flight past this is dropped.
-const FLUSH_DEADLINE_MS = 500;
+// in flight past this is dropped. Exported so tests can assert against the
+// deadline itself rather than a duplicated magic number.
+export const FLUSH_DEADLINE_MS = 500;
 
 // Batching defaults. A busy turn can emit an event per tool call, so events
 // accumulate until either trigger fires rather than opening a socket each

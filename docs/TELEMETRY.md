@@ -50,7 +50,8 @@ Turning telemetry off also discards whatever is still queued and unsent.
 Events captured earlier in the session but not yet transmitted are thrown
 away at the moment you opt out, not sent on the way out — opting out covers
 the activity you have already generated, not just the activity still to
-come.
+come. A batch already in flight to the server at the moment you opt out is
+not recalled; discarding only reaches events still held in memory.
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —
