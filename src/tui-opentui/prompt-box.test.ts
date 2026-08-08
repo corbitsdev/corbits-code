@@ -192,15 +192,10 @@ describe("Enter is still the send key", () => {
 })
 
 describe("openers toggle their surface shut", () => {
-  test("Ctrl+O opens the palette and closes it", async () => {
+  test("Ctrl+O no longer opens anything (removed; use / or the help command)", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
       h.pressKey("o", { ctrl: true })
-      expect(shell.overlayKind).toBe("palette")
-      expect(focusOwner(shell.focus)).toBe("palette")
-
-      h.pressKey("o", { ctrl: true })
       expect(shell.overlayKind).toBeNull()
-      expect(shell.overlayList).toBeNull()
       expect(focusOwner(shell.focus)).not.toBe("palette")
     })
   })

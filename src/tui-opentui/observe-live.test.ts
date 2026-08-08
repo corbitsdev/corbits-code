@@ -19,8 +19,8 @@ import {
   appendStreamRow,
   createAppShell,
   enterSubagentObserve,
+  getPaletteOnObserveRequest,
   leaveSubagentObserve,
-  runPaletteAction,
   setPaletteOnObserveRequest,
 } from "./shell.js"
 
@@ -351,8 +351,11 @@ describe("live subagent observe", () => {
   })
 })
 
-describe("palette observe action asks the host for a live session", () => {
-  test("uses the host-supplied session instead of the fixture", async () => {
+describe("observe request handler injection point", () => {
+  // No UI surface calls this anymore (the palette action that did is gone
+  // with Ctrl+O); the host-injection API itself stays available for a future
+  // trigger, so it is proven directly here rather than through a key chord.
+  test("host can resolve and use its own live session", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -367,7 +370,9 @@ describe("palette observe action asks the host for a live session", () => {
             }),
           )
 
-          runPaletteAction(shell, "observe")
+          const session = getPaletteOnObserveRequest(shell)?.()
+          expect(session).not.toBeNull()
+          if (session) enterSubagentObserve(shell, session)
 
           expect(shell.observe?.sessionId).toBe("live-child-1")
           expect(shell.observe?.agentId).toBe("worker")
@@ -382,7 +387,7 @@ describe("palette observe action asks the host for a live session", () => {
     )
   })
 
-  test("reports no session available instead of entering observe", async () => {
+  test("resolves to null when the host has nothing to offer", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -391,36 +396,7 @@ describe("palette observe action asks the host for a live session", () => {
         })
         try {
           setPaletteOnObserveRequest(shell, () => null)
-
-          runPaletteAction(shell, "observe")
-
-          expect(shell.observe).toBeNull()
-          expect(
-            shell.streamLog.some((r) =>
-              r.text.includes("no subagent session to observe"),
-            ),
-          ).toBe(true)
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 80, height: 24 },
-    )
-  })
-
-  test("stays out of observe with an honest message when no host handler is set", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          run: "idle",
-        })
-        try {
-          runPaletteAction(shell, "observe")
-          expect(shell.observe).toBeNull()
-          expect(
-            shell.streamLog.some((r) => r.text === "no subagent session to observe"),
-          ).toBe(true)
+          expect(getPaletteOnObserveRequest(shell)?.()).toBeNull()
         } finally {
           shell.dispose()
         }

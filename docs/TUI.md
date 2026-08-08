@@ -250,28 +250,29 @@ every picker open — independent of the recents list, which only moves on an
 explicit pick and can go stale (`ProductHostConfig.activeModelId`'s doc
 comment and `annotateCurrent` in `src/tui-opentui/product-host.ts`).
 
-The command palette specifically (`src/tui-opentui/palette.ts`,
+The `/` command list specifically (`src/tui-opentui/command-catalog.ts`,
 `shell.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
 are painted at the geometry resolver's shared `contentWidth`
 (`geometry/resolve.ts:assignRects`, `shell.ts:overlayRowWidth`). There is no
 leading marker column and no per-row kind column; the selected row is marked
 by text color only (`paintPaletteList` in `shell.ts`: "the highlighted row
 already stands out by sitting under the cursor, so a leading `>` and a grey
-block would both be saying the same thing twice"). The palette also paints
-with no title rule — the filter row (`> query`) directly under the box
-already shows what was typed, so a second header line would say nothing new
+block would both be saying the same thing twice"). The list also paints with
+no title rule — the filter row (`> query`) directly under the box already
+shows what was typed, so a second header line would say nothing new
 (`repaintPalette`).
 
 ## Slash commands and pickers
 
-`Ctrl+O` opens the command palette from anywhere in the shell (reclaimed from
-the Ink-era tool-expand chord); `/` at an empty prompt opens the same
-palette narrowed to registry slash commands. Every user-facing slash command
-has a palette twin. Palette entries are either "residual" product actions
-owned by the shell (open permissions, switch model, toggle a chrome zone,
-copy, toggle mouse capture, help, insert a mention, observe a subagent) or
-"command" entries backed by the live command registry
-(`src/tui-opentui/palette.ts`).
+`/` at an empty prompt opens the command list, narrowed by name prefix as
+more is typed; Tab completes the name so arguments can be typed, Enter runs
+it. Every entry is backed by the live command registry
+(`src/tui-opentui/command-catalog.ts:commandItemsFromRegistry`) — there is no
+separate palette overlay and no shell-owned action outside the registry. The
+overlay this reuses is still internally called `"palette"` (`shell.ts`'s
+`PrimaryOverlayKind`), a naming leftover from when a Ctrl+O command palette
+also opened it; that chord is gone (see keybindings.ts), and the identifier
+stayed because renaming an internal overlay tag has no user-facing effect.
 
 The model/provider picker is provider-first
 (`src/tui-opentui/product-host.ts:groupModelsForPicker`/`openLevel`): recent

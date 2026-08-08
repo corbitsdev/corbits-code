@@ -17,10 +17,7 @@ import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js"
-import { SHELL_SHORTCUTS, shortcutForPaletteId } from "./keybindings.js"
-import { isResidualActionId } from "./palette.js"
-import { listCommands } from "../tui/commands/registry.js"
-import { registerBuiltInCommands } from "../tui/commands/built-in.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import { createHarness, withTestRenderer, type Harness } from "./harness.js"
 import { mountRunnerHost } from "./runner-host.js"
 import { focusOwner } from "./focus/focus-state.js"
@@ -271,15 +268,6 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     },
   },
 
-  "Ctrl+O": {
-    group: "surfaces",
-    probe: ({ h, shell, chords }) => {
-      press(h, chords[0])
-      expect(shell.overlayKind).toBe("palette")
-      press(h, chords[0])
-      expect(shell.overlayKind).toBeNull()
-    },
-  },
   "Alt+C": {
     group: "surfaces",
     probe: ({ h, shell, chords }) => {
@@ -336,11 +324,16 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
   Esc: {
     group: "surfaces",
     probe: async ({ h, shell, chords }) => {
-      press(h, "\x0f") // Ctrl+O opens something to close
+      setPaletteCatalog(shell, [{ id: "cost", label: "cost" }])
+      shellFocusPrompt(shell)
+      shell.prompt.value = ""
+      shell.prompt.cursorOffset = 0
+      press(h, "/") // opens the / command popup, something Esc must close
       expect(shell.overlayKind).toBe("palette")
       press(h, chords[0])
       await escapeSettles()
       expect(shell.overlayKind).toBeNull()
+      shell.prompt.value = ""
     },
   },
   "?": {
@@ -386,7 +379,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
   "/": {
     group: "surfaces",
     probe: async ({ h, shell, chords }) => {
-      setPaletteCatalog(shell, [{ id: "cost", label: "cost", dispatch: "command" }])
+      setPaletteCatalog(shell, [{ id: "cost", label: "cost" }])
       shellFocusPrompt(shell)
 
       shell.prompt.value = "note"
@@ -687,25 +680,3 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
   })
 })
 
-describe("palette chords", () => {
-  test("every mapped entry id is a real palette action or registered command", () => {
-    registerBuiltInCommands()
-    const commands = new Set(listCommands().map((c) => c.name))
-    for (const id of PALETTE_IDS) {
-      expect(isResidualActionId(id) || commands.has(id)).toBe(true)
-    }
-  })
-
-  test("every mapped chord is a chord the catalog proved", () => {
-    for (const id of PALETTE_IDS) {
-      expect(shortcutForPaletteId(id)).toBeString()
-    }
-  })
-})
-
-/**
- * PALETTE_CHORDS is private, so the ids it maps are listed here. A new mapping
- * without an entry here is caught by the palette test in wave7, which walks the
- * painted rows.
- */
-const PALETTE_IDS = ["help", "mentions", "copy_active", "toggle_mouse", "paste-image"] as const

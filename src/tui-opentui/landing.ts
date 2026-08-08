@@ -61,7 +61,7 @@ export const LANDING_HINTS: readonly {
   readonly key: string
   readonly rest: string
 }[] = [
-  { key: "ctrl+o", rest: "for commands" },
+  { key: "/", rest: "for commands" },
   { key: "?", rest: "for shortcuts" },
 ]
 

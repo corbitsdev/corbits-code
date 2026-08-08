@@ -11,7 +11,7 @@ import type { EventEmitter } from "node:events"
 import type { CliRenderer, KeyEvent } from "@opentui/core"
 
 import type { SubAgentSession, SubAgentTranscriptEntry } from "../subagent/session-store.js"
-import { buildCommandCatalog, type RegistryCommandSource } from "./command-catalog.js"
+import { commandItemsFromRegistry, type RegistryCommandSource } from "./command-catalog.js"
 import {
   openCommandSurface,
   type CommandSurfaceDeps,
@@ -263,7 +263,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     },
     onModelSelect,
     describeModel,
-    commands: buildCommandCatalog(deps.commands),
+    commands: commandItemsFromRegistry(deps.commands),
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
     onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),

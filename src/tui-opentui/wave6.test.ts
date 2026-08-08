@@ -27,8 +27,15 @@ import {
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
 import { stringWidth } from "../tui/view/height"
+import type { PaletteCommand } from "./command-catalog"
 
-describe("Wave 6: command palette", () => {
+const CATALOG: readonly PaletteCommand[] = [
+  { id: "compact", label: "/compact — compact history" },
+  { id: "help", label: "/help — show keymap help" },
+  { id: "model", label: "/model — switch model" },
+]
+
+describe("Wave 6: command list", () => {
   test("open → navigate → Esc restores prompt", async () => {
     await withTestRenderer(
       async (h) => {
@@ -39,7 +46,7 @@ describe("Wave 6: command palette", () => {
         })
         try {
           expect(focusOwner(shell.focus)).toBe("prompt")
-          openPalette(shell)
+          openPalette(shell, { catalog: CATALOG })
           expect(shell.overlayKind).toBe("palette")
           expect(shell.overlayList).not.toBeNull()
           expect(shell.paletteCommands.length).toBeGreaterThan(0)
@@ -50,15 +57,12 @@ describe("Wave 6: command palette", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          // The palette drops its title rule row, so identify it on screen by
+          // The list drops its title rule row, so identify it on screen by
           // its filter prompt and first row rather than the word "palette".
           expect(frame).toMatch(/│\s*>\s*│/)
-          expect(frame).toContain("Open permissions")
+          expect(frame).toContain("/compact")
           // List labels live in overlayItems (frame may clip first row under tight height).
-          expect(shell.overlayItems[0]).toBe("Open permissions")
-          expect(shell.overlayItems.some((l) => l.includes("permissions"))).toBe(
-            true,
-          )
+          expect(shell.overlayItems[0]).toBe(CATALOG[0]!.label)
 
           moveOverlaySelection(shell, 1)
           expect(shell.overlayList!.activeIndex).toBe(1)
@@ -79,15 +83,17 @@ describe("Wave 6: command palette", () => {
     )
   })
 
-  test("accept action (help) opens help overlay", async () => {
+  test("accept action dispatches through onCommand", async () => {
     await withTestRenderer(
       async (h) => {
+        const dispatched: string[] = []
         const shell = createAppShell(h.renderer, {
           terminal: { columns: 80, rows: 24 },
           wireKeys: false,
+          onCommand: (name) => dispatched.push(name),
         })
         try {
-          openPalette(shell)
+          openPalette(shell, { catalog: CATALOG })
           const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help")
           expect(helpIdx).toBeGreaterThanOrEqual(0)
           for (let i = 0; i < helpIdx; i++) moveOverlaySelection(shell, 1)
@@ -96,11 +102,7 @@ describe("Wave 6: command palette", () => {
           )
 
           acceptOverlaySelection(shell)
-          // Help is a residual list surface — palette closes, help opens.
-          expect(shell.overlayKind).toBe("help")
-          expect(shell.overlayList).not.toBeNull()
-          expect(focusOwner(shell.focus)).toBe("overlay")
-          closeInsetOverlay(shell)
+          expect(dispatched).toEqual(["help"])
           expect(shell.overlayList).toBeNull()
           expect(focusOwner(shell.focus)).toBe("prompt")
         } finally {
@@ -111,7 +113,7 @@ describe("Wave 6: command palette", () => {
     )
   })
 
-  test("palette stacks over permissions; Esc restores permissions then prompt", async () => {
+  test("list stacks over permissions; Esc restores permissions then prompt", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -125,7 +127,7 @@ describe("Wave 6: command palette", () => {
           expect(shell.overlayKind).toBe("permissions")
           expect(focusOwner(shell.focus)).toBe("overlay")
 
-          openPalette(shell)
+          openPalette(shell, { catalog: CATALOG })
           expect(shell.overlayKind).toBe("palette")
           expect(focusOwner(shell.focus)).toBe("palette")
 

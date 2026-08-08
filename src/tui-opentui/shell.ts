@@ -128,17 +128,12 @@ import {
 } from "./list-viewport.js"
 import { retentionOverflow } from "./long-log.js"
 import {
-  DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
   formatPaletteRows,
-  isResidualActionId,
-  paletteDispatchOf,
   paletteLabels,
-  paletteRowColumns,
-  type PaletteActionId,
   type PaletteCommand,
-} from "./palette.js"
-import { SHELL_SHORTCUTS, shortcutForPaletteId } from "./keybindings.js"
+} from "./command-catalog.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import { destroySubtree } from "./teardown.js"
 import {
   filterMentionSuggestions,
@@ -1308,10 +1303,10 @@ function overlayInteriorWidth(shell: AppShell): number {
  */
 function paintPaletteList(shell: AppShell, list: ListViewportState): void {
   const interior = overlayInteriorWidth(shell)
-  const columns = shell.paletteCommands.map((cmd) =>
-    paletteRowColumns(cmd, shortcutForPaletteId),
+  const lines = formatPaletteRows(
+    shell.paletteCommands.map((cmd) => cmd.label),
+    Math.max(4, interior - 1),
   )
-  const lines = formatPaletteRows(columns, Math.max(4, interior - 1))
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const line = lines[i] ?? ""
@@ -1861,8 +1856,8 @@ type ShellInternals = {
   /** Fired once the shell has no overlay open, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>
   /**
-   * Default palette catalog (static or lazy). Used when openPalette omits catalog.
-   * Residual DEFAULT_PALETTE_COMMANDS when unset.
+   * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
+   * when unset.
    */
   paletteCatalog:
     | readonly PaletteCommand[]
@@ -3406,17 +3401,17 @@ export function openInsetOverlay(
   })
 }
 
-/** Resolve the shell's default palette catalog (injected or residual-only). */
+/** Resolve the shell's registry-backed command catalog (host-injected). */
 export function resolvePaletteCatalog(shell: AppShell): readonly PaletteCommand[] {
   const bag = internals.get(shell)
   const raw = bag?.paletteCatalog
-  if (raw === null || raw === undefined) return DEFAULT_PALETTE_COMMANDS
+  if (raw === null || raw === undefined) return []
   return typeof raw === "function" ? raw() : raw
 }
 
 /**
- * Replace the shell default palette catalog (host rebinds after registry load).
- * Pass null to restore residual-only DEFAULT_PALETTE_COMMANDS.
+ * Replace the shell's `/` command catalog (host rebinds after registry load).
+ * Pass null to clear it.
  */
 export function setPaletteCatalog(
   shell: AppShell,
@@ -3430,9 +3425,8 @@ export function setPaletteCatalog(
 }
 
 /**
- * Open Amp-class command palette (Ctrl+O).
- * Chord reclaimed from tool-expand — document in interaction contract.
- * Catalog: opts.catalog → shell default (injected registry build) → residuals.
+ * Open the `/` command list overlay. Catalog: opts.catalog when given, else
+ * the shell's registry-backed default (see `resolvePaletteCatalog`).
  */
 export function openPalette(
   shell: AppShell,
@@ -3450,8 +3444,8 @@ export function openPalette(
     bag.paletteFilter = {
       query: opts?.query ?? "",
       title,
-      // Slash and other callers pass a pre-narrowed catalog; a bare Ctrl+O open
-      // re-resolves the shell default so a registry loaded later is picked up.
+      // `/` passes a pre-narrowed catalog; omitting it re-resolves the shell
+      // default so a registry loaded later is picked up.
       catalog: opts?.catalog ?? null,
       // The `/` popup keeps its query in the prompt and drives its own reopen.
       typeToFilter: opts?.typeToFilter ?? false,
@@ -3625,9 +3619,6 @@ export function handleOverlayAnswerKey(
  * pressing them again inserts them rather than closing the popup.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
-  if (key.ctrl && !key.meta && !key.option && (key.name === "o" || key.name === "O")) {
-    return "palette"
-  }
   if ((key.meta || key.option) && !key.ctrl && (key.name === "c" || key.name === "C")) {
     return "copy"
   }
@@ -4025,144 +4016,22 @@ function overlayKindWord(kind: PrimaryOverlayKind): string {
 }
 
 /**
- * Dispatch a selected palette item after the palette has closed.
- * - residual → `runPaletteAction` (overlays / chrome)
- * - command → injectable `onCommand(name)` (registry slash path)
+ * Dispatch a selected `/` command list item after the popup has closed.
+ * Every entry is registry-backed — the host's `onCommand(name)` runs it.
  */
 export function dispatchPaletteSelection(
   shell: AppShell,
   cmd: PaletteCommand,
 ): void {
-  const dispatch = paletteDispatchOf(cmd)
-  if (dispatch === "command") {
-    const onCommand = getPaletteOnCommand(shell)
-    if (onCommand) {
-      onCommand(cmd.id)
-      return
-    }
-    appendStreamRow(shell, {
-      role: "system",
-      text: `palette: /${cmd.id} (no onCommand handler)`,
-    })
-    return
-  }
-  if (isResidualActionId(cmd.id)) {
-    runPaletteAction(shell, cmd.id)
+  const onCommand = getPaletteOnCommand(shell)
+  if (onCommand) {
+    onCommand(cmd.id)
     return
   }
   appendStreamRow(shell, {
     role: "system",
-    text: `palette: unknown residual ${cmd.id}`,
+    text: `palette: /${cmd.id} (no onCommand handler)`,
   })
-}
-
-/** Run a residual palette action after the palette has closed. */
-export function runPaletteAction(
-  shell: AppShell,
-  id: PaletteActionId,
-): void {
-  switch (id) {
-    case "permissions": {
-      // Lazy import surface — open via openListOverlay to avoid overlays circular init.
-      openListOverlay(shell, {
-        kind: "permissions",
-        title: "permissions",
-        items: [
-          "Allow once",
-          "Allow session",
-          "Always allow this tool",
-          "Deny",
-          ...Array.from({ length: 26 }, (_, i) => `Allow tool call #${i + 2}`),
-        ],
-        frameId: "permissions",
-      })
-      return
-    }
-    case "operator": {
-      openListOverlay(shell, {
-        kind: "operator",
-        title: "operator",
-        body:
-          "The agent wants to run a destructive command that may modify your working tree.\n\nProceed with git reset --hard HEAD~1?",
-        items: [
-          "Cancel",
-          "Allow this once",
-          "Allow for session",
-          "Deny and tell agent",
-          "Open diff first",
-          "Always ask",
-          "Skip remaining questions",
-          "Abort run",
-        ],
-        frameId: "operator-question",
-      })
-      return
-    }
-    case "model_picker": {
-      openListOverlay(shell, {
-        kind: "model_picker",
-        title: "model / provider",
-        items: [
-          "anthropic / claude-sonnet-4",
-          "anthropic / claude-opus-4",
-          "openai / gpt-4.1",
-          "openai / o3",
-          "google / gemini-2.5-pro",
-          "local / ollama",
-        ],
-        frameId: "model-picker",
-      })
-      return
-    }
-    case "toggle_task": {
-      toggleTasksPanel(shell)
-      return
-    }
-    case "toggle_agents": {
-      const bag = internals.get(shell)
-      const on = (bag?.chrome.agents.length ?? 0) > 0
-      setChromeZones(shell, {
-        agents: on
-          ? null
-          : [{ label: "explore: map callers", tail: "", stalled: false }],
-      })
-      appendStreamRow(shell, {
-        role: "system",
-        text: on ? "agents strip off" : "agents strip on",
-        meta: "agents",
-      })
-      return
-    }
-    case "copy_active": {
-      enterCopyMode(shell)
-      return
-    }
-    case "toggle_mouse": {
-      toggleMouseCapture(shell)
-      return
-    }
-    case "help": {
-      openHelpOverlay(shell)
-      return
-    }
-    case "mentions": {
-      void openAtMentionSuggestions(shell)
-      return
-    }
-    case "observe": {
-      const onObserveRequest = getPaletteOnObserveRequest(shell)
-      const session = onObserveRequest ? onObserveRequest() : null
-      if (session) enterSubagentObserve(shell, session)
-      else {
-        appendStreamRow(shell, {
-          role: "system",
-          text: "no subagent session to observe",
-          meta: "observe",
-        })
-      }
-      return
-    }
-  }
 }
 
 export type ChromeZoneContent = {
@@ -4797,13 +4666,6 @@ function slashPopupQuery(shell: AppShell): string | null {
   return /\s/.test(head) ? null : head
 }
 
-/** Registry-backed slash entries only — residual openers stay on Ctrl+O. */
-function slashCatalog(shell: AppShell): readonly PaletteCommand[] {
-  return resolvePaletteCatalog(shell).filter(
-    (cmd) => paletteDispatchOf(cmd) === "command",
-  )
-}
-
 export function closeSlashPopup(shell: AppShell): void {
   if (!slashPopups.has(shell)) return
   slashPopups.delete(shell)
@@ -4824,7 +4686,7 @@ export function openSlashCommands(shell: AppShell): boolean {
   // Name-prefix, not the palette's fuzzy label match: at the prompt the
   // operator is typing the command they already mean.
   const q = query.toLowerCase()
-  const matches = slashCatalog(shell).filter((cmd) =>
+  const matches = resolvePaletteCatalog(shell).filter((cmd) =>
     cmd.id.toLowerCase().startsWith(q),
   )
   if (matches.length === 0) {
@@ -5586,13 +5448,6 @@ export function createAppShell(
       return
     }
 
-    if (key.ctrl && (key.name === "o" || key.name === "O")) {
-      // Ctrl+O reclaimed from tool-expand → command palette (Wave 6).
-      key.preventDefault()
-      openPalette(shell, { typeToFilter: true })
-      return
-    }
-
     if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
       // Alt+C: keyboard copy path (no mouse drag-select).
       key.preventDefault()
@@ -5604,6 +5459,14 @@ export function createAppShell(
       // Alt+M: release mouse reporting so the terminal can drag-select.
       key.preventDefault()
       toggleMouseCapture(shell)
+      return
+    }
+
+    if ((key.meta || key.option) && (key.name === "t" || key.name === "T") && !key.ctrl) {
+      // Alt+T: the task panel's only entry point now that the palette is gone.
+      // Losing the palette must not lose the toggle with it.
+      key.preventDefault()
+      toggleTasksPanel(shell)
       return
     }
 

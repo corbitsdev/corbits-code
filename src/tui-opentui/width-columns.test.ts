@@ -21,7 +21,7 @@ import { renderDiff } from "./diff.js"
 import { wrapLanding } from "./landing.js"
 import { lockupWidth } from "./lockup.js"
 import type { RampPhase } from "./ramp.js"
-import { formatPaletteRows } from "./palette.js"
+import { formatPaletteRows } from "./command-catalog.js"
 import { composeDecisionBody, decisionChoiceRows, wrapWords } from "./overlay-body.js"
 import { thinkingScrollLine, thinkingSettledLine } from "./thinking.js"
 
@@ -172,21 +172,12 @@ describe("thinking rows", () => {
 
 describe("palette rows", () => {
   test("rows are exactly `width` columns wide with CJK labels", () => {
-    const rows = formatPaletteRows(
-      [
-        { label: CJK, shortcut: "ctrl+o" },
-        { label: "resume", shortcut: "?" },
-      ],
-      48,
-    )
+    const rows = formatPaletteRows([CJK, "resume"], 48)
     for (const row of rows) expect(stringWidth(row)).toBe(48)
   })
 
   test("a too-wide label is cut to columns", () => {
-    const [row] = formatPaletteRows(
-      [{ label: `${CJK}${CJK}`, shortcut: "" }],
-      12,
-    )
+    const [row] = formatPaletteRows([`${CJK}${CJK}`], 12)
     expect(stringWidth(row ?? "")).toBe(12)
   })
 })
