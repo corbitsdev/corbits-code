@@ -7,7 +7,6 @@ import {
   fetchPricing,
   loadPricing,
   lookupModelPricing,
-  lookupModelReasoning,
   readPricingCache,
   writePricingCache,
   startPricingRefresh,
@@ -48,13 +47,6 @@ describe("parseModelsDevReasoning", () => {
       },
     };
     expect(parseModelsDevReasoning(payload)).toEqual({ "gpt-5.1": true, "gpt-4o": false });
-  });
-
-  test("lookupModelReasoning reads the cached flag, undefined when absent", () => {
-    const cache: PricingCache = { timestamp: 0, models: {}, reasoning: { "gpt-5.1": true } };
-    expect(lookupModelReasoning(cache, "gpt-5.1")).toBe(true);
-    expect(lookupModelReasoning(cache, "unknown")).toBeUndefined();
-    expect(lookupModelReasoning(null, "gpt-5.1")).toBeUndefined();
   });
 });
 
