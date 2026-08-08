@@ -86,6 +86,40 @@ export function resolveWorkspacePath(
   return undefined;
 }
 
+// Whether `path` (relative to `cwd`) names a not-yet-created sibling worktree
+// location: a direct child of the parent directory of `cwd` or of a currently
+// registered root — the "one new dir next to something already trusted" shape
+// `git worktree add ../name` uses. This is the single containment authority's
+// answer to "can auto mode create a brand-new worktree that isn't a registered
+// root yet"; there is deliberately no separate basename denylist or `..` depth
+// counter — the parent-directory equality check *is* the depth bound (a path
+// with any extra segment resolves to a different, non-matching parent), and
+// the home-directory guard below is the one home-config bag it purpose-built
+// against ($HOME's own children — .ssh, .aws, .config, … must never qualify).
+export function isPermittedSiblingWorktreePath(
+  cwd: string,
+  path: string,
+  rootsProvider: RootsProvider = () => [],
+  home: string = homedir(),
+): boolean {
+  if (path.length === 0) return false;
+  if (/[*?[]/.test(path)) return false;
+  if (path.startsWith("~")) return false;
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return false;
+
+  const abs = resolve(cwd, path);
+  const realParent = realpathOr(dirname(abs));
+  const realHome = realpathOr(resolve(home));
+  if (realParent === realHome) return false;
+
+  const knownRoots = [...rootsProvider(), ...rootsProvider(true)];
+  const trustedParents = new Set<string>([
+    realpathOr(resolve(cwd, "..")),
+    ...knownRoots.map((root) => realpathOr(dirname(root))),
+  ]);
+  return trustedParents.has(realParent);
+}
+
 function underRoot(abs: string, root: string): boolean {
   // realpathNearestOr on both sides so a not-yet-created state root still
   // compares equal to paths under it (realpathOr alone leaves the root

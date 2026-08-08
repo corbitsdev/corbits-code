@@ -356,7 +356,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // operator prompt. Everything else auto-allows. Path-keyed secret
         // reads stay hard-denied by secret-guard; shell that only *mentions*
         // a secret path is ask so an explicit one-time approval can pass it.
-        const shellRule = autoShellRuleForCall(call, isRestrictedHere);
+        const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
         if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
         if (shellRule === undefined) return { allowed: true };
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {

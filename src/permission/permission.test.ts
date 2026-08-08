@@ -1104,8 +1104,10 @@ describe("createPermissionGate", () => {
     for (const command of [
       "git worktree add feature",
       "git worktree add feature main",
-      "git worktree add -b feature-branch ../corbits-dispatch-wts/CL-5602 origin/main",
-      "git worktree add ../.worktrees/CL-5602",
+      // Sibling worktree directly under the parent of cwd — the narrow
+      // isPermittedSiblingWorktreePath shape (path-restriction.ts): a brand
+      // new, not-yet-registered root one level up from cwd.
+      "git worktree add -b feature-branch ../CL-5602 origin/main",
       "git worktree remove feature",
       "git worktree prune",
       "git worktree prune -n -v",
@@ -1115,6 +1117,36 @@ describe("createPermissionGate", () => {
       expect((await gate.evaluate(shellCall(command))).allowed).toBe(true);
       expect(asked).toBe(0);
     }
+  });
+
+  test("auto mode auto-allows a relative sibling worktree next to a registered root, zero cwd-sibling roots needed", async () => {
+    // Reproduces the product need: creating a brand-new sibling worktree that
+    // by definition isn't a registered root yet. Here the registered root
+    // lives in its own parent directory (an org-style "…/wts/<repo>" layout)
+    // distinct from cwd's own parent, and cwd reaches the new sibling through
+    // a relative "../../wts/CL-5602" path — still the narrow one-level-up
+    // sibling shape, just anchored at a different trusted parent than cwd's.
+    let asked = 0;
+    const base = mkdtempSync(join(tmpdir(), "corbits-worktree-org-"));
+    const cwd = join(base, "main-repo");
+    mkdirSync(cwd);
+    const wtsDir = join(base, "wts");
+    mkdirSync(wtsDir);
+    const otherRoot = join(wtsDir, "existing-wt");
+    mkdirSync(otherRoot);
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: true,
+      cwd,
+      rootsProvider: () => [realpathSync(otherRoot)],
+    });
+
+    const verdict = await gate.evaluate(shellCall("git worktree add ../wts/CL-5602-new"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
   });
 
   test("auto mode prompts for unsafe git worktree operations", async () => {
@@ -1130,6 +1162,13 @@ describe("createPermissionGate", () => {
       "git worktree add -f feature",
       "git worktree add ../.ssh/x",
       "git worktree add ../../escape",
+      // Nested siblings ("container/leaf") no longer auto-allow: the old
+      // basename-denylist-plus-depth-counter heuristic let these through with
+      // zero registered roots, but they don't fit the unified, narrow
+      // isPermittedSiblingWorktreePath shape (a direct child of the parent of
+      // cwd or of a registered root) — see path-restriction.ts.
+      "git worktree add -b feature-branch ../corbits-dispatch-wts/CL-5602 origin/main",
+      "git worktree add ../.worktrees/CL-5602",
       "git worktree remove --force feature",
       "git worktree move feature other",
       "git --no-pager worktree remove feature",
