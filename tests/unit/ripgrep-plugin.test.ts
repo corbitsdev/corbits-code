@@ -4,8 +4,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
+import { createPosixTools } from "@intx/tools-posix";
+
 import { ripgrepPlugin } from "../../src/plugins/ripgrep-plugin.js";
-import { resultTruncationPlugin } from "../../src/plugins/result-truncation-plugin.js";
+import { MAX_RESULT_CHARS } from "../../src/plugins/result-truncation-plugin.js";
+import { buildCorePosixToolPlugins } from "../../src/agent/posix-tool-plugins.js";
+import { createPermissionGate } from "../../src/permission/gate.js";
 import type { RgChild, SpawnRg } from "../../src/plugins/rg-run.js";
 
 // Repo root derived from this file, not process.cwd(): these cases search real
@@ -151,12 +155,11 @@ test("the output byte cap holds when ripgrep is unavailable", async () => {
 });
 
 // A grep run that both breaches the byte cap (rg-output.ts) and matches more
-// lines than max_results (ripgrep-plugin.ts's own count cap) used to carry
-// two notices: capLines added its own "(showing first N of M+ lines...)"
-// text on top of whatever the byte-cap breach had already reported, because
-// partialContent concatenated both unconditionally. It must report the
-// truncation exactly once.
-test("a grep result that hits both the byte cap and the match-count cap carries exactly one truncation notice", async () => {
+// lines than max_results (ripgrep-plugin.ts's own count cap) used to stack the
+// byte cap's wording on top of the count cap's. The byte cap is silent now, so
+// what is left describes the omission the reader cannot otherwise detect: how
+// many matches were dropped.
+test("a grep result that hits both the byte cap and the match-count cap announces the dropped matches once", async () => {
   // 400 matched lines emitted directly, bypassing a real `rg` process so
   // nothing upstream of ripgrep-plugin.ts pre-limits the line count.
   const result = await run(
@@ -167,37 +170,65 @@ test("a grep result that hits both the byte cap and the match-count cap carries 
 
   expect(result.isError).toBeUndefined();
   const content = String(result.content);
-  // Both grep-specific caps fired (byte cap at 200 bytes, line cap at 3
-  // matches) but neither attaches its own notice — ripgrep-plugin.ts leaves
-  // that to result-truncation-plugin.ts, which runs later in the real chain
-  // and sees the final content. A regression that reintroduces either cap's
-  // own notice text would fail this.
-  expect(content.split("\n").length).toBeLessThanOrEqual(3);
-  expect(content).not.toMatch(/showing first|exceeded \d+ bytes|timed out/);
+  expect(content.split("\n").filter((l) => l.includes("match line here")).length).toBe(3);
+  expect((content.match(/showing first/g) ?? []).length).toBe(1);
+  expect(content).not.toMatch(/exceeded \d+ bytes|timed out|\[output truncated/);
 });
 
-// The same result, run through the full chain (ripgrepPlugin then
-// result-truncation-plugin, matching buildCorePosixToolPlugins in
-// src/agent/posix-tool-plugins.ts), still carries at most one notice — the
-// grep-specific caps stay silent and result-truncation-plugin.ts's char cap
-// is the backstop for content that's still oversized after them.
-test("a large grep result carries at most one truncation notice through the plugin chain", async () => {
+// Composed through buildCorePosixToolPlugins, not a hand-assembled pair:
+// ripgrepPlugin sits at an earlier array index than resultTruncationPlugin and
+// answers grep without calling next, so resultTruncationPlugin never sees a
+// grep result. Assembling the two by hand in the other order hides that and
+// lets an oversized result reach the model uncapped and unannounced.
+async function grepThroughRealChain(dir: string): Promise<string> {
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: false,
+    skipPermissions: true,
+    cwd: dir,
+  });
+  const runner = createPosixTools({
+    cwd: dir,
+    plugins: buildCorePosixToolPlugins({ cwd: dir, permissionGate: gate }),
+  });
+  const result = await runner.run(
+    { id: "c", name: "grep", arguments: { pattern: "line", path: dir } },
+    new AbortController().signal,
+  );
+  expect(result.isError).not.toBe(true);
+  return String(result.content);
+}
+
+async function writeOversizedHaystack(dir: string): Promise<void> {
+  const lines = Array.from({ length: 5000 }, (_, i) => `line ${i} ${"x".repeat(300)}`);
+  await writeFile(join(dir, "big.txt"), lines.join("\n") + "\n");
+}
+
+function truncationNoticeCount(content: string): number {
+  return (content.match(/\[output truncated/g) ?? []).length;
+}
+
+test("an oversized grep result is capped and announced once through the real plugin chain", async () => {
   await withTempDir(async (dir) => {
-    const lines = Array.from({ length: 1000 }, (_, i) => `line ${i} ${"x".repeat(300)}`);
-    await writeFile(join(dir, "big.txt"), lines.join("\n") + "\n");
+    await writeOversizedHaystack(dir);
+    const content = await grepThroughRealChain(dir);
 
-    const grepHandler = ripgrepPlugin(dir).middleware!(fallback);
-    const handler = resultTruncationPlugin().middleware!(grepHandler);
-    const result = await handler(
-      { id: "c", name: "grep", arguments: { pattern: "line", path: dir } },
-      new AbortController().signal,
-    );
-
-    expect(result.isError).toBeUndefined();
-    const content = String(result.content);
-    expect(content).toContain("output truncated");
+    expect(content.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 200);
+    expect(truncationNoticeCount(content)).toBe(1);
     expect(content).not.toContain("showing first");
-    expect((content.match(/\[output truncated/g) ?? []).length).toBe(1);
+  });
+});
+
+test("an oversized grep result is capped and announced once when ripgrep is unavailable", async () => {
+  await withTempDir(async (dir) => {
+    await writeOversizedHaystack(dir);
+    await withoutRipgrep(async () => {
+      const content = await grepThroughRealChain(dir);
+
+      expect(content.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 200);
+      expect(truncationNoticeCount(content)).toBe(1);
+      expect(content).not.toContain("showing first");
+    });
   });
 });
 
