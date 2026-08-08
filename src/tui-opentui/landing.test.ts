@@ -150,13 +150,18 @@ describe("landing screen", () => {
           mark.length,
         )
         expect(painted.indexOf(mark.at(-1) as string)).toBeLessThan(top)
-        // The two doors sit beside the mark, not under it.
+        // The two doors sit beside the mark, not under it, and their
+        // descriptions share one column — ragged, the pair reads as two
+        // unrelated lines rather than as a set.
+        const descriptionColumns = new Set<number>()
         for (const hint of LANDING_HINTS) {
           const row = painted.find((line) => line.includes(hint.rest))
           expect(row).toBeDefined()
           expect(row).toContain(hint.key)
           expect(row!.indexOf(hint.key)).toBeGreaterThan(0)
+          descriptionColumns.add(row!.indexOf(hint.rest))
         }
+        expect(descriptionColumns.size).toBe(1)
         // The version sits with the hints, and cannot drift from package.json.
         expect(LANDING_VERSION).toBe(`v${pkg.version}`)
         expect(h.captureCharFrame()).toContain(LANDING_VERSION)
