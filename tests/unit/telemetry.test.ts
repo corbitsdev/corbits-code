@@ -269,14 +269,6 @@ test("capture attaches the same session_id across multiple events in one process
   expect(sessionId).toBe(getSessionId());
 });
 
-test("getSessionId is stable across separate createTelemetry instances in the same process", () => {
-  const first = createTelemetry({ settings: settingsWith("id"), env: {}, apiKey: "" });
-  const second = createTelemetry({ settings: settingsWith("id"), env: {}, apiKey: "" });
-  void first;
-  void second;
-  expect(getSessionId()).toBe(getSessionId());
-});
-
 test("ensureTelemetrySettings called twice keeps installationId and enabled flag unchanged", async () => {
   const dir = await mkdtemp(join(tmpdir(), "corbits-telemetry-settings-"));
   const path = join(dir, "settings.json");
