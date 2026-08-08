@@ -162,10 +162,6 @@ export async function readPricingCache(cachePath = defaultPricingCachePath()): P
   }
 }
 
-export function lookupModelReasoning(cache: PricingCache | null, modelId: string): boolean | undefined {
-  return cache?.reasoning?.[modelId];
-}
-
 export async function writePricingCache(cache: PricingCache, cachePath = defaultPricingCachePath()): Promise<void> {
   try {
     await mkdir(dirname(cachePath), { recursive: true });
