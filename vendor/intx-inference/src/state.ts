@@ -21,6 +21,8 @@ export type ReactorStateManager = ReturnType<typeof createStateManager>;
  * Recursively freezes a turn so snapshots can share its reference instead of
  * deep-cloning the whole history on every director decision. Freezing costs
  * O(turn size) once at append; cloning cost O(total history) per snapshot.
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#state-ts
  */
 function deepFreeze<T>(value: T): T {
   if (value === null || typeof value !== "object" || Object.isFrozen(value)) {

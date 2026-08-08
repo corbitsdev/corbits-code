@@ -69,6 +69,8 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
           (block.stderr?.length ?? 0) +
           (block.abortReason?.length ?? 0),
       );
+    case "safety_rating":
+      return estimateTokensFromChars(block.blockReason.length);
   }
 }
 

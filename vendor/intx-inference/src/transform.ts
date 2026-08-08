@@ -5,11 +5,15 @@
 // calls receive synthetic error results, and tool call IDs are normalized to
 // a portable format.
 //
-// Transformation runs automatically when the target model differs from a
-// message's originating model. The originating model is tracked per-message,
-// not per-conversation.
+// Callers invoke transformMessages when switching models. Adapter
+// buildRequest paths also apply provider-specific history fixes. The
+// originating model is tracked per-message, not per-conversation.
 
-import type { ConversationTurn, ContentBlock } from "@intx/types/runtime";
+import {
+  formatSafetyRatingText,
+  type ConversationTurn,
+  type ContentBlock,
+} from "@intx/types/runtime";
 
 export type TransformOptions = {
   targetModel: string;
@@ -31,12 +35,26 @@ export function transformMessages(
         const isSameModel = msg.model === targetModel;
         const keepThinking = keepThinkingForSameModel && isSameModel;
 
-        const filteredContent = msg.content.filter((block) => {
-          if (block.type === "thinking") {
-            return keepThinking;
-          }
-          return true;
-        });
+        const filteredContent = msg.content
+          .filter((block) => {
+            if (block.type === "thinking") {
+              return keepThinking;
+            }
+            return true;
+          })
+          // safety_rating is output-only metadata. Convert it to text
+          // so cross-provider history keeps role alternation and a
+          // human-readable block reason without requiring every
+          // adapter to special-case the block.
+          .map((block): ContentBlock => {
+            if (block.type === "safety_rating") {
+              return {
+                type: "text",
+                text: formatSafetyRatingText(block),
+              };
+            }
+            return block;
+          });
 
         // Filter out assistant messages that have no text or tool calls
         // (aborted/error messages with only thinking blocks removed).

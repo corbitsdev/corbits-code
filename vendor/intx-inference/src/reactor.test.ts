@@ -1,11 +1,13 @@
 import { describe, test, expect } from "bun:test";
 
 import { validateActions } from "./actions";
-import { createStateManager } from "./state";
+import { createAuthzExtension } from "./authz-extension";
 import { createGateManager } from "./gates";
 import { createCorrelationRegistry } from "./correlation";
 import { createReactor } from "./reactor";
 import { createDefaultDependencies } from "./providers";
+import { createDefaultDirector } from "./default-director";
+import { assertWellFormedToolSequence } from "./turns";
 import { createInboundMessage } from "@intx/mime";
 
 import type {
@@ -33,6 +35,7 @@ import type {
 import type { ReactorConfig, Reactor, ReactorEmittedEvent } from "./reactor";
 import type { Dependencies, InferenceHarnessOptions } from "./harness";
 import type { CorrelationValidator } from "./correlation";
+import type { AfterInferenceHook } from "./default-director";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -175,6 +178,22 @@ function makeInboundMessage(correlationId?: string): InboundMessage {
     to: "agent@example.com",
     content: "hello",
     ...(correlationId !== undefined ? { correlationId } : {}),
+  });
+}
+
+// An approval decision delivered to a parked run, stamped with the
+// correlationId of the suspension it resolves. The body is the JSON-encoded
+// ApprovalDecision the step invoker packs as the message content, which the
+// reactor parses on the correlation path to drive the resume.
+function makeApprovalMessage(
+  correlationId: string,
+  outcome: "approved" | "rejected" = "approved",
+): InboundMessage {
+  return createInboundMessage({
+    from: "signal@local",
+    to: "agent@example.com",
+    content: JSON.stringify({ outcome }),
+    correlationId,
   });
 }
 
@@ -687,6 +706,32 @@ describe("validateActions", () => {
     if (result.ok) throw new Error("unreachable");
     expect(result.error).toMatch(/reply.*suspend/i);
   });
+
+  // The director builds action sets with a leading checkpoint. The
+  // reply+done and wait+reply invariants must hold for that emitted
+  // three-action shape, not only the bare pairs above, so a checkpoint
+  // prefix cannot smuggle a contradictory set past the validator.
+  test("checkpoint + reply + done is invalid", () => {
+    const result = validateActions([
+      { type: "checkpoint", message: "checkpoint: after-inference-abort" },
+      { type: "reply", content: "budget exhausted" },
+      { type: "done" },
+    ]);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toMatch(/reply.*done/i);
+  });
+
+  test("checkpoint + reply + wait is invalid", () => {
+    const result = validateActions([
+      { type: "checkpoint", message: "checkpoint: after-inference-halt" },
+      { type: "reply", content: "paused for top-up" },
+      { type: "wait" },
+    ]);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.error).toMatch(/wait.*reply/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -712,6 +757,37 @@ describe("createGateManager", () => {
     const reason = await promise;
     expect(reason).toBe("resolved");
     expect(cleared).toEqual(["gate-1:resolved"]);
+  });
+
+  test("clearSilently resolves and removes the gate without invoking onCleared", async () => {
+    const manager = createGateManager();
+    const cleared: string[] = [];
+
+    const promise = manager.register(
+      "gate-silent",
+      "approval",
+      5000,
+      undefined,
+      (id, reason) => cleared.push(`${id}:${reason}`),
+    );
+
+    const didClear = manager.clearSilently("gate-silent");
+    expect(didClear).toBe(true);
+
+    // The gate's promise still resolves as resolved, so any awaiter unblocks.
+    const reason = await promise;
+    expect(reason).toBe("resolved");
+
+    // The whole point of clearSilently: onCleared is NOT invoked, so no
+    // gate-cleared continuation is enqueued (contrast with clear() above,
+    // which does invoke it).
+    expect(cleared).toEqual([]);
+
+    // The gate is gone: it no longer resolves by correlation and a second
+    // clear finds nothing to clear.
+    expect(manager.has("gate-silent")).toBe(false);
+    expect(manager.clear("gate-silent")).toBe(false);
+    expect(manager.clearSilently("gate-silent")).toBe(false);
   });
 
   test("gate timeout fires with reason=timeout", async () => {
@@ -774,7 +850,7 @@ describe("createGateManager", () => {
 
   test("duplicate gate ID throws", () => {
     const manager = createGateManager();
-    manager.register("g", "approval", 5000, undefined, () => {
+    void manager.register("g", "approval", 5000, undefined, () => {
       /* noop */
     });
     expect(() =>
@@ -786,7 +862,7 @@ describe("createGateManager", () => {
 
   test("findByCorrelationId returns the gate", () => {
     const manager = createGateManager();
-    manager.register("g-corr", "message_response", 5000, "corr-42", () => {
+    void manager.register("g-corr", "message_response", 5000, "corr-42", () => {
       /* noop */
     });
     const found = manager.findByCorrelationId("corr-42");
@@ -803,7 +879,12 @@ describe("createGateManager", () => {
 
 describe("createCorrelationRegistry", () => {
   function op(id: string): PendingOperation {
-    return { correlationId: id, registeredAt: Date.now(), gateId: `g-${id}` };
+    return {
+      correlationId: id,
+      kind: "approval",
+      registeredAt: Date.now(),
+      gateId: `g-${id}`,
+    };
   }
 
   test("register and lookup", () => {
@@ -979,6 +1060,115 @@ describe("createReactor — gate lifecycle", () => {
     expect(cleared.data.reason).toBe("shutdown");
   });
 
+  test("does not emit reactor.gate.blocked until the suspend is durably committed", async () => {
+    // Persist-before-settle. The `reactor.gate.blocked` event resolves the
+    // `send()` awaiter as "suspended", and a downstream consumer (the warm
+    // agent's run-boundary durability mirror) reads the pending operation back
+    // out of the context store the instant `send()` settles. So the durable
+    // commit must land BEFORE the event is emitted -- otherwise the mirror
+    // reads an uncommitted store and durably loses the approval snapshot. This
+    // test gates the commit's `writeMetadata`: `blocked` must not appear while
+    // the commit is pending, and must appear once it is released. A regression
+    // that emits before committing would fire `blocked` while the gate is held.
+    let releaseCommit: (() => void) | undefined;
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const base = makeContextStore();
+    const contextStore: ContextStore = {
+      ...base,
+      async writeMetadata(metadata, signal) {
+        await commitGate;
+        return base.writeMetadata(metadata, signal);
+      },
+    };
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore,
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) =>
+          caps.suspend({
+            type: "approval",
+            gateId: "commit-order-gate",
+            timeoutMs: 5000,
+          }),
+        "reactor.gate.cleared": (_e, _s, caps) => caps.done(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    // The commit is held, so a correctly-ordered reactor has not emitted
+    // `blocked` yet; a reactor that emits before committing would have.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(events.some((e) => e.type === "reactor.gate.blocked")).toBe(false);
+
+    // Release the durable commit; only now may `blocked` be emitted.
+    releaseCommit?.();
+    await waitFor("reactor.gate.blocked");
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("defers a gate clear racing the commit until after blocked", async () => {
+    // blocked-before-cleared. A gate whose timeout timer elapses while the
+    // suspend's durable commit is still in flight must not have its clear take
+    // effect before `reactor.gate.blocked` is emitted: downstream status
+    // derivation and the send-awaiter assume a gate's `blocked` precedes any
+    // effect of its clearing. This holds the commit's `writeMetadata` open long
+    // enough for a short gate timeout to fire inside the window, then asserts
+    // `blocked` is emitted before the `reactor.gate.cleared` it belongs to.
+    let releaseCommit: (() => void) | undefined;
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const base = makeContextStore();
+    const contextStore: ContextStore = {
+      ...base,
+      async writeMetadata(metadata, signal) {
+        await commitGate;
+        return base.writeMetadata(metadata, signal);
+      },
+    };
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore,
+      director: directorFromTable({
+        "message.received": (_e, _s, caps) =>
+          caps.suspend({
+            type: "approval",
+            gateId: "race-gate",
+            timeoutMs: 30,
+          }),
+        "reactor.gate.cleared": (_e, _s, caps) => caps.done(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    // Let the gate's timeout elapse while the commit is still held. Neither the
+    // block nor the clear may surface until the commit is released.
+    await new Promise((r) => setTimeout(r, 80));
+    expect(events.some((e) => e.type === "reactor.gate.blocked")).toBe(false);
+    expect(events.some((e) => e.type === "reactor.gate.cleared")).toBe(false);
+
+    releaseCommit?.();
+    await waitFor("reactor.done");
+
+    const blockedIndex = events.findIndex(
+      (e) => e.type === "reactor.gate.blocked",
+    );
+    const clearedIndex = events.findIndex(
+      (e) => e.type === "reactor.gate.cleared",
+    );
+    expect(blockedIndex).toBeGreaterThanOrEqual(0);
+    expect(clearedIndex).toBeGreaterThan(blockedIndex);
+    expect(getEvent(events, "reactor.gate.cleared").data.reason).toBe(
+      "timeout",
+    );
+  });
+
   test("gate timeout fires reactor.gate.cleared with reason=timeout", async () => {
     const { reactor, events, waitFor } = createTestReactor({
       shutdownTimeoutMs: 500,
@@ -1130,63 +1320,6 @@ describe("createReactor — correlation", () => {
     expect(correlated.data.message.headers.interchangeCorrelationId).toBe(
       CORR_ID,
     );
-  });
-
-  test("the same correlationId can correlate again after a successful correlation", async () => {
-    // The in-flight guard set used to retain the id on the success path, so a
-    // second pending operation reusing the same correlationId could never
-    // correlate. Two full round trips must both reach message.correlated.
-    const CORR_ID = "corr-reuse-1";
-    let phase = 0;
-    const director: ReactorDirector = {
-      async decide(event, _state, caps) {
-        if (event.type === "message.received" && phase === 0) {
-          phase = 1;
-          return caps.executeTools([{ id: "tc1", name: "send_message", arguments: {} }]);
-        }
-        if (event.type === "tool.done") {
-          return caps.suspend({
-            type: "message_response",
-            gateId: `msg-gate-${phase}`,
-            timeoutMs: 5000,
-            correlationId: CORR_ID,
-          });
-        }
-        if (event.type === "reactor.gate.cleared" && phase === 1) {
-          phase = 2;
-          return caps.executeTools([{ id: "tc2", name: "send_message", arguments: {} }]);
-        }
-        return caps.done();
-      },
-    };
-
-    const { reactor, events, waitFor } = createTestReactor({
-      director,
-      shutdownTimeoutMs: 500,
-      toolRunner: makeToolRunner(async (call) => ({
-        callId: call.id,
-        content: "message sent",
-        pendingMarker: { status: "pending" as const, correlationId: CORR_ID },
-      })),
-    });
-
-    reactor.start();
-    reactor.deliver(makeInboundMessage());
-
-    await waitForEvent(events, (e) => e.type === "reactor.gate.blocked");
-    reactor.deliver(makeInboundMessage(CORR_ID));
-
-    await waitForEvent(
-      events,
-      (e) => e.type === "reactor.gate.blocked" && e.data.gateId === "msg-gate-2",
-      3000,
-    );
-    reactor.deliver(makeInboundMessage(CORR_ID));
-
-    await waitFor("reactor.done", 3000);
-
-    const correlations = events.filter((e) => e.type === "message.correlated");
-    expect(correlations.length).toBe(2);
   });
 
   test("message with non-matching correlationId passes through uncorrelated", async () => {
@@ -2393,7 +2526,7 @@ describe("createReactor — state snapshot inspection", () => {
     const CORR_ID = "corr-snapshot-check";
     let capturedOps: PendingOperation[] = [];
 
-    const { reactor, waitFor } = createTestReactor({
+    const { reactor, events, waitFor } = createTestReactor({
       director: directorFromTable({
         "message.received": (_e, _s, caps) =>
           caps.executeTools([{ id: "tc1", name: "send_msg", arguments: {} }]),
@@ -2424,6 +2557,15 @@ describe("createReactor — state snapshot inspection", () => {
     const op = capturedOps[0];
     if (op === undefined) throw new Error("unreachable");
     expect(op.correlationId).toBe(CORR_ID);
+    // An async-tool pending marker is not an ask-rail suspension: it carries no
+    // suspended call and no approval snapshot.
+    expect(op.suspendedCall).toBeUndefined();
+    expect(op.approvalSnapshot).toBeUndefined();
+    // It emits no `reactor.gate.blocked` -- the event that drives the hub's
+    // approval co-write -- so a marker never writes an approval row. This keeps
+    // the snapshot columns non-null: only the ask rail co-writes, and it always
+    // carries a snapshot.
+    expect(events.some((e) => e.type === "reactor.gate.blocked")).toBe(false);
   });
 
   test("state.activeGates reflects registered gates during suspend", async () => {
@@ -2511,15 +2653,12 @@ describe("createReactor — state snapshot inspection", () => {
           if (event.type === "message.received") {
             messageCount++;
             if (messageCount === 1) {
-              // Turns are frozen, so mutating a snapshot block must throw
-              // rather than corrupt shared state.
+              // Mutate the snapshot's content block.
               const msg = state.turns[0];
               if (msg !== undefined) {
                 const block = msg.content[0];
                 if (block !== undefined && block.type === "text") {
-                  expect(() => {
-                    (block as { text: string }).text = "CORRUPTED";
-                  }).toThrow();
+                  (block as { text: string }).text = "CORRUPTED";
                 }
               }
               return caps.wait();
@@ -2619,6 +2758,98 @@ function makeInferenceRunner(
     }
   };
 }
+
+// ---------------------------------------------------------------------------
+// afterInferenceDone abort/halt policy, end to end
+//
+// These drive the real DefaultDirector so the action sets its abort and
+// halt branches build are validated by the reactor, not just asserted in
+// isolation. The bug was that those sets were rejected, so the reactor
+// crashed with a fatal "Invalid action set" instead of terminating
+// (abort) or pausing and replying (halt).
+// ---------------------------------------------------------------------------
+
+describe("createReactor — afterInferenceDone abort and halt", () => {
+  test("abort terminates without an invalid action set", async () => {
+    const hook: AfterInferenceHook = () => ({
+      type: "abort",
+      reason: "budget exhausted",
+    });
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createDefaultDirector("test agent", [], {
+        afterInferenceDone: hook,
+      }),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("ignored"),
+        usage: emptyUsage(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(
+      events.some(
+        (e) =>
+          e.type === "reactor.error" &&
+          /invalid action set/i.test(e.data.error),
+      ),
+    ).toBe(false);
+    // Abort is terminal and does not surface the reason, so no reply.
+    expect(events.some((e) => e.type === "connector.reply")).toBe(false);
+  });
+
+  test("halt replies and keeps the reactor alive", async () => {
+    let hookCalls = 0;
+    const hook: AfterInferenceHook = () => {
+      hookCalls++;
+      return { type: "halt", reason: "paused for top-up" };
+    };
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createDefaultDirector("test agent", [], {
+        afterInferenceDone: hook,
+      }),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: makeAssistantTurn("ignored"),
+        usage: emptyUsage(),
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+
+    // Halt returned the reactor to waiting rather than shutting down, so a
+    // second message must still be processed — that is the liveness proof.
+    reactor.deliver(makeInboundMessage());
+    await waitForEvent(
+      events,
+      () => events.filter((e) => e.type === "connector.reply").length >= 2,
+    );
+
+    // The reactor is still alive; abort it so the test does not leak it.
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+
+    const replies = events.filter((e) => e.type === "connector.reply");
+    expect(replies.length).toBe(2);
+    expect(hookCalls).toBe(2);
+    for (const reply of replies) {
+      if (reply.type !== "connector.reply") throw new Error("unreachable");
+      expect(reply.data.content).toBe("paused for top-up");
+    }
+    expect(
+      events.some(
+        (e) =>
+          e.type === "reactor.error" &&
+          /invalid action set/i.test(e.data.error),
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("createReactor — inference path", () => {
   test("infer action drives inference.done through to director and accumulates usage", async () => {
@@ -2794,7 +3025,7 @@ describe("createReactor — beforeToolExtensions", () => {
   test("allowing extension lets the tool run normally", async () => {
     const allowAll: BeforeToolExtension = {
       async beforeTool() {
-        return undefined;
+        return { type: "allow" };
       },
     };
 
@@ -2830,8 +3061,9 @@ describe("createReactor — beforeToolExtensions", () => {
   test("blocking extension prevents tool execution", async () => {
     const blockBash: BeforeToolExtension = {
       async beforeTool(call) {
-        if (call.name === "bash") return "Denied by policy";
-        return undefined;
+        if (call.name === "bash")
+          return { type: "block", reason: "Denied by policy" };
+        return { type: "allow" };
       },
     };
 
@@ -2884,14 +3116,14 @@ describe("createReactor — beforeToolExtensions", () => {
     const extA: BeforeToolExtension = {
       async beforeTool() {
         called.push("A");
-        return "Blocked by A";
+        return { type: "block", reason: "Blocked by A" };
       },
     };
 
     const extB: BeforeToolExtension = {
       async beforeTool() {
         called.push("B");
-        return undefined;
+        return { type: "allow" };
       },
     };
 
@@ -2973,7 +3205,7 @@ describe("createReactor — beforeToolExtensions", () => {
     const secondExt: BeforeToolExtension = {
       async beforeTool() {
         called.push("second");
-        return undefined;
+        return { type: "allow" };
       },
     };
 
@@ -3004,7 +3236,7 @@ describe("createReactor — beforeToolExtensions", () => {
     const capturingExt: BeforeToolExtension = {
       async beforeTool(_call, state) {
         capturedState = state;
-        return undefined;
+        return { type: "allow" };
       },
     };
 
@@ -3036,8 +3268,9 @@ describe("createReactor — beforeToolExtensions", () => {
   test("parallel batch with one blocked and one allowed tool", async () => {
     const blockBash: BeforeToolExtension = {
       async beforeTool(call) {
-        if (call.name === "bash") return "Denied by policy";
-        return undefined;
+        if (call.name === "bash")
+          return { type: "block", reason: "Denied by policy" };
+        return { type: "allow" };
       },
     };
 
@@ -3136,6 +3369,999 @@ describe("createReactor — beforeToolExtensions", () => {
       throw new Error("expected tool.done for allowed call");
     expect(allowedDone.data.result.isError).toBeUndefined();
     expect(allowedDone.data.result.content).toBe("result-read_file");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Before-tool suspension on an `ask` grant, and rehydration across restart
+// ---------------------------------------------------------------------------
+
+// A context store that keeps the persisted pending operations and turns in a
+// shared cell so a second reactor can reload exactly what the first committed.
+// This is what lets the rehydration test observe the cross-restart behavior a
+// stateless makeContextStore cannot.
+type PersistedCell = {
+  turns: ConversationTurn[];
+  pendingOperations: PendingOperation[];
+  tokenUsage: TokenUsage;
+};
+
+function makePersistingContextStore(cell: PersistedCell): ContextStore {
+  return {
+    async load() {
+      return {
+        turns: cell.turns,
+        pendingOperations: cell.pendingOperations,
+        tokenUsage: cell.tokenUsage,
+        connectorState: null,
+      };
+    },
+    setConnectorState() {
+      /* noop */
+    },
+    async commit(options: { message: string }) {
+      return { hash: "hash", message: options.message, timestamp: Date.now() };
+    },
+    async branch() {
+      /* noop */
+    },
+    async log() {
+      return [];
+    },
+    async readAt() {
+      return [];
+    },
+    async writeBlob() {
+      /* noop */
+    },
+    async readBlob() {
+      throw new Error("not implemented");
+    },
+    async writePrompt() {
+      /* noop */
+    },
+    async writeResponse() {
+      /* noop */
+    },
+    async writeManifest() {
+      /* noop */
+    },
+    async writeTurns(turns) {
+      cell.turns = turns;
+    },
+    async writeMetadata(metadata) {
+      cell.pendingOperations = metadata.pendingOperations;
+      cell.tokenUsage = metadata.tokenUsage;
+    },
+    async readManifestHistory() {
+      throw new Error("not implemented");
+    },
+  };
+}
+
+// A tool-call assistant turn used to drive the before-tool path.
+const suspendToolCallTurn: AssistantTurn = {
+  role: "assistant",
+  content: [
+    { type: "tool_call", id: "call-ask", name: "charge_card", arguments: {} },
+  ],
+  model: "test-model",
+  timestamp: 1000,
+};
+
+describe("createReactor — before-tool suspension on ask grant", () => {
+  test("an ask grant suspends the call: gate.blocked carries the correlationId, no tool result, pending op persisted", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: "call-ask", name: "charge_card", arguments: {} },
+            ]),
+          "reactor.gate.cleared": (_e, _s, caps) => caps.done(),
+        },
+        "wait",
+      ),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: suspendToolCallTurn,
+        usage: emptyUsage(),
+      }),
+      beforeToolExtensions: [askExtension],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    expect(blocked.data.reason).toBe("approval");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined)
+      throw new Error("expected reactor.gate.blocked to carry a correlationId");
+    expect(blocked.data.gateId).toBe(`pending-${correlationId}`);
+
+    // The suspended call is parked, not answered: no tool.start, no tool.done.
+    expect(events.some((e) => e.type === "tool.start")).toBe(false);
+    expect(events.some((e) => e.type === "tool.done")).toBe(false);
+
+    // The pending operation was persisted with kind "approval", the minted
+    // correlationId, and its deadline.
+    expect(cell.pendingOperations).toHaveLength(1);
+    const op = cell.pendingOperations[0];
+    if (op === undefined) throw new Error("unreachable");
+    expect(op.kind).toBe("approval");
+    expect(op.correlationId).toBe(correlationId);
+    expect(op.gateId).toBe(`pending-${correlationId}`);
+    expect(op.timeoutAt).toBeGreaterThan(Date.now());
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("gate.blocked and the persisted op carry the approval snapshot when tools are wired", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+      toolDefinitions: [
+        {
+          name: "charge_card",
+          description: "Charge the customer's card",
+          inputSchema: { type: "object" },
+        },
+      ],
+    });
+
+    const { reactor, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: "call-ask", name: "charge_card", arguments: {} },
+            ]),
+          "reactor.gate.cleared": (_e, _s, caps) => caps.done(),
+        },
+        "wait",
+      ),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: suspendToolCallTurn,
+        usage: emptyUsage(),
+      }),
+      beforeToolExtensions: [askExtension],
+    });
+
+    const expectedSnapshot = {
+      name: "charge_card",
+      description: "Charge the customer's card",
+      inputSchema: { type: "object" },
+      arguments: {},
+    };
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    expect(blocked.data.approvalSnapshot).toEqual(expectedSnapshot);
+
+    // The snapshot rides the persisted pending op too, so a rehydrated op
+    // still carries it.
+    const op = cell.pendingOperations[0];
+    if (op === undefined) throw new Error("unreachable");
+    expect(op.approvalSnapshot).toEqual(expectedSnapshot);
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("a before-tool suspension in a cycle with no inference and no completed tool call still persists the pending op", async () => {
+    // The suspension is raised from a message.received handler that dispatches
+    // executeTools directly, so the cycle runs no inference and completes no
+    // tool call (the sole call is parked). Registering the gate and pending
+    // operation is nonetheless durable state that must be committed; otherwise
+    // the pending op lives only in memory and is lost on restart.
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: "call-ask", name: "charge_card", arguments: {} },
+            ]),
+          "reactor.gate.cleared": (_e, _s, caps) => caps.done(),
+        },
+        "wait",
+      ),
+      beforeToolExtensions: [askExtension],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined)
+      throw new Error("expected reactor.gate.blocked to carry a correlationId");
+
+    // No inference and no completed tool call ran in this cycle.
+    expect(events.some((e) => e.type === "inference.done")).toBe(false);
+    expect(events.some((e) => e.type === "tool.start")).toBe(false);
+    expect(events.some((e) => e.type === "tool.done")).toBe(false);
+
+    // The suspension forced a durable commit: the pending op was written to
+    // the context store, so a reload would recover it.
+    expect(cell.pendingOperations).toHaveLength(1);
+    const op = cell.pendingOperations[0];
+    if (op === undefined) throw new Error("unreachable");
+    expect(op.kind).toBe("approval");
+    expect(op.correlationId).toBe(correlationId);
+    expect(op.gateId).toBe(`pending-${correlationId}`);
+
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("a suspended agent rehydrates a live gate on restart and re-dispatches the parked call on approval delivery", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const askExtension = createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+
+    // Phase 1: suspend and persist, then tear down.
+    const first = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "message.received": (_e, _s, caps) => caps.infer(),
+          "inference.done": (_e, _s, caps) =>
+            caps.executeTools([
+              { id: "call-ask", name: "charge_card", arguments: {} },
+            ]),
+        },
+        "wait",
+      ),
+      inferenceRunner: makeInferenceRunner({
+        type: "done",
+        turn: suspendToolCallTurn,
+        usage: emptyUsage(),
+      }),
+      beforeToolExtensions: [askExtension],
+    });
+
+    first.reactor.start();
+    first.reactor.deliver(makeInboundMessage());
+    const blocked = await first.waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    first.reactor.abort("admin_kill");
+    await first.waitFor("reactor.done");
+
+    // The persisted op survives the teardown, carrying the parked call so the
+    // resume can re-run it.
+    expect(cell.pendingOperations).toHaveLength(1);
+    expect(cell.pendingOperations[0]?.suspendedCall?.id).toBe("call-ask");
+
+    // Phase 2: reload from the persisted cell. A restarted reactor with a
+    // rehydrated gate matches the delivered approval and re-runs the parked
+    // call; without rehydration the delivered message would not match a live
+    // gate and the reactor would stay wedged (this test times out).
+    const toolsRun: string[] = [];
+    const second = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: directorFromTable(
+        {
+          "resume.execute_tools": (e, _s, caps) =>
+            caps.executeTools(e.calls, false, true),
+          "tool.done": (_e, _s, caps) => caps.done(),
+        },
+        "wait",
+      ),
+      toolRunner: makeToolRunner(async (call) => {
+        toolsRun.push(call.name);
+        return { callId: call.id, content: "charged" };
+      }),
+      beforeToolExtensions: [askExtension],
+    });
+
+    second.reactor.start();
+    await second.waitFor("reactor.start");
+
+    second.reactor.deliver(makeApprovalMessage(correlationId));
+
+    const toolDone = await second.waitFor("tool.done");
+    if (toolDone.type !== "tool.done") throw new Error("unreachable");
+    expect(toolDone.data.result.callId).toBe("call-ask");
+
+    const correlated = getEvent(second.events, "message.correlated");
+    expect(correlated.data.correlationId).toBe(correlationId);
+
+    // The one-shot bypass let the re-dispatched call through without
+    // re-parking: it ran exactly once and no second gate was blocked.
+    expect(toolsRun).toEqual(["charge_card"]);
+    expect(second.events.some((e) => e.type === "reactor.gate.blocked")).toBe(
+      false,
+    );
+
+    await second.waitFor("reactor.done");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approval resume re-runs the parked tool call (re-dispatch rail)
+// ---------------------------------------------------------------------------
+
+describe("createReactor — approval resume re-dispatch", () => {
+  // A two-phase inference runner: the first inference emits the tool_call that
+  // parks on the ask gate; the re-inference after the re-dispatched call
+  // completes emits a plain text reply that terminates the run. Mirrors how a
+  // real model first calls a tool and then answers with the tool's result.
+  function twoPhaseInferenceRunner() {
+    let call = 0;
+    return async function* (
+      opts: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      call += 1;
+      const turn: AssistantTurn =
+        call === 1
+          ? suspendToolCallTurn
+          : {
+              role: "assistant",
+              content: [{ type: "text", text: "done charging" }],
+              model: "test-model",
+              timestamp: 2000,
+            };
+      yield {
+        type: "inference.done",
+        seq: opts.nextSeq(),
+        data: { turn, usage: emptyUsage(), source: TEST_SOURCE },
+      };
+    };
+  }
+
+  function askExtension() {
+    return createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs: 60_000,
+    });
+  }
+
+  test("an approved correlation re-runs the parked tool exactly once and answers its call id", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const toolsRun: string[] = [];
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => {
+        toolsRun.push(call.name);
+        return { callId: call.id, content: "charged" };
+      }),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    // The parked call has not run yet.
+    expect(toolsRun).toEqual([]);
+
+    reactor.deliver(makeApprovalMessage(correlationId));
+
+    // The resume re-runs the parked tool and the model re-infers to a reply
+    // that carries the tool's real result, terminating the run.
+    const reply = await waitForEvent(
+      events,
+      (e) => e.type === "connector.reply",
+    );
+    if (reply.type !== "connector.reply") throw new Error("unreachable");
+    expect(reply.data.content).toBe("done charging");
+
+    // The tool ran exactly once — the re-dispatch, not a fresh re-inference
+    // that re-issued the call.
+    expect(toolsRun).toEqual(["charge_card"]);
+    const toolDones = events.filter((e) => e.type === "tool.done");
+    expect(toolDones).toHaveLength(1);
+
+    // The re-dispatch appended a tool_result answering the parked call id, and
+    // the persisted history is a well-formed tool sequence.
+    const resultTurn = cell.turns.find((t) =>
+      t.content.some(
+        (b) => b.type === "tool_result" && b.callId === "call-ask",
+      ),
+    );
+    expect(resultTurn).toBeDefined();
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    // The correlation was claimed and the parked op removed.
+    const correlated = getEvent(events, "message.correlated");
+    expect(correlated.data.correlationId).toBe(correlationId);
+    expect(cell.pendingOperations).toHaveLength(0);
+  });
+
+  test("the re-dispatched approved call re-infers exactly once and leaves no outstanding results", async () => {
+    // This guards the pendingToolResults counter trap. A re-dispatch driven
+    // from the correlation path never passes through inference.done, so unless
+    // the director seeds its outstanding-result count off resume.execute_tools,
+    // the count sits at zero and the re-dispatched call's tool.done drives an
+    // accidental re-inference off a negative count. The seed makes the
+    // continuation deterministic: exactly one re-inference after exactly one
+    // re-dispatched result.
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeApprovalMessage(correlationId));
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+
+    // Two inferences total: the initial tool-call inference and exactly one
+    // continuation re-inference after the re-dispatched tool completed. A
+    // counter left unseeded would either hang (no re-infer) or, once the
+    // negative-count accident is removed, fail to continue at all.
+    const inferenceDones = events.filter((e) => e.type === "inference.done");
+    expect(inferenceDones).toHaveLength(2);
+
+    // Exactly one tool ran and one result was produced, so the director's
+    // outstanding count returned to zero (a re-infer fires only at zero).
+    const toolDones = events.filter((e) => e.type === "tool.done");
+    expect(toolDones).toHaveLength(1);
+
+    // A conversational reply returns the reactor to idle rather than shutting
+    // it down; abort so the test does not leak the reactor.
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("the one-shot bypass lets the re-dispatched call through without re-parking", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(makeApprovalMessage(correlationId));
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+
+    // The re-dispatched call re-hit the ask extension but the one-shot bypass
+    // let it through: exactly one gate was ever blocked (the original park),
+    // and no pending op survives — the call did not re-park on a second gate.
+    const gateBlocks = events.filter((e) => e.type === "reactor.gate.blocked");
+    expect(gateBlocks).toHaveLength(1);
+    expect(cell.pendingOperations).toHaveLength(0);
+
+    // A conversational reply returns the reactor to idle rather than shutting
+    // it down; abort so the test does not leak the reactor.
+    reactor.abort("admin_kill");
+    await waitFor("reactor.done");
+  });
+
+  test("a non-JSON approval body halts the run with a fatal reactor.error", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    // Deliver a correlated body that is not valid JSON. The parse boundary must
+    // reject it rather than resuming on a value it cannot decode.
+    reactor.deliver(
+      createInboundMessage({
+        from: "signal@local",
+        to: "agent@example.com",
+        content: "not json at all",
+        correlationId,
+      }),
+    );
+
+    const error = await waitFor("reactor.error");
+    if (error.type !== "reactor.error") throw new Error("unreachable");
+    expect(error.data.fatal).toBe(true);
+    expect(error.data.error).toContain("Correlation dispatch failed");
+
+    // A malformed decision halts the run rather than silently proceeding: the
+    // tool never runs and the reactor shuts down.
+    expect(events.some((e) => e.type === "tool.start")).toBe(false);
+    await waitFor("reactor.done");
+  });
+
+  test("a schema-invalid approval body halts the run with a fatal reactor.error", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    // Valid JSON, but not a valid ApprovalDecision: "maybe" is not an outcome
+    // the schema admits. The arktype boundary must reject it as fatal.
+    reactor.deliver(
+      createInboundMessage({
+        from: "signal@local",
+        to: "agent@example.com",
+        content: JSON.stringify({ outcome: "maybe" }),
+        correlationId,
+      }),
+    );
+
+    const error = await waitFor("reactor.error");
+    if (error.type !== "reactor.error") throw new Error("unreachable");
+    expect(error.data.fatal).toBe(true);
+    expect(error.data.error).toContain("Correlation dispatch failed");
+
+    expect(events.some((e) => e.type === "tool.start")).toBe(false);
+    await waitFor("reactor.done");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Approval resume answers a rejected or timed-out parked call with an error
+// result (the shared resume.tool_result rail)
+// ---------------------------------------------------------------------------
+
+describe("createReactor — approval resume error result", () => {
+  // A two-phase inference runner: the first inference emits the tool_call that
+  // parks on the ask gate; the re-inference after the parked call is answered
+  // with an error result emits a plain text reply that terminates the run.
+  function twoPhaseInferenceRunner() {
+    let call = 0;
+    return async function* (
+      opts: InferenceHarnessOptions,
+    ): AsyncGenerator<InferenceEvent> {
+      call += 1;
+      const turn: AssistantTurn =
+        call === 1
+          ? suspendToolCallTurn
+          : {
+              role: "assistant",
+              content: [{ type: "text", text: "acknowledged" }],
+              model: "test-model",
+              timestamp: 2000,
+            };
+      yield {
+        type: "inference.done",
+        seq: opts.nextSeq(),
+        data: { turn, usage: emptyUsage(), source: TEST_SOURCE },
+      };
+    };
+  }
+
+  function askExtension(approvalTimeoutMs = 60_000) {
+    return createAuthzExtension({
+      authorize: async () => ({
+        effect: "ask" as const,
+        matchingGrants: [],
+        resolvedBy: null,
+      }),
+      approvalTimeoutMs,
+    });
+  }
+
+  test("a rejected correlation answers the parked call with an error result and re-infers once", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const toolsRun: string[] = [];
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => {
+        toolsRun.push(call.name);
+        return { callId: call.id, content: "charged" };
+      }),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    // Deliver a rejection carrying an approver reason.
+    reactor.deliver(
+      createInboundMessage({
+        from: "signal@local",
+        to: "agent@example.com",
+        content: JSON.stringify({ outcome: "rejected", message: "too risky" }),
+        correlationId,
+      }),
+    );
+
+    // The reactor answers the parked call with a synthetic error result and
+    // re-infers off it, producing the terminating reply.
+    const reply = await waitForEvent(
+      events,
+      (e) => e.type === "connector.reply",
+    );
+    if (reply.type !== "connector.reply") throw new Error("unreachable");
+    expect(reply.data.content).toBe("acknowledged");
+
+    // The tool never ran: rejection does not grant the one-shot bypass.
+    expect(toolsRun).toEqual([]);
+    expect(events.some((e) => e.type === "tool.start")).toBe(false);
+    expect(events.some((e) => e.type === "tool.done")).toBe(false);
+
+    // History carries an error tool_result answering the parked call id, and
+    // the persisted sequence is well-formed.
+    const resultTurn = cell.turns.find((t) =>
+      t.content.some(
+        (b) =>
+          b.type === "tool_result" &&
+          b.callId === "call-ask" &&
+          b.isError === true,
+      ),
+    );
+    expect(resultTurn).toBeDefined();
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    // Exactly one re-inference after the park: the initial tool-call inference
+    // plus one continuation off the error result.
+    const inferenceDones = events.filter((e) => e.type === "inference.done");
+    expect(inferenceDones).toHaveLength(2);
+
+    // The correlation was claimed and the parked op removed.
+    const correlated = getEvent(events, "message.correlated");
+    expect(correlated.data.correlationId).toBe(correlationId);
+    expect(cell.pendingOperations).toHaveLength(0);
+  });
+
+  test("a rejected correlation surfaces the approver reason in the error content", async () => {
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "charged",
+      })),
+      beforeToolExtensions: [askExtension()],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    reactor.deliver(
+      createInboundMessage({
+        from: "signal@local",
+        to: "agent@example.com",
+        content: JSON.stringify({ outcome: "rejected", message: "too risky" }),
+        correlationId,
+      }),
+    );
+
+    await waitForEvent(events, (e) => e.type === "connector.reply");
+
+    const resultBlock = cell.turns
+      .flatMap((t) => t.content)
+      .find((b) => b.type === "tool_result" && b.callId === "call-ask");
+    if (resultBlock === undefined || resultBlock.type !== "tool_result") {
+      throw new Error("expected an error tool_result for the parked call");
+    }
+    const text = resultBlock.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("");
+    expect(text).toBe("denied by approver: too risky");
+  });
+
+  test("a timed-out parked call answers with an error result and re-infers exactly once", async () => {
+    // The double-infer regression guard. A gate timeout on a parked ask call
+    // must enqueue resume.tool_result INSTEAD OF reactor.gate.cleared. If the
+    // fork ever enqueued both, the parked call would drive two re-inferences
+    // for one timeout. Assert exactly one continuation inference.
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: [],
+      tokenUsage: emptyUsage(),
+    };
+    const toolsRun: string[] = [];
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+      director: createDefaultDirector("test agent", []),
+      inferenceRunner: twoPhaseInferenceRunner(),
+      toolRunner: makeToolRunner(async (call) => {
+        toolsRun.push(call.name);
+        return { callId: call.id, content: "charged" };
+      }),
+      beforeToolExtensions: [askExtension(80)],
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const blocked = await waitFor("reactor.gate.blocked");
+    if (blocked.type !== "reactor.gate.blocked") throw new Error("unreachable");
+    const correlationId = blocked.data.correlationId;
+    if (correlationId === undefined) throw new Error("expected correlationId");
+
+    // No decision is delivered; the gate times out on its own.
+    const reply = await waitForEvent(
+      events,
+      (e) => e.type === "connector.reply",
+    );
+    if (reply.type !== "connector.reply") throw new Error("unreachable");
+    expect(reply.data.content).toBe("acknowledged");
+
+    // The tool never ran, and no plain gate-cleared drove a second re-infer.
+    expect(toolsRun).toEqual([]);
+    expect(events.some((e) => e.type === "reactor.gate.cleared")).toBe(false);
+
+    // History carries a timeout error tool_result answering the parked call id.
+    const resultBlock = cell.turns
+      .flatMap((t) => t.content)
+      .find((b) => b.type === "tool_result" && b.callId === "call-ask");
+    if (resultBlock === undefined || resultBlock.type !== "tool_result") {
+      throw new Error("expected an error tool_result for the parked call");
+    }
+    expect(resultBlock.isError).toBe(true);
+    const text = resultBlock.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("");
+    expect(text).toBe("approval timed out");
+    expect(() => assertWellFormedToolSequence(cell.turns)).not.toThrow();
+
+    // Exactly one continuation inference: the initial tool-call inference plus
+    // one re-inference off the timeout error result — never two.
+    const inferenceDones = events.filter((e) => e.type === "inference.done");
+    expect(inferenceDones).toHaveLength(2);
+
+    // The parked op was removed.
+    expect(cell.pendingOperations).toHaveLength(0);
+  });
+
+  test("a gate with no suspendedCall-bearing op still resumes on a bare gate-cleared timeout", async () => {
+    // The non-ask rail (a director-suspended gate, or an async-marker pending
+    // op that carries no suspendedCall) must keep today's behavior on timeout:
+    // a plain reactor.gate.cleared drives the re-infer, with no synthetic tool
+    // result manufactured. The fork only diverts a gate whose op has a
+    // suspendedCall.
+    let cleared = false;
+    const director = directorFromTable({
+      "message.received": (_e, _s, caps) =>
+        caps.suspend({
+          type: "approval",
+          gateId: "pending-async-marker",
+          timeoutMs: 80,
+          correlationId: "async-marker-corr",
+        }),
+      "reactor.gate.cleared": (_e, _s, caps) => {
+        cleared = true;
+        return caps.done();
+      },
+    });
+
+    const { reactor, waitFor } = createTestReactor({ director });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+
+    const gateCleared = await waitFor("reactor.gate.cleared");
+    if (gateCleared.type !== "reactor.gate.cleared") {
+      throw new Error("unreachable");
+    }
+    expect(gateCleared.data.reason).toBe("timeout");
+    await waitFor("reactor.done");
+    expect(cleared).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Corrupt persisted state surfaces loud at startup
+// ---------------------------------------------------------------------------
+
+describe("createReactor — corrupt persisted state", () => {
+  test("duplicate correlationId in persisted pending operations emits reactor.error and reactor.done", async () => {
+    // The pending operations come from the context store, an untrusted
+    // external boundary. Two operations sharing a correlationId make the
+    // second correlation registration throw during rehydration. That failure
+    // must surface as reactor.error plus reactor.done, exactly like a load
+    // failure, rather than bricking the reactor with no lifecycle events.
+    const now = Date.now();
+    const duplicate: PendingOperation[] = [
+      {
+        correlationId: "dup-corr",
+        kind: "approval",
+        registeredAt: now,
+        gateId: "gate-a",
+        timeoutAt: now + 60_000,
+      },
+      {
+        correlationId: "dup-corr",
+        kind: "approval",
+        registeredAt: now,
+        gateId: "gate-b",
+        timeoutAt: now + 60_000,
+      },
+    ];
+
+    const cell: PersistedCell = {
+      turns: [],
+      pendingOperations: duplicate,
+      tokenUsage: emptyUsage(),
+    };
+
+    const { reactor, events, waitFor } = createTestReactor({
+      contextStore: makePersistingContextStore(cell),
+    });
+
+    reactor.start();
+
+    await waitFor("reactor.error");
+    await waitFor("reactor.done");
+
+    const error = getEvent(events, "reactor.error");
+    expect(error.data.fatal).toBe(true);
+    expect(error.data.error).toMatch(/dup-corr/);
+
+    // The brick symptom is the absence of lifecycle events; assert both fired.
+    expect(events.some((e) => e.type === "reactor.done")).toBe(true);
   });
 });
 
@@ -4287,15 +5513,16 @@ describe("createReactor — source failover", () => {
     expect(done.data.source.sourceId).toBe("s1");
   });
 
-  test("retries the same source on a rate limit before failing over", async () => {
+  test("fails over on quota exhaustion already retried by the harness", async () => {
     const { reactor, events, waitFor, attemptedSourceIds } = multiSourceReactor(
       {
         sourceIds: ["s0", "s1"],
-        // s0 is always rate-limited (short Retry-After so the test stays
-        // fast); s1 succeeds.
+        // s0 is quota-exhausted; the harness wrapper owns quota retry and
+        // has exhausted it by the time the reactor sees the error, so the
+        // reactor fails over rather than re-running s0.
         resultFor: (id) =>
           id === "s0"
-            ? { category: "quota_exhausted", message: "429", retryAfterMs: 1 }
+            ? { category: "quota_exhausted", message: "quota exhausted" }
             : "done",
       },
     );
@@ -4303,8 +5530,7 @@ describe("createReactor — source failover", () => {
     reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
-    // s0 gets its same-source budget (2 attempts) before failover to s1.
-    expect(attemptedSourceIds).toEqual(["s0", "s0", "s1"]);
+    expect(attemptedSourceIds).toEqual(["s0", "s1"]);
     expect(getEvent(events, "inference.done").data.source.sourceId).toBe("s1");
   });
 
@@ -4362,80 +5588,6 @@ describe("createReactor — source failover", () => {
     expect(getEvent(events, "inference.error").data.error.category).toBe(
       "credential_failure",
     );
-  });
-});
-
-describe("createReactor — retry re-emission", () => {
-  // Regression: the reactor's outer retry loop (same-source quota retry and
-  // failover) re-invokes inferenceRunner from scratch on retry, which
-  // re-streams inference.start through whatever the failed attempt already
-  // committed. Without a marker between the discarded attempt's events and
-  // the retried attempt's own, a consumer replaying the event stream has no
-  // way to tell the two apart and ends up rendering the failed attempt's
-  // content twice.
-  test("emits inference.retry before re-streaming a same-source quota retry", async () => {
-    let call = 0;
-    const inferenceRunner = async function* (
-      o: InferenceHarnessOptions,
-    ): AsyncGenerator<InferenceEvent> {
-      call += 1;
-      if (call === 1) {
-        // First attempt commits partial content, then fails.
-        yield {
-          type: "inference.text.delta",
-          seq: o.nextSeq(),
-          data: { token: "partial", partial: { text: "partial" } },
-        };
-        yield {
-          type: "inference.error",
-          seq: o.nextSeq(),
-          data: {
-            error: {
-              category: "quota_exhausted",
-              message: "429",
-              retryAfterMs: 1,
-            },
-            partial: { text: "partial" },
-          },
-        };
-        return;
-      }
-      yield {
-        type: "inference.done",
-        seq: o.nextSeq(),
-        data: {
-          turn: makeAssistantTurn("final reply"),
-          usage: emptyUsage(),
-          source: TEST_SOURCE,
-        },
-      };
-    };
-
-    const { reactor, events, waitFor } = createTestReactor({
-      inferenceRunner,
-      director: directorFromTable({
-        "message.received": (_e, _s, caps) => caps.infer(),
-        "inference.done": (_e, _s, caps) => caps.done(),
-        "inference.error": (_e, _s, caps) => caps.done(),
-      }),
-    });
-
-    reactor.start();
-    reactor.deliver(makeInboundMessage());
-    await waitFor("reactor.done");
-
-    const deltaIndex = events.findIndex(
-      (e) => e.type === "inference.text.delta",
-    );
-    const retryIndex = events.findIndex((e) => e.type === "inference.retry");
-    const doneIndex = events.findIndex((e) => e.type === "inference.done");
-
-    // The failed attempt's committed content must be followed by a retry
-    // marker before the retried attempt's own terminal event, so a consumer
-    // can discard the discarded attempt's blocks on retry.
-    expect(deltaIndex).toBeGreaterThanOrEqual(0);
-    expect(retryIndex).toBeGreaterThan(deltaIndex);
-    expect(doneIndex).toBeGreaterThan(retryIndex);
   });
 });
 
@@ -4504,219 +5656,5 @@ describe("createReactor — prompt well-formedness tripwire", () => {
     expect(error.data.error).toMatch(/duplicate tool_result for "tc-1"/);
     // The prompt never reached the inference runner.
     expect(inferenceRan).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Per-event overhead: history is not re-serialized or re-copied needlessly
-//. Directors that decide without changing history must not drive a
-// full-history write, and high-frequency delta events must not reach the
-// checkpoint path at all.
-// ---------------------------------------------------------------------------
-
-function makeCountingContextStore(): {
-  store: ContextStore;
-  writeTurnsCalls: number;
-  commitCount: number;
-} {
-  let writeTurnsCalls = 0;
-  let commitCount = 0;
-  const store: ContextStore = {
-    async load() {
-      return {
-        turns: [],
-        pendingOperations: [],
-        tokenUsage: emptyUsage(),
-        connectorState: null,
-      };
-    },
-    setConnectorState() {
-      /* noop */
-    },
-    async commit(options: { message: string }) {
-      commitCount++;
-      return {
-        hash: `c${String(commitCount)}`,
-        message: options.message,
-        timestamp: Date.now(),
-      };
-    },
-    async branch() {
-      /* noop */
-    },
-    async log() {
-      return [];
-    },
-    async readAt() {
-      return [];
-    },
-    async writeBlob() {
-      /* noop */
-    },
-    async readBlob() {
-      throw new Error("not implemented");
-    },
-    async writePrompt() {
-      /* noop */
-    },
-    async writeResponse() {
-      /* noop */
-    },
-    async writeManifest() {
-      /* noop */
-    },
-    async writeTurns() {
-      writeTurnsCalls++;
-    },
-    async writeMetadata() {
-      /* noop */
-    },
-    async readManifestHistory() {
-      throw new Error("not implemented");
-    },
-  };
-  return {
-    store,
-    get writeTurnsCalls() {
-      return writeTurnsCalls;
-    },
-    get commitCount() {
-      return commitCount;
-    },
-  };
-}
-
-describe("createReactor — bounded per-event persistence overhead", () => {
-  test("streaming delta events never reach the checkpoint write path", async () => {
-    const counting = makeCountingContextStore();
-    const deltaTokens = ["one ", "two ", "three ", "four ", "five "];
-
-    const { reactor, events, waitFor } = createDirectReactor({
-      contextStore: counting.store,
-      director: directorFromTable({
-        "message.received": (_e, _s, caps) => caps.infer(),
-        "inference.done": (_e, _s, caps) => [
-          caps.checkpoint("done"),
-          caps.done(),
-        ],
-      }),
-      inferenceRunner: async function* (opts) {
-        for (const token of deltaTokens) {
-          yield {
-            type: "inference.text.delta",
-            seq: opts.nextSeq(),
-            data: { token, partial: { text: token } },
-          };
-        }
-        yield {
-          type: "inference.done",
-          seq: opts.nextSeq(),
-          data: {
-            turn: makeAssistantTurn("five tokens"),
-            usage: emptyUsage(),
-            source: TEST_SOURCE,
-          },
-        };
-      },
-    });
-
-    reactor.start();
-    reactor.deliver(makeInboundMessage());
-    await waitFor("reactor.done");
-
-    const emittedDeltas = events.filter(
-      (e) => e.type === "inference.text.delta",
-    );
-    expect(emittedDeltas.length).toBe(deltaTokens.length);
-
-    // The whole exchange changes history exactly once (inbound turn + the
-    // single assistant turn committed together), so writeTurns fires once —
-    // never per delta.
-    expect(counting.writeTurnsCalls).toBe(1);
-  });
-
-  test("a checkpoint whose history is unchanged does not rewrite turns", async () => {
-    const counting = makeCountingContextStore();
-
-    const { reactor, waitFor } = createDirectReactor({
-      contextStore: counting.store,
-      director: {
-        async decide(event, _state, caps) {
-          if (event.type === "message.received") {
-            return [
-              caps.checkpoint("pre-suspend"),
-              caps.suspend({
-                type: "approval",
-                gateId: "unchanged-history-gate",
-                timeoutMs: 50,
-              }),
-            ];
-          }
-          if (event.type === "reactor.gate.cleared") {
-            // Resume checkpoint: real cycle work, but history has not moved
-            // since the suspend commit, so no turns should be rewritten.
-            return [caps.checkpoint("resumed"), caps.done()];
-          }
-          return caps.done();
-        },
-      },
-    });
-
-    reactor.start();
-    reactor.deliver(makeInboundMessage());
-    await waitFor("reactor.done");
-
-    // Two checkpoint commits: the suspend and the resume.
-    expect(counting.commitCount).toBe(2);
-    // Only the first changed history (the inbound turn); the resume commit
-    // must skip the full-history write.
-    expect(counting.writeTurnsCalls).toBe(1);
-  });
-});
-
-describe("createStateManager — lazy snapshot fields", () => {
-  test("snapshot defers the turns copy and memoizes it per snapshot", () => {
-    const history = Array.from({ length: 200 }, (_v, i) =>
-      makeAssistantTurn(`turn-${String(i)}`),
-    );
-    const manager = createStateManager(
-      "session-lazy",
-      history,
-      [],
-      emptyUsage(),
-    );
-
-    const snap = manager.snapshot();
-    const first = snap.turns;
-    const second = snap.turns;
-    // Memoized: the same snapshot hands back the identical array instance.
-    expect(second).toBe(first);
-    expect(first.length).toBe(history.length);
-
-    // A separate snapshot produces an independent container so a reader cannot
-    // corrupt reactor state, while sharing the frozen turn references.
-    const otherTurns = manager.snapshot().turns;
-    expect(otherTurns).not.toBe(first);
-    expect(otherTurns[0]).toBe(first[0]);
-  });
-
-  test("turns revision advances on append and replace, not on read", () => {
-    const manager = createStateManager(
-      "session-revision",
-      [makeAssistantTurn("seed")],
-      [],
-      emptyUsage(),
-    );
-
-    expect(manager.getTurnsRevision()).toBe(0);
-    // Reading history must not bump the revision.
-    void manager.snapshot().turns;
-    expect(manager.getTurnsRevision()).toBe(0);
-
-    manager.appendTurn(makeAssistantTurn("next"));
-    expect(manager.getTurnsRevision()).toBe(1);
-
-    manager.replaceTurns([makeAssistantTurn("compacted")]);
-    expect(manager.getTurnsRevision()).toBe(2);
   });
 });

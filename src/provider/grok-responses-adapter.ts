@@ -15,7 +15,12 @@ import {
   XAI_CLIENT_VERSION,
   XAI_USER_AGENT,
 } from "../auth/xai/constants.js";
-import { createResponsesBlockIndexer, parseResponse, signatureForModel } from "./codex-responses-adapter.js";
+import {
+  createResponsesBlockIndexer,
+  parseJSONResponse,
+  parseResponse,
+  signatureForModel,
+} from "./codex-responses-adapter.js";
 
 // Adapter for the grok-cli OAuth proxy (cli-chat-proxy.grok.com), which serves
 // the OpenAI Responses API at /v1/responses. The request shape mirrors the grok
@@ -180,5 +185,6 @@ export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAda
   return {
     buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
+    parseJSONResponse,
   };
 }

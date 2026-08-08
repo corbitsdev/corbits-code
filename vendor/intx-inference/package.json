@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@intx/log": "0.2.2",
-    "@intx/types": "0.2.2",
+    "@intx/types": "workspace:*",
     "arktype": "catalog:"
   },
   "devDependencies": {

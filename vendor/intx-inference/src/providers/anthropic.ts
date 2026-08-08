@@ -10,7 +10,10 @@ import type {
   PartialMessage,
   TokenUsage,
 } from "@intx/types/runtime";
-import { CitationBlock as CitationBlockType } from "@intx/types/runtime";
+import {
+  CitationBlock as CitationBlockType,
+  formatSafetyRatingText,
+} from "@intx/types/runtime";
 import type { ProviderAdapter, BuiltRequest } from "../adapter";
 import { CREDENTIAL_SENTINEL } from "../auth";
 import { ProtocolMismatchError } from "../errors";
@@ -27,6 +30,15 @@ const ANTHROPIC_TOOL_NAME_LIMIT: ToolNameLimit = {
   provider: "anthropic",
   maxLength: 128,
 };
+
+// Models that reject thinking:{type:"enabled",budget_tokens} and require
+// thinking:{type:"adaptive"} with output_config.effort. Keep aligned with
+// the discovery plug-in's ADAPTIVE_THINKING_MODELS set.
+const ADAPTIVE_THINKING_MODELS: ReadonlySet<string> = new Set([
+  "claude-sonnet-5",
+  "claude-opus-5",
+  "claude-fable-5",
+]);
 
 // ---------------------------------------------------------------------------
 // Request building
@@ -78,10 +90,18 @@ function buildRequest(
   }
 
   if (options.thinking?.enabled) {
-    body["thinking"] = {
-      type: "enabled",
-      budget_tokens: options.thinking.budgetTokens ?? 1024,
-    };
+    // Adaptive models reject the classic budget_tokens shape with
+    // invalid_request_error and require thinking:{type:"adaptive"}
+    // plus output_config.effort.
+    if (ADAPTIVE_THINKING_MODELS.has(model)) {
+      body["thinking"] = { type: "adaptive" };
+      body["output_config"] = { effort: "high" };
+    } else {
+      body["thinking"] = {
+        type: "enabled",
+        budget_tokens: options.thinking.budgetTokens ?? 1024,
+      };
+    }
   }
 
   if (options.tools !== undefined && options.tools.length > 0) {
@@ -135,7 +155,18 @@ function toAnthropicMessage(
   cacheLastBlock?: boolean,
 ): Record<string, unknown> {
   const role = msg.role === "assistant" ? "assistant" : "user";
-  const content = msg.content.map(toAnthropicBlock);
+  // safety_rating is Gemini output-only metadata. Rewrite as text so
+  // role alternation and the block reason survive Anthropic history
+  // without a native safety_rating input shape.
+  const content = msg.content.map((block) => {
+    if (block.type === "safety_rating") {
+      return toAnthropicBlock({
+        type: "text",
+        text: formatSafetyRatingText(block),
+      });
+    }
+    return toAnthropicBlock(block);
+  });
   if (cacheLastBlock) {
     const lastBlock = content[content.length - 1];
     if (lastBlock !== undefined) {
@@ -310,7 +341,12 @@ function toAnthropicBlock(block: ContentBlock): Record<string, unknown> {
       return { type: "image", source: toAnthropicMediaSource(block.source) };
 
     case "document":
-      return { type: "document", source: toAnthropicMediaSource(block.source) };
+      return {
+        type: "document",
+        source: toAnthropicMediaSource(block.source),
+        ...(block.title !== undefined ? { title: block.title } : {}),
+        ...(block.context !== undefined ? { context: block.context } : {}),
+      };
 
     case "audio":
     case "video":
@@ -321,6 +357,13 @@ function toAnthropicBlock(block: ContentBlock): Record<string, unknown> {
     case "citation":
       throw new Error(
         "Anthropic adapter does not yet emit citation content blocks.",
+      );
+
+    case "safety_rating":
+      // Rewritten to text in toAnthropicMessage before this switch.
+      throw new Error(
+        "Anthropic adapter: safety_rating blocks must be rewritten to " +
+          "text before toAnthropicBlock.",
       );
 
     case "code_execution_request":
@@ -520,6 +563,25 @@ const AnthropicSSEEvent = ContentBlockDelta.or(ContentBlockStart)
   .or(MessageStop)
   .or(Ping);
 
+// Maps Anthropic's wire usage object onto the internal TokenUsage. Anthropic
+// never reports a distinct thinking-token count, so `thinking` is always 0.
+// Shared by the streaming `message_start` path and the non-streaming
+// `parseJSONResponse`, whose usage objects carry the same field names.
+function toInferenceUsage(usage: {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}): TokenUsage {
+  return {
+    input: usage.input_tokens ?? 0,
+    output: usage.output_tokens ?? 0,
+    cacheRead: usage.cache_read_input_tokens ?? 0,
+    cacheWrite: usage.cache_creation_input_tokens ?? 0,
+    thinking: 0,
+  };
+}
+
 function parseResponse(
   sseData: string,
   blockIndexToCallId: Map<number, string>,
@@ -590,7 +652,7 @@ function parseResponse(
         const signature = delta.signature ?? "";
         return [
           {
-            type: "inference.thinking.signature",
+            type: "inference.block.signature",
             seq,
             data: { signature, index },
           },
@@ -752,18 +814,11 @@ function parseResponse(
       const msgUsage = event.message?.usage;
       if (msgUsage === undefined) return [];
 
-      const inferenceUsage: TokenUsage = {
-        input: msgUsage.input_tokens ?? 0,
-        output: msgUsage.output_tokens ?? 0,
-        cacheRead: msgUsage.cache_read_input_tokens ?? 0,
-        cacheWrite: msgUsage.cache_creation_input_tokens ?? 0,
-        thinking: 0,
-      };
       return [
         {
           type: "inference.usage",
           seq,
-          data: { usage: inferenceUsage, source },
+          data: { usage: toInferenceUsage(msgUsage), source },
         },
       ];
     }
@@ -772,6 +827,231 @@ function parseResponse(
     case "ping":
       return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Non-streaming response parsing
+//
+// The non-streaming Messages endpoint returns the same content blocks the
+// streaming protocol delivers incrementally, delivered whole in one JSON
+// body. `parseJSONResponse` re-expresses each complete block as the same
+// InferenceEvent vocabulary `parseResponse` emits, so a replayed
+// non-streaming capture feeds the harness accumulator identically to its
+// streaming sibling. Block types the streaming parser does not model
+// (server_tool_use, web_search_tool_result, code_execution_tool_result)
+// emit nothing here too; bringing those cells to parity across both paths is
+// owned by the strict-mode replay regression, not this parser.
+// ---------------------------------------------------------------------------
+
+const NonStreamingUsage = type({
+  "input_tokens?": "number",
+  "output_tokens?": "number",
+  "cache_read_input_tokens?": "number",
+  "cache_creation_input_tokens?": "number",
+});
+
+const NonStreamingMessage = type({
+  type: "'message'",
+  content: "unknown[]",
+  usage: NonStreamingUsage,
+});
+
+const BlockTag = type({ type: "string" });
+
+const NonStreamingTextBlock = type({
+  type: "'text'",
+  "text?": "string",
+  "citations?": AnthropicCitation.array(),
+});
+
+const NonStreamingToolUseBlock = type({
+  type: "'tool_use'",
+  "id?": "string",
+  "name?": "string",
+  "input?": "unknown",
+});
+
+const NonStreamingThinkingBlock = type({
+  type: "'thinking'",
+  "thinking?": "string",
+  "signature?": "string",
+});
+
+const NonStreamingRedactedThinkingBlock = type({
+  type: "'redacted_thinking'",
+  "data?": "string",
+});
+
+function parseJSONResponse(
+  body: string,
+  source: LastCycleSource,
+): InferenceEvent[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new ProtocolMismatchError(
+      `anthropic parseJSONResponse: malformed JSON response body: ${message}`,
+      body,
+    );
+  }
+
+  const message = NonStreamingMessage(parsed);
+  if (message instanceof type.errors) {
+    throw new ProtocolMismatchError(
+      `anthropic parseJSONResponse: response failed schema validation: ${message.summary}`,
+      parsed,
+    );
+  }
+
+  // The seq field is a placeholder 0 — the harness assigns real sequence
+  // numbers, exactly as on the streaming path.
+  const seq = 0;
+  const events: InferenceEvent[] = [];
+
+  message.content.forEach((rawBlock, index) => {
+    const tagged = BlockTag(rawBlock);
+    if (tagged instanceof type.errors) {
+      throw new ProtocolMismatchError(
+        `anthropic parseJSONResponse: content block ${String(index)} has no string type: ${tagged.summary}`,
+        rawBlock,
+      );
+    }
+
+    switch (tagged.type) {
+      case "text": {
+        const block = NonStreamingTextBlock(rawBlock);
+        if (block instanceof type.errors) {
+          throw new ProtocolMismatchError(
+            `anthropic parseJSONResponse: text block ${String(index)} failed validation: ${block.summary}`,
+            rawBlock,
+          );
+        }
+        events.push({
+          type: "inference.text.delta",
+          seq,
+          data: { token: block.text ?? "", partial: EMPTY_PARTIAL, index },
+        });
+        // The streaming path emits one inference.citation per citations_delta
+        // keyed to the enclosing text block's index; the non-streaming shape
+        // carries those same citations inline on the block.
+        for (const citation of block.citations ?? []) {
+          events.push({
+            type: "inference.citation",
+            seq,
+            data: { citation: toCitationBlock(citation, index), index },
+          });
+        }
+        break;
+      }
+
+      case "tool_use": {
+        const block = NonStreamingToolUseBlock(rawBlock);
+        if (block instanceof type.errors) {
+          throw new ProtocolMismatchError(
+            `anthropic parseJSONResponse: tool_use block ${String(index)} failed validation: ${block.summary}`,
+            rawBlock,
+          );
+        }
+        // callId falls back to the block index exactly as the streaming
+        // content_block_start does, so a tool_use block with no id still
+        // correlates its start and args delta.
+        const callId = block.id ?? String(index);
+        events.push({
+          type: "inference.tool_call.start",
+          seq,
+          data: {
+            callId,
+            name: decodeToolName(block.name ?? ""),
+            partial: EMPTY_PARTIAL,
+            index,
+          },
+        });
+        events.push({
+          type: "inference.tool_call.delta",
+          seq,
+          data: {
+            callId,
+            argumentFragment: JSON.stringify(block.input ?? {}),
+            partial: EMPTY_PARTIAL,
+            index,
+          },
+        });
+        break;
+      }
+
+      case "thinking": {
+        const block = NonStreamingThinkingBlock(rawBlock);
+        if (block instanceof type.errors) {
+          throw new ProtocolMismatchError(
+            `anthropic parseJSONResponse: thinking block ${String(index)} failed validation: ${block.summary}`,
+            rawBlock,
+          );
+        }
+        // Emit the thinking delta first so the harness has a thinking block
+        // at this index before the signature arrives; a signature with no
+        // preceding thinking entry is a protocol violation the harness
+        // rejects.
+        events.push({
+          type: "inference.thinking.delta",
+          seq,
+          data: { token: block.thinking ?? "", partial: EMPTY_PARTIAL, index },
+        });
+        if (block.signature !== undefined) {
+          events.push({
+            type: "inference.block.signature",
+            seq,
+            data: { signature: block.signature, index },
+          });
+        }
+        break;
+      }
+
+      case "redacted_thinking": {
+        const block = NonStreamingRedactedThinkingBlock(rawBlock);
+        if (block instanceof type.errors) {
+          throw new ProtocolMismatchError(
+            `anthropic parseJSONResponse: redacted_thinking block ${String(index)} failed validation: ${block.summary}`,
+            rawBlock,
+          );
+        }
+        // The opaque `data` blob must echo back verbatim on follow-up turns;
+        // a missing `data` is a protocol violation, not a default-to-empty
+        // case, matching the streaming redacted_thinking handling.
+        if (block.data === undefined) {
+          throw new ProtocolMismatchError(
+            `anthropic parseJSONResponse: redacted_thinking block ${String(index)} missing required \`data\` field`,
+            rawBlock,
+          );
+        }
+        events.push({
+          type: "inference.thinking.redacted",
+          seq,
+          data: {
+            redactedThinking: { type: "redacted_thinking", data: block.data },
+            index,
+          },
+        });
+        break;
+      }
+
+      default:
+        // server_tool_use, web_search_tool_result,
+        // code_execution_tool_result, and any future block type: the
+        // streaming parser emits nothing for these, so mirror that rather
+        // than diverge from a path with no passing reference yet.
+        break;
+    }
+  });
+
+  events.push({
+    type: "inference.usage",
+    seq,
+    data: { usage: toInferenceUsage(message.usage), source },
+  });
+
+  return events;
 }
 
 function extractRetryAfterMs(headers: Headers): number | undefined {
@@ -808,15 +1088,32 @@ function extractPacingDelayMs(headers: Headers): number | undefined {
   return delays.length > 0 ? Math.max(...delays) : undefined;
 }
 
+// The anthropic adapter carries no per-source accommodations today, so its
+// quirks shape is empty. A quirks bag is deployment configuration crossing
+// into the system at this boundary; rejecting unknown keys makes a
+// misconfigured bag — for example an openai quirk pasted onto an anthropic
+// source — fail loudly here rather than run silently ignored.
+export const AnthropicQuirks = type({ "+": "reject" });
+export type AnthropicQuirks = typeof AnthropicQuirks.infer;
+
 export function createAnthropicAdapter(
   source: LastCycleSource,
+  quirks?: unknown,
 ): ProviderAdapter {
+  const parsedQuirks = AnthropicQuirks(quirks ?? {});
+  if (parsedQuirks instanceof type.errors) {
+    throw new Error(
+      `anthropic adapter: invalid quirks: ${parsedQuirks.summary}`,
+    );
+  }
+
   const blockIndexToCallId = new Map<number, string>();
 
   return {
     buildRequest,
     parseResponse: (sseData) =>
       parseResponse(sseData, blockIndexToCallId, source),
+    parseJSONResponse: (body) => parseJSONResponse(body, source),
     extractRetryAfterMs,
     extractPacingDelayMs,
   };

@@ -72,7 +72,7 @@ describe("codex-sse fixtures (golden parse)", () => {
       "inference.thinking.delta", // output_item.added reasoning (empty pre-register)
       "inference.thinking.delta", // "consider "
       "inference.thinking.delta", // "options"
-      "inference.thinking.signature",
+      "inference.block.signature",
       "inference.text.delta", // "I will "
       "inference.text.delta", // "check."
       "inference.tool_call.start",
@@ -95,7 +95,7 @@ describe("codex-sse fixtures (golden parse)", () => {
       data: { token: "options", index: 0 },
     });
     expect(out[3]).toMatchObject({
-      type: "inference.thinking.signature",
+      type: "inference.block.signature",
       data: { signature: tagSignature(SOURCE.provider, "ENC_FIXTURE_BLOB_NOT_REAL"), index: 0 },
     });
     expect(out[4]).toMatchObject({

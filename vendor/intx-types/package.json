@@ -1,0 +1,55 @@
+{
+  "name": "@intx/types",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./authz": {
+      "types": "./src/authz.ts",
+      "default": "./src/authz.ts"
+    },
+    "./audit": {
+      "types": "./src/audit.ts",
+      "default": "./src/audit.ts"
+    },
+    "./content-type": {
+      "types": "./src/content-type.ts",
+      "default": "./src/content-type.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "default": "./src/runtime.ts"
+    },
+    "./runtime-capabilities": {
+      "types": "./src/runtime-capabilities.ts",
+      "default": "./src/runtime-capabilities.ts"
+    },
+    "./sidecar": {
+      "types": "./src/sidecar.ts",
+      "default": "./src/sidecar.ts"
+    },
+    "./grant-wire": {
+      "types": "./src/grant-wire.ts",
+      "default": "./src/grant-wire.ts"
+    },
+    "./tool-packages": {
+      "types": "./src/tool-packages.ts",
+      "default": "./src/tool-packages.ts"
+    },
+    "./package-json": {
+      "types": "./src/package-json.ts",
+      "default": "./src/package-json.ts"
+    }
+  },
+  "dependencies": {
+    "arktype": "catalog:",
+    "semver": "catalog:"
+  },
+  "devDependencies": {
+    "@types/semver": "catalog:"
+  }
+}

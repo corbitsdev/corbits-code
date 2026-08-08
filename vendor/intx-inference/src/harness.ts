@@ -29,12 +29,18 @@ import type {
   LastCycleSource,
   PartialMessage,
   RetryDecision,
+  SafetyRatingBlock,
   TokenUsage,
   AssistantTurn,
   ContentBlock,
 } from "@intx/types/runtime";
 
 import { getLogger } from "@intx/log";
+
+import {
+  detectResponseKind,
+  type ResponseKind,
+} from "@intx/types/content-type";
 
 import type { AdapterRegistry } from "./adapter";
 import { parseSSE } from "./sse";
@@ -45,6 +51,7 @@ import {
   classifyAbortError,
   classifyStreamError,
   classifyTimeoutError,
+  classifyProtocolMismatch,
   ProtocolMismatchError,
 } from "./errors";
 import { createDefaultRetryPolicy } from "./retry-policy";
@@ -115,6 +122,8 @@ export type Dependencies = {
    * forwards `deps` into reactor assembly verbatim while exposing no env
    * field for transforms; riding `deps` reaches the vendored assembly
    * without modifying the published package.
+   *
+   * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
    */
   readonly contextTransforms?: ContextTransform[];
   readonly [HarnessId]?: symbol;
@@ -244,13 +253,17 @@ async function* runSingleAttempt(
   // `completedToolCalls` and is resolved into the final block at
   // assembly time via the marker's `callId`.
   type BlockState =
-    | { kind: "text"; text: string }
+    | { kind: "text"; text: string; signature?: string }
     | { kind: "thinking"; text: string; signature?: string }
     | { kind: "redacted_thinking"; data: string }
     | { kind: "refusal"; reason: string }
-    | { kind: "tool_use"; callId: string }
-    | { kind: "image"; image: ImageBlock }
-    | { kind: "code_execution_request"; request: CodeExecutionRequestBlock }
+    | { kind: "tool_use"; callId: string; signature?: string }
+    | { kind: "image"; image: ImageBlock; signature?: string }
+    | {
+        kind: "code_execution_request";
+        request: CodeExecutionRequestBlock;
+        signature?: string;
+      }
     | { kind: "code_execution_result"; result: CodeExecutionResultBlock };
   const blockMap = new Map<number, BlockState>();
   // Citations streamed from the provider. Indexed citations attribute
@@ -261,6 +274,9 @@ async function* runSingleAttempt(
   // different keys.
   const citationsByIndex = new Map<number, CitationBlock[]>();
   const unindexedCitations: CitationBlock[] = [];
+  // Prompt-level safety signals (no candidate index on the first
+  // capture). Appended to the finalized turn after indexed blocks.
+  const unindexedSafetyRatings: SafetyRatingBlock[] = [];
   let usageSeen: TokenUsage | null = null;
 
   // Tool call state: keyed by callId (or index for OpenAI).
@@ -277,14 +293,14 @@ async function* runSingleAttempt(
     yield {
       type: "inference.error",
       seq: nextSeq(),
-      data: { error: classifyAbortError(signal.reason), partial: snapshotPartial(partial) },
+      data: { error: classifyAbortError(signal?.reason), partial: snapshotPartial(partial) },
     };
     return;
   }
 
   let adapter;
   try {
-    adapter = deps.adapters.resolve(lastCycleSource);
+    adapter = deps.adapters.resolve(lastCycleSource, source.quirks);
   } catch (cause) {
     yield {
       type: "inference.error",
@@ -395,7 +411,7 @@ async function* runSingleAttempt(
           type: "inference.error",
           seq: nextSeq(),
           data: {
-            error: classifyAbortError(signal.reason),
+            error: classifyAbortError(signal?.reason),
             partial: snapshotPartial(partial),
           },
         };
@@ -465,15 +481,81 @@ async function* runSingleAttempt(
       };
       return;
     }
+    // Captured as a const so the non-null narrowing from the guard above
+    // carries into the SSE branch of the event-source generator below (a
+    // bare `response.body` re-widens to nullable across the closure).
+    const responseBody = response.body;
 
-    // Arm the inactivity timer now that the SSE stream is open. Only
-    // semantic events parsed from each chunk re-arm it (see the loop
-    // below); sustained silence past `inactivityTimeoutMs` aborts the
-    // controller and the loop's catch surfaces the timeout error.
-    armInactivity();
+    let responseKind: ResponseKind;
+    try {
+      responseKind = detectResponseKind(response.headers);
+    } catch (cause) {
+      // A 2xx whose Content-Type is neither SSE nor JSON is a protocol
+      // violation, not a transient failure — surface it loudly rather than
+      // pushing unknown bytes through the SSE parser to yield an empty turn.
+      yield {
+        type: "inference.error",
+        seq: nextSeq(),
+        data: {
+          error: classifyProtocolMismatch(
+            cause instanceof Error ? cause.message : String(cause),
+          ),
+          partial: snapshotPartial(partial),
+        },
+      };
+      return;
+    }
+
+    // Arm the inactivity timer now that the SSE stream is open. Every
+    // event we yield below resets it; sustained silence past
+    // `inactivityTimeoutMs` aborts the controller and the loop's catch
+    // surfaces the timeout error. A non-streaming JSON body has no
+    // inter-event silence to detect, so the timer stays disarmed there and
+    // the total-timeout controller alone bounds the buffered read.
+    if (responseKind === "sse") {
+      armInactivity();
+    }
+
+    // The event source: one branch per response kind, both feeding batches
+    // of raw adapter events into the shared accumulator below. SSE yields
+    // one batch per wire chunk; JSON buffers the whole body and yields a
+    // single batch.
+    const rawEventBatches = async function* (): AsyncGenerator<
+      InferenceEvent[]
+    > {
+      if (responseKind === "json") {
+        const body = await awaitWithSignal(response.text(), fetchSignal);
+        yield adapter.parseJSONResponse(body);
+        return;
+      }
+      for await (const sseData of parseSSE(responseBody)) {
+        const rawEvents = adapter.parseResponse(sseData);
+        // Reset the inactivity watchdog only on semantic progress — events the
+        // adapter actually parsed out of this chunk (content, thinking, tool
+        // calls, usage). Provider keep-alives and lifecycle envelopes parse to
+        // zero events; letting raw bytes re-arm the timer means a stream that
+        // trickles keep-alives forever without a terminal event never trips the
+        // watchdog and pins the caller indefinitely.
+        //
+        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+        if (rawEvents.length > 0) {
+          armInactivity();
+        }
+        yield rawEvents;
+        // Protocols whose end-of-turn is a semantic event (OpenAI Responses)
+        // rather than `[DONE]` or a socket close would otherwise block on the
+        // next read forever. Stop once the terminal event's own events (e.g.
+        // its usage) have been processed above.
+        //
+        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+        if (adapter.isStreamTerminal?.(sseData)) {
+          return;
+        }
+      }
+    };
 
     try {
-      for await (const sseData of parseSSE(response.body)) {
+      for await (const rawEvents of rawEventBatches()) {
         if (timeoutReason !== null) {
           // The timeout aborted the stream; bubble up the right error
           // shape rather than letting the abort masquerade as a
@@ -497,23 +579,11 @@ async function* runSingleAttempt(
             type: "inference.error",
             seq: nextSeq(),
             data: {
-              error: classifyAbortError(signal.reason),
+              error: classifyAbortError(signal?.reason),
               partial: snapshotPartial(partial),
             },
           };
           return;
-        }
-
-        const rawEvents = adapter.parseResponse(sseData);
-
-        // Reset the inactivity watchdog only on semantic progress — events the
-        // adapter actually parsed out of this chunk (content, thinking, tool
-        // calls, usage). Provider keep-alives and lifecycle envelopes parse to
-        // zero events; letting raw bytes re-arm the timer means a stream that
-        // trickles keep-alives forever without a terminal event never trips the
-        // watchdog and pins the caller indefinitely.
-        if (rawEvents.length > 0) {
-          armInactivity();
         }
 
         for (const raw of rawEvents) {
@@ -542,6 +612,7 @@ async function* runSingleAttempt(
                 data: {
                   token: raw.data.token,
                   partial: snapshotPartial(partial),
+                  index: idx,
                 },
               };
               break;
@@ -606,31 +677,42 @@ async function* runSingleAttempt(
                 data: {
                   token: raw.data.token,
                   partial: snapshotPartial(partial),
+                  index: idx,
                 },
               };
               break;
             }
 
-            case "inference.thinking.signature": {
-              const idx = requireIndex(raw, "thinking.signature");
+            case "inference.block.signature": {
+              const idx = requireIndex(raw, "block.signature");
               const existing = blockMap.get(idx);
               if (existing === undefined) {
                 throw new ProtocolMismatchError(
-                  `harness: thinking.signature at index ${String(idx)} has no preceding thinking block at that index`,
+                  `harness: block.signature at index ${String(idx)} has no preceding block at that index`,
                   raw,
                 );
               }
-              if (existing.kind !== "thinking") {
+              // A signature authenticates the block whose part it rides on.
+              // The signable kinds are the ones whose ContentBlock carries a
+              // `signature` field; the others (redacted_thinking, refusal,
+              // code_execution_result) have no place to hold one.
+              if (
+                existing.kind !== "thinking" &&
+                existing.kind !== "text" &&
+                existing.kind !== "tool_use" &&
+                existing.kind !== "image" &&
+                existing.kind !== "code_execution_request"
+              ) {
                 throw new ProtocolMismatchError(
-                  `harness: thinking.signature at index ${String(idx)} targets an existing ${existing.kind} block, not a thinking block`,
+                  `harness: block.signature at index ${String(idx)} targets an existing ${existing.kind} block, which does not carry a signature`,
                   raw,
                 );
               }
               existing.signature = raw.data.signature;
               yield {
-                type: "inference.thinking.signature",
+                type: "inference.block.signature",
                 seq: nextSeq(),
-                data: { signature: raw.data.signature },
+                data: { signature: raw.data.signature, index: idx },
               };
               break;
             }
@@ -655,6 +737,17 @@ async function* runSingleAttempt(
                   citationIndex !== undefined
                     ? { citation, index: citationIndex }
                     : { citation },
+              };
+              break;
+            }
+
+            case "inference.safety_rating": {
+              const safetyRating = raw.data.safetyRating;
+              unindexedSafetyRatings.push(safetyRating);
+              yield {
+                type: "inference.safety_rating",
+                seq: nextSeq(),
+                data: { safetyRating },
               };
               break;
             }
@@ -727,7 +820,12 @@ async function* runSingleAttempt(
               yield {
                 type: "inference.tool_call.start",
                 seq: nextSeq(),
-                data: { callId, name, partial: snapshotPartial(partial) },
+                data: {
+                  callId,
+                  name,
+                  partial: snapshotPartial(partial),
+                  index: toolIdx,
+                },
               };
               break;
             }
@@ -936,14 +1034,6 @@ async function* runSingleAttempt(
               break;
           }
         }
-
-        // Protocols whose end-of-turn is a semantic event (OpenAI Responses)
-        // rather than `[DONE]` or a socket close would otherwise block on the
-        // next read forever. Stop once the terminal event's own events (e.g.
-        // its usage) have been processed above.
-        if (adapter.isStreamTerminal?.(sseData)) {
-          break;
-        }
       }
     } catch (cause) {
       if (timeoutReason !== null) {
@@ -964,7 +1054,7 @@ async function* runSingleAttempt(
           type: "inference.error",
           seq: nextSeq(),
           data: {
-            error: classifyAbortError(signal.reason),
+            error: classifyAbortError(signal?.reason),
             partial: snapshotPartial(partial),
           },
         };
@@ -1064,9 +1154,22 @@ async function* runSingleAttempt(
     };
     for (const [idx, entry] of blockMap.entries()) {
       if (entry.kind === "text") {
-        if (entry.text.length > 0) {
-          emit({ type: "text", text: entry.text }, idx);
+        // Emit even with empty text if a signature was captured, so a
+        // signature riding on an otherwise-empty text carrier still
+        // round-trips (mirrors the thinking-block rule below).
+        if (entry.text.length === 0 && entry.signature === undefined) {
+          continue;
         }
+        emit(
+          {
+            type: "text",
+            text: entry.text,
+            ...(entry.signature !== undefined
+              ? { signature: entry.signature }
+              : {}),
+          },
+          idx,
+        );
         continue;
       }
       if (entry.kind === "thinking") {
@@ -1122,7 +1225,18 @@ async function* runSingleAttempt(
             entry,
           );
         }
-        emit(finalized, idx);
+        if (finalized.type !== "tool_call") {
+          throw new ProtocolMismatchError(
+            `harness: tool_use marker at callId ${entry.callId} resolved to a ${finalized.type} block, not a tool_call`,
+            entry,
+          );
+        }
+        emit(
+          entry.signature !== undefined
+            ? { ...finalized, signature: entry.signature }
+            : finalized,
+          idx,
+        );
         continue;
       }
       if (entry.kind === "image") {
@@ -1132,7 +1246,12 @@ async function* runSingleAttempt(
         // atomic, not streamed), so the final-walk emits it
         // verbatim. Citation interleave applies the same way as
         // any other block kind.
-        emit(entry.image, idx);
+        emit(
+          entry.signature !== undefined
+            ? { ...entry.image, signature: entry.signature }
+            : entry.image,
+          idx,
+        );
         continue;
       }
       if (entry.kind === "code_execution_request") {
@@ -1142,7 +1261,12 @@ async function* runSingleAttempt(
         // current wire delivers all of it atomically on `start`;
         // streaming providers would extend `request.code` via the
         // delta handler before this walk runs.
-        emit(entry.request, idx);
+        emit(
+          entry.signature !== undefined
+            ? { ...entry.request, signature: entry.signature }
+            : entry.request,
+          idx,
+        );
         continue;
       }
       if (entry.kind === "code_execution_result") {
@@ -1168,6 +1292,7 @@ async function* runSingleAttempt(
       );
     }
     contentBlocks.push(...unindexedCitations);
+    contentBlocks.push(...unindexedSafetyRatings);
 
     const finalTurn: AssistantTurn = {
       role: "assistant",
@@ -1235,6 +1360,8 @@ async function* runSingleAttempt(
  * `inference.start`, no orphaned partial deltas, and no leaked
  * `inference.error` from an attempt the policy chose to retry (only
  * uncommitted attempts are ever retried).
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
  *
  * Caller-visible seqs stay contiguous across retries. Each attempt
  * runs against a private seq allocator; the wrapper re-stamps every
@@ -1484,6 +1611,8 @@ export async function* runInference(
  * response, so they are buffered rather than committing. `inference.done`,
  * `inference.error`, and `inference.retry` are terminal or wrapper-owned
  * and are handled by `runInference` before this predicate is consulted.
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
  */
 function isCommitting(event: InferenceEvent): boolean {
   switch (event.type) {

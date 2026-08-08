@@ -405,7 +405,7 @@ export function parseResponse(
           });
         }
         events.push({
-          type: "inference.thinking.signature",
+          type: "inference.block.signature",
           seq,
           data: { signature: tagSignature(source.provider, item["encrypted_content"] as string), index },
         });
@@ -467,6 +467,17 @@ const RESPONSES_TERMINAL_EVENTS = new Set([
   "response.done",
 ]);
 
+// The Responses adapters in this file always request `stream: true`
+// (buildRequest sets it unconditionally), so a non-streaming JSON body
+// reaching the harness means the response kind was misdetected or the
+// provider ignored the streaming request — a protocol violation, not a
+// supported code path to parse.
+export function parseJSONResponse(): never {
+  throw new ProtocolMismatchError(
+    "responses adapter: received a non-streaming JSON response, but this adapter always requests stream: true",
+  );
+}
+
 export function isResponsesStreamTerminal(sseData: string): boolean {
   let parsed: unknown;
   try {
@@ -489,6 +500,7 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
   return {
     buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
+    parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
   };
 }

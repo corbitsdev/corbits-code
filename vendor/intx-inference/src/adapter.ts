@@ -38,6 +38,28 @@ export type RequestBuilder = (
 // adapter-detected failures can surface is `ProtocolMismatchError`.
 export type ResponseParser = (sseData: string) => InferenceEvent[];
 
+// A JSON response parser converts a complete non-streaming response body (a
+// single `application/json` document) into the same internal inference events
+// the streaming `ResponseParser` produces. It exists for providers that answer
+// with a buffered JSON body instead of an SSE stream.
+//
+// It returns the SAME `InferenceEvent` vocabulary as `parseResponse` —
+// text/thinking/refusal deltas, tool_call.*, usage, citation, safety_rating,
+// image_output, code_execution.* — re-expressing the whole response in the
+// harness's delta/marker protocol (e.g. the entire assistant text as a single
+// text.delta). It is not a new "whole message" event shape: the harness runs
+// the returned events through the same accumulator as the SSE path, and that
+// switch silently drops event types it does not model, so an invented event
+// shape yields a silently-empty turn.
+//
+// Every delta event MUST carry an `index` — the harness's `requireIndex`
+// throws otherwise, exactly as on the SSE path — and the parser synthesizes
+// indices the same way its SSE sibling does. It MUST emit `inference.usage`
+// from the body's usage object, or the harness synthesizes zero token counts.
+// Like `ResponseParser` it MAY throw only `ProtocolMismatchError`; no other
+// throw type is permitted.
+export type JSONResponseParser = (body: string) => InferenceEvent[];
+
 // An adapter pairs a request builder with a response parser. Registration
 // is a map keyed by provider identifier — no class hierarchy required.
 
@@ -57,11 +79,14 @@ export type PacingExtractor = (headers: Headers) => number | undefined;
 // `response.completed` event and holds the connection open, so a client that
 // waits for socket close hangs. Adapters for those protocols implement this so
 // the harness stops reading once the terminal event is processed.
+//
+// Locally patched — see vendor/intx-inference/PATCHES.md#adapter-ts
 export type StreamTerminalDetector = (sseData: string) => boolean;
 
 export type ProviderAdapter = {
   buildRequest: RequestBuilder;
   parseResponse: ResponseParser;
+  parseJSONResponse: JSONResponseParser;
   extractRetryAfterMs?: RetryAfterExtractor;
   extractPacingDelayMs?: PacingExtractor;
   // When present, the harness stops reading the SSE stream after processing
@@ -72,14 +97,25 @@ export type ProviderAdapter = {
 
 // Builds a fresh adapter for one inference call. Invoked per call so the
 // returned adapter's per-request parser state never leaks across calls.
-export type AdapterFactory = (source: LastCycleSource) => ProviderAdapter;
+//
+// `quirks` is an opaque per-source bag of provider-specific accommodations,
+// passed as a sibling of `source` rather than a field on it: `source` is the
+// slim `LastCycleSource` descriptor that rides on every usage event, whereas
+// quirks are deployment configuration supplied at instantiation. The bag is
+// opaque to everything above the factory; interpreting and validating it is
+// the factory's own responsibility. It is optional: an absent bag means the
+// adapter's default behavior, so callers that have no quirks omit it.
+export type AdapterFactory = (
+  source: LastCycleSource,
+  quirks?: unknown,
+) => ProviderAdapter;
 
 // Resolves an inference source to a provider adapter. Membership is keyed by
 // the source's `provider` identifier; resolution mints a fresh adapter so the
 // per-instance stateful parser is isolated per call and per failover attempt.
 export type AdapterRegistry = {
   has(provider: string): boolean;
-  resolve(source: LastCycleSource): ProviderAdapter;
+  resolve(source: LastCycleSource, quirks?: unknown): ProviderAdapter;
 };
 
 /**
@@ -107,12 +143,12 @@ export function createAdapterRegistry(
     has(provider: string): boolean {
       return byProvider.has(provider);
     },
-    resolve(source: LastCycleSource): ProviderAdapter {
+    resolve(source: LastCycleSource, quirks?: unknown): ProviderAdapter {
       const factory = byProvider.get(source.provider);
       if (factory === undefined) {
         throw new Error(`Unknown inference provider: ${source.provider}`);
       }
-      return factory(source);
+      return factory(source, quirks);
     },
   };
 }

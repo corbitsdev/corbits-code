@@ -2,12 +2,21 @@ import { describe, expect, test } from "bun:test";
 import { type } from "arktype";
 
 import type {
+  AssistantTurn,
+  ContentBlock,
   ConversationTurn,
   InferenceEvent,
+  InferenceSource,
   LastCycleSource,
 } from "@intx/types/runtime";
 
 import { ProtocolMismatchError } from "../errors";
+import {
+  createDefaultScheduler,
+  runInference,
+  type Dependencies,
+} from "../harness";
+import { createBuiltinRegistry } from "../providers";
 import { createAnthropicAdapter } from "./anthropic";
 
 const TEST_SOURCE: LastCycleSource = {
@@ -57,11 +66,11 @@ function pickFirstThinkingDelta(
 
 function pickFirstThinkingSignature(
   events: InferenceEvent[],
-): Extract<InferenceEvent, { type: "inference.thinking.signature" }> {
+): Extract<InferenceEvent, { type: "inference.block.signature" }> {
   const ev = events[0];
   if (ev === undefined) throw new Error("expected at least one event");
-  if (ev.type !== "inference.thinking.signature") {
-    throw new Error(`expected inference.thinking.signature, got ${ev.type}`);
+  if (ev.type !== "inference.block.signature") {
+    throw new Error(`expected inference.block.signature, got ${ev.type}`);
   }
   return ev;
 }
@@ -250,24 +259,35 @@ describe("Anthropic parser — required-index schema enforcement", () => {
   });
 });
 
-// All redacted_thinking test fixtures below are SYNTHETIC: derived
-// from Anthropic's documented wire shape rather than from a real
-// captured response. The fixture corpus carries no captured
-// redacted_thinking bytes today because Anthropic's documented canary
-// did not trigger the safety classifier on capture day — every
-// `redacted-thinking[-streaming]` row landed in the corpus with
-// `outcome: "misled"` and contains regular `thinking` blocks instead.
+// Happy-path redacted_thinking fixtures use a realistic opaque `data`
+// blob shaped like Anthropic wire (`{ type, data }` only — no
+// signature, no thinking text). Streaming captures deliver each block
+// as a one-shot `content_block_start` (no thinking_delta) and may open
+// multiple redacted blocks before text. This constant is test material,
+// not a live re-export of a corpus fixture path.
 //
-// The opaque `data` payload below mimics Anthropic's format
-// (long base64-looking string) but carries no real cryptographic
-// content. Round-trip tests assert the harness/adapter pass the
-// bytes verbatim — the actual contents are irrelevant to the
-// invariant being tested.
-const SYNTHETIC_REDACTED_DATA =
-  "ErUBCkYIBxgCKkABEHk1RmZpaWlsOXJxN0Z6cVB" +
-  "QcjBQYS9wQUdBQUFBQUFBQUFBQUFRQUFBQUFBQU" +
-  "FBQUFBQUFBQUFBQT09EhJYWXpBOXJxN0Z6cVBQc" +
-  "jBQYS9wAAA=";
+// Adversarial unit cases (missing data, whitespace-preserving blobs)
+// stay synthetic: the corpus does not cover those failure modes. Corpus
+// smoke lives in the session parser regression, which replays every
+// fixture-bearing capture through the adapter.
+const CAPTURED_REDACTED_DATA =
+  "EuMFCpQBCBAYAipAk6yhHbnY8TlQ7bUY2Ji/24unHQHqjdggHcUEqfwJ30Aw" +
+  "0/MEN7OxckAJk+w8kg0Gb7Wa4bUBHooVkOAYSFI7TTIaY2xhdWRlLXNvbm5l" +
+  "dC00LTUtMjAyNTA5Mjk4AEIIdGhpbmtpbmdaJDc0MjMxNmM4LTY3MzEtNDAx" +
+  "Yy04ZmI3LWI0MWVjODAyM2NmMhIMseVAbj6HOCNWLgCXGgxw2hQLnMP7Yg2X" +
+  "gO0iMM1+zDaFQSBikq5VRaynjx4TvWDT6Oi4q17HK31nb1e2VuyxWZ9Z7eqj" +
+  "fdt/SudU5Cr7AzsIr6Z5Zc6fq2RyvXr6HLUBNkXZychED/tHcFDSIDQgjhJ4" +
+  "vUxWMezGrtdQEsusCyYwnyRDKoZx7DpKUMPiIRksfaF+rom+wqrCSVY73qZ/" +
+  "NJUEMmAVi+nnRisMgiwENaBJAKaT5fqa7x1BVybPsG+ZLNoDOze4F5sacFbz" +
+  "uT3bRBod6Jo7gf4MueX5eKE7zegLIQK4frHtxeCKCBbkVjCFICasdTZmK6Fw" +
+  "IP42peQjuyMLevmw+1jD860CSMOI0EUVXjsGbfMOd8Wu6J0myLPF59ca9xAz" +
+  "4cZp4nUazbUz7WGJ4Zi8rOIC2Ebx1mQIvu02mRla3wphm48z9UgKhMThVn3q" +
+  "5+sJPZhuQ8d5UbIM5ZJvlQ4Kho+XE+H7GjMi8iArTh2GbhXNA7y2y/uYfOQW" +
+  "XRnro7oIfHJ6CpIIZWp4nQ1vHA+kRyNa4yB5JXUSuwVhTCmaFroP3AT3ydrp" +
+  "OnTnMPt06DY4p+SarntDeHp5XB3n7Gf6Zmk+rnAFC+EA9nnIk/IYmeCRJaSv" +
+  "fMnBoAcLAj99bZoH3K9/AKcc4M2t63j9lrcjOfg1Ozy/rvBeUH4R0uqRM55G" +
+  "5aau5fmxAp1ERjs9RAdPGcqdeWqlvebTeMXTrPnWfXf2l+hQrs5f1+grwmsa" +
+  "OO4UA7P9uJJj6FbOD1z4bVuya9ZrhxgB";
 
 function pickFirstThinkingRedacted(
   events: InferenceEvent[],
@@ -288,21 +308,20 @@ describe("Anthropic parser — redacted_thinking content_block_start", () => {
       index: 0,
       content_block: {
         type: "redacted_thinking",
-        data: SYNTHETIC_REDACTED_DATA,
+        data: CAPTURED_REDACTED_DATA,
       },
     });
     expect(events).toHaveLength(1);
     const ev = pickFirstThinkingRedacted(events);
     expect(ev.data.index).toBe(0);
     expect(ev.data.redactedThinking.type).toBe("redacted_thinking");
-    expect(ev.data.redactedThinking.data).toBe(SYNTHETIC_REDACTED_DATA);
+    expect(ev.data.redactedThinking.data).toBe(CAPTURED_REDACTED_DATA);
   });
 
   test("preserves the data verbatim — no normalization or transformation", () => {
     const adapter = createAnthropicAdapter(TEST_SOURCE);
-    // The data is an opaque blob; any mutation breaks the round-trip.
-    // Use a string with characters that an over-eager normalizer would
-    // touch (newlines, whitespace, base64 padding).
+    // Adversarial: the corpus never delivers whitespace-laden data;
+    // this unit case still pins the no-mutation invariant.
     const adversarial = "abc\n  ==\r\n\tdef==";
     const events = parse(adapter, {
       type: "content_block_start",
@@ -332,6 +351,37 @@ describe("Anthropic parser — redacted_thinking content_block_start", () => {
       expect(thrown.message).toMatch(/index 4/);
     }
   });
+
+  test("emits one redacted event per content_block_start when multiple appear", () => {
+    // Streaming captures open several redacted_thinking blocks before
+    // text (Haiku turn-1 streaming had multiple). Each start is
+    // independent and carries its own data + index.
+    const adapter = createAnthropicAdapter(TEST_SOURCE);
+    const first = parse(adapter, {
+      type: "content_block_start",
+      index: 0,
+      content_block: {
+        type: "redacted_thinking",
+        data: CAPTURED_REDACTED_DATA,
+      },
+    });
+    const second = parse(adapter, {
+      type: "content_block_start",
+      index: 1,
+      content_block: {
+        type: "redacted_thinking",
+        data: CAPTURED_REDACTED_DATA + "x",
+      },
+    });
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    const a = pickFirstThinkingRedacted(first);
+    const b = pickFirstThinkingRedacted(second);
+    expect(a.data.index).toBe(0);
+    expect(b.data.index).toBe(1);
+    expect(a.data.redactedThinking.data).toBe(CAPTURED_REDACTED_DATA);
+    expect(b.data.redactedThinking.data).toBe(CAPTURED_REDACTED_DATA + "x");
+  });
 });
 
 describe("Anthropic adapter — redacted_thinking parser-to-builder round-trip", () => {
@@ -348,7 +398,7 @@ describe("Anthropic adapter — redacted_thinking parser-to-builder round-trip",
       index: 0,
       content_block: {
         type: "redacted_thinking",
-        data: SYNTHETIC_REDACTED_DATA,
+        data: CAPTURED_REDACTED_DATA,
       },
     });
     const ev = pickFirstThinkingRedacted(events);
@@ -362,12 +412,8 @@ describe("Anthropic adapter — redacted_thinking parser-to-builder round-trip",
     });
     // The structural shape of the body is asserted elsewhere — here
     // we care only that the opaque `data` survives the round-trip.
-    // Use a structural extraction via JSON.parse + cast through unknown
-    // because the integration-style assertion lives in the broader
-    // tests/inference/providers/anthropic.test.ts and is already
-    // exercised.
     const bodyText = req.body;
-    expect(bodyText).toContain(SYNTHETIC_REDACTED_DATA);
+    expect(bodyText).toContain(CAPTURED_REDACTED_DATA);
     expect(bodyText).toContain(`"type":"redacted_thinking"`);
   });
 });
@@ -733,7 +779,7 @@ describe("Anthropic adapter — responseFormat boundary", () => {
 
   test("omitted responseFormat builds a request without throwing", () => {
     const adapter = createAnthropicAdapter(TEST_SOURCE);
-    const req = adapter.buildRequest(conversation, "claude-sonnet-4", {});
+    const req = adapter.buildRequest(conversation, "claude-sonnet-5", {});
     expect(req.url).toBe("/v1/messages");
   });
 
@@ -742,7 +788,7 @@ describe("Anthropic adapter — responseFormat boundary", () => {
     // here rather than a throw so the cross-provider call site can
     // pass `{ kind: "text" }` uniformly without conditional logic.
     const adapter = createAnthropicAdapter(TEST_SOURCE);
-    const req = adapter.buildRequest(conversation, "claude-sonnet-4", {
+    const req = adapter.buildRequest(conversation, "claude-sonnet-5", {
       responseFormat: { kind: "text" },
     });
     expect(req.url).toBe("/v1/messages");
@@ -751,7 +797,7 @@ describe("Anthropic adapter — responseFormat boundary", () => {
   test("responseFormat.kind=json throws at the marshaling boundary", () => {
     const adapter = createAnthropicAdapter(TEST_SOURCE);
     expect(() =>
-      adapter.buildRequest(conversation, "claude-sonnet-4", {
+      adapter.buildRequest(conversation, "claude-sonnet-5", {
         responseFormat: { kind: "json" },
       }),
     ).toThrow(/does not support structured outputs/);
@@ -760,7 +806,7 @@ describe("Anthropic adapter — responseFormat boundary", () => {
   test("responseFormat.kind=json-schema throws and names the kind", () => {
     const adapter = createAnthropicAdapter(TEST_SOURCE);
     expect(() =>
-      adapter.buildRequest(conversation, "claude-sonnet-4", {
+      adapter.buildRequest(conversation, "claude-sonnet-5", {
         responseFormat: {
           kind: "json-schema",
           name: "user",
@@ -815,5 +861,361 @@ describe("Anthropic adapter — tool-name codec round-trip", () => {
       },
     });
     expect(pickFirstToolCallStart(events).data.name).toBe(PREFIXED);
+  });
+});
+
+const JSON_SOURCE: InferenceSource = {
+  id: "anthropic:claude-test",
+  provider: "anthropic",
+  baseURL: "https://api.anthropic.com",
+  apiKey: "test",
+  model: "claude-test",
+};
+
+// Drives a response body through the real harness accumulator and returns the
+// assembled assistant turn plus every emitted event. Asserting on the decoded
+// turn (rather than the raw event array) is deliberate: the accumulator
+// silently drops unmodeled event types, ignores tool-call deltas with no open
+// call, and swallows argument-parse failures, so only the turn reflects
+// whether the parser actually decoded correctly. The content-type selects the
+// harness decode path (JSON body vs SSE stream), which lets one helper drive
+// both parseJSONResponse and parseResponse for cross-path parity.
+async function driveTurn(
+  body: string,
+  contentType = "application/json",
+): Promise<{
+  turn: AssistantTurn | undefined;
+  events: InferenceEvent[];
+}> {
+  const deps: Dependencies = {
+    fetch: () =>
+      Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": contentType },
+        }),
+      ),
+    scheduler: createDefaultScheduler(),
+    adapters: createBuiltinRegistry(),
+  };
+  let seq = 0;
+  const events: InferenceEvent[] = [];
+  for await (const ev of runInference({
+    turns: [
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 },
+    ],
+    source: JSON_SOURCE,
+    nextSeq: () => ++seq,
+    deps,
+  })) {
+    events.push(ev);
+  }
+  const done = events.find(
+    (e): e is Extract<InferenceEvent, { type: "inference.done" }> =>
+      e.type === "inference.done",
+  );
+  return { turn: done?.data.turn, events };
+}
+
+function blocksOfType<T extends ContentBlock["type"]>(
+  turn: AssistantTurn,
+  blockType: T,
+): Extract<ContentBlock, { type: T }>[] {
+  return turn.content.filter(
+    (b): b is Extract<ContentBlock, { type: T }> => b.type === blockType,
+  );
+}
+
+function requireTurn(turn: AssistantTurn | undefined): AssistantTurn {
+  if (turn === undefined) throw new Error("expected an inference.done turn");
+  return turn;
+}
+
+describe("createAnthropicAdapter — parseJSONResponse (non-streaming)", () => {
+  test("decodes a plain-text message into a text block and usage", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [{ type: "text", text: "The capital of France is Paris." }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 20, output_tokens: 10 },
+    });
+    const { turn, events } = await driveTurn(body);
+    const t = requireTurn(turn);
+    expect(blocksOfType(t, "text").map((b) => b.text)).toEqual([
+      "The capital of France is Paris.",
+    ]);
+    const done = events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.done" }> =>
+        e.type === "inference.done",
+    );
+    expect(done?.data.usage.input).toBe(20);
+    expect(done?.data.usage.output).toBe(10);
+  });
+
+  test("decodes a tool_use block into a tool call with parsed arguments", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_1",
+          name: "get_weather",
+          input: { location: "Boston, MA" },
+        },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    const t = requireTurn((await driveTurn(body)).turn);
+    const calls = blocksOfType(t, "tool_call");
+    expect(calls).toHaveLength(1);
+    const call = calls[0];
+    if (call === undefined) throw new Error("expected a tool call");
+    expect(call.name).toBe("get_weather");
+    expect(call.id).toBe("toolu_1");
+    expect(call.arguments).toEqual({ location: "Boston, MA" });
+  });
+
+  test("decodes a thinking block with its signature", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [
+        {
+          type: "thinking",
+          thinking: "Let me consider.",
+          signature: "sig-abc",
+        },
+        { type: "text", text: "Answer." },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    const t = requireTurn((await driveTurn(body)).turn);
+    const thinking = blocksOfType(t, "thinking");
+    expect(thinking).toHaveLength(1);
+    const block = thinking[0];
+    if (block === undefined) throw new Error("expected a thinking block");
+    expect(block.thinking).toBe("Let me consider.");
+    expect(block.signature).toBe("sig-abc");
+  });
+
+  test("decodes a redacted_thinking block, preserving its opaque data", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [{ type: "redacted_thinking", data: "opaque-blob" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    const t = requireTurn((await driveTurn(body)).turn);
+    expect(blocksOfType(t, "redacted_thinking").map((b) => b.data)).toEqual([
+      "opaque-blob",
+    ]);
+  });
+
+  test("emits citations from a text block's inline citations", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [
+        {
+          type: "text",
+          text: "Grounded answer.",
+          citations: [
+            {
+              type: "web_search_result_location",
+              cited_text: "the source text",
+              url: "https://example.com/a",
+              title: "Example A",
+            },
+          ],
+        },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    const t = requireTurn((await driveTurn(body)).turn);
+    const citations = blocksOfType(t, "citation");
+    expect(citations).toHaveLength(1);
+    const citation = citations[0];
+    if (citation === undefined) throw new Error("expected a citation block");
+    expect(citation.citedText).toBe("the source text");
+    expect(citation.source.uri).toBe("https://example.com/a");
+  });
+
+  test("ignores unmodeled server-tool blocks without failing the turn", async () => {
+    const body = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [
+        { type: "server_tool_use", id: "srv_1", name: "web_search", input: {} },
+        { type: "text", text: "Result." },
+      ],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 3 },
+    });
+    const { turn, events } = await driveTurn(body);
+    const t = requireTurn(turn);
+    expect(blocksOfType(t, "text").map((b) => b.text)).toEqual(["Result."]);
+    expect(events.some((e) => e.type === "inference.error")).toBe(false);
+  });
+
+  test("surfaces a protocol mismatch on a non-message body", async () => {
+    // A streaming SSE event object (not a whole message) must not decode as a
+    // non-streaming response.
+    const body = JSON.stringify({ type: "message_start", message: {} });
+    const { events } = await driveTurn(body);
+    const error = events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.error" }> =>
+        e.type === "inference.error",
+    );
+    if (error === undefined) throw new Error("expected inference.error");
+    expect(error.data.error.category).toBe("protocol_mismatch");
+  });
+});
+
+function sse(events: object[]): string {
+  return events.map((e) => `event: x\ndata: ${JSON.stringify(e)}\n\n`).join("");
+}
+
+describe("createAnthropicAdapter — streaming vs non-streaming parity", () => {
+  // The whole point of parseJSONResponse is that a replayed non-streaming
+  // capture decodes to the same turn its streaming sibling would. Drive one
+  // logically-equivalent multi-block response through both harness decode
+  // paths and assert the assembled turn and final usage are identical, so a
+  // future edit that drifts one path's index/callId/usage/citation semantics
+  // from the other cannot pass in isolation.
+  test("a multi-block turn decodes identically through both paths", async () => {
+    const jsonBody = JSON.stringify({
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [
+        {
+          type: "text",
+          text: "Grounded.",
+          citations: [
+            {
+              type: "web_search_result_location",
+              cited_text: "src",
+              url: "https://example.com/a",
+              title: "A",
+            },
+          ],
+        },
+        { type: "thinking", thinking: "hmm", signature: "sig-1" },
+        { type: "redacted_thinking", data: "blob" },
+        {
+          type: "tool_use",
+          id: "toolu_1",
+          name: "get_weather",
+          input: { location: "Boston" },
+        },
+      ],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 20, output_tokens: 10 },
+    });
+
+    const streamBody = sse([
+      {
+        type: "message_start",
+        message: { usage: { input_tokens: 20, output_tokens: 0 } },
+      },
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Grounded." },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: {
+          type: "citations_delta",
+          citation: {
+            type: "web_search_result_location",
+            cited_text: "src",
+            url: "https://example.com/a",
+            title: "A",
+          },
+        },
+      },
+      { type: "content_block_stop", index: 0 },
+      {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "thinking" },
+      },
+      {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "thinking_delta", thinking: "hmm" },
+      },
+      {
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "signature_delta", signature: "sig-1" },
+      },
+      { type: "content_block_stop", index: 1 },
+      {
+        type: "content_block_start",
+        index: 2,
+        content_block: { type: "redacted_thinking", data: "blob" },
+      },
+      { type: "content_block_stop", index: 2 },
+      {
+        type: "content_block_start",
+        index: 3,
+        content_block: { type: "tool_use", id: "toolu_1", name: "get_weather" },
+      },
+      {
+        type: "content_block_delta",
+        index: 3,
+        delta: {
+          type: "input_json_delta",
+          partial_json: '{"location":"Boston"}',
+        },
+      },
+      { type: "content_block_stop", index: 3 },
+      { type: "message_delta", usage: { output_tokens: 10 } },
+      { type: "message_stop" },
+    ]);
+
+    const jsonResult = await driveTurn(jsonBody, "application/json");
+    const streamResult = await driveTurn(streamBody, "text/event-stream");
+
+    expect(jsonResult.events.some((e) => e.type === "inference.error")).toBe(
+      false,
+    );
+    expect(streamResult.events.some((e) => e.type === "inference.error")).toBe(
+      false,
+    );
+
+    const jt = requireTurn(jsonResult.turn);
+    const st = requireTurn(streamResult.turn);
+    expect(jt.content).toEqual(st.content);
+
+    const jdone = jsonResult.events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.done" }> =>
+        e.type === "inference.done",
+    );
+    const sdone = streamResult.events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.done" }> =>
+        e.type === "inference.done",
+    );
+    expect(jdone?.data.usage).toEqual(sdone?.data.usage);
   });
 });

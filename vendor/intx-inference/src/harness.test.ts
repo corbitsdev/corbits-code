@@ -12,8 +12,8 @@ import {
   createDefaultDependencies,
   loadAdapterRegistry,
 } from "./providers";
-import { createAdapterRegistry, type AdapterFactory } from "./adapter";
-import { ProtocolMismatchError } from "./errors";
+import { createAdapterRegistry } from "./adapter";
+import type { AdapterFactory, AdapterRegistry } from "./adapter";
 import type {
   ConversationTurn,
   InferenceEvent,
@@ -28,6 +28,9 @@ const SOURCE: InferenceSource = {
   model: "claude-3-5-sonnet-20240620",
 };
 
+// Local copy: @intx/inference-testing depends on @intx/inference, so
+// importing the shared userTurn helper here would create a package
+// dependency cycle.
 function userTurn(text: string): ConversationTurn {
   return {
     role: "user",
@@ -396,6 +399,7 @@ describe("runInference — providerOptions merge precedence", () => {
         };
       },
       parseResponse: () => [],
+      parseJSONResponse: () => [],
     });
     const adapters = await loadAdapterRegistry(
       [{ provider: providerName, specifier: "x", export: "make" }],
@@ -672,764 +676,190 @@ describe("runInference — source-identity stamping", () => {
   });
 });
 
-describe("runInference — adapter-signalled stream termination", () => {
-  // A Responses-style protocol whose end-of-turn is a semantic event
-  // (`response.completed`), not `[DONE]` or a socket close. The adapter reports
-  // that event as terminal via `isStreamTerminal`; the harness must stop
-  // reading once it is processed rather than blocking on the next read.
-  const RESPONSES_SOURCE: InferenceSource = {
-    id: "test-responses:model",
-    provider: "test-responses",
-    baseURL: "https://example.test",
-    apiKey: "test",
-    model: "model",
-  };
-
-  const responsesAdapterFactory: AdapterFactory = (source) => ({
-    buildRequest: () => ({
-      url: "https://example.test/responses",
-      headers: {},
-      body: "{}",
-    }),
-    parseResponse: (sseData) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(sseData);
-      } catch (cause) {
-        throw new ProtocolMismatchError(
-          `test-responses: malformed JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
-          sseData,
-        );
-      }
-      const event = parsed as Record<string, unknown>;
-      if (event["type"] === "response.output_text.delta") {
-        return [
-          {
-            type: "inference.text.delta",
-            seq: 0,
-            data: {
-              token: String(event["delta"]),
-              partial: { text: "" },
-              index: 0,
-            },
-          },
-        ];
-      }
-      if (event["type"] === "response.completed") {
-        return [
-          {
-            type: "inference.usage",
-            seq: 0,
-            data: {
-              usage: {
-                input: 3,
-                output: 1,
-                cacheRead: 0,
-                cacheWrite: 0,
-                thinking: 0,
-              },
-              source,
-            },
-          },
-        ];
-      }
-      return [];
-    },
-    isStreamTerminal: (sseData) => {
-      try {
-        return (
-          (JSON.parse(sseData) as Record<string, unknown>)["type"] ===
-          "response.completed"
-        );
-      } catch {
-        return false;
-      }
-    },
-  });
-
-  function sseStream(chunks: string[]): ReadableStream<Uint8Array> {
-    const encoder = new TextEncoder();
-    let i = 0;
-    return new ReadableStream({
-      pull(controller) {
-        const chunk = chunks[i];
-        if (chunk === undefined) {
-          controller.close();
-          return;
-        }
-        i += 1;
-        controller.enqueue(encoder.encode(chunk));
+describe("runInference — source quirks reach the adapter registry", () => {
+  // A registry that records the quirks argument every resolve receives and
+  // returns a do-nothing adapter, so the test observes exactly what the
+  // harness forwards without depending on any real provider.
+  function spyRegistry(): {
+    registry: AdapterRegistry;
+    quirksCalls: unknown[];
+  } {
+    const quirksCalls: unknown[] = [];
+    const registry: AdapterRegistry = {
+      has: () => true,
+      resolve: (_source, quirks) => {
+        quirksCalls.push(quirks);
+        return {
+          buildRequest: () => ({
+            url: "/v1/messages",
+            headers: {},
+            body: "{}",
+          }),
+          parseResponse: () => [],
+          parseJSONResponse: () => [],
+        };
       },
-    });
+    };
+    return { registry, quirksCalls };
   }
 
-  test("stops reading after the terminal event and does not consume later chunks", async () => {
-    // A poison chunk of malformed JSON sits AFTER `response.completed`. If the
-    // harness kept reading past the terminal event it would parse the poison
-    // and surface an `inference.error`; breaking on the terminal event means it
-    // is never read, so the turn finishes clean. This is the regression guard
-    // for the freeze: on the real Codex backend the post-completion chunk is an
-    // open connection rather than poison, but the read discipline is identical.
-    const deps: Dependencies = {
+  function depsWith(registry: AdapterRegistry): Dependencies {
+    return {
       fetch: () =>
         Promise.resolve(
-          new Response(
-            sseStream([
-              `data: {"type":"response.output_text.delta","delta":"hi"}\n\n`,
-              `data: {"type":"response.completed","response":{}}\n\n`,
-              `data: {not valid json\n\n`,
-            ]),
-            {
-              status: 200,
-              headers: { "content-type": "text/event-stream" },
-            },
-          ),
+          new Response("", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          }),
         ),
       scheduler: createDefaultScheduler(),
-      adapters: createAdapterRegistry({
-        "test-responses": responsesAdapterFactory,
-      }),
+      adapters: registry,
     };
+  }
 
+  test("forwards the source's quirks bag to resolve", async () => {
+    const { registry, quirksCalls } = spyRegistry();
     let seq = 0;
-    const events = await collect(
+    await collect(
       runInference({
-        turns: [userTurn("hello")],
-        source: RESPONSES_SOURCE,
+        turns: [userTurn("hi")],
+        source: { ...SOURCE, quirks: { forceAssistantReasoningContent: true } },
         nextSeq: () => ++seq,
-        deps,
+        deps: depsWith(registry),
       }),
     );
+    expect(quirksCalls).toEqual([{ forceAssistantReasoningContent: true }]);
+  });
 
-    const errorEvent = events.find((e) => e.type === "inference.error");
-    expect(errorEvent).toBeUndefined();
-
-    const doneEvent = events.find((e) => e.type === "inference.done");
-    if (doneEvent === undefined) throw new Error("missing inference.done");
-
-    const textBlock = doneEvent.data.turn.content.find(
-      (b) => b.type === "text",
+  test("resolves with undefined quirks when the source has none", async () => {
+    const { registry, quirksCalls } = spyRegistry();
+    let seq = 0;
+    await collect(
+      runInference({
+        turns: [userTurn("hi")],
+        source: SOURCE,
+        nextSeq: () => ++seq,
+        deps: depsWith(registry),
+      }),
     );
-    if (textBlock === undefined || textBlock.type !== "text") {
-      throw new Error("expected a text block in the finalized turn");
-    }
-    expect(textBlock.text).toBe("hi");
+    expect(quirksCalls).toEqual([undefined]);
   });
 });
 
-describe("runInference — inactivity watchdog counts semantic events, not bytes", () => {
-  // Regression guard for the hang where a provider stream trickled keep-alive
-  // envelopes (parsing to zero semantic events) forever. The inactivity timer
-  // must measure silence since the last event the adapter parsed out, not since
-  // the last byte on the wire, or a stream that never emits a terminal event
-  // pins the caller indefinitely.
-  const KEEPALIVE_SOURCE: InferenceSource = {
-    id: "test-keepalive:model",
-    provider: "test-keepalive",
+describe("runInference — non-streaming JSON responses", () => {
+  const JSON_SOURCE: InferenceSource = {
+    id: "test-json:model-x",
+    provider: "test-json",
     baseURL: "https://example.test",
     apiKey: "test",
-    model: "model",
+    model: "model-x",
   };
 
-  // Every chunk is a lifecycle envelope carrying no content; the adapter parses
-  // each to zero events and never reports a terminal.
-  const keepAliveAdapterFactory: AdapterFactory = () => ({
-    buildRequest: () => ({
-      url: "https://example.test/keepalive",
+  function jsonDeps(
+    body: string,
+    contentType: string,
+    factory: AdapterFactory,
+  ): Dependencies {
+    return {
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            status: 200,
+            headers: { "content-type": contentType },
+          }),
+        ),
+      scheduler: createDefaultScheduler(),
+      adapters: createAdapterRegistry({ "test-json": factory }),
+    };
+  }
+
+  // Re-expresses a whole non-streaming body as the harness's delta/marker
+  // protocol: the assistant text as a single indexed text.delta plus a usage
+  // event, exactly as an SSE parser would emit them incrementally.
+  const decodingFactory: AdapterFactory = (source) => ({
+    buildRequest: (_messages, model) => ({
+      url: "https://example.test/v1/json",
       headers: {},
-      body: "{}",
+      body: JSON.stringify({ model }),
     }),
     parseResponse: () => [],
-    isStreamTerminal: () => false,
-  });
-
-  type ManualTimer = { fireAt: number; cb: () => void; cancelled: boolean };
-
-  function createManualScheduler() {
-    let nowMs = 0;
-    const timers = new Set<ManualTimer>();
-    return {
-      now: () => nowMs,
-      setTimeout(cb: () => void, delayMs: number) {
-        const timer: ManualTimer = {
-          fireAt: nowMs + delayMs,
-          cb,
-          cancelled: false,
-        };
-        timers.add(timer);
-        return () => {
-          timer.cancelled = true;
-          timers.delete(timer);
-        };
-      },
-      advance(ms: number) {
-        nowMs += ms;
-        const due = [...timers]
-          .filter((t) => !t.cancelled && t.fireAt <= nowMs)
-          .sort((a, b) => a.fireAt - b.fireAt);
-        for (const t of due) {
-          if (t.cancelled) continue;
-          timers.delete(t);
-          t.cb();
-        }
-      },
-    };
-  }
-
-  test("keep-alive trickle without a terminal event trips the inactivity timeout", async () => {
-    const inactivityTimeoutMs = 1_000;
-    // Half the inactivity window per chunk: no single gap between keep-alives
-    // exceeds the deadline, so a byte-counting watchdog would be reset on every
-    // read and never fire. A semantic-event watchdog fires within two chunks.
-    const stepMs = 600;
-    const maxChunks = 40;
-    const scheduler = createManualScheduler();
-    const encoder = new TextEncoder();
-    let produced = 0;
-
-    const deps: Dependencies = {
-      fetch: (_url, init) => {
-        const signal = init?.signal;
-        const body = new ReadableStream<Uint8Array>({
-          pull(controller) {
-            // Virtual wall-clock advances as the harness pulls the next byte.
-            scheduler.advance(stepMs);
-            if (signal?.aborted === true) {
-              controller.error(new DOMException("aborted", "AbortError"));
-              return;
-            }
-            if (produced >= maxChunks) {
-              controller.close();
-              return;
-            }
-            produced += 1;
-            controller.enqueue(encoder.encode(`data: {"type":"keep-alive"}\n\n`));
-          },
-        });
-        return Promise.resolve(
-          new Response(body, {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          }),
-        );
-      },
-      scheduler,
-      adapters: createAdapterRegistry({
-        "test-keepalive": keepAliveAdapterFactory,
-      }),
-    };
-
-    let seq = 0;
-    const events = await collect(
-      runInference({
-        turns: [userTurn("hello")],
-        source: KEEPALIVE_SOURCE,
-        // Surface the first terminal error rather than exercising the retry
-        // ladder — this test pins the watchdog, not the retry policy.
-        inferenceOptions: {
-          inactivityTimeoutMs,
-          retryPolicy: () => ({ kind: "abort" }),
+    parseJSONResponse: (raw) => {
+      const parsed: unknown = JSON.parse(raw);
+      const token = typeof parsed === "string" ? parsed : "";
+      return [
+        {
+          type: "inference.text.delta",
+          seq: 0,
+          data: { token, partial: { text: "" }, index: 0 },
         },
-        nextSeq: () => ++seq,
-        deps,
-      }),
-    );
-
-    const doneEvent = events.find((e) => e.type === "inference.done");
-    expect(doneEvent).toBeUndefined();
-
-    const errorEvent = events.find((e) => e.type === "inference.error");
-    if (errorEvent === undefined || errorEvent.type !== "inference.error") {
-      throw new Error("expected a terminal inference.error from the watchdog");
-    }
-    expect(errorEvent.data.error.category).toBe("timeout");
-    // The watchdog fires while the stream is still trickling, well before the
-    // 40-chunk stream would end on its own.
-    expect(produced).toBeLessThan(maxChunks);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// runInference — incremental delivery and memory-linear buffering
-//
-// The wrapper streams an attempt's committed content to the caller as it
-// arrives rather than buffering the whole attempt and flushing at
-// termination. Two consequences are pinned here:
-//
-//   * Memory: the wrapper's retained buffer holds only pre-commit
-//     metadata, so the number of undelivered events in flight stays a
-//     small constant regardless of output length. Under the old
-//     buffer-everything model that gap scaled with the token count.
-//
-//   * Commitment: once a content delta has been delivered it cannot be
-//     un-emitted, so a later failure is surfaced rather than retried; a
-//     failure that lands before any content is still retried cleanly.
-// ---------------------------------------------------------------------------
-
-describe("runInference — incremental delivery and memory-linear buffering", () => {
-  const STREAM_SOURCE: InferenceSource = {
-    id: "test-stream:model",
-    provider: "test-stream",
-    baseURL: "https://example.test",
-    apiKey: "test",
-    model: "model",
-  };
-
-  // A minimal adapter that turns compact JSON lines into content deltas.
-  // `partial` is stubbed on the raw events because the harness owns the
-  // running partial state and re-snapshots it on every emit.
-  const streamAdapterFactory: AdapterFactory = () => ({
-    buildRequest: () => ({
-      url: "https://example.test/stream",
-      headers: {},
-      body: "{}",
-    }),
-    parseResponse: (sseData) => {
-      const msg = JSON.parse(sseData) as Record<string, unknown>;
-      switch (msg["kind"]) {
-        case "text":
-          return [
-            {
-              type: "inference.text.delta",
-              seq: 0,
-              data: { token: String(msg["token"]), partial: { text: "" }, index: 0 },
+        {
+          type: "inference.usage",
+          seq: 0,
+          data: {
+            usage: {
+              input: 7,
+              output: 3,
+              cacheRead: 0,
+              cacheWrite: 0,
+              thinking: 0,
             },
-          ];
-        case "thinking":
-          return [
-            {
-              type: "inference.thinking.delta",
-              seq: 0,
-              data: { token: String(msg["token"]), partial: { text: "" }, index: 0 },
-            },
-          ];
-        case "tool_start":
-          return [
-            {
-              type: "inference.tool_call.start",
-              seq: 0,
-              data: {
-                callId: String(msg["id"]),
-                name: String(msg["name"]),
-                partial: { text: "" },
-                index: 0,
-              },
-            },
-          ];
-        case "tool_arg":
-          return [
-            {
-              type: "inference.tool_call.delta",
-              seq: 0,
-              data: {
-                callId: String(msg["id"]),
-                argumentFragment: String(msg["frag"]),
-                partial: { text: "" },
-              },
-            },
-          ];
-        default:
-          return [];
-      }
+            source,
+          },
+        },
+      ];
     },
   });
 
-  function makeStream(opts: {
-    chunks: string[];
-    counters?: { produced: number };
-    beforeProduce?: (index: number) => Promise<void> | void;
-  }): ReadableStream<Uint8Array> {
-    const encoder = new TextEncoder();
-    let i = 0;
-    return new ReadableStream({
-      async pull(controller) {
-        if (i >= opts.chunks.length) {
-          controller.close();
-          return;
-        }
-        const index = i;
-        if (opts.beforeProduce !== undefined) await opts.beforeProduce(index);
-        const chunk = opts.chunks[index];
-        if (chunk === undefined) {
-          controller.close();
-          return;
-        }
-        controller.enqueue(encoder.encode(chunk));
-        i += 1;
-        if (opts.counters !== undefined) opts.counters.produced = i;
-      },
-    });
-  }
-
-  function streamDeps(body: ReadableStream<Uint8Array>): Dependencies {
-    return {
-      fetch: () =>
-        Promise.resolve(
-          new Response(body, {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          }),
+  test("decodes a JSON body through the adapter's parseJSONResponse", async () => {
+    let seq = 0;
+    const events = await collect(
+      runInference({
+        turns: [userTurn("hi")],
+        source: JSON_SOURCE,
+        nextSeq: () => ++seq,
+        deps: jsonDeps(
+          JSON.stringify("hello from json"),
+          "application/json",
+          decodingFactory,
         ),
-      scheduler: createDefaultScheduler(),
-      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
-    };
-  }
-
-  function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
-    return Promise.race([
-      p,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(msg)), ms),
-      ),
-    ]);
-  }
-
-  function textChunks(n: number, token = "x"): string[] {
-    return Array.from(
-      { length: n },
-      () => `data: ${JSON.stringify({ kind: "text", token })}\n\n`,
-    );
-  }
-
-  // Drive a long stream, tracking the largest gap between events produced
-  // at the wire and events delivered to the caller. That gap is the depth
-  // of the wrapper's retained buffer — the quantity this guard keeps linear.
-  // The `done` event is kept for correctness assertions; per-delta events
-  // are deliberately not retained so the test itself stays linear.
-  async function runLongStream(opts: {
-    chunks: string[];
-    counters: { produced: number };
-    isDelivered: (event: InferenceEvent) => boolean;
-  }): Promise<{
-    done: Extract<InferenceEvent, { type: "inference.done" }> | undefined;
-    delivered: number;
-    maxGap: number;
-  }> {
-    const deps = streamDeps(makeStream({ chunks: opts.chunks, counters: opts.counters }));
-    let seq = 0;
-    let delivered = 0;
-    let maxGap = 0;
-    let done: Extract<InferenceEvent, { type: "inference.done" }> | undefined;
-    for await (const ev of runInference({
-      turns: [userTurn("hi")],
-      source: STREAM_SOURCE,
-      nextSeq: () => ++seq,
-      deps,
-    })) {
-      if (ev.type === "inference.done") done = ev;
-      if (opts.isDelivered(ev)) {
-        delivered += 1;
-        const gap = opts.counters.produced - delivered;
-        if (gap > maxGap) maxGap = gap;
-      }
-    }
-    return { done, delivered, maxGap };
-  }
-
-  const GAP_BOUND = 20;
-
-  test("retained buffer depth stays bounded as output length grows", async () => {
-    const small = await runLongStream({
-      chunks: textChunks(100),
-      counters: { produced: 0 },
-      isDelivered: (e) => e.type === "inference.text.delta",
-    });
-    const large = await runLongStream({
-      chunks: textChunks(2000),
-      counters: { produced: 0 },
-      isDelivered: (e) => e.type === "inference.text.delta",
-    });
-
-    expect(small.delivered).toBe(100);
-    expect(large.delivered).toBe(2000);
-    // Old buffer-everything behavior held every delta event before
-    // delivering the first, so this gap scaled with N (~100 then ~2000).
-    // Streaming committed deltas keeps it a small constant either way —
-    // the signature of memory linear (not quadratic) in output length.
-    expect(small.maxGap).toBeLessThan(GAP_BOUND);
-    expect(large.maxGap).toBeLessThan(GAP_BOUND);
-  });
-
-  test("long text stream assembles correctly with bounded buffering", async () => {
-    const n = 1000;
-    const { done, delivered, maxGap } = await runLongStream({
-      chunks: textChunks(n, "x"),
-      counters: { produced: 0 },
-      isDelivered: (e) => e.type === "inference.text.delta",
-    });
-    expect(delivered).toBe(n);
-    expect(maxGap).toBeLessThan(GAP_BOUND);
-    if (done === undefined) throw new Error("missing inference.done");
-    const block = done.data.turn.content.find((b) => b.type === "text");
-    if (block === undefined || block.type !== "text") {
-      throw new Error("expected a text block");
-    }
-    expect(block.text).toBe("x".repeat(n));
-  });
-
-  test("long reasoning stream assembles correctly with bounded buffering", async () => {
-    const n = 1000;
-    const chunks = Array.from(
-      { length: n },
-      () => `data: ${JSON.stringify({ kind: "thinking", token: "r" })}\n\n`,
-    );
-    const { done, delivered, maxGap } = await runLongStream({
-      chunks,
-      counters: { produced: 0 },
-      isDelivered: (e) => e.type === "inference.thinking.delta",
-    });
-    expect(delivered).toBe(n);
-    expect(maxGap).toBeLessThan(GAP_BOUND);
-    if (done === undefined) throw new Error("missing inference.done");
-    const block = done.data.turn.content.find((b) => b.type === "thinking");
-    if (block === undefined || block.type !== "thinking") {
-      throw new Error("expected a thinking block");
-    }
-    expect(block.thinking).toBe("r".repeat(n));
-  });
-
-  test("long tool-argument stream assembles correctly with bounded buffering", async () => {
-    const bigValue = "a".repeat(4000);
-    const inner = JSON.stringify({ data: bigValue });
-    const argChunks: string[] = [];
-    for (let p = 0; p < inner.length; p += 8) {
-      const frag = inner.slice(p, p + 8);
-      argChunks.push(
-        `data: ${JSON.stringify({ kind: "tool_arg", id: "call_1", frag })}\n\n`,
-      );
-    }
-    const chunks = [
-      `data: ${JSON.stringify({ kind: "tool_start", id: "call_1", name: "do_thing" })}\n\n`,
-      ...argChunks,
-    ];
-    const { done, delivered, maxGap } = await runLongStream({
-      chunks,
-      counters: { produced: 0 },
-      isDelivered: (e) => e.type === "inference.tool_call.delta",
-    });
-    expect(delivered).toBe(argChunks.length);
-    expect(maxGap).toBeLessThan(GAP_BOUND);
-    if (done === undefined) throw new Error("missing inference.done");
-    const block = done.data.turn.content.find((b) => b.type === "tool_call");
-    if (block === undefined || block.type !== "tool_call") {
-      throw new Error("expected a tool_call block");
-    }
-    expect(block.arguments["data"]).toBe(bigValue);
-  });
-
-  test("delivers committed deltas incrementally instead of buffering to the end", async () => {
-    const n = 8;
-    let delivered = 0;
-    let notify: (() => void) | null = null;
-    const waitUntilDelivered = (count: number): Promise<void> => {
-      if (delivered >= count) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        const check = (): void => {
-          if (delivered >= count) {
-            notify = null;
-            resolve();
-          } else {
-            notify = check;
-          }
-        };
-        notify = check;
-      });
-    };
-    // Gate wire chunk `index` behind delivery of `index` deltas to the
-    // caller. A wrapper that buffered the whole attempt before delivering
-    // anything would never let `delivered` advance past 0, deadlocking the
-    // producer — so completing at all proves deltas flow mid-stream.
-    const deps = streamDeps(
-      makeStream({
-        chunks: textChunks(n, "z"),
-        beforeProduce: (index) => waitUntilDelivered(index),
       }),
     );
-    let seq = 0;
-    const received = await withTimeout(
-      (async () => {
-        const tokens: string[] = [];
-        for await (const ev of runInference({
-          turns: [userTurn("hi")],
-          source: STREAM_SOURCE,
-          nextSeq: () => ++seq,
-          deps,
-        })) {
-          if (ev.type === "inference.text.delta") {
-            delivered += 1;
-            notify?.();
-            tokens.push(ev.data.token);
-          }
-        }
-        return tokens;
-      })(),
-      2000,
-      "incremental delivery deadlocked — the wrapper buffered instead of streaming",
+
+    const textDelta = events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.text.delta" }> =>
+        e.type === "inference.text.delta",
     );
-    expect(received.length).toBe(n);
+    if (textDelta === undefined) throw new Error("missing text delta");
+    expect(textDelta.data.token).toBe("hello from json");
+
+    const usage = events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.usage" }> =>
+        e.type === "inference.usage",
+    );
+    if (usage === undefined) throw new Error("missing usage");
+    expect(usage.data.usage.input).toBe(7);
+    expect(usage.data.usage.output).toBe(3);
+
+    expect(events.some((e) => e.type === "inference.done")).toBe(true);
   });
 
-  test("retries an uncommitted failure and delivers exactly one clean stream", async () => {
-    let calls = 0;
-    const deps: Dependencies = {
-      fetch: () => {
-        calls += 1;
-        if (calls === 1) {
-          return Promise.resolve(
-            new Response("upstream unavailable", { status: 503 }),
-          );
-        }
-        return Promise.resolve(
-          new Response(makeStream({ chunks: textChunks(1, "hello") }), {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          }),
-        );
-      },
-      scheduler: createDefaultScheduler(),
-      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
-    };
+  test("surfaces a protocol mismatch on an unsupported content-type", async () => {
     let seq = 0;
     const events = await collect(
       runInference({
         turns: [userTurn("hi")],
-        source: STREAM_SOURCE,
-        inferenceOptions: {
-          retryPolicy: ({ attempt }) =>
-            attempt < 2 ? { kind: "retry", delayMs: 0 } : { kind: "abort" },
-        },
+        source: JSON_SOURCE,
         nextSeq: () => ++seq,
-        deps,
+        deps: jsonDeps("plain body", "text/plain", decodingFactory),
       }),
     );
-    expect(calls).toBe(2);
-    // The discarded attempt's inference.start does not leak: the caller
-    // sees exactly one, no orphaned error, one retry marker.
-    expect(events.filter((e) => e.type === "inference.start")).toHaveLength(1);
-    expect(events.filter((e) => e.type === "inference.retry")).toHaveLength(1);
-    expect(events.some((e) => e.type === "inference.error")).toBe(false);
-    const done = events.find((e) => e.type === "inference.done");
-    if (done === undefined) throw new Error("missing inference.done");
-    const block = done.data.turn.content.find((b) => b.type === "text");
-    expect(block !== undefined && block.type === "text" ? block.text : "").toBe(
-      "hello",
-    );
-  });
 
-  test("suppresses retry once output is committed and surfaces the error", async () => {
-    let calls = 0;
-    const deps: Dependencies = {
-      fetch: () => {
-        calls += 1;
-        const encoder = new TextEncoder();
-        let i = 0;
-        const body = new ReadableStream<Uint8Array>({
-          pull(controller) {
-            if (i < 2) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ kind: "text", token: `p${String(i)}` })}\n\n`,
-                ),
-              );
-              i += 1;
-              return;
-            }
-            controller.error(new Error("connection reset mid-stream"));
-          },
-        });
-        return Promise.resolve(
-          new Response(body, {
-            status: 200,
-            headers: { "content-type": "text/event-stream" },
-          }),
-        );
-      },
-      scheduler: createDefaultScheduler(),
-      adapters: createAdapterRegistry({ "test-stream": streamAdapterFactory }),
-    };
-    let seq = 0;
-    const events = await collect(
-      runInference({
-        turns: [userTurn("hi")],
-        source: STREAM_SOURCE,
-        // A policy that would always retry — proving that commitment, not
-        // the policy, is what suppresses the retry here.
-        inferenceOptions: { retryPolicy: () => ({ kind: "retry", delayMs: 0 }) },
-        nextSeq: () => ++seq,
-        deps,
-      }),
+    const errorEvent = events.find(
+      (e): e is Extract<InferenceEvent, { type: "inference.error" }> =>
+        e.type === "inference.error",
     );
-    // No second attempt: the committed prefix cannot be un-emitted.
-    expect(calls).toBe(1);
-    const tokens = events
-      .filter((e) => e.type === "inference.text.delta")
-      .map((e) => (e.type === "inference.text.delta" ? e.data.token : ""));
-    expect(tokens).toEqual(["p0", "p1"]);
-    expect(events.some((e) => e.type === "inference.retry")).toBe(false);
-    const errorIndex = events.findIndex((e) => e.type === "inference.error");
-    expect(errorIndex).toBeGreaterThan(-1);
-    const lastDeltaIndex = events
-      .map((e) => e.type)
-      .lastIndexOf("inference.text.delta");
-    // The committed deltas precede the surfaced error in one clean stream.
-    expect(lastDeltaIndex).toBeLessThan(errorIndex);
-  });
-
-  test("cancellation interrupts promptly after output has started", async () => {
-    const controller = new AbortController();
-    let delivered = 0;
-    let notify: (() => void) | null = null;
-    const waitUntilDelivered = (count: number): Promise<void> => {
-      if (delivered >= count) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        const check = (): void => {
-          if (delivered >= count) {
-            notify = null;
-            resolve();
-          } else {
-            notify = check;
-          }
-        };
-        notify = check;
-      });
-    };
-    const n = 1000;
-    const deps = streamDeps(
-      makeStream({
-        chunks: textChunks(n, "y"),
-        beforeProduce: (index) => waitUntilDelivered(index),
-      }),
-    );
-    let seq = 0;
-    const received: InferenceEvent[] = [];
-    await withTimeout(
-      (async () => {
-        for await (const ev of runInference({
-          turns: [userTurn("hi")],
-          source: STREAM_SOURCE,
-          signal: controller.signal,
-          nextSeq: () => ++seq,
-          deps,
-        })) {
-          received.push(ev);
-          if (ev.type === "inference.text.delta") {
-            delivered += 1;
-            notify?.();
-            if (delivered === 1) controller.abort();
-          }
-        }
-      })(),
-      2000,
-      "cancellation did not interrupt the stream",
-    );
-    const deltaCount = received.filter(
-      (e) => e.type === "inference.text.delta",
-    ).length;
-    // The abort cut the stream far short of its full length.
-    expect(deltaCount).toBeGreaterThanOrEqual(1);
-    expect(deltaCount).toBeLessThan(n);
-    const error = received.find((e) => e.type === "inference.error");
-    if (error === undefined) throw new Error("missing aborted inference.error");
-    expect(error.data.error.category).toBe("aborted");
+    if (errorEvent === undefined) throw new Error("missing inference.error");
+    expect(errorEvent.data.error.category).toBe("protocol_mismatch");
+    expect(errorEvent.data.error.message).toContain("text/plain");
   });
 });
