@@ -109,6 +109,7 @@ import { resolveSessionMode, type SessionMode } from "../config/session-mode.js"
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector } from "../agent/director.js";
@@ -261,7 +262,7 @@ export async function loadLocalSettingsWriteBase(
   }
 }
 
-function buildCompactionContinuationMessage(): InboundMessage {
+export function buildCompactionContinuationMessage(): InboundMessage {
   return {
     ref: { uid: 0, mailbox: "system" },
     headers: {
@@ -337,8 +338,11 @@ export function createSubmitHandler(
 export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
 
 /**
- * Build the inbound message carrying image attachments. Plain text sends stay
- * on the string overload; only attachment sends need the envelope.
+ * Build the inbound message for a genuine operator submit — the real
+ * prompt-submit path in the TUI (sendUserPrompt / the "send" command
+ * result), with or without attachments. Carries OPERATOR_ORIGINATED_FLAG so
+ * director.ts's loop-protection backstop can tell this apart from
+ * system-originated sends (compaction continuations, retries, nudges).
  */
 export function userInboundMessage(
   text: string,
@@ -353,7 +357,7 @@ export function userInboundMessage(
       messageId: `<${crypto.randomUUID()}@local>`,
       interchangeType: "conversation.message",
     },
-    flags: [],
+    flags: [OPERATOR_ORIGINATED_FLAG],
     signatureStatus: "missing",
     content: text.length > 0 ? text : IMAGE_ONLY_PROMPT,
     attachments: attachments.map((a) => ({
@@ -1865,7 +1869,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         systemRow(result.text);
         return;
       case "send":
-        void agentProxy.send(result.text).catch(handleSendFailure);
+        // A command the operator typed and submitted at the prompt — same
+        // provenance as a plain-text send, just composed by the command
+        // handler instead of typed verbatim.
+        void agentProxy.send(userInboundMessage(result.text, [])).catch(handleSendFailure);
         return;
       case "workflow":
         systemRow(workflowController.start(result.name));
@@ -1911,10 +1918,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const ingested = await ingestPathMentions(text, config.cwd, imageAttachmentFromPath);
     const resolved = await resolveAtMentions(ingested.text, config.cwd);
     const attachments = [...pending, ...ingested.attachments];
-    if (attachments.length === 0) {
-      await agentProxy.send(resolved);
-      return;
-    }
     await agentProxy.send(userInboundMessage(resolved, attachments));
   };
 
@@ -2202,7 +2205,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {
-    void agentProxy.send(config.task.trim()).catch(handleSendFailure);
+    // The operator's initial task, typed as a CLI argument before launch —
+    // same provenance as a prompt submit.
+    void agentProxy.send(userInboundMessage(config.task.trim(), [])).catch(handleSendFailure);
   }
 
   // Hydrate a resumed session's transcript after first paint. Reading history and

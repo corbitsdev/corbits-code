@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type {
+  InboundMessage,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
 import { createChatDirector } from "./director.js";
+import { OPERATOR_ORIGINATED_FLAG } from "./message-provenance.js";
+import { buildCompactionContinuationMessage as tuiCompactionContinuation } from "../tui/runner.js";
+import { buildCompactionContinuationMessage as execCompactionContinuation } from "../exec/runner.js";
+import { buildCompactionContinuationMessage as subagentCompactionContinuation } from "../subagent/run.js";
 
 const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 
@@ -83,11 +88,22 @@ function toolDoneEvent(callId: string): ReactorInboundEvent {
   } as unknown as ReactorInboundEvent;
 }
 
+// A genuine operator submit — carries OPERATOR_ORIGINATED_FLAG, matching what
+// userInboundMessage() builds at the real TUI/exec prompt-submit sites.
 function messageReceived(content = "hello"): ReactorInboundEvent {
   return {
     type: "message.received",
-    message: { content },
+    message: { content, flags: [OPERATOR_ORIGINATED_FLAG] },
   } as unknown as ReactorInboundEvent;
+}
+
+// A message.received event carrying a system-originated message — no
+// OPERATOR_ORIGINATED_FLAG — as director.ts would actually receive it when
+// the runner delivers one. Wraps the real message builders so this test
+// proves the backstop against actual production payloads, not a shape the
+// test merely believes matches them.
+function systemMessageReceived(message: InboundMessage): ReactorInboundEvent {
+  return { type: "message.received", message } as unknown as ReactorInboundEvent;
 }
 
 function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
@@ -612,6 +628,82 @@ describe("ChatDirector tool-only loop protection", () => {
     await director.decide(messageReceived("status check"), mockState, capabilities);
     // After the reset, a further 99 turns (below the threshold again) must
     // not nudge or pause.
+    const afterReset = await runToolOnlyStreak(director, capabilities, 99);
+    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))).toBe(
+      false,
+    );
+  });
+
+  // Round 5: round 4 reset turnsSinceUserMessage on any message.received,
+  // which is also satisfied by the synthetic content-less messages the
+  // runner delivers itself after compaction — and compaction fires more
+  // during long tool-only loops, i.e. exactly when the backstop should be
+  // counting. Prove the fix against the real production message builders,
+  // not a hand-rolled shape that merely looks synthetic, at all three call
+  // sites named in the round-4 critique.
+  for (const [label, build] of [
+    ["tui/runner.ts:1174", tuiCompactionContinuation],
+    ["exec/runner.ts:418", execCompactionContinuation],
+    ["subagent/run.ts:367", subagentCompactionContinuation],
+  ] as const) {
+    test(`a synthetic compaction continuation from ${label} does not reset the backstop`, async () => {
+      const director = createChatDirector(
+        "system",
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        providerlessPolicy,
+      );
+      const capabilities = makeCapabilities();
+
+      // Reach the backstop nudge, then deliver the real synthetic message
+      // this call site actually produces.
+      await runToolOnlyStreak(director, capabilities, 100);
+      await director.decide(systemMessageReceived(build()), mockState, capabilities);
+
+      // If the synthetic message had reset turnsSinceUserMessage, a further
+      // 99 turns would stay quiet indefinitely. It must not: escalation
+      // still lands exactly 100 turns after the nudge, same as if the
+      // synthetic message had never arrived.
+      const stillNoPause = await runToolOnlyStreak(director, capabilities, 99);
+      expect(stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+        false,
+      );
+
+      const actions = actionsArray(await runToolOnlyStreak(director, capabilities, 1));
+      const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+      expect(reply).toBeDefined();
+    });
+  }
+
+  test("a genuine operator submit does reset the backstop even after a synthetic message arrived", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    await runToolOnlyStreak(director, capabilities, 100);
+    // A synthetic message arrives first (e.g. a compaction continuation
+    // mid-loop) — must not reset anything.
+    await director.decide(systemMessageReceived(tuiCompactionContinuation()), mockState, capabilities);
+    // Then the operator actually sends something.
+    await director.decide(messageReceived("status check"), mockState, capabilities);
+
     const afterReset = await runToolOnlyStreak(director, capabilities, 99);
     expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
     expect(afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))).toBe(

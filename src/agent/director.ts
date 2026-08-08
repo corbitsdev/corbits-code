@@ -33,6 +33,7 @@ import {
   type ToolFingerprintThrashCheck,
 } from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
+import { isOperatorOriginated } from "./message-provenance.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
@@ -371,14 +372,21 @@ class ChatDirectorImpl extends DefaultDirector {
   // turns: model-emitted text is not evidence the operator has seen a
   // checkpoint, so it must not buy back backstop budget (round-4 fix for a
   // model that resets a narration-sensitive counter with one word every N
-  // turns). Only message.received (a genuine fresh user message) resets it.
+  // turns). Only a message.received event whose message carries
+  // OPERATOR_ORIGINATED_FLAG resets it — not every message.received, since
+  // synthetic system sends (compaction continuations, retries, future
+  // director continuations) fire that event too without being operator
+  // input (round-5 fix; see message-provenance.ts for the flag's invariant).
   // Increments on every turn boundary, tool-only or narrated alike.
   private turnsSinceUserMessage = 0;
   // Set to the turnsSinceUserMessage value at which the backstop nudge fired,
   // so the escalation check can require a full further backstop interval to
   // elapse (still with no user message and no period-detected thrash) before
-  // hard-pausing. Reset to null on a fresh user message or once thrash
-  // detection or the escalation pause takes over.
+  // hard-pausing. Reset to null only on an operator-originated message; it
+  // is NOT reset when thrash detection or the escalation pause fires —
+  // pausedForToolOnly and toolOnlyPauseReason are recomputed fresh every
+  // turn instead, so a stale non-null value here is harmless once a pause
+  // is in effect (the next operator message clears both together).
   private backstopNudgeFiredAtTurn: number | null = null;
   private pendingBackstopNudge = false;
   // Which mechanism triggered pausedForToolOnly — the period-detection fast
@@ -603,12 +611,19 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolFingerprintHistory = [];
       this.lastThrashCheck = null;
       this.toolOnlyPauseReason = null;
-      // A genuine fresh user message is the only thing that resets the
-      // backstop — narrated turns must not (see turnsSinceUserMessage's
-      // declaration for why).
-      this.turnsSinceUserMessage = 0;
-      this.backstopNudgeFiredAtTurn = null;
-      this.pendingBackstopNudge = false;
+      // Only a message carrying OPERATOR_ORIGINATED_FLAG resets the
+      // backstop — not every message.received. Synthetic system sends
+      // (compaction continuations, retries, future director continuations)
+      // also fire message.received but never set this flag, so they cannot
+      // buy back backstop budget (round-5 fix: round 4 reset on any
+      // message.received, which synthetic compaction continuations satisfy
+      // just as easily as a real operator message — see
+      // turnsSinceUserMessage's declaration for the full history).
+      if (isOperatorOriginated(event.message.flags)) {
+        this.turnsSinceUserMessage = 0;
+        this.backstopNudgeFiredAtTurn = null;
+        this.pendingBackstopNudge = false;
+      }
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -673,9 +688,11 @@ class ChatDirectorImpl extends DefaultDirector {
       //    alternating/rotating cycles (A,B,A,B,...; A,B,C,A,B,C,...).
       //  - "how long since the operator last saw a real checkpoint?" —
       //    turnsSinceUserMessage / backstopNudgeFiredAtTurn. Model-emitted
-      //    text does NOT clear this — only message.received does (see
-      //    turnsSinceUserMessage's declaration for why: narration must not
-      //    be able to buy back backstop budget).
+      //    text does NOT clear this, and neither does a system-originated
+      //    message.received (e.g. a compaction continuation) — only a
+      //    message carrying OPERATOR_ORIGINATED_FLAG does (see
+      //    turnsSinceUserMessage's declaration for why: narration and
+      //    synthetic sends must not be able to buy back backstop budget).
       // A dismissed ask_operator counts toward both like any other tool-only
       // turn (handled separately below; declined-tool early returns do not
       // reset the cycle-detection side because only text turns and fresh

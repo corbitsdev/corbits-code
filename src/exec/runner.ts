@@ -44,6 +44,7 @@ import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normal
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -110,7 +111,7 @@ export function formatCaughtError(err: unknown): string {
 }
 
 /** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
-function buildCompactionContinuationMessage(): InboundMessage {
+export function buildCompactionContinuationMessage(): InboundMessage {
   return {
     ref: { uid: 0, mailbox: "system" },
     headers: {
@@ -121,6 +122,28 @@ function buildCompactionContinuationMessage(): InboundMessage {
     },
     flags: [],
     content: "",
+    signatureStatus: "missing",
+  };
+}
+
+/**
+ * Build the inbound message for exec's one genuine operator input: the
+ * initial task supplied on the command line. Carries
+ * OPERATOR_ORIGINATED_FLAG so director.ts's loop-protection backstop can
+ * tell this apart from system-originated sends.
+ */
+function operatorTaskMessage(task: string): InboundMessage {
+  return {
+    ref: { uid: 1, mailbox: "INBOX" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `<${crypto.randomUUID()}@local>`,
+      interchangeType: "conversation.message",
+    },
+    flags: [OPERATOR_ORIGINATED_FLAG],
+    content: task,
     signatureStatus: "missing",
   };
 }
@@ -629,7 +652,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
       // Stream stays open for multi-turn chat until close() — close first, then
       // drain, or streamPromise never settles.
-      await activeAgent.send(task);
+      await activeAgent.send(operatorTaskMessage(task));
       sendCompleted = true;
       runError = runSink.getRunError();
       sinkStatus = runSink.getStatus();
