@@ -48,7 +48,9 @@ test("an over-cap run is capped regardless of how stdout is chunked", async () =
     expect(result.kind).toBe("partial");
     if (result.kind !== "partial") continue;
     expect(result.stdout.length).toBeLessThanOrEqual(200);
-    expect(result.notice).toContain("exceeded 200 bytes");
+    // No notice of its own: the final tool result gets exactly one
+    // truncation notice, from result-truncation-plugin.ts.
+    expect(result.notice).toBeUndefined();
   }
 });
 

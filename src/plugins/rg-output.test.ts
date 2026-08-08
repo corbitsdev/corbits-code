@@ -7,10 +7,11 @@ const line = "big.txt:1:match line here\n";
 test("the cap fires on the chunk that breaches it", () => {
   const collector = createRgCollector(200);
   expect(collector.push(line.repeat(4))).toBeUndefined();
-  expect(collector.push(line.repeat(20))).toMatchObject({
-    kind: "partial",
-    notice: expect.stringContaining("exceeded 200 bytes"),
-  });
+  const outcome = collector.push(line.repeat(20));
+  expect(outcome).toMatchObject({ kind: "partial" });
+  // No notice of its own: the final tool result gets exactly one truncation
+  // notice, from result-truncation-plugin.ts, not one per cap that fired.
+  expect(outcome?.kind === "partial" ? outcome.notice : "defined").toBeUndefined();
 });
 
 test("an over-cap run reports no more than the cap, cut at a line boundary", () => {
