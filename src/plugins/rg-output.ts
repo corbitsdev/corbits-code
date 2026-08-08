@@ -9,7 +9,7 @@ export type RgOutcome =
   | { kind: "output"; stdout: string }
   | { kind: "no-match" }
   | { kind: "error"; message: string }
-  | { kind: "partial"; stdout: string; notice: string };
+  | { kind: "partial"; stdout: string; notice?: string };
 
 export type RgCollector = {
   /** Returns an outcome once the cap is breached, otherwise undefined. */
@@ -37,12 +37,15 @@ export function createRgCollector(maxOutputBytes: number): RgCollector {
     return outcome;
   };
 
+  // No notice here: the cap only stops collection early to bound memory
+  // while the stream is still live. The result-truncation-plugin.ts pass
+  // that runs over the final tool result is the single place a "truncated"
+  // notice gets attached, so this cap does not add one of its own.
   const overCap = (): RgOutcome | undefined => {
     if (stdout.length <= maxOutputBytes) return undefined;
     return settle({
       kind: "partial",
       stdout: truncateToWholeLines(stdout, maxOutputBytes),
-      notice: `search output exceeded ${maxOutputBytes} bytes — showing partial results; narrow path/glob or pattern`,
     });
   };
 
