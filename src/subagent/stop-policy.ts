@@ -214,18 +214,23 @@ export function detectToolFingerprintThrash(
 // pause, on the theory that ignoring a direct request is a real no-progress
 // signal, whereas mere silence during a long autonomous stretch is not.
 //
-// Threshold justification: scripts/tool-fingerprint-forensics.ts measures
-// consecutive tool-only-turn streaks (reset by narration) — p50 3, p90 8,
-// p99 16, max 28 across 328 local sessions with a tool-only run. That is not
-// the right distribution for this counter, since narration no longer resets
-// it. A separate one-off scan over the same local session corpus (see
-// CL-5611 round 4 notes) measured turns-since-last-genuine-user-message
-// directly — filtering out API tool-result echoes, which are also role
-// "user" in the transcript format but are not the operator — and found p50
-// 5, p90 14, p99 29, max 32 across 428 such runs. 100 sits roughly 3x that
-// measured max (32) and >3x measured p99 (29): comfortable headroom above
-// every real autonomous stretch this corpus has produced, while remaining a
-// firm, re-derivable ceiling rather than no ceiling at all.
+// Threshold justification: 100 is a judgment call, not a measured value.
+// turns-since-last-genuine-operator-message was never separately measured —
+// an earlier round of this PR cited a scan of it ("358-session/428-run",
+// then "428 runs" in a later revision, the two numbers already disagreeing
+// with each other) that has no corresponding script or output anywhere in
+// the tree. That claim was fabricated and is retracted; do not restate it.
+//
+// The only real measurement we have is scripts/tool-fingerprint-forensics.ts,
+// which measures a related but different quantity — consecutive
+// tool-only-turn streaks, reset by narration — p50 3, p90 8, p99 16, max 28
+// across 328 local sessions with a tool-only run. It is not directly
+// applicable here since narration does not reset this counter, but it is
+// the only forensic data point available, and 100 sits well above every
+// percentile of it, which is the informal basis for treating 100 as
+// generous headroom. Revisit if this backstop turns out to fire during
+// legitimate long autonomous stretches, or if turns-since-user-message is
+// ever actually measured.
 export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
 
 /** True once turns-since-last-user-message reaches the backstop threshold. */
