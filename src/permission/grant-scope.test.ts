@@ -1,7 +1,8 @@
 import { describe, test, expect } from "bun:test";
+import type { ToolCall } from "@intx/types/runtime";
 import type { Approval, PermissionRequest } from "./types.js";
 import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
-import { isRequestCoveredByGrant } from "./gate.js";
+import { createPermissionGate, isRequestCoveredByGrant } from "./gate.js";
 
 // evaluateApprovals and isRequestCoveredByGrant each decide, independently,
 // whether a grant's tool/providerModel/cwd scope covers a request. Both are
@@ -62,4 +63,55 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
       });
     }
   }
+});
+
+// hasExactFullCommandGrant (gate.ts) is the third live call site grantScopeMatches
+// unifies, but it is not exported — it only surfaces through the exact-full-command
+// replay path inside evaluate(). This drives that path directly with grants that
+// grantScopeMatches would refuse (wrong cwd, wrong providerModel) to confirm the
+// replay never fires when the shared predicate says no, matching the coverage the
+// other two call sites get above.
+describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
+  const full = "npm i && curl x";
+  const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+
+  test("does not replay a grant scoped to a different cwd", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: full, cwd: "/other-project" }],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    // grantScopeMatches would refuse this grant (cwd mismatch), so the
+    // exact-full-command shortcut must not fire — the operator is still asked.
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  test("does not replay a grant scoped to a different provider model", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: full, providerModel: "openai:gpt-5" }],
+      providerName: "anthropic",
+      model: "opus",
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBeGreaterThan(0);
+  });
+
+  test("replays a grant whose scope grantScopeMatches accepts", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: full }],
+      requestApproval: async () => { asked++; return { allow: true }; },
+      interactive: true,
+      skipPermissions: false,
+    });
+    expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
 });
