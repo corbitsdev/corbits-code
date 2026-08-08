@@ -1012,6 +1012,12 @@ describe("recent and favorite model helpers", () => {
     expect(s.recentModels?.[0]).toEqual({ provider: "a", model: "x11" });
   });
 
+  test("pushRecentModel leaves defaultProvider untouched", () => {
+    const s: Settings = { providers: firepass.providers, defaultProvider: "firepass" };
+    const next = pushRecentModel(s, { provider: "other", model: "m1" });
+    expect(next.defaultProvider).toBe("firepass");
+  });
+
   test("toggleFavoriteModel adds and removes", () => {
     let s: Settings = { providers: firepass.providers };
     s = toggleFavoriteModel(s, { provider: "a", model: "m1" });

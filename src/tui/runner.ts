@@ -2062,7 +2062,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
           providers: {},
         };
-        const next = pushRecentModel({ ...onDisk, defaultProvider: provider }, ref);
+        const next = pushRecentModel(onDisk, ref);
         await saveGlobalSettings(trueGlobalSettingsPath, next);
         config = { ...config, settings: next };
         host.refreshModels(listRecentModels(next), listFavoriteModels(next));
