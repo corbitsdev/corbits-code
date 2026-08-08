@@ -25,6 +25,16 @@ test("parseModelsDevContextWindows reads limit.context per model", () => {
   expect(windows["openai/no-limit"]).toBeUndefined();
 });
 
+test("parseModelsDevPricing walks a top-level array payload the same way the other collectors do", () => {
+  // A nesting level where the root itself is an array, rather than an object
+  // whose values are arrays. parseModelsDevReasoning and
+  // parseModelsDevContextWindows already handle this; pricing must match.
+  const models = parseModelsDevPricing([
+    { id: "m1", input_cost_per_million: 1, output_cost_per_million: 2 },
+  ]);
+  expect(models["m1"]).toBeDefined();
+});
+
 function response(body: unknown, ok = true, status = 200): Response {
   return new Response(JSON.stringify(body), { status: ok ? status : status });
 }

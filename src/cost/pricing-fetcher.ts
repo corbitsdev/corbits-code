@@ -75,72 +75,54 @@ function parseModelPricing(value: unknown): ModelPricing | null {
   };
 }
 
-function collectModelPricing(value: unknown, models: Record<string, ModelPricing>): void {
+/**
+ * Recurses through an untyped models.dev JSON tree and yields every node that
+ * resolves to a model id, alongside that node. Each `parseModelsDev*` walker
+ * below shares this single traversal and only differs in which field it
+ * extracts from the yielded node.
+ */
+function* walkModelNodes(value: unknown): Generator<[id: string, node: Record<string, unknown>]> {
+  if (Array.isArray(value)) {
+    for (const item of value) yield* walkModelNodes(item);
+    return;
+  }
   if (!isRecord(value)) return;
 
   const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
-  const pricing = parseModelPricing(value);
-  if (id !== null && pricing !== null) {
-    models[id] = pricing;
-  }
+  if (id !== null) yield [id, value];
 
   for (const child of Object.values(value)) {
-    if (isRecord(child)) {
-      collectModelPricing(child, models);
-      continue;
-    }
-    if (Array.isArray(child)) {
-      for (const item of child) collectModelPricing(item, models);
-    }
+    yield* walkModelNodes(child);
   }
 }
 
 export function parseModelsDevPricing(payload: unknown): Record<string, ModelPricing> {
   const models: Record<string, ModelPricing> = {};
-  collectModelPricing(payload, models);
+  for (const [id, node] of walkModelNodes(payload)) {
+    const pricing = parseModelPricing(node);
+    if (pricing !== null) models[id] = pricing;
+  }
   return models;
-}
-
-function collectModelReasoning(value: unknown, reasoning: Record<string, boolean>): void {
-  if (!isRecord(value)) {
-    if (Array.isArray(value)) for (const item of value) collectModelReasoning(item, reasoning);
-    return;
-  }
-  const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
-  if (id !== null && typeof value.reasoning === "boolean") {
-    reasoning[id] = value.reasoning;
-  }
-  for (const child of Object.values(value)) {
-    if (isRecord(child) || Array.isArray(child)) collectModelReasoning(child, reasoning);
-  }
 }
 
 export function parseModelsDevReasoning(payload: unknown): Record<string, boolean> {
   const reasoning: Record<string, boolean> = {};
-  collectModelReasoning(payload, reasoning);
+  for (const [id, node] of walkModelNodes(payload)) {
+    if (typeof node.reasoning === "boolean") reasoning[id] = node.reasoning;
+  }
   return reasoning;
-}
-
-function collectModelContextWindows(value: unknown, windows: Record<string, number>): void {
-  if (!isRecord(value)) {
-    if (Array.isArray(value)) for (const item of value) collectModelContextWindows(item, windows);
-    return;
-  }
-  const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
-  // models.dev nests the window under `limit.context`.
-  const limit = isRecord(value.limit) ? value.limit : undefined;
-  const context = limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
-  if (id !== null && context !== undefined && Number.isFinite(context) && context > 0) {
-    windows[id] = context;
-  }
-  for (const child of Object.values(value)) {
-    if (isRecord(child) || Array.isArray(child)) collectModelContextWindows(child, windows);
-  }
 }
 
 export function parseModelsDevContextWindows(payload: unknown): Record<string, number> {
   const windows: Record<string, number> = {};
-  collectModelContextWindows(payload, windows);
+  for (const [id, node] of walkModelNodes(payload)) {
+    // models.dev nests the window under `limit.context`.
+    const limit = isRecord(node.limit) ? node.limit : undefined;
+    const context = limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
+    if (context !== undefined && Number.isFinite(context) && context > 0) {
+      windows[id] = context;
+    }
+  }
   return windows;
 }
 
