@@ -640,7 +640,7 @@ describe("each gate decision appends exactly one transcript row", () => {
     })
   })
 
-  test("a queued gate's timeout settles once and records once without ever opening", async () => {
+  test("a queued gate's timeout settles once and records once, only after it is displayed", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -663,10 +663,17 @@ describe("each gate decision appends exactly one transcript row", () => {
           timeoutMs: 5,
         })
 
+        // Still behind the first gate — the timeout must not be ticking yet.
+        await new Promise((r) => setTimeout(r, 20))
+        expect(resolveCount).toBe(0)
+        expect(shell.streamLog.length).toBe(before)
+
+        // Closing the first gate displays the queued one, arming its timer.
+        acceptOverlaySelection(shell)
         await new Promise((r) => setTimeout(r, 20))
 
         expect(resolveCount).toBe(1)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(2) // first gate's row + the queued gate's timeout row
       } finally {
         shell.dispose()
       }
@@ -906,7 +913,7 @@ describe("permission.gate auto-deny", () => {
     })
   })
 
-  test("a queued gate's timeout fires while it waits, without disturbing the open one", async () => {
+  test("a queued gate's timeout does not start until it is displayed", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -934,24 +941,278 @@ describe("permission.gate auto-deny", () => {
         // Second gate has not opened yet — it is waiting behind the first.
         expect(shell.overlayKind).toBe("permissions")
 
+        // Well past the nominal 5ms timeout — the queued gate must survive
+        // this because it has never been shown to the operator.
         await new Promise((r) => setTimeout(r, 20))
+        expect(secondResolved).toBeUndefined()
+        expect(firstResolved).toBeUndefined()
+        expect(shell.overlayKind).toBe("permissions")
 
-        // The queued gate resolved on its own without ever opening...
+        // Closing the first gate displays the second, which arms its timer
+        // only now — this is when the queued gate's clock should start.
+        acceptOverlaySelection(shell)
+        expect(firstResolved).toEqual({ allow: false })
+        expect(secondResolved).toBeUndefined()
+
+        await new Promise((r) => setTimeout(r, 20))
         expect(secondResolved).toEqual({
           allow: false,
           message: "queued gate timed out",
         })
-        // ...and the open overlay (the first gate) is undisturbed.
-        expect(firstResolved).toBeUndefined()
-        expect(shell.overlayKind).toBe("permissions")
-
-        acceptOverlaySelection(shell)
-        expect(firstResolved).toEqual({ allow: false })
-        // No queued gate left to open once the first closes.
         expect(shell.overlayList).toBeNull()
       } finally {
         shell.dispose()
       }
+    })
+  })
+})
+
+describe("operator.gate auto-cancel", () => {
+  test("timeoutMs elapsing auto-cancels with the timeout label and closes the overlay", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolved: unknown
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => {
+            resolved = result
+          },
+          timeoutMs: 5,
+          timeoutMessage: "goal mode: no answer in time",
+        })
+        expect(shell.overlayKind).toBe("operator")
+
+        await new Promise((r) => setTimeout(r, 20))
+
+        expect(resolved).toEqual(operatorCancelResult())
+        expect(shell.overlayList).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("aborting the signal while the overlay is open auto-cancels and closes it", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      let resolved: unknown
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => {
+            resolved = result
+          },
+          signal: controller.signal,
+        })
+        expect(shell.overlayKind).toBe("operator")
+
+        controller.abort()
+
+        expect(resolved).toEqual(operatorCancelResult())
+        expect(shell.overlayList).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  // The queue-behind hazard from CL-5664: a stuck overlay in front of an
+  // ask_operator question must not hang the run forever with nothing on
+  // screen to answer. The abort listener is not display-dependent, so it
+  // must settle the queued gate even though it never opened.
+  test("aborting the run while the operator gate is still queued settles it without ever opening", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      const controller = new AbortController()
+      let resolved: unknown
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: () => {},
+        })
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => {
+            resolved = result
+          },
+          signal: controller.signal,
+        })
+        // Still queued behind the permission overlay.
+        expect(shell.overlayKind).toBe("permissions")
+
+        controller.abort()
+
+        expect(resolved).toEqual(operatorCancelResult())
+        // The permission overlay in front is undisturbed.
+        expect(shell.overlayKind).toBe("permissions")
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("a queued operator gate's timeout does not start until it is displayed", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let firstResolved: unknown
+      let secondResolved: unknown
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("permission.gate", {
+          request: baseRequest(),
+          resolve: (outcome: unknown) => {
+            firstResolved = outcome
+          },
+        })
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: (result: unknown) => {
+            secondResolved = result
+          },
+          timeoutMs: 5,
+          timeoutMessage: "queued operator gate timed out",
+        })
+        expect(shell.overlayKind).toBe("permissions")
+
+        // Well past the nominal 5ms timeout — must survive because it has
+        // never been shown to the operator.
+        await new Promise((r) => setTimeout(r, 20))
+        expect(secondResolved).toBeUndefined()
+
+        acceptOverlaySelection(shell)
+        expect(firstResolved).toEqual({ allow: false })
+        expect(secondResolved).toBeUndefined()
+        expect(shell.overlayKind).toBe("operator")
+
+        await new Promise((r) => setTimeout(r, 20))
+        expect(secondResolved).toEqual(operatorCancelResult())
+        expect(shell.overlayList).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("resolving normally clears the timer instead of firing it later", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let resolveCount = 0
+      try {
+        wireGates(emitter, shell)
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: () => {
+            resolveCount += 1
+          },
+          timeoutMs: 10,
+        })
+
+        acceptOverlaySelection(shell)
+        expect(resolveCount).toBe(1)
+
+        await new Promise((r) => setTimeout(r, 25))
+        expect(resolveCount).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("each terminal path writes exactly one transcript row", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      try {
+        wireGates(emitter, shell)
+        const before = shell.streamLog.length
+        emitter.emit("operator.gate", {
+          question: "Proceed?",
+          options: ["Yes", "No"],
+          resolve: () => {},
+          timeoutMs: 5,
+        })
+        await new Promise((r) => setTimeout(r, 20))
+        expect(shell.streamLog.length - before).toBe(1)
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  // Mirrors the permission queue's "disposing with a request still queued"
+  // coverage: unlike permissionQueue, the operator gate has no queue module
+  // of its own, so wireGates must track outstanding operator gates itself to
+  // settle them on teardown.
+  test("disposing with a gate still queued settles it instead of hanging", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      const emitter = new EventEmitter()
+      let openResolved: unknown
+      let queuedResolved: unknown
+      const dispose = wireGates(emitter, shell)
+      emitter.emit("operator.gate", {
+        question: "Proceed?",
+        options: ["Yes", "No"],
+        resolve: (r: unknown) => {
+          openResolved = r
+        },
+      })
+      // Occupies the overlay host so this second gate queues instead of
+      // opening — dispose must cancel it without ever displaying it.
+      const before = shell.streamLog.length
+      emitter.emit("operator.gate", {
+        question: "Also proceed?",
+        options: ["Yes", "No"],
+        resolve: (r: unknown) => {
+          queuedResolved = r
+        },
+      })
+
+      dispose()
+
+      expect(openResolved).toEqual(operatorCancelResult())
+      expect(queuedResolved).toEqual(operatorCancelResult())
+      expect(shell.streamLog.length - before).toBe(2)
+      for (const row of shell.streamLog.slice(-2)) {
+        expect(row.text).toContain("Cancelled (session ended)")
+      }
+      shell.dispose()
     })
   })
 })

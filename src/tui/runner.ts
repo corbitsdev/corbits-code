@@ -46,7 +46,7 @@ import { unconnectedProviderChoices } from "../tui-opentui/provider-setup.js";
 import { connectProviderInline } from "../tui-opentui/provider-connect.js";
 import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
-import { createGateRequestApproval } from "./request-approval.js";
+import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
@@ -642,6 +642,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     current: null,
   };
 
+  // Shared by the permission gate and every operator-gate emission site: an
+  // unattended goal-mode run must not park on any gate forever, whichever
+  // kind it is.
+  const goalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined => {
+    const snap = goalGovernorRef.current?.get() ?? null;
+    return isGoalApprovalTimeoutActive(snap?.status)
+      ? {
+          timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
+          timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
+        }
+      : undefined;
+  };
+
   const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
   const permissionGate = createPermissionGate({
     approvals: seededApprovals,
@@ -651,15 +664,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     model: config.model,
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
-      goalTimeout: () => {
-        const snap = goalGovernorRef.current?.get() ?? null;
-        return isGoalApprovalTimeoutActive(snap?.status)
-          ? {
-              timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
-              timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
-            }
-          : undefined;
-      },
+      goalTimeout,
     }),
     persist: createApprovalPersist(config.cwd, activeProviderModel),
     interactive: true,
@@ -1067,7 +1072,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
-        const event: OperatorGateEvent = { question, options, resolve };
+        const { finish, signal } = attachApprovalBudget<OperatorResult>(resolve, {
+          tool: "ask_operator",
+          kind: "operator",
+        });
+        const goal = goalTimeout();
+        const event: OperatorGateEvent = {
+          question,
+          options,
+          resolve: finish,
+          ...(goal !== undefined ? goal : {}),
+          ...(signal !== undefined ? { signal } : {}),
+        };
         emitter.emit("operator.gate", event);
       }),
     sessionMode: liveSessionMode,
@@ -1078,6 +1094,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     requestMcpTrust: async (server) => {
       // TOFU via operator gate: Trust this local MCP server?
       const result = await new Promise<OperatorResult>((resolve) => {
+        const { finish, signal } = attachApprovalBudget<OperatorResult>(resolve, {
+          tool: `mcp:${server.name}`,
+          kind: "operator",
+        });
+        const goal = goalTimeout();
         const event: OperatorGateEvent = {
           question:
             `Trust local MCP server "${server.name}" for this project?`
@@ -1087,7 +1108,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                 ? `\nURL: ${server.url}`
                 : ""),
           options: ["Trust and connect", "Deny"],
-          resolve,
+          resolve: finish,
+          ...(goal !== undefined ? goal : {}),
+          ...(signal !== undefined ? { signal } : {}),
         };
         emitter.emit("operator.gate", event);
       });

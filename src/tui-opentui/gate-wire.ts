@@ -332,6 +332,17 @@ export function wireGates(
     emitter,
     permissionQueue,
   )
+  // Operator gates have no queue module of their own (unlike permission
+  // requests, which register with permissionQueue so dispose can drain
+  // them) — each one registers its own teardown callback here for the
+  // lifetime it is outstanding, so a gate still queued behind another
+  // overlay at session teardown still settles instead of hanging its
+  // awaited promise forever. Every settle path (onAccept, onTextAnswer,
+  // onCancel, settleOnce) is responsible for deregistering its own entry
+  // before resolving — a future settle path that forgets this leaks its
+  // gate into dispose's teardown sweep after it has already resolved
+  // (harmless, since `settled` guards the double-resolve, but wasted work).
+  const operatorTeardowns = new Set<() => void>()
   // Bumped every time any gate (permission or operator) opens on the shared
   // host. A settle path that only knows "my overlay was opened" cannot tell
   // whether the host has since moved on to a newer one — the shell closes an
@@ -439,6 +450,11 @@ export function wireGates(
 
     const open = (): void => {
       openedGeneration = overlayGeneration
+      if (ev.timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          autoDeny(ev.timeoutMessage ?? "approval timed out; request denied")
+        }, ev.timeoutMs)
+      }
       openPermissionsOverlay(shell, {
         items: choices.items,
         itemIds: choices.itemIds,
@@ -476,6 +492,13 @@ export function wireGates(
     // queued open) parked forever. Whichever fires first settles the queue
     // entry, which is itself the single-resolve guard, so the other side is
     // simply a no-op once it runs.
+    //
+    // The goal-mode timeout is display-dependent and arms inside `open`
+    // (below), not here: a request sitting behind others in `pending` must
+    // not burn its timeout while the operator has never seen it. Abort is not
+    // display-dependent — it reflects the tool having already finished or
+    // been cancelled, which is true whether or not this gate is on screen —
+    // so its listener is registered immediately.
     let timer: ReturnType<typeof setTimeout> | undefined
     const clearTimers = (): void => {
       if (timer !== undefined) clearTimeout(timer)
@@ -492,11 +515,6 @@ export function wireGates(
     }
     function onAbort(): void {
       autoDeny("tool no longer running; permission request denied")
-    }
-    if (ev.timeoutMs !== undefined) {
-      timer = setTimeout(() => {
-        autoDeny(ev.timeoutMessage ?? "approval timed out; request denied")
-      }, ev.timeoutMs)
     }
     if (ev.signal?.aborted === true) {
       autoDeny("tool no longer running; permission request denied")
@@ -516,42 +534,109 @@ export function wireGates(
     // before dispatching accept — a future accept-via-close path that forgets
     // would otherwise double-resolve this promise.
     let settled = false
-    openOrQueue(() => openOperatorOverlay(shell, {
-      body: ev.question,
-      choices: choices.items,
-      itemIds: choices.itemIds,
-      // recordOperatorDecision below is the authoritative transcript row for
-      // every terminal path — the overlay's own accept/answer echo would
-      // duplicate it.
-      echoChoice: false,
-      onAccept: (sel: OverlaySelection) => {
-        if (settled) return
-        settled = true
-        recordOperatorDecision(shell, ev.question, sel.label)
-        resolve(
-          operatorResultFromSelection(ev.options, {
-            index: sel.index,
-            ...(sel.id !== undefined ? { id: sel.id } : {}),
-          }),
-        )
-      },
-      // The ask_operator contract offers a free-form answer, so the overlay
-      // must be able to send one back rather than only an option index.
-      onTextAnswer: (text: string) => {
-        if (settled) return
-        settled = true
-        recordOperatorDecision(shell, ev.question, text)
-        resolve(operatorCustomResult(text))
-      },
-      // Esc must settle the awaited promise (as a cancel), not abandon it —
-      // an unresolved gate hangs the run until the process is killed.
-      onCancel: () => {
-        if (settled) return
-        settled = true
-        recordOperatorDecision(shell, ev.question, "Cancelled")
-        resolve(operatorCancelResult())
-      },
-    }))
+    // Set only while this gate's own overlay is the one on screen — mirrors
+    // openedGeneration on the permission path (see its comment above): a
+    // settle path that only knows "my overlay was opened" cannot tell
+    // whether the host has since moved on to a newer one.
+    let openedGeneration: number | undefined
+
+    // Mirrors the permission gate: watchdog abort and the goal-mode timeout
+    // both race an operator who may never answer, and unlike the permission
+    // path this gate previously had no safety net at all — a queued question
+    // behind a stuck overlay hung the run forever. The timeout is
+    // display-dependent and arms inside `open` (below); abort is not, so its
+    // listener is registered immediately.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const clearTimers = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      ev.signal?.removeEventListener("abort", onAbort)
+    }
+
+    const open = (): void => {
+      openedGeneration = overlayGeneration
+      if (ev.timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          autoCancel(ev.timeoutMessage ?? "Cancelled (timed out)")
+        }, ev.timeoutMs)
+      }
+      openOperatorOverlay(shell, {
+        body: ev.question,
+        choices: choices.items,
+        itemIds: choices.itemIds,
+        // recordOperatorDecision below is the authoritative transcript row
+        // for every terminal path — the overlay's own accept/answer echo
+        // would duplicate it.
+        echoChoice: false,
+        onAccept: (sel: OverlaySelection) => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          operatorTeardowns.delete(teardown)
+          recordOperatorDecision(shell, ev.question, sel.label)
+          resolve(
+            operatorResultFromSelection(ev.options, {
+              index: sel.index,
+              ...(sel.id !== undefined ? { id: sel.id } : {}),
+            }),
+          )
+        },
+        // The ask_operator contract offers a free-form answer, so the overlay
+        // must be able to send one back rather than only an option index.
+        onTextAnswer: (text: string) => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          operatorTeardowns.delete(teardown)
+          recordOperatorDecision(shell, ev.question, text)
+          resolve(operatorCustomResult(text))
+        },
+        // Esc must settle the awaited promise (as a cancel), not abandon it —
+        // an unresolved gate hangs the run until the process is killed.
+        // Esc already closes this overlay through the shell's own key
+        // handling, so — unlike autoCancel below — this does not re-invoke
+        // closeInsetOverlay itself; doing so would reenter this same
+        // onCancel (see the permission gate's identical note on `settle`).
+        onCancel: () => {
+          if (settled) return
+          settled = true
+          clearTimers()
+          operatorTeardowns.delete(teardown)
+          recordOperatorDecision(shell, ev.question, "Cancelled")
+          resolve(operatorCancelResult())
+        },
+      })
+    }
+
+    const settleOnce = (label: string, result: OperatorResult): void => {
+      if (settled) return
+      settled = true
+      clearTimers()
+      operatorTeardowns.delete(teardown)
+      if (openedGeneration === undefined) {
+        unqueue(open)
+      } else if (openedGeneration === overlayGeneration) {
+        closeInsetOverlay(shell)
+      }
+      recordOperatorDecision(shell, ev.question, label)
+      resolve(result)
+    }
+    const autoCancel = (label: string): void => {
+      settleOnce(label, operatorCancelResult())
+    }
+    const teardown = (): void => {
+      autoCancel("Cancelled (session ended)")
+    }
+    function onAbort(): void {
+      autoCancel("Cancelled (tool no longer running)")
+    }
+    if (ev.signal?.aborted === true) {
+      autoCancel("Cancelled (tool no longer running)")
+      return
+    }
+    ev.signal?.addEventListener("abort", onAbort, { once: true })
+    operatorTeardowns.add(teardown)
+
+    openOrQueue(open)
   }
 
   emitter.on("permission.gate", onPermission)
@@ -566,5 +651,9 @@ export function wireGates(
     // Deny anything still queued so its awaited evaluate() call never hangs
     // past session teardown.
     permissionQueue.drain()
+    // Cancel every outstanding operator gate (queued or displayed) so its
+    // awaited resolve() never hangs past session teardown either — the
+    // permission-side equivalent of the drain() call above.
+    for (const teardown of [...operatorTeardowns]) teardown()
   }
 }
