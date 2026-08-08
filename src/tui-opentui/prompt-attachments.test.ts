@@ -12,6 +12,7 @@ function attachment(name: string): PendingImageAttachment {
     name,
     contentType: "image/png",
     data: new Uint8Array([1, 2, 3]),
+    contentHash: `hash-${name}`,
   }
 }
 

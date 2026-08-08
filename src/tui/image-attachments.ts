@@ -27,6 +27,8 @@ const IMAGE_MIME_BY_EXT: Readonly<Record<string, string>> = {
 export type PendingImageAttachment = MessageAttachment & {
   id: string;
   path?: string;
+  /** SHA-256 of the source image file's bytes, used to dedupe repeat pastes. */
+  contentHash: string;
 };
 
 export type AttachImageResult =
@@ -90,6 +92,10 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
     return { ok: false, reason: `image is too large; max ${formatBytes(MAX_IMAGE_ATTACHMENT_BYTES)}` };
   }
   const raw = await readFile(path);
+  // Hash the source bytes, not the (lossy, non-deterministic) capped output --
+  // two ingests of the same clipboard content must hash identically even if
+  // downscaling recompresses them differently.
+  const contentHash = await hashImageBytes(raw);
   const capped = await capImageForIngestion(raw, mimeType);
   return {
     ok: true,
@@ -99,8 +105,18 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
       contentType: capped.contentType,
       data: capped.data,
       path,
+      contentHash,
     },
   };
+}
+
+/** SHA-256 of the source image file's bytes, used to identify identical pastes regardless of filename or timing. */
+async function hashImageBytes(bytes: Buffer): Promise<string> {
+  // Buffer's type parameter is the looser ArrayBufferLike (it may back onto a
+  // pooled allocation), but readFile never actually hands back a
+  // SharedArrayBuffer-backed view, so this is a type-only cast, not a copy.
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**

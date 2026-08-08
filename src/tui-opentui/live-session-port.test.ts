@@ -104,6 +104,7 @@ describe("attachment passthrough", () => {
     name: "clipboard.png",
     contentType: "image/png",
     data: new Uint8Array([1]),
+    contentHash: "hash-1",
   }
 
   test("sendImmediate forwards attachments to the host send", () => {

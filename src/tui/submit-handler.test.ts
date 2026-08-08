@@ -101,6 +101,7 @@ describe("image attachment submits", () => {
     name: "clipboard.png",
     contentType: "image/png",
     data: new Uint8Array([1, 2, 3]),
+    contentHash: "hash-1",
   };
 
   function attachmentHarness() {
