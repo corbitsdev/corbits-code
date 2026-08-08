@@ -55,18 +55,36 @@ export function defineMcpToolFactory(config: McpToolPackageConfig): AnnotatedToo
         return withKey.toString();
       })();
 
-      const ensureConnected = async (): Promise<McpConnection> => {
+      let disposed = false;
+
+      const ensureConnected = async (signal: AbortSignal): Promise<McpConnection> => {
         if (connection !== undefined) return connection;
         if (connecting === undefined) {
           connecting = connectHostedMcpServer(config.serverName, connectUrl, {
             clientName: config.clientName,
+            signal,
             onAuthURL: (_name, url) => {
               pendingAuthURL = url;
             },
-          }).then((result) => {
-            connection = result;
-            return result;
-          });
+          }).then(
+            (result) => {
+              connection = result;
+              // A dispose() that raced this connect while it was still in
+              // flight had nothing to close yet; close it now so a
+              // connection that resolves after teardown does not leak its
+              // transport and callback server.
+              if (disposed) void result.close();
+              return result;
+            },
+            (err: unknown) => {
+              // Clear the cached rejection so the next run() retries the
+              // connection instead of replaying a stale failure forever --
+              // the underlying cause (network blip, user completing OAuth
+              // through a channel we didn't observe) may no longer hold.
+              connecting = undefined;
+              throw err;
+            },
+          );
         }
         return connecting;
       };
@@ -77,7 +95,15 @@ export function defineMcpToolFactory(config: McpToolPackageConfig): AnnotatedToo
           pendingAuthURL = undefined;
           let client: McpConnection;
           try {
-            client = await ensureConnected();
+            // The first connect on a hosted, OAuth-protected server blocks
+            // this call until the browser round-trip completes (or fails)
+            // -- there is no way to hand control back to the caller mid-
+            // authorization and resume later. Wiring the tool call's own
+            // signal through means the caller can still bound or cancel
+            // that wait instead of it hanging indefinitely; `onAuthURL`
+            // additionally records the URL so a signal-driven abort still
+            // reports where to authorize.
+            client = await ensureConnected(signal);
           } catch (err) {
             if (pendingAuthURL !== undefined) {
               return {
@@ -104,6 +130,7 @@ export function defineMcpToolFactory(config: McpToolPackageConfig): AnnotatedToo
           }
         },
         async dispose() {
+          disposed = true;
           await connection?.close();
         },
       };

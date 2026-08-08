@@ -1,9 +1,7 @@
 import { defineMcpToolFactory } from "@corbits/mcp-adapter";
 
-const OPEN_OBJECT_SCHEMA = { type: "object", properties: {} } as const;
-
-// Static declaration of Exa's hosted MCP tool surface. This list is a
-// snapshot, not a live query -- see the package README for what happens
+// Static declaration of Exa's hosted MCP tool surface, including real
+// per-tool argument schemas -- see the package README for what happens
 // when it drifts from the server's real tool list.
 //
 // EXA_API_KEY is optional: unset, the server is used at its default rate
@@ -17,8 +15,38 @@ export const exa = defineMcpToolFactory({
   apiKeyEnvVar: "EXA_API_KEY",
   apiKeyQueryParam: "exaApiKey",
   toolDeclarations: [
-    { name: "web_search", description: "Search the web via Exa.", inputSchema: OPEN_OBJECT_SCHEMA },
-    { name: "get_contents", description: "Fetch page contents for a URL via Exa.", inputSchema: OPEN_OBJECT_SCHEMA },
-    { name: "find_similar", description: "Find pages similar to a URL via Exa.", inputSchema: OPEN_OBJECT_SCHEMA },
+    {
+      name: "web_search",
+      description: "Search the web via Exa.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query." },
+          numResults: { type: "number", description: "Maximum results to return." },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "get_contents",
+      description: "Fetch page contents for a URL via Exa.",
+      inputSchema: {
+        type: "object",
+        properties: { url: { type: "string", description: "URL to fetch contents for." } },
+        required: ["url"],
+      },
+    },
+    {
+      name: "find_similar",
+      description: "Find pages similar to a URL via Exa.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "URL to find similar pages for." },
+          numResults: { type: "number", description: "Maximum results to return." },
+        },
+        required: ["url"],
+      },
+    },
   ],
 });
