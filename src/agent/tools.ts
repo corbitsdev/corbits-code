@@ -9,8 +9,6 @@ import {
   presentDefinition,
 } from "../agent/director.js";
 import { manageTasksDefinition } from "./tasks.js";
-import { createManageGoalTool } from "./manage-goal.js";
-import type { GoalGovernor } from "./goal.js";
 import { validateView } from "../tui/view/index.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import {
@@ -109,13 +107,11 @@ export type AgentToolsetArgs = {
   isWorkflowActive?: () => boolean;
   // Primary session mode: single-agent sessions omit sub-agent tooling.
   sessionMode?: SessionMode;
-  // Session-start facts gating manage_goal/lsp advertisement. Omitted callers
-  // (tests, ad-hoc toolset construction) get both advertised, matching prior
-  // behavior. Real sessions always pass their detected values — see
-  // tool-search.ts for why these must be fixed for the session's life.
+  // Session-start facts gating lsp advertisement. Omitted callers (tests,
+  // ad-hoc toolset construction) get it advertised, matching prior behavior.
+  // Real sessions always pass their detected values — see tool-search.ts for
+  // why these must be fixed for the session's life.
   toolAvailability?: ToolAvailability;
-  // When a goal governor is live, manage_goal mutates its acceptance checklist.
-  getGoalGovernor?: () => GoalGovernor | null;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -181,7 +177,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     getBlobReader,
     sessionMode = "orchestrator",
     shellEnv,
-    toolAvailability = { hasGoalAtLaunch: true, languageServerAvailable: true },
+    toolAvailability = { languageServerAvailable: true },
   } = args;
   const sessionBlobReader =
     getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
@@ -262,9 +258,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         return "Tasks updated.";
       },
     }),
-    ...(args.getGoalGovernor !== undefined
-      ? [createManageGoalTool(args.getGoalGovernor)]
-      : []),
     stringTool({
       definition: askOperatorDefinition,
       handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {

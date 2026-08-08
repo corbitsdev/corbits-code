@@ -6,8 +6,8 @@ export type OperatorGateEvent = {
   options: string[];
   resolve: (result: OperatorResult) => void;
   /**
-   * When set (goal mode active), auto-cancel if the operator has not answered
-   * within this many ms so an unattended goal cannot park on the modal forever.
+   * When set, auto-cancel if the operator has not answered within this many
+   * ms so an unattended auto-continue run cannot park on the modal forever.
    */
   timeoutMs?: number;
   /** Override the agent-facing cancel message on timeout. */
@@ -24,8 +24,8 @@ export type PermissionGateEvent = {
   request: PermissionRequest;
   resolve: (outcome: ApprovalOutcome) => void;
   /**
-   * When set (goal mode active), auto-deny if the operator has not answered
-   * within this many ms so an unattended goal cannot park on the modal forever.
+   * When set, auto-deny if the operator has not answered within this many ms
+   * so an unattended auto-continue run cannot park on the modal forever.
    */
   timeoutMs?: number;
   /** Override the agent-facing deny message on timeout. */

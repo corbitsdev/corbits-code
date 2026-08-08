@@ -7,8 +7,13 @@ import type { PermissionGateEvent } from "./gate-events.js";
 export type CreateGateRequestApprovalArgs = {
   /** Emits the gate event to the UI; returns false when nothing is listening. */
   emitGate: (event: PermissionGateEvent) => boolean;
-  /** Goal-mode auto-deny parameters, or undefined when no goal is active. */
-  goalTimeout: () => { timeoutMs: number; timeoutMessage: string } | undefined;
+  /**
+   * Auto-deny timeout parameters for an unattended run, or undefined when
+   * nothing currently arms it. No caller supplies a non-undefined value today
+   * — the goal subsystem was the only arming condition and has been removed;
+   * a future generalized auto-continue mechanism owns re-arming this.
+   */
+  approvalTimeout: () => { timeoutMs: number; timeoutMessage: string } | undefined;
 };
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
@@ -64,11 +69,11 @@ export function createGateRequestApproval(args: CreateGateRequestApprovalArgs): 
         tool: request.tool,
         kind: "permission",
       });
-      const goal = args.goalTimeout();
+      const timeout = args.approvalTimeout();
       const event: PermissionGateEvent = {
         request,
         resolve: finish,
-        ...(goal !== undefined ? goal : {}),
+        ...(timeout !== undefined ? timeout : {}),
         ...(signal !== undefined ? { signal } : {}),
       };
       if (!args.emitGate(event)) {

@@ -13,7 +13,7 @@ describe("session command registry setup", () => {
     expect(names).toContain("model");
     expect(names).toContain("settings");
     expect(names).toContain("clear");
-    expect(getCommand("goal")).toBeDefined();
+    expect(getCommand("cost")).toBeDefined();
   });
 
   test("applies hidden commands from settings", () => {

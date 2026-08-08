@@ -550,9 +550,7 @@ export type AppShell = {
   readonly topPad: BoxRenderable
   /** Blank row below the prompt box (0 on short terminals). */
   readonly bottomPad: BoxRenderable
-  /** Optional chrome zones (constitution goal/task/agents). */
-  readonly goalBox: BoxRenderable
-  readonly goalText: TextRenderable
+  /** Optional chrome zones (constitution task/agents). */
   readonly taskBox: BoxRenderable
   readonly taskText: TextRenderable
   /** One row per rendered agents-panel line; rebuilt whenever the line count changes. */
@@ -1612,10 +1610,6 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.root.paddingLeft = layout.sideMargin
   shell.root.paddingRight = layout.sideMargin
 
-  const goalH = Math.max(0, h.goal)
-  shell.goalBox.height = goalH > 0 ? goalH : 1
-  shell.goalBox.visible = goalH > 0
-
   const taskH = Math.max(0, h.task)
   shell.taskBox.height = taskH > 0 ? taskH : 1
   shell.taskBox.visible = taskH > 0
@@ -1691,7 +1685,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows the flow spends before the prompt box — where a floated host's bottom
   // edge has to land, since the landing's box sits mid-screen rather than at
   // the foot and covering it would hide the thing the operator types into.
-  const promptTop = padH + goalH + taskH + agentsH + transcriptBody
+  const promptTop = padH + taskH + agentsH + transcriptBody
   const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
   shell.overlayHost.height = hostH > 0 ? hostH : 1
@@ -1885,7 +1879,6 @@ type ShellInternals = {
   landingNowMs: number
   /** Chrome text content (empty = zone off). */
   chrome: {
-    goal: string
     task: string
     /** Agents panel rows (empty array = zone off), one row per rendered line. */
     agents: readonly AgentPanelRow[]
@@ -4089,19 +4082,6 @@ export function runPaletteAction(
       })
       return
     }
-    case "toggle_goal": {
-      const bag = internals.get(shell)
-      const on = (bag?.chrome.goal.length ?? 0) > 0
-      setChromeZones(shell, {
-        goal: on ? null : "goal: Wave 6 palette + long-log + chrome",
-      })
-      appendStreamRow(shell, {
-        role: "system",
-        text: on ? "goal banner off" : "goal banner on",
-        meta: "goal",
-      })
-      return
-    }
     case "toggle_task": {
       const bag = internals.get(shell)
       const on = (bag?.chrome.task.length ?? 0) > 0
@@ -4163,7 +4143,6 @@ export function runPaletteAction(
 }
 
 export type ChromeZoneContent = {
-  readonly goal?: string | null
   readonly task?: string | null
   /** One row per agents-panel line. Null/empty = hide the zone. */
   readonly agents?: readonly AgentPanelRow[] | null
@@ -4218,7 +4197,7 @@ function renderAgentsRows(
 }
 
 /**
- * Set agents/goal/task chrome zone content (null/empty = hide zone).
+ * Set agents/task chrome zone content (null/empty = hide zone).
  * Heights come from geometry resolve — never guessed.
  */
 export function setChromeZones(
@@ -4228,9 +4207,6 @@ export function setChromeZones(
   const bag = internals.get(shell)
   if (!bag) return
 
-  if (content.goal !== undefined) {
-    bag.chrome.goal = content.goal ?? ""
-  }
   if (content.task !== undefined) {
     bag.chrome.task = content.task ?? ""
   }
@@ -4251,14 +4227,12 @@ export function setChromeZones(
     bag.chrome.agents = next
   }
 
-  const goalOn = bag.chrome.goal.length > 0
   const taskOn = bag.chrome.task.length > 0
   const agentsRowCount = bag.chrome.agents.length
 
-  shell.goalText.content = goalOn ? ` ${bag.chrome.goal}` : ""
   shell.taskText.content = taskOn ? ` ${bag.chrome.task}` : ""
   // Rebuilding N TextRenderable children is real node churn; skip it unless
-  // the panel's actual lines changed (not every goal/task/agents push carries
+  // the panel's actual lines changed (not every task/agents push carries
   // new agent data).
   if (agentsChanged) {
     renderAgentsRows(shell, bag.chrome.agents, shell.layout.contentWidth)
@@ -4268,7 +4242,6 @@ export function setChromeZones(
   // row budget; retitling a zone whose row count is unchanged must not
   // re-resolve and re-apply the whole layout.
   if (
-    goalOn === bag.visibility.goal &&
     taskOn === bag.visibility.task &&
     agentsRowCount === bag.visibility.agents
   ) {
@@ -4279,7 +4252,6 @@ export function setChromeZones(
   relayout(shell, {
     visibility: {
       ...bag.visibility,
-      goal: goalOn,
       task: taskOn,
       agents: agentsRowCount,
     },
@@ -4941,21 +4913,6 @@ export function createAppShell(
   })
 
   // Optional chrome zones (off by default; setChromeZones turns them on).
-  const goalBox = new BoxRenderable(ctx, {
-    id: "shell-goal",
-    width: "100%",
-    height: 1,
-    flexShrink: 0,
-    backgroundColor: UI.ground,
-    visible: false,
-  })
-  const goalText = new TextRenderable(ctx, {
-    id: "shell-goal-text",
-    content: "",
-    fg: UI.text,
-  })
-  goalBox.add(goalText)
-
   const taskBox = new BoxRenderable(ctx, {
     id: "shell-task",
     width: "100%",
@@ -5112,7 +5069,6 @@ export function createAppShell(
   promptBox.add(promptBottomRule)
 
   root.add(topPad)
-  root.add(goalBox)
   root.add(taskBox)
   root.add(agentsBox)
   root.add(transcript)
@@ -5618,8 +5574,6 @@ export function createAppShell(
     root,
     topPad,
     bottomPad,
-    goalBox,
-    goalText,
     taskBox,
     taskText,
     agentsBox,
@@ -5719,7 +5673,7 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
-    chrome: { goal: "", task: "", agents: [] },
+    chrome: { task: "", agents: [] },
   })
   transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)

@@ -257,7 +257,7 @@ describe("attachSessionBridge", () => {
   })
 
   test("run and the phase ramp both return to idle after a tool-less inference.done, with no connector.reply", async () => {
-    // Regression: a goal-governor / workflow cycle that keeps self-continuing
+    // Regression: a self-continuing workflow cycle
     // may never emit connector.reply, the only other event that clears
     // `run` and the turn's `isProcessing`. Without this, every future Enter
     // resolves to "queue" (busy is sticky) and, once the workflow stops

@@ -9,19 +9,18 @@ Platform kit for the OpenTUI shell on the `migration/opentui-tui` branch. Pure T
 | `geometry/` | Pure zone registry + `resolveGeometry` |
 | `focus/` | Focus tree + scroll lease state machine |
 | `list-viewport.ts` | Pure list windowing kit |
-| `chrome-state.ts` | Live goal/task/agents → `setChromeZones` lines |
+| `chrome-state.ts` | Live task/agents → `setChromeZones` lines |
 | `shell.ts` | App shell frame (`createAppShell`) — OpenTUI **core class** API |
 
 ## Live chrome zones
 
-Product host owns goal / work / subagent state and pushes snapshots (event or poll):
+Product host owns task / subagent state and pushes snapshots (event or poll):
 
 ```ts
 import { formatChromeZones, setChromeZones } from "./index"
 
-// On goal/task/subagent change:
+// On task/subagent change:
 setChromeZones(shell, formatChromeZones({
-  goal: { title: "ship cutover", phase: "implementing", status: "active" },
   task: { title: "wire host", status: "doing", remaining: 1 },
   agents: [{ agentId: "explore", description: "map callers", status: "running" }],
 }))

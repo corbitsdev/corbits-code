@@ -275,7 +275,7 @@ describe("Wave 6: long-log windowing", () => {
 })
 
 describe("Wave 6: chrome zones", () => {
-  test("goal / task / agents measured via geometry (not guessed)", async () => {
+  test("task / agents measured via geometry (not guessed)", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -283,21 +283,17 @@ describe("Wave 6: chrome zones", () => {
           wireKeys: false,
         })
         try {
-          expect(shell.layout.heights.goal).toBe(0)
           expect(shell.layout.heights.task).toBe(0)
           expect(shell.layout.heights.agents).toBe(0)
-          expect(shell.goalBox.visible).toBe(false)
+          expect(shell.taskBox.visible).toBe(false)
 
           setChromeZones(shell, {
-            goal: "goal: Wave 6",
             task: "task: chrome zones",
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
-          expect(shell.layout.heights.goal).toBe(1)
           expect(shell.layout.heights.task).toBe(1)
           expect(shell.layout.heights.agents).toBe(1)
-          expect(shell.goalBox.visible).toBe(true)
           expect(shell.taskBox.visible).toBe(true)
           expect(shell.agentsBox.visible).toBe(true)
           // Transcript still holds constitution floor when possible
@@ -305,13 +301,12 @@ describe("Wave 6: chrome zones", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("goal: Wave 6")
           expect(frame).toContain("task: chrome zones")
           expect(frame).toContain("explore: map callers")
 
-          setChromeZones(shell, { goal: null, task: null, agents: null })
-          expect(shell.layout.heights.goal).toBe(0)
-          expect(shell.goalBox.visible).toBe(false)
+          setChromeZones(shell, { task: null, agents: null })
+          expect(shell.layout.heights.task).toBe(0)
+          expect(shell.taskBox.visible).toBe(false)
           expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
             IDLE_TRANSCRIPT_FLOOR,
           )
@@ -337,8 +332,8 @@ describe("Wave 6: chrome zones", () => {
           const rowsBefore = [...shell.agentsBox.getChildren()]
           expect(rowsBefore).toHaveLength(1)
 
-          // An unrelated goal push must not touch the agents rows.
-          setChromeZones(shell, { goal: "goal: unrelated" })
+          // An unrelated task push must not touch the agents rows.
+          setChromeZones(shell, { task: "task: unrelated" })
           expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
 
           // Pushing the exact same agent lines again must not rebuild either.

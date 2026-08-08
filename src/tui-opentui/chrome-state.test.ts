@@ -4,7 +4,6 @@ import {
   chromeFromSession,
   formatAgentsPanel,
   formatChromeZones,
-  formatGoalLine,
   formatTaskLine,
   type ChromeLiveState,
 } from "./chrome-state"
@@ -14,53 +13,29 @@ const NOW = 1_000_000
 describe("formatChromeZones", () => {
   test("empty state hides all zones", () => {
     expect(formatChromeZones({})).toEqual({
-      goal: null,
       task: null,
       agents: null,
     })
     expect(
       formatChromeZones({
-        goal: null,
         task: null,
         agents: null,
         observe: null,
       }),
     ).toEqual({
-      goal: null,
       task: null,
       agents: null,
     })
   })
 
-  test("partial: goal only", () => {
-    const out = formatChromeZones({
-      goal: {
-        title: "Wave 7 residual surfaces",
-        phase: "implementing",
-        status: "active",
-        progress: { done: 1, total: 3 },
-      },
-    })
-    expect(out.goal).toBe("goal: impl · 1/3 · Wave 7 residual surfaces")
-    expect(out.task).toBeNull()
-    expect(out.agents).toBeNull()
-  })
-
   test("partial: task string only", () => {
     const out = formatChromeZones({ task: "cutover readiness" })
-    expect(out.goal).toBeNull()
     expect(out.task).toBe("task: cutover readiness")
     expect(out.agents).toBeNull()
   })
 
-  test("full state formats all three zones", () => {
+  test("full state formats both zones", () => {
     const state: ChromeLiveState = {
-      goal: {
-        title: "1:1 OpenTUI cutover",
-        phase: "reviewing",
-        status: "active",
-        progress: { done: 2, total: 4 },
-      },
       task: {
         title: "chrome live helper",
         status: "doing",
@@ -83,7 +58,6 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    expect(out.goal).toBe("goal: review · 2/4 · 1:1 OpenTUI cutover")
     expect(out.task).toBe("task: chrome live helper (+2)")
     expect(out.agents).toEqual([
       {
@@ -118,44 +92,6 @@ describe("formatChromeZones", () => {
         stalled: false,
       },
     ])
-  })
-})
-
-describe("formatGoalLine", () => {
-  test("null / empty / inactive hide", () => {
-    expect(formatGoalLine(null)).toBeNull()
-    expect(formatGoalLine(undefined)).toBeNull()
-    expect(formatGoalLine({ title: "   " })).toBeNull()
-    expect(
-      formatGoalLine({ title: "x", status: "inactive" }),
-    ).toBeNull()
-    expect(formatGoalLine({ title: "x", status: "cleared" })).toBeNull()
-  })
-
-  test("achieved freezes completed label", () => {
-    expect(
-      formatGoalLine({
-        title: "ship cutover",
-        status: "achieved",
-        phase: "completed",
-      }),
-    ).toBe("goal: completed · ship cutover")
-  })
-
-  test("paused surfaces status", () => {
-    expect(
-      formatGoalLine({
-        title: "ship cutover",
-        phase: "implementing",
-        status: "paused",
-      }),
-    ).toBe("goal: impl · paused · ship cutover")
-  })
-
-  test("title only", () => {
-    expect(formatGoalLine({ title: "solo brief" })).toBe(
-      "goal: solo brief",
-    )
   })
 })
 
@@ -334,18 +270,8 @@ describe("formatAgentsPanel", () => {
 })
 
 describe("chromeFromSession", () => {
-  test("maps goal governor / tasks / agents loosely", () => {
+  test("maps tasks / agents loosely", () => {
     const state = chromeFromSession({
-      goal: {
-        brief: "ship cutover",
-        status: "active",
-        phase: "implementing",
-        criteria: [
-          { status: "done" },
-          { status: "todo" },
-          { status: "cancelled" },
-        ],
-      },
       tasks: [
         { title: "wire catalogs", status: "doing" },
         { title: "export index", status: "todo" },
@@ -360,12 +286,6 @@ describe("chromeFromSession", () => {
       ],
     })
 
-    expect(state.goal).toEqual({
-      title: "ship cutover",
-      status: "active",
-      phase: "implementing",
-      progress: { done: 1, total: 2 },
-    })
     expect(state.task).toEqual([
       { title: "wire catalogs", status: "doing" },
       { title: "export index", status: "todo" },
@@ -380,16 +300,14 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    expect(zones.goal).toBe("goal: impl · 1/2 · ship cutover")
     expect(zones.task).toBe("task: wire catalogs (+1)")
     expect(zones.agents).toEqual([
       { label: "explore: map callers", tail: " · grep", stalled: false },
     ])
   })
 
-  test("falls back agent id and goal condition; empty bags hide", () => {
+  test("falls back agent id; empty bags hide", () => {
     const state = chromeFromSession({
-      goal: { condition: "all tests green", status: "active" },
       tasks: [],
       agents: [
         {
@@ -399,17 +317,14 @@ describe("chromeFromSession", () => {
         },
       ],
     })
-    expect(state.goal?.title).toBe("all tests green")
     expect(state.task).toBeNull()
     expect(state.agents?.[0]?.agentId).toBe("sess-1")
   })
 
-  test("null goal clears; observe passes through", () => {
+  test("observe passes through", () => {
     const state = chromeFromSession({
-      goal: null,
       observe: { agentId: "explore", description: "watch" },
     })
-    expect(state.goal).toBeNull()
     expect(state.observe).toEqual({
       agentId: "explore",
       description: "watch",

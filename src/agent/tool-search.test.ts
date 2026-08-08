@@ -13,11 +13,9 @@ import {
 } from "./tool-search.js";
 
 const FULL_AVAILABILITY: ToolAvailability = {
-  hasGoalAtLaunch: true,
   languageServerAvailable: true,
 };
 const NO_AVAILABILITY: ToolAvailability = {
-  hasGoalAtLaunch: false,
   languageServerAvailable: false,
 };
 
@@ -82,21 +80,12 @@ describe("createToolIndex", () => {
     expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
   });
 
-  test("manage_goal is advertised only when the session starts with a goal", () => {
-    expect(
-      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: true, languageServerAvailable: true }),
-    ).toContain("manage_goal");
-    expect(
-      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: true }),
-    ).not.toContain("manage_goal");
-  });
-
   test("lsp is advertised only when a language server was detected at startup", () => {
     expect(
-      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: true }),
+      coreToolNamesForSessionMode("orchestrator", { languageServerAvailable: true }),
     ).toContain("lsp");
     expect(
-      coreToolNamesForSessionMode("orchestrator", { hasGoalAtLaunch: false, languageServerAvailable: false }),
+      coreToolNamesForSessionMode("orchestrator", { languageServerAvailable: false }),
     ).not.toContain("lsp");
   });
 
@@ -243,7 +232,6 @@ describe("advertisedTools", () => {
     // re-evaluated per turn — simulate several turns by calling with the same
     // captured prefix and confirm the wire array never drifts.
     const prefix = advertisedToolNamesForSessionMode("orchestrator", {
-      hasGoalAtLaunch: false,
       languageServerAvailable: true,
     });
     const turn1 = JSON.stringify(advertisedTools(registry, [], prefix));

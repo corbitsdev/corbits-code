@@ -14,7 +14,7 @@ const request: PermissionRequest = {
   scopes: [],
 };
 
-const noGoal = () => undefined;
+const noTimeout = () => undefined;
 
 describe("createGateRequestApproval", () => {
   test("denies immediately when no gate listener exists", async () => {
@@ -26,7 +26,7 @@ describe("createGateRequestApproval", () => {
       async () => {
         const requestApproval = createGateRequestApproval({
           emitGate: () => false,
-          goalTimeout: noGoal,
+          approvalTimeout: noTimeout,
         });
         outcome = await requestApproval(request);
         const budget = getToolApprovalBudget();
@@ -54,7 +54,7 @@ describe("createGateRequestApproval", () => {
             captured = event;
             return true;
           },
-          goalTimeout: noGoal,
+          approvalTimeout: noTimeout,
         });
         const pending = requestApproval(request);
         // Longer than the budget — frozen while the prompt is open.
@@ -72,18 +72,18 @@ describe("createGateRequestApproval", () => {
     expect(captured?.signal).toBeDefined();
   });
 
-  test("attaches goal timeout parameters to the gate event", async () => {
+  test("attaches auto-deny timeout parameters to the gate event", async () => {
     let captured: PermissionGateEvent | undefined;
     const requestApproval = createGateRequestApproval({
       emitGate: (event) => {
         captured = event;
         return true;
       },
-      goalTimeout: () => ({ timeoutMs: 15_000, timeoutMessage: "goal skip" }),
+      approvalTimeout: () => ({ timeoutMs: 15_000, timeoutMessage: "auto-deny skip" }),
     });
     const pending = requestApproval(request);
     expect(captured?.timeoutMs).toBe(15_000);
-    expect(captured?.timeoutMessage).toBe("goal skip");
+    expect(captured?.timeoutMessage).toBe("auto-deny skip");
     captured?.resolve({ allow: false });
     await pending;
   });
@@ -95,7 +95,7 @@ describe("createGateRequestApproval", () => {
         captured = event;
         return true;
       },
-      goalTimeout: noGoal,
+      approvalTimeout: noTimeout,
     });
     const pending = requestApproval(request);
     expect(captured?.signal).toBeUndefined();

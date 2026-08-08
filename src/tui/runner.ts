@@ -120,20 +120,12 @@ import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/type
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
-import { createGoalGovernor } from "../agent/goal.js";
-import { createGoalEvaluator } from "../agent/goal-evaluator.js";
-import { loadGoalState, saveGoalState } from "../session/goal-state.js";
 import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin.js";
 import type { GrantScope } from "../permission/types.js";
-import {
-  DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
-  goalApprovalTimeoutMessage,
-  isGoalApprovalTimeoutActive,
-} from "../permission/goal-approval-timeout.js";
 
 import { createAgentToolset, type MCPServerState, type OperatorResult } from "../agent/tools.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
@@ -645,24 +637,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     err instanceof Error && err.name === "XaiAuthError";
 
   const activeProviderModel = `${config.providerName}:${config.model}`;
-  // Goal governor is created after liveSource (evaluator closure); the gate
-  // holds a ref so requestApproval can arm a timeout once a goal is active.
-  const goalGovernorRef: { current: ReturnType<typeof createGoalGovernor> | null } = {
-    current: null,
-  };
 
   // Shared by the permission gate and every operator-gate emission site: an
-  // unattended goal-mode run must not park on any gate forever, whichever
-  // kind it is.
-  const goalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined => {
-    const snap = goalGovernorRef.current?.get() ?? null;
-    return isGoalApprovalTimeoutActive(snap?.status)
-      ? {
-          timeoutMs: DEFAULT_GOAL_APPROVAL_TIMEOUT_MS,
-          timeoutMessage: goalApprovalTimeoutMessage(DEFAULT_GOAL_APPROVAL_TIMEOUT_MS),
-        }
-      : undefined;
-  };
+  // unattended auto-continue run must not park on any gate forever, whichever
+  // kind it is. No caller arms this today — the goal subsystem was the only
+  // source of an auto-deny/auto-cancel deadline and has been removed. The
+  // timeout plumbing (gate-events.ts / request-approval.ts, and every
+  // OperatorGateEvent/PermissionGateEvent emission site below) stays for a
+  // future generalized auto-continue mechanism to re-arm by giving this a
+  // real body again.
+  const approvalTimeout = (): { timeoutMs: number; timeoutMessage: string } | undefined =>
+    undefined;
 
   const seededApprovals = await loadSeededApprovals(config.cwd, sessionId);
   const permissionGate = createPermissionGate({
@@ -673,7 +658,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     model: config.model,
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
-      goalTimeout,
+      approvalTimeout,
     }),
     persist: createApprovalPersist(config.cwd, activeProviderModel),
     interactive: true,
@@ -681,7 +666,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     auto: config.auto,
     onGrant: (approval, covers) => emitter.emit("permission.grant", { approval, covers }),
   });
-
 
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
@@ -1050,13 +1034,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (refreshed !== null) config = { ...config, settings: refreshed };
     }
   }
-  // Loaded once, here, so both the wire tools array and the goal governor's
-  // restore (below) agree on the same snapshot — the file is only ever
-  // written for an active/paused/budget-limited goal, so non-null means the
-  // session starts with one.
-  const persistedGoalAtLaunch = await loadGoalState(config.cwd, sessionId);
   const toolAvailability: ToolAvailability = {
-    hasGoalAtLaunch: persistedGoalAtLaunch !== null,
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
   };
   const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(liveSessionMode, toolAvailability);
@@ -1077,7 +1055,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
-    getGoalGovernor: () => goalGovernorRef.current,
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
@@ -1085,12 +1062,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           tool: "ask_operator",
           kind: "operator",
         });
-        const goal = goalTimeout();
+        const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           question,
           options,
           resolve: finish,
-          ...(goal !== undefined ? goal : {}),
+          ...(timeout !== undefined ? timeout : {}),
           ...(signal !== undefined ? { signal } : {}),
         };
         emitter.emit("operator.gate", event);
@@ -1107,7 +1084,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           tool: `mcp:${server.name}`,
           kind: "operator",
         });
-        const goal = goalTimeout();
+        const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           question:
             `Trust local MCP server "${server.name}" for this project?`
@@ -1118,7 +1095,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
                 : ""),
           options: ["Trust and connect", "Deny"],
           resolve: finish,
-          ...(goal !== undefined ? goal : {}),
+          ...(timeout !== undefined ? timeout : {}),
           ...(signal !== undefined ? { signal } : {}),
         };
         emitter.emit("operator.gate", event);
@@ -1212,7 +1189,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
         provider: { providerName: config.providerName, model: config.model },
       });
-      d.setGoalGovernor(goalGovernor);
       directorHolder.instance = d;
       return d;
     },
@@ -1292,44 +1268,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         : buildOpenAICompatibleInitialSource();
   }
 
-  // Goal governor survives director rebuilds; reattached in the factory below.
-  // Evaluator runs on the live session model.
-  const goalGovernor = createGoalGovernor({
-    evaluate: createGoalEvaluator({
-      getSource: () => liveSource,
-      deps: inferenceDeps,
-    }),
-    onChange: (snap) => {
-      emitter.emit("goal", snap.status === "inactive" || snap.status === "cleared" ? null : snap);
-      void saveGoalState(
-        config.cwd,
-        sessionId,
-        snap.status === "inactive" || snap.status === "cleared"
-          ? null
-          : {
-              status: snap.status,
-              condition: snap.condition,
-              brief: snap.brief,
-              criteria: snap.criteria,
-              startedAt: snap.startedAt,
-              ...(snap.completedAt !== undefined ? { completedAt: snap.completedAt } : {}),
-              turnBudget: snap.turnBudget,
-              turnsUsed: snap.turnsUsed,
-              ...(snap.tokenBudget !== undefined ? { tokenBudget: snap.tokenBudget } : {}),
-              mainTokens: snap.mainTokens,
-              evalTokens: snap.evalTokens,
-              ...(snap.lastReason !== undefined ? { lastReason: snap.lastReason } : {}),
-            },
-      );
-    },
-  });
-  goalGovernorRef.current = goalGovernor;
-
-  // Resume restores condition as paused so autonomy is never silently re-armed.
-  if (persistedGoalAtLaunch !== null) {
-    goalGovernor.restore(persistedGoalAtLaunch);
-  }
-
   // Compaction summarizer: produces a structured, workflow-aware handoff via a
   // one-shot call on the live model, falling back to the deterministic summary
   // on any failure. The workflow context is read at call time so a compaction
@@ -1337,10 +1275,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const compactionSummarize = createModelSummarizer({ getSource: () => liveSource, deps: inferenceDeps });
   const summarizeForCompaction = (turns: Parameters<typeof compactionSummarize>[0]): Promise<string> => {
     const status = workflowController.status();
-    const goalSnap = goalGovernor.get();
-    const goalActive =
-      goalSnap !== null &&
-      (goalSnap.status === "active" || goalSnap.status === "paused" || goalSnap.status === "budget_limited");
     return compactionSummarize(turns, {
       ...(status.active
         ? {
@@ -1349,22 +1283,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               stepLabel: status.label,
               stepIndex: status.stepIndex,
               total: status.total,
-            },
-          }
-        : {}),
-      ...(goalActive
-        ? {
-            goal: {
-              condition: goalSnap.condition,
-              status: goalSnap.status,
-              brief: goalSnap.brief,
-              ...(goalSnap.criteria.length > 0
-                ? {
-                    criteriaSummary: goalSnap.criteria
-                      .map((c) => `[${c.status}] ${c.title}`)
-                      .join("; "),
-                  }
-                : {}),
             },
           }
         : {}),
@@ -1724,9 +1642,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         cycleRecorder.reset();
         streamPromise = consumeStream(currentAgent.stream(), streamSink);
         await persistRunSnapshot("running");
-        // A fresh session drops any active workflow and goal.
+        // A fresh session drops any active workflow.
         workflowController.reset();
-        goalGovernor.clear();
         fatalBuildError = null;
       } catch (err) {
         recordRunError(err);
@@ -1830,13 +1747,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
       void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
       return undefined;
-    },
-    goal: {
-      get: () => goalGovernor.get(),
-      set: (condition, opts) => goalGovernor.set(condition, opts),
-      pause: () => goalGovernor.pause(),
-      resume: (opts) => goalGovernor.resume(opts),
-      clear: () => goalGovernor.clear(),
     },
   };
 
@@ -2109,7 +2019,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       dispatchCommand(commandName, rest.join(" "));
     },
     chrome: () => ({
-      goal: goalGovernor.get(),
       tasks: directorHolder.instance?.getTasks() ?? null,
       agents: subAgentSessions.listForStrip().map((s) => ({
         agentId: s.agentId,
@@ -2123,11 +2032,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }),
     subscribeChrome: (notify) => {
       const unsubscribeAgents = subAgentSessions.subscribe(notify);
-      emitter.on("goal", notify);
       emitter.on("tasks", notify);
       return () => {
         unsubscribeAgents();
-        emitter.off("goal", notify);
         emitter.off("tasks", notify);
       };
     },

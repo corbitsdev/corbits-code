@@ -28,7 +28,6 @@ describe("zone registry", () => {
       "progress_divider",
       "notice",
       "prompt",
-      "goal",
       "task",
       "agents",
       "plugin_banner",
@@ -49,7 +48,6 @@ describe("zone registry", () => {
     expect(ZONE_REGISTRY.prompt.min).toBe(PROMPT_BASE_ROWS);
     expect(ZONE_REGISTRY.notice.alwaysOn).toBe(false);
     expect(ZONE_REGISTRY.progress.idleDefault).toBe(0);
-    expect(ZONE_REGISTRY.goal.idleDefault).toBe(0);
   });
 
   test("collapse order cuts temporary banners first and never cuts the prompt below base", () => {
@@ -93,7 +91,7 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 
   test("transcriptHeight matches regions.transcript.height", () => {
     const layout = idle80x24({
-      visibility: { progress: true, goal: true },
+      visibility: { progress: true },
     });
     expect(layout.regions.transcript?.height).toBe(layout.transcriptHeight);
   });
@@ -152,7 +150,6 @@ describe("resolveGeometry — collapse rules", () => {
       visibility: {
         progress: 2,
         progressDivider: true,
-        goal: true,
         task: true,
         agents: true,
         pluginBanner: true,
@@ -175,7 +172,6 @@ describe("resolveGeometry — collapse rules", () => {
       visibility: {
         progress: 2,
         progressDivider: true,
-        goal: true,
         task: true,
         agents: true,
         pluginBanner: true,
@@ -196,7 +192,6 @@ describe("resolveGeometry — collapse rules", () => {
       visibility: {
         progress: 2,
         progressDivider: true,
-        goal: true,
         task: true,
         agents: true,
         commandBanner: 2,
@@ -213,7 +208,6 @@ describe("resolveGeometry — collapse rules", () => {
       visibility: {
         progress: 2,
         progressDivider: true,
-        goal: true,
         task: true,
         agents: true,
         pluginBanner: true,
@@ -223,11 +217,9 @@ describe("resolveGeometry — collapse rules", () => {
     });
     const noticeIdx = layout.collapsed.indexOf("notice");
     if (noticeIdx >= 0) {
-      const goalIdx = layout.collapsed.indexOf("goal");
       const cmdIdx = layout.collapsed.indexOf("command_banner");
       expect(cmdIdx).toBeGreaterThanOrEqual(0);
       expect(cmdIdx).toBeLessThan(noticeIdx);
-      if (goalIdx >= 0) expect(goalIdx).toBeLessThan(noticeIdx);
     }
   });
 });
@@ -249,7 +241,6 @@ describe("resolveGeometry — prompt growth", () => {
       visibility: {
         progress: 2,
         progressDivider: true,
-        goal: true,
         task: true,
         agents: true,
         commandBanner: 2,

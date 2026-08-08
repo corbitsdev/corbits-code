@@ -8,7 +8,6 @@ export const ZONE_IDS = [
   "progress_divider",
   "notice",
   "prompt",
-  "goal",
   "task",
   "agents",
   "plugin_banner",
@@ -68,7 +67,6 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     idleDefault: 5,
     alwaysOn: true,
   },
-  goal: { id: "goal", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
   // One row per running agent (bounded by AGENTS_PANEL_MAX_VISIBLE) plus an
   // optional trailing "+N more" row.
@@ -160,7 +158,6 @@ export const COLLAPSE_ORDER = [
   "command_banner",
   "settings_notice",
   "plugin_banner",
-  "goal",
   "task",
   "agents",
   "progress",
@@ -175,7 +172,6 @@ export const COLLAPSE_ORDER = [
  * Transcript is residual in the middle; the prompt box is the last thing painted.
  */
 export const PAINT_ORDER = [
-  "goal",
   "task",
   "agents",
   "transcript",

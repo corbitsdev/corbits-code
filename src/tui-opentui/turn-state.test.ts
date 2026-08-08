@@ -173,8 +173,8 @@ describe("turnStateFromEvent", () => {
   })
 
   test("inference.done with no active tool calls settles the turn", () => {
-    // Regression for CL-5563/CL-5570: a workflow/goal-governor cycle that
-    // keeps self-continuing may never emit connector.reply, the usual
+    // Regression for CL-5563/CL-5570: a self-continuing workflow cycle
+    // may never emit connector.reply, the usual
     // terminator. Without settling here too, isProcessing (and the "working"
     // ramp it drives) stays true forever once nothing else arrives.
     const s = fold([

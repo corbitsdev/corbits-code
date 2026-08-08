@@ -15,7 +15,6 @@ export type PaletteActionId =
   | "permissions"
   | "operator"
   | "model_picker"
-  | "toggle_goal"
   | "toggle_task"
   | "toggle_agents"
   | "copy_active"
@@ -28,7 +27,6 @@ const RESIDUAL_ACTION_IDS = new Set<string>([
   "permissions",
   "operator",
   "model_picker",
-  "toggle_goal",
   "toggle_task",
   "toggle_agents",
   "copy_active",
@@ -86,12 +84,6 @@ export const DEFAULT_PALETTE_COMMANDS: readonly PaletteCommand[] = [
     id: "model_picker",
     label: "Switch model / provider",
     keywords: ["model", "provider", "anthropic", "openai"],
-    dispatch: "residual",
-  },
-  {
-    id: "toggle_goal",
-    label: "Toggle goal chrome",
-    keywords: ["goal", "chrome", "zone"],
     dispatch: "residual",
   },
   {

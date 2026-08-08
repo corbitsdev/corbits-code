@@ -316,11 +316,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const subAgentSessions = createSubAgentSessionStore();
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
-    // Exec has no goal governor (headless — no /goal), so a goal never starts
-    // at launch here. lsp is still worth detecting: exec sessions read/edit
-    // TypeScript projects same as the TUI.
     const toolAvailability: ToolAvailability = {
-      hasGoalAtLaunch: false,
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     };
 

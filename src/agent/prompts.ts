@@ -11,7 +11,6 @@ import {
 // (tests, ad-hoc prompt previews). Real sessions always pass their detected
 // availability — see tui/runner.ts and exec/runner.ts.
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
-  hasGoalAtLaunch: true,
   languageServerAvailable: true,
 };
 import { PRODUCT_NAME, SETTINGS_DIR_NAME } from "../branding.js";
@@ -128,7 +127,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
           "- Preserve unrelated user edits; never revert changes you did not make unless the brief requires it.",
         ]
       : [
-          "- Clear, bounded coding requests: proceed autonomously; use ask_operator only when permission blocks you or the goal is genuinely ambiguous (missing repro, conflicting instructions, destructive choice).",
+          "- Clear, bounded coding requests: proceed autonomously; use ask_operator only when permission blocks you or the request is genuinely ambiguous (missing repro, conflicting instructions, destructive choice).",
           "- Questions, reviews, and product/visual feedback: answer or diagnose first; do not edit until the user wants a change.",
           "- Preserve unrelated user edits; never revert changes you did not make unless asked.",
           "- Unexpected changes in files you did not touch: stop and ask_operator.",
@@ -207,10 +206,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
   search_agents:
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
-  manage_tasks:
-    "maintain Work checklist — create/replace, update status, append, cancel; under /goal this is Work (steps), not Acceptance; primary surface during implementing",
-  manage_goal:
-    "define/update Acceptance checklist (what done means) while /goal is set — planning first; mark done/blocked only when verified (that enters reviewing); not a work plan (use manage_tasks)",
+  manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
