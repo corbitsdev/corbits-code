@@ -8,6 +8,7 @@ import { type } from "arktype";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { isSessionMode, type SessionMode } from "./session-mode.js";
+import { resolveDefaultModel } from "./providers.js";
 import {
   OPENCODE_GO_BASE_URL,
   isOpenCodeGoProvider,
@@ -1071,7 +1072,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const baseURL = go ? OPENCODE_GO_BASE_URL : selected?.baseURL;
   const apiKey = selected?.apiKey;
   const keyless = selected?.keyless === true;
-  const model = cli.model ?? local?.model ?? selected?.defaultModel ?? selected?.models[0];
+  const model = cli.model ?? local?.model ?? resolveDefaultModel(selected);
 
   // A provider name was selected (from local file or defaultProvider) but is not
   // actually configured — distinguish this from "nothing configured at all" so

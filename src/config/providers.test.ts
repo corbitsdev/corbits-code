@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { OPENCODE_GO_BASE_URL } from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
-import { buildProviderEntry } from "./providers.js";
+import { buildProviderEntry, resolveDefaultModel } from "./providers.js";
 
 const baseCatalog: ProviderCatalogEntry[] = [
   {
@@ -267,5 +267,29 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     if (!result.ok) return;
     expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
     expect(result.entry.opencodeGo).toBe(true);
+  });
+});
+
+describe("resolveDefaultModel", () => {
+  test("returns defaultModel when present and non-empty", () => {
+    expect(resolveDefaultModel({ defaultModel: "gpt-4o", models: ["gpt-4o", "gpt-4o-mini"] })).toBe(
+      "gpt-4o",
+    );
+  });
+
+  test("falls back to models[0] when defaultModel is absent", () => {
+    expect(resolveDefaultModel({ models: ["gpt-4o", "gpt-4o-mini"] })).toBe("gpt-4o");
+  });
+
+  test("falls back to models[0] when defaultModel is empty", () => {
+    expect(resolveDefaultModel({ defaultModel: "", models: ["gpt-4o"] })).toBe("gpt-4o");
+  });
+
+  test("returns undefined for an undefined entry", () => {
+    expect(resolveDefaultModel(undefined)).toBeUndefined();
+  });
+
+  test("returns undefined when entry has no models and no defaultModel", () => {
+    expect(resolveDefaultModel({ models: [] })).toBeUndefined();
   });
 });
