@@ -14,19 +14,19 @@ The reactor (from `@intx/agent`) drives a single agent turn-by-turn. Each turn i
 
 This repeats until the director emits `capabilities.done()`.
 
-### Events this section talks about
+### Reactor Events (Partial)
 
 This table is not the full reactor/stream event vocabulary. `tool.done` is
 here because the sub-sections below reference it; `inference.done` and
-`reactor.done` are the two events `src/agent/reactor-events.ts` exports
-guards for (`onTurnBoundary` / `onReactorShutdown`) — see the paragraph
-after the table. The complete set of reactor and stream event types the TUI
-maps is `PRODUCTION_REACTOR_TYPES` in
-`src/tui-opentui/stream-event-map.ts:62-78` (15 types as of this writing,
-including `message.received`, `inference.start`, `inference.text.delta`,
-`inference.tool_call.start` / `.delta` / `.end`, `tool.start`, and
-`connector.reply`) — treat that as canonical rather than this table or any
-other doc's partial list.
+`reactor.done` are the two events that `src/agent/reactor-events.ts`
+exports guards for (`onTurnBoundary` / `onReactorShutdown`) — see the
+paragraph after the table. The complete set of reactor and stream event
+types the TUI maps is `PRODUCTION_REACTOR_TYPES` in
+`src/tui-opentui/stream-event-map.ts:62-78` (covering `message.received`,
+`inference.start`, `inference.text.delta`, `inference.tool_call.start` /
+`.delta` / `.end`, `tool.start`, and `connector.reply`, among others) —
+treat that as canonical rather than this table or any other doc's partial
+list.
 
 | Event | When it fires |
 |---|---|
@@ -127,7 +127,7 @@ Defaults are permissive (12 / 20 turn-only thresholds, 5-minute stall timeout) s
 
 #### Main-session loop protection
 
-The ChatDirector counts consecutive assistant turns that contain tool calls and no text (`toolOnlyStreak`), reset by any turn with text and by every fresh operator message. A dismissed `ask_operator` counts as a no-progress, tool-only turn — the decline path does not reset the streak. At `toolOnlyTurnNudgeAt` the director arms a one-shot ephemeral wrap-up nudge; at `toolOnlyTurnPauseAt` it stops issuing infers entirely and replies with a loud, operator-facing pause message ("Auto-paused after N consecutive tool-only turns... Send a message to resume"), using the same `capabilities.reply()` channel the workflow-stall message already uses to reach the TUI — no new director-to-UI channel was needed. Because a turn with pending `tool_call` blocks must be followed by tool results before anything else (a bare nudge turn on top of pending tool calls is a provider-invalid conversation), both the nudge and the pause are applied by rewriting the `infer` action that follows once those pending tools have resolved — the same one-shot rewrite shape as the sub-agent report-forced wiring below. This loop-protection rewrite runs with the **highest precedence** among the terminal/continuation rewrites in `decideInner`: it is checked before the workflow-idle, open-task, and goal-governor continuation nudges, since those exist to keep a session moving — exactly the behavior the pause guards against. Resuming is just the operator sending a new message, which resets the streak and un-pauses through the same reset path as the other nudge budgets.
+The ChatDirector counts consecutive assistant turns that contain tool calls and no text (`toolOnlyStreak`), reset by any turn with text and by every fresh operator message. A dismissed `ask_operator` counts as a no-progress, tool-only turn — the decline path does not reset the streak. At `toolOnlyTurnNudgeAt` the director arms a one-shot ephemeral wrap-up nudge; at `toolOnlyTurnPauseAt` it stops issuing infers entirely and replies with a loud, operator-facing pause message ("Auto-paused: the model ran N steps in a row without explaining its progress. Send a message to resume", `src/agent/director.ts:424-426`), using the same `capabilities.reply()` channel the workflow-stall message already uses to reach the TUI — no new director-to-UI channel was needed. Because a turn with pending `tool_call` blocks must be followed by tool results before anything else (a bare nudge turn on top of pending tool calls is a provider-invalid conversation), both the nudge and the pause are applied by rewriting the `infer` action that follows once those pending tools have resolved — the same one-shot rewrite shape as the sub-agent report-forced wiring below. This loop-protection rewrite runs with the **highest precedence** among the terminal/continuation rewrites in `decideInner`: it is checked before the workflow-idle, open-task, and goal-governor continuation nudges, since those exist to keep a session moving — exactly the behavior the pause guards against. Resuming is just the operator sending a new message, which resets the streak and un-pauses through the same reset path as the other nudge budgets.
 
 #### Sub-agent stall management
 

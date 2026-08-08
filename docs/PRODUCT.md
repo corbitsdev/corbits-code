@@ -92,7 +92,7 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ### Stall (tool-only turns with no narration)
 
-**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a one-shot nudge to explain itself, if the pattern continues the session **auto-pauses**: it stops issuing new inferences and replies with a message like "Auto-paused after N consecutive tool-only turns... Send a message to resume." The session is not aborted — sending any message resumes it.
+**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a one-shot nudge to explain itself, if the pattern continues the session **auto-pauses**: it stops issuing new inferences and replies with "Auto-paused: the model ran N steps in a row without explaining its progress. Send a message to resume." The session is not aborted — sending any message resumes it.
 
 The exact turn thresholds are model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
 
