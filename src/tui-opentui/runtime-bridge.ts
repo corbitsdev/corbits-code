@@ -951,6 +951,7 @@ export function attachSessionBridge(
       stallTimeoutMs,
       isProcessing: bag.turn.isProcessing,
       streamingType: bag.turn.streamingType,
+      activeToolCalls: bag.turn.activeToolCalls,
     }
 
     if (shouldAbortForStall(stallArgs)) {
