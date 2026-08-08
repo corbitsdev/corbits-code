@@ -40,7 +40,7 @@ const FIRST_TOKEN_TYPES: ReadonlySet<string> = new Set([
   "inference.code_execution.start",
   "inference.code_execution.delta",
   "inference.code_execution.result",
-  "inference.thinking.signature",
+  "inference.block.signature",
   "inference.thinking.redacted",
 ]);
 

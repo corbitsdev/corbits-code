@@ -12,6 +12,7 @@ import type {
 import {
   createResponsesBlockIndexer,
   isResponsesStreamTerminal,
+  parseJSONResponse,
   parseResponse,
   signatureForModel,
 } from "./codex-responses-adapter.js";
@@ -169,6 +170,7 @@ export function createOpenAIResponsesAdapter(source: LastCycleSource): ProviderA
   return {
     buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, OPENAI_RESPONSES_PROVIDER),
+    parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
   };
 }

@@ -1,0 +1,19 @@
+{
+  "name": "@intx/storage-isogit",
+  "version": "0.2.2",
+  "license": "LGPL-2.1-only",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "dependencies": {
+    "@intx/log": "0.2.2",
+    "@intx/mime": "0.2.2",
+    "@intx/types": "workspace:*",
+    "arktype": "catalog:",
+    "isomorphic-git": "catalog:"
+  }
+}

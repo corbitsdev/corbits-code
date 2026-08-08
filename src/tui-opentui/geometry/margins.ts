@@ -9,14 +9,16 @@
  * here can take a row away from it.
  */
 
-/** Gutter columns on each side once the terminal can afford them. */
-export const SIDE_MARGIN = 2
-
-/** Half gutter for terminals too narrow to spend four columns on air. */
-export const NARROW_SIDE_MARGIN = 1
-
-/** At or above this width the full gutter is affordable. */
-export const MARGIN_FULL_MIN_COLUMNS = 60
+/**
+ * Gutter columns on each side once the terminal can afford them.
+ *
+ * One column at every width the gutter exists at all. A single column is
+ * already enough to keep content off the frame edge, which is the whole job,
+ * and a wider gutter only read as excess air on a wide pane. There is no
+ * middle tier: a width that can spare a column gets one, and a width that
+ * cannot gets none.
+ */
+export const SIDE_MARGIN = 1
 
 /** Below this width every column belongs to content: the gutter goes to zero. */
 export const MARGIN_MIN_COLUMNS = 40
@@ -24,9 +26,7 @@ export const MARGIN_MIN_COLUMNS = 40
 /** Gutter width for a terminal of `columns` columns. */
 export function resolveSideMargin(columns: number): number {
   const cols = Math.max(0, Math.floor(columns))
-  if (cols >= MARGIN_FULL_MIN_COLUMNS) return SIDE_MARGIN
-  if (cols >= MARGIN_MIN_COLUMNS) return NARROW_SIDE_MARGIN
-  return 0
+  return cols >= MARGIN_MIN_COLUMNS ? SIDE_MARGIN : 0
 }
 
 /** Columns left for content after both gutters. */

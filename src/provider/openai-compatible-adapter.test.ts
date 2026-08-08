@@ -37,7 +37,7 @@ describe("openai-compatible adapter image input", () => {
     const body = JSON.parse(built.body) as { messages: Array<{ content: unknown }> };
 
     expect(body.messages[0]?.content).toEqual([
-      "what is this?",
+      { type: "text", text: "what is this?" },
       { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
     ]);
   });

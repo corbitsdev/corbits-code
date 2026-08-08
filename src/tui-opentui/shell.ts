@@ -62,7 +62,13 @@ import {
 } from "./prompt-input.js"
 import { promptBoxRows } from "./prompt-rows.js"
 import { composeNoticeLine } from "./notice-line.js"
-import { lockupCells, lockupText, lockupWidth } from "./lockup.js"
+import {
+  lockupCells,
+  lockupText,
+  lockupWidth,
+  type LockupInput,
+} from "./lockup.js"
+import type { RampPhase, StallAge } from "./ramp.js"
 import {
   BORDER,
   composeCostContextMeter,
@@ -630,13 +636,6 @@ export type AppShell = {
   /** MCP servers awaiting authorization; the notice row names them. */
   mcpNeedsAuth: readonly string[]
   /**
-   * Live turn phase ("Thinking…", "Running tool…", …) or null when idle.
-   * Lives on the transient notice row rather than a chrome zone because the product host
-   * owns the goal/task/agents zones and overwrites them wholesale on every
-   * snapshot push, which would clobber a per-token progress line.
-   */
-  turnPhase: string | null
-  /**
    * Clock, motion and content state for the bottom-left status slot. The bridge
    * pushes all of it off its existing monitor tick (`setLockupFrame`); the
    * shell never reads a clock of its own, so a shell without a bridge simply
@@ -648,6 +647,10 @@ export type AppShell = {
   lockupPhase: string | null
   /** Clock reading when `lockupPhase` last changed — the fade's origin. */
   lockupChangedMs: number
+  /** Density ramp phase for the same turn — drives the slot's pulse cell and tint. */
+  lockupRampPhase: RampPhase | null
+  /** How long the turn has been stalled, or null when it is not — bounds the blink. */
+  lockupStalledForMs: StallAge
   /**
    * Cost/context meter carried by the bottom border, or null when the active
    * session has nothing to report (context window unknown). Pushed by the
@@ -872,21 +875,33 @@ function syncLandingSuggestions(shell: AppShell): void {
  * frame the turn ends, and a transition with no frames left to draw is worse
  * than none.
  */
-export function setLockupFrame(
-  shell: AppShell,
-  nowMs: number,
-  animating: boolean,
-  phase: string | null = null,
-): void {
-  const settled = !animating && !shell.lockupAnimating
-  shell.lockupNowMs = nowMs
-  const changed = phase !== shell.lockupPhase
-  if (changed) {
-    shell.lockupPhase = phase
-    shell.lockupChangedMs = nowMs
+export type LockupFrame = {
+  readonly nowMs: number
+  readonly animating: boolean
+  /** Live phase word, or null for the idle wordmark. */
+  readonly phase: string | null
+  /** The turn's ramp phase, or null when idle. */
+  readonly rampPhase: RampPhase | null
+  /** How long the turn has been stalled, or null when it is not stalled. */
+  readonly stalledForMs: StallAge
+}
+
+export function setLockupFrame(shell: AppShell, frame: LockupFrame): void {
+  const settled = !frame.animating && !shell.lockupAnimating
+  shell.lockupNowMs = frame.nowMs
+  const phaseChanged = frame.phase !== shell.lockupPhase
+  if (phaseChanged) {
+    shell.lockupPhase = frame.phase
+    shell.lockupChangedMs = frame.nowMs
   }
-  if (settled && !changed && shell.lockupAnimating === animating) return
-  shell.lockupAnimating = animating
+  const changed =
+    phaseChanged ||
+    frame.rampPhase !== shell.lockupRampPhase ||
+    frame.stalledForMs !== shell.lockupStalledForMs
+  shell.lockupRampPhase = frame.rampPhase
+  shell.lockupStalledForMs = frame.stalledForMs
+  if (settled && !changed && shell.lockupAnimating === frame.animating) return
+  shell.lockupAnimating = frame.animating
   paintChrome(shell)
 }
 
@@ -991,13 +1006,6 @@ export function setStatusFlash(
       paintChrome(shell)
     }, ttlMs),
   )
-}
-
-/** Set the live turn phase label (null hides it). Repaints only on change. */
-export function setTurnPhase(shell: AppShell, phase: string | null): void {
-  if (shell.turnPhase === phase) return
-  shell.turnPhase = phase
-  paintChrome(shell)
 }
 
 /** Apply focus state to OpenTUI focusables. */
@@ -1466,12 +1474,14 @@ function meterChunks(shell: AppShell, cell: string): TextChunk[] {
 }
 
 /** The status slot's state, as the lockup renderer wants it. */
-function lockupFrameInput(shell: AppShell) {
+function lockupFrameInput(shell: AppShell): LockupInput {
   return {
     nowMs: shell.lockupNowMs,
     still: !shell.lockupAnimating,
     phase: shell.lockupPhase,
     changedMs: shell.lockupChangedMs,
+    rampPhase: shell.lockupRampPhase,
+    stalledForMs: shell.lockupStalledForMs,
   }
 }
 
@@ -1493,7 +1503,7 @@ export function paintPromptBorder(shell: AppShell): void {
   // what the workspace has to fit inside — with the lockup if the rule can
   // seat both, without it if it cannot. Where the row can only afford one, the
   // information wins and the mark goes.
-  const withBrand = Math.max(0, width - 9 - lockupWidth(shell.lockupPhase))
+  const withBrand = Math.max(0, width - 9 - lockupWidth(lockupFrameInput(shell)))
   const alone = Math.max(0, width - 6)
   const workspaceInput = {
     cwd: shell.workspace.cwd,
@@ -5645,11 +5655,12 @@ export function createAppShell(
     copyTargets: null,
     statusFlash: null,
     mcpNeedsAuth: [],
-    turnPhase: null,
     lockupNowMs: 0,
     lockupAnimating: false,
     lockupPhase: null,
     lockupChangedMs: 0,
+    lockupRampPhase: null,
+    lockupStalledForMs: null,
     costContext: null,
     observe: null,
     parentStreamLog: null,

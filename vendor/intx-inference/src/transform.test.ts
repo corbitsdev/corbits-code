@@ -27,6 +27,26 @@ describe("transformMessages", () => {
     expect(firstMsg?.content[0]?.type).toBe("thinking");
   });
 
+  test("rewrites safety_rating blocks to text for cross-provider history", () => {
+    const messages: ConversationTurn[] = [
+      {
+        role: "assistant",
+        model: "gemini-2.5-flash",
+        content: [{ type: "safety_rating", blockReason: "PROHIBITED_CONTENT" }],
+        timestamp: 1000,
+      },
+    ];
+
+    const result = transformMessages(messages, {
+      targetModel: "claude-sonnet-5",
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.content).toEqual([
+      { type: "text", text: "Request blocked: PROHIBITED_CONTENT" },
+    ]);
+  });
+
   test("strips thinking blocks when replaying to a different model", () => {
     const messages: ConversationTurn[] = [
       {
@@ -41,7 +61,7 @@ describe("transformMessages", () => {
     ];
 
     const result = transformMessages(messages, {
-      targetModel: "gpt-4o",
+      targetModel: "gpt-5.5",
     });
 
     expect(result).toHaveLength(1);
@@ -95,7 +115,7 @@ describe("transformMessages", () => {
       // No tool result follows — the conversation was interrupted.
     ];
 
-    const result = transformMessages(messages, { targetModel: "gpt-4o" });
+    const result = transformMessages(messages, { targetModel: "gpt-5.5" });
 
     // Should inject a synthetic tool result message.
     expect(result).toHaveLength(3);
@@ -141,7 +161,7 @@ describe("transformMessages", () => {
       },
     ];
 
-    const result = transformMessages(messages, { targetModel: "gpt-4o" });
+    const result = transformMessages(messages, { targetModel: "gpt-5.5" });
     expect(result).toHaveLength(3);
   });
 
@@ -159,7 +179,7 @@ describe("transformMessages", () => {
       },
     ];
 
-    const result = transformMessages(messages, { targetModel: "gpt-4o" });
+    const result = transformMessages(messages, { targetModel: "gpt-5.5" });
     expect(result).toHaveLength(2);
     expect(result[0]).toEqual(messages[0]);
     expect(result[1]).toEqual(messages[1]);

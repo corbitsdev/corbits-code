@@ -324,7 +324,7 @@ describe("codex-responses parseResponse", () => {
     ]);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { index: 0 } });
     expect(out[1]).toMatchObject({
-      type: "inference.thinking.signature",
+      type: "inference.block.signature",
       data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC_BLOB"), index: 0 },
     });
   });
@@ -339,7 +339,7 @@ describe("codex-responses parseResponse", () => {
     expect(out).toHaveLength(2);
     expect(out[0]).toMatchObject({ type: "inference.thinking.delta", data: { token: "", index: 0 } });
     expect(out[1]).toMatchObject({
-      type: "inference.thinking.signature",
+      type: "inference.block.signature",
       data: { signature: tagSignature(CODEX_RESPONSES_PROVIDER, "ENC"), index: 0 },
     });
   });

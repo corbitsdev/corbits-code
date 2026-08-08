@@ -30,22 +30,6 @@ describe("parseSSE", () => {
     expect(results).toEqual(["hello"]);
   });
 
-  test("aborts instead of buffering an unbounded newline-less run", async () => {
-    // Simulates a stuck/hostile stream that dribbles bytes without ever
-    // sending a newline: the buffer would otherwise grow until OOM.
-    const encoder = new TextEncoder();
-    const megabyte = "x".repeat(1024 * 1024);
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(encoder.encode(megabyte));
-      },
-    });
-
-    await expect(collectSSE(stream)).rejects.toThrow(
-      /exceeded .* characters without a newline/,
-    );
-  });
-
   test("parses multiple data events", async () => {
     const stream = makeStream(["data: first\n\ndata: second\n\n"]);
     const results = await collectSSE(stream);

@@ -67,7 +67,7 @@ It authenticates over HTTPS via `gh`'s credential helper and rewrites the SSH re
 
 ## Building on Interchange
 
-Interchange is the standard library for this repo, consumed as published `@intx/*` npm packages pinned at 0.2.2 (`@intx/inference` resolves to the vendored copy in `vendor/intx-inference` — upstream 0.2.2 plus the audited patch set on CL-4352). We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
+Interchange is the standard library for this repo, consumed as published `@intx/*` npm packages pinned at 0.2.2, except `@intx/inference`, `@intx/types`, and `@intx/storage-isogit`, which resolve to vendored source under `vendor/intx-*` at upstream head (coupled by the reactor's approval-suspend primitive; `@intx/inference` also carries a local patch set). See `docs/VENDORING.md` for what's vendored, from which upstream commit, and the re-sync procedure. We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
 
 | Package | Covers |
 |---|---|

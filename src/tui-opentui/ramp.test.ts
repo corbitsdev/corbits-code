@@ -5,8 +5,12 @@ import {
   RAMP_WIDTH,
   rampFor,
   rampLine,
+  rampAnimating,
+  rampPulse,
   renderIndeterminateRamp,
   renderRamp,
+  STALL_BLINK_BURST_MS,
+  STALL_BLINK_CYCLE_MS,
 } from "./ramp"
 import { UI } from "./theme"
 
@@ -119,6 +123,69 @@ describe("rampFor", () => {
     for (const phase of ["working", "done", "blocked"] as const) {
       expect(rampFor({ phase, nowMs: 400 }).cells).not.toMatch(BRAILLE)
     }
+  })
+})
+
+describe("rampPulse", () => {
+  test("working cycles the density glyphs, so the cell visibly moves", () => {
+    const seen = new Set(
+      [0, 300, 600, 900].map((nowMs) =>
+        rampPulse({ phase: "working", nowMs, stalledForMs: null }),
+      ),
+    )
+    expect(seen.size).toBeGreaterThan(1)
+    for (const glyph of seen) expect("░▒▓█").toContain(glyph)
+  })
+
+  test("blocked is one static glyph that working never paints", () => {
+    const blocked = rampPulse({ phase: "blocked", nowMs: 0, stalledForMs: null })
+    expect(rampPulse({ phase: "blocked", nowMs: 77_000, stalledForMs: null })).toBe(
+      blocked,
+    )
+    expect("░▒▓█").not.toContain(blocked)
+  })
+
+  test("stalled blinks a bang against a block while the burst runs", () => {
+    expect(rampPulse({ phase: "stalled", nowMs: 0, stalledForMs: 0 })).toBe("█")
+    expect(
+      rampPulse({
+        phase: "stalled",
+        nowMs: STALL_BLINK_CYCLE_MS / 2,
+        stalledForMs: 0,
+      }),
+    ).toBe("!")
+  })
+
+  test("stalled settles to a static bang once the burst is spent", () => {
+    for (const nowMs of [0, STALL_BLINK_CYCLE_MS / 2, 9_999]) {
+      expect(
+        rampPulse({ phase: "stalled", nowMs, stalledForMs: STALL_BLINK_BURST_MS }),
+      ).toBe("!")
+    }
+  })
+
+  test("every glyph is a spinner-free single cell", () => {
+    for (const phase of ["working", "done", "blocked", "stalled"] as const) {
+      const glyph = rampPulse({ phase, nowMs: 400, stalledForMs: 0 })
+      expect(glyph).not.toMatch(BRAILLE)
+      expect(glyph).toHaveLength(1)
+    }
+  })
+})
+
+describe("rampAnimating", () => {
+  test("terminal and waiting states cost no frames", () => {
+    expect(rampAnimating("done", null)).toBe(false)
+    expect(rampAnimating("blocked", null)).toBe(false)
+    expect(rampAnimating("working", null)).toBe(true)
+  })
+
+  test("a stall stops asking for frames once its burst has spent itself", () => {
+    expect(rampAnimating("stalled", 0)).toBe(true)
+    expect(rampAnimating("stalled", STALL_BLINK_BURST_MS - 1)).toBe(true)
+    expect(rampAnimating("stalled", STALL_BLINK_BURST_MS)).toBe(false)
+    // A resumed session inherits an already-old stall and never bursts.
+    expect(rampAnimating("stalled", STALL_BLINK_BURST_MS * 100)).toBe(false)
   })
 })
 

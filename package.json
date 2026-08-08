@@ -40,10 +40,14 @@
   "workspaces": [
     ".",
     "./vendor/intx-inference",
+    "./vendor/intx-types",
+    "./vendor/intx-storage-isogit",
     "./packages/*"
   ],
   "overrides": {
-    "@intx/inference": "workspace:*"
+    "@intx/inference": "workspace:*",
+    "@intx/types": "workspace:*",
+    "@intx/storage-isogit": "workspace:*"
   },
   "catalog": {
     "@types/semver": "^7.7.1",
@@ -61,10 +65,10 @@
     "@intx/authz": "0.2.2",
     "@intx/inference": "workspace:*",
     "@intx/log": "0.2.2",
-    "@intx/storage-isogit": "0.2.2",
+    "@intx/storage-isogit": "workspace:*",
     "@intx/tools-lsp": "0.2.2",
     "@intx/tools-posix": "0.2.2",
-    "@intx/types": "0.2.2",
+    "@intx/types": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.5.1",
     "@opentui/keymap": "0.5.1",

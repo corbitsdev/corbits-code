@@ -27,7 +27,10 @@ import type {
   ToolResult,
   ToolCall,
   AbortReason,
+  BeforeToolDecision,
   BeforeToolExtension,
+  GateType,
+  PendingOperation,
   ReactorAction,
   ToolResultTransform,
   ContextTransform,
@@ -38,6 +41,8 @@ import type {
 } from "@intx/types/runtime";
 
 import { getLogger } from "@intx/log";
+import { ApprovalDecision, signalKindToGateType } from "@intx/types";
+import { type } from "arktype";
 import { runInference } from "./harness";
 import type { Dependencies, InferenceHarnessOptions } from "./harness";
 import { createCapabilities } from "./director";
@@ -54,11 +59,25 @@ import type { CorrelationValidator } from "./correlation";
 
 const logger = getLogger(["interchange", "reactor"]);
 
+// Sentinel returned by a per-call tool run when a before-tool extension parked
+// the call on a gate. Distinct from every ToolResult so a suspended call is
+// excluded from the tool-result history append and from tool.done continuation.
+const SUSPENDED = Symbol("suspended");
+
+// Exhaustiveness guard for the resume-dispatch switch. A newly added
+// SignalKind or approval outcome that is not classified fails to type-check
+// here, so the switch cannot silently drop an unhandled case.
+function assertNever(x: never): never {
+  throw new Error(`Unhandled resume case: ${JSON.stringify(x)}`);
+}
+
 /**
  * `InferenceOptions` plus vendored-only fields the published `@intx/types`
  * does not carry. `ephemeralTurns` are appended to the materialized prompt
  * for one inference only and never written to durable history, so transient
  * director guidance leaves the cached transcript prefix untouched.
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
  */
 export type ExtendedInferenceOptions = InferenceOptions & {
   ephemeralTurns?: ConversationTurn[];
@@ -314,6 +333,10 @@ export function createReactor(config: ReactorConfig): Reactor {
   let cycleInferred = false;
   let cycleToolCallsExecuted = 0;
   let cycleCompactorName: string | null = null;
+  // A suspension registers a gate and may persist a pending operation. That is
+  // a durable state change even when the cycle ran no inference and completed
+  // no tool call, so it must force the cycle commit.
+  let cycleSuspended = false;
 
   // Director-supplied checkpoint message override; consumed exactly once.
   let pendingMessage: string | null = null;
@@ -347,6 +370,96 @@ export function createReactor(config: ReactorConfig): Reactor {
   // across an await boundary in the validator, causing double-correlation.
   const correlatingIds = new Set<string>();
 
+  // How the reactor resumes a correlated pending operation.
+  //
+  //   redispatch — an approved approval re-runs its parked tool call. The
+  //     reactor grants a one-shot bypass for the call and re-dispatches it;
+  //     the resumed run answers the parked call with a real tool result. The
+  //     correlated message body is the decision, not conversation content, so
+  //     it is NOT appended to history.
+  //   gate-cleared — the async-tool path (a pending marker awaiting an inbound
+  //     response). The gate clears normally, driving the director to re-infer,
+  //     and the correlated message body IS appended to history so the model
+  //     sees the response it was waiting on.
+  type ResumeDispatch =
+    | { mode: "redispatch"; calls: ToolCall[] }
+    | { mode: "gate-cleared" }
+    | { mode: "error_result"; result: ToolResult };
+
+  // Decide how a correlated approval-kind pending operation resumes, granting
+  // any one-shot bypass synchronously so no delivery can interleave between the
+  // grant and the re-dispatch enqueued by the caller. An operation that carries
+  // a `suspendedCall` is an ask-flow suspension: the approver's decision routes
+  // it down the re-dispatch rail. An operation without one is an async-tool
+  // pending marker, which resumes on the normal gate-cleared rail.
+  //
+  // The nested switch is total: the outer `assertNever(op.kind)` rejects a
+  // future SignalKind at compile time, and the inner `assertNever` rejects a
+  // future decision outcome. A malformed decision body fails loud at the parse
+  // boundary before the switch.
+  function resumePendingOperation(
+    op: PendingOperation,
+    message: InboundMessage,
+  ): ResumeDispatch {
+    if (op.suspendedCall === undefined) {
+      return { mode: "gate-cleared" };
+    }
+    const suspendedCall = op.suspendedCall;
+
+    if (message.content === undefined) {
+      throw new Error(
+        `Correlated approval decision for ${op.correlationId} has no body to parse`,
+      );
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(message.content);
+    } catch (cause) {
+      throw new Error(
+        `Correlated approval decision for ${op.correlationId} is not valid JSON`,
+        { cause },
+      );
+    }
+    const decision = ApprovalDecision(raw);
+    if (decision instanceof type.errors) {
+      throw new Error(
+        `Correlated approval decision for ${op.correlationId} is malformed: ${decision.summary}`,
+      );
+    }
+
+    switch (op.kind) {
+      case "approval":
+        switch (decision.outcome) {
+          case "approved":
+            // Authorize the exact parked call to run once, then re-dispatch it.
+            // Grant on every before-tool extension: only the authz extension
+            // responds, but referencing it directly would re-couple the reactor
+            // to authz and break a deployment that runs without it.
+            for (const ext of beforeToolExtensions) {
+              ext.grantOneShot?.(suspendedCall.id);
+            }
+            return { mode: "redispatch", calls: [suspendedCall] };
+          case "rejected": {
+            // The approver denied the call. Answer the parked call with a
+            // synthetic error result rather than re-running it — no one-shot
+            // bypass is granted, so the tool never executes. The approver's
+            // reason, when present, is surfaced to the model verbatim.
+            const content =
+              "denied by approver" +
+              (decision.message !== undefined ? `: ${decision.message}` : "");
+            return {
+              mode: "error_result",
+              result: { callId: suspendedCall.id, content, isError: true },
+            };
+          }
+          default:
+            return assertNever(decision.outcome);
+        }
+      default:
+        return assertNever(op.kind);
+    }
+  }
+
   async function tryCorrelate(message: InboundMessage): Promise<boolean> {
     const correlationId = message.headers.interchangeCorrelationId;
     if (correlationId === undefined) return false;
@@ -359,6 +472,8 @@ export function createReactor(config: ReactorConfig): Reactor {
     // A finally clears the in-flight marker on every exit — success included.
     // The success path used to leave the id in the set forever, leaking one
     // entry per correlated message for the life of the session.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
     try {
       if (correlationValidator !== undefined) {
         let valid: boolean;
@@ -373,22 +488,74 @@ export function createReactor(config: ReactorConfig): Reactor {
         }
       }
 
-      // Clear the gate associated with this correlation, if any.
+      // Capture the operation before removal so the resume dispatch can read
+      // its kind and suspended call. Removal happens only after the dispatch
+      // is decided, all inside this correlatingIds-guarded critical section
+      // so a double-deliver early-returns rather than double-dispatching.
+      const op = pending;
+
+      const dispatch = resumePendingOperation(op, message);
+
       const gate = gates.findByCorrelationId(correlationId);
-      if (gate !== undefined) {
-        gates.clear(gate.gateId);
-      }
-
-      correlations.remove(correlationId);
-
-      if (stateManager !== null) {
-        stateManager.removePendingOperation(correlationId);
-
-        // Append the correlated message to conversation history so the model
-        // sees the response content when it re-infers after the gate clears.
-        const msg = createInboundTurn(message);
-        if (msg !== null) {
-          stateManager.appendTurn(msg);
+      switch (dispatch.mode) {
+        case "redispatch": {
+          // Clear the gate WITHOUT enqueuing gate.cleared: the re-dispatched
+          // call is the resumption, so a gate.cleared-driven re-infer would
+          // double the continuation. The re-dispatch's own tool.done drives
+          // the re-infer.
+          if (gate !== undefined) {
+            gates.clearSilently(gate.gateId);
+            if (stateManager !== null) {
+              stateManager.setGatesSnapshot(gates.snapshot());
+            }
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+          }
+          // The grant is already recorded (synchronously, in
+          // resumePendingOperation) with no await since; enqueue the
+          // re-dispatch so it runs on the loop with normal event ordering.
+          // The director seeds its outstanding-result count off this event
+          // before the call's tool.done arrives.
+          enqueue({ type: "resume.execute_tools", calls: dispatch.calls });
+          break;
+        }
+        case "error_result": {
+          // The approver denied the call. Clear the gate SILENTLY (like the
+          // approved redispatch) so it cannot also trip onGateCleared and
+          // enqueue a second continuation. The synthetic error result
+          // answers the parked call; the director appends it and re-infers
+          // once.
+          if (gate !== undefined) {
+            gates.clearSilently(gate.gateId);
+            if (stateManager !== null) {
+              stateManager.setGatesSnapshot(gates.snapshot());
+            }
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+          }
+          enqueue({ type: "resume.tool_result", result: dispatch.result });
+          break;
+        }
+        case "gate-cleared": {
+          // Async-tool resumption: clear the gate normally so the director
+          // re-infers, and append the correlated response to history so the
+          // model sees the content it was waiting on.
+          if (gate !== undefined) {
+            gates.clear(gate.gateId);
+          }
+          correlations.remove(correlationId);
+          if (stateManager !== null) {
+            stateManager.removePendingOperation(correlationId);
+            const msg = createInboundTurn(message);
+            if (msg !== null) {
+              stateManager.appendTurn(msg);
+            }
+          }
+          break;
         }
       }
 
@@ -483,19 +650,10 @@ export function createReactor(config: ReactorConfig): Reactor {
     }
 
     const p = (async () => {
-      // Per-source attempt budget for transient errors (quota/retryable/
-      // timeout). Kept small because failover, not flogging one source, is
-      // the recovery path: the harness already does its own mechanical
-      // retry under each attempt, so this caps reactor-level same-source
-      // retries at one before moving to the next source.
-      const sameSourceAttempts = 2;
-      const defaultRetryMs = 60_000;
-
       // Each cycle starts at the most-preferred source; a failover in a
       // prior cycle must not leave the agent permanently demoted.
       resetToPreferredSource();
 
-      let attempt = 0;
       for (;;) {
         const harnessOpts = buildHarnessOpts(
           prompt,
@@ -577,76 +735,17 @@ export function createReactor(config: ReactorConfig): Reactor {
           return;
         }
 
-        // A rate limit is the one category worth waiting out on the same
-        // source: it clears with time, and the reactor's backoff is longer
-        // than the harness's own per-call retry. The harness has already
-        // exhausted its internal mechanical retries for retryable/timeout
-        // by the time the reactor sees them, so those fail over rather than
-        // re-running the same source (which would just retry-compound).
-        if (err.category === "quota_exhausted") {
-          attempt += 1;
-          if (attempt < sameSourceAttempts && !signal.aborted) {
-            const delayMs = err.retryAfterMs ?? defaultRetryMs;
-            logger.warn`Rate limited, retrying same source after ${String(delayMs)}ms`;
-            // inferenceRunner restarts from a fresh inference.start on the
-            // next loop iteration, re-streaming any content this attempt
-            // already committed. Emit the retry marker before that restart
-            // so a consumer replaying the event stream knows to discard the
-            // failed attempt's blocks rather than append the retried
-            // attempt's on top of them.
-            //
-            // This overloads inference.retry: the harness emits it only for
-            // uncommitted pre-first-token retries, where the failed attempt's
-            // buffered inference.start is discarded — so the harness's retry
-            // always precedes the cycle's inference.start and retracts
-            // nothing. This emission instead follows a committed attempt's
-            // streamed events. Consumers distinguish the two by ordering: a
-            // retry arriving after the cycle's inference.start retracts that
-            // attempt's output; one arriving before it does not.
-            emit({
-              type: "inference.retry",
-              seq: nextSeq(),
-              data: { attempt, delayMs, previousError: err },
-            });
-            await new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, delayMs);
-              const onAbort = () => {
-                clearTimeout(timer);
-                resolve();
-              };
-              signal.addEventListener("abort", onAbort, { once: true });
-            });
-            if (signal.aborted) {
-              enqueue({
-                type: "inference.error",
-                error: {
-                  category: "aborted",
-                  message: "inference aborted during rate limit backoff",
-                },
-                partial,
-              });
-              return;
-            }
-            continue;
-          }
-        }
-
-        // Same-source rate-limit budget exhausted, or a source-specific
-        // failure (credential, protocol mismatch, retryable, timeout): fail
-        // over to the next source. A pacing delay the leaving source asked
-        // for must not gate the next source.
+        // Any remaining error (quota, credential, protocol mismatch,
+        // retryable, timeout) is source-specific. The harness wrapper owns
+        // mechanical retry and has already exhausted it against this source
+        // by the time the reactor sees the error, including honoring a
+        // provider Retry-After for quota, so re-running the same source
+        // would only retry-compound. Fail over to the next source instead.
+        // A pacing delay the leaving source asked for must not gate the
+        // next source.
         pendingPacingDelayMs = 0;
         if (failOverToNextSource()) {
           logger.warn`Failing over to next inference source after ${err.category}`;
-          // Same discard-and-restart concern as the same-source retry above:
-          // the next source's attempt restarts from inference.start, so mark
-          // the boundary before it streams anything.
-          emit({
-            type: "inference.retry",
-            seq: nextSeq(),
-            data: { attempt, delayMs: 0, previousError: err },
-          });
-          attempt = 0;
           continue;
         }
 
@@ -670,24 +769,44 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     const signal = operationController.signal;
 
-    const runOne = async (call: ToolCall): Promise<ToolResult> => {
-      // Run before-tool extensions. First block or throw terminates the chain.
+    const runOne = async (
+      call: ToolCall,
+    ): Promise<ToolResult | typeof SUSPENDED> => {
+      // Run before-tool extensions. The first non-allow decision terminates
+      // the chain: `block` answers the call with an error result, `suspend`
+      // parks it (no result, no tool.done).
       for (const ext of beforeToolExtensions) {
-        let blockReason: string | undefined;
+        let decision: BeforeToolDecision;
         try {
-          blockReason = await ext.beforeTool(call, state.snapshot(), signal);
+          decision = await ext.beforeTool(call, state.snapshot(), signal);
         } catch (cause) {
           const msg = cause instanceof Error ? cause.message : String(cause);
           emitError(
             `BeforeToolExtension threw for ${call.name}: ${msg}`,
             false,
           );
-          blockReason = msg;
+          decision = { type: "block", reason: msg };
         }
-        if (blockReason !== undefined) {
+
+        if (decision.type === "suspend") {
+          // Park the call: register the gate, persist the pending operation,
+          // snapshot, and commit. The call is neither run nor answered — no
+          // tool.start, no tool.done, no tool-result turn. The gate clears
+          // when the correlated external decision is delivered.
+          await suspendOnGate({
+            gateType: decision.gate.type,
+            gateId: decision.gate.gateId,
+            timeoutMs: Math.max(1, decision.gate.timeoutAt - Date.now()),
+            correlationId: decision.gate.correlationId,
+            pendingOp: decision.pendingOp,
+          });
+          return SUSPENDED;
+        }
+
+        if (decision.type === "block") {
           const blocked: ToolResult = {
             callId: call.id,
-            content: blockReason,
+            content: decision.reason,
             isError: true,
           };
           emit({
@@ -706,8 +825,12 @@ export function createReactor(config: ReactorConfig): Reactor {
       if (rawResult.pendingMarker !== undefined && stateManager !== null) {
         const marker = rawResult.pendingMarker;
         const gateId = `pending-${marker.correlationId}`;
-        const op: import("@intx/types/runtime").PendingOperation = {
+        const op: PendingOperation = {
           correlationId: marker.correlationId,
+          // Placeholder: async markers should carry their own SignalKind. The
+          // resume switch keys on suspendedCall presence (absent here) as the
+          // interim discriminator instead of on kind.
+          kind: "approval",
           registeredAt: Date.now(),
           gateId,
           ...(marker.expectedFrom !== undefined
@@ -733,28 +856,45 @@ export function createReactor(config: ReactorConfig): Reactor {
       return current;
     };
 
-    let results: ToolResult[];
+    let outcomes: (ToolResult | typeof SUSPENDED)[];
     if (parallel) {
       const p = Promise.all(calls.map((c) => runOne(c)));
       track(p);
-      results = await p;
+      outcomes = await p;
     } else {
-      results = [];
+      outcomes = [];
       for (const call of calls) {
         const p = runOne(call);
         track(p);
-        results.push(await p);
+        outcomes.push(await p);
       }
     }
 
+    // Suspended calls are parked, not answered: they contribute no tool
+    // result to history and no tool.done continuation event.
+    const results = outcomes.filter((o): o is ToolResult => o !== SUSPENDED);
+
     cycleToolCallsExecuted += results.length;
 
-    if (addToHistory && stateManager !== null) {
+    if (addToHistory && stateManager !== null && results.length > 0) {
       stateManager.appendTurn(createToolResultTurn(results));
     }
 
     for (const result of results) {
       enqueue({ type: "tool.done", result });
+    }
+
+    // Checkpoint the completed tool cycle (the assistant tool_call turn plus
+    // its results) so an interrupt that rebuilds the agent from the store
+    // reloads the full exchange. Otherwise context commits only at cycle
+    // terminals and an uncommitted tool turn vanishes on rebuild. Guarded on
+    // addToHistory: only then does history end with the tool_result turn, so
+    // the persisted prefix is well-formed rather than an assistant turn with
+    // unanswered tool calls.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+    if (addToHistory) {
+      await commitCycle();
     }
   }
 
@@ -817,6 +957,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     cycleInferred = false;
     cycleToolCallsExecuted = 0;
     cycleCompactorName = null;
+    cycleSuspended = false;
   }
 
   async function commitCycle(): Promise<void> {
@@ -828,7 +969,8 @@ export function createReactor(config: ReactorConfig): Reactor {
     const hasWork =
       cycleInferred ||
       cycleToolCallsExecuted > 0 ||
-      cycleCompactorName !== null;
+      cycleCompactorName !== null ||
+      cycleSuspended;
     const hasOverride = pendingMessage !== null;
     if (!hasWork && !hasOverride) {
       resetCycleAccumulators();
@@ -838,6 +980,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     const message = buildCycleMessage();
 
     try {
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
       const currentRevision = stateManager.getTurnsRevision();
       if (currentRevision !== lastWrittenTurnsRevision) {
         await contextStore.writeTurns(stateManager.getTurns());
@@ -866,6 +1009,8 @@ export function createReactor(config: ReactorConfig): Reactor {
     // in a later decide() call (as opposed to pairing checkpoint with the
     // action that produced the work) gets afterCheckpoint invoked twice
     // for what is, from the director's perspective, a single checkpoint.
+    //
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
     if (afterCheckpoint !== undefined && hasOverride) {
       try {
         await afterCheckpoint();
@@ -885,6 +1030,201 @@ export function createReactor(config: ReactorConfig): Reactor {
       pendingOperations: stateManager.getPendingOperations(),
       tokenUsage: stateManager.getTokenUsage(),
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Gate suspension critical section
+  // -------------------------------------------------------------------------
+
+  // While a suspend is committing (the `await commitCycle()` in
+  // `suspendOnGate`), its gate is already armed but `reactor.gate.blocked` has
+  // not been emitted yet. If the gate's timeout timer elapses inside that
+  // window, `onGateCleared` would take effect ahead of the `blocked` it belongs
+  // to — emitting `reactor.gate.cleared` on the plain path, or enqueuing the
+  // synthetic `resume.tool_result` and removing the pending operation on the
+  // ask rail — before the suspension has been announced. `deriveStatus` and the
+  // send-awaiter both assume a gate's `blocked` precedes any effect of its
+  // clearing, so the in-flight suspend is tracked here and such a clear is
+  // deferred until `blocked` has fired.
+  type InFlightSuspend = {
+    gateId: string;
+    deferredClear: { reason: "resolved" | "timeout" | "shutdown" } | null;
+  };
+  let suspendingGate: InFlightSuspend | null = null;
+
+  // Callback the gate manager invokes when a gate resolves, times out, or is
+  // shut down. Refreshes the snapshot and drives the loop's next step.
+  //
+  // A parked ask-flow approval that TIMES OUT ends without running its tool:
+  // it must be answered with a synthetic error result rather than left as a
+  // dangling tool_use. That path enqueues `resume.tool_result` INSTEAD OF
+  // `reactor.gate.cleared` — the two are mutually exclusive, because enqueuing
+  // both would drive two re-inferences for one timeout. Every other case (an
+  // async-marker pending op with no suspendedCall, no pending op at all, a
+  // `resolved`/`shutdown` reason, or a shutting-down reactor) keeps today's
+  // behavior: enqueue `reactor.gate.cleared` and let the director re-infer.
+  //
+  // A delivered `resolved` never reaches here on the ask rail — the redispatch
+  // and reject paths clear the gate silently (no onCleared) — so the timeout
+  // branch is gated on `reason === "timeout"` and shutdown stays on the plain
+  // path: a shutting-down reactor must not manufacture tool results.
+  function onGateCleared(
+    gateId: string,
+    reason: "resolved" | "timeout" | "shutdown",
+  ): void {
+    // A clear that fires while this gate's suspend is still committing must not
+    // take effect before `reactor.gate.blocked` is emitted. Record it and let
+    // suspendOnGate replay the full handler once the block is announced.
+    if (
+      suspendingGate !== null &&
+      suspendingGate.gateId === gateId &&
+      suspendingGate.deferredClear === null
+    ) {
+      suspendingGate.deferredClear = { reason };
+      return;
+    }
+
+    if (stateManager !== null) {
+      stateManager.setGatesSnapshot(gates.snapshot());
+    }
+
+    if (reason === "timeout") {
+      const op = correlations.findByGateId(gateId);
+      if (op !== undefined && op.suspendedCall !== undefined) {
+        correlations.remove(op.correlationId);
+        if (stateManager !== null) {
+          stateManager.removePendingOperation(op.correlationId);
+        }
+        enqueue({
+          type: "resume.tool_result",
+          result: {
+            callId: op.suspendedCall.id,
+            content: "approval timed out",
+            isError: true,
+          },
+        });
+        return;
+      }
+    }
+
+    emit({
+      type: "reactor.gate.cleared",
+      seq: nextSeq(),
+      data: { gateId, reason },
+    });
+    enqueue({ type: "reactor.gate.cleared", gateId, reason });
+  }
+
+  // Parks the reactor on a gate. Shared by the director's `suspend` action and
+  // the before-tool `suspend` decision so both paths register the gate,
+  // durably persist any pending operation, snapshot the active gates, and
+  // commit before returning to the loop — a suspended reactor's state must be
+  // durable across restart. When `pendingOp` is supplied its correlation is
+  // registered and it is persisted; the director path has already persisted
+  // its pending operation (via the tool's pending marker), so it passes none.
+  async function suspendOnGate(args: {
+    gateType: GateType;
+    gateId: string;
+    timeoutMs: number;
+    correlationId: string | undefined;
+    pendingOp: PendingOperation | undefined;
+  }): Promise<void> {
+    const { gateType, gateId, timeoutMs, correlationId, pendingOp } = args;
+
+    if (pendingOp !== undefined) {
+      correlations.register(pendingOp);
+      if (stateManager !== null) {
+        stateManager.addPendingOperation(pendingOp);
+      }
+    }
+
+    // Track this suspend as in flight so a clear racing the commit below is
+    // deferred until `reactor.gate.blocked` has been emitted.
+    const inFlightSuspend: InFlightSuspend = { gateId, deferredClear: null };
+    suspendingGate = inFlightSuspend;
+
+    // Register the gate. onGateCleared enqueues the cleared event so the loop
+    // processes it normally without blocking here.
+    void gates.register(
+      gateId,
+      gateType,
+      timeoutMs,
+      correlationId,
+      onGateCleared,
+    );
+
+    if (stateManager !== null) {
+      stateManager.setGatesSnapshot(gates.snapshot());
+    }
+
+    // Registering the gate (and any pending operation) is a durable state
+    // change that must be committed even if this cycle did no other work.
+    cycleSuspended = true;
+
+    // Commit before the loop continues so the suspended state is durable
+    // across restart.
+    await commitCycle();
+
+    // Emit `reactor.gate.blocked` only AFTER the commit. This event resolves
+    // the `send()` awaiter as "suspended", and a downstream consumer (the warm
+    // agent's run-boundary durability mirror) reads the pending operation back
+    // out of the just-committed context store the instant `send()` settles.
+    // Emitting before the commit would resolve `send()` first, letting that
+    // mirror read a store that has not yet persisted the pending op -- it would
+    // durably mirror an empty pending-operation set and lose the approval
+    // snapshot, so a parked correlation could not be re-registered after a hub
+    // reconnect. This upholds persist-before-settle: the durable commit the
+    // header promises before returning to the loop lands before the suspension
+    // settles.
+    emit({
+      type: "reactor.gate.blocked",
+      seq: nextSeq(),
+      data: {
+        reason: gateType,
+        gateId,
+        ...(correlationId !== undefined ? { correlationId } : {}),
+        ...(pendingOp?.approvalSnapshot !== undefined
+          ? { approvalSnapshot: pendingOp.approvalSnapshot }
+          : {}),
+      },
+    });
+
+    // The suspension is announced. If the gate cleared while the commit was in
+    // flight, its handler was deferred to keep it after `blocked`; replay it
+    // now, in order.
+    suspendingGate = null;
+    if (inFlightSuspend.deferredClear !== null) {
+      onGateCleared(gateId, inFlightSuspend.deferredClear.reason);
+    }
+  }
+
+  // Re-registers a live gate and correlation for each pending operation loaded
+  // from the context store on restart. The remaining timeout is computed from
+  // the persisted absolute deadline (`timeoutAt`) against the current clock, so
+  // the deadline is preserved across the restart rather than restarted; a
+  // deadline already in the past clamps to 1ms so the gate fires on the next
+  // tick. An operation persisted without a `timeoutAt` (hold-indefinitely) has
+  // no deadline to preserve; the gate manager cannot express an indefinite
+  // hold, so it is armed with the session-level `gateTimeout` — the same
+  // effective timeout the director-suspend fallback uses — rather than a
+  // silent zero. This does not run through `suspendOnGate`: rehydration must
+  // not re-emit `reactor.gate.blocked` (the suspension already happened before
+  // the restart) and must not commit (nothing changed).
+  function rehydrateGates(ops: PendingOperation[]): void {
+    for (const op of ops) {
+      const timeoutMs =
+        op.timeoutAt !== undefined
+          ? Math.max(1, op.timeoutAt - Date.now())
+          : gateTimeout;
+      correlations.register(op);
+      void gates.register(
+        op.gateId,
+        signalKindToGateType(op.kind),
+        timeoutMs,
+        op.correlationId,
+        onGateCleared,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -936,6 +1276,18 @@ export function createReactor(config: ReactorConfig): Reactor {
           closeMessageRun("completed");
         }
         openMessageRun(event.message.headers.messageId);
+      }
+
+      // A parked approval that ended without running its tool (rejected or
+      // timed out) carries a synthetic error result answering the parked call.
+      // Land it in history before the director decides so the tool_result turn
+      // closes the dangling tool_use and the re-inference the director returns
+      // sees a well-formed sequence. No tool ran, so no tool.done and no
+      // counter change accompany it.
+      if (event.type === "resume.tool_result") {
+        if (stateManager !== null) {
+          stateManager.appendTurn(createToolResultTurn([event.result]));
+        }
       }
 
       let actions;
@@ -1030,46 +1382,13 @@ export function createReactor(config: ReactorConfig): Reactor {
       const suspendAction = normalized.find((a) => a.type === "suspend");
       if (suspendAction !== undefined && suspendAction.type === "suspend") {
         const { gate } = suspendAction;
-        const effectiveTimeout =
-          gate.timeoutMs > 0 ? gate.timeoutMs : gateTimeout;
-
-        emit({
-          type: "reactor.gate.blocked",
-          seq: nextSeq(),
-          data: { reason: gate.type, gateId: gate.gateId },
+        await suspendOnGate({
+          gateType: gate.type,
+          gateId: gate.gateId,
+          timeoutMs: gate.timeoutMs > 0 ? gate.timeoutMs : gateTimeout,
+          correlationId: gate.correlationId,
+          pendingOp: undefined,
         });
-
-        if (stateManager !== null) {
-          stateManager.setGatesSnapshot(gates.snapshot());
-        }
-
-        // Register the gate. The onCleared callback enqueues the cleared event
-        // so the loop processes it normally without blocking here.
-        void gates.register(
-          gate.gateId,
-          gate.type,
-          effectiveTimeout,
-          gate.correlationId,
-          (gateId, reason) => {
-            if (stateManager !== null) {
-              stateManager.setGatesSnapshot(gates.snapshot());
-            }
-            emit({
-              type: "reactor.gate.cleared",
-              seq: nextSeq(),
-              data: { gateId, reason },
-            });
-            enqueue({ type: "reactor.gate.cleared", gateId, reason });
-          },
-        );
-
-        if (stateManager !== null) {
-          stateManager.setGatesSnapshot(gates.snapshot());
-        }
-
-        // Commit before the loop continues so the suspended-state turns are
-        // durable across restart.
-        await commitCycle();
         continue;
       }
 
@@ -1131,16 +1450,6 @@ export function createReactor(config: ReactorConfig): Reactor {
         const parallel = toolsAction.parallel !== false;
         const addToHistory = toolsAction.addToHistory !== false;
         await executeTools(toolsAction.calls, parallel, addToHistory);
-        // Checkpoint the completed tool cycle (the assistant tool_call turn plus
-        // its results) so an interrupt that rebuilds the agent from the store
-        // reloads the full exchange. Otherwise context commits only at cycle
-        // terminals and an uncommitted tool turn vanishes on rebuild. Guarded on
-        // addToHistory: only then does history end with the tool_result turn, so
-        // the persisted prefix is well-formed rather than an assistant turn with
-        // unanswered tool calls.
-        if (addToHistory) {
-          await commitCycle();
-        }
         continue;
       }
 
@@ -1164,6 +1473,8 @@ export function createReactor(config: ReactorConfig): Reactor {
   // whose history has not changed since this revision skips writeTurns rather
   // than re-serializing the entire (potentially large) conversation and its
   // historical tool-output blobs.
+  //
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
   let lastWrittenTurnsRevision = 0;
 
   async function initiateShutdown(): Promise<void> {
@@ -1238,11 +1549,28 @@ export function createReactor(config: ReactorConfig): Reactor {
         initialOps,
         initialUsage,
       );
-      stateManager.setGatesSnapshot(gates.snapshot());
-
-      emit({ type: "reactor.start", seq: nextSeq(), data: {} });
 
       try {
+        // Re-arm gates for operations that were suspended before the restart.
+        // The state manager holds the loaded pending operations, but a gate is
+        // in-memory and does not survive a restart; without this a reloaded
+        // suspended agent is wedged (no live gate to clear, no correlation to
+        // match). Each op re-registers its correlation and a live gate keyed on
+        // the op's own gateId and correlationId, so a delivered signal clears
+        // it exactly as the original suspension would have.
+        //
+        // Rehydration runs inside this try/catch because the pending operations
+        // come from the context store — an untrusted external boundary — and
+        // correlation/gate registration throws synchronously on a duplicate
+        // correlationId or gateId. A throw must surface as reactor.error plus
+        // reactor.done (matching the load-failure path), not brick the reactor
+        // as a silent unhandled rejection.
+        rehydrateGates(initialOps);
+
+        stateManager.setGatesSnapshot(gates.snapshot());
+
+        emit({ type: "reactor.start", seq: nextSeq(), data: {} });
+
         await loop();
       } catch (cause) {
         const msg = cause instanceof Error ? cause.message : String(cause);
@@ -1262,23 +1590,34 @@ export function createReactor(config: ReactorConfig): Reactor {
   function deliver(message: InboundMessage): void {
     if (done) return;
     void (async () => {
+      let correlated: boolean;
       try {
-        const correlated = await tryCorrelate(message);
-        if (!correlated) {
-          emit({
-            type: "message.received",
-            seq: nextSeq(),
-            data: { message },
-          });
-          enqueue({ type: "message.received", message });
-        }
+        correlated = await tryCorrelate(message);
       } catch (cause) {
-        // Without this the throw becomes an unhandled rejection and the inbound
-        // message is silently dropped. Surface it so the failure is observable
-        // instead of the message vanishing.
+        // A correlation-path invariant failed (e.g. a malformed approval
+        // decision). Surface it as a fatal reactor error rather than a silent
+        // unhandled rejection, and stop the run — the resume cannot proceed on
+        // a decision the reactor cannot trust.
         const msg = cause instanceof Error ? cause.message : String(cause);
-        logger.error`Failed to deliver inbound message: ${cause}`;
-        emitError(`Failed to deliver inbound message: ${msg}`, false);
+        logger.error`Correlation dispatch failed: ${cause}`;
+        emitError(`Correlation dispatch failed: ${msg}`, true);
+        closeMessageRun("failed", {
+          message: `Correlation dispatch failed: ${msg}`,
+          kind: "reactor_fatal",
+        });
+        done = true;
+        if (!shutdownStarted) {
+          await initiateShutdown();
+        }
+        return;
+      }
+      if (!correlated) {
+        emit({
+          type: "message.received",
+          seq: nextSeq(),
+          data: { message },
+        });
+        enqueue({ type: "message.received", message });
       }
     })();
   }

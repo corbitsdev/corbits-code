@@ -102,16 +102,28 @@ describe("resolveRampPhase", () => {
   }
 
   test("blocked gate freezes the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "blocked" })).toBe("blocked")
+    expect(resolveRampPhase({ ...base, status: "blocked" }, false)).toBe("blocked")
   })
 
   test("done fills the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "done" })).toBe("done")
+    expect(resolveRampPhase({ ...base, status: "done" }, false)).toBe("done")
   })
 
   test("everything else is working", () => {
-    expect(resolveRampPhase({ ...base, status: "running" })).toBe("working")
-    expect(resolveRampPhase({ ...base, status: "stopping" })).toBe("working")
+    expect(resolveRampPhase({ ...base, status: "running" }, false)).toBe("working")
+    expect(resolveRampPhase({ ...base, status: "stopping" }, false)).toBe("working")
+  })
+
+  test("a stalled running turn paints stalled, not working", () => {
+    expect(
+      resolveRampPhase({ ...base, status: "running" }, true),
+    ).toBe("stalled")
+  })
+
+  test("a blocked gate beats stalled — waiting on you outranks silence", () => {
+    expect(
+      resolveRampPhase({ ...base, status: "blocked" }, true),
+    ).toBe("blocked")
   })
 })
 
