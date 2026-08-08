@@ -384,12 +384,29 @@ export const MEGA_CHAIN_SEGMENT_THRESHOLD = 5;
 export const MEGA_CHAIN_NOTICE =
   `Chains of ${MEGA_CHAIN_SEGMENT_THRESHOLD}+ steps are approved once only — split into shorter commands for reusable approvals.`;
 
+// The real (non-comment-only) chain segments of a shell command — the basis
+// both shellApprovalScopes and isSingleShellCommand use to answer "is this
+// one command or a chain."
+function realShellSegments(command: string): string[] {
+  return splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+}
+
+// Whether `command` is exactly one real command — not a chain (`a && b`), not
+// a pipeline (`a | b`), not empty/comment-only. Shared by preApprove's gate
+// (src/permission/gate.ts) and the interactive scope ladder below, so a
+// segmenting-rule change here reaches both.
+export function isSingleShellCommand(command: string): boolean {
+  const segments = realShellSegments(command);
+  if (segments.length !== 1) return false;
+  return tokenize(segments[0]!).length > 0;
+}
+
 // Approval scopes for a shell command the operator may persist. Multi-segment
 // chains only offer the exact full string — a prefix like `npm *` would also
 // match `npm i && rm -rf /` on a later call (fail-closed). At or above
 // MEGA_CHAIN_SEGMENT_THRESHOLD, no scope is offered at all — see the constant.
 function shellApprovalScopes(command: string): ApprovalScope[] {
-  const segments = splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+  const segments = realShellSegments(command);
   if (segments.length === 0) return [];
   if (segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD) return [];
   if (segments.length === 1) {
