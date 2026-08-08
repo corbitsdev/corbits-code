@@ -2,6 +2,7 @@ import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/report.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
+import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
 import { loadConfig } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
@@ -115,9 +116,30 @@ export async function main(argv: readonly string[]): Promise<number> {
   });
 }
 
+// Shared by handleFatal and the signal handlers below so a signal arriving
+// mid-crash-unwind (or a crash surfacing while a signal is already tearing
+// the process down) can't re-enter either path a second time.
+let terminating = false;
+
 // Exported so an integration test can register these process-level handlers
 // and inject a crash without spawning the full TUI stack.
 export async function handleFatal(kind: CrashKind, error: unknown): Promise<void> {
+  if (terminating) return;
+  terminating = true;
+  // OpenTUI's own uncaughtException/unhandledRejection listener only logs
+  // (see installCrashHandlers' comment below) — it never tears down the
+  // terminal the way its signal listener does. Without this, a throw that
+  // escapes runTUI's own try/catch (e.g. inside a fire-and-forget `void`
+  // call) leaves the alternate screen and raw mode stuck. disposeHost is
+  // idempotent, so this is safe even if runTUI's own catch block already
+  // ran it moments earlier.
+  try {
+    getActiveDisposeHost()?.();
+  } catch (disposeErr: unknown) {
+    process.stderr.write(
+      `host dispose failed during fatal handling: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
+    );
+  }
   // Flip this before any awaits below so any snapshot write still queued
   // behind another one in state.ts's per-session chain sees it and steps
   // aside the moment it's next in line, rather than racing saveCrashState's
