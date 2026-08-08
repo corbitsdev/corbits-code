@@ -5,7 +5,12 @@ import type { Telemetry } from "./index.js";
 // than threading it through every intermediate call site. Defaults to a
 // disabled no-op so any code path that runs before index.ts sets it (or in
 // tests) never throws.
-let instance: Telemetry = { enabled: false, capture: () => {}, flush: async () => {} };
+let instance: Telemetry = {
+  enabled: false,
+  capture: () => {},
+  flush: async () => {},
+  discard: () => {},
+};
 
 export function setTelemetry(telemetry: Telemetry): void {
   instance = telemetry;

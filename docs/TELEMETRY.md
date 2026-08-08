@@ -46,6 +46,12 @@ Any of the following disables telemetry entirely:
 - `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
 
+Turning telemetry off also discards whatever is still queued and unsent.
+Events captured earlier in the session but not yet transmitted are thrown
+away at the moment you opt out, not sent on the way out — opting out covers
+the activity you have already generated, not just the activity still to
+come.
+
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —
 the env override always wins, and the attempt is refused rather than
