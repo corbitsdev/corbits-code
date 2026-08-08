@@ -30,6 +30,20 @@ function fakeFetch(): { impl: typeof fetch; calls: () => number } {
   return { impl, calls: () => count };
 }
 
+type BatchBody = {
+  api_key: string;
+  batch: { event: string; timestamp: string; properties: Record<string, unknown> }[];
+};
+
+function recordingFetch() {
+  const bodies: BatchBody[] = [];
+  const impl = ((_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(init.body as string) as BatchBody);
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  return { impl, bodies, events: () => bodies.flatMap((body) => body.batch) };
+}
+
 test("resolveTelemetryEnabled is false when settings.telemetry.enabled is false", () => {
   expect(resolveTelemetryEnabled(settingsWith("id", false), {})).toBe(false);
 });
@@ -104,11 +118,7 @@ test("capture rejects unknown event names", () => {
 });
 
 test("capture strips properties not in the event's allowlist", async () => {
-  const calls: unknown[] = [];
-  const impl = ((_url: string, init: RequestInit) => {
-    calls.push(JSON.parse(init.body as string));
-    return Promise.resolve(new Response("1", { status: 200 }));
-  }) as unknown as typeof fetch;
+  const { impl, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWith("id"),
     env: {},
@@ -123,9 +133,9 @@ test("capture strips properties not in the event's allowlist", async () => {
     exit_reason: "done",
     secret_field: "should-not-appear",
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls.length).toBe(1);
-  const body = calls[0] as { properties: Record<string, unknown> };
+  await telemetry.flush();
+  expect(events().length).toBe(1);
+  const body = events()[0];
   expect(body.properties.status).toBe("ok");
   expect(body.properties.turn_count).toBe(3);
   expect(body.properties.duration_ms).toBe(100);
@@ -135,11 +145,7 @@ test("capture strips properties not in the event's allowlist", async () => {
 });
 
 test("capture strips properties not in inference_turn's allowlist", async () => {
-  const calls: unknown[] = [];
-  const impl = ((_url: string, init: RequestInit) => {
-    calls.push(JSON.parse(init.body as string));
-    return Promise.resolve(new Response("1", { status: 200 }));
-  }) as unknown as typeof fetch;
+  const { impl, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWith("id"),
     env: {},
@@ -157,9 +163,9 @@ test("capture strips properties not in inference_turn's allowlist", async () => 
     duration_ms: 400,
     prompt: "should-not-appear",
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls.length).toBe(1);
-  const body = calls[0] as { event: string; properties: Record<string, unknown> };
+  await telemetry.flush();
+  expect(events().length).toBe(1);
+  const body = events()[0];
   expect(body.event).toBe("inference_turn");
   expect(body.properties.provider_id).toBe("anthropic");
   expect(body.properties.model_id).toBe("claude-x");
@@ -173,11 +179,7 @@ test("capture strips properties not in inference_turn's allowlist", async () => 
 });
 
 test("capture payload shape includes distinct_id and common props, with no client-side geoip flag", async () => {
-  const calls: unknown[] = [];
-  const impl = ((_url: string, init: RequestInit) => {
-    calls.push(JSON.parse(init.body as string));
-    return Promise.resolve(new Response("1", { status: 200 }));
-  }) as unknown as typeof fetch;
+  const { impl, bodies, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWith("my-install-id"),
     env: {},
@@ -185,16 +187,13 @@ test("capture payload shape includes distinct_id and common props, with no clien
     apiKey: "test-key",
   });
   telemetry.capture("cli_start");
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const body = calls[0] as {
-    api_key: string;
-    event: string;
-    distinct_id: string;
-    properties: Record<string, unknown>;
-  };
-  expect(body.api_key).toBe("test-key");
+  await telemetry.flush();
+  expect(bodies.length).toBe(1);
+  expect(bodies[0].api_key).toBe("test-key");
+  const body = events()[0];
   expect(body.event).toBe("cli_start");
-  expect(body.distinct_id).toBe("my-install-id");
+  expect(body.properties.distinct_id).toBe("my-install-id");
+  expect(typeof body.timestamp).toBe("string");
   expect(body.properties.$geoip_disable).toBeUndefined();
   expect(body.properties.schema_version).toBe(1);
   expect(typeof body.properties.service_version).toBe("string");
@@ -246,11 +245,7 @@ test("flush resolves immediately when nothing is pending", async () => {
 });
 
 test("capture attaches the same session_id across multiple events in one process", async () => {
-  const calls: unknown[] = [];
-  const impl = ((_url: string, init: RequestInit) => {
-    calls.push(JSON.parse(init.body as string));
-    return Promise.resolve(new Response("1", { status: 200 }));
-  }) as unknown as typeof fetch;
+  const { impl, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWith("my-install-id"),
     env: {},
@@ -259,13 +254,13 @@ test("capture attaches the same session_id across multiple events in one process
   });
   telemetry.capture("cli_start");
   telemetry.capture("session_end", { status: "ok" });
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(calls.length).toBe(2);
-  const bodies = calls as { properties: Record<string, unknown> }[];
-  const sessionId = bodies[0].properties.session_id;
+  await telemetry.flush();
+  const captured = events();
+  expect(captured.length).toBe(2);
+  const sessionId = captured[0].properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(bodies[1].properties.session_id).toBe(sessionId);
+  expect(captured[1].properties.session_id).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });
 
@@ -283,4 +278,169 @@ test("ensureTelemetrySettings called twice keeps installationId and enabled flag
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+function gatedFetch() {
+  const releases: (() => void)[] = [];
+  const bodies: BatchBody[] = [];
+  let concurrent = 0;
+  let peakConcurrent = 0;
+  let open = false;
+  const impl = ((_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(init.body as string) as BatchBody);
+    concurrent++;
+    peakConcurrent = Math.max(peakConcurrent, concurrent);
+    return new Promise<Response>((resolve) => {
+      const release = () => {
+        concurrent--;
+        resolve(new Response("1", { status: 200 }));
+      };
+      if (open) release();
+      else releases.push(release);
+    });
+  }) as unknown as typeof fetch;
+  return {
+    impl,
+    bodies,
+    openGate: () => {
+      open = true;
+      for (const release of releases.splice(0)) release();
+    },
+    peak: () => peakConcurrent,
+  };
+}
+
+const turnCounts = (body: BatchBody) => body.batch.map((entry) => entry.properties.turn_count);
+
+test("capture posts batches to the /batch/ endpoint", async () => {
+  const urls: string[] = [];
+  const impl = ((url: string) => {
+    urls.push(url);
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+    host: "https://telemetry.example",
+  });
+  telemetry.capture("cli_start");
+  await telemetry.flush();
+  expect(urls).toEqual(["https://telemetry.example/batch/"]);
+});
+
+test("reaching the batch size sends one request holding every queued event", async () => {
+  const { impl, bodies } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+    batch: { size: 3, intervalMs: 60_000 },
+  });
+  telemetry.capture("session_end", { turn_count: 1 });
+  telemetry.capture("session_end", { turn_count: 2 });
+  expect(bodies.length).toBe(0);
+
+  telemetry.capture("session_end", { turn_count: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(bodies.length).toBe(1);
+  expect(turnCounts(bodies[0])).toEqual([1, 2, 3]);
+});
+
+test("a partial batch is sent once the batch interval elapses", async () => {
+  const { impl, bodies } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+    batch: { size: 100, intervalMs: 10 },
+  });
+  telemetry.capture("session_end", { turn_count: 1 });
+  expect(bodies.length).toBe(0);
+
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(bodies.length).toBe(1);
+  expect(turnCounts(bodies[0])).toEqual([1]);
+});
+
+test("overflowing the queue drops the oldest events", async () => {
+  const { impl, bodies } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+    batch: { size: 100, intervalMs: 60_000, queueLimit: 3 },
+  });
+  for (let turn = 1; turn <= 5; turn++) telemetry.capture("session_end", { turn_count: turn });
+  await telemetry.flush();
+  expect(bodies.length).toBe(1);
+  expect(turnCounts(bodies[0])).toEqual([3, 4, 5]);
+});
+
+test("captures during a request queue behind it instead of opening a second one", async () => {
+  const gate = gatedFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: gate.impl,
+    apiKey: "test-key",
+    batch: { size: 1, intervalMs: 60_000 },
+  });
+  telemetry.capture("session_end", { turn_count: 1 });
+  telemetry.capture("session_end", { turn_count: 2 });
+  telemetry.capture("session_end", { turn_count: 3 });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(gate.bodies.length).toBe(1);
+
+  gate.openGate();
+  await telemetry.flush();
+  expect(gate.peak()).toBe(1);
+  expect(gate.bodies.map(turnCounts)).toEqual([[1], [2], [3]]);
+});
+
+test("flush drains a partially full queue within its deadline", async () => {
+  const { impl, bodies } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+    batch: { size: 100, intervalMs: 60_000 },
+  });
+  telemetry.capture("session_end", { turn_count: 1 });
+  telemetry.capture("session_end", { turn_count: 2 });
+  const start = Date.now();
+  await telemetry.flush();
+  expect(Date.now() - start).toBeLessThan(500);
+  expect(bodies.length).toBe(1);
+  expect(turnCounts(bodies[0])).toEqual([1, 2]);
+});
+
+test("a hung endpoint caps the queue and never opens a second request", async () => {
+  const gate = gatedFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: gate.impl,
+    apiKey: "test-key",
+    batch: { size: 2, intervalMs: 60_000, queueLimit: 4 },
+  });
+  for (let turn = 1; turn <= 20; turn++) {
+    telemetry.capture("session_end", { turn_count: turn });
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  expect(gate.bodies.length).toBe(1);
+  expect(gate.peak()).toBe(1);
+  expect(turnCounts(gate.bodies[0])).toEqual([1, 2]);
+
+  gate.openGate();
+  await telemetry.flush();
+  expect(gate.peak()).toBe(1);
+  // Only the newest queueLimit events survived the overflow; everything
+  // between the in-flight batch and them was shed rather than buffered.
+  expect(gate.bodies.slice(1).flatMap(turnCounts)).toEqual([17, 18, 19, 20]);
 });
