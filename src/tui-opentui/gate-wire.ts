@@ -262,6 +262,24 @@ const NOOP_GATE_HOOKS: GateLifecycleHooks = {
 }
 
 /**
+ * Wrap a gate's `resolve` so `onGateClosed` fires exactly once no matter
+ * which of accept / cancel / auto-deny settles it first.
+ */
+function onceClosed<T>(
+  onGateClosed: () => void,
+  resolve: (value: T) => void,
+): (value: T) => void {
+  let closed = false
+  return (value) => {
+    if (!closed) {
+      closed = true
+      onGateClosed()
+    }
+    resolve(value)
+  }
+}
+
+/**
  * Subscribe the permission/operator gate events to the shell's overlays.
  * Returns a dispose function that removes exactly the listeners this call added.
  */
@@ -291,14 +309,7 @@ export function wireGates(
 
   function onPermission(ev: PermissionGateEvent): void {
     hooks.onGateOpened()
-    let closed = false
-    const resolve: PermissionGateEvent["resolve"] = (outcome) => {
-      if (!closed) {
-        closed = true
-        hooks.onGateClosed()
-      }
-      ev.resolve(outcome)
-    }
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
     const choices = permissionChoicesFromRequest(ev.request)
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true })
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
@@ -408,14 +419,7 @@ export function wireGates(
 
   function onOperator(ev: OperatorGateEvent): void {
     hooks.onGateOpened()
-    let closed = false
-    const resolve: OperatorGateEvent["resolve"] = (result) => {
-      if (!closed) {
-        closed = true
-        hooks.onGateClosed()
-      }
-      ev.resolve(result)
-    }
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
     const choices = operatorChoicesFromOptions(ev.options)
     // Guarded the same way as the permission gate: correctness must not rest
     // on callers of closeInsetOverlay remembering to null the cancel hook
