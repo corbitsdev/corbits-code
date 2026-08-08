@@ -151,16 +151,21 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
 });
 
 // ---------------------------------------------------------------------------
-// Model-family policy: a grok provider must tighten the tool-only-loop pause
-// threshold (10 turns) below the default (20), matching resolveModelFamilyPolicy.
+// Model-family policy / main-session loop protection (CL-5611): a tool-only
+// streak must not hard-pause on turn count alone — a Grok session hard-paused
+// at 10 turns of real progress (Linear lookups + code reads) motivated
+// replacing the count-only pause with a real no-progress signal (identical
+// tool-call fingerprint repeating). See src/agent/director.test.ts for the
+// full loop-protection coverage; these two cover the regression scenario
+// directly against resolveModelFamilyPolicy's grok branch.
 // ---------------------------------------------------------------------------
 
-function toolOnlyInferenceDone(callId: string): ReactorInboundEvent {
+function toolOnlyInferenceDone(callId: string, path = "x.ts"): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
       role: "assistant",
-      content: [{ type: "tool_call", id: callId, name: "read_file", arguments: { path: "x.ts" } }],
+      content: [{ type: "tool_call", id: callId, name: "read_file", arguments: { path } }],
       model: "test-model",
       timestamp: 0,
     },
@@ -169,23 +174,31 @@ function toolOnlyInferenceDone(callId: string): ReactorInboundEvent {
   };
 }
 
-async function runToolOnlyStreak(director: ReturnType<typeof createChatDirector>, turns: number) {
+async function runToolOnlyStreak(
+  director: ReturnType<typeof createChatDirector>,
+  turns: number,
+  varyPath = true,
+) {
   let lastActions: ReactorAction[] = [];
   for (let i = 0; i < turns; i++) {
-    await director.decide(toolOnlyInferenceDone(`call-${i}`), state, makeCapabilities());
+    await director.decide(
+      toolOnlyInferenceDone(`call-${i}`, varyPath ? `x-${i}.ts` : "x.ts"),
+      state,
+      makeCapabilities(),
+    );
     const result = await director.decide(toolDoneTurn(`call-${i}`), state, makeCapabilities());
     lastActions = Array.isArray(result) ? result : [result];
   }
   return lastActions;
 }
 
-test("a grok provider pauses the session after 10 tool-only turns, tighter than the default 20", async () => {
+test("a grok provider no longer pauses a 10-turn productive tool-only streak", async () => {
   const grokDirector = createChatDirector(
     "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
     { providerName: "xai", model: "grok-4" },
   );
   const grokActions = await runToolOnlyStreak(grokDirector, 10);
-  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
+  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
 
   const defaultDirector = createChatDirector(
     "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
@@ -193,4 +206,13 @@ test("a grok provider pauses the session after 10 tool-only turns, tighter than 
   );
   const defaultActions = await runToolOnlyStreak(defaultDirector, 10);
   expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+});
+
+test("a grok provider still pauses when the same tool call repeats without progress", async () => {
+  const grokDirector = createChatDirector(
+    "sys", [], undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+    { providerName: "xai", model: "grok-4" },
+  );
+  const grokActions = await runToolOnlyStreak(grokDirector, 4, /* varyPath */ false);
+  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
 });

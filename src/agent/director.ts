@@ -24,6 +24,7 @@ import type { GoalGovernor } from "./goal.js";
 import { evidenceFromTurns } from "./goal-evaluator.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
+import { fingerprintToolCalls } from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
@@ -335,11 +336,16 @@ class ChatDirectorImpl extends DefaultDirector {
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the pause,
   // regardless of what it calls in between (same reset discipline as the
-  // idle/declined nudge budgets above).
+  // idle/declined nudge budgets above). The streak alone only drives the soft
+  // nudge; the hard pause requires lastToolFingerprint to actually repeat
+  // (see applyToolOnlyLoopProtection) — busy-but-varied tool calls never trip
+  // it, however long the streak runs.
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
   private pausedForToolOnly = false;
+  private lastToolFingerprint: string | null = null;
+  private identicalToolFingerprintStreak = 0;
 
   constructor(
     systemPrompt: string,
@@ -422,8 +428,8 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (this.pausedForToolOnly) {
       const pauseMessage =
-        `Auto-paused: the model ran ${this.toolOnlyStreak} steps in a row without explaining its progress. ` +
-        "Send a message to resume.";
+        `Auto-paused: the model repeated the same tool call ${this.identicalToolFingerprintStreak} times ` +
+        "in a row without making progress. Send a message to resume.";
       return [
         capabilities.checkpoint("tool-only-loop-paused"),
         capabilities.reply(pauseMessage),
@@ -523,6 +529,8 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
       this.pausedForToolOnly = false;
+      this.lastToolFingerprint = null;
+      this.identicalToolFingerprintStreak = 0;
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -573,21 +581,37 @@ class ChatDirectorImpl extends DefaultDirector {
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
 
-      // Main-session loop protection: a run of tool-only turns (tool calls,
-      // no narration) is the shape of a runaway session an operator would
-      // otherwise have to notice and cancel by hand. A dismissed
-      // ask_operator counts toward this streak like any other tool-only turn
-      // (handled separately below; declined-tool early returns do not reset
-      // the streak because only text turns and fresh messages do).
+      // Main-session loop protection has two independent triggers on the same
+      // tool-only streak:
+      //  - a long streak (toolOnlyTurnNudgeAt) is just a check-in nudge —
+      //    productive multi-step tool work (Linear lookups, code reads, ...)
+      //    runs through it every time.
+      //  - a hard pause requires the tool calls themselves to stop changing:
+      //    the same fingerprint (tool names + arguments, see
+      //    fingerprintToolCalls) repeating toolOnlyNoProgressRepeatLimit
+      //    turns in a row is the actual no-progress signal, independent of
+      //    streak length. A dismissed ask_operator counts toward both like
+      //    any other tool-only turn (handled separately below;
+      //    declined-tool early returns do not reset the streak because only
+      //    text turns and fresh messages do).
       if (hasToolCalls && !hasText) {
         this.toolOnlyStreak++;
+        const fingerprint = fingerprintToolCalls(event.turn.content);
+        if (fingerprint !== null && fingerprint === this.lastToolFingerprint) {
+          this.identicalToolFingerprintStreak++;
+        } else {
+          this.identicalToolFingerprintStreak = 1;
+        }
+        this.lastToolFingerprint = fingerprint;
       } else {
         this.toolOnlyStreak = 0;
         this.toolOnlyNudgeFired = false;
         this.pendingToolOnlyNudge = false;
         this.pausedForToolOnly = false;
+        this.lastToolFingerprint = null;
+        this.identicalToolFingerprintStreak = 0;
       }
-      if (this.toolOnlyStreak >= this.modelFamilyPolicy.toolOnlyTurnPauseAt) {
+      if (this.identicalToolFingerprintStreak >= this.modelFamilyPolicy.toolOnlyNoProgressRepeatLimit) {
         this.pausedForToolOnly = true;
       } else if (
         this.toolOnlyStreak === this.modelFamilyPolicy.toolOnlyTurnNudgeAt &&

@@ -26,7 +26,26 @@ function makeCapabilities(): ReactorCapabilities {
   };
 }
 
+// Varied arguments per call so the fingerprint changes turn to turn — the
+// shape of genuine, varied tool-only orchestration (Linear lookups, reading
+// different files, ...), as opposed to repeatedToolOnlyTurn below.
 function toolOnlyTurn(id: string): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: [{ type: "tool_call", id, name: "read_file", arguments: { path: `${id}.ts` } }],
+    },
+    usage: { input: 0, output: 0 },
+    source: "test",
+  } as unknown as ReactorInboundEvent;
+}
+
+// Identical tool name + arguments on every call regardless of id — the shape
+// of genuine no-progress thrash (fingerprintToolCalls ignores call id).
+function repeatedToolOnlyTurn(id: string): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
@@ -86,11 +105,12 @@ async function runToolOnlyStreak(
   director: ReturnType<typeof createChatDirector>,
   capabilities: ReactorCapabilities,
   count: number,
+  makeTurn: (id: string) => ReactorInboundEvent = toolOnlyTurn,
 ): Promise<ReactorAction[]> {
   let last: ReactorAction[] = [];
   for (let i = 0; i < count; i++) {
     const id = `tc-${i}`;
-    await director.decide(toolOnlyTurn(id), mockState, capabilities);
+    await director.decide(makeTurn(id), mockState, capabilities);
     last = actionsArray(await director.decide(toolDoneEvent(id), mockState, capabilities));
   }
   return last;
@@ -114,8 +134,8 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    // Default family nudges at 12 consecutive tool-only turns.
-    const actions = await runToolOnlyStreak(director, capabilities, 12);
+    // Default family nudges at 25 consecutive tool-only turns.
+    const actions = await runToolOnlyStreak(director, capabilities, 25);
     const infer = actions.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     expect(ephemeralText(infer)).toBeDefined();
@@ -136,14 +156,17 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    await runToolOnlyStreak(director, capabilities, 12);
+    await runToolOnlyStreak(director, capabilities, 25);
     const nextTurn = actionsArray(await runToolOnlyStreak(director, capabilities, 1));
     const infer = nextTurn.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-  test("pauses and stops issuing infers at the family pause threshold", async () => {
+  // Required by CL-5611: a long productive tool-only streak (varied
+  // fingerprints every turn) must run straight through both the nudge and
+  // well past any prior hard-pause threshold without ever pausing.
+  test("a long productive tool-only streak continues without pausing", async () => {
     const director = createChatDirector(
       "system",
       [],
@@ -158,8 +181,30 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    // Default family pauses at 20 consecutive tool-only turns.
-    const actions = await runToolOnlyStreak(director, capabilities, 20);
+    const actions = await runToolOnlyStreak(director, capabilities, 50);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  // Required by CL-5611: genuine no-progress (identical tool fingerprint
+  // repeating) must still be caught and stop the session.
+  test("pauses when the same tool call repeats without progress", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    // Default family's no-progress repeat limit is 4 identical calls in a row.
+    const actions = await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
     expect(actions.some((a) => a.type === "infer")).toBe(false);
     const reply = actions.find((a) => a.type === "reply");
     expect(reply).toBeDefined();
@@ -183,10 +228,10 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    await runToolOnlyStreak(director, capabilities, 20);
+    await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
     await director.decide(messageReceived("keep going"), mockState, capabilities);
     // A fresh tool-only streak from zero must not immediately re-pause.
-    const actions = await runToolOnlyStreak(director, capabilities, 1);
+    const actions = await runToolOnlyStreak(director, capabilities, 1, repeatedToolOnlyTurn);
     expect(actions.some((a) => a.type === "reply")).toBe(false);
   });
 
@@ -205,10 +250,10 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    // 11 ordinary tool-only turns, then a turn whose only tool call is a
-    // declined ask_operator — the streak must still reach the nudge
-    // threshold on turn 12, exactly as if it were any other tool call.
-    for (let i = 0; i < 11; i++) {
+    // 24 ordinary (varied) tool-only turns, then a turn whose only tool call
+    // is a declined ask_operator — the streak must still reach the nudge
+    // threshold on turn 25, exactly as if it were any other tool call.
+    for (let i = 0; i < 24; i++) {
       const id = `tc-${i}`;
       await director.decide(toolOnlyTurn(id), mockState, capabilities);
       await director.decide(toolDoneEvent(id), mockState, capabilities);
@@ -244,7 +289,7 @@ describe("ChatDirector tool-only loop protection", () => {
       ),
     );
     // The declined branch returns its own reply, short-circuiting this cycle;
-    // the streak nonetheless already reached 12 and fires on the next infer.
+    // the streak nonetheless already reached 25 and fires on the next infer.
     expect(declined.some((a) => a.type === "reply")).toBe(true);
     const followUp = actionsArray(await runToolOnlyStreak(director, capabilities, 1));
     const infer = followUp.find((a) => a.type === "infer");
@@ -277,7 +322,9 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-  test("grok's tightened thresholds fire earlier than the default family", async () => {
+  // Required by CL-5611: the observed failure — a Grok session hard-paused
+  // at 10 turns of real progress (Linear lookups + code reads).
+  test("grok no longer hard-pauses a 10-turn productive tool-only streak", async () => {
     const director = createChatDirector(
       "system",
       [],
@@ -292,9 +339,49 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    // Grok nudges at 6, well below the default family's 12.
-    const actions = await runToolOnlyStreak(director, capabilities, 6);
-    const infer = actions.find((a) => a.type === "infer");
-    expect(ephemeralText(infer)).toBeDefined();
+    const actions = await runToolOnlyStreak(director, capabilities, 10);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  test("grok still catches genuine no-progress thrash", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { providerName: "xai/default", model: "grok-4.5" },
+    );
+    const capabilities = makeCapabilities();
+
+    const actions = await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
+  });
+
+  // Required by CL-5611: the nudge is an ephemeral inference-side prompt, not
+  // a reply — it must never itself pause/end the session.
+  test("the nudge path does not reply-pause the session", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    const actions = await runToolOnlyStreak(director, capabilities, 25);
+    expect(actions.some((a) => a.type === "reply")).toBe(false);
+    expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 });

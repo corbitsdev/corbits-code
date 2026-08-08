@@ -10,14 +10,22 @@ export type ModelFamilyPolicy = {
   family: ModelFamily;
   /**
    * Consecutive tool-only assistant turns (tool calls, no text) before the
-   * main chat director injects a one-shot wrap-up nudge.
+   * main chat director injects a one-shot wrap-up nudge. A long tool-only
+   * streak is normal orchestration (Linear lookups, code reads, etc.) and
+   * must not by itself stop the session — this is a soft check-in, not a
+   * loop-protection trigger. See toolOnlyNoProgressRepeatLimit for the real
+   * stop signal.
    */
   toolOnlyTurnNudgeAt: number;
   /**
-   * Consecutive tool-only assistant turns before the main chat director stops
-   * issuing infers and surfaces a loud operator-facing pause.
+   * Consecutive tool-only turns that repeat the exact same tool-call
+   * fingerprint (same tool names and arguments, see fingerprintToolCalls in
+   * subagent/stop-policy.ts) before the main chat director stops issuing
+   * infers and surfaces a loud operator-facing pause. This is the actual
+   * no-progress signal: identical calls returning nothing new, not merely
+   * the absence of narration.
    */
-  toolOnlyTurnPauseAt: number;
+  toolOnlyNoProgressRepeatLimit: number;
   /** Ephemeral nudge text injected at toolOnlyTurnNudgeAt. */
   wrapUpNudgeText: string;
   /** Wall-clock inactivity, in ms, before a silent sub-agent leaf is nudged. */
@@ -36,24 +44,33 @@ const GROK_WRAP_UP_NUDGE_TEXT =
   "report progress now: what you have done, what is left, and whether you are " +
   "actually still making progress.";
 
-// Permissive defaults: a busy-but-progressing session (tool turns interleaved
-// with text) never trips these. Tightened only for families with observed
-// runaway tool-only behavior (see grok below).
+// Forensics on real session traces (see CL-5611) found healthy tool-only
+// streaks topping out at 13 consecutive turns (p90 12, p99 13, n=54 sessions
+// with any tool-only run) and zero sessions repeating an identical tool-call
+// fingerprint three or more times in a row. 25 sits comfortably above the
+// observed healthy ceiling; the nudge is a check-in, not a stop, so erring
+// high costs nothing. Tightened only for families with observed runaway
+// tool-only behavior (see grok below).
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
-  toolOnlyTurnNudgeAt: 12,
-  toolOnlyTurnPauseAt: 20,
+  toolOnlyTurnNudgeAt: 25,
+  toolOnlyNoProgressRepeatLimit: 4,
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: 5 * 60_000,
   applyGrokFinishBias: false,
 };
 
 // xAI's own CLI ships main-session auto-pause for grok ("Goal auto-paused
-// after N consecutive non-completing turns") — a directly observed 14-turn
-// pure-tool-call session the operator had to cancel motivates tightening
-// grok's thresholds below the shared default.
+// after N consecutive non-completing turns"), which motivated a tightened
+// nudge/pause pair here previously (6/10). That pair was miscalibrated: it
+// fired on a directly observed 10-turn session that was making real progress
+// through Linear lookups and code reads (CL-5611), well inside the healthy
+// range other families tolerate. Grok keeps its own nudge copy and shorter
+// sub-agent stall timeout — both still warranted — but shares the default
+// tool-only-streak nudge threshold and no-progress repeat limit rather than
+// treating "no narration" as a family-specific failure mode.
 const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
-  toolOnlyTurnNudgeAt: 6,
-  toolOnlyTurnPauseAt: 10,
+  toolOnlyTurnNudgeAt: DEFAULT_POLICY.toolOnlyTurnNudgeAt,
+  toolOnlyNoProgressRepeatLimit: DEFAULT_POLICY.toolOnlyNoProgressRepeatLimit,
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: 90_000,
   applyGrokFinishBias: true,
