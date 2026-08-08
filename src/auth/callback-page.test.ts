@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
+import {
+  PRODUCT_GITHUB_LABEL,
+  PRODUCT_GITHUB_URL,
+  PRODUCT_SITE_LABEL,
+  PRODUCT_SITE_URL,
+} from "../branding.js";
 import { callbackPageHtml, humanizeIdentifier } from "./callback-page.js";
 
 describe("humanizeIdentifier", () => {
@@ -42,19 +48,49 @@ describe("callbackPageHtml", () => {
     );
   });
 
-  test("success footer links to corbits.dev and the GitHub org", () => {
+  test("the footer links to the product site and the GitHub org", () => {
     const html = callbackPageHtml({ subject: "linear" });
-    expect(html).toContain('href="https://corbits.dev"');
-    expect(html).toContain('href="https://github.com/corbitsdev"');
-    expect(html).toContain(">corbits.dev<");
-    expect(html).toContain(">github.com/corbitsdev<");
+    const link = (url: string, label: string) =>
+      `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+    expect(html).toContain(link(PRODUCT_SITE_URL, PRODUCT_SITE_LABEL));
+    expect(html).toContain(link(PRODUCT_GITHUB_URL, PRODUCT_GITHUB_LABEL));
   });
 
-  test("the page loads no off-machine assets", () => {
-    const html = callbackPageHtml({ subject: "linear" });
-    // Product links in the footer are intentional; nothing else may fetch.
-    expect(html).not.toMatch(/<(?:link|script)\b[^>]+\bsrc=/i);
-    expect(html).not.toMatch(/@import\b/);
-    expect(html).not.toMatch(/url\(\s*["']?https?:/i);
+  test("each footer label names the destination its URL actually points at", () => {
+    expect(PRODUCT_SITE_URL).toContain(PRODUCT_SITE_LABEL);
+    expect(PRODUCT_GITHUB_URL).toContain(PRODUCT_GITHUB_LABEL);
   });
+
+  // An allowlist rather than a shape match: an unexpected origin fails loudly
+  // instead of passing because it happened to be wrapped in an anchor tag.
+  const allowedOrigins = new Set([
+    PRODUCT_SITE_URL,
+    PRODUCT_GITHUB_URL,
+    // The SVG namespace the wordmark declares; a URI, never fetched.
+    "http://www.w3.org/2000/svg",
+  ]);
+
+  const offMachineOrigins = (html: string): readonly string[] => {
+    // Scheme-qualified and protocol-relative alike, since either would load.
+    const found =
+      html.match(
+        /(?:[a-z][a-z0-9+.-]*:)?\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+[^"'`)\s<>]*/gi,
+      ) ?? [];
+    return found.filter(
+      (ref) => ![...allowedOrigins].some((origin) => ref.startsWith(origin)),
+    );
+  };
+
+  for (const [outcome, page] of [
+    ["success", { subject: "linear" }],
+    ["failure", { subject: "linear", error: "access_denied" }],
+  ] as const) {
+    test(`the ${outcome} page names no off-machine origin beyond the footer links`, () => {
+      const html = callbackPageHtml(page);
+      expect(offMachineOrigins(html)).toEqual([]);
+      expect(html).not.toMatch(
+        /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon|importScripts)\s*\(/,
+      );
+    });
+  }
 });

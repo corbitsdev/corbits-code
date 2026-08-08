@@ -15,8 +15,10 @@
  */
 
 import {
+  PRODUCT_GITHUB_LABEL,
   PRODUCT_GITHUB_URL,
   PRODUCT_NAME,
+  PRODUCT_SITE_LABEL,
   PRODUCT_SITE_URL,
 } from "../branding.js";
 
@@ -245,6 +247,16 @@ export function humanizeIdentifier(raw: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/**
+ * A footer link, preceded by its separator.
+ *
+ * Opens in a new tab so the operator keeps the tab telling them the
+ * authorization finished and this window is safe to close.
+ */
+function footerLink(url: string, label: string): string {
+  return `<span class="sep" aria-hidden="true">·</span><a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
 export type CallbackPage = {
   /** What was being authorized: an MCP server or provider name. */
   readonly subject?: string;
@@ -292,7 +304,7 @@ export function callbackPageHtml(page: CallbackPage = {}): string {
     `<h1>${heading}</h1>`,
     `<p class="body">${body}</p>`,
     "<hr>",
-    `<footer>${PRODUCT_NAME}<span class="sep" aria-hidden="true">·</span><a href="${PRODUCT_SITE_URL}">corbits.dev</a><span class="sep" aria-hidden="true">·</span><a href="${PRODUCT_GITHUB_URL}">github.com/corbitsdev</a></footer>`,
+    `<footer>${PRODUCT_NAME}${footerLink(PRODUCT_SITE_URL, PRODUCT_SITE_LABEL)}${footerLink(PRODUCT_GITHUB_URL, PRODUCT_GITHUB_LABEL)}</footer>`,
     "</div>",
     "</main></body>",
     `<script>${SCRIPT}</script>`,
