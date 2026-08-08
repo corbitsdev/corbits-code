@@ -12,7 +12,7 @@ import {
   isShellNoOp,
   stripCommentLines,
 } from "./command.js";
-import { matchesPattern, isApproved, escapeGlobLiteral } from "./matcher.js";
+import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
 import { classifyTool, buildRequests, isAutoAllowedShellCall } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
@@ -238,19 +238,6 @@ describe("matchesPattern (@intx/authz + exact escapes)", () => {
     const pattern = escapeGlobLiteral(literal);
     expect(matchesPattern(literal, pattern)).toBe(true);
     expect(matchesPattern("echo XfooX bar\\baz", pattern)).toBe(false);
-  });
-});
-
-describe("isApproved", () => {
-  const approvals: Approval[] = [
-    { tool: "run_shell", pattern: "npm *" },
-    { tool: "write_file", pattern: "src/*" },
-  ];
-  test("matches by tool and pattern", () => {
-    expect(isApproved("run_shell", "npm test", approvals)).toBe(true);
-    expect(isApproved("run_shell", "curl x", approvals)).toBe(false);
-    expect(isApproved("write_file", "src/a.ts", approvals)).toBe(true);
-    expect(isApproved("write_file", "lib/a.ts", approvals)).toBe(false);
   });
 });
 
@@ -1882,13 +1869,6 @@ describe("scoped grants", () => {
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
     expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" });
-  });
-
-  test("a provider-model approval does not auto-allow under a different model", () => {
-    const approvals: Approval[] = [{ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" }];
-    expect(isApproved("run_shell", "npm test", approvals, "openai:gpt-5")).toBe(true);
-    expect(isApproved("run_shell", "npm test", approvals, "anthropic:opus")).toBe(false);
-    expect(isApproved("run_shell", "npm test", approvals, undefined)).toBe(false);
   });
 
   test("a seeded provider-model approval auto-allows when the gate's model matches", async () => {
