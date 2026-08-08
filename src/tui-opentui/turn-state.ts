@@ -97,6 +97,12 @@ export type TurnState = {
    */
   readonly activeToolCalls: readonly string[]
   /**
+   * Real id for a tool name once one has been seen this turn, so a
+   * name-only announcement and its later id-bearing counterpart collapse
+   * onto one `activeToolCalls` entry. See `registerActiveCall`.
+   */
+  readonly callIdByName: Readonly<Record<string, string>>
+  /**
    * Tail of the text/thinking output streamed in the current uninterrupted
    * streaming cycle. A tool call ends the cycle and clears it: a model
    * narrating a similar short line before each of several tool calls is
@@ -148,6 +154,7 @@ export function initialTurnState(nowMs: number): TurnState {
     lastActivityAt: nowMs,
     quota: null,
     activeToolCalls: [],
+    callIdByName: {},
     streamText: "",
     streamCharsSeen: 0,
     repetitionCheckedAt: 0,
@@ -170,6 +177,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     streamTokenCount: 0,
     lastActivityAt: nowMs,
     activeToolCalls: [],
+    callIdByName: {},
     streamText: "",
     streamCharsSeen: 0,
     repetitionCheckedAt: 0,
@@ -215,11 +223,6 @@ function deltaText(event: { readonly data?: unknown; readonly text?: string }): 
   return event.text ?? ""
 }
 
-const namedCallData = type({ "name?": "string" })
-const toolStartData = type({
-  call: { "name?": "string" },
-})
-
 function quotaFromInferenceError(
   data: unknown,
   nowMs: number,
@@ -231,49 +234,45 @@ function quotaFromInferenceError(
   return { retryAfterMs, retryAt: nowMs + retryAfterMs }
 }
 
-function toolName(data: unknown): string | null {
-  const named = namedCallData(data)
-  if (!(named instanceof type.errors) && named.name !== undefined) {
-    return named.name
+type CallIdentity = { readonly id?: string; readonly name?: string }
+
+// Both flat streamed shapes (`{ callId?, name? }`) and the nested tool.start
+// shape (`{ call: { id?, callId?, name? } }`) are parsed here so every call
+// site — the tool name shown in the UI and the activeToolCalls bookkeeping —
+// reads one identity off one parse, instead of two schemas that could drift.
+const callEventData = type({
+  "callId?": "string",
+  "name?": "string",
+  "call?": { "id?": "string", "callId?": "string", "name?": "string" },
+})
+
+function streamedCallIdentity(data: unknown): CallIdentity {
+  const parsed = callEventData(data)
+  if (parsed instanceof type.errors) return {}
+  const id = parsed.callId ?? parsed.call?.id ?? parsed.call?.callId
+  const name = parsed.name ?? parsed.call?.name
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(name !== undefined ? { name } : {}),
   }
-  const started = toolStartData(data)
-  if (!(started instanceof type.errors) && started.call.name !== undefined) {
-    return started.call.name
-  }
-  return null
 }
 
-const callIdData = type({ "callId?": "string", "name?": "string" })
-const toolStartCallData = type({
-  call: { "id?": "string", "callId?": "string", "name?": "string" },
-})
+function toolName(data: unknown): string | null {
+  return streamedCallIdentity(data).name ?? null
+}
+
 const toolDoneData = type({
   result: { "callId?": "string", "name?": "string" },
 })
 
-/**
- * Stable handle for one outstanding tool call. Providers that stream a callId
- * give a real one; the rest fall back to the name so at least the count is
- * right, which is all the settle decision reads.
- */
-function streamedCallId(data: unknown): string {
-  const parsed = callIdData(data)
-  if (!(parsed instanceof type.errors)) {
-    if (parsed.callId !== undefined) return parsed.callId
-    if (parsed.name !== undefined) return parsed.name
-  }
-  const started = toolStartCallData(data)
-  if (!(started instanceof type.errors)) {
-    const { id, callId, name } = started.call
-    return id ?? callId ?? name ?? "tool"
-  }
-  return "tool"
-}
-
-function resultCallId(data: unknown): string {
+function resultIdentity(data: unknown): CallIdentity {
   const parsed = toolDoneData(data)
-  if (parsed instanceof type.errors) return "tool"
-  return parsed.result.callId ?? parsed.result.name ?? "tool"
+  if (parsed instanceof type.errors) return {}
+  const { callId, name } = parsed.result
+  return {
+    ...(callId !== undefined ? { id: callId } : {}),
+    ...(name !== undefined ? { name } : {}),
+  }
 }
 
 function withActiveCall(
@@ -294,6 +293,110 @@ function withoutActiveCall(
   const index = active.indexOf(id)
   if (index !== -1) return active.filter((_, i) => i !== index)
   return active.slice(1)
+}
+
+type CallTracking = {
+  readonly activeToolCalls: readonly string[]
+  /**
+   * Real id for a tool name once one has been seen. A name-only announcement
+   * (start/end with no callId) and the id-bearing tool.start for the same
+   * call share this mapping so the second collapses onto the first entry
+   * instead of adding a duplicate. Two concurrent calls to the same tool
+   * still collide here — the event stream carries no signal to tell them
+   * apart until both have real ids — but that ambiguity predates this fix:
+   * the original name-keyed tracking collapsed them identically.
+   */
+  readonly callIdByName: Readonly<Record<string, string>>
+}
+
+/**
+ * Canonicalize one logical call's identity at the event boundary: a
+ * name-only announcement (no callId yet) and a later id-bearing one for the
+ * same call must collapse onto a single activeToolCalls entry, not two.
+ */
+function registerActiveCall(
+  tracking: CallTracking,
+  identity: CallIdentity,
+): CallTracking {
+  const { activeToolCalls, callIdByName } = tracking
+
+  if (identity.id !== undefined) {
+    const nextCallIdByName =
+      identity.name !== undefined
+        ? { ...callIdByName, [identity.name]: identity.id }
+        : callIdByName
+    // A provisional entry may already be tracking this call under its name —
+    // promote it onto the real id in place instead of adding a duplicate.
+    const withoutPlaceholder =
+      identity.name !== undefined && activeToolCalls.includes(identity.name)
+        ? activeToolCalls.filter((c) => c !== identity.name)
+        : activeToolCalls
+    return {
+      activeToolCalls: withActiveCall(withoutPlaceholder, identity.id),
+      callIdByName: nextCallIdByName,
+    }
+  }
+
+  if (identity.name !== undefined) {
+    const id = callIdByName[identity.name] ?? identity.name
+    return { activeToolCalls: withActiveCall(activeToolCalls, id), callIdByName }
+  }
+
+  return { activeToolCalls: withActiveCall(activeToolCalls, "tool"), callIdByName }
+}
+
+function withoutCallIdByName(
+  callIdByName: Readonly<Record<string, string>>,
+  name: string,
+): Readonly<Record<string, string>> {
+  if (!(name in callIdByName)) return callIdByName
+  return Object.fromEntries(
+    Object.entries(callIdByName).filter(([n]) => n !== name),
+  )
+}
+
+/**
+ * Which tool name (if any) maps to this id — tool.done rarely carries the
+ * name itself, so resolving the id back to its name is the only way to clear
+ * a finished call's entry without depending on the result payload's shape.
+ */
+function nameForCallId(
+  callIdByName: Readonly<Record<string, string>>,
+  id: string,
+): string | undefined {
+  return Object.entries(callIdByName).find(([, v]) => v === id)?.[0]
+}
+
+function unregisterActiveCall(
+  tracking: CallTracking,
+  identity: CallIdentity,
+): CallTracking {
+  const { activeToolCalls, callIdByName } = tracking
+
+  if (identity.id !== undefined) {
+    // Clear the mapping once its call resolves, or a later call reusing the
+    // same tool name would resolve straight to this now-finished id instead
+    // of tracking its own — reproducing the leak this function exists to fix.
+    const resolvedName = identity.name ?? nameForCallId(callIdByName, identity.id)
+    const nextCallIdByName =
+      resolvedName !== undefined
+        ? withoutCallIdByName(callIdByName, resolvedName)
+        : callIdByName
+    return {
+      activeToolCalls: withoutActiveCall(activeToolCalls, identity.id),
+      callIdByName: nextCallIdByName,
+    }
+  }
+
+  if (identity.name !== undefined) {
+    const id = callIdByName[identity.name] ?? identity.name
+    return {
+      activeToolCalls: withoutActiveCall(activeToolCalls, id),
+      callIdByName: withoutCallIdByName(callIdByName, identity.name),
+    }
+  }
+
+  return { activeToolCalls: withoutActiveCall(activeToolCalls, "tool"), callIdByName }
 }
 
 const streaming = (
@@ -432,14 +535,10 @@ export function turnStateFromEvent(
     case "inference.tool_call.start":
     case "inference.tool_call.end":
     case "tool.start": {
-      const running = runningTool(state, toolName(event.data), nowMs)
-      return {
-        ...running,
-        activeToolCalls: withActiveCall(
-          state.activeToolCalls,
-          streamedCallId(event.data),
-        ),
-      }
+      const identity = streamedCallIdentity(event.data)
+      const running = runningTool(state, identity.name ?? null, nowMs)
+      const tracking = registerActiveCall(running, identity)
+      return { ...running, ...tracking }
     }
 
     case "tool_call": {
@@ -455,7 +554,18 @@ export function turnStateFromEvent(
 
     // Tool finished: the model is being called again, so the awaiting-response
     // clock restarts rather than the tool clock continuing.
-    case "tool.done":
+    case "tool.done": {
+      const tracking = unregisterActiveCall(state, resultIdentity(event.data))
+      return {
+        ...state,
+        ...tracking,
+        awaitingResponse: true,
+        streamingType: null,
+        currentToolName: null,
+        lastActivityAt: nowMs,
+      }
+    }
+
     case "tool_result":
       return {
         ...state,
@@ -465,9 +575,7 @@ export function turnStateFromEvent(
         lastActivityAt: nowMs,
         activeToolCalls: withoutActiveCall(
           state.activeToolCalls,
-          event.type === "tool.done"
-            ? resultCallId(event.data)
-            : (event.name ?? "tool"),
+          event.name ?? "tool",
         ),
       }
 

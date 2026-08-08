@@ -81,6 +81,90 @@ describe("turnStateFromEvent", () => {
     ).toBe("grep")
   })
 
+  test("a call's own name-only start and end announcements do not double-count", () => {
+    const running = fold([
+      { type: "inference.start" },
+      { type: "inference.tool_call.start", data: { name: "bash" } },
+      { type: "inference.tool_call.end", data: { name: "bash" } },
+    ])
+    expect(running.activeToolCalls).toHaveLength(1)
+  })
+
+  test("a name-only streamed announcement and an id-bearing tool.start for the same call settle on one tool.done", () => {
+    // Regression for CL-5645: inference.tool_call.start streamed the call
+    // under its name (no callId yet); tool.start then announced the same
+    // call under a real id. One tool.done must clear both records, not
+    // leave a name-keyed duplicate pinning activeToolCalls forever.
+    const running = fold([
+      { type: "inference.start" },
+      { type: "inference.tool_call.start", data: { name: "bash" } },
+      { type: "tool.start", data: { call: { id: "call_1", name: "bash" } } },
+    ])
+    expect(running.activeToolCalls).toHaveLength(1)
+
+    const done = turnStateFromEvent(
+      running,
+      { type: "tool.done", data: { result: { callId: "call_1" } } },
+      200,
+    )
+    expect(done.activeToolCalls).toHaveLength(0)
+
+    const settled = turnStateFromEvent(done, { type: "inference.done" }, 201)
+    expect(settled.status).toBe("done")
+    expect(settled.isProcessing).toBe(false)
+  })
+
+  test("two concurrent calls to the same tool resolve independently", () => {
+    const running = fold([
+      { type: "inference.start" },
+      { type: "inference.tool_call.start", data: { name: "grep" } },
+      { type: "inference.tool_call.start", data: { name: "grep" } },
+      { type: "tool.start", data: { call: { id: "call_1", name: "grep" } } },
+      { type: "tool.start", data: { call: { id: "call_2", name: "grep" } } },
+    ])
+    expect(running.activeToolCalls).toHaveLength(2)
+
+    const oneDone = turnStateFromEvent(
+      running,
+      { type: "tool.done", data: { result: { callId: "call_1" } } },
+      200,
+    )
+    expect(oneDone.activeToolCalls).toHaveLength(1)
+
+    const bothDone = turnStateFromEvent(
+      oneDone,
+      { type: "tool.done", data: { result: { callId: "call_2" } } },
+      201,
+    )
+    expect(bothDone.activeToolCalls).toHaveLength(0)
+  })
+
+  test("a second call to the same tool name does not inherit a finished call's id", () => {
+    const firstDone = fold([
+      { type: "inference.start" },
+      { type: "inference.tool_call.start", data: { name: "bash" } },
+      { type: "tool.start", data: { call: { id: "call_1", name: "bash" } } },
+      { type: "tool.done", data: { result: { callId: "call_1" } } },
+    ])
+    expect(firstDone.activeToolCalls).toHaveLength(0)
+
+    const secondRunning = [
+      { type: "inference.tool_call.start", data: { name: "bash" } },
+      { type: "tool.start", data: { call: { id: "call_2", name: "bash" } } },
+    ].reduce(
+      (state, event, i) => turnStateFromEvent(state, event, 100 + i),
+      firstDone,
+    )
+    expect(secondRunning.activeToolCalls).toEqual(["call_2"])
+
+    const secondDone = turnStateFromEvent(
+      secondRunning,
+      { type: "tool.done", data: { result: { callId: "call_2" } } },
+      200,
+    )
+    expect(secondDone.activeToolCalls).toHaveLength(0)
+  })
+
   test("reactor.done settles back to idle", () => {
     const s = fold([{ type: "inference.start" }, { type: "reactor.done" }])
     expect(s.status).toBe("idle")
