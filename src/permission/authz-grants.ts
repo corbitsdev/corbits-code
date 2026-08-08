@@ -61,6 +61,26 @@ export function cwdMatchesGrant(
   return workspace.roots.includes(realpathOr(requestCwd));
 }
 
+// The single place that decides whether a grant's tool/providerModel/cwd
+// scope covers a request, independent of whether the grant's pattern matches
+// the request's subject. Every live call site that needs to know "does this
+// grant cover this request's scope" — evaluateApprovals, isRequestCoveredByGrant,
+// hasExactFullCommandGrant — delegates here so a scoping-dimension change
+// never has to be made in more than one place.
+export function grantScopeMatches(
+  approval: Approval,
+  tool: string,
+  activeProviderModel: string | undefined,
+  requestCwd: string | undefined,
+  workspace: GrantWorkspace,
+): boolean {
+  return (
+    approval.tool === tool &&
+    (approval.providerModel === undefined || approval.providerModel === activeProviderModel) &&
+    cwdMatchesGrant(approval.cwd, requestCwd, workspace)
+  );
+}
+
 export type EvaluateApprovalsInput = {
   tool: string;
   subject: string;
@@ -70,19 +90,14 @@ export type EvaluateApprovalsInput = {
   workspace: GrantWorkspace;
 };
 
-// Grant-store evaluation via @intx/authz. Filters provider-model and cwd the
-// same way isApproved does, then asks evaluateGrants for the highest-specificity
+// Grant-store evaluation via @intx/authz. Filters provider-model and cwd via
+// grantScopeMatches, then asks evaluateGrants for the highest-specificity
 // allow among package-compatible grants. Exact-escaped grants are checked with
 // matchesPattern (equality after unescape) first so a stored exact command is
 // never lost.
 export async function evaluateApprovals(input: EvaluateApprovalsInput): Promise<boolean> {
   const { tool, subject, approvals, activeProviderModel, requestCwd, workspace } = input;
-  const scoped = approvals.filter(
-    (a) =>
-      a.tool === tool &&
-      (a.providerModel === undefined || a.providerModel === activeProviderModel) &&
-      cwdMatchesGrant(a.cwd, requestCwd, workspace),
-  );
+  const scoped = approvals.filter((a) => grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace));
   if (scoped.length === 0) return false;
 
   for (const a of scoped) {

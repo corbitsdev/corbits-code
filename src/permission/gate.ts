@@ -14,7 +14,7 @@ import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
-import { evaluateApprovals, cwdMatchesGrant, type GrantWorkspace } from "./authz-grants.js";
+import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
@@ -59,11 +59,7 @@ function hasExactFullCommandGrant(
   // storing a run_shell pattern).
   const normalized = stripCommentLines(fullCommand).trim();
   return approvals.some(
-    (a) =>
-      a.tool === tool &&
-      a.pattern === normalized &&
-      (a.providerModel === undefined || a.providerModel === activeProviderModel) &&
-      cwdMatchesGrant(a.cwd, requestCwd, workspace),
+    (a) => a.pattern === normalized && grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
   );
 }
 
@@ -145,14 +141,7 @@ export function isRequestCoveredByGrant(
   isRestricted: (path: string, isWrite: boolean) => boolean,
   workspace: GrantWorkspace,
 ): boolean {
-  if (request.tool !== approval.tool) return false;
-  if (!cwdMatchesGrant(approval.cwd, request.cwd, workspace)) return false;
-  if (
-    approval.providerModel !== undefined &&
-    approval.providerModel !== activeProviderModel
-  ) {
-    return false;
-  }
+  if (!grantScopeMatches(approval, request.tool, activeProviderModel, request.cwd, workspace)) return false;
   if (request.tool !== "run_shell") {
     return matchesPattern(request.subject, approval.pattern);
   }
