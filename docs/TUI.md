@@ -98,6 +98,45 @@ uses the bronze/sand/ember chrome ramp and green (`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
 removed line), not a decision marker, and no decision-marker shares that row.
 
+## The live task list panel
+
+The `task` chrome zone renders a standing panel above the transcript, one row
+per task the task tool has written (`manage_tasks`) — distinct from the
+`agents` panel below it. A task is a unit of work with a status; an agent is
+an executor with its own context and transcript. The two are never merged
+into one panel: `formatTasksPanel` (`src/tui-opentui/chrome-state.ts`) and
+`formatAgentsPanel` are separate formatters feeding separate zones with
+separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
+
+Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
+`[-]` cancelled) ahead of the title. Terminal tasks still render — the panel
+is a live list of work, not just what remains — so an operator watching it
+sees a task move to `[x]` rather than have it silently vanish. The panel is
+bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
+longer list degrades to a trailing `+N more` row rather than growing the zone
+without limit, and it shrinks one row at a time under space pressure
+(`COLLAPSE_ORDER` in `geometry/zones.ts`) rather than vanishing in one step.
+`task` sits ahead of `agents` in `COLLAPSE_ORDER`, so on a short terminal the
+task panel is always fully collapsed before the prompt box is ever touched —
+the prompt is never pushed off screen by a competing chrome zone.
+
+The panel is toggleable independent of its live data: `toggleTasksPanel`
+(bound to the `toggle_task` palette action) flips a hidden flag that persists
+on the shell for the life of the session, while the live task list keeps
+updating underneath it — un-hiding shows the current list, not a stale
+snapshot from before the hide. Hidden or empty, the zone costs zero rows.
+
+The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
+which calls `onTasksChange` on every `manage_tasks` tool call and on session
+resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
+`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui-opentui/runner-host.ts`):
+`subscribeChrome` is a required dependency, not optional, because an omitted
+subscription used to type-check cleanly while silently leaving the panel
+frozen at its mount-time snapshot — a mechanism built and never wired, hidden
+behind an optional callback. `runner-host.test.ts` drives a live
+`subscribeChrome` notify end to end and asserts the panel actually repaints,
+so that class of regression fails a test again if it recurs.
+
 ## The live agents panel
 
 The `agents` chrome zone renders a standing panel above the transcript, one

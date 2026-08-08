@@ -42,6 +42,13 @@ export type ZoneDeclaration = {
 export const AGENTS_PANEL_MAX_VISIBLE = 5;
 
 /**
+ * Bound on rendered task rows in the live task-list panel. Mirrors
+ * AGENTS_PANEL_MAX_VISIBLE: a large task list degrades to a trailing
+ * "+N more" row instead of growing the zone without limit.
+ */
+export const TASKS_PANEL_MAX_VISIBLE = 5;
+
+/**
  * Fixed-with-test budgets from the constitution table.
  * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
  * actual heights are assigned by the geometry resolver.
@@ -67,7 +74,16 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     idleDefault: 5,
     alwaysOn: true,
   },
-  task: { id: "task", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
+  // One row per task (bounded by TASKS_PANEL_MAX_VISIBLE) plus an optional
+  // trailing "+N more" row. Distinct panel from `agents`: a task is a unit
+  // of work with a status, not an executor.
+  task: {
+    id: "task",
+    min: 0,
+    max: TASKS_PANEL_MAX_VISIBLE + 1,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
   // One row per running agent (bounded by AGENTS_PANEL_MAX_VISIBLE) plus an
   // optional trailing "+N more" row.
   agents: {

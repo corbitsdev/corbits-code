@@ -46,7 +46,8 @@ export type ZoneVisibility = {
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
   readonly progressDivider?: boolean;
-  readonly task?: boolean;
+  /** Task panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
+  readonly task?: boolean | number;
   /** Agents panel: false/omit = 0 rows; true = 1 row; or an exact row count (bounded by the zone max). */
   readonly agents?: boolean | number;
   readonly pluginBanner?: boolean;
@@ -139,7 +140,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     progress_divider: progressDivider,
     notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
     prompt: promptRows,
-    task: vis.task ? 1 : 0,
+    task: clamp(boolOrRows(vis.task, 1), 0, ZONE_REGISTRY.task.max),
     agents: clamp(boolOrRows(vis.agents, 1), 0, ZONE_REGISTRY.agents.max),
     plugin_banner: vis.pluginBanner ? 1 : 0,
     command_banner: clamp(
@@ -234,6 +235,24 @@ function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | nu
       heights.progress = 0;
       if (!collapsed.includes("progress")) collapsed.push("progress");
       return "progress";
+    }
+
+    if (id === "task") {
+      // Shrink one row at a time rather than zeroing in one step, same
+      // rationale as "agents" below: a 1-row panel still carries the first
+      // task plus a "+N more" trailer, so it stays meaningful all the way
+      // down instead of vanishing under exactly the pressure an operator
+      // most needs to see it. This is also what keeps the task panel
+      // degrading before the prompt box: it sits ahead of "agents" and
+      // every other optional zone in COLLAPSE_ORDER.
+      if (h > 1) {
+        heights.task = h - 1;
+        if (!collapsed.includes("task")) collapsed.push("task");
+        return "task";
+      }
+      heights.task = 0;
+      if (!collapsed.includes("task")) collapsed.push("task");
+      return "task";
     }
 
     if (id === "agents") {

@@ -23,7 +23,7 @@
  */
 
 import { agentProgress, DEFAULT_STALL_MS } from "./agent-progress.js"
-import { AGENTS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
+import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
 import type { ChromeZoneContent } from "./shell.js"
 
 /** Subagent row shape for the agents chrome panel (store-agnostic). */
@@ -39,22 +39,20 @@ export type ChromeAgentSession = {
   readonly lastActivityAt?: number
 }
 
-/**
- * Task / Work chrome input.
- * Empty title or all-terminal lists → zone hidden when formatting from tasks[].
- */
-export type ChromeTaskState = {
-  /** Current doing (or next todo) title. */
-  readonly title: string
-  readonly status?: "todo" | "doing" | "done" | "cancelled"
-  /** Other active tasks beyond the current one. */
-  readonly remaining?: number
-}
-
-/** Lightweight task row for list → compact line. */
+/** Lightweight task row: title + status, as written by the task tool. */
 export type ChromeTaskRow = {
   readonly title: string
   readonly status: "todo" | "doing" | "done" | "cancelled"
+}
+
+/**
+ * One rendered task-panel row. `status` is null for a non-task row (the
+ * "+N more" trailer, or a bare-string task input with no structured status)
+ * so the renderer knows not to paint a status marker for it.
+ */
+export type TaskPanelRow = {
+  readonly label: string
+  readonly status: "todo" | "doing" | "done" | "cancelled" | null
 }
 
 /**
@@ -63,10 +61,11 @@ export type ChromeTaskRow = {
  */
 export type ChromeLiveState = {
   /**
-   * Compact task line: string shorthand, structured current task, or a list
-   * of work rows (formatter picks the active item like Ink TaskView compact).
+   * Task list: string shorthand (rendered as a single unstyled row) or the
+   * structured rows the task tool writes. Distinct from `agents` — a task is
+   * a unit of work with a status, not an executor.
    */
-  readonly task?: ChromeTaskState | ChromeTaskRow[] | string | null
+  readonly task?: readonly ChromeTaskRow[] | string | null
   /** Subagent sessions for the strip summary (running preferred). */
   readonly agents?: readonly ChromeAgentSession[] | null
   /**
@@ -94,13 +93,14 @@ export type AgentPanelRow = {
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export type FormattedChromeZones = {
-  readonly task: string | null
+  /** One row per rendered task-panel line (null = hide zone, zero rows). */
+  readonly task: readonly TaskPanelRow[] | null
   /** One row per rendered agents-panel line (null = hide zone, zero rows). */
   readonly agents: readonly AgentPanelRow[] | null
 }
 
 /**
- * Format structured live state into chrome zone lines for setChromeZones.
+ * Format structured live state into chrome zone rows for setChromeZones.
  *
  * Empty / partial / inactive inputs yield null for the corresponding zone
  * so geometry collapses that strip (idleDefault 0).
@@ -110,7 +110,7 @@ export function formatChromeZones(
   nowMs: number = Date.now(),
 ): FormattedChromeZones {
   return {
-    task: formatTaskLine(state.task),
+    task: formatTasksPanel(state.task),
     agents: formatAgentsPanel(state.agents, state.observe, nowMs),
   }
 }
@@ -124,43 +124,36 @@ export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
   return formatChromeZones(state)
 }
 
-export function formatTaskLine(
-  task: ChromeTaskState | ChromeTaskRow[] | string | null | undefined,
-): string | null {
+/**
+ * Format the live task-list panel: one row per task, bounded to `maxVisible`
+ * with a trailing "+N more" row, mirroring `formatAgentsPanel`'s shape but
+ * keyed on status (not liveness) since a task has no clock of its own.
+ *
+ * Terminal tasks (done/cancelled) still render — the panel is a live list of
+ * work, not just what remains — so an operator watching it sees a task move
+ * to "done" rather than silently vanish. A bare string input renders as one
+ * row with no status marker: it is free-form summary text, not a task record.
+ */
+export function formatTasksPanel(
+  task: readonly ChromeTaskRow[] | string | null | undefined,
+  maxVisible: number = TASKS_PANEL_MAX_VISIBLE,
+): readonly TaskPanelRow[] | null {
   if (task === null || task === undefined) return null
 
   if (typeof task === "string") {
     const t = task.trim()
-    return t.length === 0 ? null : compactLine("task", t)
+    return t.length === 0 ? null : [{ label: t, status: null }]
   }
 
-  if (Array.isArray(task)) {
-    return formatTaskLineFromRows(task)
-  }
+  const rows: TaskPanelRow[] = task
+    .map((t) => ({ label: t.title.trim(), status: t.status }))
+    .filter((r) => r.label.length > 0)
+  if (rows.length === 0) return null
 
-  const title = task.title.trim()
-  if (title.length === 0) return null
-  if (task.status === "done" || task.status === "cancelled") return null
-
-  const remaining =
-    task.remaining !== undefined && task.remaining > 0
-      ? ` (+${task.remaining})`
-      : ""
-  return compactLine("task", `${title}${remaining}`)
-}
-
-function formatTaskLineFromRows(rows: readonly ChromeTaskRow[]): string | null {
-  const active = rows.filter(
-    (t) => t.status !== "done" && t.status !== "cancelled",
-  )
-  if (active.length === 0) return null
-  const doing = active.find((t) => t.status === "doing")
-  const current = doing ?? active[0]!
-  const title = current.title.trim()
-  if (title.length === 0) return null
-  const remaining = active.length - 1
-  const suffix = remaining > 0 ? ` (+${remaining})` : ""
-  return compactLine("task", `${title}${suffix}`)
+  const visible = rows.slice(0, maxVisible)
+  const hidden = rows.length - visible.length
+  if (hidden > 0) visible.push({ label: `+${hidden} more`, status: null })
+  return visible
 }
 
 /**
@@ -272,14 +265,6 @@ export function annotateAgentTools(
       return tool === undefined ? a : { ...a, currentToolName: tool }
     }),
   }
-}
-
-function compactLine(prefix: string, body: string): string {
-  const b = body.trim()
-  if (b.length === 0) return `${prefix}:`
-  // Avoid double-prefix if host already included it.
-  if (b.toLowerCase().startsWith(`${prefix}:`)) return b
-  return `${prefix}: ${b}`
 }
 
 // ---------------------------------------------------------------------------

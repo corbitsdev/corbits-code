@@ -106,8 +106,14 @@ export type RunnerHostDeps = {
   readonly onCommand: (name: string) => void
   /** Live chrome snapshot source, read on mount and on every notify. */
   readonly chrome: () => ChromeSessionInput
-  /** Registers a chrome-change notifier; returns an unsubscribe. */
-  readonly subscribeChrome?: (notify: () => void) => () => void
+  /**
+   * Registers a chrome-change notifier; returns an unsubscribe. Required, not
+   * optional: an omitted subscription used to type-check cleanly while
+   * silently leaving the task/agents panels frozen at their mount-time
+   * snapshot — the exact "mechanism built, never wired" shape this signature
+   * now makes impossible to omit by accident.
+   */
+  readonly subscribeChrome: (notify: () => void) => () => void
   /** Live subagent sessions for the palette observe action. */
   readonly subAgentSessions: () => readonly SubAgentSession[]
   /**
@@ -278,7 +284,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const pushChrome = (): void => {
     host.setChrome(chromeFromSession(deps.chrome()))
   }
-  const unsubscribeChrome = deps.subscribeChrome?.(pushChrome)
+  const unsubscribeChrome = deps.subscribeChrome(pushChrome)
 
   if (readModelLabel) setPromptModelLabel(host.shell, readModelLabel())
 
