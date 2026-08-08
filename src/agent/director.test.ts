@@ -347,7 +347,7 @@ describe("ChatDirector tool-only loop protection", () => {
     };
 
     // A,B,A,B,A,B pauses at 6 turns per the fast-path floors — nowhere near
-    // the 60-turn backstop.
+    // the 100-turn backstop.
     const actions = await runToolOnlyStreak(director, capabilities, 6, alternatingTurn);
     const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
     expect(reply).toBeDefined();
@@ -395,11 +395,14 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(reply.content).not.toContain("tool-only turns without narrating progress");
   });
 
-  // Required by round 3: any fixed period ceiling has an escape above it. A
-  // 9-element rotation never repeats within TOOL_FINGERPRINT_MAX_PERIOD (8),
-  // so period detection can never fire on it — only the raw-count backstop
-  // can, once the streak clears 60.
-  test("a 9-element rotation escapes period detection but pauses via the backstop", async () => {
+  // Required by round 3 (escalation reshaped in round 4): any fixed period
+  // ceiling has an escape above it. A 9-element rotation never repeats
+  // within TOOL_FINGERPRINT_MAX_PERIOD (8), so period detection can never
+  // fire on it — only the backstop can. Round 4: the backstop no longer
+  // pauses the first time it fires — it nudges at 100 turns, then only
+  // pauses if a further 100 turns pass with still no user message and no
+  // thrash detected.
+  test("a 9-element rotation escapes period detection, nudges at 100, and escalates to a pause at 200", async () => {
     const director = createChatDirector(
       "system",
       [],
@@ -429,23 +432,37 @@ describe("ChatDirector tool-only loop protection", () => {
       } as unknown as ReactorInboundEvent;
     };
 
-    // 59 turns: below the backstop, still not paused (proves it isn't
-    // period detection sneaking a win here either).
-    const before = await runToolOnlyStreak(director, capabilities, 59, rotationTurn);
+    // 99 turns: below the backstop nudge threshold, still no nudge or pause.
+    const before = await runToolOnlyStreak(director, capabilities, 99, rotationTurn);
     expect(before.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(before.some((a) => a.type === "infer" && ephemeralText(a) !== undefined)).toBe(false);
 
+    // Turn 100: the backstop nudges, but does not pause.
+    const nudged = actionsArray(await runToolOnlyStreak(director, capabilities, 1, rotationTurn));
+    expect(nudged.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    const nudgeInfer = nudged.find((a) => a.type === "infer");
+    expect(ephemeralText(nudgeInfer)).toContain("progress summary");
+
+    // A further 99 turns without a user message: still no pause (the
+    // escalation window has not fully elapsed).
+    const stillNoPause = await runToolOnlyStreak(director, capabilities, 99, rotationTurn);
+    expect(stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+
+    // Turn 200: the nudge went unheeded for a full further interval — escalate to a pause.
     const actions = actionsArray(await runToolOnlyStreak(director, capabilities, 1, rotationTurn));
     const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
     expect(reply).toBeDefined();
     if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
-    expect(reply.content).toContain("tool-only turns without narrating progress");
+    expect(reply.content).toContain("turns without a message from the operator");
     expect(reply.content).not.toContain("cycle");
   });
 
-  // Required by round 3: a "phase-broken" cycle inserts one varying element
-  // per window (A,B,A,B,UNIQUE,...), so the fingerprint tail never settles
-  // into an exact repeat at any period — period detection can never fire.
-  test("a phase-broken cycle escapes period detection but pauses via the backstop", async () => {
+  // Required by round 3 (escalation reshaped in round 4): a "phase-broken"
+  // cycle inserts one varying element per window (A,B,A,B,UNIQUE,...), so the
+  // fingerprint tail never settles into an exact repeat at any period —
+  // period detection can never fire, but the backstop nudge-then-escalate
+  // path still catches it.
+  test("a phase-broken cycle escapes period detection and eventually escalates to a pause via the backstop", async () => {
     const director = createChatDirector(
       "system",
       [],
@@ -476,18 +493,18 @@ describe("ChatDirector tool-only loop protection", () => {
       } as unknown as ReactorInboundEvent;
     };
 
-    const actions = await runToolOnlyStreak(director, capabilities, 61, phaseBrokenTurn);
+    const actions = await runToolOnlyStreak(director, capabilities, 201, phaseBrokenTurn);
     const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
     expect(reply).toBeDefined();
     if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
-    expect(reply.content).toContain("tool-only turns without narrating progress");
+    expect(reply.content).toContain("turns without a message from the operator");
     expect(reply.content).not.toContain("cycle");
   });
 
-  // Required by round 3: the backstop is well above any legitimate streak
-  // length in the forensic data (max observed 28 turns) — long varied
-  // productive work must not pause before it.
-  test("long varied productive work does not pause before the backstop threshold", async () => {
+  // Required by round 3/4: the backstop nudge threshold is well above any
+  // legitimate streak length in the forensic data — long varied productive
+  // work must not pause, or even be nudged, before it.
+  test("long varied productive work does not pause or nudge before the backstop threshold", async () => {
     const director = createChatDirector(
       "system",
       [],
@@ -502,9 +519,178 @@ describe("ChatDirector tool-only loop protection", () => {
     );
     const capabilities = makeCapabilities();
 
-    const actions = await runToolOnlyStreak(director, capabilities, 59);
+    const actions = await runToolOnlyStreak(director, capabilities, 99);
     expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
     expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  // Required by round 4: the operator explicitly wants long autonomous runs
+  // to keep going as long as the operator stays engaged. Periodic genuine
+  // user messages reset turnsSinceUserMessage, so a long run interleaved
+  // with real interaction must never reach the backstop, however many total
+  // turns it accumulates.
+  test("long varied productive work with real periodic user interaction never pauses", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    for (let round = 0; round < 5; round++) {
+      await director.decide(messageReceived(`keep going, round ${round}`), mockState, capabilities);
+      const actions = await runToolOnlyStreak(director, capabilities, 80);
+      expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    }
+  });
+
+  // Round 4 regression test: critique's exact escape — one narrated word
+  // every ~55 tool-only turns kept resetting BOTH toolFingerprintHistory and
+  // the old raw backstop counter, so a 2240-turn run never paused. With the
+  // reset split, narration still clears period-detection history (so no
+  // false thrash pause), but no longer touches turnsSinceUserMessage, so the
+  // backstop nudges at 100 and, since narration keeps arriving instead of a
+  // real user message, escalates to a pause at 200.
+  test("critique's 2240-turn one-narrated-word-every-55-turns repro now nudges then pauses", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    let nudged = false;
+    let paused = false;
+    for (let i = 0; i < 2240 && !paused; i++) {
+      const id = `tc-${i}`;
+      // One narrated word every 55 turns; otherwise a varied tool-only turn.
+      const event = i > 0 && i % 55 === 0 ? textAndToolTurn(id, "working") : toolOnlyTurn(id);
+      await director.decide(event, mockState, capabilities);
+      const result = actionsArray(await director.decide(toolDoneEvent(id), mockState, capabilities));
+      if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
+        paused = true;
+      } else if (result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))) {
+        nudged = true;
+      }
+    }
+
+    expect(nudged).toBe(true);
+    expect(paused).toBe(true);
+  });
+
+  test("a genuine fresh user message resets the backstop", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    // Reach the backstop nudge.
+    await runToolOnlyStreak(director, capabilities, 100);
+    await director.decide(messageReceived("status check"), mockState, capabilities);
+    // After the reset, a further 99 turns (below the threshold again) must
+    // not nudge or pause.
+    const afterReset = await runToolOnlyStreak(director, capabilities, 99);
+    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))).toBe(
+      false,
+    );
+  });
+
+  // Round 4: narration clears period-detection history (evidence the model
+  // isn't cycling) but must NOT clear turnsSinceUserMessage — otherwise a
+  // model can narrate its way past the backstop forever without ever
+  // sending anything the operator asked for.
+  test("model narration does not reset the backstop but does clear period-detection history", async () => {
+    const director = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    const capabilities = makeCapabilities();
+
+    // Build up an almost-thrashing repeated-fingerprint run, then narrate —
+    // this must clear the fingerprint history (no thrash pause even after
+    // more repeats) while still counting toward the backstop.
+    await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
+    const narrated = actionsArray(
+      await director.decide(textAndToolTurn("narrate-1", "still working on it"), mockState, capabilities),
+    );
+    await director.decide(toolDoneEvent("narrate-1"), mockState, capabilities);
+    expect(narrated.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+
+    // Resume the repeated-fingerprint run — since history was cleared, it
+    // takes a fresh IDENTICAL_REPEAT_MIN-length run to thrash-pause again,
+    // and it must not reference the backstop when it does.
+    const afterNarration = await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
+    const thrashReply = afterNarration.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    expect(thrashReply).toBeDefined();
+    if (thrashReply === undefined || thrashReply.type !== "reply") throw new Error("expected reply action");
+    expect(thrashReply.content).not.toContain("turns without a message from the operator");
+
+    // Now prove narration did NOT reset turnsSinceUserMessage: drain the
+    // remaining budget to the backstop threshold with varied tool-only turns
+    // and a fresh director for a clean count, interleaving narration every
+    // few turns, and confirm the backstop still nudges at the expected
+    // total turn count rather than being pushed back out by narration.
+    const fresh = createChatDirector(
+      "system",
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      providerlessPolicy,
+    );
+    let nudgedAtTurn: number | null = null;
+    for (let i = 0; i < 100; i++) {
+      const id = `fc-${i}`;
+      const event = i % 10 === 0 ? textAndToolTurn(id, "narrating") : toolOnlyTurn(id);
+      await fresh.decide(event, mockState, capabilities);
+      const result = actionsArray(await fresh.decide(toolDoneEvent(id), mockState, capabilities));
+      if (
+        nudgedAtTurn === null &&
+        result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
+      ) {
+        nudgedAtTurn = i + 1;
+      }
+    }
+    // Exactly 100 total turns (narrated or not) trips the backstop nudge —
+    // proving narration advanced turnsSinceUserMessage rather than resetting
+    // it, since 10 of those 100 turns were narrated.
+    expect(nudgedAtTurn).toBe(100);
   });
 
   test("resumes after the operator sends a new message", async () => {

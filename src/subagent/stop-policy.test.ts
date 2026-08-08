@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectToolFingerprintThrash,
-  detectRawToolOnlyBackstop,
+  detectTurnsSinceUserMessageBackstop,
   TOOL_FINGERPRINT_HISTORY_CAP,
-  TOOL_ONLY_RAW_STREAK_BACKSTOP,
+  TURNS_SINCE_USER_MESSAGE_BACKSTOP,
 } from "./stop-policy.js";
 
 describe("detectToolFingerprintThrash", () => {
@@ -57,7 +57,7 @@ describe("detectToolFingerprintThrash", () => {
 
   // Any period this check scans (up to TOOL_FINGERPRINT_MAX_PERIOD) never
   // fires on a rotation longer than that ceiling — this is exactly the gap
-  // detectRawToolOnlyBackstop below exists to close.
+  // detectTurnsSinceUserMessageBackstop below exists to close.
   test("a 9-element rotation never flags, regardless of length", () => {
     const paths = Array.from({ length: 9 }, (_, i) => `file-${i}.ts`);
     const history = Array.from(
@@ -68,16 +68,19 @@ describe("detectToolFingerprintThrash", () => {
   });
 });
 
-describe("detectRawToolOnlyBackstop", () => {
+describe("detectTurnsSinceUserMessageBackstop", () => {
   test("does not fire below the threshold", () => {
-    expect(detectRawToolOnlyBackstop(TOOL_ONLY_RAW_STREAK_BACKSTOP - 1)).toBe(false);
+    expect(detectTurnsSinceUserMessageBackstop(TURNS_SINCE_USER_MESSAGE_BACKSTOP - 1)).toBe(false);
   });
 
   test("fires at the threshold", () => {
-    expect(detectRawToolOnlyBackstop(TOOL_ONLY_RAW_STREAK_BACKSTOP)).toBe(true);
+    expect(detectTurnsSinceUserMessageBackstop(TURNS_SINCE_USER_MESSAGE_BACKSTOP)).toBe(true);
   });
 
-  test("threshold sits well above the measured healthy streak ceiling (max 28 turns)", () => {
-    expect(TOOL_ONLY_RAW_STREAK_BACKSTOP).toBeGreaterThan(28 * 2);
+  // Measured turns-since-last-genuine-user-message distribution (a local
+  // one-off scan, round 4 of CL-5611): p50 5, p90 14, p99 29, max 32. The
+  // threshold must sit comfortably above the measured max.
+  test("threshold sits well above the measured healthy run ceiling (max 32 turns)", () => {
+    expect(TURNS_SINCE_USER_MESSAGE_BACKSTOP).toBeGreaterThan(32 * 2);
   });
 });

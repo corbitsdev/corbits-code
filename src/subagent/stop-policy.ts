@@ -141,9 +141,10 @@ export type ToolFingerprintThrashCheck = SequencePeriodCheck;
 // and any "phase-broken" cycle that inserts a varying element between
 // otherwise-repeating windows (e.g. A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...), never
 // matches here and can escape period detection indefinitely. That is exactly
-// what TOOL_ONLY_RAW_STREAK_BACKSTOP below exists to catch — a raw tool-only
-// turn count with no pattern requirement, checked as a secondary/final net
-// after period detection has had its chance to fire.
+// what TURNS_SINCE_USER_MESSAGE_BACKSTOP below exists to catch — a
+// turns-since-last-user-message count with no pattern requirement, checked
+// as a secondary/final net after period detection has had its chance to
+// fire.
 const TOOL_FINGERPRINT_MAX_PERIOD = 8;
 
 // A truly identical consecutive tool call (period 1) is the one shape a
@@ -176,8 +177,8 @@ const CYCLE_REPEAT_MIN = 3;
  *
  * This is the fast path, not the only path: TOOL_FINGERPRINT_MAX_PERIOD is a
  * ceiling, so a cycle above it (or a phase-broken cycle that never settles
- * into an exact repeating tail) never fires here. detectRawToolOnlyBackstop
- * below is the final net for those cases.
+ * into an exact repeating tail) never fires here.
+ * detectTurnsSinceUserMessageBackstop below is the final net for those cases.
  */
 export function detectToolFingerprintThrash(
   history: readonly string[],
@@ -190,31 +191,46 @@ export function detectToolFingerprintThrash(
   });
 }
 
-// Secondary/final-net check: a raw tool-only-turn count, independent of
-// whether the tool calls ever form a detectable pattern. Period detection
-// (above) is the fast path and stays primary — it fires well before this on
-// any cycle it can see (A,B at 6 turns, A,B,C at 9). This backstop exists for
-// the cycles it structurally cannot see: any period above
-// TOOL_FINGERPRINT_MAX_PERIOD (e.g. a 9-element rotation), and
-// "phase-broken" cycles that insert a varying element between repeats (e.g.
-// A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...) and so never settle into an exact
-// repeating tail at any period. Both escape period detection forever without
-// this.
+// Secondary/final-net check: how long it has been since the operator last
+// sent a genuine message, independent of whether the intervening turns form
+// a detectable pattern or contain narration. Period detection (above) is the
+// fast path and stays primary — it fires well before this on any cycle it
+// can see (A,B at 6 turns, A,B,C at 9). This backstop exists for what period
+// detection structurally cannot see: any period above
+// TOOL_FINGERPRINT_MAX_PERIOD (e.g. a 9-element rotation), "phase-broken"
+// cycles that insert a varying element between repeats (e.g.
+// A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...) that never settle into an exact
+// repeating tail at any period, and — the round-4 fix — a model that inserts
+// one narrated word every N tool-only turns purely to keep resetting a
+// narration-sensitive counter. Model-emitted text does not reset this
+// counter; only a genuine user/operator message does (see director.ts). That
+// is deliberate: this answers "how long since the operator last saw a real
+// checkpoint," not "is the model narrating."
 //
-// Threshold justification (scripts/tool-fingerprint-forensics.ts, current
-// run against 328 local sessions with a tool-only run / 559 total tool-only
-// runs): run-length p50 3, p90 8, p99 16, max 28 turns. 60 is more than
-// double the single longest healthy tool-only streak ever observed (28) and
-// nearly 4x p99 (16) — a comfortable margin above real productive work,
-// while still being a real ceiling instead of no ceiling at all. This must
-// not repeat CL-5611's original complaint: the old hard-pause-at-10 killed
-// sessions that were still making real progress, and 60 sits nowhere near
-// any streak length this scan has ever measured as legitimate.
-export const TOOL_ONLY_RAW_STREAK_BACKSTOP = 60;
+// Because narration no longer resets it, reaching this threshold does not
+// hard-pause on its own — it only fires a nudge asking for a progress
+// summary. Only if the nudge goes unheeded for a further full interval (see
+// director.ts's turnsSinceUserMessage escalation) does the session hard
+// pause, on the theory that ignoring a direct request is a real no-progress
+// signal, whereas mere silence during a long autonomous stretch is not.
+//
+// Threshold justification: scripts/tool-fingerprint-forensics.ts measures
+// consecutive tool-only-turn streaks (reset by narration) — p50 3, p90 8,
+// p99 16, max 28 across 328 local sessions with a tool-only run. That is not
+// the right distribution for this counter, since narration no longer resets
+// it. A separate one-off scan over the same local session corpus (see
+// CL-5611 round 4 notes) measured turns-since-last-genuine-user-message
+// directly — filtering out API tool-result echoes, which are also role
+// "user" in the transcript format but are not the operator — and found p50
+// 5, p90 14, p99 29, max 32 across 428 such runs. 100 sits roughly 3x that
+// measured max (32) and >3x measured p99 (29): comfortable headroom above
+// every real autonomous stretch this corpus has produced, while remaining a
+// firm, re-derivable ceiling rather than no ceiling at all.
+export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
 
-/** True once a raw tool-only streak reaches the backstop, independent of any pattern. */
-export function detectRawToolOnlyBackstop(toolOnlyStreak: number): boolean {
-  return toolOnlyStreak >= TOOL_ONLY_RAW_STREAK_BACKSTOP;
+/** True once turns-since-last-user-message reaches the backstop threshold. */
+export function detectTurnsSinceUserMessageBackstop(turnsSinceUserMessage: number): boolean {
+  return turnsSinceUserMessage >= TURNS_SINCE_USER_MESSAGE_BACKSTOP;
 }
 
 // Bounds the rolling fingerprint buffer director.ts keeps for the thrash
