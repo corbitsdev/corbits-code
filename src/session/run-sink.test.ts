@@ -77,6 +77,98 @@ describe("createRunSink", () => {
     expect(runSink.getTokenUsage()).toEqual({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   });
 
+  test("reports the in-flight turn to onTurnFailed when a turn errors instead of completing", () => {
+    const failures: { turnIndex: number; error: string }[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnFailed: (info) => failures.push(info),
+    });
+
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "429 rate limit" } }));
+
+    expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
+  });
+
+  // Regression: one give-up reaches the sink twice — the director surfaces
+  // the failed inference, then the reactor terminates the run — and reporting
+  // both files two failed turns under a single turn's identity.
+  test("reports one failure per turn across both error paths, not one per error event", () => {
+    const failures: { turnIndex: number; error: string }[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnFailed: (info) => failures.push(info),
+    });
+
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "429 rate limit" } }));
+    runSink.sink(event("reactor.error", { error: "reactor gave up" }));
+
+    expect(failures).toEqual([{ turnIndex: 0, error: "429 rate limit" }]);
+  });
+
+  test("reports no failure for a turn that already completed", () => {
+    const failures: { turnIndex: number; error: string }[] = [];
+    const completions: number[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnComplete: (ctx) => completions.push(ctx.turnIndex),
+      onTurnFailed: (info) => failures.push(info),
+    });
+
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.done", {
+      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { provider: "test", model: "test" },
+    }));
+    runSink.sink(event("reactor.error", { error: "reactor gave up at shutdown" }));
+
+    expect(completions).toEqual([0]);
+    expect(failures).toEqual([]);
+  });
+
+  // A retry re-enters inference.start under the same turn index, so a second
+  // report would land on the trace id the first one already claimed.
+  test("reports one failure for a turn that fails, retries, and fails again", () => {
+    const failures: { turnIndex: number; error: string }[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnFailed: (info) => failures.push(info),
+    });
+
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "500 upstream" } }));
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "500 upstream again" } }));
+
+    expect(failures).toEqual([{ turnIndex: 0, error: "500 upstream" }]);
+  });
+
+  test("still reports a failure after reset clears the latch", () => {
+    const failures: { turnIndex: number; error: string }[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnFailed: (info) => failures.push(info),
+    });
+
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "first session" } }));
+    runSink.reset();
+    runSink.sink(event("inference.start", {}));
+    runSink.sink(event("inference.error", { error: { message: "second session" } }));
+
+    expect(failures).toEqual([
+      { turnIndex: 0, error: "first session" },
+      { turnIndex: 0, error: "second session" },
+    ]);
+  });
+
   test("seeds the turn count from a resumed session's prior turnsUsed", () => {
     const runSink = createRunSink({
       emitter: new EventEmitter(),

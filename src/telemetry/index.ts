@@ -46,6 +46,8 @@ export type TelemetryEvent =
   | "cli_start"
   | "session_end"
   | "inference_turn"
+  | "$ai_generation"
+  | "$ai_span"
   | "slash_command"
   | "skill_used"
   | "plugin_loaded"
@@ -55,6 +57,21 @@ export type TelemetryEvent =
   | "compaction"
   | "crash"
   | "auth_failure";
+
+// Fixed enum of AI observability span names. The raw tool name is never sent
+// as a property: an MCP tool name carries the server identifier it was
+// configured under (`mcp__<server>__<tool>`), which can be a local path or
+// otherwise identifying string. Callers map a tool call to one of these
+// kinds before capturing "$ai_span".
+export const AI_SPAN_KINDS = ["tool_call", "subagent_call"] as const;
+export type AiSpanKind = (typeof AI_SPAN_KINDS)[number];
+
+// Fixed enum of AI observability error reasons. A provider error message is
+// free text that routinely carries request URLs, prompt excerpts, and file
+// paths, so the message itself never leaves the process — callers classify
+// it into one of these before capturing.
+export const AI_ERROR_KINDS = ["rate_limit", "auth", "timeout", "cancelled", "inference_failed"] as const;
+export type AiErrorKind = (typeof AI_ERROR_KINDS)[number];
 
 // One id per interactive process (TUI session or CLI invocation), generated
 // once at module load and reused by every createTelemetry() instance for the
@@ -85,6 +102,39 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "thinking_tokens",
     "duration_ms",
   ],
+  // PostHog's LLM analytics views read the $ai_-prefixed properties and
+  // nothing else, so every field these two events exist to surface has to
+  // carry the documented name: an unprefixed property still arrives, but
+  // only as an ordinary custom property no trace, cost, or latency view
+  // will ever query.
+  //
+  // $ai_provider/$ai_model carry canonical runtime ids, never the free-text
+  // name a user gave a provider in onboarding or settings. $ai_latency is
+  // in seconds, per PostHog's schema.
+  //
+  // The cache and thinking token counts stay on our own names: PostHog
+  // documents cost inputs for them but does not publish the property names
+  // in the manual-capture schema, and guessing a name that lands as an
+  // unread custom property is worse than owning one we can read ourselves.
+  $ai_generation: [
+    "$ai_trace_id",
+    "$ai_provider",
+    "$ai_model",
+    "$ai_input_tokens",
+    "$ai_output_tokens",
+    "$ai_latency",
+    "$ai_is_error",
+    "$ai_error",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "thinking_tokens",
+  ],
+  // The trace is flat: every span's $ai_parent_id is the turn's
+  // $ai_trace_id. PostHog documents $ai_parent_id as accepting a trace id or
+  // another span id, so a flat trace is legal and it is all the runtime can
+  // honestly describe — TurnContext only sees top-level tool calls.
+  // $ai_span_name is one of AI_SPAN_KINDS only, never the raw tool name.
+  $ai_span: ["$ai_trace_id", "$ai_span_id", "$ai_parent_id", "$ai_span_name", "$ai_is_error"],
   // Every identifier below is a first-party enum produced by
   // src/telemetry/classify.ts, not the name the user or author wrote. The
   // allowlist bounds which keys travel; the classifiers bound which values
@@ -105,8 +155,6 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // provider-authored text and error_class means a JS constructor name.
   auth_failure: ["auth_provider"],
 };
-
-const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.keys(EVENT_PROPERTY_ALLOWLIST));
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -151,7 +199,9 @@ function allowedProperties(
   const allowed = EVENT_PROPERTY_ALLOWLIST[event];
   const result: Record<string, unknown> = {};
   for (const key of allowed) {
-    if (key in properties) result[key] = properties[key];
+    // Own-property only: `in` would pick "constructor" or "toString" off
+    // Object.prototype and ship a function as a property value.
+    if (Object.hasOwn(properties, key)) result[key] = properties[key];
   }
   return result;
 }
@@ -263,7 +313,10 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!KNOWN_EVENTS.has(event)) return;
+    // Own-property only: `in` walks Object.prototype, so capture("toString")
+    // or capture("constructor") would clear the guard this exists to be and
+    // hand allowedProperties a function where it expects an allowlist array.
+    if (!Object.hasOwn(EVENT_PROPERTY_ALLOWLIST, event)) return;
 
     queue.push({
       event,
