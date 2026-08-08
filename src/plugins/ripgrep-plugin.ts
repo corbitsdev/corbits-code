@@ -1,7 +1,6 @@
 import { statSync } from "node:fs";
 import { dirname, basename } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
-import type { ToolResult } from "@intx/types/runtime";
 
 import {
   runBoundedGrep,
@@ -9,7 +8,6 @@ import {
   type BoundedGrepArgs,
 } from "./bounded-grep-fallback.js";
 import { createRgCollector } from "./rg-output.js";
-import { truncateToolResultContent } from "./result-truncation-plugin.js";
 import { MAX_OUTPUT_BYTES, runRg, type RgLimits, type SpawnRg } from "./rg-run.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
@@ -31,14 +29,6 @@ function capLines(text: string, max: number): string {
   const lines = text.split("\n").filter((line) => line.length > 0);
   if (lines.length <= max) return lines.join("\n");
   return `${lines.slice(0, max).join("\n")}\n... (showing first ${max} of ${lines.length}+ matches; narrow path/glob)`;
-}
-
-// ripgrepPlugin answers grep and search_files without calling next, so the
-// result-truncation middleware sitting later in the chain never sees these
-// results. The shared primitive is applied here instead, keeping one wording
-// for size truncation on a path that would otherwise return uncapped.
-function bounded(callId: string, content: string): ToolResult {
-  return { callId, content: truncateToolResultContent(content) };
 }
 
 // Mirrors read_file's truncate-and-offer behavior: a cap or timeout still
@@ -114,7 +104,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
             };
             if (glob !== undefined) boundedArgs.glob = glob;
             const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
-            return bounded(call.id, boundedContent(content, maxResults, maxBytes));
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,
@@ -130,9 +120,9 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
           return { callId: call.id, content: result.message, isError: true };
         }
         if (result.kind === "partial") {
-          return bounded(call.id, partialContent(result.stdout, maxResults, result.notice));
+          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
         }
-        return bounded(call.id, capLines(result.stdout, maxResults));
+        return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
 
       if (call.name === "search_files") {
@@ -150,7 +140,7 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
               signal,
               rgCwd,
             );
-            return bounded(call.id, boundedContent(content, maxResults, maxBytes));
+            return { callId: call.id, content: boundedContent(content, maxResults, maxBytes) };
           } catch (err) {
             return {
               callId: call.id,
@@ -166,9 +156,9 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
           return { callId: call.id, content: result.message, isError: true };
         }
         if (result.kind === "partial") {
-          return bounded(call.id, partialContent(result.stdout, maxResults, result.notice));
+          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
         }
-        return bounded(call.id, capLines(result.stdout, maxResults));
+        return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
 
       return next(call, signal);

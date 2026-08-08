@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createBlobReader } from "@intx/types/runtime";
 import { createPosixTools, composeMiddleware } from "@intx/tools-posix";
+import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
@@ -294,5 +295,142 @@ describe("buildCorePosixToolPlugins", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("a grep result containing a secret-shaped string is redacted before reaching the model (CL-5717)", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-grep-scrub-"));
+    try {
+      await writeFile(
+        join(cwd, "leaky.env"),
+        "AWS_KEY=AKIAABCDEFGHIJKLMNOP\nOPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz123456\n",
+      );
+
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+
+      const result = await runner.run(
+        { id: "grep-1", name: "grep", arguments: { pattern: "AKIA|sk-", path: cwd } },
+        new AbortController().signal,
+      );
+
+      expect(result.isError).not.toBe(true);
+      const content = String(result.content);
+      expect(content).not.toContain("AKIAABCDEFGHIJKLMNOP");
+      expect(content).not.toContain("sk-abcdefghijklmnopqrstuvwxyz123456");
+      expect(content).toContain("[redacted: looks like a credential]");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a plugin that returns without calling next() still gets capped and scrubbed (CL-5717)", async () => {
+    // Generic, plugin-shape-agnostic version of the grep case above: any
+    // plugin that answers a scrubbable/truncatable tool directly instead of
+    // delegating to `next` must still be capped and scrubbed, because it is
+    // wrapped by the unconditional outer plugins in buildCorePosixToolPlugins.
+    // This composes the REAL production array from the builder — not a
+    // hand-picked middleware order — with a short-circuiting stand-in spliced
+    // in at ripgrepPlugin's own position, so moving both terminal concerns
+    // away from the front of the real array fails this test.
+    //
+    // This guards their PREPENDED POSITION only, not the RELATIVE order
+    // between the two of them: the secret here sits at the very front of the
+    // payload, nowhere near the cap boundary, so it survives even under the
+    // exploitable cap-then-scrub order. The relative order is guarded solely
+    // by the boundary-straddle test below — do not treat this test as
+    // redundant with it.
+    const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
+    const shortCircuitingPlugin: ToolPlugin = {
+      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: secretShapedContent,
+      }),
+    };
+
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      cwd: "/tmp",
+    });
+    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
+    expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
+    plugins[ripgrepIndex] = shortCircuitingPlugin;
+
+    const composed = composeMiddleware(
+      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+    );
+
+    const result = await composed(
+      { id: "short-1", name: "grep", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).not.toBe(true);
+    const content = String(result.content);
+    expect(content).not.toContain("AKIAABCDEFGHIJKLMNOP");
+    expect(content).toContain("[redacted: looks like a credential]");
+    expect(content.length).toBeLessThan(secretShapedContent.length);
+    expect(content).toContain("[output truncated");
+  });
+
+  test("a secret straddling the character-cap boundary is still fully redacted, not left as a bare fragment (CL-5717)", async () => {
+    // Regression guard for the exploitable ordering: if truncation ran before
+    // the scrub, a secret split mid-pattern at the cap boundary would no
+    // longer match the scrub's regex, and a bare, unredacted fragment of the
+    // credential would reach the model with no redaction marker at all.
+    const { MAX_RESULT_CHARS } = await import("../plugins/result-truncation-plugin.js");
+    // A newline immediately ahead of the key gives the scrub regex's `\b` a
+    // real word boundary; the padding length puts the cap boundary partway
+    // through the 20-char key that follows, so a truncate-then-scrub bug
+    // would cut the key down to an unmatchable, unredacted fragment.
+    const padding = `${"x".repeat(MAX_RESULT_CHARS - 10)}\n`;
+    const straddlingSecret = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, cap lands mid-key
+    const secretShapedContent = `${padding}${straddlingSecret}`;
+    const shortCircuitingPlugin: ToolPlugin = {
+      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: secretShapedContent,
+      }),
+    };
+
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      cwd: "/tmp",
+    });
+    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
+    expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
+    plugins[ripgrepIndex] = shortCircuitingPlugin;
+
+    const composed = composeMiddleware(
+      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+    );
+
+    const result = await composed(
+      { id: "straddle-1", name: "grep", arguments: {} },
+      new AbortController().signal,
+    );
+
+    // The redaction marker is longer than the key it replaces, so the cap can
+    // still trim its tail — that's fine, it's already-redacted text. The
+    // security property under test is narrower: no bare, matchable-or-partial
+    // fragment of the raw key survives into the result.
+    const content = String(result.content);
+    expect(content).not.toContain(straddlingSecret);
+    expect(content).not.toMatch(/AKIA[0-9A-Z]*/);
   });
 });
