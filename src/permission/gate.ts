@@ -14,7 +14,7 @@ import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
-import { evaluateApprovals } from "./authz-grants.js";
+import { evaluateApprovals, cwdMatchesGrant, type GrantWorkspace } from "./authz-grants.js";
 import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
@@ -51,6 +51,7 @@ function hasExactFullCommandGrant(
   approvals: readonly Approval[],
   activeProviderModel: string | undefined,
   requestCwd: string | undefined,
+  workspace: GrantWorkspace,
 ): boolean {
   // Comment-insensitive: a model-authored "# why" line prepended to an
   // otherwise-identical command must still replay against a grant minted
@@ -62,7 +63,7 @@ function hasExactFullCommandGrant(
       a.tool === tool &&
       a.pattern === normalized &&
       (a.providerModel === undefined || a.providerModel === activeProviderModel) &&
-      (a.cwd === undefined || a.cwd === requestCwd),
+      cwdMatchesGrant(a.cwd, requestCwd, workspace),
   );
 }
 
@@ -142,9 +143,10 @@ export function isRequestCoveredByGrant(
   approval: Approval,
   activeProviderModel: string | undefined,
   isRestricted: (path: string, isWrite: boolean) => boolean,
+  workspace: GrantWorkspace,
 ): boolean {
   if (request.tool !== approval.tool) return false;
-  if (approval.cwd !== undefined && approval.cwd !== request.cwd) return false;
+  if (!cwdMatchesGrant(approval.cwd, request.cwd, workspace)) return false;
   if (
     approval.providerModel !== undefined &&
     approval.providerModel !== activeProviderModel
@@ -268,11 +270,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
-  const pathRestriction = createPathRestriction(
-    resolvedCwd,
-    options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd),
-  );
+  const rootsProvider = options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
+  const pathRestriction = createPathRestriction(resolvedCwd, rootsProvider);
   const isRestricted = pathRestriction.isRestricted;
+  // This gate's project boundary for grant matching (see cwdMatchesGrant):
+  // this session's root plus its currently-known registered worktrees. Built
+  // fresh per read from the same rootsProvider the gate already uses for
+  // path containment, so "same project" for a grant and "inside the
+  // workspace" for a path share one authority.
+  const grantWorkspace = (): GrantWorkspace => ({ resolvedCwd, roots: rootsProvider() });
   let auto = options.auto;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
@@ -309,7 +315,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       persist?.(approval, grant);
     }
     options.onGrant?.(approval, (request) =>
-      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted),
+      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted, grantWorkspace()),
     );
   };
 
@@ -405,7 +411,14 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           !fullReferencesSecret &&
           !commandTargetsRestricted(fullCommand, isRestrictedHere) &&
           segments.length > 1 &&
-          hasExactFullCommandGrant(request.tool, fullCommand, approvals, activeProviderModel, effectiveCwd)
+          hasExactFullCommandGrant(
+            request.tool,
+            fullCommand,
+            approvals,
+            activeProviderModel,
+            effectiveCwd,
+            grantWorkspace(),
+          )
         ) {
           continue;
         }
@@ -432,6 +445,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
               approvals,
               activeProviderModel,
               requestCwd: effectiveCwd,
+              workspace: grantWorkspace(),
             })
           ) {
             continue;
@@ -502,6 +516,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         approvals,
         activeProviderModel,
         requestCwd: effectiveCwd,
+        workspace: grantWorkspace(),
       });
       if (alreadyApproved) {
         continue;

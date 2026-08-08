@@ -7,8 +7,10 @@ const execFileAsync = promisify(execFile);
 
 // Git prints realpaths; the caller's cwd may reach the same directory through a
 // symlink (e.g. macOS /tmp, /var). Canonicalize both sides so self-exclusion
-// compares like with like.
-function realpathOr(path: string): string {
+// compares like with like. Exported so other permission-layer code comparing
+// a path against these roots (e.g. grant cwd matching in authz-grants.ts)
+// normalizes through the same function rather than reimplementing it.
+export function realpathOr(path: string): string {
   try {
     return realpathSync(path);
   } catch {
