@@ -271,6 +271,19 @@ async function mountLogin(opts: {
   return { done, harness }
 }
 
+describe("runProviderSetup renderer ownership", () => {
+  test("does not destroy a caller-supplied renderer on cancel", async () => {
+    const { done, harness } = await mountSetup()
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+
+    // A caller-owned renderer must still be usable for whatever mounted it
+    // in the first place (a live session resuming its own UI after a
+    // mid-session reconnect), not torn down out from under it.
+    expect(harness.renderer.isDestroyed).toBe(false)
+  })
+})
+
 describe("runProviderSetup sign-in", () => {
   test("a subscription provider signs in in place and persists the selection", async () => {
     const seen: ProviderFormValues[] = []

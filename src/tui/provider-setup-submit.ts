@@ -29,6 +29,15 @@ export function buildProviderSubmitHandler(
     // tokens are already in the home-level auth store, and config load
     // projects that store into the provider catalog. Only the selection is
     // persisted here — the same two files /model writes when switching.
+    //
+    // Unlike a pasted key, this credential was just issued by the real
+    // provider's own OAuth server completing a PKCE round-trip, so the
+    // "unverified" concept the API-key path uses doesn't apply the same way
+    // — there is no separate probe step to skip. What a completed login
+    // does not confirm is that the resulting token actually carries API
+    // scope (vs. e.g. a chat-only subscription), which can still surface as
+    // a first-send auth error; tracked separately rather than faked here
+    // with a flag this path has no real signal for.
     if (oauth !== undefined) {
       setPhase("saving");
       const base = existing ?? { providers: {} };

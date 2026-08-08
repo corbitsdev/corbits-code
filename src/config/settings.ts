@@ -47,6 +47,12 @@ export type ProviderSettings = {
   // test (e.g. the onboarding "save anyway" bypass). Absent/true means either
   // the test passed or the provider is exempt from it by design. Read once at
   // startup to warn the operator instead of surfacing a raw auth error.
+  //
+  // Deliberately defaults to trusted: this field did not exist before it was
+  // introduced, so every provider in an existing settings.json has no value
+  // for it, and that must not retroactively flag every current user's
+  // already-working setup as unverified. Only paths that persist a
+  // credential without testing it write `false` explicitly.
   verified?: boolean;
 };
 
