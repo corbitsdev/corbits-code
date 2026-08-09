@@ -3,7 +3,7 @@
 // already fall back to plain code.
 import hljs from "highlight.js/lib/common";
 import type { StyledSegment } from "./markdown-parser.js";
-import { color, type SemanticRole } from "./theme.js";
+import { color, type SemanticRole } from "./semantic-theme.js";
 
 // Map highlight.js scope classes to the semantic syntax palette. hljs emits a
 // class attribute whose first token is prefixed `hljs-` and whose optional

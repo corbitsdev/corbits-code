@@ -1,4 +1,4 @@
-import type { SemanticRole } from "../theme.js";
+import type { SemanticRole } from "../semantic-theme.js";
 import type { Tone } from "./spec.js";
 
 export const GAP = 2;

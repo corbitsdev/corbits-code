@@ -1,6 +1,6 @@
 import { type } from "arktype";
 import { relative, isAbsolute } from "node:path";
-import type { SemanticRole } from "./theme.js";
+import type { SemanticRole } from "./semantic-theme.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { formatMcpResult } from "./mcp-result-format.js";
 

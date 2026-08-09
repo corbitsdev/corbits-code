@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { StyledSegment } from "./markdown-parser.js";
 import { highlightCode } from "./syntax-highlight.js";
-import { color } from "./theme.js";
+import { color } from "./semantic-theme.js";
 
 function segmentFor(lines: StyledSegment[][], text: string): StyledSegment | undefined {
   return lines.flat().find((seg) => seg.text === text);
