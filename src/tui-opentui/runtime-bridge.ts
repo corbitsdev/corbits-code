@@ -955,6 +955,11 @@ export function attachSessionBridge(
     bag.pendingEchoes.length = 0
     applyShellInterrupt(shell)
     bag.port.interrupt()
+    // The stop settles the turn without necessarily producing an idle event to
+    // drain against, so anything the operator had queued would sit there
+    // forever. Hand it over here instead: the host serialises it behind the
+    // agent rebuild the interrupt just started.
+    drainAtBoundary(shell, bag)
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
     bag.lastSentMessage = ""

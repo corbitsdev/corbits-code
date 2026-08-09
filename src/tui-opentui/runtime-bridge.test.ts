@@ -157,19 +157,12 @@ describe("attachSessionBridge", () => {
           h.pressKey("c", { ctrl: true })
           await h.renderOnce()
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(true)
-          expect(badgeCount(shell.session)).toBe(2)
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
-
-          // The stopped run settles into an idle boundary, which is where the
-          // kept input is handed over rather than thrown away.
-          port.clear()
-          bridge.handle({ type: "reactor.done", data: {} })
-          await h.renderOnce()
+          // Handed over, not thrown away — and handed over here rather than
+          // left waiting on an idle event the stop may never produce.
           expect(
-            port.calls.flatMap((c) =>
-              c.op === "deliver" ? [c.item.text] : [],
-            ),
+            port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
           ).toEqual(["b", "a"])
           expect(badgeCount(shell.session)).toBe(0)
         } finally {

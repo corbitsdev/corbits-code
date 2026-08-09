@@ -3173,7 +3173,7 @@ export function applyShellInterrupt(shell: AppShell): void {
     role: "system",
     text:
       had > 0
-        ? `interrupt — ${had} pending kept, delivers next turn`
+        ? `interrupt — ${had} pending kept`
         : "interrupt",
     meta: "stop",
   })
