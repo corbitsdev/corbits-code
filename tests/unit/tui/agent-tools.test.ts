@@ -132,6 +132,7 @@ const fakePermissionGate = {
   preApprove: mock(() => {}),
   registerMcpClient: mock(() => {}),
   unregisterMcpServer: mock(() => {}),
+  getSkipPermissions: () => false,
 };
 
 const callOperator = async (

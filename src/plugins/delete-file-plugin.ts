@@ -42,7 +42,11 @@ function isWithin(root: string, path: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-export function deleteFilePlugin(cwd: string): ToolPlugin {
+export function deleteFilePlugin(
+  cwd: string,
+  options: { allowOutside?: boolean } = {},
+): ToolPlugin {
+  const allowOutside = options.allowOutside === true;
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
     handler: async (call: ToolCall): Promise<ToolResult> => {
@@ -54,7 +58,7 @@ export function deleteFilePlugin(cwd: string): ToolPlugin {
       const target = resolve(cwd, args.path);
       try {
         const [physicalRoot, physicalParent] = await Promise.all([realpath(cwd), realpath(dirname(target))]);
-        if (!isWithin(physicalRoot, physicalParent)) {
+        if (!allowOutside && !isWithin(physicalRoot, physicalParent)) {
           return errorResult(call.id, `${args.path} resolves outside the working directory`);
         }
         const info = await lstat(target);

@@ -25,17 +25,27 @@ export const listDirDefinition: ToolDefinition = {
 
 const MAX_ENTRIES = 200;
 
-export async function listDirectory(cwd: string, path: string): Promise<string> {
+export type ListDirectoryOptions = {
+  // When true (--dangerously-skip-permissions), list paths outside the workspace.
+  allowOutside?: boolean;
+};
+
+export async function listDirectory(
+  cwd: string,
+  path: string,
+  options: ListDirectoryOptions = {},
+): Promise<string> {
+  const allowOutside = options.allowOutside === true;
   const rel = path.length > 0 ? path : ".";
   const abs = resolve(cwd, rel);
-  if (abs !== cwd && !abs.startsWith(cwd + sep)) {
+  if (!allowOutside && abs !== cwd && !abs.startsWith(cwd + sep)) {
     return `Error: ${rel} is outside the workspace.`;
   }
 
   // A symlink inside the workspace can resolve to a target outside it; the
   // string prefix check above only sees the lexical path. Resolve the real path
   // of both the target and the root before comparing so symlink escapes are
-  // refused.
+  // refused (unless allowOutside, which is the yolo-mode escape hatch).
   let realAbs: string;
   let realCwd: string;
   try {
@@ -44,7 +54,7 @@ export async function listDirectory(cwd: string, path: string): Promise<string> 
   } catch (err) {
     return `Error: cannot list ${rel}: ${err instanceof Error ? err.message : String(err)}`;
   }
-  if (realAbs !== realCwd && !realAbs.startsWith(realCwd + sep)) {
+  if (!allowOutside && realAbs !== realCwd && !realAbs.startsWith(realCwd + sep)) {
     return `Error: ${rel} is outside the workspace.`;
   }
 
@@ -63,7 +73,10 @@ export async function listDirectory(cwd: string, path: string): Promise<string> 
   return shown.join("\n") + (remaining > 0 ? `\n… (${remaining} more entries)` : "");
 }
 
-export function createListDirTool(cwd: string): AgentTool {
+export function createListDirTool(
+  cwd: string,
+  options: ListDirectoryOptions = {},
+): AgentTool {
   return stringTool({
     definition: listDirDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -72,7 +85,7 @@ export function createListDirTool(cwd: string): AgentTool {
         return "Error: list_dir requires path (string) if provided.";
       }
       const path = parsed.path ?? "";
-      return listDirectory(cwd, path);
+      return listDirectory(cwd, path, options);
     },
   });
 }

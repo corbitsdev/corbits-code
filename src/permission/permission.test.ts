@@ -814,6 +814,50 @@ describe("createPermissionGate", () => {
     expect((await gate.evaluate(shellCall("curl x"))).allowed).toBe(true);
   });
 
+  test("skipPermissions auto-allows out-of-workspace path tools without asking", async () => {
+    let asked = 0;
+    const outside = mkdtempSync(join(tmpdir(), "corbits-skip-outside-"));
+    const target = join(outside, "other.ts");
+    writeFileSync(target, "");
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: process.cwd(),
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: true,
+    });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: target },
+    });
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+    expect(gate.getSkipPermissions()).toBe(true);
+  });
+
+  test("skipPermissions auto-allows git clone without asking", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd: process.cwd(),
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: true,
+    });
+    const verdict = await gate.evaluate(
+      shellCall("git clone https://example.com/org/repo.git /tmp/repo"),
+    );
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+
   test("non-interactive denies an unapproved consequential call", async () => {
     const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: false });
     const verdict = await gate.evaluate(shellCall("curl x"));

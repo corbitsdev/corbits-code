@@ -51,6 +51,24 @@ describe("resolvePerCallShellCwd", () => {
     const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
     expect(resolvePerCallShellCwd(root, "markerdir")).toBe(realpathSync(sub));
   });
+
+  test("rejects paths outside the session root by default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-out-"));
+    const parent = realpathSync(join(root, ".."));
+    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
+    expect(() => resolvePerCallShellCwd(root, parent)).toThrow(
+      /outside the session workspace/,
+    );
+  });
+
+  test("allowOutsideSession accepts paths outside the session root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-resolve-cwd-yolo-"));
+    const parent = realpathSync(join(root, ".."));
+    const { resolvePerCallShellCwd } = await import("./persistent-shell-cwd.js");
+    expect(
+      resolvePerCallShellCwd(root, parent, { allowOutsideSession: true }),
+    ).toBe(parent);
+  });
 });
 
 describe("pwd probe via runGuardedShell", () => {

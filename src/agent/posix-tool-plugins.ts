@@ -65,16 +65,20 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     readFileGuard = {},
     shellEnv,
   } = args;
+  // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
+  // cwd are not hard-denied after the gate already auto-allows. Secret-guard and
+  // authz still hard-deny regardless.
+  const allowOutside = permissionGate.getSkipPermissions();
   return [
     resultTruncationPlugin(),
     toolResultSecretScrubPlugin(),
-    pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd)),
-    deleteFilePlugin(cwd),
+    pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
+    deleteFilePlugin(cwd, { allowOutside }),
     toolOutputUriPlugin(),
     secretGuardPlugin(),
     authzPlugin(),
     permissionPlugin(permissionGate),
-    shellGuardPlugin(cwd, shellTimeout, shellEnv),
+    shellGuardPlugin(cwd, shellTimeout, shellEnv, { allowOutsideCwd: allowOutside }),
     readFileGuardPlugin(cwd, readFileGuard),
     ripgrepPlugin(cwd),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins
