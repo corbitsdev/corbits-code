@@ -2088,6 +2088,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         description: s.description,
         status: s.status,
         currentToolName: s.currentToolName,
+        currentToolPreview: s.currentToolPreview,
         currentToolStartedAt: s.currentToolStartedAt,
         startedAt: s.startedAt,
         lastActivityAt: s.lastActivityAt,

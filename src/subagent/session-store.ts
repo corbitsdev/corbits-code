@@ -5,6 +5,7 @@
 // this store is the dedicated child record the enter-session UI reads.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { toolCallPreview } from "./tool-preview.js";
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -21,6 +22,13 @@ export type OutstandingToolCall = {
   callId: string;
   name: string;
   startedAt: number;
+  /**
+   * Bounded one-line subject of the call (command, path, pattern…), or null
+   * when the args have nothing useful to show. Derived from the same raw
+   * arguments the transcript stores so the lane and the body cannot disagree
+   * about what is running (CL-5765).
+   */
+  preview: string | null;
 };
 
 export type SubAgentSession = {
@@ -30,14 +38,17 @@ export type SubAgentSession = {
   brief: string;
   status: SubAgentSessionStatus;
   toolNames: string[];
-  // Name and start clock of the OLDEST outstanding call — the one that
-  // explains the longest silence. Both are derived from `outstandingTools`;
-  // never assign them directly. Null when nothing is in flight.
+  // Name, preview, and start clock of the OLDEST outstanding call — the one
+  // that explains the longest silence. All three are derived from
+  // `outstandingTools`; never assign them directly. Null when nothing is in
+  // flight.
   //
   // A worker inside one long tool emits no events for the whole execution, so
   // silence alone cannot tell "wedged" from "running a ten-minute test suite".
-  // The start clock is the fact that separates them.
+  // The start clock is the fact that separates them. The preview is what lets
+  // an operator tell six shell commands apart on a fleet board.
   currentToolName: string | null;
+  currentToolPreview: string | null;
   currentToolStartedAt: number | null;
   // Calls the reactor has started and not yet reported a result for. The
   // reactor runs parallel calls concurrently, so this cannot collapse to one
@@ -116,8 +127,9 @@ function defaultCreateId(): string {
 }
 
 /**
- * The one place the displayed pair is produced, so a name can never be shown
- * beside another call's clock. Called after every change to `outstandingTools`.
+ * The one place the displayed triple is produced, so a name / preview can never
+ * be shown beside another call's clock. Called after every change to
+ * `outstandingTools`.
  */
 function syncCurrentTool(session: SubAgentSession): void {
   let oldest: OutstandingToolCall | undefined;
@@ -125,12 +137,15 @@ function syncCurrentTool(session: SubAgentSession): void {
     if (oldest === undefined || call.startedAt < oldest.startedAt) oldest = call;
   }
   session.currentToolName = oldest?.name ?? null;
+  session.currentToolPreview = oldest?.preview ?? null;
   session.currentToolStartedAt = oldest?.startedAt ?? null;
 }
 
 /**
  * `restartClock` marks the execution boundary: argument streaming already
  * registered the call, and the figure worth showing is time spent running it.
+ * `rawArgs`, when known, refreshes the lane preview from the same payload the
+ * transcript stores.
  */
 function beginToolCall(
   session: SubAgentSession,
@@ -138,14 +153,36 @@ function beginToolCall(
   name: string,
   nowMs: number,
   restartClock = false,
+  rawArgs?: string,
 ): void {
   const existing = session.outstandingTools.find((c) => c.callId === callId);
+  const preview =
+    rawArgs !== undefined ? toolCallPreview(name, rawArgs) : (existing?.preview ?? null);
   if (existing !== undefined) {
     existing.name = name;
     if (restartClock) existing.startedAt = nowMs;
+    if (rawArgs !== undefined) existing.preview = preview;
   } else {
-    session.outstandingTools.push({ callId, name, startedAt: nowMs });
+    session.outstandingTools.push({
+      callId,
+      name,
+      startedAt: nowMs,
+      preview,
+    });
   }
+  syncCurrentTool(session);
+}
+
+/** Refresh the outstanding call's preview once more of its arguments stream in. */
+function refreshToolPreview(
+  session: SubAgentSession,
+  callId: string,
+  name: string,
+  rawArgs: string,
+): void {
+  const existing = session.outstandingTools.find((c) => c.callId === callId);
+  if (existing === undefined) return;
+  existing.preview = toolCallPreview(name, rawArgs);
   syncCurrentTool(session);
 }
 
@@ -338,6 +375,7 @@ export function createSubAgentSessionStore(
         status: "running",
         toolNames: [],
         currentToolName: null,
+        currentToolPreview: null,
         currentToolStartedAt: null,
         outstandingTools: [],
         entries: [],
@@ -398,6 +436,9 @@ export function createSubAgentSessionStore(
               if (entry?.kind !== "tool") continue;
               if (callId !== null && entry.callId !== callId) continue;
               entry.arguments = appendCapped(entry.arguments, fragment, maxEntryChars);
+              // Preview tracks the same args the transcript holds so the lane
+              // and the body never disagree about what is running.
+              refreshToolPreview(session, entry.callId, entry.name, entry.arguments);
               return;
             }
             return;
@@ -418,14 +459,21 @@ export function createSubAgentSessionStore(
               if (args !== null && args.length > 0) entry.arguments = args;
               // Arguments finished streaming; the call itself is still in
               // flight, so this renames it rather than restarting its clock.
-              beginToolCall(session, entry.callId, entry.name, now());
+              beginToolCall(
+                session,
+                entry.callId,
+                entry.name,
+                now(),
+                false,
+                entry.arguments,
+              );
               return;
             }
             // No matching start — record a complete tool entry.
             if (name !== null) {
               const idForEntry = callId ?? `${name}-${session.entries.length}`;
               if (!session.toolNames.includes(name)) session.toolNames.push(name);
-              beginToolCall(session, idForEntry, name, now());
+              beginToolCall(session, idForEntry, name, now(), false, args ?? "");
               pushEntry(session, {
                 kind: "tool",
                 callId: idForEntry,
@@ -438,14 +486,22 @@ export function createSubAgentSessionStore(
           case "tool.start": {
             // tool.start is the execution-time counterpart of inference.tool_call.
             // Prefer inference events for the transcript; only fill gaps.
-            const call = (event as { data?: { call?: { name?: unknown; id?: unknown } } }).data?.call;
+            const call = (event as {
+              data?: { call?: { name?: unknown; id?: unknown; arguments?: unknown } };
+            }).data?.call;
             const name = typeof call?.name === "string" ? call.name : null;
             if (name === null) return;
             const callId = typeof call?.id === "string" ? call.id : null;
+            const rawArgs =
+              call?.arguments !== undefined
+                ? capText(stringifyUnknown(call.arguments), maxEntryChars)
+                : undefined;
             // Without an id there is no way to tell which of several parallel
             // calls this starts, and guessing would retime the wrong one. The
             // inference-side start already registered it, so leave it alone.
-            if (callId !== null) beginToolCall(session, callId, name, now(), true);
+            if (callId !== null) {
+              beginToolCall(session, callId, name, now(), true, rawArgs);
+            }
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             return;
           }
@@ -553,6 +609,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     status: session.status,
     toolNames: [...session.toolNames],
     currentToolName: session.currentToolName,
+    currentToolPreview: session.currentToolPreview,
     currentToolStartedAt: session.currentToolStartedAt,
     outstandingTools: session.outstandingTools.map((c) => ({ ...c })),
     entries: session.entries.map(cloneEntry),

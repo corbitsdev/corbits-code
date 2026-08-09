@@ -120,9 +120,16 @@ describe("outstanding tool clock", () => {
     store.appendEvent(session.id, {
       type: "tool.start",
       seq: 1,
-      data: { call: { id: "call-1", name: "run_shell", arguments: {} } },
+      data: {
+        call: {
+          id: "call-1",
+          name: "run_shell",
+          arguments: { command: "bun test" },
+        },
+      },
     } as unknown as ReactorEmittedEvent);
     expect(store.get(session.id)?.currentToolName).toBe("run_shell");
+    expect(store.get(session.id)?.currentToolPreview).toBe("bun test");
     expect(store.get(session.id)?.currentToolStartedAt).toBe(5_000);
 
     clock = 95_000;
@@ -132,6 +139,7 @@ describe("outstanding tool clock", () => {
       data: { result: { callId: "call-1", content: "ok", isError: false } },
     } as unknown as ReactorEmittedEvent);
     expect(store.get(session.id)?.currentToolName).toBeNull();
+    expect(store.get(session.id)?.currentToolPreview).toBeNull();
     expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
   });
 
@@ -143,6 +151,38 @@ describe("outstanding tool clock", () => {
 
     store.complete(session.id, "report");
     expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+    expect(store.get(session.id)?.currentToolPreview).toBeNull();
+  });
+
+  // CL-5765: argument streaming must refresh the preview so a partial command
+  // does not stick on the lane after the rest of the args arrive.
+  test("streaming arguments refresh the lane preview from the same payload the transcript holds", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(session.id, {
+      type: "inference.tool_call.start",
+      seq: 1,
+      data: { name: "run_shell", callId: "call-1" },
+    } as unknown as ReactorEmittedEvent);
+    store.appendEvent(session.id, {
+      type: "inference.tool_call.delta",
+      seq: 2,
+      data: { callId: "call-1", argumentFragment: '{"command":"bun te' },
+    } as unknown as ReactorEmittedEvent);
+    // Incomplete JSON — no preview yet.
+    expect(store.get(session.id)?.currentToolPreview).toBeNull();
+
+    store.appendEvent(session.id, {
+      type: "inference.tool_call.delta",
+      seq: 3,
+      data: { callId: "call-1", argumentFragment: 'st"}' },
+    } as unknown as ReactorEmittedEvent);
+    expect(store.get(session.id)?.currentToolPreview).toBe("bun test");
+    expect(store.get(session.id)?.entries[0]).toMatchObject({
+      kind: "tool",
+      arguments: '{"command":"bun test"}',
+    });
   });
 });
 

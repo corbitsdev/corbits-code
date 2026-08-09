@@ -435,6 +435,7 @@ describe("lane state survives the mapping hops", () => {
     description: "sleep 150",
     status: "running" as const,
     currentToolName: "run_shell",
+    currentToolPreview: null as string | null,
     currentToolStartedAt: NOW - 90_000,
     startedAt: NOW - 100_000,
     lastActivityAt: NOW - 90_000,
@@ -460,6 +461,22 @@ describe("lane state survives the mapping hops", () => {
     expect(rows?.[1]?.tail).not.toContain("stalled")
 
     expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 1:30")
+  })
+
+  test("a shell preview replaces the tool name on both panel and trailer (CL-5765)", () => {
+    const withPreview = {
+      ...inTool,
+      currentToolPreview: "bun test ./src",
+    }
+    const rows = formatAgentsPanel(
+      chromeFromSession({ agents: [withPreview] }).agents,
+      undefined,
+      NOW,
+    )
+    expect(rows?.[1]?.tail).toContain("bun test ./src")
+    expect(rows?.[1]?.tail).not.toContain("run_shell")
+    expect(agentProgress(withPreview, NOW)?.stat).toContain("bun test ./src")
+    expect(agentProgress(withPreview, NOW)?.stat).not.toContain("run_shell")
   })
 
   test("a genuinely silent lane still reads stalled through the same hops", () => {
