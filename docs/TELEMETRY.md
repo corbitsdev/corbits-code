@@ -163,8 +163,9 @@ Survey id / question id are **baked into the client** (Corbits team survey
 operators never configure them. Optional env overrides
 (`CORBITS_FEEDBACK_SURVEY_ID`, `CORBITS_FEEDBACK_QUESTION_ID`) exist for tests
 and forks; setting either to empty fails closed and hides the command from the
-slash menu. Success copy says “queued,” not delivered; free text over 2000
-characters is truncated with an explicit notice.
+slash menu. Success copy says “sent” after the capture is accepted and flushed
+toward PostHog (best-effort network delivery is not awaited on the operator
+path). Free text over 2000 characters is truncated with an explicit notice.
 
 ## Opting out
 

@@ -373,23 +373,61 @@ export type SubmitHandlerDeps = {
  * Composer submit handler. Slash input is dispatched against the command
  * registry instead of being sent to the model. When feedback capture is armed
  * (bare `/feedback`), the next non-command line is captured as survey text.
+ *
+ * Returns an outcome so the session bridge can keep local-only submits off the
+ * agent busy path and out of the mid-run queue.
  */
+export type SubmitOutcome = "agent" | "local" | "empty";
+
+/**
+ * Classify a composer line without side effects. Local = slash command or
+ * armed multi-turn feedback text; empty = no-op (or cancel-feedback); agent =
+ * real model turn.
+ */
+export function classifySubmission(
+  text: string,
+  options: {
+    hasAttachments?: boolean;
+    feedbackPending?: boolean;
+    feedbackCaptureEnabled?: boolean;
+  } = {},
+): SubmitOutcome {
+  const route = routeSubmission(text);
+  const hasAttachments = options.hasAttachments === true;
+  if (route.kind === "empty" && !hasAttachments) return "empty";
+  if (route.kind === "command") return "local";
+  if (
+    route.kind === "prompt" &&
+    options.feedbackPending === true &&
+    options.feedbackCaptureEnabled === true
+  ) {
+    return "local";
+  }
+  return "agent";
+}
+
 export function createSubmitHandler(
   deps: SubmitHandlerDeps,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+): (text: string, attachments?: readonly PendingImageAttachment[]) => SubmitOutcome {
   return (text, attachments) => {
     const route = routeSubmission(text);
     const hasAttachments = attachments !== undefined && attachments.length > 0;
     const feedbackPending = deps.isFeedbackCapturePending?.() === true;
+    const feedbackCaptureEnabled = deps.onFeedbackText !== undefined;
+    const outcome = classifySubmission(text, {
+      hasAttachments,
+      feedbackPending,
+      feedbackCaptureEnabled,
+    });
 
     // Empty Enter while /feedback is armed cancels instead of trapping the
     // operator until they type free text or /clear.
-    if (route.kind === "empty" && !hasAttachments) {
+    if (outcome === "empty") {
       if (feedbackPending) {
         deps.cancelFeedbackCapture?.();
         deps.onSystemNotice?.("Feedback cancelled.");
       }
-      return;
+      return "empty";
     }
     if (route.kind === "command") {
       // Any other slash command drops a bare-/feedback arm so the next
@@ -398,20 +436,17 @@ export function createSubmitHandler(
         deps.cancelFeedbackCapture?.();
       }
       deps.dispatchCommand(route.name, route.args);
-      return;
+      return "local";
     }
     // Multi-turn /feedback: next Enter is survey text, not a model prompt.
-    if (
-      route.kind === "prompt" &&
-      feedbackPending &&
-      deps.onFeedbackText !== undefined
-    ) {
-      const notice = deps.onFeedbackText(route.text);
+    if (outcome === "local" && deps.onFeedbackText !== undefined) {
+      const notice = deps.onFeedbackText(route.kind === "prompt" ? route.text : text);
       deps.onSystemNotice?.(notice);
-      return;
+      return "local";
     }
     deps.onPromptSubmitted?.();
     deps.sendPrompt(route.kind === "prompt" ? route.text : "", attachments);
+    return "agent";
   };
 }
 
@@ -2048,6 +2083,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onSystemNotice: systemNotice,
 
     }),
+    classifySubmit: (text, attachments) =>
+      classifySubmission(text, {
+        hasAttachments: attachments !== undefined && attachments.length > 0,
+        feedbackPending: isFeedbackCapturePending(),
+        feedbackCaptureEnabled: true,
+      }),
     interrupt,
     // Consent by proceeding requires the disclosure to be on screen before the
     // first prompt activates the held telemetry instance: the landing shows it,
@@ -2301,8 +2342,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           }));
         },
         setTelemetryEnabled: (enabled) => {
+          // Only flip the live intent when the toggle is accepted. Env kill
+          // switches refuse re-enable; leaving the UI on while capture stays
+          // off is a silent lie.
+          if (!onChangeTelemetryEnabled(enabled)) {
+            systemNotice(
+              "Telemetry stays off — disabled by DO_NOT_TRACK or CORBITS_TELEMETRY.",
+            );
+            return;
+          }
           liveTelemetryIntent = enabled;
-          void onChangeTelemetryEnabled(enabled);
         },
         setShowPromptCost: (value) => {
           liveShowPromptCost = value;

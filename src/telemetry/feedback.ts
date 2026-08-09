@@ -12,10 +12,10 @@ export const FEEDBACK_MAX_CHARS = 2000;
 export const FEEDBACK_PROMPT =
   "Please share your feedback. When done please hit enter. (Empty Enter cancels.)";
 
-export const FEEDBACK_THANKS = "Thanks — feedback queued.";
+export const FEEDBACK_THANKS = "Thanks — feedback sent.";
 
 export const FEEDBACK_THANKS_TRUNCATED =
-  "Thanks — feedback queued (truncated to 2000 characters).";
+  "Thanks — feedback sent (truncated to 2000 characters).";
 
 export const FEEDBACK_EMPTY = "No feedback text provided.";
 
@@ -90,10 +90,11 @@ export function buildSurveyProperties(
 }
 
 /**
- * Capture intentional survey response. Returns whether the event was queued.
- * Empty/whitespace-only text is not sent. Missing survey/question ids fail closed.
- * "sent" means queued for flush (not a network delivery ack); "sent_truncated"
- * is the same after the free-text cap was applied.
+ * Capture intentional survey response. Empty/whitespace-only text is not sent.
+ * Missing survey/question ids fail closed. On success the event is enqueued and
+ * flushed immediately (fire-and-forget) — not held for the ambient batch timer.
+ * Status "sent" means the capture path accepted the payload; delivery is best-
+ * effort over the network and is not awaited on the operator path.
  */
 export function captureFeedback(
   telemetry: Telemetry,
@@ -115,6 +116,9 @@ export function captureFeedback(
     buildSurveyProperties(trimmed, options),
   );
   if (!ok) return "blocked";
+  // Deterministic handoff to PostHog — not part of the agent loop. Flush so
+  // the response is not sitting in the ambient batch queue until idle exit.
+  void telemetry.flush();
   return truncated ? "sent_truncated" : "sent";
 }
 

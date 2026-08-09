@@ -272,23 +272,28 @@ Providers and credentials are read exclusively from settings files: the global `
 
 ### CLI Verbs and Flags
 
+Printed by `corbits --help` / `-h` from `CLI_HELP_TEXT` in `src/config/index.ts`
+(that constant is the source of truth; keep this table in sync when flags change).
+
 | Verb / Flag | Default | Description |
 |---|---|---|
-| `run` (optional) | — | Run a task (default verb) |
-| `resume` | — | Resume the last run in the working directory |
+| _(no verb)_ | — | Interactive session; optional trailing task text |
+| `exec` / `run` | — | Run a prompt (non-interactive / one-shot) |
+| `resume` / `continue` | — | Reopen the latest session for this folder (project-keyed; worktrees of the same git root share sessions) |
+| `resume <session-id>` | — | Reopen a specific session |
+| `resume --pick` / `--list` | — | Interactive session picker |
 | `--cwd <dir>` | `process.cwd()` | Working directory |
 | `--config <path>` | `~/.corbits/settings.json` | Settings file to use |
 | `--provider <name>` | from settings | Select a configured provider |
 | `--model <id>` | provider default | Select a model for the active provider |
-
+| `--profile <name>` | — | Settings profile |
 | `--force` | false | Override an existing run state |
 | `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain) |
 | `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
 | `--no-auto` | false | Start with auto mode off (ask on every consequential action); no in-session key toggles it |
-| `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |
-| `--help` | — | Show help |
+| `--help`, `-h` | — | Show help (exit 0 via `CliHelpError`) |
 
-Positional arguments are joined into the optional initial task delivered when the TUI mounts. With no positional task, the operator starts from an empty prompt.
+Positional arguments after flags are joined into the optional initial task delivered when the TUI mounts. With no positional task, the operator starts from an empty prompt.
 
 ### Agent Source
 

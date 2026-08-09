@@ -164,7 +164,7 @@ describe("captureFeedback", () => {
 
 describe("feedbackResultMessage", () => {
   test("maps statuses to operator-facing lines", () => {
-    expect(feedbackResultMessage("sent")).toBe("Thanks — feedback queued.");
+    expect(feedbackResultMessage("sent")).toBe("Thanks — feedback sent.");
     expect(feedbackResultMessage("sent_truncated")).toContain("truncated");
     expect(feedbackResultMessage("blocked")).toContain("could not be sent");
     expect(feedbackResultMessage("unconfigured")).toContain("not configured");

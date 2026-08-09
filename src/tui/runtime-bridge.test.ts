@@ -177,6 +177,65 @@ describe("attachSessionBridge", () => {
     )
   })
 
+  test("local classify keeps idle submits off the busy path", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        const port = createRecordingPort({
+          classifySubmit: (text) => (text.startsWith("/") ? "local" : "agent"),
+        })
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.submit("/feedback quick test", "immediate")
+          await h.renderOnce()
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "/feedback quick test" },
+          ])
+          expect(shell.session.run).toBe("idle")
+          expect(badgeCount(shell.session)).toBe(0)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("local classify mid-run does not enqueue or interrupt the agent turn", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort({
+          classifySubmit: (text) => (text.startsWith("/") ? "local" : "agent"),
+        })
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.submit("/feedback note", "queue")
+          await h.renderOnce()
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "/feedback note" },
+          ])
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false)
+          expect(shell.session.run).toBe("busy")
+          expect(badgeCount(shell.session)).toBe(0)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("queued item delivers at tool.boundary", async () => {
     await withTestRenderer(
       async (h) => {

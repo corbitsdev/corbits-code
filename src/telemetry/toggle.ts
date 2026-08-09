@@ -39,13 +39,13 @@ const defaultDeps: TelemetryToggleDeps = {
 
 // Builds the /settings > Telemetry toggle handler, bound to the true global
 // settings path (never a --config override — see index.ts / runner.ts for
-// why). Returned as a plain function so it can be wired into onChange props
-// without an inline closure, and so tests can call it directly with fake deps.
+// why). Returns whether the requested value was accepted so the UI can refuse
+// a flip that would be a silent no-op (env kill switch).
 export function createTelemetryToggleHandler(
   globalSettingsPath: string,
   deps: TelemetryToggleDeps = defaultDeps,
-): (enabled: boolean) => void {
-  return (enabled: boolean): void => {
+): (enabled: boolean) => boolean {
+  return (enabled: boolean): boolean => {
     if (enabled && deps.telemetryDisabledByEnv()) {
       // Env kills own the "disabled means no settings writes" constraint
       // (see index.ts); honoring the enable here would generate and persist
@@ -54,7 +54,7 @@ export function createTelemetryToggleHandler(
       logger.warn(
         `Telemetry re-enable ignored: disabled by environment (DO_NOT_TRACK or ${TELEMETRY_ENV})`,
       );
-      return;
+      return false;
     }
     if (!enabled) {
       // Opt-out must be immediate and absolute: discard whatever the outgoing
@@ -137,5 +137,6 @@ export function createTelemetryToggleHandler(
       // on the load-succeeded path, carry forward the real installationId).
       deps.setTelemetry(deps.createTelemetry({ settings: next }));
     })();
+    return true;
   };
 }

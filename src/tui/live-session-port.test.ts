@@ -37,6 +37,20 @@ function item(
 }
 
 describe("createLiveSessionPort", () => {
+  test("classifySubmit defaults to agent and forwards an override", () => {
+    const { deps } = fakeDeps()
+    const defaultPort = createLiveSessionPort(deps)
+    expect(defaultPort.classifySubmit?.("hello")).toBe("agent")
+    expect(defaultPort.classifySubmit?.("/feedback")).toBe("agent")
+
+    const localPort = createLiveSessionPort({
+      ...deps,
+      classifySubmit: (text) => (text.startsWith("/") ? "local" : "agent"),
+    })
+    expect(localPort.classifySubmit?.("/feedback")).toBe("local")
+    expect(localPort.classifySubmit?.("hello")).toBe("agent")
+  })
+
   test("sendImmediate forwards to deps.send", () => {
     const { calls, deps } = fakeDeps()
     const port = createLiveSessionPort(deps)
