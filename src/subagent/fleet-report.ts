@@ -23,6 +23,7 @@ export type FleetLane = {
   readonly startedAt: number;
   readonly lastActivityAt: number;
   readonly currentToolName: string | null;
+  readonly currentToolStartedAt: number | null;
   readonly report?: string;
   readonly error?: string;
 };

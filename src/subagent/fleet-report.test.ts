@@ -15,6 +15,7 @@ function lane(overrides: Partial<FleetLane> & { id: string }): FleetLane {
     startedAt: T0,
     lastActivityAt: T0,
     currentToolName: null,
+    currentToolStartedAt: null,
     ...overrides,
   };
 }
