@@ -124,29 +124,73 @@ function isScalar(value: unknown): boolean {
 }
 
 /**
- * Scalar arguments as `key  value` pairs with their newlines intact — a shell
- * command or a prompt is written to be read as text, and pretty-printed JSON
- * would hand it back with its line breaks escaped.
+ * Scalar (or scalar-array) arguments as `key  value` pairs with their newlines
+ * intact — a shell command or a spawn prompt is written to be read as text, and
+ * pretty-printed JSON would hand it back with its line breaks escaped (CL-5762).
+ *
+ * Nested objects recurse one level so a task brief expands as fields rather than
+ * a JSON dump; deeper nesting collapses to a compact token.
  */
-function scalarDetail(args: Record<string, unknown>): readonly StyledBodyLine[] | null {
-  const entries = Object.entries(args)
-  if (entries.length === 0 || !entries.every(([, value]) => isScalar(value))) {
-    return null
-  }
+function fieldDetail(
+  args: Record<string, unknown>,
+  indent = 0,
+): readonly StyledBodyLine[] {
+  const pad = " ".repeat(indent)
   const lines: StyledBodyLine[] = []
-  for (const [key, value] of entries) {
-    const text = typeof value === "string" ? value : JSON.stringify(value)
-    const rows = (text ?? "null").split("\n")
-    rows.forEach((row, i) => {
-      lines.push(
-        i === 0
-          ? [
-              { text: `${key}: `, fg: UI.textDim },
-              { text: row, fg: UI.text },
-            ]
-          : [{ text: `${" ".repeat(key.length + 2)}${row}`, fg: UI.text }],
-      )
-    })
+  for (const [key, value] of Object.entries(args)) {
+    if (isScalar(value)) {
+      const text = typeof value === "string" ? value : JSON.stringify(value)
+      const rows = (text ?? "null").split("\n")
+      rows.forEach((row, i) => {
+        lines.push(
+          i === 0
+            ? [
+                { text: `${pad}${key}: `, fg: UI.textDim },
+                { text: row, fg: UI.text },
+              ]
+            : [{ text: `${pad}${" ".repeat(key.length + 2)}${row}`, fg: UI.text }],
+        )
+      })
+      continue
+    }
+    if (Array.isArray(value) && value.every(isScalar)) {
+      if (value.length === 0) {
+        lines.push([
+          { text: `${pad}${key}: `, fg: UI.textDim },
+          { text: "[]", fg: UI.text },
+        ])
+        continue
+      }
+      lines.push([{ text: `${pad}${key}:`, fg: UI.textDim }])
+      for (const item of value) {
+        const text = typeof item === "string" ? item : JSON.stringify(item)
+        for (const row of text.split("\n")) {
+          lines.push([{ text: `${pad}  - ${row}`, fg: UI.text }])
+        }
+      }
+      continue
+    }
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      // One level of nesting is enough for a spawn brief; deeper stays compact.
+      if (indent === 0) {
+        lines.push([{ text: `${pad}${key}:`, fg: UI.textDim }])
+        lines.push(...fieldDetail(value as Record<string, unknown>, indent + 2))
+      } else {
+        lines.push([
+          { text: `${pad}${key}: `, fg: UI.textDim },
+          { text: "{…}", fg: UI.text },
+        ])
+      }
+      continue
+    }
+    // Arrays of objects, etc. — compact rather than a wall of JSON.
+    lines.push([
+      { text: `${pad}${key}: `, fg: UI.textDim },
+      {
+        text: Array.isArray(value) ? `[${value.length} items]` : "{…}",
+        fg: UI.text,
+      },
+    ])
   }
   return lines.slice(0, MAX_DETAIL_LINES)
 }
@@ -221,7 +265,9 @@ function subjectFor(
   args: Record<string, unknown>,
 ): string {
   const { summary } = summarizeToolArgs(name, raw)
-  if (!isArgumentList(args, summary)) return summary
+  // An empty formatter summary is not a subject — fall through to primarySubject
+  // so a task without description still paints its prompt rather than raw JSON.
+  if (summary.length > 0 && !isArgumentList(args, summary)) return summary
   return primarySubject(args) ?? summary
 }
 
@@ -246,7 +292,7 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
   // Its arguments are a query, not a subject: nobody reads a transcript for
   // the pagination cursor, so they belong behind the expand key or nowhere.
   if (args !== null && isMcpToolName(name)) {
-    return withDetail("", scalarDetail(args) ?? jsonDetail(args))
+    return withDetail("", fieldDetail(args))
   }
 
   if (args === null && raw.length <= INLINE_MAX && !raw.includes("\n")) return null
@@ -256,8 +302,10 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
     return summary.length === 0 ? null : withDetail(summary, jsonDetail(raw))
   }
   const subject = subjectFor(name, raw, args)
-  if (subject.length === 0) return null
-  return withDetail(subject, scalarDetail(args) ?? jsonDetail(args))
+  // Object args always get a summarised view — even with an empty subject the
+  // verb alone names the call and the body expands with real line breaks. A
+  // null return here is what used to dump raw argument JSON into the transcript.
+  return withDetail(subject, fieldDetail(args))
 }
 
 /**

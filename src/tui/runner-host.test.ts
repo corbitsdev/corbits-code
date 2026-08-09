@@ -74,6 +74,9 @@ describe("rowFromTranscriptEntry", () => {
       text: "{}",
       meta: "grep",
       verb: "Grep",
+      // Empty summary is intentional: without it the paint layer falls through
+      // to raw argument JSON (CL-5762). Verb alone names the call.
+      summary: "",
       pending: true,
       callKey: "grep Grep ",
       callId: "c",

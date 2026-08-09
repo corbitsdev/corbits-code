@@ -132,16 +132,20 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
     if (!(taskParsed instanceof type.errors)) {
       const agentName = taskParsed.agent?.trim();
       const description = (taskParsed.description ?? "").trim();
+      // description is optional on spawn; the brief's prompt is the next best
+      // subject so the row never falls through to raw argument JSON.
+      const prompt = (taskParsed.prompt ?? "").trim();
+      const subject = description.length > 0 ? description : prompt;
       const display =
         agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
-      // Collapsed row uses the abbreviated description; Alt+E expands to the full text.
+      // Collapsed row uses the abbreviated subject; Alt+E expands to the full text.
       return {
         display,
         role: "accent",
-        summary: description.length > 0 ? abbreviate(description, ARG_VALUE_MAX) : "",
-        full: description,
+        summary: subject.length > 0 ? abbreviate(subject, ARG_VALUE_MAX) : "",
+        full: subject,
         isShell: false,
       };
     }
@@ -183,7 +187,11 @@ const SearchFilesArgSchema = type({ pattern: "string", "path?": "string" });
 const WebSearchArgSchema = type({ query: "string" });
 const WebFetchArgSchema = type({ url: "string" });
 const ShellArgSchema = type({ command: "string" });
-const TaskArgSchema = type({ "agent?": "string", "description?": "string" });
+const TaskArgSchema = type({
+  "agent?": "string",
+  "description?": "string",
+  "prompt?": "string",
+});
 const WebSearchResultSchema = type({ results: "unknown[]" });
 const WebFetchResultSchema = type({ content: "string" });
 
@@ -234,13 +242,17 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
     }
     case "task": {
       // Spawns carry a large structured brief (prompt, intent, criteria). The
-      // transcript only needs the short description; Alt+E still shows the
-      // full description text, not every spawn field.
+      // transcript only needs a short subject — prefer description, then prompt —
+      // so the row never dumps the whole JSON payload.
       const parsed = TaskArgSchema(obj);
       if (!(parsed instanceof type.errors)) {
         const desc = (parsed.description ?? "").trim();
         if (desc.length > 0) {
           return { summary: abbreviate(desc, ARG_VALUE_MAX), full: desc };
+        }
+        const prompt = (parsed.prompt ?? "").trim();
+        if (prompt.length > 0) {
+          return { summary: abbreviate(prompt, ARG_VALUE_MAX), full: prompt };
         }
       }
       return { summary: "", full: "" };

@@ -488,6 +488,15 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   // Identity of the sentence this call paints, not of its arguments: two calls
   // that read the same line are what a repeat looks like to the operator.
   const callKey = `${input.name} ${verb ?? ""} ${summary ?? ""}`
+  // Never leave `summary` unset when we have a verb or a summarised view —
+  // `undefined` makes the paint layer fall through to raw argument JSON
+  // (CL-5762). An empty string is fine: the verb alone names the call.
+  const paintSummary =
+    summary !== undefined
+      ? summary
+      : call !== null || summarised !== null
+        ? ""
+        : undefined
   return {
     role: "tool",
     text,
@@ -497,12 +506,7 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
     ...(input.callId !== undefined ? { callId: input.callId } : {}),
     ...(diff !== null ? { diff } : {}),
     ...(verb !== undefined ? { verb } : {}),
-    // A summarised call may deliberately have no subject — its verb already
-    // names the whole call — and that blank must survive, or the row falls
-    // back to painting the raw arguments.
-    ...(summary !== undefined && (summary.length > 0 || summarised !== null)
-      ? { summary }
-      : {}),
+    ...(paintSummary !== undefined ? { summary: paintSummary } : {}),
     ...(stat !== undefined ? { stat } : {}),
     ...(detail !== undefined && detail.length > 0 ? { detail } : {}),
   }
