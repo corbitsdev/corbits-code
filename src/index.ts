@@ -209,7 +209,9 @@ export function installCrashHandlers(): void {
 // Mirrors finalizeActiveRunOnCrash but is not itself a crash — a signal is a
 // clean, externally-requested termination (operator, shell, orchestrator),
 // so the run is left "failed" (interrupted) rather than "crashed", and no
-// crash report is written for it.
+// crash report is written for it. Callers must markCrashed() before this so
+// chained saveState renames cannot clobber the terminal write (same contract
+// as the uncaughtException path).
 async function finalizeActiveRunOnSignal(signal: NodeJS.Signals): Promise<void> {
   const run = getActiveRun();
   if (run === null) return;
@@ -270,6 +272,9 @@ export function installSignalHandlers(): void {
           `host dispose failed handling ${signal}: ${disposeErr instanceof Error ? disposeErr.message : String(disposeErr)}\n`,
         );
       }
+      // Same fence as handleFatal: any snapshot still queued in writeChains must
+      // see isCrashed and step aside before saveCrashState renames run.json.
+      markCrashed();
       void finalizeActiveRunOnSignal(signal).finally(() => {
         process.exit(128 + SIGNAL_EXIT_NUMBER[signal]);
       });
