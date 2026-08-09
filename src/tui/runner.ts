@@ -94,11 +94,21 @@ import {
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
+import {
+  armFeedbackCapture,
+  cancelFeedbackCapture,
+  captureFeedback,
+  feedbackResultMessage,
+  getLastTurnTraceId,
+  isFeedbackCapturePending,
+  takeFeedbackCapture,
+} from "../telemetry/feedback.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { captureSlashCommand } from "../telemetry/product-events.js";
 import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
+
 import { loadStartupChangelogMarkdown } from "../changelog/index.js";
 import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -345,11 +355,24 @@ export type SubmitHandlerDeps = {
   sendPrompt: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
+  /**
+   * When true, the next non-command submit is treated as intentional feedback
+   * text (bare `/feedback` multi-turn mode) instead of a model prompt.
+   */
+  isFeedbackCapturePending?: () => boolean;
+  /** Consume the pending feedback arm and handle the text; return operator message. */
+  onFeedbackText?: (text: string) => string;
+  /** Drop a pending multi-turn /feedback arm (empty Enter cancel). */
+  cancelFeedbackCapture?: () => void;
+  /** Surface a local system notice (feedback thanks / blocked / cancelled). */
+  onSystemNotice?: (text: string) => void;
 };
+
 
 /**
  * Composer submit handler. Slash input is dispatched against the command
- * registry instead of being sent to the model.
+ * registry instead of being sent to the model. When feedback capture is armed
+ * (bare `/feedback`), the next non-command line is captured as survey text.
  */
 export function createSubmitHandler(
   deps: SubmitHandlerDeps,
@@ -357,9 +380,29 @@ export function createSubmitHandler(
   return (text, attachments) => {
     const route = routeSubmission(text);
     const hasAttachments = attachments !== undefined && attachments.length > 0;
-    if (route.kind === "empty" && !hasAttachments) return;
+    const feedbackPending = deps.isFeedbackCapturePending?.() === true;
+
+    // Empty Enter while /feedback is armed cancels instead of trapping the
+    // operator until they type free text or /clear.
+    if (route.kind === "empty" && !hasAttachments) {
+      if (feedbackPending) {
+        deps.cancelFeedbackCapture?.();
+        deps.onSystemNotice?.("Feedback cancelled.");
+      }
+      return;
+    }
     if (route.kind === "command") {
       deps.dispatchCommand(route.name, route.args);
+      return;
+    }
+    // Multi-turn /feedback: next Enter is survey text, not a model prompt.
+    if (
+      route.kind === "prompt" &&
+      feedbackPending &&
+      deps.onFeedbackText !== undefined
+    ) {
+      const notice = deps.onFeedbackText(route.text);
+      deps.onSystemNotice?.(notice);
       return;
     }
     deps.onPromptSubmitted?.();
@@ -1661,6 +1704,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
+    cancelFeedbackCapture();
     // Wipe the painted transcript immediately. The product host listens for
     // session.clear; the Ink App used to clear its own stream unconditionally
     // and that path never moved to OpenTUI.
@@ -1810,6 +1854,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       emitter.emit("session.title", truncateSessionLabel(runTaskTitle));
       void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
       return undefined;
+    },
+    submitFeedback: (text) => {
+      // Inline /feedback <text> must drop a prior bare-/feedback arm so the
+      // next normal prompt is not stolen as survey text.
+      cancelFeedbackCapture();
+      const status = captureFeedback(getTelemetry(), text, {
+        turnTraceId: getLastTurnTraceId(),
+      });
+      return feedbackResultMessage(status);
+    },
+    beginFeedbackCapture: () => {
+      armFeedbackCapture();
     },
   };
 
@@ -1975,6 +2031,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
         }
       },
+      isFeedbackCapturePending,
+      cancelFeedbackCapture,
+      onFeedbackText: (text) => {
+        takeFeedbackCapture();
+        const status = captureFeedback(getTelemetry(), text, {
+          turnTraceId: getLastTurnTraceId(),
+        });
+        return feedbackResultMessage(status);
+      },
+      onSystemNotice: systemNotice,
+
     }),
     interrupt,
     // Consent by proceeding requires the disclosure to be on screen before the

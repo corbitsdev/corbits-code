@@ -129,7 +129,9 @@ test("toggle on while env-killed writes nothing and swaps no instance", async ()
   let saveCalled = false;
   const initial: Telemetry = {
     enabled: false,
+    installationId: "",
     capture: () => {},
+    captureIntentional: () => false,
     flush: async () => {},
     discard: () => {},
   };

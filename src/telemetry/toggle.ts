@@ -64,9 +64,23 @@ export function createTelemetryToggleHandler(
       // during the persistence step below can land on a still-enabled
       // instance, and so an unhandled rejection from disk I/O can never
       // leave telemetry on.
-      deps.getTelemetry().discard();
+      //
+      // Preserve installationId so intentional /feedback can still ship while
+      // ambient product events are off. Env kill switches remain the hard stop.
+      const previous = deps.getTelemetry();
+      previous.discard();
       deps.setTelemetry(
-        deps.createTelemetry({ settings: { providers: {}, telemetry: { enabled: false } } }),
+        deps.createTelemetry({
+          settings: {
+            providers: {},
+            telemetry: {
+              enabled: false,
+              ...(previous.installationId.length > 0
+                ? { installationId: previous.installationId }
+                : {}),
+            },
+          },
+        }),
       );
     }
 
@@ -92,8 +106,25 @@ export function createTelemetryToggleHandler(
         // file is readable again.
         return;
       }
+      const previous = deps.getTelemetry();
       const base: Settings = current ?? { providers: {} };
-      const next: Settings = { ...base, telemetry: { ...base.telemetry, enabled } };
+      // Keep installation identity across ambient opt-out so /feedback still
+      // works. Prefer the on-disk id; fall back to the live instance when the
+      // disk row never got one (first-run race).
+      const installationId =
+        (typeof base.telemetry?.installationId === "string" &&
+        base.telemetry.installationId.length > 0
+          ? base.telemetry.installationId
+          : undefined) ??
+        (previous.installationId.length > 0 ? previous.installationId : undefined);
+      const next: Settings = {
+        ...base,
+        telemetry: {
+          ...base.telemetry,
+          enabled,
+          ...(installationId !== undefined ? { installationId } : {}),
+        },
+      };
       try {
         await deps.saveGlobalSettings(globalSettingsPath, next);
       } catch (err) {

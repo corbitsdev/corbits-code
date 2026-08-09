@@ -19,9 +19,11 @@ function fakeTelemetry(): { telemetry: Telemetry; captured: { event: string; pro
   const captured: { event: string; properties: Record<string, unknown> }[] = [];
   const telemetry: Telemetry = {
     enabled: true,
+    installationId: "test-install",
     capture: (event, properties = {}) => {
       captured.push({ event, properties });
     },
+    captureIntentional: () => false,
     flush: async () => {},
     discard: () => {},
   };

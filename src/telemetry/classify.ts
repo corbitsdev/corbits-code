@@ -45,6 +45,7 @@ const BUILT_IN_COMMAND_NAMES: ReadonlySet<string> = new Set([
   "changelog",
   "clear",
   "cost",
+  "feedback",
   "goal",
   "help",
   "hooks",
@@ -56,7 +57,9 @@ const BUILT_IN_COMMAND_NAMES: ReadonlySet<string> = new Set([
   "plugins",
   "rename",
   "settings",
+  "status",
 ]);
+
 
 // The one agent label the runtime supplies itself; every other profile id
 // comes from a project or plugin directory.

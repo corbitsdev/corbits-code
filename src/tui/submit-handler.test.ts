@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import {
   createSubmitHandler,
   IMAGE_ONLY_PROMPT,
@@ -8,12 +8,28 @@ import {
 } from "./runner.js";
 import type { PendingImageAttachment } from "./image-attachments.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import {
+  armFeedbackCapture,
+  cancelFeedbackCapture,
+  isFeedbackCapturePending,
+  resetFeedbackStateForTests,
+} from "../telemetry/feedback.js";
+
+afterEach(() => {
+  resetFeedbackStateForTests();
+});
 
 type Dispatched = { name: string; args: string };
 
-function harness() {
+function harness(options?: {
+  isFeedbackCapturePending?: () => boolean;
+  onFeedbackText?: (text: string) => string;
+  cancelFeedbackCapture?: () => void;
+  onSystemNotice?: (text: string) => void;
+}) {
   const dispatched: Dispatched[] = [];
   const prompts: string[] = [];
+  const notices: string[] = [];
   let promptSubmissions = 0;
   const submit = createSubmitHandler({
     dispatchCommand: (name, args) => dispatched.push({ name, args }),
@@ -21,8 +37,19 @@ function harness() {
     onPromptSubmitted: () => {
       promptSubmissions += 1;
     },
+    ...(options?.isFeedbackCapturePending !== undefined
+      ? { isFeedbackCapturePending: options.isFeedbackCapturePending }
+      : {}),
+    ...(options?.onFeedbackText !== undefined ? { onFeedbackText: options.onFeedbackText } : {}),
+    ...(options?.cancelFeedbackCapture !== undefined
+      ? { cancelFeedbackCapture: options.cancelFeedbackCapture }
+      : {}),
+    onSystemNotice: (text) => {
+      notices.push(text);
+      options?.onSystemNotice?.(text);
+    },
   });
-  return { submit, dispatched, prompts, telemetry: () => promptSubmissions };
+  return { submit, dispatched, prompts, notices, telemetry: () => promptSubmissions };
 }
 
 describe("composer submit handler", () => {
@@ -68,6 +95,55 @@ describe("composer submit handler", () => {
     expect(h.telemetry()).toBe(0);
     h.submit("hello");
     expect(h.telemetry()).toBe(1);
+  });
+
+  test("pending feedback capture routes the next prompt as feedback, not a model send", () => {
+    const feedbackTexts: string[] = [];
+    const h = harness({
+      isFeedbackCapturePending: () => isFeedbackCapturePending(),
+      onFeedbackText: (text) => {
+        feedbackTexts.push(text);
+        return "Thanks — feedback sent.";
+      },
+    });
+    armFeedbackCapture();
+    h.submit("the UI is snappy");
+    expect(feedbackTexts).toEqual(["the UI is snappy"]);
+    expect(h.prompts).toEqual([]);
+    expect(h.notices).toEqual(["Thanks — feedback sent."]);
+    expect(h.telemetry()).toBe(0);
+  });
+
+  test("slash commands still dispatch while feedback capture is pending", () => {
+    const h = harness({
+      isFeedbackCapturePending: () => isFeedbackCapturePending(),
+      onFeedbackText: () => "should not run",
+    });
+    armFeedbackCapture();
+    h.submit("/help");
+    expect(h.dispatched).toEqual([{ name: "help", args: "" }]);
+    expect(h.prompts).toEqual([]);
+    expect(h.notices).toEqual([]);
+    // Still pending — only a non-command line consumes it.
+    expect(isFeedbackCapturePending()).toBe(true);
+  });
+
+  test("empty Enter while armed cancels instead of trapping the operator", () => {
+    let cancelled = false;
+    const h = harness({
+      isFeedbackCapturePending: () => isFeedbackCapturePending(),
+      cancelFeedbackCapture: () => {
+        cancelled = true;
+        cancelFeedbackCapture();
+      },
+      onFeedbackText: () => "should not run",
+    });
+    armFeedbackCapture();
+    h.submit("   ");
+    expect(cancelled).toBe(true);
+    expect(isFeedbackCapturePending()).toBe(false);
+    expect(h.prompts).toEqual([]);
+    expect(h.notices).toEqual(["Feedback cancelled."]);
   });
 });
 

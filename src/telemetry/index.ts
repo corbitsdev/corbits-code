@@ -40,7 +40,7 @@ export type BatchTuning = {
 // first: the onboarding panel on a fresh install (so disclosure accompanies
 // the very first event), and the TUI banner otherwise.
 export const TELEMETRY_NOTICE =
-  "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
+  "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Free text only leaves via /feedback if you send it. Disable ambient events in /settings > Telemetry; DO_NOT_TRACK / CORBITS_TELEMETRY=0 blocks all telemetry including feedback. Docs: docs/TELEMETRY.md";
 
 export type TelemetryEvent =
   | "cli_start"
@@ -55,7 +55,12 @@ export type TelemetryEvent =
   | "permission_prompt"
   | "compaction"
   | "crash"
-  | "auth_failure";
+  | "auth_failure"
+  // PostHog Surveys event name (space included). Intentional operator feedback
+  // from /feedback — can ship when ambient product telemetry is off; still
+  // blocked by env kill switches. See captureIntentional.
+  | "survey sent";
+
 
 // Fixed enum of AI observability span names. The raw tool name is never sent
 // as a property: an MCP tool name carries the server identifier it was
@@ -144,7 +149,17 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // Which provider rejected the credentials, not why — the rejection detail is
   // provider-authored text and error_class means a JS constructor name.
   auth_failure: ["auth_provider"],
+  // Intentional /feedback survey response (PostHog custom survey capture shape).
+  // Free text is only sent because the operator typed it for that purpose.
+  // turn_trace_id links to the last $ai_generation in this session when known.
+  "survey sent": [
+    "$survey_id",
+    "$survey_questions",
+    "$survey_response",
+    "turn_trace_id",
+  ],
 };
+
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -213,7 +228,22 @@ type QueuedEvent = {
 
 export type Telemetry = {
   enabled: boolean;
+  /**
+   * Installation distinct id used as PostHog `distinct_id`. Empty when the
+   * instance has no identity (held first-run no-op, or never generated).
+   * Exposed so ambient opt-out can preserve identity for intentional capture.
+   */
+  installationId: string;
   capture(event: TelemetryEvent, properties?: Record<string, unknown>): void;
+  /**
+   * Intentional capture that can run when ambient product telemetry is off
+   * (`settings.telemetry.enabled === false`). Only `"survey sent"` is accepted —
+   * this is not a second ambient path. Still blocked by env kill switches
+   * (`DO_NOT_TRACK`, `CORBITS_TELEMETRY=0`), a missing installation id, or a
+   * missing API key. Does not re-enable ambient events.
+   * @returns true when the event was queued for send
+   */
+  captureIntentional(event: TelemetryEvent, properties?: Record<string, unknown>): boolean;
   // Sends whatever is queued and waits briefly for it to settle, giving up
   // after a short deadline so a slow endpoint can never hold up process
   // exit. Callers use this to bound exit against dropped fire-and-forget
@@ -227,6 +257,8 @@ export type Telemetry = {
   discard(): void;
 };
 
+
+
 // Stand-in for callers that were constructed without a telemetry handle —
 // tests, and any code path that runs before startup has built the real one.
 // Modules take Telemetry as an injected dependency rather than reaching for a
@@ -234,10 +266,14 @@ export type Telemetry = {
 // of "throws".
 export const NOOP_TELEMETRY: Telemetry = {
   enabled: false,
+  installationId: "",
   capture: () => {},
+  captureIntentional: () => false,
   flush: async () => {},
   discard: () => {},
 };
+
+
 
 // Fire-and-forget PostHog batch client. Never throws, never blocks the
 // caller — errors (including timeouts) are swallowed silently since
@@ -249,6 +285,11 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const enabled = resolveTelemetryEnabled(options.settings, env, apiKey);
   const fetchFn = options.fetchFn ?? fetch;
   const installationId = options.settings?.telemetry?.installationId ?? "";
+  // Intentional events (operator /feedback) may ship when ambient is
+  // settings-disabled, but never when env kill switches fire or identity/key
+  // is missing. Does not re-enable ambient capture.
+  const intentionalEnabled =
+    !telemetryDisabledByEnv(env) && apiKey.length > 0 && installationId.length > 0;
 
   const batchSize = options.batch?.size ?? DEFAULT_BATCH_SIZE;
   const batchIntervalMs = options.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
@@ -301,8 +342,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     return running;
   }
 
-  function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
-    if (!enabled) return;
+  function enqueue(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     // Own-property only: `in` walks Object.prototype, so capture("toString")
     // or capture("constructor") would clear the guard this exists to be and
     // hand allowedProperties a function where it expects an allowlist array.
@@ -340,6 +380,20 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     }
   }
 
+  function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
+    if (!enabled) return;
+    enqueue(event, properties);
+  }
+
+  function captureIntentional(event: TelemetryEvent, properties?: Record<string, unknown>): boolean {
+    // One intentional door: free-text survey only. Ambient product/AI events
+    // must never ride the ambient-bypass path.
+    if (event !== "survey sent") return false;
+    if (!intentionalEnabled) return false;
+    enqueue(event, properties);
+    return true;
+  }
+
   async function flush(): Promise<void> {
     cancelTimer();
     if (queue.length === 0 && inFlight === null) return;
@@ -361,5 +415,5 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     queue.length = 0;
   }
 
-  return { enabled, capture, flush, discard };
+  return { enabled, installationId, capture, captureIntentional, flush, discard };
 }

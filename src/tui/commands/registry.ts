@@ -13,6 +13,16 @@ export type CommandContext = {
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */
   renameSession?: (name: string) => string | undefined;
+  /**
+   * Submit intentional operator feedback (PostHog survey). Returns the
+   * operator-facing status line. Wired by the TUI runner.
+   */
+  submitFeedback?: (text: string) => string;
+  /**
+   * Arm multi-turn feedback capture: the next non-command submit is treated as
+   * the feedback body instead of a model prompt.
+   */
+  beginFeedbackCapture?: () => void;
 };
 
 export type CommandResult =

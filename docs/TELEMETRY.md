@@ -1,8 +1,11 @@
 # Telemetry
 
 Corbits Code sends a small amount of anonymous usage telemetry to PostHog to help
-us understand aggregate usage. It is opt-out, contains no PII, and never
-includes prompts, code, file contents, or paths.
+us understand aggregate usage. It is opt-out. **Ambient** product and AI events
+contain no PII and never include prompts, code, file contents, or paths.
+**Intentional** free text the operator submits via `/feedback` is the sole
+exception — that path can ship when ambient telemetry is off, still subject to
+env kill switches (see Intentional feedback below).
 
 ## What's collected
 
@@ -23,6 +26,7 @@ Each event carries a small set of properties:
 | `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
 | `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
 | `auth_failure` | A provider rejects the stored credentials | `auth_provider` |
+| `survey sent` | User submits intentional feedback via `/feedback` | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id` |
 
 `compaction` is deliberately silent on the runs where the compactor decides
 there is nothing to compact — an event that also fires on no-ops makes its own
@@ -126,7 +130,8 @@ or append a phantom failure to a successful one.
 
 ## What's never collected
 
-- Prompts, model output, or any conversation content
+- Prompts, model output, or any conversation content (except intentional
+  free-text the operator types into `/feedback` — see below)
 - File paths, file contents, or repo/project names
 - Names anyone but this project chose: MCP servers, skills, plugins, agent
   profiles, plugin-registered slash commands, error subclasses (see above)
@@ -134,20 +139,50 @@ or append a phantom failure to a successful one.
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above
 
+## Intentional feedback (`/feedback`)
+
+`/feedback` is a first-party slash command that captures operator free text as
+a PostHog custom survey response (`survey sent`). Two UX modes:
+
+1. `/feedback <text>` — send immediately
+2. bare `/feedback` — prompts for free text; the next non-command Enter submits
+   that line as the response (Empty Enter cancels)
+
+Free text is capped at 2000 characters. When known, the last turn’s
+`$ai_trace_id` is attached as `turn_trace_id` so a report can be linked to the
+recent generation.
+
+This path is **intentional**: it can still ship when ambient product telemetry
+is off (`settings.telemetry.enabled === false` or the Telemetry toggle Off),
+because the operator typed the text for that purpose. Hard env kill switches
+still win — `DO_NOT_TRACK=1` or `CORBITS_TELEMETRY=0/false/off/no` block
+`/feedback` as well. Sending also requires an installation id and API key.
+
+Survey id / question id come from env (`CORBITS_FEEDBACK_SURVEY_ID`,
+`CORBITS_FEEDBACK_QUESTION_ID`). Both must be set or capture fails closed with
+an “not configured” message — no default survey is baked into the client.
+
 ## Opting out
 
-Any of the following disables telemetry entirely:
+Any of the following disables ambient product telemetry (not intentional
+`/feedback` unless noted):
 
 - Turn it off in the TUI: `/settings` → Telemetry tab → Off
 - Set `"telemetry": { "enabled": false }` in `~/.corbits/settings.json`
 - `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
-- `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
+  (also blocks intentional `/feedback`)
+- `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/)
+  convention; also blocks intentional `/feedback`)
 
-Turning telemetry off also discards whatever is still queued and unsent.
-Events captured earlier in the session but not yet transmitted are thrown
-away at the moment you opt out, not sent on the way out — opting out covers
-the activity you have already generated, not just the activity still to
-come.
+Turning ambient telemetry off discards whatever is still queued and unsent for
+product events. Events captured earlier in the session but not yet transmitted
+are thrown away at the moment you opt out, not sent on the way out — opting out
+covers the activity you have already generated, not just the activity still to
+come. Installation identity is retained so intentional `/feedback` can still
+send (unless an env kill switch is active).
+
+Env kill switches disable **everything**, including `/feedback`. The settings
+toggle alone does not.
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —
