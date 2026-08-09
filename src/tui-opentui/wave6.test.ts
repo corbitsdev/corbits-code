@@ -567,6 +567,34 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
+  test("toggling the panel says so in a flash, not in the transcript", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          setChromeZones(shell, { task: [{ label: "wire toggle", status: "doing" }] })
+          const before = streamRowCount(shell)
+
+          toggleTasksPanel(shell)
+          // Which panels are showing is a property of the current screen, not
+          // an event in the conversation, so it costs no scrollback.
+          expect(streamRowCount(shell)).toBe(before)
+          expect(shell.statusFlash).toContain("hidden")
+
+          toggleTasksPanel(shell)
+          expect(streamRowCount(shell)).toBe(before)
+          expect(shell.statusFlash).toContain("shown")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("the toggle persists across further chrome pushes for the life of the shell", async () => {
     await withTestRenderer(
       async (h) => {

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import {
   EMPTY_PLAN_DETAIL,
-  EMPTY_TASKS_DETAIL,
   EMPTY_VIEW_DETAIL,
   hydrateHistoryRows,
   MISSING_ERROR_DETAIL,
   rowFromHistoryBlock,
   rowsFromHistoryBlocks,
+  type HistoryBlock,
 } from "./history-hydrate.js"
 
 describe("rowFromHistoryBlock", () => {
@@ -155,25 +155,16 @@ describe("rowFromHistoryBlock", () => {
     })
   })
 
-  test("tasks hydrates as a system row listing task titles", () => {
+  test("a tasks block no longer hydrates a row at all", () => {
+    // Task state is live panel state, not conversation history. Nothing writes
+    // this block any more, and an old session carrying one must not paint a
+    // second copy of a list the panel already shows.
     expect(
       rowFromHistoryBlock({
         type: "tasks",
-        tasks: [
-          { id: "1", title: "Fix hydrate", status: "done" },
-          { id: "2", title: "Ship it", status: "todo" },
-        ],
-      }),
-    ).toEqual({
-      role: "system",
-      text: "- Fix hydrate (done)\n- Ship it (todo)",
-      meta: "tasks",
-    })
-    expect(rowFromHistoryBlock({ type: "tasks" })).toEqual({
-      role: "system",
-      text: EMPTY_TASKS_DETAIL,
-      meta: "tasks",
-    })
+        tasks: [{ id: "1", title: "Fix hydrate", status: "done" }],
+      } as unknown as HistoryBlock),
+    ).toBeNull()
   })
 })
 
@@ -198,11 +189,11 @@ describe("hydrateHistoryRows", () => {
       },
       { type: "error", message: "fail" },
     ])
-    // The call and its result hydrate as the one row a live turn would paint.
+    // The call and its result hydrate as the one row a live turn would paint;
+    // the tasks block drops out entirely, since the panel owns that state.
     expect(rows).toMatchObject([
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
-      { role: "system", text: EMPTY_TASKS_DETAIL, meta: "tasks" },
       { role: "tool", text: "body", meta: "read_file", summary: "x", verb: "Read" },
       { role: "system", text: "fail", meta: "error" },
     ])

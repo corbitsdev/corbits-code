@@ -4313,6 +4313,9 @@ export function setChromeZones(
   })
 }
 
+/** How long a panel-visibility flash holds the notice row. */
+const PANEL_TOGGLE_FLASH_MS = 3000
+
 /**
  * Toggle the task-list panel visible/hidden without touching the live task
  * data underneath it — un-hiding shows whatever the task tool last wrote,
@@ -4326,10 +4329,10 @@ export function toggleTasksPanel(shell: AppShell): void {
   bag.tasksPanelHidden = !bag.tasksPanelHidden
   const hiding = bag.tasksPanelHidden
   setChromeZones(shell, { task: bag.chrome.tasksRaw })
-  appendStreamRow(shell, {
-    role: "system",
-    text: hiding ? "task list hidden" : "task list shown",
-    meta: "task",
+  // A flash, not a transcript row: which panels are showing is a property of
+  // the current screen, not something that happened in the conversation.
+  setStatusFlash(shell, hiding ? "task list hidden · alt+t to show" : "task list shown", {
+    ttlMs: PANEL_TOGGLE_FLASH_MS,
   })
 }
 
