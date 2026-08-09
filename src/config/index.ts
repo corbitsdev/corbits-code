@@ -379,6 +379,19 @@ Flags:
   --help, -h                  show this help
 `;
 
+/**
+ * Thrown when the operator asked for CLI help. Entry points must print
+ * `message` to stdout and exit 0 — not treat this as a crash.
+ */
+export class CliHelpError extends Error {
+  readonly exitCode = 0 as const;
+
+  constructor(text: string = CLI_HELP_TEXT) {
+    super(text);
+    this.name = "CliHelpError";
+  }
+}
+
 export type LoadConfigOptions = {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
@@ -444,7 +457,7 @@ export async function loadConfig(
   }
 
   if (args[0] === "--help" || args[0] === "-h") {
-    throw new Error(CLI_HELP_TEXT);
+    throw new CliHelpError();
   }
 
 

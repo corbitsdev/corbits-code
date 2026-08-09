@@ -5,7 +5,7 @@ import {
   parseChangelog,
   resolveChangelogPath,
 } from "../../changelog/index.js";
-import { FEEDBACK_PROMPT } from "../../telemetry/feedback.js";
+import { FEEDBACK_PROMPT, isFeedbackConfigured } from "../../telemetry/feedback.js";
 
 /**
  * Register every built-in slash command.
@@ -166,10 +166,12 @@ export function registerBuiltInCommands(): void {
 
   // Intentional product feedback → PostHog survey (headless). Can ship when
   // ambient telemetry is off; env kill switches still block. Free text 2000 cap.
+  // Hidden from the slash menu until survey env ids are set (still callable).
   registerCommand({
     name: "feedback",
     description: "Send product feedback (env kill switches still apply)",
     argumentHint: "[your feedback]",
+    available: () => isFeedbackConfigured(),
     handler: (args, ctx) => {
       const text = args.trim();
       if (text.length === 0) {

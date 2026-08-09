@@ -148,6 +148,20 @@ describe("captureFeedback", () => {
     expect(events).toHaveLength(0);
   });
 
+  test("reports truncation when free text exceeds the cap", () => {
+    const { telemetry, events } = captureSpy();
+    const long = "x".repeat(FEEDBACK_MAX_CHARS + 50);
+    const status = captureFeedback(telemetry, long, {
+      env: {
+        CORBITS_FEEDBACK_SURVEY_ID: "s1",
+        CORBITS_FEEDBACK_QUESTION_ID: "q1",
+      },
+    });
+    expect(status).toBe("sent_truncated");
+    expect(events).toHaveLength(1);
+    expect(String(events[0]?.properties.$survey_response).length).toBe(FEEDBACK_MAX_CHARS);
+  });
+
   test("rejects non-survey events on the intentional door", () => {
     const { telemetry, events } = captureSpy();
     expect(telemetry.captureIntentional("cli_start")).toBe(false);
@@ -157,7 +171,8 @@ describe("captureFeedback", () => {
 
 describe("feedbackResultMessage", () => {
   test("maps statuses to operator-facing lines", () => {
-    expect(feedbackResultMessage("sent")).toContain("Thanks");
+    expect(feedbackResultMessage("sent")).toBe("Thanks — feedback queued.");
+    expect(feedbackResultMessage("sent_truncated")).toContain("truncated");
     expect(feedbackResultMessage("blocked")).toContain("could not be sent");
     expect(feedbackResultMessage("unconfigured")).toContain("not configured");
     expect(feedbackResultMessage("empty")).toContain("No feedback");

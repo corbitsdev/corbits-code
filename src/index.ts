@@ -4,7 +4,7 @@ import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/r
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
-import { loadConfig } from "./config/index.js";
+import { loadConfig, CliHelpError } from "./config/index.js";
 import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
 import { installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
@@ -297,8 +297,14 @@ if (import.meta.main) {
   try {
     code = await main(process.argv.slice(2));
   } catch (err: unknown) {
-    process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
-    code = 1;
+    // Help is an intentional early exit, not a crash — stdout + 0.
+    if (err instanceof CliHelpError) {
+      process.stdout.write(`${err.message}\n`);
+      code = err.exitCode;
+    } else {
+      process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+      code = 1;
+    }
   }
   process.exit(code);
 }

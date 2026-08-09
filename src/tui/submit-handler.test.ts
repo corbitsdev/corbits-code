@@ -103,20 +103,25 @@ describe("composer submit handler", () => {
       isFeedbackCapturePending: () => isFeedbackCapturePending(),
       onFeedbackText: (text) => {
         feedbackTexts.push(text);
-        return "Thanks — feedback sent.";
+        return "Thanks — feedback queued.";
+
       },
     });
     armFeedbackCapture();
     h.submit("the UI is snappy");
     expect(feedbackTexts).toEqual(["the UI is snappy"]);
     expect(h.prompts).toEqual([]);
-    expect(h.notices).toEqual(["Thanks — feedback sent."]);
+    expect(h.notices).toEqual(["Thanks — feedback queued."]);
+
     expect(h.telemetry()).toBe(0);
   });
 
   test("slash commands still dispatch while feedback capture is pending", () => {
     const h = harness({
       isFeedbackCapturePending: () => isFeedbackCapturePending(),
+      cancelFeedbackCapture: () => {
+        cancelFeedbackCapture();
+      },
       onFeedbackText: () => "should not run",
     });
     armFeedbackCapture();
@@ -124,8 +129,8 @@ describe("composer submit handler", () => {
     expect(h.dispatched).toEqual([{ name: "help", args: "" }]);
     expect(h.prompts).toEqual([]);
     expect(h.notices).toEqual([]);
-    // Still pending — only a non-command line consumes it.
-    expect(isFeedbackCapturePending()).toBe(true);
+    // Other slash commands drop the arm so the next free-text line is a prompt.
+    expect(isFeedbackCapturePending()).toBe(false);
   });
 
   test("empty Enter while armed cancels instead of trapping the operator", () => {

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEntryAsProviderSettings, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
@@ -359,6 +359,22 @@ describe("loadConfig", () => {
       expect(config.resumePicker).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("--help throws CliHelpError with exitCode 0 and full help text", async () => {
+    await expect(loadConfig(["--help"], { globalSettingsPath: NO_SETTINGS })).rejects.toBeInstanceOf(
+      CliHelpError,
+    );
+    try {
+      await loadConfig(["-h"], { globalSettingsPath: NO_SETTINGS });
+      expect.unreachable("expected CliHelpError");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CliHelpError);
+      const help = err as CliHelpError;
+      expect(help.exitCode).toBe(0);
+      expect(help.message).toBe(CLI_HELP_TEXT);
+      expect(help.message).toContain("resume");
     }
   });
 

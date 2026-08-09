@@ -160,7 +160,10 @@ still win — `DO_NOT_TRACK=1` or `CORBITS_TELEMETRY=0/false/off/no` block
 
 Survey id / question id come from env (`CORBITS_FEEDBACK_SURVEY_ID`,
 `CORBITS_FEEDBACK_QUESTION_ID`). Both must be set or capture fails closed with
-an “not configured” message — no default survey is baked into the client.
+an “not configured” message — no default survey is baked into the client. When
+ids are missing the command is also hidden from the slash menu (still callable
+if typed). Success copy says “queued,” not delivered; free text over 2000
+characters is truncated with an explicit notice.
 
 ## Opting out
 

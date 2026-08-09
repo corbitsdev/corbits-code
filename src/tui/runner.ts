@@ -392,6 +392,11 @@ export function createSubmitHandler(
       return;
     }
     if (route.kind === "command") {
+      // Any other slash command drops a bare-/feedback arm so the next
+      // free-text line is not mis-routed as survey text.
+      if (feedbackPending && route.name !== "feedback") {
+        deps.cancelFeedbackCapture?.();
+      }
       deps.dispatchCommand(route.name, route.args);
       return;
     }

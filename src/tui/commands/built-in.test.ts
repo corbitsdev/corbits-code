@@ -177,12 +177,12 @@ describe("/feedback command", () => {
       signalClear: () => {},
       submitFeedback: (text) => {
         sent.push(text);
-        return "Thanks — feedback sent.";
+        return "Thanks — feedback queued.";
       },
     };
     expect(getCommand("feedback")!.handler("love the TUI", ctx)).toEqual({
       type: "message",
-      text: "Thanks — feedback sent.",
+      text: "Thanks — feedback queued.",
     });
     expect(sent).toEqual(["love the TUI"]);
   });

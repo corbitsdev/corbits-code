@@ -12,7 +12,10 @@ export const FEEDBACK_MAX_CHARS = 2000;
 export const FEEDBACK_PROMPT =
   "Please share your feedback. When done please hit enter. (Empty Enter cancels.)";
 
-export const FEEDBACK_THANKS = "Thanks — feedback sent.";
+export const FEEDBACK_THANKS = "Thanks — feedback queued.";
+
+export const FEEDBACK_THANKS_TRUNCATED =
+  "Thanks — feedback queued (truncated to 2000 characters).";
 
 export const FEEDBACK_EMPTY = "No feedback text provided.";
 
@@ -35,6 +38,11 @@ export function feedbackSurveyId(env: NodeJS.ProcessEnv = process.env): string {
  */
 export function feedbackQuestionId(env: NodeJS.ProcessEnv = process.env): string {
   return env.CORBITS_FEEDBACK_QUESTION_ID?.trim() ?? "";
+}
+
+/** True when both survey env ids are present (command is useful to show). */
+export function isFeedbackConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return feedbackSurveyId(env).length > 0 && feedbackQuestionId(env).length > 0;
 }
 
 export function capFeedbackMessage(message: string): string {
@@ -74,6 +82,8 @@ export function buildSurveyProperties(
 /**
  * Capture intentional survey response. Returns whether the event was queued.
  * Empty/whitespace-only text is not sent. Missing survey/question ids fail closed.
+ * "sent" means queued for flush (not a network delivery ack); "sent_truncated"
+ * is the same after the free-text cap was applied.
  */
 export function captureFeedback(
   telemetry: Telemetry,
@@ -82,26 +92,30 @@ export function captureFeedback(
     turnTraceId?: string | undefined;
     env?: NodeJS.ProcessEnv;
   } = {},
-): "empty" | "blocked" | "unconfigured" | "sent" {
+): "empty" | "blocked" | "unconfigured" | "sent" | "sent_truncated" {
   const trimmed = message.trim();
   if (trimmed.length === 0) return "empty";
   const env = options.env ?? process.env;
-  if (feedbackSurveyId(env).length === 0 || feedbackQuestionId(env).length === 0) {
+  if (!isFeedbackConfigured(env)) {
     return "unconfigured";
   }
+  const truncated = trimmed.length > FEEDBACK_MAX_CHARS;
   const ok = telemetry.captureIntentional(
     "survey sent",
     buildSurveyProperties(trimmed, options),
   );
-  return ok ? "sent" : "blocked";
+  if (!ok) return "blocked";
+  return truncated ? "sent_truncated" : "sent";
 }
 
 export function feedbackResultMessage(
-  status: "empty" | "blocked" | "unconfigured" | "sent",
+  status: "empty" | "blocked" | "unconfigured" | "sent" | "sent_truncated",
 ): string {
   switch (status) {
     case "sent":
       return FEEDBACK_THANKS;
+    case "sent_truncated":
+      return FEEDBACK_THANKS_TRUNCATED;
     case "blocked":
       return FEEDBACK_BLOCKED;
     case "unconfigured":
