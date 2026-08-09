@@ -234,6 +234,20 @@ describe("image attachments", () => {
       expect(texts).toEqual([""])
     })
   })
+
+  test("empty Enter still reaches exclusive host for multi-turn cancel", async () => {
+    await withShell(async (shell) => {
+      const submitted: string[] = []
+      setShellBridgeHooks(shell, {
+        onSubmit: (text) => submitted.push(text),
+        onInterrupt: () => {},
+        exclusive: true,
+      })
+      shell.prompt.value = "   "
+      submitPrompt(shell)
+      expect(submitted).toEqual(["   "])
+    })
+  })
 })
 
 /**
