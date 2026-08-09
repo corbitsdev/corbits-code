@@ -198,6 +198,7 @@ import {
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+import { deliverAgentMessage } from "./deliver-agent-message.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -1182,11 +1183,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const sessionOps = createSessionOperationQueue();
   const enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
     void sessionOps.enqueue(async () => {
-      try {
-        deliverToLiveAgent();
-      } catch {
-        // Agent may be mid-reload or closing; a dropped message is harmless.
-      }
+      // The shell already popped the queue item and painted it as delivered
+      // by the time this runs, so a failed rebuild must be surfaced here —
+      // otherwise the message silently never reaches the agent.
+      deliverAgentMessage({
+        getFatalBuildError: () => fatalBuildError,
+        deliverToLiveAgent,
+        onDeliverFailure: systemNotice,
+      });
     });
   };
 
