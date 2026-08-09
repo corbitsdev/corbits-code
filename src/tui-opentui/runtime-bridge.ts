@@ -70,7 +70,11 @@ import {
 } from "./tool-rows.js"
 import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
-import { agentProgress, type AgentProgressSession } from "./agent-progress.js"
+import {
+  agentProgress,
+  fleetProgress,
+  type AgentProgressSession,
+} from "./agent-progress.js"
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const TASK_TOOL_NAME = "task"
@@ -336,6 +340,12 @@ type BridgeBag = {
    * find the handful that are sub-agent dispatches.
    */
   taskCallIds: Set<string>
+  /**
+   * Last sub-agent session list the host synced. Retained rather than consumed
+   * and dropped because the status ticker recomputes fleet state at paint time
+   * on the animation tick, not only when a worker happens to emit an event.
+   */
+  agentSessions: readonly TaskProgressSession[]
   /**
    * Row index where the inference attempt in progress began, or null when no
    * boundary is armed. The mapper decides when to mark, clear and roll back;
@@ -727,6 +737,7 @@ export function attachSessionBridge(
     toolRows: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
+    agentSessions: [],
     attemptRow: null,
     turnThinking: null,
   }
@@ -805,7 +816,8 @@ export function attachSessionBridge(
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
     }
-    const label = resolveTurnLabel(input, isStalled)
+    const fleet = fleetProgress(bag.agentSessions, nowMs)
+    const label = resolveTurnLabel(input, isStalled, fleet)
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.
@@ -822,7 +834,7 @@ export function attachSessionBridge(
       applyCadence(bag.turn.quota !== null ? frozenTickMs : null)
       return
     }
-    const rampPhase = resolveRampPhase(input, isStalled)
+    const rampPhase = resolveRampPhase(input, isStalled, fleet)
     const stalledFor = stalledForMs(nowMs, rampPhase === "stalled")
     setLockupFrame(shell, {
       nowMs,
@@ -1066,6 +1078,7 @@ export function attachSessionBridge(
     },
     syncAgentProgress: (sessions) => {
       if (bag.disposed) return
+      bag.agentSessions = sessions
       syncAgentProgress(shell, bag, sessions, now())
     },
     dispose: () => {

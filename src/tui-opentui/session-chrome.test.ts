@@ -47,6 +47,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
           streamingType: "tool",
         },
         false,
+        null,
       )
       expect(label).not.toBe(currentToolName)
       expect(ACTIVITY_STATES).toContain(label!)
@@ -62,6 +63,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
         streamingType: "tool",
       },
       true,
+      null,
     )
     expect(label).toBe("stalled")
     expect(ACTIVITY_STATES).toContain(label!)
@@ -76,6 +78,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
         streamingType: "tool",
       },
       false,
+      null,
     )
     expect(label).toBe("waiting")
     expect(label).not.toBe("working")
@@ -94,6 +97,7 @@ describe("resolveTurnLabel", () => {
           streamingType: null,
         },
         false,
+        null,
       ),
     ).toBeUndefined()
   })
@@ -108,6 +112,7 @@ describe("resolveTurnLabel", () => {
           streamingType: "tool",
         },
         false,
+        null,
       ),
     ).toBe("waiting")
   })
@@ -122,6 +127,7 @@ describe("resolveTurnLabel", () => {
           streamingType: "tool",
         },
         false,
+        null,
       ),
     ).toBe("stopping")
   })
@@ -136,6 +142,7 @@ describe("resolveTurnLabel", () => {
           streamingType: "tool",
         },
         false,
+        null,
       ),
     ).toBe("researching")
   })
@@ -147,13 +154,13 @@ describe("resolveTurnLabel", () => {
       currentToolName: null,
     }
     expect(
-      resolveTurnLabel({ ...base, streamingType: "thinking" }, false),
+      resolveTurnLabel({ ...base, streamingType: "thinking" }, false, null),
     ).toBe("thinking")
     expect(
-      resolveTurnLabel({ ...base, streamingType: "text" }, false),
+      resolveTurnLabel({ ...base, streamingType: "text" }, false, null),
     ).toBe("working")
     expect(
-      resolveTurnLabel({ ...base, streamingType: null }, false),
+      resolveTurnLabel({ ...base, streamingType: null }, false, null),
     ).toBe("working")
   })
 })
@@ -166,27 +173,27 @@ describe("resolveRampPhase", () => {
   }
 
   test("blocked gate freezes the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "blocked" }, false)).toBe("blocked")
+    expect(resolveRampPhase({ ...base, status: "blocked" }, false, null)).toBe("blocked")
   })
 
   test("done fills the ramp", () => {
-    expect(resolveRampPhase({ ...base, status: "done" }, false)).toBe("done")
+    expect(resolveRampPhase({ ...base, status: "done" }, false, null)).toBe("done")
   })
 
   test("everything else is working", () => {
-    expect(resolveRampPhase({ ...base, status: "running" }, false)).toBe("working")
-    expect(resolveRampPhase({ ...base, status: "stopping" }, false)).toBe("working")
+    expect(resolveRampPhase({ ...base, status: "running" }, false, null)).toBe("working")
+    expect(resolveRampPhase({ ...base, status: "stopping" }, false, null)).toBe("working")
   })
 
   test("a stalled running turn paints stalled, not working", () => {
     expect(
-      resolveRampPhase({ ...base, status: "running" }, true),
+      resolveRampPhase({ ...base, status: "running" }, true, null),
     ).toBe("stalled")
   })
 
   test("a blocked gate beats stalled — waiting on you outranks silence", () => {
     expect(
-      resolveRampPhase({ ...base, status: "blocked" }, true),
+      resolveRampPhase({ ...base, status: "blocked" }, true, null),
     ).toBe("blocked")
   })
 })
@@ -240,5 +247,57 @@ describe("sendFailureText", () => {
       "connection reset by peer",
     )
     expect(classifySendFailureMessage("connection reset by peer")).toBe("error")
+  })
+})
+
+
+describe("fleet state in the top-level indicator", () => {
+  const parentAwaitingChildren = {
+    isProcessing: true,
+    status: "running" as const,
+    currentToolName: "task",
+    streamingType: "tool" as const,
+  }
+  const fleet = (running: number, stalled: number) => ({
+    running,
+    working: running - stalled,
+    inTool: 0,
+    stalled,
+  })
+
+  test("a healthy fleet reads as orchestrating, not the parent's own tool", () => {
+    const label = resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 0))
+    expect(label).toBe("orchestrating")
+    expect(ACTIVITY_STATES).toContain(label!)
+  })
+
+  test("a stalled lane surfaces at the top level instead of staying on its row", () => {
+    expect(resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 1))).toBe("stalled")
+    expect(resolveRampPhase(parentAwaitingChildren, false, fleet(6, 1))).toBe("stalled")
+  })
+
+  // The parent is idle by design while children run, so its own stall clock
+  // firing says nothing about whether the session is progressing.
+  test("live lanes outrank the parent's own stall clock", () => {
+    expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe("orchestrating")
+    expect(resolveRampPhase(parentAwaitingChildren, true, fleet(6, 0))).toBe("working")
+  })
+
+  test("with no sub-agents running the single-agent case is unchanged", () => {
+    const none = fleet(0, 0)
+    expect(resolveTurnLabel(parentAwaitingChildren, false, none)).toBe(
+      resolveTurnLabel(parentAwaitingChildren, false, null),
+    )
+    expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe("stalled")
+    expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe("stalled")
+  })
+
+  test("a blocked gate still outranks the fleet", () => {
+    expect(
+      resolveTurnLabel({ ...parentAwaitingChildren, status: "blocked" }, false, fleet(6, 3)),
+    ).toBe("waiting")
+    expect(
+      resolveTurnLabel({ ...parentAwaitingChildren, status: "stopping" }, false, fleet(6, 3)),
+    ).toBe("stopping")
   })
 })
