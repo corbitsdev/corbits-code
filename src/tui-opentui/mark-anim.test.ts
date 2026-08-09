@@ -106,19 +106,38 @@ describe("renderMark", () => {
     const grid = renderMark({ nowMs: 0, still: true, grid: MARK_LARGE })
     grid.forEach((row, y) => {
       row.forEach((cell, x) => {
-        // Still mode has no snow — only space or mountain blocks.
-        expect(` ${MOUNTAIN_CHARS}`).toContain(cell.char)
+        // Still mode freezes the mountain, but snow still drifts over the sky.
+        expect(` ${MOUNTAIN_CHARS}${SNOW_CHAR}`).toContain(cell.char)
         if ((MARK_LARGE.coverage[y]?.[x] ?? 0) === 1) expect(cell.char).toBe("█")
       })
     })
   })
 
-  test("the still frame is clock-independent and has no snow", () => {
-    const a = markText(renderMark({ nowMs: 0, still: true }))
-    const b = markText(renderMark({ nowMs: 987_654, still: true }))
+  test("still holds the mountain fixed while the clock advances", () => {
+    // Snow moves with the clock even in still mode (the idle landing screen),
+    // so isolate the mountain by stripping snow before comparing.
+    const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ")
+    const a = stripSnow(markText(renderMark({ nowMs: 0, still: true })))
+    const b = stripSnow(markText(renderMark({ nowMs: 987_654, still: true })))
     expect(b).toBe(a)
     expect(a.replace(/[\s\n]/g, "").length).toBeGreaterThan(0)
-    expect(a.includes(SNOW_CHAR)).toBe(false)
+  })
+
+  test("snow keeps drifting in still mode while the mountain stays frozen", () => {
+    const times = [0, 1500, 3000, 4500, 6000, 7500]
+    const snowSets = times.map((nowMs) => {
+      const grid = renderMark({ nowMs, still: true, grid: MARK_LARGE })
+      const snow: string[] = []
+      grid.forEach((row, y) => {
+        row.forEach((cell, x) => {
+          if (isSnow(cell.char)) snow.push(`${y},${x}`)
+        })
+      })
+      return snow.join("|")
+    })
+    const withSnow = snowSets.filter((s) => s.length > 0)
+    expect(withSnow.length).toBeGreaterThan(1)
+    expect(new Set(withSnow).size).toBeGreaterThan(1)
   })
 
   test("the animated frame advances with the injected clock", () => {
@@ -203,11 +222,12 @@ describe("renderMark", () => {
     expect(mountains).toBeGreaterThan(flakes)
   })
 
-  test("still mode freezes the mark with no snow motion", () => {
+  test("still mode freezes the mountain but not the snow", () => {
     const a = renderMark({ nowMs: 0, still: true, grid: MARK_SMALL })
     const b = renderMark({ nowMs: 50_000, still: true, grid: MARK_SMALL })
-    expect(markText(b)).toBe(markText(a))
-    expect(a.flat().some((cell) => isSnow(cell.char))).toBe(false)
+    const mountainText = (grid: typeof a) =>
+      grid.map((row) => row.map((cell) => (isMountain(cell.char) ? cell.char : " ")).join("")).join("\n")
+    expect(mountainText(b)).toBe(mountainText(a))
   })
 
   test("snow drops out during the fade-out phase, matching the mark", () => {

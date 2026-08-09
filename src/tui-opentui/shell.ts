@@ -2556,13 +2556,15 @@ function clearLandingMark(shell: AppShell): void {
 }
 
 /**
- * Repaint the landing mark for `nowMs`. `animating` runs the draw/fill/fade
- * timeline; anything else holds the filled frame. No-op once the landing is
- * gone, so the caller can drive it unconditionally.
+ * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
+ * draw/fill/fade timeline; anything else holds its filled frame. No-op once
+ * the landing is gone, so the caller can drive it unconditionally.
  *
- * A still mark draws the same frame for every clock value, so repainting it
- * only dirties renderables; the guard mirrors `setLockupFrame` and lets an idle
- * session sit without touching the paint tree.
+ * Always repaints while the landing is up, even when `animating` is false:
+ * the landing is idle by definition (no turn processing), and snow still
+ * needs to drift across a frozen mountain. `paintLandingMark`/`renderMark`
+ * only touch the rows whose content actually changed, so the unchanging
+ * mountain rows cost nothing extra here.
  */
 export function paintLanding(
   shell: AppShell,
@@ -2572,7 +2574,6 @@ export function paintLanding(
   const bag = internals.get(shell)
   const landing = bag?.landing
   if (bag === undefined || landing === null || landing === undefined) return
-  if (!animating && !bag.landingAnimating) return
   bag.landingAnimating = animating
   bag.landingNowMs = nowMs
   paintLandingMark(landing.above, nowMs, !animating)
@@ -5599,6 +5600,21 @@ export function createAppShell(
     // starves that pass of room to lay the row out in.
     syncTranscriptSpacer(shell)
     syncNoticeAfterLayout(shell)
+    // The landing's snow needs a frame source that keeps running while the
+    // turn monitor is deliberately quiet (idle, no session yet). The renderer
+    // FRAME event is already scoped to shell lifetime (wired here, unwired in
+    // `dispose` below) and `paintLanding` no-ops once the landing tears down,
+    // so riding it costs no extra timer to arm or leak.
+    //
+    // Only re-enters while idle (`landingAnimating` already false): while a
+    // turn is processing, `paintPhaseAt` in runtime-bridge.ts drives the
+    // mountain's own draw/fill/fade loop off the turn monitor's clock, and
+    // this re-entry must not stomp that with an unrelated real-clock value
+    // every render pass.
+    const landingBag = internals.get(shell)
+    if (landingBag?.landing != null && !landingBag.landingAnimating) {
+      paintLanding(shell, Date.now(), false)
+    }
   }
 
   const onResize = (width: number, height: number): void => {

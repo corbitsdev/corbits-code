@@ -38,6 +38,7 @@ import {
 import { LOCKUP_WORDMARK } from "./lockup"
 import pkg from "../../package.json" with { type: "json" }
 import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape"
+import { SNOW_CHAR } from "./mark-anim"
 import { UI } from "./theme"
 
 const SIZE = { width: 80, height: 24 } as const
@@ -229,11 +230,14 @@ describe("landing screen", () => {
       try {
         await settle(h)
         const still = markRows(h).join("\n")
+        const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ")
 
-        // Idle re-entry holds the filled frame however far the clock moves.
+        // Idle re-entry holds the mountain's filled frame however far the
+        // clock moves — but the snow drifting over it is not still, since the
+        // idle landing screen is exactly where it needs to animate.
         paintLanding(shell, 1_700, false)
         await settle(h)
-        expect(markRows(h).join("\n")).toBe(still)
+        expect(stripSnow(markRows(h).join("\n"))).toBe(stripSnow(still))
 
         const frames = new Set<string>()
         for (const nowMs of [0, 500, 1_100, 1_900, 2_600, 3_400]) {
@@ -247,6 +251,49 @@ describe("landing screen", () => {
       }
     }, SIZE)
   })
+
+  test(
+    "an idle mount keeps the snow drifting on the renderer's own frame event",
+    async () => {
+      // Regression for CL-5737: every other test in this file drives the mark
+      // by calling `paintLanding` directly with a hand-picked clock. That is
+      // exactly why the landing snow shipped completely unreachable — none of
+      // those tests go through the real driver a running session actually
+      // uses. This one mounts the shell for real and lets the renderer's own
+      // FRAME event (wired in `createAppShell`, unwired in `shell.dispose`)
+      // drive the repaint, the same as production, with no direct calls to
+      // `paintLanding` or `renderMark`.
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          await settle(h)
+          const before = markRows(h).join("\n")
+
+          // Real elapsed time, not an injected clock: the production driver
+          // reads the wall clock, so this is the only way to exercise it.
+          // At the fall speed in mark-anim.ts a few real seconds is enough
+          // for at least one active flake column to cross a row boundary.
+          const start = Date.now()
+          while (Date.now() - start < 5_000) {
+            await h.renderOnce()
+          }
+          const after = markRows(h).join("\n")
+
+          expect(after).not.toBe(before)
+
+          const stripSnow = (text: string) => text.replaceAll(SNOW_CHAR, " ")
+          expect(stripSnow(after)).toBe(stripSnow(before))
+        } finally {
+          shell.dispose()
+        }
+      }, SIZE)
+    },
+    15_000,
+  )
 
   test("a starter key fills the prompt; a typed prompt keeps its digits", async () => {
     await withTestRenderer(async (h) => {
