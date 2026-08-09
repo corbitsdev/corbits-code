@@ -271,8 +271,9 @@ function markChunks(
   grid: MarkGrid,
   nowMs: number,
   still: boolean,
+  reducedMotion = false,
 ): readonly TextChunk[][] {
-  return renderMark({ nowMs, still, grid }).map((row) =>
+  return renderMark({ nowMs, still, grid, reducedMotion }).map((row) =>
     row.map((cell) => fgChunk(cell.fg)(cell.char)),
   )
 }
@@ -403,17 +404,20 @@ export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void
 }
 
 /**
- * Repaint the mark for the given clock. `still` holds the fully-filled frame —
- * the idle state, and the reduced-motion state.
+ * Repaint the mark for the given clock. `still` holds the mountain's
+ * draw/fill/fade timeline on its fully-filled frame — the idle state.
+ * `reducedMotion` is the separate hook that suppresses snow; it does not
+ * affect `still`'s mountain framing.
  */
 export function paintLandingMark(
   above: LandingAbove,
   nowMs: number,
   still: boolean,
+  reducedMotion = false,
 ): void {
   const grid = above.grid
   if (grid === null) return
-  const chunks = markChunks(grid, nowMs, still)
+  const chunks = markChunks(grid, nowMs, still, reducedMotion)
   const offset = MARK_LARGE.rows - grid.rows
   above.markRows.forEach((line, index) => {
     const row = chunks[index - offset]

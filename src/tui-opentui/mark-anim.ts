@@ -9,11 +9,11 @@
  *
  * Over the sky (zero-coverage cells) a sparse field of pixel snow falls on the
  * same injected clock. Density and speed stay low so the ridgeline keeps its
- * silhouette; `still` (idle or reduced motion) freezes the mountain's own
- * draw/fill/fade timeline to its fully-filled frame, but snow keeps drifting —
- * the landing screen is idle by definition, so tying snow to the same flag
- * that freezes the mountain would mean it never falls. Mountain cells always
- * win over flakes.
+ * silhouette. `still` freezes the mountain's own draw/fill/fade timeline to
+ * its fully-filled frame but leaves snow drifting — the landing screen is
+ * idle by definition, so tying snow to the same flag that freezes the
+ * mountain would mean it never falls. `reducedMotion` is the separate hook
+ * that does suppress snow. Mountain cells always win over flakes.
  *
  * Everything here is pure and clock-injected: `nowMs` is the only time source,
  * so the caller's existing 250 ms status tick drives the animation and tests
@@ -103,6 +103,14 @@ export type MarkInput = {
    * `snowOn` in `renderMark`.
    */
   readonly still: boolean
+  /**
+   * Reduced-motion hook: suppresses snow regardless of `still`. Nothing
+   * wires a live setting into this yet, but the parameter exists so a
+   * future reduced-motion setting has a real path to gate motion, rather
+   * than overloading `still` (which only ever freezes the mountain's
+   * draw/fill/fade timeline). Defaults to off.
+   */
+  readonly reducedMotion?: boolean
   /** Which baked rasterization to composite. Defaults to the compact grid. */
   readonly grid?: MarkGrid
 }
@@ -145,7 +153,8 @@ function snowflakeAt(
  * the mark is a mountain, and a mountain is opaque.
  *
  * Sky cells (zero coverage) may hold a single falling snow pixel. Flakes never
- * overwrite mountain coverage, and `still` suppresses them entirely.
+ * overwrite mountain coverage; `reducedMotion` suppresses them, `still` does
+ * not (see `snowOn` below).
  *
  * `alpha` has no terminal equivalent, so it scales the block height instead:
  * the mark sinks toward empty rather than blending to black.
@@ -157,9 +166,10 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
   const revealed = drawProg * shape.cols
   const fillLine = shape.rows * (1 - fillProg)
   // Independent of `still`: the mountain can be frozen full while snow still
-  // drifts (the idle landing screen). Fade out drops the snow too so the
-  // decoration doesn't outlast the mark it drifts over.
-  const snowOn = alpha === 1
+  // drifts (the idle landing screen). `reducedMotion` is the actual
+  // motion-suppression hook. Fade out drops the snow too so the decoration
+  // doesn't outlast the mark it drifts over.
+  const snowOn = alpha === 1 && !input.reducedMotion
 
   const grid: MarkCell[][] = []
   for (let row = 0; row < shape.rows; row++) {

@@ -1930,6 +1930,12 @@ type ShellInternals = {
   landingAnimating: boolean
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number
+  /**
+   * Wall-clock time of the last idle-driven landing repaint (the FRAME-event
+   * path in `createAppShell`'s `onFrame`), so that path can throttle itself
+   * to ~8fps instead of repainting on every render pass.
+   */
+  landingLastIdlePaintMs: number
   /** Chrome content (empty array = zone off). */
   chrome: {
     /**
@@ -2556,27 +2562,38 @@ function clearLandingMark(shell: AppShell): void {
 }
 
 /**
+ * Minimum spacing between idle-driven landing repaints (~8fps). The snow
+ * only needs to advance about half a row per second, so this is well above
+ * the animation's actual needs while staying far below the render engine's
+ * uncapped max rate.
+ */
+const LANDING_IDLE_REPAINT_INTERVAL_MS = 125
+
+/**
  * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
  * draw/fill/fade timeline; anything else holds its filled frame. No-op once
  * the landing is gone, so the caller can drive it unconditionally.
  *
  * Always repaints while the landing is up, even when `animating` is false:
  * the landing is idle by definition (no turn processing), and snow still
- * needs to drift across a frozen mountain. `paintLandingMark`/`renderMark`
- * only touch the rows whose content actually changed, so the unchanging
- * mountain rows cost nothing extra here.
+ * needs to drift across a frozen mountain. Every call reassigns a fresh
+ * `StyledText` to every row regardless of whether its content changed, which
+ * unconditionally dirties the renderables and requests another render — the
+ * idle-driven call site in `createAppShell`'s `onFrame` throttles how often
+ * it calls this rather than relying on this function to skip unchanged rows.
  */
 export function paintLanding(
   shell: AppShell,
   nowMs: number,
   animating: boolean,
+  reducedMotion = false,
 ): void {
   const bag = internals.get(shell)
   const landing = bag?.landing
   if (bag === undefined || landing === null || landing === undefined) return
   bag.landingAnimating = animating
   bag.landingNowMs = nowMs
-  paintLandingMark(landing.above, nowMs, !animating)
+  paintLandingMark(landing.above, nowMs, !animating, reducedMotion)
 }
 
 /** True while the landing composition is still mounted. */
@@ -5611,9 +5628,26 @@ export function createAppShell(
     // mountain's own draw/fill/fade loop off the turn monitor's clock, and
     // this re-entry must not stomp that with an unrelated real-clock value
     // every render pass.
+    //
+    // FRAME fires from inside the render loop itself, and `paintLanding`
+    // always reassigns fresh row content (see its docblock), which
+    // unconditionally dirties the renderables and requests another render.
+    // Left unthrottled that turns into a perpetual render loop at the
+    // engine's max frame rate rather than the app's configured target, for
+    // as long as the landing sits idle on screen. The snow only needs to
+    // advance about half a row per second, so gating repaints to roughly
+    // every `LANDING_IDLE_REPAINT_INTERVAL_MS` keeps the animation smooth
+    // at a fraction of the render cost.
     const landingBag = internals.get(shell)
     if (landingBag?.landing != null && !landingBag.landingAnimating) {
-      paintLanding(shell, Date.now(), false)
+      const nowMs = Date.now()
+      if (
+        nowMs - landingBag.landingLastIdlePaintMs >=
+        LANDING_IDLE_REPAINT_INTERVAL_MS
+      ) {
+        landingBag.landingLastIdlePaintMs = nowMs
+        paintLanding(shell, nowMs, false)
+      }
     }
   }
 
@@ -5742,6 +5776,7 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
+    landingLastIdlePaintMs: 0,
     chrome: { task: [], tasksRaw: [], agents: [] },
     tasksPanelHidden: false,
   })

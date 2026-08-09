@@ -273,6 +273,16 @@ describe("landing screen", () => {
           await settle(h)
           const before = markRows(h).join("\n")
 
+          // A burst of frames faster than the ~125ms idle-repaint throttle
+          // must not each produce a distinct paint: the FRAME event fires
+          // from inside the render loop, so an unthrottled repaint here is
+          // exactly the uncapped render-loop regression this guards against.
+          const burstStart = Date.now()
+          while (Date.now() - burstStart < 60) {
+            await h.renderOnce()
+          }
+          expect(markRows(h).join("\n")).toBe(before)
+
           // Real elapsed time, not an injected clock: the production driver
           // reads the wall clock, so this is the only way to exercise it.
           // At the fall speed in mark-anim.ts a few real seconds is enough
