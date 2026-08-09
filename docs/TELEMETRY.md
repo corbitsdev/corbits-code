@@ -33,7 +33,9 @@ there is nothing to compact — an event that also fires on no-ops makes its own
 duration and turn-count averages meaningless.
 
 Common properties attached to every event: a random installation UUID
-(`distinct_id`), `session_id`, `service_version`, `os_type`, `os_arch`, and a
+(`distinct_id`), `session_id`, `$app_version` (PostHog's standard Version
+property, the running package version), `service_version` (same value, kept
+for existing custom-property dashboards), `os_type`, `os_arch`, and a
 `schema_version` for forward compatibility.
 
 Approximate country-level location is derived server-side by PostHog from the
