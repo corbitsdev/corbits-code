@@ -6,7 +6,7 @@
  */
 
 import { homedir } from "node:os"
-import type { AgentPanelRow, TaskPanelRow } from "./chrome-state.js"
+import { clampBoardRows, type AgentPanelRow, type TaskPanelRow } from "./chrome-state.js"
 
 import {
   BoxRenderable,
@@ -4319,32 +4319,36 @@ export function setChromeZones(
   if (taskChanged) {
     renderTasksRows(shell, bag.chrome.task, shell.layout.contentWidth)
   }
-  if (agentsChanged) {
-    renderAgentsRows(shell, bag.chrome.agents, shell.layout.contentWidth)
-  }
-
   // Only a zone appearing/disappearing or its row count changing alters the
   // row budget; retitling a zone whose row count is unchanged must not
   // re-resolve and re-apply the whole layout.
-  if (
-    taskRowCount === bag.visibility.task &&
-    agentsRowCount === bag.visibility.agents
-  ) {
-    paintChrome(shell)
-    return
+  const budgetUnchanged =
+    taskRowCount === bag.visibility.task && agentsRowCount === bag.visibility.agents
+  if (!budgetUnchanged) {
+    relayout(shell, {
+      visibility: {
+        ...bag.visibility,
+        task: taskRowCount,
+        agents: agentsRowCount,
+      },
+      overlayMode: bag.overlayMode,
+      ...(bag.overlayBodyRows !== undefined
+        ? { overlayBodyRows: bag.overlayBodyRows }
+        : {}),
+    })
   }
 
-  relayout(shell, {
-    visibility: {
-      ...bag.visibility,
-      task: taskRowCount,
-      agents: agentsRowCount,
-    },
-    overlayMode: bag.overlayMode,
-    ...(bag.overlayBodyRows !== undefined
-      ? { overlayBodyRows: bag.overlayBodyRows }
-      : {}),
-  })
+  // Painted after the resolver has spoken, and only ever as many rows as it
+  // granted: a board that paints past its box lands on top of the transcript
+  // and tears down the renderables underneath it.
+  if (agentsChanged || !budgetUnchanged) {
+    renderAgentsRows(
+      shell,
+      clampBoardRows(bag.chrome.agents, shell.layout.heights.agents),
+      shell.layout.contentWidth,
+    )
+  }
+  if (budgetUnchanged) paintChrome(shell)
 }
 
 /** How long a panel-visibility flash holds the notice row. */

@@ -278,6 +278,46 @@ function boardLaneState(
 }
 
 /**
+ * Fit the board into the rows geometry actually granted it.
+ *
+ * The formatter sizes the board to its content, but collapse can grant fewer
+ * rows than that under pressure. Painting the full set anyway overflows the
+ * zone's box — rows land on top of each other and on whatever is below. So the
+ * granted height is the last word, and the lanes it costs are disclosed rather
+ * than dropped in silence.
+ */
+export function clampBoardRows(
+  rows: readonly AgentPanelRow[],
+  height: number,
+): readonly AgentPanelRow[] {
+  if (height <= 0) return []
+  if (rows.length <= height) return rows
+
+  const header = rows[0]
+  if (header === undefined) return []
+  const lanes = rows.filter((r) => r.kind === "lane")
+
+  // Below a few rows the disclosure line costs more than the lane it displaces,
+  // so the header carries the count instead — the same trade the formatter makes.
+  if (height < 4) {
+    const shown = lanes.slice(0, height - 1)
+    return [withHiddenCount(header, lanes.length - shown.length), ...shown]
+  }
+
+  const shown = lanes.slice(0, height - 2)
+  const hidden = lanes.length - shown.length
+  return [
+    header,
+    ...shown,
+    { label: `+${hidden} more lanes`, tail: "", stalled: false, kind: "more" },
+  ]
+}
+
+function withHiddenCount(header: AgentPanelRow, hidden: number): AgentPanelRow {
+  return hidden > 0 ? { ...header, tail: ` · +${hidden} hidden` } : header
+}
+
+/**
  * The one-line answer to "is everything fine". Counts run worst-first so that
  * a narrow terminal ellipsizes away the routine tail rather than the trouble.
  * Counts come from main's `fleetProgress`; the FLEET chrome layout is the board.
