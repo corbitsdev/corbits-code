@@ -25,6 +25,7 @@ import { focusOwner } from "./focus/focus-state.js"
 import { setChromeZones } from "./shell.js"
 import {
   appendStreamRow,
+  applyShellInterrupt,
   createAppShell,
   isSlashPopupOpen,
   leaveSubagentObserve,
@@ -43,6 +44,7 @@ import {
   streamRowAt,
   streamRowCount,
   submitPrompt,
+  truncateStreamRows,
   type AppShell,
 } from "./shell.js"
 
@@ -265,7 +267,11 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
         press(h, chord)
         expect(shell.prompt.value).toBe("line\n")
       }
-      // The parenthetical in the row's description, held to the same standard.
+      // The parenthetical in the row's description, held to the same
+      // standard. Plain terminals can't report Shift on Enter (bare \r
+      // either way — confirmed live, not just assumed), but a terminal that
+      // negotiates the kitty keyboard protocol — which this app requests —
+      // can, and the widget is built to honor it when it does.
       expect(PROMPT_KEY_BINDINGS).toContainEqual({
         name: "return",
         shift: true,
@@ -440,13 +446,18 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       setShellRunState(shell, "idle")
       shell.prompt.value = "not yet"
       press(h, chords[0])
-      // The stated condition: idle, Alt+Enter does nothing at all.
+      // The stated condition: idle, Alt+Enter does nothing — there's no run
+      // to stop and nothing to restart from a boundary that isn't coming.
       expect(sent).toEqual([])
       expect(shell.prompt.value).toBe("not yet")
 
+      // Busy: a distinct gesture from plain Enter (queue-and-steer at the
+      // next boundary) — this one is "reinject", resolved by the bridge to
+      // stop the run right now and restart from this message.
       setShellRunState(shell, "busy")
       press(h, chords[0])
-      expect(sent).toEqual([{ text: "not yet", kind: "steer" }])
+      expect(sent).toEqual([{ text: "not yet", kind: "reinject" }])
+      expect(shell.prompt.value).toBe("")
       setShellRunState(shell, "idle")
     },
   },
@@ -471,6 +482,26 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(exited).toBe(0)
       press(h, chords[0])
       expect(exited).toBe(1)
+      setShellRunState(shell, "idle")
+
+      // Bridge-less local interrupt: what an operator sees when a message
+      // was queued and they lose patience — it must report the message
+      // will still steer, never that it was discarded.
+      clearShellBridgeHooks(shell)
+      setShellRunState(shell, "busy")
+      const rowsBefore = streamRowCount(shell)
+      shell.prompt.value = "keep me"
+      submitPrompt(shell, "queue")
+      applyShellInterrupt(shell)
+      expect(shell.pendingQueue).toBe(1)
+      expect(shell.session.items[0]!.text).toBe("keep me")
+      const notice = shell.streamLog[shell.streamLog.length - 1]
+      expect(notice?.text).toBe("interrupt — 1 pending kept")
+      expect(notice?.text).not.toContain("discarded")
+      // Other probes in this group share one shell — leave both the queue
+      // and the transcript as this probe found them.
+      shell.session = { ...shell.session, items: [] }
+      truncateStreamRows(shell, rowsBefore)
       setShellRunState(shell, "idle")
     },
   },

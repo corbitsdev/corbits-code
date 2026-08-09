@@ -11,6 +11,7 @@ import {
   drainOne,
   enqueue,
   enqueueSteer,
+  interrupt,
   setRunState,
   type QueueItem,
   type QueueKind,
@@ -162,7 +163,7 @@ export type SessionBridge = {
   /** Operator paths — shell keys go through the same logic via exclusive hooks. */
   submit: (
     text: string,
-    kind: "queue" | "steer" | "immediate",
+    kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
   ) => void
   interrupt: () => void
@@ -634,7 +635,9 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
-      meta: item.kind === "steer" ? "steer" : "queued",
+      // Distinct from the "steer" tag on the still-pending row above — this
+      // one is being handed to the run right now, not waiting for one.
+      meta: "steering",
     })
     bag.pendingEchoes.push(item.text.trim())
     bag.port.deliver(item)
@@ -913,7 +916,7 @@ export function attachSessionBridge(
 
   const submit = (
     text: string,
-    kind: "queue" | "steer" | "immediate",
+    kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
   ): void => {
     if (bag.disposed) return
@@ -921,8 +924,29 @@ export function attachSessionBridge(
     const attached = attachments ?? []
     if (t.length === 0 && attached.length === 0) return
 
-    if (kind === "immediate" || shell.session.run === "idle") {
-      appendStreamRow(shell, { role: "user", text: userRowText(t, attached) })
+    if (kind === "reinject") {
+      // Not a boundary wait: stop the run right now, then fall straight into
+      // the immediate-send branch below with this message as the opener.
+      if (shell.session.run !== "busy") return
+      closeOpenRow(shell, bag)
+      bag.pendingEchoes.length = 0
+      shell.session = interrupt(shell.session)
+      appendStreamRow(shell, {
+        role: "system",
+        text: "stop — restarting from your message",
+        meta: "stop",
+      })
+      bag.port.interrupt()
+      bag.lastSentMessage = ""
+      bag.turn = turnStateOnInterrupt(bag.turn, now())
+    }
+
+    if (kind === "immediate" || kind === "reinject" || shell.session.run === "idle") {
+      appendStreamRow(shell, {
+        role: "user",
+        text: userRowText(t, attached),
+        ...(kind === "reinject" ? { meta: "reinject" } : {}),
+      })
       bag.pendingEchoes.push(t)
       bag.port.sendImmediate(t, attachments)
       shell.session = setRunState(shell.session, "busy")

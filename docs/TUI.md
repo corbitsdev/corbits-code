@@ -430,10 +430,52 @@ The prompt is a genuine multi-line composing area built on OpenTUI's
 `TextareaRenderable` rather than its single-line `InputRenderable`, because
 the single-line widget is hard-wired to one row, no wrapping, and strips
 newlines (`src/tui-opentui/prompt-input.ts`). Enter sends; a literal newline
-needs an explicit chord (Shift+Enter or Ctrl+Enter where the terminal reports
-the modifier via the kitty keyboard protocol, Ctrl+J everywhere else, since a
-plain terminal cannot report Shift+Enter at all). Alt+Enter is claimed by the
-shell before the textarea ever sees it, as the mid-run "steer" action.
+needs an explicit chord: Ctrl+Enter or Ctrl+J work on every terminal, and
+Shift+Enter works too on a terminal that negotiates the kitty keyboard
+protocol (this app requests it — `useKittyKeyboard` in `product-host.ts`) and
+reports the modifier back. A plain terminal sends the same bare `\r` for
+Enter and Shift+Enter, so on those Shift+Enter silently does nothing — driven
+live, this is exactly what happens, not a hypothetical. Ctrl+Enter/Ctrl+J are
+the chord to point an operator at when Shift+Enter doesn't respond.
+
+### Queue-and-steer vs. stop-and-reinject
+
+There used to be two gestures that both waited for a run to reach a turn
+boundary before delivering — a bug in its own right, since an operator had no
+way to tell them apart from the result. There are now two gestures with two
+different effects:
+
+- **Enter, mid-run** — queues the message and delivers it at the next turn
+  boundary, where it steers the run. The queued row in the transcript says
+  `[will steer next]` while pending and `[steering]` once delivered, so the
+  operator sees what will happen to it, not just a badge count
+  (`submitPrompt`, `drainAtBoundary` in `runtime-bridge.ts`).
+- **Alt+Enter, mid-run** — stops the run immediately, without waiting for a
+  boundary, and restarts from this message. A `stop — restarting from your
+  message` system row and a `[restarted here]` user row mark the cut. Idle,
+  or with an empty prompt, Alt+Enter does nothing — there is nothing to stop
+  or restart from.
+
+Interrupting (Ctrl+C) never discards a queued or steered message. It used to
+— the transcript literally said `interrupt — discarded N pending`, and an
+operator who queued an instruction and then lost patience destroyed the very
+thing they were trying to deliver. It now reports `interrupt — N pending
+kept`: the run stops, the queue survives, and those messages are handed over
+at the interrupt itself (`doInterrupt` drains after `port.interrupt()`), not
+left waiting on an idle event the stop may never produce (`interrupt` in
+`session-queue.ts` no longer clears `items`).
+
+**Sub-agent lanes on redirect.** Both Ctrl+C and Alt+Enter interrupt by
+closing the underlying agent (`runner.ts`'s `interrupt()` — "the only thing
+that aborts the reactor mid-inference"). That close cascades: it aborts the
+shared operation signal the `task` tool was given, which the tool forwards to
+the child agent's own controller, so an in-flight sub-agent dispatch is
+aborted along with the parent's turn and reports back as cancelled by the
+operator rather than being left to finish silently detached
+(`src/subagent/task-tool.ts`). Redirecting the parent — by either gesture —
+is a decision to stop the fleet it dispatched too, not just the parent's own
+turn; there is no path today to redirect the parent while leaving running
+lanes alone.
 
 Up/Down are caret motion first inside a multi-line buffer. History recall
 only fires when the caret is already at the first or last wrapped row of the
@@ -479,11 +521,13 @@ Ctrl+C interrupts a busy run (or clears a non-empty idle prompt); a second
 Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
-`shell.ts`). The interrupt keeps whatever is sitting in the queue rather than
-discarding it — the operator typed those messages meaning them delivered, not
-meaning "cancel this run and also throw away what I typed"; the transcript
-row says so (`"interrupt — N pending kept"`). Kept items are handed over at
-the interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
+`shell.ts`). See "Queue-and-steer vs. stop-and-reinject" above for the two
+mid-run gestures and what interrupting does to sub-agent lanes. The interrupt
+keeps whatever is sitting in the queue rather than discarding it — the
+operator typed those messages meaning them delivered, not meaning "cancel
+this run and also throw away what I typed"; the transcript row says so
+(`"interrupt — N pending kept"`). Kept items are handed over at the
+interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
 `port.interrupt()`), serialized behind the agent rebuild the stop starts —
 a stop does not reliably produce an idle event to drain against later.
 
