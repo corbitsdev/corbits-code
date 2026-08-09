@@ -278,10 +278,11 @@ stalled, only about *when* they say so: the panel shows it continuously,
 the notice announces the transition once.
 
 Store changes drive it directly, so a lane finishing or failing lands the
-moment it happens; a `FLEET_REPORT_SETTLE_MS` (400ms) timer covers the one
-change that produces no event at all — a lane going quiet — and also lets a
-parallel dispatch that lands as N store changes settle into one observation
-instead of N lines. Past `COALESCE_ABOVE` (3) changes in one observation the
+moment it happens. A `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel
+dispatch that lands as N store changes settle into one observation instead
+of N lines. Quiet detection is separate: `FLEET_STALL_POLL_MS` (5s) re-runs
+observation so a lane that went quiet with no further store event is still
+announced once. Past `COALESCE_ABOVE` (3) changes in one observation the
 individual lines collapse into a single tally (`"9 done, 3 failed"`); below
 that threshold each change gets its own line. The one case both the fleet
 going idle and a coalesced tally would otherwise say the same thing —
@@ -292,7 +293,7 @@ failed" — the idle line replaces the tally instead of repeating it with
 Outcomes and errors are clipped to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
 same "one update is one row, never wrapped" rule the panel's rows follow.
 `fleetDigest()` is the on-demand counterpart: the same picture in one line,
-answering "where is the fleet" without an interrupt, for `/fleet` or an
+answering "where is the fleet" without an interrupt, for `/status` or an
 operator question mid-run.
 
 ## How pop-ups should feel
@@ -481,8 +482,10 @@ explicit second confirmation) without adding a modal (`handleCtrlC`,
 `shell.ts`). The interrupt keeps whatever is sitting in the queue rather than
 discarding it — the operator typed those messages meaning them delivered, not
 meaning "cancel this run and also throw away what I typed"; the transcript
-row says so (`"interrupt — N pending kept"`) and the kept items drain into the
-rebuilt agent at the next boundary (`applyShellInterrupt`, `shell.ts`).
+row says so (`"interrupt — N pending kept"`). Kept items are handed over at
+the interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
+`port.interrupt()`), serialized behind the agent rebuild the stop starts —
+a stop does not reliably produce an idle event to drain against later.
 
 ## Overflows, scrolling, and key macros
 

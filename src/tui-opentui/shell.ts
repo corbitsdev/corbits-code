@@ -3180,7 +3180,7 @@ export function applyShellInterrupt(shell: AppShell): void {
   paintChrome(shell)
 }
 
-/** Ctrl+C interrupt path: clear pending, flash, idle. */
+/** Ctrl+C interrupt path: keep pending, flash, idle. */
 export function interruptShell(shell: AppShell): void {
   const hooks = getShellBridgeHooks(shell)
   if (hooks?.exclusive) {
