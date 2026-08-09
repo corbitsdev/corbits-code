@@ -5,8 +5,8 @@
  * session, which then said nothing about any of it unless interrupted and
  * asked. This module turns that stream into the small number of lines that
  * change the operator's picture, and nothing else: a lane finished and what it
- * produced, a lane stalled or failed, work dispatched, and the moment the
- * fleet runs dry.
+ * produced, a lane stalled or failed, and the moment the fleet runs dry.
+ * Live dispatches stay on the fleet board — they are not re-announced here.
  *
  * Pure and stateless per call — the caller keeps the returned watch and hands
  * it back on the next observation. No painting, no store access.
@@ -175,16 +175,18 @@ export function observeFleet(
   }
 
   const watch: FleetWatch = { lanes: marks, running, seeded: true };
-  if (changes.length === 0) return { watch, updates: [] };
 
-  // A dispatch carries the load it was decided against, so an operator who
-  // would have scheduled differently can say so while it still matters.
-  const lines =
-    changes.length > COALESCE_ABOVE
-      ? [tally(changes)]
-      : changes.map((c) =>
-          c.kind === "dispatched" ? `${c.line} (${running} running)` : c.line,
-        );
+  // Live dispatches already appear on the fleet board (CL-5846). Transcript
+  // notices only for terminal / stall transitions — not "dispatched X".
+  const announced = changes.filter((c) => c.kind !== "dispatched");
+  if (announced.length === 0 && !(running === 0 && previous.running > 0)) {
+    return { watch, updates: [] };
+  }
+
+  const lines: string[] =
+    announced.length > COALESCE_ABOVE
+      ? [tally(announced)]
+      : announced.map((c) => c.line);
 
   // The defect this report exists for: work finished, nothing left running,
   // and no one said so. That transition is always worth its own line — unless
@@ -210,14 +212,12 @@ function tally(changes: readonly Change[]): string {
   const count = (kind: Change["kind"]): number =>
     changes.filter((c) => c.kind === kind).length;
   const parts: string[] = [];
-  const dispatched = count("dispatched");
   const done = count("done");
   const failed = count("failed");
   const stalled = count("stalled");
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
   if (stalled > 0) parts.push(`${stalled} stalled`);
-  if (dispatched > 0) parts.push(`${dispatched} dispatched`);
   return parts.join(", ");
 }
 

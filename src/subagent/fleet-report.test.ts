@@ -77,14 +77,14 @@ describe("observeFleet", () => {
     expect(updates[0]).toContain("build failed — typecheck exited 1");
   });
 
-  test("a dispatch carries the load it was decided against", () => {
+  test("a live dispatch does not re-announce into the transcript (board owns it)", () => {
     const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
     const { updates } = observeFleet(
       seeded,
       [lane({ id: "api" }), lane({ id: "docs" })],
       T0 + 1000,
     );
-    expect(updates).toEqual(["fleet · dispatched docs (2 running)"]);
+    expect(updates).toEqual([]);
   });
 
   test("a quiet lane is announced once, not on every tick it stays quiet", () => {

@@ -655,13 +655,10 @@ describe("committed inference retry", () => {
 })
 
 describe("parallel sub-agent dispatch on the live session bridge", () => {
-  // The live main-session path tracks a call's row by callId in its own map
-  // (applyToolCall/applyToolResult), independent of tool-rows.ts's name-based
-  // pendingCallIndex — this pins that down so a future change to either path
-  // cannot silently reintroduce CL-5562's misattribution on the parent
-  // transcript specifically (the observe overlay and resumed history are
-  // covered separately in tool-rows.test.ts / history-hydrate.test.ts).
-  test("three parallel task calls resolve to three rows, each with its own result", async () => {
+  // Task dispatches no longer paint transcript rows (fleet board owns live
+  // state — CL-5846). This pins that three parallel task calls leave the
+  // stream clean of Task tool rows, while a non-panel tool still paints.
+  test("three parallel task calls paint no transcript tool rows", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -671,6 +668,7 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
         })
         const bridge = attachSessionBridge(shell, createRecordingPort())
         try {
+          const before = streamRowCount(shell)
           const events = [
             { type: "inference.start", data: {} },
             {
@@ -698,10 +696,8 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
           for (const event of events) bridge.handle(event)
 
           const toolRows = shell.streamLog.filter((r) => r.role === "tool")
-          expect(toolRows.length).toBe(3)
-          expect(toolRows.every((r) => r.pending !== true)).toBe(true)
-          expect(toolRows.every((r) => r.failed !== true)).toBe(true)
-          expect(toolRows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"])
+          expect(toolRows.length).toBe(0)
+          expect(streamRowCount(shell)).toBe(before)
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -726,7 +722,7 @@ describe("syncAgentProgress", () => {
     }
   }
 
-  test("updates the dispatch row in place without appending or removing rows", async () => {
+  test("task dispatches paint no transcript rows for progress to rewrite (fleet board owns live state)", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -734,8 +730,6 @@ describe("syncAgentProgress", () => {
           wireKeys: false,
           run: "busy",
         })
-        // Padding rows ahead of the dispatch: proves churn stays bounded by
-        // outstanding task calls, not by transcript length.
         for (let i = 0; i < 40; i++) {
           appendStreamRow(shell, { role: "assistant", text: `filler ${i}` })
         }
@@ -744,6 +738,7 @@ describe("syncAgentProgress", () => {
           now: () => nowMs,
         })
         try {
+          const before = streamRowCount(shell)
           bridge.handle({
             type: "inference.tool_call.end",
             data: {
@@ -753,32 +748,12 @@ describe("syncAgentProgress", () => {
             },
           })
           await h.renderOnce()
-          const rowCountBefore = streamRowCount(shell)
-          const removeSpy = spyOn(shell.transcript, "remove")
+          expect(streamRowCount(shell)).toBe(before)
 
           nowMs = 42_000
           bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })])
-          bridge.syncAgentProgress([
-            taskSession({ currentToolName: "grep", lastActivityAt: nowMs }),
-          ])
-
-          expect(streamRowCount(shell)).toBe(rowCountBefore)
-          // One rewrite per changed tick, never proportional to the 40 padding rows.
-          expect(removeSpy.mock.calls.length).toBeLessThanOrEqual(2)
-
-          const row = shell.streamLog[rowCountBefore - 1]!
-          expect(row.pending).toBe(true)
-          expect(row.agentWorking).toBe(true)
-          expect(row.stat).toContain("grep")
-
-          nowMs = 72_000
-          bridge.syncAgentProgress([
-            taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
-          ])
-          const stalledRow = shell.streamLog[rowCountBefore - 1]!
-          expect(stalledRow.agentWorking).toBe(false)
-
-          removeSpy.mockRestore()
+          // No transcript Task row exists; progress is a no-op for stream log.
+          expect(streamRowCount(shell)).toBe(before)
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -788,7 +763,7 @@ describe("syncAgentProgress", () => {
     )
   })
 
-  test("a finished session's row is left to the tool-result path", async () => {
+  test("a finished task result is dropped with the call (no unpaired terminal Task row)", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -798,6 +773,7 @@ describe("syncAgentProgress", () => {
         })
         const bridge = attachSessionBridge(shell, createRecordingPort())
         try {
+          const before = streamRowCount(shell)
           bridge.handle({
             type: "inference.tool_call.end",
             data: {
@@ -810,10 +786,9 @@ describe("syncAgentProgress", () => {
             type: "tool.done",
             data: { result: { callId: "task-1", name: "task", content: "done", isError: false } },
           })
-          const index = shell.streamLog.length - 1
+          expect(streamRowCount(shell)).toBe(before)
           bridge.syncAgentProgress([taskSession({ status: "done" })])
-          expect(shell.streamLog[index]!.pending).not.toBe(true)
-          expect(shell.streamLog[index]!.agentWorking).toBeUndefined()
+          expect(streamRowCount(shell)).toBe(before)
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -855,6 +830,54 @@ describe("task checklist calls stay out of the transcript", () => {
 
           // The list lives in the task panel; scrollback must not carry a
           // second copy of it.
+          expect(streamRowCount(shell)).toBe(before)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a task dispatch call and its result paint no rows (fleet board owns live state)", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          appendStreamRow(shell, { role: "assistant", text: "spinning workers" })
+          const before = streamRowCount(shell)
+
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "task",
+              callId: "task-1",
+              arguments: {
+                description: "explore auth",
+                prompt: "map auth callers",
+                intent: "explore",
+              },
+            },
+          })
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: {
+                callId: "task-1",
+                name: "task",
+                content: "Summary: auth is in src/auth",
+                isError: false,
+              },
+            },
+          })
+
+          // Live Task rows restate what the fleet board already shows.
           expect(streamRowCount(shell)).toBe(before)
         } finally {
           bridge.dispose()
