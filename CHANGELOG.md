@@ -6,6 +6,161 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+Since 0.2.93 the product has shifted hard toward the orchestrator: a fleet board
+that tells the truth, thrash salvage that stops false completes, steering that
+keeps your input, and a single TUI root after the OpenTUI cutover. Goal mode is
+gone. Interchange packages that the reactor couples to are vendored at head.
+
+### The fleet is the product surface
+
+- **One fleet board replaces the agents strip and the task panel.** Each running
+  leaf is a row that holds identity, elapsed time, and what it is doing — not a
+  line of counts and not a separate task list you had to toggle. Rows are clamped
+  to the space they were granted, disclosures stay honest under re-clamp, and
+  task state no longer leaks into the transcript. (CL-5755, #432)
+- **Lane tools show a subject, not just a tool name.** A board full of
+  `run_shell` is useless; each outstanding call now carries a bounded,
+  secret-scrubbed preview of its arguments (path, command, pattern) and paints
+  that on the board and the dispatch trailer. (CL-5765, #441)
+- **Task dispatch no longer dumps raw JSON into the transcript.** A spawn with a
+  large brief collapses to a sentence (description, else prompt); expanded
+  detail uses real line breaks for nested fields instead of escaped `\n` strings.
+  (CL-5762, #440)
+- **Fleet progress reports itself without a prompt.** The parent no longer has
+  to ask where the fleet is mid-run; progress is held to one row per agent and
+  bursts settle instead of thrashing the board. A mid-rebuild drop surfaces a
+  not-delivered notice rather than vanishing. (CL-5761, #430; #429)
+- **`/new` and `/clear` wipe the painted transcript again.** Backend session
+  rotation still ran after the OpenTUI cutover, but the stream stayed on screen
+  and live sub-agents kept burning tokens under the old session. Both are
+  cleared now. (CL-5612, #439)
+
+### Thrash and leaf salvage
+
+Live coordinator fleets were completing after pure read/plan loops, re-reading
+the same files until the budget burned, and dodging stream-loop detection with
+invisible format characters.
+
+- **`intent=implement` that never edits is no longer a successful complete.**
+  Leaves that use tools but never call `edit_file` / `write_file` / `delete_file`
+  salvage as `never-edited` and hard-block identical re-dispatch the same way as
+  never-acted and thrash. (CL-5812, #438)
+- **Soft re-read nudge before the hard thrash stop.** When re-read pressure
+  crosses a soft threshold (default three same-path reads amid enough tool
+  volume), a one-shot mid-run redirect fires: implement leaves are asked to edit
+  or wrap up; explore leaves are asked to expand findings or change approach —
+  never forced into edit. Hard thrash still stops the leaf if it ignores the
+  nudge; near-budget wrap-up still wins when both apply. (CL-5813, #442)
+- **ZWSP and other format characters no longer break loop detection.** The stream
+  normalizer strips zero-width spaces, BOM, bidi marks, soft hyphens, and word
+  joiners so invisible separators cannot evade the KMP period detector. (#438)
+
+### Steering and interrupt
+
+- **Queue and steer are one mid-run gesture.** Two bindings that did the same
+  thing collapsed into one path; stop-and-reinject is available when you need to
+  cut the current turn and put a new instruction in its place. (CL-5763, #431)
+- **Queued operator input survives an interrupt.** Ctrl+C no longer discards what
+  you already typed for the next turn; the kept queue is handed over at the
+  interrupt itself and documented as such. (#431)
+
+### Permissions and workspace
+
+- **`--dangerously-skip-permissions` reaches the pre-gate sandboxes.** Yolo mode
+  already auto-allowed at the permission gate, but path-escape, delete, list_dir,
+  and shell-cwd guards still hard-denied outside the workspace — so agents stuck
+  when reading another repo or retaining a cwd outside the session root. Those
+  sandboxes now honor skip-permissions; secret-guard path denies and authz hard
+  blocks are unchanged. (CL-5807, #436)
+- **Contained git worktree ops auto-allow in auto mode**, routed through the same
+  workspace-containment authority as shell path restrictions, so sibling
+  worktrees are not a repeated ask. (CL-5637, #378; CL-5671, #388)
+- **`manage_tasks` no longer prompts for approval** — checklist updates are
+  harness bookkeeping, not a privileged tool.
+- **Queued approval timers arm only when the gate is shown**, so a request still
+  behind another cannot time out before you see it. (CL-5664, #407)
+- Grant tool / provider-model / cwd scoping collapses to one predicate; shell
+  single-command detection and approval scopes share one is-single-command check.
+  (CL-5676, #402; CL-5677, #403)
+
+### Goal mode is gone
+
+The goal subsystem is removed end to end — runtime, TUI chrome, slash commands,
+and docs. Continuous work is the orchestrator plus task dispatch, not a parallel
+goal loop. Stale goal references left by the merge are cleaned up. (#409)
+
+### OpenTUI is the only TUI root
+
+- **`src/tui-opentui/` is flattened into `src/tui/`.** One product root for the
+  shipping shell and runner; legacy ANSI palette lives as `semantic-theme.ts` so
+  OpenTUI owns `theme.ts`. Zero intended behavior change — path rewrite only.
+  (#435)
+- **Landing snow actually paints** on an idle screen, and the mountain / hero
+  stay painted through startup load notices and diagnostics. The snow test polls
+  for self-driven frames instead of a fixed sleep that flaked under CI load.
+  (#428, #393, #415; CL-5766, #437)
+- **Slash popup** shows `/name` only and drops the orphan filter row when driven
+  from the prompt. (#434)
+- **Ctrl+O palette and the bare `?` binding are removed.** Status ticker shows a
+  semantic activity state rather than raw tool names; the side gutter is narrower;
+  the live phase slot shows whether the session is actually moving. (#422, #419,
+  #410)
+- **Recognized skill and agent names highlight in the prompt.** Duplicate pasted
+  images are rejected by content hash. (#398, #420)
+- Mid-session MCP re-auth clears the standing "needs auth" banner once OAuth and
+  the retried operation both succeed. (#433)
+
+### Sessions, crash, and process life
+
+- **Active-run liveness is one write**, not two independent flags that could
+  disagree after a crash or session rotation. Crash finalization clears the
+  handle before the terminal write; a rotated session stays crash-coverable.
+  Crashed sessions no longer list as `running` forever. (CL-5675, #404; #396)
+- **SIGINT / SIGTERM / SIGHUP terminate the process**, and a detached throw
+  restores the terminal before exit so a crash cannot leave the tty raw.
+  (CL-5552, #406)
+
+### Providers, onboarding, models
+
+- **In-session provider connect actually connects**, and onboarding validates a
+  credential before reporting a provider as configured. The model picker no longer
+  overwrites the persisted default provider when you only inspect models.
+  (CL-5602, #397; #405)
+- OAuth success footer links the product site and GitHub. (#379)
+- Default-model resolution and provider-catalog entry shapes are shared helpers,
+  not parallel type lists. (#389, #391)
+
+### Vendored Interchange
+
+- **`@intx/types`, `@intx/storage-isogit`, and `@intx/inference` are vendored as
+  source at Interchange head** (with local inference patches reapplied). The
+  reactor's approval-suspend primitive couples us to upstream head for those
+  packages; other `@intx/*` stay on published 0.2.2. Vendored licenses are
+  recorded and the re-sync procedure is documented as a two-step (fetch upstream,
+  reapply patches). (CL-5696, #411; #424)
+
+### Telemetry and privacy
+
+- Every capture attaches a process-wide session id. PostHog AI observability
+  events emit in privacy mode. The anonymous product event catalog is expanded.
+  (#412, #417, #425)
+- **Grep results no longer bypass the secret scrub** — tool output that looked
+  like a search hit was leaking values the rest of the pipeline already redacted.
+  (CL-5717, #426)
+
+### Internals and hygiene
+
+- Four grep-output truncation implementations collapse to one; MCP tool
+  identifiers are built in one place; models.dev pricing collectors share one
+  tree-walker. Project trust store shape is arktype-validated. (#400, #395, #390,
+  #394)
+- Nightly random-seed test job is dropped (noise without signal). (#418)
+- `docs/plans/` stays git-ignored working notes; living conclusions go in the
+  docs above or the tracking issue. Product docs state that the harness is the
+  product. (#427)
+- Doc-drift cluster from the 2026-08-08 audit is fixed (Events table pointer,
+  stall failure mode, permission section, index). (#387)
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage (CL-4345)
