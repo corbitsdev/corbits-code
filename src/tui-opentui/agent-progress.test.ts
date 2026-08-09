@@ -5,6 +5,7 @@ import {
   fleetLabel,
   fleetProgress,
   laneState,
+  IN_TOOL_STALL_MS,
 } from "./agent-progress"
 
 describe("clockLabel", () => {
@@ -164,5 +165,32 @@ describe("fleetLabel", () => {
     expect(fleetLabel({ running: 3, working: 0, inTool: 3, stalled: 0 })).toBe(
       "3 agents · in tools",
     )
+  })
+})
+
+
+describe("the in-tool bound", () => {
+  const wedged = {
+    status: "running" as const,
+    currentToolName: "run_shell",
+    currentToolStartedAt: 0,
+    startedAt: 0,
+    lastActivityAt: 0,
+  }
+
+  // in_tool must not be terminal, or a wedged build reads as busy forever and
+  // never reaches the fleet stall count.
+  test("a call outstanding past the bound escalates to stalled", () => {
+    expect(laneState(wedged, IN_TOOL_STALL_MS - 1_000)).toBe("in_tool")
+    expect(laneState(wedged, IN_TOOL_STALL_MS + 1_000)).toBe("stalled")
+  })
+
+  test("an escalated lane counts toward the fleet stall count", () => {
+    expect(fleetProgress([wedged], IN_TOOL_STALL_MS + 1_000)).toEqual({
+      running: 1,
+      working: 0,
+      inTool: 0,
+      stalled: 1,
+    })
   })
 })

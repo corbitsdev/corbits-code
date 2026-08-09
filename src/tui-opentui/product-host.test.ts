@@ -286,6 +286,7 @@ describe("mountProductHost", () => {
         agents: [
           {
             agentId: "explore",
+            currentToolStartedAt: null,
             description: "map callers",
             status: "running",
             startedAt: now - 59_000,

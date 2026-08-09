@@ -298,6 +298,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
             agents: [
               {
                 agentId: "explore",
+                currentToolStartedAt: null,
                 description: "map callers",
                 status: "running",
                 currentToolName: "grep",

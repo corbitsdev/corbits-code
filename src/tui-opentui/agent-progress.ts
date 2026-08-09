@@ -17,8 +17,13 @@
 export type AgentProgressSession = {
   readonly status: "running" | "done" | "failed" | "cancelled";
   readonly currentToolName: string | null;
-  /** When the outstanding tool call began, or null when none is in flight. */
-  readonly currentToolStartedAt?: number | null;
+  /**
+   * When the oldest outstanding tool call began, or null when none is in
+   * flight. Required, not optional: every hop from the store to a surface is a
+   * chance to drop it, and a dropped field would silently reclassify a busy
+   * lane as stalled. A compile error is a better guard than a test.
+   */
+  readonly currentToolStartedAt: number | null;
   readonly startedAt: number;
   readonly lastActivityAt: number;
 };
@@ -47,6 +52,25 @@ export type AgentProgress = {
 /** Silence after which a running worker reads as hung rather than thinking. */
 export const DEFAULT_STALL_MS = 30_000;
 
+/**
+ * Second, far longer bound: how long one tool call may stay outstanding before
+ * the lane reads as stalled anyway.
+ *
+ * Without it `in_tool` would be terminal — a wedged build, a shell blocked on
+ * stdin, or a deadlocked child would read as busy forever and never reach the
+ * fleet stall count, trading a false-positive storm for a false negative on the
+ * failure operators most need to see. It is deliberately generous: real test
+ * suites and builds run for minutes, and crying stall over those is the defect
+ * this surface was fixed to remove.
+ *
+ * It also backstops calls that never report a result at all. The reactor's
+ * approval-suspend path emits no completion, so a before-tool extension
+ * returning suspend would leave a call outstanding permanently. Nothing
+ * registers such an extension today, but this bound means it degrades to a
+ * late stall rather than a lane that never stops looking busy.
+ */
+export const IN_TOOL_STALL_MS = 600_000;
+
 /** "m:ss" — compact enough to sit in a row's dim trailer alongside a tool name. */
 export function clockLabel(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -64,10 +88,15 @@ export function laneState(
   session: AgentProgressSession,
   nowMs: number,
   stallMs: number = DEFAULT_STALL_MS,
+  inToolStallMs: number = IN_TOOL_STALL_MS,
 ): LaneState {
   if (nowMs - session.lastActivityAt < stallMs) return "working";
   const toolStartedAt = session.currentToolStartedAt;
-  if (session.currentToolName !== null && toolStartedAt !== null && toolStartedAt !== undefined) {
+  if (
+    session.currentToolName !== null &&
+    toolStartedAt !== null &&
+    nowMs - toolStartedAt < inToolStallMs
+  ) {
     return "in_tool";
   }
   return "stalled";
@@ -95,7 +124,7 @@ export function agentProgress(
 
   const base = hasTool ? `${elapsed} · ${tool}` : elapsed;
   const stat =
-    state === "in_tool" && session.currentToolStartedAt != null
+    state === "in_tool" && session.currentToolStartedAt !== null
       ? `${base} ${clockLabel(nowMs - session.currentToolStartedAt)}`
       : state === "stalled"
         ? `${base} · quiet ${clockLabel(nowMs - session.lastActivityAt)}`

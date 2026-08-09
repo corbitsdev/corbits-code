@@ -42,8 +42,8 @@ export type ChromeAgentSession = {
   readonly startedAt?: number
   /** Clock of the worker's last reported activity; feeds stalled detection. */
   readonly lastActivityAt?: number
-  /** Clock the outstanding tool call began; separates a long tool from silence. */
-  readonly currentToolStartedAt?: number | null
+  /** Clock the oldest outstanding tool call began; separates a long tool from silence. */
+  readonly currentToolStartedAt: number | null
 }
 
 /** Lightweight task row: title + status, as written by the task tool. */
@@ -241,7 +241,7 @@ function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: num
           {
             status: "running",
             currentToolName: session.currentToolName ?? null,
-            currentToolStartedAt: session.currentToolStartedAt ?? null,
+            currentToolStartedAt: session.currentToolStartedAt,
             startedAt: session.startedAt,
             lastActivityAt: session.lastActivityAt ?? session.startedAt,
           },
@@ -284,10 +284,13 @@ export function annotateAgentTools(
       if (a.status !== "running") return a
       const tool = toolByDescription.get(a.description)
       if (tool === undefined) return a
-      // The overlay renames the tool but must not invent a start clock for it.
-      // Only the store observes a call ending, so letting a progress ping
-      // supply a clock would keep a finished lane reading as busy forever —
-      // exactly the true stalls this surface exists to show.
+      // Gap-fill only. When the store has a call outstanding it owns both the
+      // name and the clock, and overriding just the name would paint one
+      // tool's identifier beside another tool's elapsed time. A progress ping
+      // also cannot supply a clock of its own — only the store observes a call
+      // ending, so a ping-sourced clock would keep a finished lane reading
+      // busy forever, hiding exactly the stalls this surface exists to show.
+      if (a.currentToolStartedAt !== null) return a
       return { ...a, currentToolName: tool }
     }),
   }
@@ -313,7 +316,7 @@ export type ChromeSessionAgent = {
   readonly description: string
   readonly status: "running" | "done" | "failed" | "cancelled"
   readonly currentToolName?: string | null
-  readonly currentToolStartedAt?: number | null
+  readonly currentToolStartedAt: number | null
   readonly startedAt?: number
   readonly lastActivityAt?: number
 }
@@ -374,9 +377,7 @@ function mapSessionAgents(
       ...(a.currentToolName !== undefined
         ? { currentToolName: a.currentToolName }
         : {}),
-      ...(a.currentToolStartedAt !== undefined
-        ? { currentToolStartedAt: a.currentToolStartedAt }
-        : {}),
+      currentToolStartedAt: a.currentToolStartedAt,
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
       ...(a.lastActivityAt !== undefined
         ? { lastActivityAt: a.lastActivityAt }
