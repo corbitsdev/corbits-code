@@ -41,6 +41,11 @@ export type ChromeAgentSession = {
   readonly status: "running" | "done" | "failed" | "cancelled"
   /** Current tool while running (optional detail). */
   readonly currentToolName?: string | null
+  /**
+   * Bounded subject of the outstanding call (command / path / pattern). When
+   * set, the agents panel paints this instead of the bare tool name (CL-5765).
+   */
+  readonly currentToolPreview?: string | null
   /** Clock the worker started; feeds the panel row's elapsed time. */
   readonly startedAt?: number
   /** Clock of the worker's last reported activity; feeds stalled detection. */
@@ -257,6 +262,7 @@ function toProgressSession(session: ChromeAgentSession): AgentProgressSession | 
   return {
     status: session.status,
     currentToolName: session.currentToolName ?? null,
+    currentToolPreview: session.currentToolPreview ?? null,
     currentToolStartedAt: session.currentToolStartedAt,
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt ?? session.startedAt,
@@ -400,8 +406,16 @@ function formatAgentRow(
 ): AgentPanelRow {
   const label = `${session.agentId}: ${session.description}`.trim()
   const stalled = state === "stalled"
+  // Prefer the argument subject (command / path) over the bare tool name so a
+  // fleet of shell calls is distinguishable at a glance (CL-5765).
+  const preview = session.currentToolPreview
   const tool = session.currentToolName
-  const doing = tool !== undefined && tool !== null && tool.length > 0 ? tool : null
+  const doing =
+    preview !== undefined && preview !== null && preview.length > 0
+      ? preview
+      : tool !== undefined && tool !== null && tool.length > 0
+        ? tool
+        : null
 
   const progressSession = toProgressSession(session)
   if (progressSession === null) {
@@ -480,6 +494,7 @@ export type ChromeSessionAgent = {
   readonly description: string
   readonly status: "running" | "done" | "failed" | "cancelled"
   readonly currentToolName?: string | null
+  readonly currentToolPreview?: string | null
   readonly currentToolStartedAt: number | null
   readonly startedAt?: number
   readonly lastActivityAt?: number
@@ -540,6 +555,9 @@ function mapSessionAgents(
       status: a.status,
       ...(a.currentToolName !== undefined
         ? { currentToolName: a.currentToolName }
+        : {}),
+      ...(a.currentToolPreview !== undefined
+        ? { currentToolPreview: a.currentToolPreview }
         : {}),
       currentToolStartedAt: a.currentToolStartedAt,
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),

@@ -18,6 +18,13 @@ export type AgentProgressSession = {
   readonly status: "running" | "done" | "failed" | "cancelled";
   readonly currentToolName: string | null;
   /**
+   * Bounded subject of the oldest outstanding call (command, path, pattern…),
+   * or null when the args have nothing meaningful to show. When set, this
+   * replaces the bare tool name in the row trailer so a fleet of shell
+   * commands is distinguishable (CL-5765).
+   */
+  readonly currentToolPreview: string | null;
+  /**
    * When the oldest outstanding tool call began, or null when none is in
    * flight. Required, not optional: every hop from the store to a surface is a
    * chance to drop it, and a dropped field would silently reclassify a busy
@@ -118,11 +125,20 @@ export function agentProgress(
 ): AgentProgress | null {
   if (session.status !== "running") return null;
   const elapsed = clockLabel(nowMs - session.startedAt);
+  // Prefer the argument subject over the bare tool name — six shell commands
+  // on a fleet board are six different situations, not six identical labels.
+  const preview = session.currentToolPreview;
   const tool = session.currentToolName;
-  const hasTool = tool !== null && tool.length > 0;
+  const subject =
+    preview !== null && preview.length > 0
+      ? preview
+      : tool !== null && tool.length > 0
+        ? tool
+        : null;
+  const hasSubject = subject !== null;
   const state = laneState(session, nowMs, stallMs);
 
-  const base = hasTool ? `${elapsed} · ${tool}` : elapsed;
+  const base = hasSubject ? `${elapsed} · ${subject}` : elapsed;
   const stat =
     state === "in_tool" && session.currentToolStartedAt !== null
       ? `${base} ${clockLabel(nowMs - session.currentToolStartedAt)}`

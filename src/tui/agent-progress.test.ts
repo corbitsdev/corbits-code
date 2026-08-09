@@ -20,7 +20,8 @@ describe("agentProgress", () => {
   const base = {
     status: "running" as const,
     currentToolName: "grep",
-    currentToolStartedAt: null,
+    currentToolPreview: null as string | null,
+    currentToolStartedAt: null as number | null,
     startedAt: 0,
     lastActivityAt: 0,
   }
@@ -39,6 +40,27 @@ describe("agentProgress", () => {
       working: true,
       stalled: false,
     })
+  })
+
+  test("a tool preview replaces the bare tool name in the trailer (CL-5765)", () => {
+    const progress = agentProgress(
+      {
+        ...base,
+        currentToolName: "run_shell",
+        currentToolPreview: "bun test ./src",
+        currentToolStartedAt: 1_000,
+        lastActivityAt: 1_000,
+      },
+      91_000,
+      30_000,
+    )
+    expect(progress?.stat).toBe("1:31 · bun test ./src 1:30")
+    expect(progress?.stat).not.toContain("run_shell")
+  })
+
+  test("without a preview the trailer still names the tool", () => {
+    const progress = agentProgress({ ...base, lastActivityAt: 42_000 }, 42_000)
+    expect(progress?.stat).toContain("grep")
   })
 
   test("a running session with no current tool reports elapsed time alone", () => {
@@ -97,8 +119,9 @@ describe("agentProgress", () => {
 describe("laneState", () => {
   const running = {
     status: "running" as const,
-    currentToolName: null,
-    currentToolStartedAt: null,
+    currentToolName: null as string | null,
+    currentToolPreview: null as string | null,
+    currentToolStartedAt: null as number | null,
     startedAt: 0,
     lastActivityAt: 0,
   }
@@ -119,8 +142,9 @@ describe("laneState", () => {
 describe("fleetProgress", () => {
   const lane = (over: Partial<Parameters<typeof laneState>[0]>) => ({
     status: "running" as const,
-    currentToolName: null,
-    currentToolStartedAt: null,
+    currentToolName: null as string | null,
+    currentToolPreview: null as string | null,
+    currentToolStartedAt: null as number | null,
     startedAt: 0,
     lastActivityAt: 0,
     ...over,
@@ -173,6 +197,7 @@ describe("the in-tool bound", () => {
   const wedged = {
     status: "running" as const,
     currentToolName: "run_shell",
+    currentToolPreview: null as string | null,
     currentToolStartedAt: 0,
     startedAt: 0,
     lastActivityAt: 0,

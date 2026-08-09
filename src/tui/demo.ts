@@ -108,15 +108,38 @@ const DEMO_FLEET = [
   ["a15", "mcp view polish", 90, 5, "edit mcp-view.ts"],
 ].map(([agentId, description, ranSec, idleSec, tool]) => {
   const lastActivityAt = Date.now() - (idleSec as number) * 1000
+  const subject = tool as string | null
+  // Demo subjects are already human phrases ("bash npm test", "edit zones.ts").
+  // Put the phrase in the preview so the board paints what the worker is doing
+  // rather than a bare tool identifier (CL-5765).
+  let currentToolName: string | null = null
+  let currentToolPreview: string | null = null
+  if (subject !== null) {
+    currentToolPreview = subject
+    if (subject.startsWith("bash ") || subject.startsWith("approve ")) {
+      currentToolName = "run_shell"
+    } else if (subject.startsWith("edit ")) {
+      currentToolName = "edit_file"
+    } else if (subject.startsWith("write ")) {
+      currentToolName = "write_file"
+    } else if (subject.startsWith("read ")) {
+      currentToolName = "read_file"
+    } else if (subject.startsWith("grep ")) {
+      currentToolName = "grep"
+    } else {
+      currentToolName = "run_shell"
+    }
+  }
   return {
     agentId: agentId as string,
     description: description as string,
     status: "running" as const,
-    currentToolName: tool as string | null,
+    currentToolName,
+    currentToolPreview,
     // Hybrid chrome requires the tool clock; without it a long-running tool
     // would be reclassified as stalled. Align with last activity when a tool
     // is named so demo lanes still exercise working / in_tool / stalled.
-    currentToolStartedAt: tool === null ? null : lastActivityAt,
+    currentToolStartedAt: subject === null ? null : lastActivityAt,
     startedAt: Date.now() - (ranSec as number) * 1000,
     lastActivityAt,
   }
