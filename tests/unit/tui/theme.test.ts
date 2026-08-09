@@ -1,5 +1,5 @@
 import { test, expect, afterEach, beforeEach } from "bun:test";
-import { color, color256, palette, supportsTrueColor } from "../../../src/tui/theme.js";
+import { color, color256, palette, supportsTrueColor } from "../../../src/tui/semantic-theme.js";
 
 const originalColorterm = process.env.COLORTERM;
 

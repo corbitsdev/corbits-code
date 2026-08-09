@@ -13,7 +13,7 @@ export type RowRange = { start: number; end: number };
  * OpenTUI resolves Ambiguous as narrow under both of its width methods
  * (`wcwidth` and `unicode`), which is why this is `true`. It is passed
  * explicitly rather than left to Bun's default so the choice is visible and
- * greppable, and `src/tui-opentui/width-contract.ts` measures a probe through
+ * greppable, and `src/tui/width-contract.ts` measures a probe through
  * OpenTUI's own table at startup so a divergence is caught rather than painted.
  */
 export const AMBIGUOUS_IS_NARROW = true;

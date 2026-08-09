@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadSettings } from "../config/settings.js";
-import type { ProviderFormValues, SubmitPhase } from "../tui-opentui/provider-setup.js";
+import type { ProviderFormValues, SubmitPhase } from "./provider-setup.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => {};
 

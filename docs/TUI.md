@@ -2,7 +2,7 @@
 
 This is the normative behavior spec for the terminal UI: Corbits Code, built on
 OpenTUI (`@opentui/core`). It describes what the shell must do, not how the
-OpenTUI cutover got here. The implementation lives in `src/tui-opentui/`; the
+OpenTUI cutover got here. The implementation lives in `src/tui/`; the
 runner that mounts it is `src/tui/runner.ts` (see `docs/ARCHITECTURE.md` for
 how the TUI fits the rest of the system). A reviewer should be able to hold a
 PR against this document; someone building a new overlay or picker should be
@@ -19,10 +19,10 @@ There is no titlebar, no status strip, and no key-hint row as permanent
 chrome. The prompt box is the only permanent chrome in the shell: it is
 anchored at the bottom in every state, and everything else — task/agents
 strips, notices, banners, the overlay host — is optional and collapses to
-zero rows when it has nothing to say (`src/tui-opentui/geometry/zones.ts`).
+zero rows when it has nothing to say (`src/tui/geometry/zones.ts`).
 The transcript is residual: whatever rows remain after chrome and any open
 overlay belong to it, never the other way around
-(`src/tui-opentui/geometry/resolve.ts:resolveGeometry`).
+(`src/tui/geometry/resolve.ts:resolveGeometry`).
 
 A single **geometry resolver** turns terminal size, zone visibility, and
 overlay mode into region rects; every zone reads its rect from that resolver
@@ -37,7 +37,7 @@ row at a time down to its 3-row base — never the transcript
 (`COLLAPSE_ORDER` in `zones.ts`).
 
 Horizontally, every surface sits inside one shared gutter
-(`resolveSideMargin`, `src/tui-opentui/geometry/margins.ts`) so the shell reads
+(`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
 as a single column of content rather than stacked panes. The gutter is one
 column per side at every width that can afford it, and zero below
 `MARGIN_MIN_COLUMNS` (40), where every column belongs to content. There is no
@@ -49,17 +49,17 @@ The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule; the brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
-`src/tui-opentui/shell.ts`). Both rules cost zero transcript rows because they
+`src/tui/shell.ts`). Both rules cost zero transcript rows because they
 ride the prompt box's own border.
 
 While a turn is live the lockup slot swaps the wordmark for a semantic
 activity word — never the raw tool, MCP server, or plugin identifier that is
-actually executing. `resolveTurnLabel` (`src/tui-opentui/session-chrome.ts`)
+actually executing. `resolveTurnLabel` (`src/tui/session-chrome.ts`)
 maps execution onto the closed set `ACTIVITY_STATES` exported from that
 module (`thinking`, `planning`, `researching`, `building`, `working`,
 `waiting`, `orchestrating`, `stalled`, `stopping`); that export is the source
 of truth for what the slot can say, not this list. It is led by a single density cell
-(`rampPulse`, `src/tui-opentui/ramp.ts`). The cell, not the word,
+(`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
 | State | Cell | Reads as |
@@ -91,7 +91,7 @@ every path through both functions behaves exactly as it does for a plain
 single-agent turn.
 
 The stall phase is driven by the watchdog's own silence clock
-(`stallLevel`, `src/tui-opentui/stall-watchdog.ts`), so the indicator and the
+(`stallLevel`, `src/tui/stall-watchdog.ts`), so the indicator and the
 abort can never disagree about which runs are stuck. It arms at
 `STALL_NOTICE_MS` and keeps reading as stalled straight through the abort
 threshold. Its blink is a bounded burst (`STALL_BLINK_BURST_MS`) that settles
@@ -106,7 +106,7 @@ An idle session animates nothing at all: the monitor tick stops entirely
 rather than repainting an unchanging frame.
 
 Color is a small, deliberate palette, not decoration
-(`src/tui-opentui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
+(`src/tui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
 gray, so every emphasis level keeps the same warm hue. Orange
 (`UI.action`) is spent once per screen: it marks the session identity and
 whatever is currently awaiting a human decision (an approval subject, an
@@ -121,7 +121,7 @@ The `task` chrome zone renders a standing panel above the transcript, one row
 per task the task tool has written (`manage_tasks`) — distinct from the
 `agents` panel below it. A task is a unit of work with a status; an agent is
 an executor with its own context and transcript. The two are never merged
-into one panel: `formatTasksPanel` (`src/tui-opentui/chrome-state.ts`) and
+into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
 `formatAgentsPanel` are separate formatters feeding separate zones with
 separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
 
@@ -157,7 +157,7 @@ costs zero rows.
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
 resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
-`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui-opentui/runner-host.ts`):
+`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui/runner-host.ts`):
 `subscribeChrome` is a required dependency, not optional. The production
 caller has always passed a real subscription, so this did not fix an
 observed break; it closes a shape that could have been omitted and would
@@ -173,7 +173,7 @@ The `agents` chrome zone renders a standing panel above the transcript, one
 row per currently-running sub-agent. Each row reads
 `agentId: description · elapsed · tool`, sourced from the same
 `agentProgress()` clock/tool/stall computation used to trail a task row in the
-transcript (`src/tui-opentui/agent-progress.ts`); the panel does not compute
+transcript (`src/tui/agent-progress.ts`); the panel does not compute
 progress a second way. Past one running agent the panel is led by a fleet
 summary row (`N agents`, plus `· N stalled` or `· in tools`), counted from the
 same lane states the rows below render, so header and rows can never disagree.
@@ -233,7 +233,7 @@ clock next to the word `stalled` was the original defect — the number the
 operator watched climbing was unrelated to the word beside it.
 
 The panel is bounded to `AGENTS_PANEL_MAX_VISIBLE` rows
-(`src/tui-opentui/geometry/zones.ts`); a larger fan-out degrades to a trailing
+(`src/tui/geometry/zones.ts`); a larger fan-out degrades to a trailing
 `+N more` row rather than growing the zone — and therefore the chrome
 budget — without limit. Its height is requested from the geometry resolver
 like every other zone, never guessed: the caller passes the exact row count it
@@ -301,15 +301,15 @@ operator question mid-run.
 A blocking surface (permissions, an operator question, the model/provider
 picker, settings, help, the `/` command list, …) shares one overlay host and
 one height path — there is no second modal stack with independent row
-accounting (`src/tui-opentui/geometry/resolve.ts`,
-`src/tui-opentui/shell.ts:openListOverlay`). Opening a second surface either
+accounting (`src/tui/geometry/resolve.ts`,
+`src/tui/shell.ts:openListOverlay`). Opening a second surface either
 replaces the one that was open or stacks over it; either way Escape always
 walks back along a single path to the prompt.
 
 An open overlay reserves a real minimum for its own border, title, and at
 least one content row before anything else — including the transcript floor
 — is allowed to starve it further. That minimum is `OVERLAY_MIN_ROWS = 3`
-(`src/tui-opentui/geometry/zones.ts`) — two border rows plus one content row.
+(`src/tui/geometry/zones.ts`) — two border rows plus one content row.
 The geometry resolver iteratively collapses optional chrome to make room for
 both the transcript floor and this overlay minimum before it ever accepts a
 transcript-below-floor outcome; only when nothing is left to collapse does it
@@ -319,7 +319,7 @@ actually assigned.
 
 Escape dismisses the open overlay and, for a permission or operator prompt,
 that dismissal **denies** the request rather than leaving it unresolved
-(`src/tui-opentui/gate-wire.ts`: both `onPermission`'s and `onOperator`'s
+(`src/tui/gate-wire.ts`: both `onPermission`'s and `onOperator`'s
 `onCancel` handlers resolve the pending promise — as a deny for permissions,
 as a cancel for the operator question — with an explicit comment that an
 unresolved gate "hangs the run until the process is killed"). This exists
@@ -329,7 +329,7 @@ Escape must always settle the promise it is dismissing.
 
 The decision surfaces (permission approval, operator question) are the one
 framed content in the shell, and they are shaped rather than merely listed
-(`src/tui-opentui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
+(`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
 subject in the action color, a blank row separates it from context, and each
 choice gets one row with the active choice marked by a solid block (`█`)
 rather than a background fill.
@@ -347,9 +347,9 @@ top of the transcript never lets the wheel move the transcript underneath it.
 `(current)` is read live from the session's actual active provider/model on
 every picker open — independent of the recents list, which only moves on an
 explicit pick and can go stale (`ProductHostConfig.activeModelId`'s doc
-comment and `annotateCurrent` in `src/tui-opentui/product-host.ts`).
+comment and `annotateCurrent` in `src/tui/product-host.ts`).
 
-The `/` command list specifically (`src/tui-opentui/command-catalog.ts`,
+The `/` command list specifically (`src/tui/command-catalog.ts`,
 `shell.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
 are painted at the geometry resolver's shared `contentWidth`
 (`geometry/resolve.ts:assignRects`, `shell.ts:overlayRowWidth`). There is no
@@ -366,7 +366,7 @@ shows what was typed, so a second header line would say nothing new
 `/` at an empty prompt opens the command list, narrowed by name prefix as
 more is typed; Tab completes the name so arguments can be typed, Enter runs
 it. Every entry is backed by the live command registry
-(`src/tui-opentui/command-catalog.ts:commandItemsFromRegistry`) — there is no
+(`src/tui/command-catalog.ts:commandItemsFromRegistry`) — there is no
 separate palette overlay and no shell-owned action outside the registry. The
 overlay this reuses is still internally called `"palette"` (`shell.ts`'s
 `PrimaryOverlayKind`), a naming leftover from when a Ctrl+O command palette
@@ -402,7 +402,7 @@ known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
 The model/provider picker is provider-first
-(`src/tui-opentui/product-host.ts:groupModelsForPicker`/`openLevel`): recent
+(`src/tui/product-host.ts:groupModelsForPicker`/`openLevel`): recent
 and favorite provider+model pairs stay flat at the top of the list (already
 single models, nothing to descend into); every other provider collapses into
 one top-level group row. Selecting a provider group row descends into that
@@ -416,7 +416,7 @@ model.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection
-(`src/tui-opentui/list-modal.ts:runListModal`) deliberately do not enable DEC
+(`src/tui/list-modal.ts:runListModal`) deliberately do not enable DEC
 mouse reporting (`useMouse: false`, `enableMouseMovement: false` — verified
 in `mouse-reporting-disabled.test.ts` for both `runListModal` and
 `runProviderSetup`). This is intentional: these surfaces never need
@@ -429,7 +429,7 @@ required.
 The prompt is a genuine multi-line composing area built on OpenTUI's
 `TextareaRenderable` rather than its single-line `InputRenderable`, because
 the single-line widget is hard-wired to one row, no wrapping, and strips
-newlines (`src/tui-opentui/prompt-input.ts`). Enter sends; a literal newline
+newlines (`src/tui/prompt-input.ts`). Enter sends; a literal newline
 needs an explicit chord: Ctrl+Enter or Ctrl+J work on every terminal, and
 Shift+Enter works too on a terminal that negotiates the kitty keyboard
 protocol (this app requests it — `useKittyKeyboard` in `product-host.ts`) and
@@ -507,7 +507,7 @@ can drill into a path without retyping it.
 
 A readline-style kill ring backs Ctrl+K/U/W (kill) and Ctrl+Y/Alt+Y
 (yank/yank-pop) on top of the textarea's native delete bindings, which
-otherwise discard what they delete (`src/tui-opentui/prompt-kill-ring.ts`).
+otherwise discard what they delete (`src/tui/prompt-kill-ring.ts`).
 Consecutive kills in the same direction accumulate into one ring entry the
 way readline does, so a `Ctrl+K Ctrl+K … Ctrl+Y` sequence restores the whole
 killed run in original order.
@@ -551,7 +551,7 @@ first:
 - **Alt+C** copies a message, tool output, or diff without touching the
   mouse at all: it opens a copy-selection surface over the transcript
   (`enterCopyMode`) that resolves through the system clipboard port
-  (`src/tui-opentui/system-clipboard.ts` — a native helper binary per
+  (`src/tui/system-clipboard.ts` — a native helper binary per
   platform, `pbcopy`/`clip`/`wl-copy`/`xclip`/`xsel`, falling back to an OSC
   52 escape sequence when no helper is available, e.g. over SSH).
 
@@ -570,7 +570,7 @@ across both contexts.
 
 ## Standalone screens
 
-The provider-setup screen (`src/tui-opentui/provider-setup.ts`) runs before
+The provider-setup screen (`src/tui/provider-setup.ts`) runs before
 any session shell exists, so it does not route through the shared geometry
 resolver — there is no transcript, no prompt box, nothing for that resolver
 to arbitrate yet. Every direct child of that screen's root is given
@@ -586,7 +586,7 @@ Fixture and demo content must never be reachable from a production code
 path. When a surface's real dependency is missing (e.g. the settings surface
 opened with no settings data wired in), the surface must produce an honest
 empty state or a surfaced error — never the hardcoded rows from
-`src/tui-opentui/residuals.ts` rendered as if they were real content
+`src/tui/residuals.ts` rendered as if they were real content
 (`overlay-fixture-fallback.test.ts` pins this: a settings surface opened
 without its dependency must not contain the real settings labels, and must
 notify the caller instead).

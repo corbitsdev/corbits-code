@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createMemoizedParseMarkdown, parseMarkdown, type StyledSegment } from "./markdown-parser.js";
-import { color } from "./theme.js";
+import { color } from "./semantic-theme.js";
 
 function firstLine(text: string): StyledSegment[] {
   return parseMarkdown(text)[0] ?? [];

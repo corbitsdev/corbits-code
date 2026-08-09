@@ -3,7 +3,7 @@ import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
 import { globalSettingsPath, loadSettings } from "../config/settings.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
-import { runProviderSetup } from "../tui-opentui/provider-setup.js";
+import { runProviderSetup } from "./provider-setup.js";
 
 export async function runOnboarding(config: UnconfiguredConfig): Promise<number> {
   const settingsPath = config.globalSettingsPath;

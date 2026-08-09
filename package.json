@@ -35,7 +35,7 @@
     "test": "bun test ./src ./tests ./evals",
     "start": "bun run build && bun ./dist/index.js",
     "eval:capability": "bun scripts/eval-capability.ts",
-    "tui:opentui-smoke": "bun ./src/tui-opentui/smoke.ts"
+    "tui:smoke": "bun ./src/tui/smoke.ts"
   },
   "workspaces": [
     ".",

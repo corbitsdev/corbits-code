@@ -12,7 +12,7 @@
  * it back on the next observation. No painting, no store access.
  */
 
-import { agentProgress, clockLabel, DEFAULT_STALL_MS } from "../tui-opentui/agent-progress.js";
+import { agentProgress, clockLabel, DEFAULT_STALL_MS } from "../tui/agent-progress.js";
 import type { SubAgentSessionStatus } from "./session-store.js";
 
 /** The lane fields a report is written from. `SubAgentSession` satisfies it. */

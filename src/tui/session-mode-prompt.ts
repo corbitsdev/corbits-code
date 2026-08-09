@@ -5,7 +5,7 @@ import {
 } from "../config/settings.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { COMMAND_NAME } from "../branding.js";
-import { runListModal } from "../tui-opentui/list-modal.js";
+import { runListModal } from "./list-modal.js";
 
 const OPTIONS: readonly { mode: SessionMode; title: string; description: string }[] = [
   {

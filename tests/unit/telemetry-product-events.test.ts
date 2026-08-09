@@ -26,7 +26,7 @@ import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
 import {
   captureAuthFailure,
   classifyAgentSendFailure,
-} from "../../src/tui-opentui/session-chrome.js";
+} from "../../src/tui/session-chrome.js";
 
 type BatchBody = {
   batch: { event: string; properties: Record<string, unknown> }[];
