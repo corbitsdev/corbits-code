@@ -24,6 +24,7 @@ export {
   nextThrashState,
   thrashForceReport,
   thrashFromReRead,
+  thrashSoftReRead,
   type ThrashConfig,
   type ThrashState,
   type ThrashStopReason,

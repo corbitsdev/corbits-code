@@ -902,6 +902,202 @@ describe("SubAgentDirector report-forced wiring", () => {
   });
 });
 
+describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
+  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
+
+  function makeCapabilities(): ReactorCapabilities {
+    return {
+      infer: (options) =>
+        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+      executeTools: (calls, parallel, addToHistory) =>
+        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
+      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
+      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+      reply: (content) => ({ type: "reply", content }) as ReactorAction,
+      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
+      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+      wait: () => ({ type: "wait" }) as ReactorAction,
+      done: () => ({ type: "done" }) as ReactorAction,
+    };
+  }
+
+  function makeInferenceDoneEvent(
+    toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>,
+  ): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: toolCalls.map((tc) => ({
+          type: "tool_call",
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.args ?? {},
+        })),
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function makeToolDoneEvent(callId: string): ReactorInboundEvent {
+    return {
+      type: "tool.done",
+      result: { callId, content: "ok" },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+    return Array.isArray(result) ? result : [result];
+  }
+
+  /**
+   * Soft re-read needs count>=3 on one path and total tools >= 8. Drive that
+   * over a few turns, then assert the follow-up infer carries the implement
+   * nudge, and that a further climb to hard thrash still stops the leaf.
+   */
+  test("soft re-read injects implement wording once, then hard thrash still stops", async () => {
+    // requireEdit=true → implement wording
+    const director = new SubAgentDirector("system", [], undefined, 30, 2, undefined, Date.now, true);
+    const capabilities = makeCapabilities();
+
+    // Turns 1–3: three reads of the same path (still under soft min tools).
+    for (let i = 1; i <= 3; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
+    }
+
+    // Turns 4–7: greps to clear reReadMinTotalTools (3 reads + 5 greps = 8).
+    // Soft fires on the turn that crosses total=8 with count=3.
+    for (let i = 1; i <= 4; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
+    }
+
+    // 5th grep: total tools = 8, soft re-read should arm.
+    const softDone = makeInferenceDoneEvent([
+      { id: "g5", name: "grep", args: { pattern: "p5" } },
+    ]);
+    const softTurn = actionsArray(await director.decide(softDone, mockState, capabilities));
+    // Soft is not a stop — tools still execute.
+    expect(softTurn.find((a) => a.type === "execute_tools")).toBeDefined();
+    expect(softTurn.some((a) => a.type === "reply")).toBe(false);
+
+    const afterSoft = actionsArray(
+      await director.decide(makeToolDoneEvent("g5"), mockState, capabilities),
+    );
+    const softInfer = afterSoft.find((a) => a.type === "infer");
+    expect(softInfer).toBeDefined();
+    if (softInfer === undefined || softInfer.type !== "infer") throw new Error("expected infer");
+    const softEphemeral = (
+      softInfer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
+    )?.ephemeralTurns;
+    expect(softEphemeral?.[0]?.content?.[0]?.text).toContain("Edit a file");
+    expect(softEphemeral?.[0]?.content?.[0]?.text).not.toContain("Expand Findings");
+
+    // One more read of hot.ts → hard thrash stop.
+    const hardDone = makeInferenceDoneEvent([
+      { id: "r4", name: "read_file", args: { path: "hot.ts" } },
+    ]);
+    const hardTurn = actionsArray(await director.decide(hardDone, mockState, capabilities));
+    expect(hardTurn.some((a) => a.type === "reply")).toBe(true);
+    const checkpoint = hardTurn.find((a) => a.type === "checkpoint");
+    expect(checkpoint).toBeDefined();
+    if (checkpoint === undefined || checkpoint.type !== "checkpoint") {
+      throw new Error("expected checkpoint");
+    }
+    expect(checkpoint.message).toBe("subagent-thrash");
+  });
+
+  test("explore intent uses non-edit soft re-read wording", async () => {
+    // requireEdit=false (default) → explore wording
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const capabilities = makeCapabilities();
+
+    for (let i = 1; i <= 3; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
+    }
+    for (let i = 1; i <= 4; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
+    }
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "g5", name: "grep", args: { pattern: "p5" } }]),
+      mockState,
+      capabilities,
+    );
+    const afterSoft = actionsArray(
+      await director.decide(makeToolDoneEvent("g5"), mockState, capabilities),
+    );
+    const infer = afterSoft.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
+    const text = (
+      infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
+    )?.ephemeralTurns?.[0]?.content?.[0]?.text;
+    expect(text).toContain("Expand Findings");
+    expect(text).not.toContain("Edit a file");
+  });
+
+  test("soft re-read nudge fires only once even while pressure stays soft", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const capabilities = makeCapabilities();
+
+    for (let i = 1; i <= 3; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
+    }
+    for (let i = 1; i <= 5; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
+        mockState,
+        capabilities,
+      );
+      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
+    }
+
+    // Soft already fired on g5. Another grep keeps soft pressure (still 3 reads)
+    // but the follow-up infer must not re-nudge.
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "g6", name: "grep", args: { pattern: "p6" } }]),
+      mockState,
+      capabilities,
+    );
+    const second = actionsArray(
+      await director.decide(makeToolDoneEvent("g6"), mockState, capabilities),
+    );
+    const infer = second.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
+    const ephemeral = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    expect(ephemeral).toBeUndefined();
+  });
+});
+
 describe("SubAgentDirector stall management", () => {
   const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 

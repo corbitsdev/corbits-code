@@ -6,6 +6,7 @@ import {
   nextThrashState,
   thrashForceReport,
   thrashFromReRead,
+  thrashSoftReRead,
   type ThrashState,
   type ThrashToolCallBlock,
 } from "./thrash.js";
@@ -39,8 +40,10 @@ function applyAll(calls: ReadonlyArray<ThrashToolCallBlock>): ThrashState {
 }
 
 describe("thrash pure module", () => {
-  test("defaults are conservative (reReadLimit 4, forceReportWithin 2)", () => {
+  test("defaults are conservative (reReadLimit 4, soft 3, forceReportWithin 2)", () => {
     expect(DEFAULT_THRASH_CONFIG.reReadLimit).toBe(4);
+    expect(DEFAULT_THRASH_CONFIG.reReadSoftLimit).toBe(3);
+    expect(DEFAULT_THRASH_CONFIG.reReadSoftLimit).toBeLessThan(DEFAULT_THRASH_CONFIG.reReadLimit);
     expect(DEFAULT_THRASH_CONFIG.forceReportWithin).toBe(2);
     expect(DEFAULT_THRASH_CONFIG.reReadMinTotalTools).toBeGreaterThanOrEqual(
       DEFAULT_THRASH_CONFIG.reReadLimit,
@@ -207,6 +210,68 @@ describe("thrash pure module", () => {
     expect(thrashForceReport(1, 3, true)).toBe(true);
     expect(thrashForceReport(2, 3, true)).toBe(false);
     expect(thrashForceReport(3, 3, true)).toBe(false);
+  });
+
+  test("soft re-read pressure fires re-read-nudge before hard thrash (CL-5813)", () => {
+    // 3 reads of one path + 5 greps = 8 tools → soft (limit 3), not hard (limit 4).
+    const softCalls: ThrashToolCallBlock[] = [];
+    for (let i = 0; i < 3; i++) softCalls.push(read("hot.ts"));
+    for (let i = 0; i < 5; i++) softCalls.push(grep(`p${i}`));
+    const soft = applyAll(softCalls);
+    expect(soft.totalToolCalls).toBe(8);
+    expect(thrashFromReRead(soft)).toBe(false);
+    expect(thrashSoftReRead(soft)).toBe(true);
+    expect(
+      evaluateThrashStop({
+        state: soft,
+        hasToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 30,
+      }),
+    ).toBe("re-read-nudge");
+
+    // One more read of the same path crosses hard thrash.
+    const hard = nextThrashState(soft, [read("hot.ts")]);
+    expect(thrashFromReRead(hard)).toBe(true);
+    expect(thrashSoftReRead(hard)).toBe(false);
+    expect(
+      evaluateThrashStop({
+        state: hard,
+        hasToolCalls: true,
+        turnsCompleted: 6,
+        maxTurns: 30,
+      }),
+    ).toBe("thrash");
+  });
+
+  test("soft re-read still requires min total tools", () => {
+    // 3 reads only — under reReadMinTotalTools.
+    const under = applyAll([read("a.ts"), read("a.ts"), read("a.ts")]);
+    expect(thrashSoftReRead(under)).toBe(false);
+    expect(
+      evaluateThrashStop({
+        state: under,
+        hasToolCalls: true,
+        turnsCompleted: 3,
+        maxTurns: 30,
+      }),
+    ).toBeNull();
+  });
+
+  test("report-forced is preferred over re-read-nudge when both apply", () => {
+    const softCalls: ThrashToolCallBlock[] = [];
+    for (let i = 0; i < 3; i++) softCalls.push(read("hot.ts"));
+    for (let i = 0; i < 5; i++) softCalls.push(grep(`p${i}`));
+    const soft = applyAll(softCalls);
+    // maxTurns=10, forceReportWithin=2 → report-forced at turnsCompleted === 8.
+    expect(
+      evaluateThrashStop({
+        state: soft,
+        hasToolCalls: true,
+        turnsCompleted: 8,
+        maxTurns: 10,
+      }),
+    ).toBe("report-forced");
   });
 
   test("thrash is preferred over report-forced when both apply", () => {
