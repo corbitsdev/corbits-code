@@ -18,6 +18,18 @@ describe("director registry", () => {
     }
   });
 
+  test("every package has a real system prompt (no placeholders)", () => {
+    for (const id of DIRECTOR_IDS) {
+      const pkg = DIRECTOR_REGISTRY[id];
+      expect(pkg.systemPrompt.length).toBeGreaterThan(40);
+      expect(pkg.systemPrompt.startsWith("Placeholder")).toBe(false);
+      expect(pkg.systemPrompt.toLowerCase()).toContain("primary intent");
+      expect(pkg.report.requiredSections).toEqual(
+        expect.arrayContaining(["Summary", "Findings", "Blockers", "Paths"]),
+      );
+    }
+  });
+
   test("resolve by agentId", () => {
     const r = resolveDirector({ agentId: "skywalker" });
     expect(r.ok).toBe(true);

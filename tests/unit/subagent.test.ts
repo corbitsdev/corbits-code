@@ -186,13 +186,83 @@ test("unknown agent id fails closed when no profiles are loaded", async () => {
       return "should not run";
     },
   });
+  // Non-director ids still require profiles; directors resolve from the closed registry.
   const result = await callHandler(tool, {
     description: "review",
     prompt: "look at it",
-    agent: "greybeard",
+    agent: "no-such-agent",
   });
   expect(result).toContain("Error:");
   expect(result).toContain("no agent profiles are loaded");
+  expect(ran).toBe(false);
+});
+
+test("closed director resolves without profiles loaded", async () => {
+  let received: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      received = params;
+      return "ok";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "ship",
+    prompt: "implement the fix",
+    agent: "implement",
+  });
+  expect(result).toContain("ok");
+  expect(received?.systemPromptRole).toBeDefined();
+  expect(received?.systemPromptRole).toContain("PRIMARY INTENT");
+});
+
+test("intent maps to closed director without profiles", async () => {
+  let received: RunSubAgentParams | undefined;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      received = params;
+      return "ok";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "map code",
+    prompt: "find callers of X",
+    intent: "explore",
+  });
+  expect(result).toContain("ok");
+  expect(received?.systemPromptRole).toContain("PRIMARY INTENT");
+  expect(received?.capabilities).toEqual({
+    mode: "exclude",
+    tools: ["write_file", "edit_file", "delete_file"],
+  });
+});
+
+test("intent general is refused (no general director)", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "vague",
+    prompt: "do something",
+    intent: "general",
+  });
+  expect(result).toContain("Error:");
+  expect(result).toContain("general");
   expect(ran).toBe(false);
 });
 
