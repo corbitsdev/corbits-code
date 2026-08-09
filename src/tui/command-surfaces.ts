@@ -10,7 +10,6 @@
 
 import type { KeyEvent } from "@opentui/core"
 
-import type { SessionMode } from "../config/session-mode.js"
 import { maskEcho, maskSecret } from "./provider-setup.js"
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js"
 import {
@@ -65,15 +64,9 @@ export type WebProviderChoice = { readonly id: string; readonly name: string }
 
 export type CompactionMode = "llm" | "pruning"
 
-/** Where a session-mode write lands: every repo, or just this one. */
-export type SessionModeScope = "global" | "local"
-
 /** Live values behind the settings surface, re-read on every open. */
 export type SettingsSnapshot = {
   readonly compactionMode: CompactionMode
-  readonly sessionMode: SessionMode
-  /** Which scope `sessionMode` currently reflects — a local override wins over global. */
-  readonly sessionModeScope: SessionModeScope
   readonly waitForApproval: boolean
   readonly telemetryEnabled: boolean
   readonly showPromptCost: boolean
@@ -150,8 +143,6 @@ export type HooksSurfaceSummary = {
 export type SettingsSurfaceDeps = {
   readonly read: () => SettingsSnapshot
   readonly setCompactionMode: (mode: CompactionMode) => void
-  /** Writes to the given scope: "local" persists to `.corbits/settings.json` in cwd. */
-  readonly setSessionMode: (mode: SessionMode, scope: SessionModeScope) => void
   readonly setWaitForApproval: (value: boolean) => void
   readonly setTelemetryEnabled: (value: boolean) => void
   readonly setShowPromptCost: (value: boolean) => void
@@ -268,14 +259,6 @@ const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
   { id: "llm", label: "summarize" },
   { id: "pruning", label: "drop" },
 ]
-const SESSION_MODE_OPTIONS: readonly CycleOption<SessionMode>[] = [
-  { id: "single", label: "single" },
-  { id: "orchestrator", label: "orchestrator" },
-]
-const SESSION_SCOPE_OPTIONS: readonly CycleOption<SessionModeScope>[] = [
-  { id: "global", label: "everywhere" },
-  { id: "local", label: "this repo" },
-]
 const ON_OFF_OPTIONS: readonly CycleOption<"on" | "off">[] = [
   { id: "on", label: "on" },
   { id: "off", label: "off" },
@@ -311,35 +294,6 @@ function settingsCycleRows(
       cycle: (dir) =>
         settings.setCompactionMode(
           cycleValue(COMPACTION_OPTIONS.map((o) => o.id), snapshot.compactionMode, dir),
-        ),
-    },
-    {
-      id: "session-mode",
-      value: `${"session mode".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_MODE_OPTIONS, snapshot.sessionMode)}`,
-      chosenLabel: activeOptionLabel(SESSION_MODE_OPTIONS, snapshot.sessionMode),
-      describe: {
-        what: "single agent works in-session; orchestrator delegates through a worker fleet.",
-        impact: "orchestrator can run sub-agents concurrently and costs more per turn.",
-        tone: "consequence",
-      },
-      cycle: (dir) =>
-        settings.setSessionMode(
-          cycleValue(SESSION_MODE_OPTIONS.map((o) => o.id), snapshot.sessionMode, dir),
-          snapshot.sessionModeScope,
-        ),
-    },
-    {
-      id: "session-scope",
-      value: `${"  scope".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope)}`,
-      chosenLabel: activeOptionLabel(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope),
-      describe: {
-        what: "whether the session mode above applies to every repo or just this one.",
-        impact: "this repo writes a local override that takes precedence over the global default.",
-      },
-      cycle: (dir) =>
-        settings.setSessionMode(
-          snapshot.sessionMode,
-          cycleValue(SESSION_SCOPE_OPTIONS.map((o) => o.id), snapshot.sessionModeScope, dir),
         ),
     },
     {

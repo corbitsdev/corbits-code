@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { chmod, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
 import {
@@ -733,18 +733,24 @@ describe("loaders", () => {
 });
 
 describe("sessionMode", () => {
-  test("loadSettings round-trips sessionMode", async () => {
+  test("loadSettings drops legacy single sessionMode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, sessionMode: "single" });
-      expect(await loadSettings(path)).toEqual({ ...firepass, sessionMode: "single" });
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({ ...firepass, sessionMode: "single" }, null, 2) + "\n",
+        "utf8",
+      );
+      // CL-5814: "single" still loads without error, then is stripped.
+      expect(await loadSettings(path)).toEqual(firepass);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("loadLocalSettings round-trips sessionMode", async () => {
+  test("loadLocalSettings round-trips orchestrator sessionMode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-local-"));
     try {
       const path = join(dir, ".corbits", "settings.json");

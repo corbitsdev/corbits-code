@@ -28,8 +28,6 @@ import {
 function baseSnapshot(): SettingsSnapshot {
   return {
     compactionMode: "llm",
-    sessionMode: "orchestrator",
-    sessionModeScope: "global",
     waitForApproval: true,
     telemetryEnabled: false,
     showPromptCost: false,
@@ -94,7 +92,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   readonly snapshot: () => SettingsSnapshot
   readonly calls: {
     compaction: string[]
-    sessionMode: Array<{ mode: string; scope: string }>
     waitForApproval: boolean[]
     telemetry: boolean[]
     showPromptCost: boolean[]
@@ -103,7 +100,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   let state: SettingsSnapshot = { ...baseSnapshot(), ...overrides }
   const calls = {
     compaction: [] as string[],
-    sessionMode: [] as Array<{ mode: string; scope: string }>,
     waitForApproval: [] as boolean[],
     telemetry: [] as boolean[],
     showPromptCost: [] as boolean[],
@@ -115,10 +111,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
       setCompactionMode: (mode) => {
         calls.compaction.push(mode)
         state = { ...state, compactionMode: mode }
-      },
-      setSessionMode: (mode, scope) => {
-        calls.sessionMode.push({ mode, scope })
-        state = { ...state, sessionMode: mode, sessionModeScope: scope }
       },
       setWaitForApproval: (value) => {
         calls.waitForApproval.push(value)
@@ -187,18 +179,15 @@ describe("settings surface", () => {
     })
   })
 
-  test("session mode scope switch honours a local write", async () => {
+  test("settings surface has no session mode rows", async () => {
     await withShell(async (shell) => {
-      const { deps, calls } = settingsDeps()
+      const { deps } = settingsDeps()
       openCommandSurface(shell, "settings", deps)
       await Promise.resolve()
       await Promise.resolve()
 
-      moveOverlaySelection(shell, 2) // compaction, session mode, scope
-      cycleOverlaySelection(shell, 1)
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(calls.sessionMode).toEqual([{ mode: "orchestrator", scope: "local" }])
+      expect(shell.overlayItems.some((l) => l.includes("session mode"))).toBe(false)
+      expect(shell.overlayItems.some((l) => l.includes("scope"))).toBe(false)
     })
   })
 
@@ -211,7 +200,8 @@ describe("settings surface", () => {
 
       expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true)
 
-      moveOverlaySelection(shell, 5) // compaction, session mode, scope, approval wait, telemetry, show cost
+      // compaction, approval wait, telemetry, show cost
+      moveOverlaySelection(shell, 3)
       cycleOverlaySelection(shell, 1)
       await Promise.resolve()
       await Promise.resolve()

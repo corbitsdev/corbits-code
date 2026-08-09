@@ -7,7 +7,7 @@ import { type } from "arktype";
 
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
-import { isSessionMode, type SessionMode } from "./session-mode.js";
+import type { SessionMode } from "./session-mode.js";
 import { resolveDefaultModel } from "./providers.js";
 import {
   OPENCODE_GO_BASE_URL,
@@ -114,9 +114,9 @@ export type Settings = {
   compactionMode?: "llm" | "pruning";
   // Default inference-turn budget for leaf sub-agents (not the parent session limit).
   subagentMaxTurns?: number;
-  // Primary session behavior: single agent does work in-session; orchestrator
-  // delegates via task and manages a worker fleet. When unset, the TUI prompts
-  // once at startup.
+  // Deprecated (CL-5814): orchestrator is the only product path. Legacy values
+  // may still appear in on-disk settings and are ignored at resolve time; new
+  // writes should omit this field. Kept on the type so old files still load.
   sessionMode?: SessionMode;
   // When an agent profile pins a provider/model combo (via its `inference`
   // field) and none of the listed legs are available in the user's configured
@@ -435,7 +435,9 @@ const SettingsSchema = type({
   "lastChangelogVersion?": "string",
   "compactionMode?": "'llm' | 'pruning'",
   "subagentMaxTurns?": "number",
+  // Legacy disk values still load; product resolve ignores them (CL-5814).
   "sessionMode?": "'single' | 'orchestrator'",
+
   "agentModelFallback?": "'active' | 'none'",
   "shell?": type({ "timeoutMs?": "number", "maxTimeoutMs?": "number" }),
   "tools?": type({
@@ -475,7 +477,9 @@ const LocalSettingsSchema = type({
   "model?": "string",
   "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
   "mcpServers?": "unknown",
+  // Legacy disk values still load; product resolve ignores them (CL-5814).
   "sessionMode?": "'single' | 'orchestrator'",
+
   "env?": "Record<string, string>",
   // Reject any other key so local settings can never smuggle credentials.
   "+": "reject",
@@ -500,7 +504,15 @@ export function isSettings(value: unknown): value is Settings {
       return false;
     }
   }
-  if (s.sessionMode !== undefined && !isSessionMode(s.sessionMode)) return false;
+  // Legacy "single" | "orchestrator" still load; product resolve ignores them.
+  if (
+    s.sessionMode !== undefined &&
+    s.sessionMode !== "single" &&
+    s.sessionMode !== "orchestrator"
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -560,7 +572,15 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
   if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
-  if (s.sessionMode !== undefined && !isSessionMode(s.sessionMode)) return false;
+  // Legacy "single" | "orchestrator" still load; product resolve ignores them.
+  if (
+    s.sessionMode !== undefined &&
+    s.sessionMode !== "single" &&
+    s.sessionMode !== "orchestrator"
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -722,8 +742,8 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       s.subagentMaxTurns !== undefined
         ? clampSubAgentMaxTurns(s.subagentMaxTurns as number)
         : undefined,
-    sessionMode:
-      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    // CL-5814: drop legacy "single"; only keep explicit orchestrator if present.
+    sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     agentModelFallback:
       s.agentModelFallback === "active" || s.agentModelFallback === "none"
         ? s.agentModelFallback
@@ -794,8 +814,7 @@ function pickLocalFields(
       model: s.model as string | undefined,
       reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
       mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-      sessionMode:
-        s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+      sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
       env: s.env as Record<string, string> | undefined,
     };
   }
@@ -804,8 +823,7 @@ function pickLocalFields(
     model: typeof s.model === "string" ? s.model : undefined,
     reasoningEffort: isReasoningEffort(s.reasoningEffort) ? s.reasoningEffort : undefined,
     mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-    sessionMode:
-      s.sessionMode === "single" || s.sessionMode === "orchestrator" ? s.sessionMode : undefined,
+    sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     env:
       s.env !== undefined && typeof s.env === "object" && s.env !== null && !Array.isArray(s.env)
         ? Object.fromEntries(
