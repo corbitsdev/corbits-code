@@ -256,6 +256,10 @@ export type PermissionGate = {
   // Turn auto mode on or off for the rest of the session. SHIFT+TAB in the TUI
   // wires the toggle here so a switch takes effect on the next tool call.
   setAuto: (value: boolean) => void;
+  // Whether --dangerously-skip-permissions is active for this session. Immutable
+  // after gate construction; pre-gate sandboxes (path-escape, shell cwd bounds)
+  // consult this so outside-workspace access is not hard-denied under yolo mode.
+  getSkipPermissions: () => boolean;
   // Grant a session-only approval outside the normal ask flow, e.g. when the
   // operator already approved a literal command through ask_operator — so the
   // matching run_shell call that follows does not prompt a second time. The
@@ -610,6 +614,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     setAuto: (value: boolean) => {
       auto = value;
     },
+    getSkipPermissions: () => skipPermissions,
     preApprove,
     registerMcpClient,
     unregisterMcpServer,

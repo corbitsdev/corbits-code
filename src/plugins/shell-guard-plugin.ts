@@ -341,10 +341,12 @@ export function shellGuardPlugin(
   cwd: string,
   timeoutConfig?: ShellTimeoutConfig,
   env?: Record<string, string>,
+  options: { allowOutsideCwd?: boolean } = {},
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
+  const allowOutsideCwd = options.allowOutsideCwd === true;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
@@ -377,7 +379,9 @@ export function shellGuardPlugin(
           let executionCwd = retainedShellCwd;
           if (perCallCwdRaw !== undefined) {
             try {
-              executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw);
+              executionCwd = resolvePerCallShellCwd(sessionRoot, perCallCwdRaw, {
+                allowOutsideSession: allowOutsideCwd,
+              });
             } catch (err) {
               return {
                 callId: call.id,
@@ -414,7 +418,10 @@ export function shellGuardPlugin(
               );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
-              if (!isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
+              if (
+                !allowOutsideCwd &&
+                !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)
+              ) {
                 return {
                   callId: call.id,
                   content: shellCwdEscapesSessionMessage(parsed.finalCwd),

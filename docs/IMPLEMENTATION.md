@@ -282,7 +282,7 @@ Providers and credentials are read exclusively from settings files: the global `
 | `--model <id>` | provider default | Select a model for the active provider |
 
 | `--force` | false | Override an existing run state |
-| `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer |
+| `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain) |
 | `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
 | `--no-auto` | false | Start with auto mode off (ask on every consequential action); no in-session key toggles it |
 | `--no-workflow` | false | Deprecated no-op; workflows are manual slash commands only |

@@ -17,7 +17,10 @@ test("createAgentToolset wires posix tools for a real cwd", async () => {
   } as unknown as ReturnType<typeof posixModule.createPosixTools>);
 
   const { createAgentToolset } = await import("../../src/agent/tools.js");
-  const permissionGate = { check: async () => ({ allowed: true }) } as never;
+  const permissionGate = {
+    check: async () => ({ allowed: true }),
+    getSkipPermissions: () => false,
+  } as never;
 
   const toolset = await createAgentToolset({
     cwd,

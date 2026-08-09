@@ -213,7 +213,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
       ),
     })),
-    createListDirTool(cwd),
+    createListDirTool(cwd, {
+      allowOutside: permissionGate.getSkipPermissions(),
+    }),
     createUseSkillTool(cwd, skillDirs, args.telemetry),
     createWebFetchTool(),
     createWebSearchTool(),

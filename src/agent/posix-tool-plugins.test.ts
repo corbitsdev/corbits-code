@@ -78,6 +78,63 @@ describe("buildCorePosixToolPlugins", () => {
     }
   });
 
+  test("skipPermissions allows reading a path outside the workspace", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-skip-in-"));
+    const outside = await mkdtemp(join(tmpdir(), "ic-posix-skip-out-"));
+    try {
+      const target = join(outside, "other.txt");
+      await writeFile(target, "from-other-repo", "utf8");
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+      const result = await runner.run(
+        { id: "out-1", name: "read_file", arguments: { path: target } },
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+      expect(String(result.content)).toContain("from-other-repo");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("without skipPermissions, path-escape still blocks outside-workspace reads", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-bound-in-"));
+    const outside = await mkdtemp(join(tmpdir(), "ic-posix-bound-out-"));
+    try {
+      const target = join(outside, "secret.txt");
+      await writeFile(target, "secret", "utf8");
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: false,
+        auto: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+      const result = await runner.run(
+        { id: "bound-1", name: "read_file", arguments: { path: target } },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test("reads bounded tool-output spills when session blob reader is wired", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-tool-output-"));
     try {

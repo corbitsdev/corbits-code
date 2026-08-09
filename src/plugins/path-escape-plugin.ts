@@ -1,10 +1,23 @@
+import { resolve } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import type { RootsProvider } from "../permission/worktree-roots.js";
 
-export function pathEscapePlugin(cwd: string, rootsProvider: RootsProvider = () => []): ToolPlugin {
+export type PathEscapeOptions = {
+  // When true (yolo / --dangerously-skip-permissions), paths outside the
+  // workspace still resolve to absolute form and pass through. Secret-guard and
+  // authz remain the hard-deny layers; the permission gate already auto-allows.
+  allowOutside?: boolean;
+};
+
+export function pathEscapePlugin(
+  cwd: string,
+  rootsProvider: RootsProvider = () => [],
+  options: PathEscapeOptions = {},
+): ToolPlugin {
+  const allowOutside = options.allowOutside === true;
   return {
     middleware: (next) => async (call, signal) => {
       if ("_raw" in call.arguments) {
@@ -16,7 +29,7 @@ export function pathEscapePlugin(cwd: string, rootsProvider: RootsProvider = () 
       }
       let escaped: Record<string, unknown>;
       try {
-        escaped = escapeArgs(call.arguments, cwd, rootsProvider);
+        escaped = escapeArgs(call.arguments, cwd, rootsProvider, allowOutside);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { callId: call.id, content: message, isError: true };
@@ -30,11 +43,12 @@ function escapeArgs(
   args: Record<string, unknown>,
   cwd: string,
   rootsProvider: RootsProvider,
+  allowOutside: boolean,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string" && looksLikePath(key)) {
-      out[key] = sanitizePath(value, cwd, rootsProvider);
+      out[key] = sanitizePath(value, cwd, rootsProvider, allowOutside);
     } else {
       out[key] = value;
     }
@@ -59,13 +73,23 @@ export function looksLikePath(key: string): boolean {
   );
 }
 
-function sanitizePath(value: string, cwd: string, rootsProvider: RootsProvider): string {
+function sanitizePath(
+  value: string,
+  cwd: string,
+  rootsProvider: RootsProvider,
+  allowOutside: boolean,
+): string {
   if (isToolOutputLike(value)) {
     return value;
   }
   const resolved = resolveWorkspacePath(cwd, value, rootsProvider);
-  if (resolved === undefined) {
-    throw new Error(`Path escapes working directory: ${value}`);
+  if (resolved !== undefined) {
+    return resolved;
   }
-  return resolved;
+  if (allowOutside) {
+    // Same lexical resolve as resolveWorkspacePath's in-bounds branch — absolute
+    // so later plugins see a stable path, not a relative escape fragment.
+    return resolve(cwd, value);
+  }
+  throw new Error(`Path escapes working directory: ${value}`);
 }

@@ -45,4 +45,22 @@ describe("listDirectory", () => {
     expect(out).toContain("outside the workspace");
     expect(out).not.toContain("secret.txt");
   });
+
+  test("allowOutside lists a path outside the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-"));
+    await writeFile(join(outside, "other.txt"), "");
+    const out = await listDirectory(dir, outside, { allowOutside: true });
+    expect(out.split("\n")).toContain("other.txt");
+    expect(out).not.toContain("outside the workspace");
+  });
+
+  test("allowOutside follows a symlink that resolves outside the workspace", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-link-"));
+    await writeFile(join(outside, "secret.txt"), "");
+    await symlink(outside, join(dir, "escape"));
+    const out = await listDirectory(dir, "escape", { allowOutside: true });
+    expect(out.split("\n")).toContain("secret.txt");
+  });
 });

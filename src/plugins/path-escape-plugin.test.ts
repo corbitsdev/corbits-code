@@ -118,4 +118,36 @@ describe("pathEscapePlugin", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes working directory/);
   });
+
+  test("allowOutside passes outside paths through as absolute", async () => {
+    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: true });
+    const next = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: JSON.stringify(call.arguments),
+    });
+    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const result = await handler(
+      makeCall("read_file", { path: "../other-repo/README.md" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+    const args = JSON.parse(String(result.content)) as { path: string };
+    expect(args.path).toBe("/other-repo/README.md");
+  });
+
+  test("allowOutside still leaves in-bounds paths absolute under cwd", async () => {
+    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: true });
+    const next = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: JSON.stringify(call.arguments),
+    });
+    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const result = await handler(
+      makeCall("read_file", { path: "src/index.ts" }),
+      new AbortController().signal,
+    );
+    expect(result.isError).not.toBe(true);
+    const args = JSON.parse(String(result.content)) as { path: string };
+    expect(args.path).toBe("/project/src/index.ts");
+  });
 });
