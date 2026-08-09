@@ -77,8 +77,9 @@ import {
   type AgentProgressSession,
 } from "./agent-progress.js"
 
-/** Tool name a sub-agent dispatch call carries — its row gets live progress. */
+/** Tool name a sub-agent dispatch call carries (fleet board owns live state). */
 const TASK_TOOL_NAME = "task"
+
 
 /**
  * Tool name the task checklist is written through. Its calls paint no
@@ -87,6 +88,17 @@ const TASK_TOOL_NAME = "task"
  * panel that updates in place, and again as scrollback that never does.
  */
 const MANAGE_TASKS_TOOL_NAME = "manage_tasks"
+
+/**
+ * Tools whose live work is already owned by standing chrome (fleet board /
+ * task panel). Call + result paint no transcript rows — the board is the
+ * live surface; re-announcing the same dispatch as a `● Task` line is noise
+ * (CL-5846 first cut).
+ */
+const PANEL_OWNED_TOOL_NAMES: ReadonlySet<string> = new Set([
+  MANAGE_TASKS_TOOL_NAME,
+  TASK_TOOL_NAME,
+])
 
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
 export type TaskProgressSession = AgentProgressSession & { readonly id: string }
@@ -543,9 +555,10 @@ function applyToolCall(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_call" }>,
 ): void {
-  if (event.name === MANAGE_TASKS_TOOL_NAME) {
+  if (PANEL_OWNED_TOOL_NAMES.has(event.name)) {
     // Remembered so the matching result is dropped too — suppressing only the
-    // call would leave its result to land as an unpaired row.
+    // call would leave its result to land as an unpaired row. Live Task state
+    // lives on the fleet board; manage_tasks lives on the task panel.
     if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId)
     return
   }
@@ -562,9 +575,6 @@ function applyToolCall(
     appendStreamRow(shell, row)
   }
   if (event.callId !== undefined) bag.toolRows.set(event.callId, index)
-  if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
-    bag.taskCallIds.add(event.callId)
-  }
   bag.lastToolRow = index
 }
 
