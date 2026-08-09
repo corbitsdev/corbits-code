@@ -1657,10 +1657,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
-    // The App clears its transcript unconditionally on /clear, so the backend
-    // rotation is always enqueued regardless of contention; the queue serialises
-    // it behind any in-progress op. Sub-agents nest under the new session
-    // automatically because getWorkdirBase reads the live sessionId.
+    // Wipe the painted transcript immediately. The product host listens for
+    // session.clear; the Ink App used to clear its own stream unconditionally
+    // and that path never moved to OpenTUI.
+    emitter.emit("session.clear");
+    // Cancel live workers before rotation so /clear does not leave orphaned
+    // child reactors burning tokens under the old session id.
+    subAgentSessions.cancelAll("Session cleared");
+    // Backend rotation is always enqueued regardless of contention; the queue
+    // serialises it behind any in-progress op. Sub-agents nest under the new
+    // session automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
         // Tear the old agent down and dispose the recorder before workdir is

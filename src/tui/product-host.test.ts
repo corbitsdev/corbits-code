@@ -203,6 +203,26 @@ describe("mountProductHost", () => {
     }
   })
 
+  test("session.clear wipes the painted transcript (CL-5612)", async () => {
+    const { host, emitter } = await mountHeadless()
+    try {
+      emitter.emit("event", { type: "user", text: "old prompt" })
+      emitter.emit("event", { type: "assistant", text: "old reply" })
+      expect(host.shell.streamLog.length).toBe(2)
+
+      emitter.emit("session.clear")
+      expect(host.shell.streamLog).toEqual([])
+      expect(host.shell.streamLogBase).toBe(0)
+      expect(host.shell.lineCount).toBe(0)
+
+      // Subsequent turns land on the empty transcript.
+      emitter.emit("event", { type: "user", text: "fresh prompt" })
+      expect(host.shell.streamLog).toEqual([{ role: "user", text: "fresh prompt" }])
+    } finally {
+      host.dispose()
+    }
+  })
+
   test("permission.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
     const { host, emitter } = await mountHeadless()
     try {
@@ -253,6 +273,7 @@ describe("mountProductHost", () => {
     expect(emitter.listenerCount("event")).toBe(1)
     expect(emitter.listenerCount("history.hydrate")).toBe(1)
     expect(emitter.listenerCount("session.title")).toBe(1)
+    expect(emitter.listenerCount("session.clear")).toBe(1)
     expect(emitter.listenerCount("permission.gate")).toBe(1)
     expect(emitter.listenerCount("operator.gate")).toBe(1)
 
@@ -263,6 +284,7 @@ describe("mountProductHost", () => {
     expect(emitter.listenerCount("event")).toBe(0)
     expect(emitter.listenerCount("history.hydrate")).toBe(0)
     expect(emitter.listenerCount("session.title")).toBe(0)
+    expect(emitter.listenerCount("session.clear")).toBe(0)
     expect(emitter.listenerCount("permission.gate")).toBe(0)
     expect(emitter.listenerCount("operator.gate")).toBe(0)
   })

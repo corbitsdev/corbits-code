@@ -2327,6 +2327,43 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
 }
 
 /**
+ * Empty the visible transcript for a fresh session (/clear, /new).
+ *
+ * Backend session rotation lives in the runner; this is only the on-screen wipe
+ * the OpenTUI host must own after the Ink App path went away. Observe mode is
+ * dropped first so a child view cannot keep painting into a cleared parent.
+ * Retention base resets so the screen matches a brand-new session, not a window
+ * over an empty retained log with a stale eviction marker.
+ */
+export function clearTranscript(shell: AppShell): void {
+  if (shell.observe !== null) {
+    // Drop observe without the "left observe" system row — the whole log is
+    // about to go and a farewell row would only flash then vanish.
+    shell.observe = null
+    shell.parentStreamLog = null
+    shell.parentStreamLogBase = null
+    let guard = 4
+    while (guard-- > 0 && focusOwner(shell.focus) === "observe") {
+      shell.focus = popFocus(shell.focus)
+    }
+    const frames = shell.focus.frames.filter((f) => f.target !== "observe")
+    if (frames.length !== shell.focus.frames.length) {
+      shell.focus = { frames }
+    }
+    setChromeZones(shell, { agents: null })
+    applyFocus(shell)
+  }
+  shell.streamLog.length = 0
+  shell.streamLogBase = 0
+  shell.lineCount = 0
+  shell.parentStreamLog = null
+  shell.parentStreamLogBase = null
+  repaintTranscriptWindow(shell)
+  paintChrome(shell)
+}
+
+
+/**
  * Identifies a transcript child as the eviction notice rather than a row.
  * Identity, not position or state, is the source of truth: `streamLogBase`
  * flips to nonzero the instant a trim happens, one step before the notice
