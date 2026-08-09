@@ -253,16 +253,17 @@ describe("landing screen", () => {
   })
 
   test(
-    "an idle mount keeps the snow drifting on the renderer's own frame event",
+    "an idle mount keeps the snow drifting on its own, with nothing pumping frames by hand",
     async () => {
       // Regression for CL-5737: every other test in this file drives the mark
       // by calling `paintLanding` directly with a hand-picked clock. That is
       // exactly why the landing snow shipped completely unreachable — none of
       // those tests go through the real driver a running session actually
-      // uses. This one mounts the shell for real and lets the renderer's own
-      // FRAME event (wired in `createAppShell`, unwired in `shell.dispose`)
-      // drive the repaint, the same as production, with no direct calls to
-      // `paintLanding` or `renderMark`.
+      // uses. This one mounts the shell for real and lets it repaint itself:
+      // no `paintLanding`/`renderMark` calls, and critically no `renderOnce`
+      // loop either while waiting — a test that pumps frames by hand can stay
+      // green even when production's self-driving mechanism is dead, which is
+      // exactly the blind spot that let the throttled build ship frozen snow.
       await withTestRenderer(async (h) => {
         const shell = createAppShell(h.renderer, {
           terminal: { columns: 80, rows: 24 },
@@ -273,24 +274,13 @@ describe("landing screen", () => {
           await settle(h)
           const before = markRows(h).join("\n")
 
-          // A burst of frames faster than the ~125ms idle-repaint throttle
-          // must not each produce a distinct paint: the FRAME event fires
-          // from inside the render loop, so an unthrottled repaint here is
-          // exactly the uncapped render-loop regression this guards against.
-          const burstStart = Date.now()
-          while (Date.now() - burstStart < 60) {
-            await h.renderOnce()
-          }
-          expect(markRows(h).join("\n")).toBe(before)
+          // Real wall-clock wait, no renderOnce in between: only the mount's
+          // own idle-repaint timer can be advancing the snow here. `flush`
+          // waits on the renderer's own scheduler settling rather than
+          // forcing frames, so it does not manufacture the motion itself.
+          await new Promise((resolve) => setTimeout(resolve, 3_000))
 
-          // Real elapsed time, not an injected clock: the production driver
-          // reads the wall clock, so this is the only way to exercise it.
-          // At the fall speed in mark-anim.ts a few real seconds is enough
-          // for at least one active flake column to cross a row boundary.
-          const start = Date.now()
-          while (Date.now() - start < 5_000) {
-            await h.renderOnce()
-          }
+          await h.flush()
           const after = markRows(h).join("\n")
 
           expect(after).not.toBe(before)
