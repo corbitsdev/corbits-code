@@ -39,6 +39,7 @@ import type { PaletteCommand } from "./command-catalog.js"
 import {
   appendObserveStreamRow,
   appendStreamRow,
+  clearTranscript,
   createAppShell,
   paintChrome,
   setChromeZones,
@@ -425,6 +426,7 @@ export async function mountProductHost(
     disposeGates()
     config.eventEmitter.off("history.hydrate", onHistory)
     config.eventEmitter.off("session.title", onTitle)
+    config.eventEmitter.off("session.clear", onSessionClear)
     config.eventEmitter.off("hook", onHook)
     config.eventEmitter.off("mcp.status", onMcpStatus)
     config.eventEmitter.off("permission.grant", onPermissionGrant)
@@ -534,6 +536,14 @@ export async function mountProductHost(
     }
   }
 
+  // /clear and /new rotate the backend session in the runner; the host must
+  // wipe the painted transcript so the screen matches a brand-new session.
+  // The Ink App used to own this unconditionally — OpenTUI regressed it.
+  function onSessionClear(): void {
+    if (disposed) return
+    clearTranscript(shell)
+  }
+
   let currentModels = config.models ?? []
   let currentDescribeModel = config.describeModel
   let openModels: (() => void) | undefined
@@ -629,6 +639,7 @@ export async function mountProductHost(
   config.eventEmitter.on("event", onEvent)
   config.eventEmitter.on("history.hydrate", onHistory)
   config.eventEmitter.on("session.title", onTitle)
+  config.eventEmitter.on("session.clear", onSessionClear)
   config.eventEmitter.on("hook", onHook)
   config.eventEmitter.on("mcp.status", onMcpStatus)
   config.eventEmitter.on("permission.grant", onPermissionGrant)
