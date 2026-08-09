@@ -25,7 +25,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Ctrl+C", description: "interrupt the run, or clear the prompt when idle; press twice to exit" },
   { keys: "Ctrl+G", description: "cancel the most recently queued or steered message before it dispatches" },
   { keys: "Alt+C", description: "copy mode: pick a message, tool output, or diff; press again to close it" },
-  { keys: "Alt+M", description: "release the mouse to the terminal for native drag-select and copy; on by default for wheel scroll and click-to-expand" },
+  { keys: "Alt+M", description: "hand the mouse to the terminal for native drag-select; on by default so wheel scroll, click-to-expand, and drag-to-copy work" },
   { keys: "Alt+E", description: "expand or collapse every collapsible row (tool call, diff, skill, reasoning)" },
   { keys: "Alt+T", description: "show or hide the task list above the prompt" },
   { keys: "Alt+O", description: "observe a live subagent session; a system row says so when there is none" },

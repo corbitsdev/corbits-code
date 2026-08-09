@@ -1,10 +1,11 @@
 /**
- * System clipboard port for the keyboard copy path.
+ * System clipboard port for app-owned copy paths.
  *
- * Terminal drag-select is unavailable while DEC mouse reporting is on, so
- * Alt+C must reach the OS clipboard itself rather than relying on the
- * terminal's own selection. Native helpers are preferred; OSC 52 is the
- * fallback for remote sessions where no helper binary exists.
+ * Used by drag-select auto-copy (OpenTUI selection on mouse-up), Alt+C copy
+ * mode, and related keyboard paths. Native terminal drag-select is still
+ * unavailable while DEC mouse reporting is on — Alt+M hands the mouse back
+ * when that is wanted. Native helpers are preferred; OSC 52 is the fallback
+ * for remote sessions where no helper binary exists.
  */
 
 import type { ClipboardPort } from "./copy-path.js"

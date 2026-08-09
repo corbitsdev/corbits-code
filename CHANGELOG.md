@@ -19,6 +19,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks
 
+### TUI
+
+- **Drag-select auto-copy.** With mouse capture on (the default), finishing a
+  drag selection in the transcript writes the selected text to the system
+  clipboard on mouse-up and flashes a short status line. Alt+M still hands the
+  mouse back for native terminal selection; Alt+C remains the keyboard copy
+  path for whole messages, tool outputs, and diffs.
+
 ## [0.2.95] - 2026-08-09
 
 Tool-only auto-pause that no longer stops healthy work, resume the last session

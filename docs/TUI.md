@@ -626,7 +626,11 @@ terminal. It cannot observe:
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.
 - **Terminal-owned text selection.** Native drag-select only exists once DEC
   mouse reporting is off and a real terminal emulator is running; there is
-  no terminal emulator in the test harness to select text in.
+  no terminal emulator in the test harness to select text in. OpenTUI
+  selection auto-copy is unit-tested (`selection-copy.test.ts`) and wired
+  through a synthetic `SELECTION` event (`copy-wire.test.ts`); a real
+  mouse-up path still needs a manual terminal check.
+
 
 Concretely, whole defect classes — a DEC mouse-reporting toggle that silently
 no-ops, an Alt+key chord a given terminal never actually delivers, a

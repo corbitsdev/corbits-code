@@ -524,21 +524,24 @@ export type AppShellOptions = {
    */
   readonly telemetryNotice?: string
   /**
-   * Clipboard port for Alt+C. Defaults to an in-memory recorder so tests and
-   * demos never shell out; the product host injects the system clipboard.
+   * Clipboard port for Alt+C and drag-select auto-copy. Defaults to an
+   * in-memory recorder so tests and demos never shell out; the product host
+   * injects the system clipboard.
    */
   readonly clipboard?: ClipboardPort
   /**
    * Mouse-reporting switch behind Alt+M. Absent means the shell has no
    * renderer-level control (tests, demos) and reports the toggle unavailable.
+   * While reporting is on, OpenTUI owns drag-select and auto-copies on
+   * mouse-up; Alt+M hands the mouse back for native terminal selection.
    */
   readonly mouseCapture?: MouseCapturePort
 }
 
 /**
  * Renderer-level DEC mouse reporting control. While reporting is on the
- * terminal hands drags to us instead of selecting text, so the user needs a
- * way to hand it back.
+ * terminal hands drags to OpenTUI (drag-to-copy on mouse-up); Alt+M hands
+ * reporting back so the terminal can run its own selection again.
  */
 export type MouseCapturePort = {
   readonly get: () => boolean
