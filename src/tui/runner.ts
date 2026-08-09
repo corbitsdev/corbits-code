@@ -2210,8 +2210,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // The fleet reports itself. Store changes drive it, so a lane finishing or
   // failing is on screen the moment it happens rather than at the next turn
-  // boundary; the timer covers the one change that produces no event at all,
-  // a lane going quiet. `observeFleet` decides what is worth saying.
+  // boundary. The settle timer coalesces a parallel burst into one observation;
+  // the stall poll re-runs so a lane that goes quiet with no further store
+  // event is still announced once. `observeFleet` decides what is worth saying.
   let fleetWatch = createFleetWatch();
   const reportFleet = (): void => {
     const observation = observeFleet(fleetWatch, subAgentSessions.list(), Date.now());
