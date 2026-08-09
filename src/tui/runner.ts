@@ -118,8 +118,11 @@ import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normal
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
 import {
+  createFleetWatch,
   createSubAgentSessionStore,
   fleetDigest,
+  FLEET_STALL_POLL_MS,
+  observeFleet,
   taskToolDefinition,
   type SubAgentProvider,
 } from "../subagent/index.js";
@@ -2200,6 +2203,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
 
+  // The fleet reports itself. Store changes drive it, so a lane finishing or
+  // failing is on screen the moment it happens rather than at the next turn
+  // boundary; the timer covers the one change that produces no event at all,
+  // a lane going quiet. `observeFleet` decides what is worth saying.
+  let fleetWatch = createFleetWatch();
+  const reportFleet = (): void => {
+    const observation = observeFleet(fleetWatch, subAgentSessions.list(), Date.now());
+    fleetWatch = observation.watch;
+    for (const update of observation.updates) surfaceSystemNotice(host.shell, update);
+  };
+  const unsubscribeFleetReport = subAgentSessions.subscribe(reportFleet);
+  const fleetStallPoll = setInterval(reportFleet, FLEET_STALL_POLL_MS);
+  if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();
+
   // Same names the operator can already reach by typing them: skills the
   // session discovered at startup, agents from the live profile registry
   // (which trust changes can update mid-session, so read through the
@@ -2300,6 +2317,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     surfaceSystemNotice(host.shell, notice);
 
   await host.waitUntilExit();
+  clearInterval(fleetStallPoll);
+  unsubscribeFleetReport();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
   await cycleRecorder.dispose("exit");
