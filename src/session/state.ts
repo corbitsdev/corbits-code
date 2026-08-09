@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { sessionDir } from "./index.js";
-import { getTestWriteGate, isCrashed } from "./active-run.js";
+import { clearActiveRun, getTestWriteGate, isCrashed } from "./active-run.js";
 import { COMMAND_NAME } from "../branding.js";
 
 const ConnectedMcpServerSchema = type({
@@ -108,6 +108,29 @@ export async function saveState(
   return write;
 }
 
+// Single write path for a terminal RunState: pairs the on-disk status with
+// clearing the in-memory active-run handle (active-run.ts) so the two facts
+// are set together instead of at two independent call sites that could drift.
+// Callers writing a non-terminal ("running") snapshot should call saveState
+// directly — clearing the active-run handle on a running snapshot would be
+// wrong, not merely redundant.
+//
+// The clear happens before the saveState await, not after: this run is
+// closing out regardless of whether the write below succeeds, and a signal
+// or uncaught exception landing during that await must see the handle
+// already gone, or it races a second "crashed" write (src/index.ts's process
+// handlers, via saveCrashState) against the terminal write in flight here.
+// Clearing after the await leaves that exact window open on every terminal
+// write, not only the crash path's own.
+export async function finalizeRunState(
+  cwd: string,
+  sessionId: string,
+  state: RunState,
+  home?: string,
+): Promise<void> {
+  clearActiveRun();
+  await saveState(cwd, sessionId, state, home);
+}
 
 // Crash-time terminal write. Deliberately bypasses writeChains: a hung or
 // still-pending write for this session (possibly the very write mid-flight
@@ -116,6 +139,15 @@ export async function saveState(
 // Callers must call markCrashed() (src/session/active-run.ts) before this, so
 // any snapshot write still queued behind another one in the chain steps
 // aside instead of racing this write's rename().
+//
+// This is a second terminal write path alongside finalizeRunState, and stays
+// separate on purpose: its only callers are index.ts's process-level
+// uncaughtException/unhandledRejection and signal handlers, reached when a
+// crash escapes runTUI's own try/catch entirely. finalizeRunState routes
+// through saveState's per-session write chain so writes apply in call order;
+// that chain is exactly what a crash exit cannot afford to wait on, since
+// process.exit must happen deterministically and a stuck earlier write
+// (possibly the one that caused the crash) would otherwise hang it.
 export async function saveCrashState(
   cwd: string,
   sessionId: string,

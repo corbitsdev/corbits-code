@@ -51,6 +51,10 @@ describe("integration — signal finalizes run.json", () => {
 
       expect(exitCode).toBe(expectedExitCode);
 
+      // The fixture parks two unawaited straggler "running" snapshot writes
+      // behind setTestWriteGate and releases them only after markCrashed()
+      // flips. Without that fence on the signal path, one of those renames
+      // can last-write-win over status: "failed".
       const runJsonPath = join(runDir, "run.json");
       const raw = readFileSync(runJsonPath, "utf8");
       const state = JSON.parse(raw) as RunState;
