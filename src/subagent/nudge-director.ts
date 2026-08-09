@@ -33,10 +33,21 @@ import {
 const REPORT_FORCED_WRAP_UP_NUDGE =
   "You are close to your turn budget. Stop calling tools and write your final report now: summarize what you did, your findings, and any blockers.";
 
-function reportForcedNudgeTurn(): ConversationTurn {
+/** Implement leaves: soft re-read pressure should push toward edit or wrap-up. */
+const RE_READ_NUDGE_IMPLEMENT =
+  "You are re-reading the same paths without finishing. Edit a file to make progress, or stop tooling and write your final report now.";
+
+/**
+ * Explore / non-implement leaves: same soft re-read pressure, but do not force
+ * edit behavior — expand findings, change approach, or report.
+ */
+const RE_READ_NUDGE_EXPLORE =
+  "You are re-reading the same paths. Expand Findings, change approach, or write your final report — do not keep re-reading the same files.";
+
+function ephemeralNudgeTurn(text: string): ConversationTurn {
   return {
     role: "user",
-    content: [{ type: "text", text: REPORT_FORCED_WRAP_UP_NUDGE }],
+    content: [{ type: "text", text }],
     timestamp: Date.now(),
   };
 }
@@ -61,8 +72,11 @@ function inferWithSubAgentNudge(capabilities: ReactorCapabilities, text: string)
  * never a bare user turn, so the nudge can only ride the infer that follows
  * once the pending tool calls have actually executed.
  */
-function withReportForcedNudge(options: InferenceOptions | undefined): ExtendedInferenceOptions {
-  return { ...(options ?? {}), ephemeralTurns: [reportForcedNudgeTurn()] };
+function withEphemeralNudge(
+  options: InferenceOptions | undefined,
+  text: string,
+): ExtendedInferenceOptions {
+  return { ...(options ?? {}), ephemeralTurns: [ephemeralNudgeTurn(text)] };
 }
 
 export class SubAgentDirector extends DefaultDirector {
@@ -78,12 +92,15 @@ export class SubAgentDirector extends DefaultDirector {
     consecutiveIdentical: 0,
   };
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
-  // Set on a report-forced turn so the follow-up infer (after the pending
-  // tool calls from THIS turn have executed) carries the wrap-up nudge.
+  // Set on a report-forced or re-read-nudge turn so the follow-up infer (after
+  // the pending tool calls from THIS turn have executed) carries the nudge.
   // Cannot attach the nudge to this turn's own infer: the model just emitted
   // tool_use blocks, and every provider requires tool_result before the next
   // turn — a bare nudge here would send an invalid conversation.
-  private pendingWrapUpNudge = false;
+  private pendingNudgeText: string | null = null;
+  // Soft re-read-nudge is one-shot per run; thrash hard-stop still fires later
+  // if the leaf ignores it and keeps re-reading.
+  private reReadNudgeFired = false;
 
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running
   // background command with nothing else to do) produces no inbound events
@@ -188,7 +205,16 @@ export class SubAgentDirector extends DefaultDirector {
         // to super.decide below), and arm the nudge for the infer that
         // follows once their results land. Turn-budget stays reachable —
         // this fires once, forceReportWithin turns before the cap.
-        this.pendingWrapUpNudge = true;
+        this.pendingNudgeText = REPORT_FORCED_WRAP_UP_NUDGE;
+      } else if (stop === "re-read-nudge") {
+        // Soft mid-run redirect (CL-5813). One-shot; hard thrash still stops
+        // the leaf if re-read pressure keeps climbing after the nudge.
+        if (!this.reReadNudgeFired) {
+          this.reReadNudgeFired = true;
+          this.pendingNudgeText = this.requireEdit
+            ? RE_READ_NUDGE_IMPLEMENT
+            : RE_READ_NUDGE_EXPLORE;
+        }
       } else if (
         stop === "no-progress" ||
         stop === "turn-budget" ||
@@ -221,7 +247,7 @@ export class SubAgentDirector extends DefaultDirector {
       this.consecutiveStalls = 0;
     }
     const base = await super.decide(event, state, capabilities);
-    const actions = this.applyPendingWrapUpNudge(
+    const actions = this.applyPendingNudge(
       Array.isArray(base) ? base : [base],
       capabilities,
     );
@@ -271,21 +297,22 @@ export class SubAgentDirector extends DefaultDirector {
 
   /**
    * Rewrite the infer action in a fall-through actions batch to carry the
-   * armed wrap-up nudge, once — this only ever matches the infer that
-   * follows the report-forced turn's tool results (super.decide only emits
+   * armed nudge, once — this only ever matches the infer that follows a
+   * report-forced or re-read-nudge turn's tool results (super.decide only emits
    * infer once pendingToolResults reaches zero).
    */
-  private applyPendingWrapUpNudge(
+  private applyPendingNudge(
     actions: ReactorAction[],
     capabilities: ReactorCapabilities,
   ): ReactorAction[] {
-    if (!this.pendingWrapUpNudge) return actions;
+    if (this.pendingNudgeText === null) return actions;
     const inferIndex = actions.findIndex((action) => action.type === "infer");
     if (inferIndex === -1) return actions;
-    this.pendingWrapUpNudge = false;
+    const text = this.pendingNudgeText;
+    this.pendingNudgeText = null;
     const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
     const rewritten = [...actions];
-    rewritten[inferIndex] = capabilities.infer(withReportForcedNudge(existing.options));
+    rewritten[inferIndex] = capabilities.infer(withEphemeralNudge(existing.options, text));
     return rewritten;
   }
 }

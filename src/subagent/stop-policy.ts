@@ -134,16 +134,17 @@ export type SubAgentStopReason =
   | "never-acted"
   | "never-edited"
   | "thrash"
-  | "report-forced";
+  | "report-forced"
+  | "re-read-nudge";
 
 /**
  * Pure stop decision for leaf workers. Null means keep running tools.
  *
  * Precedence when tools are still firing:
  * no-progress (identical fingerprints) > thrash (re-read pressure) >
- * turn-budget (hard cap). "report-forced" is not a competing stop reason —
- * it is a one-shot signal, forceReportWithin turns before the cap, telling
- * the caller to inject a wrap-up nudge and keep running; turn-budget remains
+ * turn-budget (hard cap). "report-forced" and "re-read-nudge" are not competing
+ * stop reasons — they are one-shot signals telling the caller to inject a
+ * wrap-up / redirect nudge and keep running; turn-budget and thrash remain
  * reachable afterward. Tool-less turns always end the leaf as complete,
  * never-acted, or never-edited.
  */

@@ -5,16 +5,23 @@
  * identical tool fingerprints. Wired into SubAgentDirector via evaluateSubAgentStop.
  *
  * Precedence when both thrash signals and existing stop helpers apply:
- * no-progress > thrash > turn-budget. report-forced is not a competing stop —
- * it fires once, at forceReportWithin turns before the cap, as a signal to
- * inject a wrap-up nudge; the leaf keeps running toward turn-budget after that.
- * Tool-less turns stay owned by evaluateSubAgentStop (complete / never-acted).
+ * no-progress > thrash > turn-budget. Soft re-read-nudge and report-forced are
+ * not competing stops — they fire as one-shot wrap-up / redirect nudges; the leaf
+ * keeps running. report-forced is preferred over re-read-nudge when both apply
+ * (near-budget wrap-up is more urgent than a mid-run redirect). Tool-less turns
+ * stay owned by evaluateSubAgentStop (complete / never-acted / never-edited).
  */
 
 /** Tunable thresholds for thrash / force-report detection. */
 export type ThrashConfig = {
-  /** Same path read this many times triggers re-read pressure. */
+  /** Same path read this many times triggers hard re-read thrash stop. */
   reReadLimit: number;
+  /**
+   * Soft re-read pressure threshold (must be < reReadLimit). Crossing it injects
+   * a one-shot mid-run nudge without stopping the leaf; hard thrash still fires
+   * if the leaf keeps re-reading past reReadLimit.
+   */
+  reReadSoftLimit: number;
   /**
    * Without a prior edit of the path, re-read pressure also requires at least
    * this many total tool calls in the run (keeps multi-chunk legitimate reads
@@ -31,6 +38,7 @@ export type ThrashConfig = {
 /** Conservative defaults: 20 unique single-path reads must not thrash. */
 export const DEFAULT_THRASH_CONFIG: ThrashConfig = {
   reReadLimit: 4,
+  reReadSoftLimit: 3,
   reReadMinTotalTools: 8,
   forceReportWithin: 2,
 };
@@ -48,8 +56,13 @@ export const EMPTY_THRASH_STATE: ThrashState = {
   totalToolCalls: 0,
 };
 
-/** Thrash-module stop reasons; "thrash" is a real stop, "report-forced" a wrap-up-nudge signal. */
-export type ThrashStopReason = "thrash" | "report-forced";
+/**
+ * Thrash-module stop reasons.
+ * - "thrash" is a real stop
+ * - "report-forced" is a near-budget wrap-up-nudge signal
+ * - "re-read-nudge" is a mid-run soft re-read redirect (one-shot, not a stop)
+ */
+export type ThrashStopReason = "thrash" | "report-forced" | "re-read-nudge";
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
 export type ThrashToolCallBlock = {
@@ -150,6 +163,22 @@ export function nextThrashState(
 }
 
 /**
+ * True when any path's re-read count meets `limit` and total tool volume clears
+ * the min-tools gate. Shared by hard thrash and soft re-read-nudge.
+ */
+function reReadPressureAt(
+  state: ThrashState,
+  limit: number,
+  minTotalTools: number,
+): boolean {
+  if (state.totalToolCalls < minTotalTools) return false;
+  for (const count of state.readCounts.values()) {
+    if (count >= limit) return true;
+  }
+  return false;
+}
+
+/**
  * True when re-read pressure indicates progressive thrash. Gated on total
  * tool volume regardless of whether the path was edited — an ordinary
  * edit-then-verify loop decays its read count on each edit (see
@@ -161,12 +190,22 @@ export function thrashFromReRead(
   state: ThrashState,
   config: ThrashConfig = DEFAULT_THRASH_CONFIG,
 ): boolean {
-  const { reReadLimit, reReadMinTotalTools } = config;
-  if (state.totalToolCalls < reReadMinTotalTools) return false;
-  for (const count of state.readCounts.values()) {
-    if (count >= reReadLimit) return true;
-  }
-  return false;
+  return reReadPressureAt(state, config.reReadLimit, config.reReadMinTotalTools);
+}
+
+/**
+ * True when re-read pressure has crossed the soft threshold but not yet hard
+ * thrash. Used to inject a one-shot mid-run redirect before the leaf burns
+ * the rest of its budget re-reading the same paths.
+ */
+export function thrashSoftReRead(
+  state: ThrashState,
+  config: ThrashConfig = DEFAULT_THRASH_CONFIG,
+): boolean {
+  const soft = Math.min(config.reReadSoftLimit, config.reReadLimit - 1);
+  if (soft < 1) return false;
+  if (thrashFromReRead(state, config)) return false;
+  return reReadPressureAt(state, soft, config.reReadMinTotalTools);
 }
 
 /**
@@ -194,6 +233,7 @@ function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
   if (partial === undefined) return DEFAULT_THRASH_CONFIG;
   return {
     reReadLimit: partial.reReadLimit ?? DEFAULT_THRASH_CONFIG.reReadLimit,
+    reReadSoftLimit: partial.reReadSoftLimit ?? DEFAULT_THRASH_CONFIG.reReadSoftLimit,
     reReadMinTotalTools:
       partial.reReadMinTotalTools ?? DEFAULT_THRASH_CONFIG.reReadMinTotalTools,
     forceReportWithin: partial.forceReportWithin ?? DEFAULT_THRASH_CONFIG.forceReportWithin,
@@ -201,13 +241,13 @@ function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
 }
 
 /**
- * Pure thrash / force-report decision. Null means keep running (or defer to
- * evaluateSubAgentStop for tool-less / fingerprint / hard budget). "thrash" is
- * a real stop; "report-forced" is a one-shot wrap-up-nudge signal, not a stop
- * — the caller injects a nudge and keeps running toward turn-budget.
+ * Pure thrash / force-report / soft re-read decision. Null means keep running
+ * (or defer to evaluateSubAgentStop for tool-less / fingerprint / hard budget).
+ * "thrash" is a real stop; "report-forced" and "re-read-nudge" are one-shot
+ * nudge signals, not stops — the caller injects a nudge and keeps running.
  *
  * Only evaluates when hasToolCalls is true — tool-less endings are not thrash.
- * Prefers thrash over report-forced when both apply.
+ * Prefers thrash > report-forced > re-read-nudge when multiple apply.
  */
 export function evaluateThrashStop(input: {
   state: ThrashState;
@@ -224,5 +264,6 @@ export function evaluateThrashStop(input: {
   ) {
     return "report-forced";
   }
+  if (thrashSoftReRead(input.state, config)) return "re-read-nudge";
   return null;
 }
