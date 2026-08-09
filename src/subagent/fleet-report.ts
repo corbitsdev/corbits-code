@@ -186,9 +186,17 @@ export function observeFleet(
         );
 
   // The defect this report exists for: work finished, nothing left running,
-  // and no one said so. That transition is always worth its own line.
+  // and no one said so. That transition is always worth its own line — unless
+  // the tally above already said the same thing, in which case a second line
+  // restating it verbatim (with "— nothing running" tacked on) is noise, not
+  // information.
   if (running === 0 && previous.running > 0) {
-    lines.push(`${idleSummary(lanes)} — nothing running`);
+    const idle = `${idleSummary(lanes)} — nothing running`;
+    if (lines.length === 1 && lines[0] === idleSummary(lanes)) {
+      lines[0] = idle;
+    } else {
+      lines.push(idle);
+    }
   }
 
   return {

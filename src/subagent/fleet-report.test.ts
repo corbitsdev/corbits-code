@@ -131,10 +131,7 @@ describe("observeFleet", () => {
         : { ...l, status: "failed" as const, error: "boom" },
     );
     const { updates } = observeFleet(seeded, after, T0 + 1000);
-    expect(updates).toEqual([
-      "fleet · 9 done, 3 failed",
-      "fleet · 9 done, 3 failed — nothing running",
-    ]);
+    expect(updates).toEqual(["fleet · 9 done, 3 failed — nothing running"]);
   });
 });
 
