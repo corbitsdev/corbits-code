@@ -164,6 +164,7 @@ describe("formatAgentsPanel", () => {
       NOW,
     )
     expect(rows).toEqual([
+      { label: "2 agents", tail: "", stalled: false },
       { label: "b: two", tail: " · 0:02", stalled: false },
       { label: "a: one", tail: " · 0:01", stalled: false },
     ])
@@ -197,7 +198,7 @@ describe("formatAgentsPanel", () => {
       NOW,
     )
     expect(rows).toEqual([
-      { label: "a: quiet worker", tail: " · 1:00 · stalled", stalled: true },
+      { label: "a: quiet worker", tail: " · 1:00 · quiet 0:40 · stalled", stalled: true },
     ])
   })
 
@@ -210,8 +211,10 @@ describe("formatAgentsPanel", () => {
       lastActivityAt: NOW,
     }))
     const rows = formatAgentsPanel(running, undefined, NOW, 5)
-    expect(rows).toHaveLength(6)
-    expect(rows?.[5]).toEqual({ label: "+3 more", tail: "", stalled: false })
+    // Fleet summary, five lanes, then the fold-away row.
+    expect(rows?.[0]).toEqual({ label: "8 agents", tail: "", stalled: false })
+    expect(rows).toHaveLength(7)
+    expect(rows?.[6]).toEqual({ label: "+3 more", tail: "", stalled: false })
   })
 
   test("observe empty id+desc hides", () => {
@@ -238,12 +241,12 @@ describe("formatAgentsPanel", () => {
     const frame2 = frame1.map((a) => (a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a))
     const rowsAfter = formatAgentsPanel(frame2, undefined, NOW + 200)
 
-    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(
-      rowsAfter?.map((r) => r.label.split(":")[0]),
-    )
+    const lanes = (rows: readonly { label: string }[] | null) =>
+      rows?.slice(1).map((r) => r.label.split(":")[0])
+    expect(lanes(rowsBefore)).toEqual(lanes(rowsAfter))
     // Sanity: presentation order is oldest-started first (a, b, c), matching
     // the tiebreak-free startedAt sort.
-    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(["a", "b", "c"])
+    expect(lanes(rowsBefore)).toEqual(["a", "b", "c"])
   })
 
   test("a stalled agent stays visible over newer agents when the fan-out is truncated", () => {
@@ -267,8 +270,9 @@ describe("formatAgentsPanel", () => {
     const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 5)
     expect(rows?.some((r) => r.label.includes("quiet"))).toBe(true)
     expect(rows?.some((r) => r.stalled)).toBe(true)
-    expect(rows).toHaveLength(6)
-    expect(rows?.[5]).toEqual({ label: "+1 more", tail: "", stalled: false })
+    expect(rows).toHaveLength(7)
+    expect(rows?.[0]).toEqual({ label: "6 agents · 1 stalled", tail: "", stalled: true })
+    expect(rows?.[6]).toEqual({ label: "+1 more", tail: "", stalled: false })
   })
 })
 
