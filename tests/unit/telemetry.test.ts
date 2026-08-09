@@ -259,6 +259,9 @@ test("capture payload shape includes distinct_id and common props, with no clien
   expect(body.properties.$geoip_disable).toBeUndefined();
   expect(body.properties.schema_version).toBe(1);
   expect(typeof body.properties.service_version).toBe("string");
+  expect(body.properties.$app_version).toBe(body.properties.service_version);
+  expect(typeof body.properties.$app_version).toBe("string");
+  expect(String(body.properties.$app_version).length).toBeGreaterThan(0);
   expect(body.properties.os_type).toBe(process.platform);
   expect(body.properties.os_arch).toBe(process.arch);
 });
