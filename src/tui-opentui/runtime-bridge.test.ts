@@ -651,6 +651,7 @@ describe("syncAgentProgress", () => {
       id: "task-1",
       status: "running",
       currentToolName: "grep",
+      currentToolStartedAt: null,
       startedAt: 0,
       lastActivityAt: 0,
       ...over,

@@ -272,6 +272,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
         id: s.id,
         status: s.status,
         currentToolName: s.currentToolName,
+        currentToolStartedAt: s.currentToolStartedAt,
         startedAt: s.startedAt,
         lastActivityAt: s.lastActivityAt,
       })),

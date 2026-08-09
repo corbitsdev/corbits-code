@@ -22,7 +22,12 @@
  * stale. Observe mode can override the agents line via `state.observe`.
  */
 
-import { agentProgress, DEFAULT_STALL_MS } from "./agent-progress.js"
+import {
+  agentProgress,
+  fleetLabel,
+  fleetProgress,
+  DEFAULT_STALL_MS,
+} from "./agent-progress.js"
 import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
 import type { ChromeZoneContent } from "./shell.js"
 
@@ -37,6 +42,8 @@ export type ChromeAgentSession = {
   readonly startedAt?: number
   /** Clock of the worker's last reported activity; feeds stalled detection. */
   readonly lastActivityAt?: number
+  /** Clock the oldest outstanding tool call began; separates a long tool from silence. */
+  readonly currentToolStartedAt: number | null
 }
 
 /** Lightweight task row: title + status, as written by the task tool. */
@@ -193,6 +200,26 @@ export function formatAgentsPanel(
   )
   const rows = presented.map((s) => formatAgentRow(s, nowMs, stallMs))
   if (hidden > 0) rows.push({ label: `+${hidden} more`, tail: "", stalled: false })
+
+  // Fleet roll-up first: past a couple of lanes an operator reads the summary,
+  // not six individual rows, and any row folded into "+N more" is otherwise
+  // invisible. Counted from the same lane states the rows below are rendered
+  // from, so the header can never disagree with them.
+  const fleet = fleetProgress(
+    running.map((s) => ({
+      status: "running" as const,
+      currentToolName: s.currentToolName ?? null,
+      currentToolStartedAt: s.currentToolStartedAt ?? null,
+      startedAt: s.startedAt ?? 0,
+      lastActivityAt: s.lastActivityAt ?? s.startedAt ?? 0,
+    })),
+    nowMs,
+    stallMs,
+  )
+  const summary = fleetLabel(fleet)
+  if (summary !== null && running.length > 1) {
+    rows.unshift({ label: summary, tail: "", stalled: fleet.stalled > 0 })
+  }
   return rows
 }
 
@@ -214,6 +241,7 @@ function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: num
           {
             status: "running",
             currentToolName: session.currentToolName ?? null,
+            currentToolStartedAt: session.currentToolStartedAt,
             startedAt: session.startedAt,
             lastActivityAt: session.lastActivityAt ?? session.startedAt,
           },
@@ -255,7 +283,15 @@ export function annotateAgentTools(
     agents: agents.map((a) => {
       if (a.status !== "running") return a
       const tool = toolByDescription.get(a.description)
-      return tool === undefined ? a : { ...a, currentToolName: tool }
+      if (tool === undefined) return a
+      // Gap-fill only. When the store has a call outstanding it owns both the
+      // name and the clock, and overriding just the name would paint one
+      // tool's identifier beside another tool's elapsed time. A progress ping
+      // also cannot supply a clock of its own — only the store observes a call
+      // ending, so a ping-sourced clock would keep a finished lane reading
+      // busy forever, hiding exactly the stalls this surface exists to show.
+      if (a.currentToolStartedAt !== null) return a
+      return { ...a, currentToolName: tool }
     }),
   }
 }
@@ -280,6 +316,7 @@ export type ChromeSessionAgent = {
   readonly description: string
   readonly status: "running" | "done" | "failed" | "cancelled"
   readonly currentToolName?: string | null
+  readonly currentToolStartedAt: number | null
   readonly startedAt?: number
   readonly lastActivityAt?: number
 }
@@ -340,6 +377,7 @@ function mapSessionAgents(
       ...(a.currentToolName !== undefined
         ? { currentToolName: a.currentToolName }
         : {}),
+      currentToolStartedAt: a.currentToolStartedAt,
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
       ...(a.lastActivityAt !== undefined
         ? { lastActivityAt: a.lastActivityAt }

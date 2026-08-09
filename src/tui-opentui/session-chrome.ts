@@ -6,6 +6,7 @@
  */
 
 import type { Telemetry } from "../telemetry/index.js"
+import type { FleetProgress } from "./agent-progress.js"
 import type { RampPhase } from "./ramp.js"
 
 /** Agent lifecycle status the progress label reads (mirrors the stream state). */
@@ -39,6 +40,7 @@ export const ACTIVITY_STATES = [
   "building",
   "working",
   "waiting",
+  "orchestrating",
   "stalled",
   "stopping",
 ] as const
@@ -91,11 +93,18 @@ function activityStateForTool(name: string | null): ActivityState {
 export function resolveTurnLabel(
   input: TurnLabelInput,
   isStalled: boolean,
+  fleet: FleetProgress | null,
 ): ActivityState | undefined {
   if (!input.isProcessing) return undefined
   if (input.status === "blocked") return "waiting"
   if (input.status === "stopping" || input.status === "stopped") {
     return "stopping"
+  }
+  // Live lanes outrank the parent's own stall clock: while sub-agents run the
+  // parent is idle by design, so its silence says nothing about the session.
+  // The fleet is the thing actually working, so it is the thing reported.
+  if (fleet !== null && fleet.running > 0) {
+    return fleet.stalled > 0 ? "stalled" : "orchestrating"
   }
   if (isStalled) return "stalled"
   if (input.currentToolName !== null) return activityStateForTool(input.currentToolName)
@@ -112,9 +121,13 @@ export function resolveTurnLabel(
 export function resolveRampPhase(
   input: TurnLabelInput,
   isStalled: boolean,
+  fleet: FleetProgress | null,
 ): RampPhase {
   if (input.status === "blocked") return "blocked"
   if (input.status === "done") return "done"
+  if (fleet !== null && fleet.running > 0) {
+    return fleet.stalled > 0 ? "stalled" : "working"
+  }
   if (isStalled) return "stalled"
   return "working"
 }

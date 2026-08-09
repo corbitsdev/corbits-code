@@ -57,8 +57,8 @@ activity word — never the raw tool, MCP server, or plugin identifier that is
 actually executing. `resolveTurnLabel` (`src/tui-opentui/session-chrome.ts`)
 maps execution onto the closed set `ACTIVITY_STATES` exported from that
 module (`thinking`, `planning`, `researching`, `building`, `working`,
-`waiting`, `stalled`, `stopping`); that export is the source of truth for
-what the slot can say, not this list. It is led by a single density cell
+`waiting`, `orchestrating`, `stalled`, `stopping`); that export is the source
+of truth for what the slot can say, not this list. It is led by a single density cell
 (`rampPulse`, `src/tui-opentui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
@@ -77,6 +77,18 @@ printed identically, so the only way to tell them apart was to wait.
 `blocked` and `stalled` share the orange deliberately — both name a turn
 waiting on something outside itself — and are told apart by motion: `blocked`
 holds perfectly still, which is the signal that the session is waiting on *you*.
+
+While sub-agents are running, the slot reports the *fleet*, not the parent.
+`resolveTurnLabel` and `resolveRampPhase` take a `FleetProgress` roll-up and
+rank it above the parent's own stall clock: with live lanes the parent is
+idle by design, so its silence says nothing about whether the session is
+progressing, and reporting it was how a session with every lane wedged still
+read as `working`. A fleet with no stalled lane reads `orchestrating`; one
+stalled lane makes the whole indicator read `stalled`, which is the state that
+should pull an operator's eye to the panel. A blocked gate and a stopping turn
+still outrank the fleet. With zero running sub-agents the roll-up is empty and
+every path through both functions behaves exactly as it does for a plain
+single-agent turn.
 
 The stall phase is driven by the watchdog's own silence clock
 (`stallLevel`, `src/tui-opentui/stall-watchdog.ts`), so the indicator and the
@@ -158,13 +170,67 @@ fail a test as well as the type checker.
 ## The live agents panel
 
 The `agents` chrome zone renders a standing panel above the transcript, one
-row per currently-running sub-agent — not a count. Each row reads
+row per currently-running sub-agent. Each row reads
 `agentId: description · elapsed · tool`, sourced from the same
 `agentProgress()` clock/tool/stall computation used to trail a task row in the
 transcript (`src/tui-opentui/agent-progress.ts`); the panel does not compute
-progress a second way. A worker silent past the stall window (`DEFAULT_STALL_MS`)
-gets a `· stalled` suffix so it reads distinct from one still working, without
-relying on color alone.
+progress a second way. Past one running agent the panel is led by a fleet
+summary row (`N agents`, plus `· N stalled` or `· in tools`), counted from the
+same lane states the rows below render, so header and rows can never disagree.
+The zone reserves `AGENTS_PANEL_MAX_VISIBLE + 2` rows to hold that summary, the
+lanes, and the `+N more` trailer together — clipping the last of the three
+would drop the fold-away count at exactly the fan-out where it is the only
+thing reporting the hidden lanes.
+
+`laneState()` is the single definition of what a lane is doing, and every
+surface consumes it rather than comparing timestamps itself. It returns one of
+three states:
+
+| Lane state | Means | Row reads |
+|---|---|---|
+| `working` | activity within `DEFAULT_STALL_MS` | `· 2:34 · grep` |
+| `in_tool` | silent, but a tool call is outstanding and under `IN_TOOL_STALL_MS` | `· 2:34 · run_shell 1:30` |
+| `stalled` | silent with nothing outstanding to explain it | `· 2:34 · quiet 0:45 · stalled` |
+
+`in_tool` is what makes the surface honest. A worker inside one long tool call
+emits no events for the entire execution, so silence alone cannot separate a
+wedged reactor from a ten-minute test run — and it did not: a fleet whose lanes
+were all running shell commands flipped to `stalled` in lockstep while every
+one of them was working. `currentToolStartedAt` on the sub-agent session store
+(`src/subagent/session-store.ts`) is the fact that separates them; only the
+store sets it, because only the store observes a call ending.
+
+The store keys outstanding calls by call id (`outstandingTools`) and reports
+the oldest live one — the call that explains the longest silence. It cannot
+collapse to a single scalar: the reactor runs parallel calls concurrently, so a
+fast grep finishing beside a ten-minute shell command would retire the shell
+command's clock and reproduce the original defect on one lane. A result whose
+call id was never seen to start retires nothing.
+
+`currentToolStartedAt` is a **required** field on every type between the store
+and a surface. There are four hand-written mapping hops on the live path, and
+a hop that drops it silently reclassifies a busy lane as stalled — which is how
+this shipped broken once, caught only by running a real fleet. Required makes
+that a compile error rather than a misclassification; `chrome-state.test.ts`
+also asserts the panel and the transcript row agree on a live example.
+
+`in_tool` is bounded, not terminal. A call outstanding longer than
+`IN_TOOL_STALL_MS` (10 minutes) escalates to `stalled` regardless, so a wedged
+build, a shell blocked on stdin, or a deadlocked child eventually surfaces
+instead of reading as busy forever. **Within that window those failures are
+genuinely invisible to the stall signal** — the honest trade for not crying
+stall over every real test suite. The per-row tool clock climbing is the signal
+a human can read in the meantime, which is why the row shows it. The same bound
+backstops calls that never report a result at all: the reactor's
+approval-suspend path emits no completion, so a before-tool extension returning
+suspend would otherwise leave a call outstanding permanently. Nothing registers
+such an extension today.
+
+The number beside a lane's state always explains that state. A healthy lane
+shows its lifetime; a lane stuck in one tool also shows how long that tool has
+run; a stalled lane also shows how long it has been silent. Reading a lifetime
+clock next to the word `stalled` was the original defect — the number the
+operator watched climbing was unrelated to the word beside it.
 
 The panel is bounded to `AGENTS_PANEL_MAX_VISIBLE` rows
 (`src/tui-opentui/geometry/zones.ts`); a larger fan-out degrades to a trailing

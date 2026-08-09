@@ -104,3 +104,120 @@ describe("session-store snapshot caching", () => {
     expect(snapshot?.entries).toEqual([]);
   });
 });
+
+
+describe("outstanding tool clock", () => {
+  // A worker inside one long tool call emits nothing until the result lands.
+  // Without a start clock for that call, silence is indistinguishable from a
+  // wedged reactor, and a whole fleet running shell commands reads as stalled.
+  test("tool.start stamps the clock and tool.done clears it", () => {
+    let clock = 1_000;
+    const store = createSubAgentSessionStore({ now: () => clock });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+
+    clock = 5_000;
+    store.appendEvent(session.id, {
+      type: "tool.start",
+      seq: 1,
+      data: { call: { id: "call-1", name: "run_shell", arguments: {} } },
+    } as unknown as ReactorEmittedEvent);
+    expect(store.get(session.id)?.currentToolName).toBe("run_shell");
+    expect(store.get(session.id)?.currentToolStartedAt).toBe(5_000);
+
+    clock = 95_000;
+    store.appendEvent(session.id, {
+      type: "tool.done",
+      seq: 2,
+      data: { result: { callId: "call-1", content: "ok", isError: false } },
+    } as unknown as ReactorEmittedEvent);
+    expect(store.get(session.id)?.currentToolName).toBeNull();
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+  });
+
+  test("a terminal transition never leaves a tool clock outstanding", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.appendEvent(session.id, startCall(1, "call-1", "grep"));
+    expect(store.get(session.id)?.currentToolStartedAt).not.toBeNull();
+
+    store.complete(session.id, "report");
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+  });
+});
+
+
+describe("parallel tool calls", () => {
+  const toolStart = (callId: string, name: string) =>
+    ({
+      type: "tool.start",
+      seq: 1,
+      data: { call: { id: callId, name, arguments: {} } },
+    }) as unknown as ReactorEmittedEvent;
+  const toolDone = (callId: string) =>
+    ({
+      type: "tool.done",
+      seq: 2,
+      data: { result: { callId, content: "ok", isError: false } },
+    }) as unknown as ReactorEmittedEvent;
+
+  // The reactor runs parallel calls concurrently. A fast sibling finishing must
+  // not retire the clock of a long call still executing, or the lane reads as
+  // silent-for-no-reason thirty seconds later while it is working perfectly.
+  test("a fast sibling completing leaves a long call's clock outstanding", () => {
+    let clock = 1_000;
+    const store = createSubAgentSessionStore({ now: () => clock });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(session.id, toolStart("slow", "run_shell"));
+    clock = 2_000;
+    store.appendEvent(session.id, toolStart("fast", "grep"));
+    clock = 3_000;
+    store.appendEvent(session.id, toolDone("fast"));
+
+    const stored = store.get(session.id);
+    expect(stored?.currentToolName).toBe("run_shell");
+    expect(stored?.currentToolStartedAt).toBe(1_000);
+  });
+
+  test("a completion bearing an unknown call id retires nothing", () => {
+    let clock = 1_000;
+    const store = createSubAgentSessionStore({ now: () => clock });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(session.id, toolStart("slow", "run_shell"));
+    clock = 4_000;
+    store.appendEvent(session.id, toolDone("never-started"));
+
+    expect(store.get(session.id)?.currentToolStartedAt).toBe(1_000);
+  });
+
+  // The oldest live call is the one that explains the longest silence, so it is
+  // the one the lane reports.
+  test("the reported call is the oldest still outstanding", () => {
+    let clock = 1_000;
+    const store = createSubAgentSessionStore({ now: () => clock });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(session.id, toolStart("first", "run_shell"));
+    clock = 2_000;
+    store.appendEvent(session.id, toolStart("second", "grep"));
+    expect(store.get(session.id)?.currentToolName).toBe("run_shell");
+
+    clock = 3_000;
+    store.appendEvent(session.id, toolDone("first"));
+    const stored = store.get(session.id);
+    expect(stored?.currentToolName).toBe("grep");
+    expect(stored?.currentToolStartedAt).toBe(2_000);
+  });
+
+  test("the last completion retires the clock entirely", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.appendEvent(session.id, toolStart("only", "run_shell"));
+    store.appendEvent(session.id, toolDone("only"));
+
+    expect(store.get(session.id)?.currentToolName).toBeNull();
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+  });
+});

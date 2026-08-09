@@ -177,7 +177,7 @@ describe("subagent.progress channel", () => {
     const { host, emitter, frame, cleanup } = await mountHeadless({
       chrome: {
         agents: [
-          { agentId: "explore", description: "map callers", status: "running" },
+          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
         ],
       },
     })
@@ -205,7 +205,7 @@ describe("subagent.progress channel", () => {
       })
       host.setChrome({
         agents: [
-          { agentId: "explore", description: "map callers", status: "running" },
+          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
         ],
       })
       expect(await frame()).toContain("map callers · grep")
