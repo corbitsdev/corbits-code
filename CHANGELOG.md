@@ -19,6 +19,57 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks
 
+## [0.2.95] - 2026-08-09
+
+Tool-only auto-pause that no longer stops healthy work, resume the last session
+in a folder, and `/feedback` that just sends.
+
+### Tool-only pause that tracks real thrash
+
+- **Hard pause requires a repeating tool-call cycle**, not a bare tool-only turn
+  count. Period detection catches identical repeats, A/B alternation, and longer
+  fixed rotations; a short identical poll (re-run a flaky test, check a build)
+  no longer false-positives.
+- **Soft wrap-up nudge at 25 tool-only turns** for every model family — a
+  check-in, never a stop. Grok drops its miscalibrated 6/10 pair and shares the
+  default; its shorter sub-agent stall timeout and finish-bias residual stay.
+- **Raw-count backstop** for cycles above the period ceiling or phase-broken
+  patterns: first a progress-summary nudge, then a hard pause only if another
+  full interval passes with no genuine operator message. Synthetic system sends
+  (compaction continuations and the like) no longer reset the counter.
+- Shared **period-detection** helper lifts the character-stream repetition search
+  so tool fingerprints reuse the same shape; a local forensics script re-derives
+  thresholds against real session traces.
+
+### Resume and continue
+
+- **`corbits resume` / `corbits continue`** reopen the latest session for the
+  current project folder, a specific session id, or the interactive picker.
+- Invalid ids error instead of silently falling through to “last”; id and
+  `--pick` cannot be combined. Legacy session trees still migrate on resume by
+  id.
+
+### Feedback
+
+- **`/feedback`** sends free-text product feedback when you choose to. Bare
+  `/feedback` waits for the next line; text on the same line sends immediately;
+  empty Enter cancels. Other slash commands clear a pending arm.
+- The reply is a short system notice (**Thanks — feedback sent.**), not a model
+  turn — no busy state, no queue.
+
+### Usage analytics
+
+- Settings describe optional ambient analytics clearly, and say when an
+  environment setting has disabled them so the toggle cannot re-enable.
+- Generation properties use PostHog cost names: `$ai_cache_read_input_tokens`,
+  `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens`.
+- Broader auth and slash product events.
+
+### TUI and CI
+
+- Markdown settle waits for body paint so heading-only frames no longer flake CI.
+- `--help` exits 0 cleanly.
+
 ## [0.2.94] - 2026-08-09
 
 Orchestrator-first release: a truthful fleet board, thrash salvage that stops
