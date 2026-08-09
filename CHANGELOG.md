@@ -6,6 +6,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+### Breaking
+
+- **Single-agent session mode is gone.** The primary session is always
+  orchestrator-capable (`task` / `search_agents` always available). The first-run
+  mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
+  settings files still loads without error and is ignored (CL-5814).
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage
