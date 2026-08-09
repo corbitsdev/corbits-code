@@ -91,10 +91,12 @@ describe("attachSessionBridge", () => {
           await h.renderOnce()
           expect(port.calls.some((c) => c.op === "enqueue")).toBe(true)
           const enq = port.calls.find((c) => c.op === "enqueue")
+          // Plain Enter mid-run always steers now — "queue and wait quietly"
+          // isn't a separate gesture from "queue to steer" anymore.
           expect(enq).toEqual({
             op: "enqueue",
             text: "queued please",
-            kind: "queue",
+            kind: "steer",
           })
           expect(badgeCount(shell.session)).toBe(1)
           expect(shell.pendingQueue).toBe(1)
@@ -109,7 +111,7 @@ describe("attachSessionBridge", () => {
     )
   })
 
-  test("Alt+Enter mid-run hits port.enqueue steer", async () => {
+  test("Alt+Enter mid-run hard-stops and reinjects, not a boundary wait", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -121,15 +123,16 @@ describe("attachSessionBridge", () => {
         const bridge = attachSessionBridge(shell, port)
         try {
           // Direct bridge path (Alt+Enter chord is terminal-dependent in mock).
-          bridge.submit("steer now", "steer")
+          bridge.submit("stop now", "reinject")
           await h.renderOnce()
-          const enq = port.calls.find((c) => c.op === "enqueue")
-          expect(enq).toEqual({
-            op: "enqueue",
-            text: "steer now",
-            kind: "steer",
-          })
-          expect(badgeCount(shell.session)).toBe(1)
+          // No enqueue at all — this never waits for a boundary. It
+          // interrupts the live run, then sends straight through.
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false)
+          expect(port.calls.map((c) => c.op)).toEqual(["interrupt", "sendImmediate"])
+          const sent = port.calls.find((c) => c.op === "sendImmediate")
+          expect(sent).toEqual({ op: "sendImmediate", text: "stop now" })
+          expect(shell.session.run).toBe("busy")
+          expect(badgeCount(shell.session)).toBe(0)
         } finally {
           bridge.dispose()
           shell.dispose()

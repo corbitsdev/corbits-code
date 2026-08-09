@@ -467,6 +467,10 @@ describe("product skin: stream + queue + overlay", () => {
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
           await h.renderOnce()
+          const interruptRow = shell.streamLog[shell.streamLog.length - 1]
+          expect(interruptRow?.text).toBe(
+            "interrupt — 2 pending kept",
+          )
           const row = noticeRow(h.captureCharFrame())
           expect(row).toContain("interrupt")
         } finally {

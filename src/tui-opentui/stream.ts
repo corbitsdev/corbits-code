@@ -646,8 +646,20 @@ export function paintStreamRow(
 ): PaintedStreamLine {
   const fg = rowFg(row)
   if (row.role === "user") {
-    const text = row.cancelled === true ? `[cancelled] ${row.text}` : row.text
-    return { content: userBubbleLines(text, layout.width).join("\n"), fg }
+    // A queued/steered/reinjected message looks identical to a plain sent
+    // one otherwise — the operator needs to see, on the row itself, what
+    // will happen to it, not just infer it from a badge count elsewhere.
+    const prefix =
+      row.cancelled === true
+        ? "[cancelled] "
+        : row.meta === "steer"
+          ? "[will steer next] "
+          : row.meta === "steering"
+            ? "[steering] "
+            : row.meta === "reinject"
+              ? "[restarted here] "
+              : ""
+    return { content: userBubbleLines(`${prefix}${row.text}`, layout.width).join("\n"), fg }
   }
   if (isThinkingRow(row)) {
     return {

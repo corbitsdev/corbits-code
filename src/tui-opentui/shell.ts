@@ -222,7 +222,7 @@ export function clearShellExitHandler(shell: AppShell): void {
 export type ShellBridgeHooks = {
   onSubmit: (
     text: string,
-    kind: "queue" | "steer" | "immediate",
+    kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
   ) => void
   onInterrupt: () => void
@@ -3068,15 +3068,24 @@ export function userRowText(
   return text.length === 0 ? `[${summary}]` : `${text}\n[${summary}]`
 }
 
-/** Submit prompt as queue (busy) or immediate user send (idle). */
+/**
+ * Submit the prompt. Three kinds, three distinct gestures:
+ *  - "queue": mid-run send — steers at the next turn boundary (badge).
+ *  - "reinject": hard-stop the run right now and restart from this message,
+ *    without waiting for a boundary. No-op when the run isn't busy, or the
+ *    prompt is empty — there's nothing to stop or restart from.
+ *  - Idle sends (either kind) go straight through immediately; "kind" only
+ *    matters while a run is in flight.
+ */
 export function submitPrompt(
   shell: AppShell,
-  kind: "queue" | "steer" = "queue",
+  kind: "queue" | "steer" | "reinject" = "queue",
 ): void {
   const text = shell.prompt.value
   const t = text.trim()
   const attachments = shell.pendingAttachments
   if (t.length === 0 && attachments.length === 0) return
+  if (kind === "reinject" && shell.session.run !== "busy") return
 
   // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being
   // sent to the model. Attachments mean the operator meant it as a message.
@@ -3094,9 +3103,27 @@ export function submitPrompt(
   if (hooks?.exclusive) {
     shell.prompt.value = ""
     clearPendingAttachments(shell)
-    const resolved: "queue" | "steer" | "immediate" =
-      shell.session.run === "idle" ? "immediate" : kind
+    const resolved: "queue" | "steer" | "immediate" | "reinject" =
+      kind === "reinject" ? "reinject" : shell.session.run === "idle" ? "immediate" : kind
     hooks.onSubmit(text, resolved, attachments)
+    return
+  }
+
+  if (kind === "reinject") {
+    shell.session = interrupt(shell.session)
+    shell.prompt.value = ""
+    clearPendingAttachments(shell)
+    appendStreamRow(shell, {
+      role: "system",
+      text: "stop — restarting from your message",
+      meta: "stop",
+    })
+    appendStreamRow(shell, {
+      role: "user",
+      text: userRowText(t, attachments),
+      meta: "reinject",
+    })
+    paintChrome(shell)
     return
   }
 
@@ -5596,17 +5623,21 @@ export function createAppShell(
       (key.meta || key.option) &&
       !key.ctrl
     ) {
+      // Alt+Enter: stop-and-reinject — the one gesture that doesn't wait for
+      // a boundary. Plain Enter (below) already covers "queue to steer at
+      // the next boundary", so this chord's whole job is skipping the wait.
       key.preventDefault()
-      if (shell.session.run === "busy") {
-        submitPrompt(shell, "steer")
-      }
+      submitPrompt(shell, "reinject")
       return
     }
   }
 
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return
-    submitPrompt(shell, "queue")
+    // Every mid-run send steers — there is no longer a plain "queue and wait
+    // quietly" gesture distinct from it (that's what collapsed into Alt+Enter
+    // stop-and-reinject instead). Idle sends ignore "kind" entirely.
+    submitPrompt(shell, "steer")
   }
 
   // Per frame rather than per keystroke: the editor view's wrapped-line table is
