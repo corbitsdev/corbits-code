@@ -3171,7 +3171,10 @@ export function applyShellInterrupt(shell: AppShell): void {
   shell.prompt.value = ""
   appendStreamRow(shell, {
     role: "system",
-    text: `interrupt — discarded ${had} pending`,
+    text:
+      had > 0
+        ? `interrupt — ${had} pending kept, delivers next turn`
+        : "interrupt",
     meta: "stop",
   })
   paintChrome(shell)
