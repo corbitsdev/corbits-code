@@ -17,6 +17,12 @@ export type SubAgentTranscriptEntry =
   | { kind: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { kind: "report"; content: string };
 
+export type OutstandingToolCall = {
+  callId: string;
+  name: string;
+  startedAt: number;
+};
+
 export type SubAgentSession = {
   id: string;
   description: string;
@@ -24,12 +30,21 @@ export type SubAgentSession = {
   brief: string;
   status: SubAgentSessionStatus;
   toolNames: string[];
+  // Name and start clock of the OLDEST outstanding call — the one that
+  // explains the longest silence. Both are derived from `outstandingTools`;
+  // never assign them directly. Null when nothing is in flight.
+  //
+  // A worker inside one long tool emits no events for the whole execution, so
+  // silence alone cannot tell "wedged" from "running a ten-minute test suite".
+  // The start clock is the fact that separates them.
   currentToolName: string | null;
-  // Clock of when the in-flight tool call began executing, or null when no
-  // tool is outstanding. A worker inside one long tool emits no events for the
-  // whole execution, so silence alone cannot tell "wedged" from "running a
-  // ten-minute test suite". This is the fact that separates them.
   currentToolStartedAt: number | null;
+  // Calls the reactor has started and not yet reported a result for. The
+  // reactor runs parallel calls concurrently, so this cannot collapse to one
+  // scalar: a fast grep finishing beside a ten-minute shell command would
+  // otherwise retire the shell command's clock and the lane would read as
+  // stalled while working perfectly.
+  outstandingTools: OutstandingToolCall[];
   entries: SubAgentTranscriptEntry[];
   startedAt: number;
   // Clock of the last event this session recorded (a stream token, a tool
@@ -101,25 +116,53 @@ function defaultCreateId(): string {
 }
 
 /**
- * Name and clock move together so no caller can leave a tool name outstanding
- * with a stale (or absent) start time — the pair is what the UI reads to tell
- * a long tool call from silence with no explanation.
+ * The one place the displayed pair is produced, so a name can never be shown
+ * beside another call's clock. Called after every change to `outstandingTools`.
  */
-function setCurrentTool(
+function syncCurrentTool(session: SubAgentSession): void {
+  let oldest: OutstandingToolCall | undefined;
+  for (const call of session.outstandingTools) {
+    if (oldest === undefined || call.startedAt < oldest.startedAt) oldest = call;
+  }
+  session.currentToolName = oldest?.name ?? null;
+  session.currentToolStartedAt = oldest?.startedAt ?? null;
+}
+
+/**
+ * `restartClock` marks the execution boundary: argument streaming already
+ * registered the call, and the figure worth showing is time spent running it.
+ */
+function beginToolCall(
   session: SubAgentSession,
-  name: string | null,
+  callId: string,
+  name: string,
   nowMs: number,
   restartClock = false,
 ): void {
-  if (name === null) {
-    session.currentToolName = null;
-    session.currentToolStartedAt = null;
-    return;
+  const existing = session.outstandingTools.find((c) => c.callId === callId);
+  if (existing !== undefined) {
+    existing.name = name;
+    if (restartClock) existing.startedAt = nowMs;
+  } else {
+    session.outstandingTools.push({ callId, name, startedAt: nowMs });
   }
-  if (restartClock || session.currentToolName !== name || session.currentToolStartedAt === null) {
-    session.currentToolStartedAt = nowMs;
-  }
-  session.currentToolName = name;
+  syncCurrentTool(session);
+}
+
+/**
+ * Retires exactly the call that finished. A result carrying an id we never saw
+ * start retires nothing, rather than silently clearing a live sibling's clock.
+ */
+function endToolCall(session: SubAgentSession, callId: string): void {
+  const index = session.outstandingTools.findIndex((c) => c.callId === callId);
+  if (index === -1) return;
+  session.outstandingTools.splice(index, 1);
+  syncCurrentTool(session);
+}
+
+function clearToolCalls(session: SubAgentSession): void {
+  session.outstandingTools.length = 0;
+  syncCurrentTool(session);
 }
 
 function capText(text: string, max: number): string {
@@ -191,7 +234,7 @@ export function createSubAgentSessionStore(
     session.status = "cancelled";
     session.finishedAt = now();
     session.lastActivityAt = now();
-    setCurrentTool(session, null, now());
+    clearToolCalls(session);
     session.error = reason;
     pushEntry(session, {
       kind: "report",
@@ -296,6 +339,7 @@ export function createSubAgentSessionStore(
         toolNames: [],
         currentToolName: null,
         currentToolStartedAt: null,
+        outstandingTools: [],
         entries: [],
         startedAt: now(),
         lastActivityAt: now(),
@@ -337,7 +381,7 @@ export function createSubAgentSessionStore(
             const data = event.data as { name?: unknown; callId?: unknown };
             const name = typeof data.name === "string" ? data.name : "tool";
             const callId = typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
-            setCurrentTool(session, name, now());
+            beginToolCall(session, callId, name, now());
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             pushEntry(session, { kind: "tool", callId, name, arguments: "" });
             return;
@@ -372,14 +416,16 @@ export function createSubAgentSessionStore(
               if (callId !== null && entry.callId !== callId) continue;
               if (name !== null) entry.name = name;
               if (args !== null && args.length > 0) entry.arguments = args;
-              setCurrentTool(session, entry.name, now());
+              // Arguments finished streaming; the call itself is still in
+              // flight, so this renames it rather than restarting its clock.
+              beginToolCall(session, entry.callId, entry.name, now());
               return;
             }
             // No matching start — record a complete tool entry.
             if (name !== null) {
               const idForEntry = callId ?? `${name}-${session.entries.length}`;
               if (!session.toolNames.includes(name)) session.toolNames.push(name);
-              setCurrentTool(session, name, now());
+              beginToolCall(session, idForEntry, name, now());
               pushEntry(session, {
                 kind: "tool",
                 callId: idForEntry,
@@ -395,9 +441,11 @@ export function createSubAgentSessionStore(
             const call = (event as { data?: { call?: { name?: unknown; id?: unknown } } }).data?.call;
             const name = typeof call?.name === "string" ? call.name : null;
             if (name === null) return;
-            // Execution start, not argument streaming: restart the clock so the
-            // elapsed figure beside the tool name is time spent running it.
-            setCurrentTool(session, name, now(), true);
+            const callId = typeof call?.id === "string" ? call.id : null;
+            // Without an id there is no way to tell which of several parallel
+            // calls this starts, and guessing would retime the wrong one. The
+            // inference-side start already registered it, so leave it alone.
+            if (callId !== null) beginToolCall(session, callId, name, now(), true);
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             return;
           }
@@ -418,7 +466,7 @@ export function createSubAgentSessionStore(
             const content = capText(stringifyUnknown(result.content ?? ""), maxEntryChars);
             const isError = result.isError === true;
             pushEntry(session, { kind: "tool_result", callId, name, content, isError });
-            setCurrentTool(session, null, now());
+            endToolCall(session, callId);
             return;
           }
           default:
@@ -434,7 +482,7 @@ export function createSubAgentSessionStore(
         if (session.status !== "running") return;
         session.status = "done";
         session.finishedAt = now();
-        setCurrentTool(session, null, now());
+        clearToolCalls(session);
         session.report = report;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         cancelHandles.delete(id);
@@ -447,7 +495,7 @@ export function createSubAgentSessionStore(
         if (session.status !== "running") return;
         session.status = "failed";
         session.finishedAt = now();
-        setCurrentTool(session, null, now());
+        clearToolCalls(session);
         session.error = error;
         pushEntry(session, {
           kind: "report",
@@ -506,6 +554,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     toolNames: [...session.toolNames],
     currentToolName: session.currentToolName,
     currentToolStartedAt: session.currentToolStartedAt,
+    outstandingTools: session.outstandingTools.map((c) => ({ ...c })),
     entries: session.entries.map(cloneEntry),
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,
