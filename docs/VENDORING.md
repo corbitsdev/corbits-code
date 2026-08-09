@@ -130,7 +130,8 @@ same commit should show ONLY those marked lines changed.
    than a reconstruction — an auditor diffs one commit against the upstream
    clone and is done, instead of subtracting a prose ledger from a merged
    tree. It also makes the next upgrade cheaper, because the patch commit is
-   exactly the thing to replay. The 2026-08-08 sync landed as a single
-   commit and does not have this property; `PATCHES.md` is what makes that
-   tree reconstructible, which is why that ledger is load-bearing rather
-   than merely descriptive.
+   exactly the thing to replay. The 2026-08-08 sync landed as two
+   commits split by package rather than by pristine-then-patched, so neither
+   isolates an unmodified upstream tree; `PATCHES.md` is what makes that state
+   reconstructible, which is why that ledger is load-bearing rather than
+   merely descriptive.
