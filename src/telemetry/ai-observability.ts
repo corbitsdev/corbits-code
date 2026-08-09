@@ -87,9 +87,9 @@ export function emitAiObservability(
     $ai_output_tokens: ctx.usage.output,
     $ai_latency: secondsFromMs(ctx.durationMs),
     $ai_is_error: false,
-    cache_read_tokens: ctx.usage.cacheRead,
-    cache_write_tokens: ctx.usage.cacheWrite,
-    thinking_tokens: ctx.usage.thinking,
+    $ai_cache_read_input_tokens: ctx.usage.cacheRead,
+    $ai_cache_creation_input_tokens: ctx.usage.cacheWrite,
+    $ai_reasoning_tokens: ctx.usage.thinking,
   });
 
   const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));

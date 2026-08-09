@@ -18,11 +18,12 @@ import { createSessionPruningCompactor } from "../../src/session/runtime-assembl
 import { createTaskTool } from "../../src/subagent/task-tool.js";
 import {
   classifyAgentName,
-  classifyCommandName,
   classifyErrorClass,
   classifyPermissionKind,
 } from "../../src/telemetry/classify.js";
+
 import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
+import { captureSlashCommand } from "../../src/telemetry/product-events.js";
 import {
   captureAuthFailure,
   classifyAgentSendFailure,
@@ -224,8 +225,10 @@ test("the built-in worker label is reported by name", () => {
 test("slash_command buckets a plugin-registered command to \"custom\"", async () => {
   const { telemetry, wire, events } = harness();
 
-  telemetry.capture("slash_command", { command_name: classifyCommandName("acmecorp-deploy") });
-  telemetry.capture("slash_command", { command_name: classifyCommandName("settings") });
+  // Shared product-event helper — not the TUI runner — so headless and TUI
+  // callers hit the same emission path (CL-5744).
+  captureSlashCommand(telemetry, "acmecorp-deploy");
+  captureSlashCommand(telemetry, "settings");
 
   const captured = await events();
   expect(captured[0]?.properties.command_name).toBe("custom");
@@ -273,6 +276,7 @@ test("auth_failure names the provider and never ships the rejection message", as
   const rejections = [
     codexRejection,
     new Error('xai profile "acmecorp-eng" is not authorized.'),
+    new Error('anthropic authentication_error: invalid x-api-key for acmecorp-eng'),
     new Error("connection reset by /Users/someone/acmecorp"),
   ];
   for (const err of rejections) {
@@ -288,8 +292,16 @@ test("auth_failure names the provider and never ships the rejection message", as
   );
 
   const captured = await events();
-  expect(captured.map((e) => e.event)).toEqual(["auth_failure", "auth_failure"]);
-  expect(captured.map((e) => e.properties.auth_provider)).toEqual(["codex", "xai"]);
+  expect(captured.map((e) => e.event)).toEqual([
+    "auth_failure",
+    "auth_failure",
+    "auth_failure",
+  ]);
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual([
+    "codex",
+    "xai",
+    "anthropic",
+  ]);
   const body = await wire();
   expect(body).not.toContain("acmecorp");
   expect(body).not.toContain("error_class");

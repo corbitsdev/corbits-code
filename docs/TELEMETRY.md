@@ -12,9 +12,9 @@ Each event carries a small set of properties:
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens` |
+| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens` |
 | `$ai_span` | Once per top-level tool call in a completed turn | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error` |
-| `slash_command` | A slash command is dispatched in the TUI | `command_name` |
+| `slash_command` | A slash command is dispatched (shared product-event path) | `command_name` |
 | `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
 | `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
 | `subagent_start` | A `task` dispatch begins | `agent_name` |
@@ -68,9 +68,9 @@ on `crash` and nowhere else, so the column means one thing everywhere it is
 recorded.
 
 `auth_provider` is a separate property for that reason: it names which
-provider's sign-in was rejected (`codex`, `xai`), chosen from a fixed
-first-party set in `src/tui/session-chrome.ts`. No part of the
-provider's rejection message is sent.
+provider's sign-in was rejected (`codex`, `xai`, `anthropic`, `other`),
+chosen from a fixed first-party set in `src/tui/session-chrome.ts`. No
+part of the provider's rejection message is sent.
 
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each
 emission site a deliberately identifying name and assert it reaches no part of
@@ -106,9 +106,10 @@ configured under, which can be a local path.
 into one of these and then discarded — a raw message routinely embeds the
 request URL, a prompt excerpt, or a file path.
 
-The cache and thinking token counts keep unprefixed names because PostHog does
-not publish property names for them in its manual-capture schema; a guessed
-`$ai_` name would land as an unread custom property either way.
+Cache and reasoning token counts use PostHog's documented cost-property names
+(`$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`,
+`$ai_reasoning_tokens`) so LLM cost views see them. Confirmed against PostHog
+manual-capture installation docs and the cost-properties reference (CL-5749).
 
 Stopping a turn mid-inference is reported, not silent: the runtime aborts the
 in-flight call and classifies the resulting error as `cancelled`, so a stopped

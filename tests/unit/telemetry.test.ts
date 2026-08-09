@@ -160,9 +160,9 @@ test("capture strips properties not in $ai_generation's allowlist", async () => 
     $ai_output_tokens: 20,
     $ai_latency: 0.4,
     $ai_is_error: false,
-    cache_read_tokens: 1,
-    cache_write_tokens: 2,
-    thinking_tokens: 3,
+    $ai_cache_read_input_tokens: 1,
+    $ai_cache_creation_input_tokens: 2,
+    $ai_reasoning_tokens: 3,
     prompt: "should-not-appear",
     completion: "should-not-appear",
   });

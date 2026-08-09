@@ -203,26 +203,50 @@ describe("classifyAgentSendFailure", () => {
   const xai = (e: unknown) => e === "xai"
 
   test("abort is ignored", () => {
-    expect(classifyAgentSendFailure(new Error("x"), true, codex, xai)).toBe(
-      "abort",
-    )
+    expect(classifyAgentSendFailure(new Error("x"), true, codex, xai)).toEqual({
+      kind: "abort",
+      authProvider: null,
+    })
     expect(shouldSettleUiAfterSendFailure("abort")).toBe(false)
   })
 
   test("generic error settles ui", () => {
-    expect(classifyAgentSendFailure(new Error("boom"), false, codex, xai)).toBe(
-      "error",
-    )
+    expect(classifyAgentSendFailure(new Error("boom"), false, codex, xai)).toEqual({
+      kind: "error",
+      authProvider: null,
+    })
     expect(shouldSettleUiAfterSendFailure("error")).toBe(true)
   })
 
   test("auth failures settle ui for idle footer", () => {
-    expect(classifyAgentSendFailure("codex", false, codex, xai)).toBe(
-      "codex_auth",
-    )
-    expect(classifyAgentSendFailure("xai", false, codex, xai)).toBe("xai_auth")
-    expect(shouldSettleUiAfterSendFailure("codex_auth")).toBe(true)
-    expect(shouldSettleUiAfterSendFailure("xai_auth")).toBe(true)
+    expect(classifyAgentSendFailure("codex", false, codex, xai)).toEqual({
+      kind: "auth",
+      authProvider: "codex",
+    })
+    expect(classifyAgentSendFailure("xai", false, codex, xai)).toEqual({
+      kind: "auth",
+      authProvider: "xai",
+    })
+    expect(shouldSettleUiAfterSendFailure("auth")).toBe(true)
+  })
+
+  test("anthropic and generic credential rejections classify as auth", () => {
+    expect(
+      classifyAgentSendFailure(
+        new Error("anthropic: invalid x-api-key"),
+        false,
+        codex,
+        xai,
+      ),
+    ).toEqual({ kind: "auth", authProvider: "anthropic" })
+    expect(
+      classifyAgentSendFailure(
+        new Error("Request failed with status 401 Unauthorized"),
+        false,
+        codex,
+        xai,
+      ),
+    ).toEqual({ kind: "auth", authProvider: "other" })
   })
 })
 
@@ -231,22 +255,31 @@ describe("sendFailureText", () => {
     const codex = sendFailureText(
       'Codex profile "default" is not authorized. Log in again.',
     )
-    expect(classifySendFailureMessage(
-      'Codex profile "default" is not authorized. Log in again.',
-    )).toBe("codex_auth")
+    expect(
+      classifySendFailureMessage(
+        'Codex profile "default" is not authorized. Log in again.',
+      ),
+    ).toEqual({ kind: "auth", authProvider: "codex" })
     expect(codex).toContain("sign-in expired")
     expect(codex).toContain("/model")
 
     const xai = sendFailureText('xAI profile "default" could not be refreshed (401).')
     expect(xai).toContain("/model")
     expect(xai).not.toContain("401")
+
+    const anthropic = sendFailureText("authentication_error: invalid x-api-key")
+    expect(anthropic).toContain("anthropic")
+    expect(anthropic).toContain("/model")
   })
 
   test("an unclassified failure keeps its raw message", () => {
     expect(sendFailureText("connection reset by peer")).toBe(
       "connection reset by peer",
     )
-    expect(classifySendFailureMessage("connection reset by peer")).toBe("error")
+    expect(classifySendFailureMessage("connection reset by peer")).toEqual({
+      kind: "error",
+      authProvider: null,
+    })
   })
 })
 

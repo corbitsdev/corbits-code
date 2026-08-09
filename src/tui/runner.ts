@@ -96,7 +96,7 @@ import type { PluginModule } from "../plugins/loader.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
-import { classifyCommandName } from "../telemetry/classify.js";
+import { captureSlashCommand } from "../telemetry/product-events.js";
 import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 import { loadStartupChangelogMarkdown } from "../changelog/index.js";
@@ -1824,14 +1824,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   /** Settle the shell after a rejected send so the run does not look live. */
   const handleSendFailure = (err: unknown): void => {
-    const kind = classifyAgentSendFailure(
+    const failure = classifyAgentSendFailure(
       err,
       sendAborted,
       isCodexAuthError,
       isXaiAuthError,
     );
-    captureAuthFailure(getTelemetry(), kind);
-    if (!shouldSettleUiAfterSendFailure(kind)) return;
+    captureAuthFailure(getTelemetry(), failure);
+    if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
     recordRunError(err);
     systemNotice(err instanceof Error ? err.message : String(err));
     setShellRunState(host.shell, "idle");
@@ -1941,7 +1941,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }
     // Plugins register into the same command registry as the built-ins, so an
     // unrecognised name is plugin-authored and is bucketed rather than sent.
-    getTelemetry().capture("slash_command", { command_name: classifyCommandName(command.name) });
+    // Shared emitter so TUI and any headless path report the same event.
+    captureSlashCommand(getTelemetry(), command.name);
     applyCommandResult(command.handler(args, commandContext));
   };
 

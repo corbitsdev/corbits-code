@@ -101,10 +101,11 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // name a user gave a provider in onboarding or settings. $ai_latency is
   // in seconds, per PostHog's schema.
   //
-  // The cache and thinking token counts stay on our own names: PostHog
-  // documents cost inputs for them but does not publish the property names
-  // in the manual-capture schema, and guessing a name that lands as an
-  // unread custom property is worse than owning one we can read ourselves.
+  // Cache and reasoning token counts use PostHog's documented cost-property
+  // names (manual-capture installation + cost-properties reference):
+  // $ai_cache_read_input_tokens, $ai_cache_creation_input_tokens,
+  // $ai_reasoning_tokens. Unprefixed names land as custom properties and
+  // are invisible to cost/token views (CL-5749).
   $ai_generation: [
     "$ai_trace_id",
     "$ai_provider",
@@ -114,9 +115,9 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "$ai_latency",
     "$ai_is_error",
     "$ai_error",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "thinking_tokens",
+    "$ai_cache_read_input_tokens",
+    "$ai_cache_creation_input_tokens",
+    "$ai_reasoning_tokens",
   ],
   // The trace is flat: every span's $ai_parent_id is the turn's
   // $ai_trace_id. PostHog documents $ai_parent_id as accepting a trace id or
