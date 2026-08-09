@@ -227,6 +227,60 @@ describe("sub-agent stop helpers", () => {
     ).toBe("never-acted");
   });
 
+  test("evaluateSubAgentStop returns never-edited when requireEdit and tools never wrote files", () => {
+    const thrashState = {
+      totalToolCalls: 4,
+      readCounts: new Map([["src/a.ts", 2]]),
+      editedPaths: new Set<string>(),
+    };
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 30,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        thrashState,
+        requireEdit: true,
+      }),
+    ).toBe("never-edited");
+  });
+
+  test("evaluateSubAgentStop still completes implement when an edit path was recorded", () => {
+    const thrashState = {
+      totalToolCalls: 4,
+      readCounts: new Map([["src/a.ts", 1]]),
+      editedPaths: new Set(["src/a.ts"]),
+    };
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 5,
+        maxTurns: 30,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        thrashState,
+        requireEdit: true,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop ignores requireEdit when the run never used tools (never-acted wins)", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: false,
+        turnsCompleted: 1,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        requireEdit: true,
+      }),
+    ).toBe("never-acted");
+  });
+
   test("evaluateSubAgentStop prefers no-progress over turn-budget", () => {
     expect(
       evaluateSubAgentStop({
@@ -413,6 +467,10 @@ describe("sub-agent stop helpers", () => {
     expect(neverParsed.findings).toContain("red tests");
     expect(neverParsed.blockers).toContain("unexecuted");
     expect(neverActed.toLowerCase()).not.toContain("summarize what you found");
+
+    const neverEdited = forcedStopReport("never-edited", "I mapped the files; ready to code next");
+    expect(neverEdited).toContain("without writing any files");
+    expect(appendSubAgentParentHints(neverEdited)).toContain("edit-first");
 
     const thrashReport = forcedStopReport("thrash", "Re-read a.ts after edit");
     const thrashParsed = parseSubAgentReport(thrashReport);
@@ -1658,8 +1716,8 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(ledger.admit(other).ok).toBe(true);
   });
 
-  test("hard-blocks no-progress, repetition, never-acted; not turn-budget", () => {
-    for (const salvage of ["no-progress", "repetition", "never-acted"] as const) {
+  test("hard-blocks no-progress, repetition, never-acted, never-edited; not turn-budget", () => {
+    for (const salvage of ["no-progress", "repetition", "never-acted", "never-edited"] as const) {
       const ledger = createBriefDispatchLedger();
       const fp = fingerprintTaskBrief({ prompt: `job ${salvage}` });
       expect(ledger.admit(fp).ok).toBe(true);
@@ -1713,6 +1771,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
     expect(classifyBriefSalvage(forcedStopReport("repetition", "x"))).toBe("repetition");
     expect(classifyBriefSalvage(forcedStopReport("never-acted", "x"))).toBe("never-acted");
+    expect(classifyBriefSalvage(forcedStopReport("never-edited", "x"))).toBe("never-edited");
     expect(classifyBriefSalvage(forcedStopReport("turn-budget", "x"))).toBe("turn-budget");
     expect(classifyBriefSalvage("## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n")).toBeNull();
   });

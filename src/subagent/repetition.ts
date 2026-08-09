@@ -46,8 +46,14 @@ export type RepetitionHit = {
 // byte-periodic anyway — the period just spans the oscillation. The cost is
 // that a loop driven by a strictly monotonic counter escapes, but that shape
 // is indistinguishable from a legitimate numbered list.
+//
+// Format / invisible separators (ZWSP, BOM, soft hyphen, bidi marks, …) are
+// stripped so a model that injects them between identical windows cannot
+// evade the detector. Observed thrash loops used U+200B between repeats.
 function normalize(text: string): string {
-  return text.replace(/\s+/g, " ");
+  return text
+    .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+    .replace(/\s+/g, " ");
 }
 
 function prefixFunction(s: string): Int32Array {
