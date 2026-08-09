@@ -410,6 +410,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         maxTurns,
         DEFAULT_SUBAGENT_REPEAT_LIMIT,
         modelFamilyPolicy.subAgentStallTimeoutMs,
+        Date.now,
+        params.intent === "implement",
       ),
   });
 

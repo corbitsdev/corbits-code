@@ -16,6 +16,7 @@ import { parseSubAgentReport } from "./report.js";
 import {
   isDeadlineSubAgentReport,
   isNeverActedSubAgentReport,
+  isNeverEditedSubAgentReport,
   isNoProgressSubAgentReport,
   isRepetitionSubAgentReport,
   isThrashSubAgentReport,
@@ -27,7 +28,8 @@ export type HardBlockSalvage =
   | "thrash"
   | "no-progress"
   | "repetition"
-  | "never-acted";
+  | "never-acted"
+  | "never-edited";
 
 export type BriefSalvageKind =
   | HardBlockSalvage
@@ -63,6 +65,7 @@ const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>([
   "no-progress",
   "repetition",
   "never-acted",
+  "never-edited",
 ]);
 
 export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSalvage {
@@ -89,6 +92,7 @@ export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
   // Order: more specific salvage phrases first.
   if (isThrashSubAgentReport(report)) return "thrash";
   if (isRepetitionSubAgentReport(report)) return "repetition";
+  if (isNeverEditedSubAgentReport(report)) return "never-edited";
   if (isNeverActedSubAgentReport(report)) return "never-acted";
   if (isNoProgressSubAgentReport(report)) return "no-progress";
   if (isTurnBudgetSubAgentReport(report)) return "turn-budget";

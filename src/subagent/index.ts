@@ -54,6 +54,7 @@ export {
   forcedStopReport,
   isDeadlineSubAgentReport,
   isNeverActedSubAgentReport,
+  isNeverEditedSubAgentReport,
   isNoProgressSubAgentReport,
   isRepetitionSubAgentReport,
   isThrashSubAgentReport,

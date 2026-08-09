@@ -132,6 +132,7 @@ export type SubAgentStopReason =
   | "turn-budget"
   | "no-progress"
   | "never-acted"
+  | "never-edited"
   | "thrash"
   | "report-forced";
 
@@ -143,8 +144,8 @@ export type SubAgentStopReason =
  * turn-budget (hard cap). "report-forced" is not a competing stop reason —
  * it is a one-shot signal, forceReportWithin turns before the cap, telling
  * the caller to inject a wrap-up nudge and keep running; turn-budget remains
- * reachable afterward. Tool-less turns always end the leaf as complete or
- * never-acted.
+ * reachable afterward. Tool-less turns always end the leaf as complete,
+ * never-acted, or never-edited.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
@@ -157,11 +158,25 @@ export function evaluateSubAgentStop(input: {
   /** When set, progressive thrash / force-report are evaluated after no-progress. */
   thrashState?: ThrashState;
   thrashConfig?: Partial<ThrashConfig>;
+  /**
+   * When true (intent=implement), a tool-using run that never wrote/edited a
+   * file is not a successful complete — salvage as never-edited so the parent
+   * does not treat a pure-explore "plan" as shipped work.
+   */
+  requireEdit?: boolean;
 }): SubAgentStopReason | null {
-  // A tool-less turn always ends the leaf; classify success vs never-acted by
-  // whether the run used tools at all (planning-only prose is not a successful implement).
+  // A tool-less turn always ends the leaf. Planning-only prose is never-acted;
+  // implement intent that only read/searched (no edit_file/write_file/delete_file)
+  // is never-edited — both hard-block identical re-dispatch.
   if (!input.hasToolCalls) {
-    return input.everHadToolCalls ? "complete" : "never-acted";
+    if (!input.everHadToolCalls) return "never-acted";
+    if (
+      input.requireEdit === true &&
+      (input.thrashState === undefined || input.thrashState.editedPaths.size === 0)
+    ) {
+      return "never-edited";
+    }
+    return "complete";
   }
   // No-progress is more specific than thrash or the turn budget when both could apply.
   if (subAgentNoProgress(input.consecutiveIdentical, input.repeatLimit)) return "no-progress";
@@ -245,6 +260,7 @@ export function forcedStopReport(
     | "no-progress"
     | "turn-budget"
     | "never-acted"
+    | "never-edited"
     | "cancelled"
     | "deadline"
     | "thrash"
@@ -259,15 +275,17 @@ export function forcedStopReport(
         ? "Stopped: progressive thrash (re-read pressure without finishing)."
         : reason === "never-acted"
           ? "Stopped: completed without using any tools."
-          : reason === "cancelled"
-            ? "Stopped: cancelled by operator before finishing."
-            : reason === "deadline"
-              ? "Stopped: wall-clock deadline reached before finishing."
-              : reason === "stalled"
-                ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
-                : reason === "repetition"
-                  ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
-                  : "Turn budget reached before finishing.";
+          : reason === "never-edited"
+            ? "Stopped: implement intent finished without writing any files."
+            : reason === "cancelled"
+              ? "Stopped: cancelled by operator before finishing."
+              : reason === "deadline"
+                ? "Stopped: wall-clock deadline reached before finishing."
+                : reason === "stalled"
+                  ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
+                  : reason === "repetition"
+                    ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
+                    : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent must not re-dispatch the identical brief (it will be refused) — tighten success_criteria/do_not or change approach."
@@ -275,7 +293,9 @@ export function forcedStopReport(
         ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a narrower scope, success_criteria, and do_not rather than more turns alone."
         : reason === "never-acted"
           ? "Leaf returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
-          : reason === "cancelled"
+          : reason === "never-edited"
+            ? "Leaf used tools but never called edit_file/write_file/delete_file under intent=implement; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, or treat findings as unexecuted."
+            : reason === "cancelled"
             ? "Operator or parent cancelled the leaf mid-run; parent may re-dispatch with the partial findings below."
             : reason === "deadline"
               ? "Leaf wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
@@ -312,6 +332,12 @@ export function isNeverActedSubAgentReport(report: string): boolean {
   return parsed.summary.includes("without using any tools");
 }
 
+/** True when implement intent finished without any write/edit tools. */
+export function isNeverEditedSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.includes("without writing any files");
+}
+
 /** True when the worker returned a deadline salvage report for the parent. */
 export function isDeadlineSubAgentReport(report: string): boolean {
   const parsed = parseSubAgentReport(report);
@@ -339,6 +365,9 @@ export const TURN_BUDGET_STOP_PARENT_HINT =
 
 const NEVER_ACTED_PARENT_HINT =
   "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing. An identical brief will be refused.]";
+
+const NEVER_EDITED_PARENT_HINT =
+  "[Sub-agent finished implement intent without writing any files (read/search only). Treat findings as unexecuted; re-dispatch with an edit-first brief. An identical brief will be refused.]";
 
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
@@ -384,6 +413,11 @@ export function appendNeverActedParentHint(report: string): string {
   return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
 }
 
+export function appendNeverEditedParentHint(report: string): string {
+  if (!isNeverEditedSubAgentReport(report)) return report;
+  return `${NEVER_EDITED_PARENT_HINT}\n\n${report}`;
+}
+
 export function appendDeadlineParentHint(report: string): string {
   if (!isDeadlineSubAgentReport(report)) return report;
   return `${DEADLINE_PARENT_HINT}\n\n${report}`;
@@ -416,12 +450,14 @@ export function appendSubAgentParentHints(
   options: SubAgentParentHintOptions = {},
 ): string {
   return appendDeadlineParentHint(
-    appendNeverActedParentHint(
-      appendTurnBudgetParentHint(
-        appendNoProgressParentHint(
-          appendThrashParentHint(appendRepetitionParentHint(report)),
+    appendNeverEditedParentHint(
+      appendNeverActedParentHint(
+        appendTurnBudgetParentHint(
+          appendNoProgressParentHint(
+            appendThrashParentHint(appendRepetitionParentHint(report)),
+          ),
+          options,
         ),
-        options,
       ),
     ),
   );

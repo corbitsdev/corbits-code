@@ -94,6 +94,18 @@ describe("repetition check accounting at the cycle-text cap", () => {
   });
 });
 
+
+  test("flags a loop that injects zero-width spaces between identical windows", () => {
+    // Without format-char stripping, ZWSP breaks byte periodicity and the
+    // detector misses the loop (observed in live thrash fleets).
+    const window = "I'll open the remaining source files and implement the activity preview. ";
+    const zwsp = "\u200B";
+    const text = (window + zwsp).repeat(12);
+    const hit = detectRepetition(text);
+    expect(hit).not.toBeNull();
+    expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_REPETITION_CONFIG.repeatThreshold);
+  });
+
 describe("appendCycleText", () => {
   test("keeps only the tail past the cap", () => {
     const text = appendCycleText("a".repeat(10), "b".repeat(10), 15);

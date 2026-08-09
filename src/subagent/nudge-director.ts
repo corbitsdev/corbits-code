@@ -69,6 +69,8 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
   private readonly repeatLimit: number;
+  /** When true (intent=implement), tool-less finish without edits salvages as never-edited. */
+  private readonly requireEdit: boolean;
   private turnsCompleted = 0;
   private everHadToolCalls = false;
   private streak: ToolCallStreak = {
@@ -108,6 +110,7 @@ export class SubAgentDirector extends DefaultDirector {
     repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
     stallTimeoutMs?: number,
     now: () => number = Date.now,
+    requireEdit: boolean = false,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
@@ -116,6 +119,7 @@ export class SubAgentDirector extends DefaultDirector {
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
     this.lastActivityAt = now();
+    this.requireEdit = requireEdit;
   }
 
   override async decide(
@@ -166,6 +170,7 @@ export class SubAgentDirector extends DefaultDirector {
         consecutiveIdentical: this.streak.consecutiveIdentical,
         repeatLimit: this.repeatLimit,
         thrashState: this.thrashState,
+        requireEdit: this.requireEdit,
       });
 
       if (stop === "complete") {
@@ -188,6 +193,7 @@ export class SubAgentDirector extends DefaultDirector {
         stop === "no-progress" ||
         stop === "turn-budget" ||
         stop === "never-acted" ||
+        stop === "never-edited" ||
         stop === "thrash"
       ) {
         const checkpoint =
@@ -195,9 +201,11 @@ export class SubAgentDirector extends DefaultDirector {
             ? "subagent-no-progress"
             : stop === "never-acted"
               ? "subagent-never-acted"
-              : stop === "thrash"
-                ? "subagent-thrash"
-                : "subagent-turn-budget";
+              : stop === "never-edited"
+                ? "subagent-never-edited"
+                : stop === "thrash"
+                  ? "subagent-thrash"
+                  : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content))),
