@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   annotateAgentTools,
   chromeFromSession,
+  clampBoardRows,
   formatAgentsPanel,
   formatChromeZones,
   formatTasksPanel,
@@ -447,12 +448,14 @@ describe("lane state survives the mapping hops", () => {
       undefined,
       NOW,
     )
-    // Board: header first, then the lane. Expect main's in_tool vocabulary.
+    // Board: header first, then the lane. Operator copy uses "in tool", not
+    // the machine LaneState token.
     expect(rows?.[0]?.kind).toBe("header")
     expect(rows?.[0]?.label).toContain("in tool")
     expect(rows?.[1]?.kind).toBe("lane")
     expect(rows?.[1]?.stalled).toBe(false)
-    expect(rows?.[1]?.tail).toContain("in_tool")
+    expect(rows?.[1]?.tail).toContain("in tool")
+    expect(rows?.[1]?.tail).not.toContain("in_tool")
     expect(rows?.[1]?.tail).toContain("run_shell 1:30")
     expect(rows?.[1]?.tail).not.toContain("stalled")
 
@@ -495,3 +498,42 @@ describe("lane state survives the mapping hops", () => {
     expect(annotated.agents?.[0]?.currentToolStartedAt).toBeNull()
   })
 })
+
+describe("clampBoardRows", () => {
+  test("carries a prior more-row count into a tighter re-clamp", () => {
+    // Formatter already hid 4 of 8; collapse then grants only 4 rows total.
+    // Honest disclosure is 4 prior + 2 newly dropped = 6, not 2.
+    const formatted = [
+      { label: "FLEET  8 lanes · 8 working", tail: "", stalled: false, kind: "header" as const },
+      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "b: two", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "c: three", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "d: four", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "+4 more lanes", tail: "", stalled: false, kind: "more" as const },
+    ]
+    const clamped = clampBoardRows(formatted, 4)
+    expect(clamped).toHaveLength(4)
+    expect(clamped[0]?.kind).toBe("header")
+    expect(clamped[0]?.tail).toBe("")
+    expect(clamped[3]).toEqual({
+      label: "+6 more lanes",
+      tail: "",
+      stalled: false,
+      kind: "more",
+    })
+  })
+
+  test("under a tight height the header carries the total hidden count", () => {
+    const formatted = [
+      { label: "FLEET  8 lanes · 8 working", tail: " · +4 hidden", stalled: false, kind: "header" as const },
+      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "b: two", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+    ]
+    const clamped = clampBoardRows(formatted, 2)
+    expect(clamped).toHaveLength(2)
+    // 4 prior + 1 newly dropped lane = 5.
+    expect(clamped[0]?.tail).toBe(" · +5 hidden")
+    expect(clamped.some((r) => r.kind === "more")).toBe(false)
+  })
+})
+

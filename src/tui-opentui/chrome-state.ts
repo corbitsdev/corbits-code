@@ -285,6 +285,11 @@ function boardLaneState(
  * zone's box — rows land on top of each other and on whatever is below. So the
  * granted height is the last word, and the lanes it costs are disclosed rather
  * than dropped in silence.
+ *
+ * When the formatter already folded a fan-out (`+N more lanes` or header
+ * `+N hidden`), that prior count is carried into the re-clamp total so the
+ * operator still sees every running lane accounted for — not only the ones
+ * still present as row objects after the first fold.
  */
 export function clampBoardRows(
   rows: readonly AgentPanelRow[],
@@ -296,25 +301,66 @@ export function clampBoardRows(
   const header = rows[0]
   if (header === undefined) return []
   const lanes = rows.filter((r) => r.kind === "lane")
+  const priorHidden = priorHiddenCount(rows)
+  // Drop any prior disclosure on the header; we restate the total below.
+  const cleanHeader = stripHiddenTail(header)
 
   // Below a few rows the disclosure line costs more than the lane it displaces,
   // so the header carries the count instead — the same trade the formatter makes.
   if (height < 4) {
-    const shown = lanes.slice(0, height - 1)
-    return [withHiddenCount(header, lanes.length - shown.length), ...shown]
+    const shown = lanes.slice(0, Math.max(0, height - 1))
+    const hidden = priorHidden + (lanes.length - shown.length)
+    return [withHiddenCount(cleanHeader, hidden), ...shown]
   }
 
-  const shown = lanes.slice(0, height - 2)
-  const hidden = lanes.length - shown.length
+  const shown = lanes.slice(0, Math.max(0, height - 2))
+  const hidden = priorHidden + (lanes.length - shown.length)
   return [
-    header,
+    cleanHeader,
     ...shown,
     { label: `+${hidden} more lanes`, tail: "", stalled: false, kind: "more" },
   ]
 }
 
+/** Lanes already disclosed by a prior format/clamp fold on these rows. */
+function priorHiddenCount(rows: readonly AgentPanelRow[]): number {
+  let hidden = 0
+  for (const row of rows) {
+    if (row.kind === "more") {
+      const match = /^\+(\d+) more lanes$/.exec(row.label)
+      if (match?.[1] !== undefined) hidden += Number(match[1])
+      continue
+    }
+    if (row.kind === "header") {
+      const match = / · \+(\d+) hidden$/.exec(row.tail)
+      if (match?.[1] !== undefined) hidden += Number(match[1])
+    }
+  }
+  return hidden
+}
+
+function stripHiddenTail(header: AgentPanelRow): AgentPanelRow {
+  const tail = header.tail.replace(/ · \+\d+ hidden$/, "")
+  return tail === header.tail ? header : { ...header, tail }
+}
+
 function withHiddenCount(header: AgentPanelRow, hidden: number): AgentPanelRow {
   return hidden > 0 ? { ...header, tail: ` · +${hidden} hidden` } : header
+}
+
+/**
+ * Operator-facing state word. Machine `LaneState` stays snake_case for code;
+ * the board never paints that vocabulary into the terminal.
+ */
+function laneStateWord(state: LaneState): string {
+  switch (state) {
+    case "in_tool":
+      return "in tool"
+    case "stalled":
+      return "stalled"
+    case "working":
+      return "working"
+  }
 }
 
 /**
@@ -366,12 +412,12 @@ function formatAgentRow(
 
   // Prefer main's agentProgress for tool-clock / in_tool / quiet clocks so the
   // board never invents a second stall path. Board presentation still prefixes
-  // the state word (and kind: lane) the way the fleet board reads.
+  // the operator-facing state word (and kind: lane) the way the fleet board reads.
   const progress = agentProgress(progressSession, nowMs, stallMs)
   if (progress !== null) {
     return {
       label,
-      tail: ` · ${state} · ${progress.stat}`,
+      tail: ` · ${laneStateWord(state)} · ${progress.stat}`,
       stalled,
       kind: "lane",
     }
