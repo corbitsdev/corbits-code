@@ -21,11 +21,18 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 ## What's vendored
 
-| Package | Vendor path | Synced from upstream commit | Local patches |
-|---|---|---|---|
-| `@intx/inference` | `vendor/intx-inference/` | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types` | `vendor/intx-types/` | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | None — verbatim |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | None — verbatim |
+| Package | Vendor path | License | Synced from upstream commit | Retrieved | Local patches |
+|---|---|---|---|---|---|
+| `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | Yes — see `vendor/intx-inference/PATCHES.md` |
+| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | None — verbatim |
+| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | None — verbatim |
+
+The license column records what each package declares in its own
+`package.json`; the corresponding `LICENSE` file travels with every vendored
+tree and is never edited during a sync. Corbits Code is distributed under
+GPLv2, which LGPL-2.1 permits. Retrieval dates are when the copy landed here,
+not when the upstream commit was authored — an audit needs both, and the
+upstream commit hash supplies the other half.
 
 All three were synced together in one pass because they are not
 independently upgradable: the reactor's approval-suspend primitive (upstream
@@ -116,4 +123,15 @@ same commit should show ONLY those marked lines changed.
    should move all three together, even if only one had code changes worth
    vendoring — otherwise the trio drifts out of the single-commit coherence
    this document assumes.
-5. Update this document's table with the new commit hash.
+5. Update this document's table with the new commit hash and retrieval date.
+6. Land the sync as **two commits, in this order**: first the pristine
+   upstream copy with no local changes, then the re-applied patches. The
+   point is that the unmodified upstream state becomes a checkout rather
+   than a reconstruction — an auditor diffs one commit against the upstream
+   clone and is done, instead of subtracting a prose ledger from a merged
+   tree. It also makes the next upgrade cheaper, because the patch commit is
+   exactly the thing to replay. The 2026-08-08 sync landed as two
+   commits split by package rather than by pristine-then-patched, so neither
+   isolates an unmodified upstream tree; `PATCHES.md` is what makes that state
+   reconstructible, which is why that ledger is load-bearing rather than
+   merely descriptive.
