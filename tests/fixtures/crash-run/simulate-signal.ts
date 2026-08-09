@@ -26,7 +26,7 @@ await saveState(cwd, sessionId, {
   model,
 });
 
-setActiveRun({ sessionId, cwd, active: true, task, startedAt, model });
+setActiveRun({ sessionId, cwd, task, startedAt, model });
 installSignalHandlers();
 
 process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);
