@@ -80,6 +80,14 @@ import {
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const TASK_TOOL_NAME = "task"
 
+/**
+ * Tool name the task checklist is written through. Its calls paint no
+ * transcript row: the list they write is live state owned by the task panel,
+ * and a row per call renders the same work twice on one screen — once as a
+ * panel that updates in place, and again as scrollback that never does.
+ */
+const MANAGE_TASKS_TOOL_NAME = "manage_tasks"
+
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
 export type TaskProgressSession = AgentProgressSession & { readonly id: string }
 import {
@@ -348,6 +356,11 @@ type BridgeBag = {
    */
   agentSessions: readonly TaskProgressSession[]
   /**
+   * callIds whose call painted no row because the work belongs to a panel.
+   * Tracked so the matching result is dropped rather than landing unpaired.
+   */
+  panelOnlyCallIds: Set<string>
+  /**
    * Row index where the inference attempt in progress began, or null when no
    * boundary is armed. The mapper decides when to mark, clear and roll back;
    * the row index is the bridge's to keep.
@@ -513,6 +526,12 @@ function applyToolCall(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_call" }>,
 ): void {
+  if (event.name === MANAGE_TASKS_TOOL_NAME) {
+    // Remembered so the matching result is dropped too — suppressing only the
+    // call would leave its result to land as an unpaired row.
+    if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId)
+    return
+  }
   const row = toolCallRow({
     name: event.name,
     ...(event.detail !== undefined ? { arguments: event.detail } : {}),
@@ -542,6 +561,7 @@ function applyToolResult(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_result" }>,
 ): void {
+  if (event.callId !== undefined && bag.panelOnlyCallIds.delete(event.callId)) return
   const result = toolResultRow({
     name: event.name,
     content: event.detail ?? (event.isError ? "error" : "ok"),
@@ -741,6 +761,7 @@ export function attachSessionBridge(
     lastToolRow: -1,
     taskCallIds: new Set(),
     agentSessions: [],
+    panelOnlyCallIds: new Set(),
     attemptRow: null,
     turnThinking: null,
   }

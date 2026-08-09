@@ -763,3 +763,101 @@ describe("syncAgentProgress", () => {
     )
   })
 })
+
+describe("task checklist calls stay out of the transcript", () => {
+  test("a manage_tasks call and its result paint no rows", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          appendStreamRow(shell, { role: "assistant", text: "planning the sweep" })
+          const before = streamRowCount(shell)
+
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "manage_tasks",
+              callId: "mt-1",
+              arguments: { action: "create", tasks: [{ title: "audit", status: "todo" }] },
+            },
+          })
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: { callId: "mt-1", name: "manage_tasks", content: "ok", isError: false },
+            },
+          })
+
+          // The list lives in the task panel; scrollback must not carry a
+          // second copy of it.
+          expect(streamRowCount(shell)).toBe(before)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("an errored manage_tasks result is dropped rather than left unpaired", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const before = streamRowCount(shell)
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "manage_tasks", callId: "mt-2", arguments: { action: "update" } },
+          })
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: { callId: "mt-2", name: "manage_tasks", content: "boom", isError: true },
+            },
+          })
+          expect(streamRowCount(shell)).toBe(before)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("other tools still paint normally", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const bridge = attachSessionBridge(shell, createRecordingPort())
+        try {
+          const before = streamRowCount(shell)
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "grep", callId: "g-1", arguments: { pattern: "zones" } },
+          })
+          expect(streamRowCount(shell)).toBeGreaterThan(before)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})

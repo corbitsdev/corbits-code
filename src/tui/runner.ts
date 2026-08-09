@@ -2298,10 +2298,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
       const tasks = hydrateTasksFromTurns(turns);
-      if (tasks.length > 0) {
-        blocks.unshift({ type: "tasks", tasks });
-        directorHolder.instance?.restoreTasks(tasks);
-      }
+      // Restored tasks go to the panel only. They are live state, not something
+      // that happened in the conversation, so putting them in scrollback as well
+      // renders the same list twice on one screen.
+      if (tasks.length > 0) directorHolder.instance?.restoreTasks(tasks);
       if (blocks.length > 0) emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {

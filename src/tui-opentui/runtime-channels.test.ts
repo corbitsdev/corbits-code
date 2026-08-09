@@ -189,7 +189,11 @@ describe("subagent.progress channel", () => {
         description: "map callers",
         toolName: "grep",
       })
-      expect(await frame()).toContain("map callers · grep")
+      // The board right-aligns each lane's tail into a column, so the tool
+      // name is on the row but no longer adjacent to the description.
+      const painted = await frame()
+      expect(painted).toContain("map callers")
+      expect(painted).toContain("grep")
       // Progress is chrome, never a transcript row: one line per worker tool
       // call would bury the turn it is a detail of.
       expect(host.shell.streamLog).toEqual([])
@@ -210,7 +214,9 @@ describe("subagent.progress channel", () => {
           { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
         ],
       })
-      expect(await frame()).toContain("map callers · grep")
+      const painted = await frame()
+      expect(painted).toContain("map callers")
+      expect(painted).toContain("grep")
     } finally {
       cleanup()
     }

@@ -4,6 +4,7 @@
 import { resolveContentWidth, resolveSideMargin } from "./margins.js";
 import {
   COLLAPSE_ORDER,
+  FLEET_BOARD_CAP_FRACTION,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_MAX_FRACTION,
   OVERLAY_MIN_ROWS,
@@ -141,7 +142,17 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
     prompt: promptRows,
     task: clamp(boolOrRows(vis.task, 1), 0, ZONE_REGISTRY.task.max),
-    agents: clamp(boolOrRows(vis.agents, 1), 0, ZONE_REGISTRY.agents.max),
+    // The board asks for exactly the rows it will paint; the fraction is what
+    // stops a large fan-out from taking the screen, and it has to be computed
+    // here because the registry max cannot know the terminal's height.
+    agents: clamp(
+      boolOrRows(vis.agents, 1),
+      0,
+      Math.min(
+        ZONE_REGISTRY.agents.max,
+        Math.max(1, Math.floor(rows * FLEET_BOARD_CAP_FRACTION)),
+      ),
+    ),
     plugin_banner: vis.pluginBanner ? 1 : 0,
     command_banner: clamp(
       boolOrRows(vis.commandBanner, 1),

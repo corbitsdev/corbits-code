@@ -12,7 +12,6 @@ export type ContentBlockData =
   | { type: "tool_call"; callId?: string; name: string; arguments: string; startedAt?: number }
   | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean; finishedAt?: number }
   | { type: "reply"; content: string }
-  | { type: "tasks"; tasks: Task[] }
   | { type: "plan"; steps: PlanBlockStep[] }
   | { type: "view"; node: ViewNode }
   | { type: "error"; message: string };
