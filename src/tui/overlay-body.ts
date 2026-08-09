@@ -14,7 +14,7 @@
  */
 
 import { middleEllipsis } from "./command-display.js"
-import { prefixIndexForWidth, stringWidth } from "../tui/view/height.js"
+import { prefixIndexForWidth, stringWidth } from "./view/height.js"
 import { UI } from "./theme.js"
 
 /** House ordered-dither ramp, sparsest-first, leading the header. */

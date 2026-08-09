@@ -26,27 +26,27 @@ import {
   type TextChunk,
 } from "@opentui/core"
 
-import { isExitCommand } from "../tui/exit-command.js"
+import { isExitCommand } from "./exit-command.js"
 import {
   composePromptActionBarModelLabel,
   type PromptActionBarModelLabelInput,
-} from "../tui/components/prompt-action-bar-label.js"
-import { sliceTailToWidth, sliceToWidth, stringWidth } from "../tui/view/height.js"
-import { listPathSuggestions } from "../tui/components/at-mention/list.js"
-import { parseAtState } from "../tui/components/at-mention/parse.js"
+} from "./components/prompt-action-bar-label.js"
+import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js"
+import { listPathSuggestions } from "./components/at-mention/list.js"
+import { parseAtState } from "./components/at-mention/parse.js"
 import {
   formatAttachmentSummary,
   readClipboardImage,
   type ClipboardImageResult,
   type PendingImageAttachment,
-} from "../tui/image-attachments.js"
+} from "./image-attachments.js"
 import {
   createSentHistoryBrowse,
   sentHistoryOnEdit,
   stepSentHistoryDown,
   stepSentHistoryUp,
   type SentHistoryBrowse,
-} from "../tui/sent-message-history.js"
+} from "./sent-message-history.js"
 import { spliceMentionCompletion } from "./prompt-attachments.js"
 import {
   resolvePromptHighlightSpans,

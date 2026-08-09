@@ -17,7 +17,7 @@
 
 import { fg as fgChunk, bold as boldChunk, type TextChunk } from "@opentui/core"
 
-import { sliceToWidth, stringWidth } from "../tui/view/height.js"
+import { sliceToWidth, stringWidth } from "./view/height.js"
 import { humanizeMcpTool, isMcpToolName, mcpToolWords, parseMcpToolName } from "../mcp/tool-name.js"
 import { UI } from "./theme.js"
 import {
@@ -25,8 +25,8 @@ import {
   extractMcpRecords,
   recordScalar,
   type McpRecords,
-} from "../tui/mcp-result-format.js"
-import { summarizeToolResult } from "../tui/tool-formatter.js"
+} from "./mcp-result-format.js"
+import { summarizeToolResult } from "./tool-formatter.js"
 import type { StreamRow, StyledBodyLine } from "./stream.js"
 
 export type McpTone =

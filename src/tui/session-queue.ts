@@ -3,7 +3,7 @@
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
  */
 
-import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js"
 
 export type QueueKind = "queue" | "steer"
 

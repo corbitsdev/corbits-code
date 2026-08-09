@@ -8,7 +8,7 @@ import {
   findImagePathMentions,
   type AttachImageResult,
   type PendingImageAttachment,
-} from "../tui/image-attachments.js"
+} from "./image-attachments.js"
 
 export type { PendingImageAttachment }
 

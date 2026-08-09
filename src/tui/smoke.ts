@@ -1,6 +1,6 @@
 /**
  * Headless import check for @opentui/core (no TTY required).
- * Run: bun ./src/tui-opentui/smoke.ts
+ * Run: bun ./src/tui/smoke.ts
  */
 import "@opentui/core"
 import { PLATFORM_VERSION } from "./index"

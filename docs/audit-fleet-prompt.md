@@ -9,7 +9,7 @@ You are orchestrating a standing audit of Corbits Code's own capabilities. The
 goal is not to ship a feature — it is to find out what is quietly wrong, what is
 about to break, and what has drifted from what we believe about it.
 
-**Scope for this run:** <SCOPE — e.g. "everything under src/tui-opentui and
+**Scope for this run:** <SCOPE — e.g. "everything under src/tui and
 src/permission" or "every capability the agent exposes as a tool">
 
 ## Ground rules for every agent you spawn

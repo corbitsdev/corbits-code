@@ -15,7 +15,7 @@ import {
   stringWidth,
   AMBIGUOUS_IS_NARROW,
   WIDTH_PROBE,
-} from "../tui/view/height.js"
+} from "./view/height.js"
 import { middleEllipsis } from "./command-display.js"
 import { renderDiff } from "./diff.js"
 import { wrapLanding } from "./landing.js"

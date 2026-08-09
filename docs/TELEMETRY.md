@@ -69,7 +69,7 @@ recorded.
 
 `auth_provider` is a separate property for that reason: it names which
 provider's sign-in was rejected (`codex`, `xai`), chosen from a fixed
-first-party set in `src/tui-opentui/session-chrome.ts`. No part of the
+first-party set in `src/tui/session-chrome.ts`. No part of the
 provider's rejection message is sent.
 
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each

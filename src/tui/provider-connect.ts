@@ -6,7 +6,7 @@
  */
 
 import type { Settings } from "../config/settings.js"
-import { buildProviderSubmitHandler } from "../tui/provider-setup-submit.js"
+import { buildProviderSubmitHandler } from "./provider-setup-submit.js"
 import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js"
 
 export type ConnectProviderInput = {

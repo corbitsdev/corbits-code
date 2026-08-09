@@ -35,7 +35,7 @@ import pkg from "../../package.json" with { type: "json" }
 import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js"
 import { renderMark } from "./mark-anim.js"
 import { UI } from "./theme.js"
-import { stringWidth } from "../tui/view/height.js"
+import { stringWidth } from "./view/height.js"
 
 /**
  * Left gutter inside the shell's side margin (`resolveSideMargin`, applied to

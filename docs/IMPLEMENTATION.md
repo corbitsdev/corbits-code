@@ -128,7 +128,7 @@ src/
       registry.ts         Extensible slash-command registry
       built-in.ts         /help, /model, /settings, /permissions, /plugins,
                           /clear, /new, /mcp (connect providers from /model)
-  tui-opentui/
+  tui/
     shell.ts              Transcript, header, status line, prompt, overlays
     product-host.ts        Creates the CliRenderer, wires the event bridge
     runner-host.ts          Runner-facing mount: catalogs, chrome, quit key
@@ -164,7 +164,7 @@ Plan approval is handled separately by `use-gates` (`pendingPlan`), independent 
 - **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
 - **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
 
-`src/tui-opentui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui-opentui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
+`src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
 ### @file Mention Resolution
 
@@ -335,11 +335,11 @@ session; that tree re-write is inherent to git and left as residual cost.
 `agent.stream()` emits `ReactorEmittedEvent` objects. `docs/ARCHITECTURE.md`'s
 "Reactor Events (Partial)" section names the two turn-boundary/shutdown events
 the directors guard on; the full set of reactor and stream event types is
-`PRODUCTION_REACTOR_TYPES` in `src/tui-opentui/stream-event-map.ts:62-78` —
+`PRODUCTION_REACTOR_TYPES` in `src/tui/stream-event-map.ts:62-78` —
 treat that as canonical rather than this section or any other doc's partial
 list.
 
-Mid-run queue/steer/interrupt state is a pure state machine in `src/tui-opentui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui-opentui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.
+Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.
 
 ### Lifecycle Hooks
 
@@ -408,7 +408,7 @@ Run all three before declaring work complete.
 - **`tests/fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`, `multi-file-service/`).
 - **`tests/integration/`** holds the reactor permission / multi-turn harness (scripted models via `@intx/inference-testing`). **`tests/e2e/`** (fixture-repo runs) is still planned. Until e2e exists, broader harness coverage also lives in co-located `*.test.ts` files and `tests/unit/`.
 - **Capability evals** (`evals/capability/`) are **not** the integration harness: they drive the product path (`corbits exec` / `runExec`) with real models against fixture copies and objective `verify.sh` graders. Case format + loader tests live under `evals/capability/`; run with `bun run eval:capability` (see `evals/capability/README.md`). Use `--baseline` to detect improve/regress across models or commits.
-- **TUI tests** are co-located `*.test.ts` files under `src/tui/` and `src/tui-opentui/` (e.g. `shell.test.ts`, `runner-host.test.ts`, `stream.test.ts`), run as part of `bun test` along with everything else; there is no separate `test:tui` script or test-setup preload.
+- **TUI tests** are co-located `*.test.ts` files under `src/tui/` (e.g. `shell.test.ts`, `runner-host.test.ts`, `stream.test.ts`), run as part of `bun test` along with everything else; there is no separate `test:tui` script or test-setup preload.
 
 ## Deployment
 

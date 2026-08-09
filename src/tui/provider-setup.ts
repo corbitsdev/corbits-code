@@ -32,7 +32,7 @@ import { PRODUCT_NAME } from "../branding.js"
 import { codexProviderName } from "../config/codex-providers.js"
 import { xaiProviderName } from "../config/xai-providers.js"
 import { TELEMETRY_NOTICE } from "../telemetry/index.js"
-import { wrapLines } from "../tui/view/height.js"
+import { wrapLines } from "./view/height.js"
 import { resolveSideMargin } from "./geometry/margins.js"
 import {
   createListViewport,

@@ -22,7 +22,7 @@ here because the sub-sections below reference it; `inference.done` and
 exports guards for (`onTurnBoundary` / `onReactorShutdown`) — see the
 paragraph after the table. The complete set of reactor and stream event
 types the TUI maps is `PRODUCTION_REACTOR_TYPES` in
-`src/tui-opentui/stream-event-map.ts:62-78` (covering `message.received`,
+`src/tui/stream-event-map.ts:62-78` (covering `message.received`,
 `inference.start`, `inference.text.delta`, `inference.tool_call.start` /
 `.delta` / `.end`, `tool.start`, and `connector.reply`, among others) —
 treat that as canonical rather than this table or any other doc's partial
@@ -79,7 +79,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 
 - Builds a chat-mode agent using the `ChatDirector`
 - Wires `ask_operator` to an operator-gate event resolved by a modal
-- Mounts the OpenTUI host via `mountRunnerHost` (`src/tui-opentui/runner-host.ts`), which mounts `mountProductHost` (`src/tui-opentui/product-host.ts`) over the shell (`src/tui-opentui/shell.ts`)
+- Mounts the OpenTUI host via `mountRunnerHost` (`src/tui/runner-host.ts`), which mounts `mountProductHost` (`src/tui/product-host.ts`) over the shell (`src/tui/shell.ts`)
 - Bridges reactor events to the OpenTUI host via a plain `EventEmitter`
 - **Mid-run injection** — When a message arrives while the agent is running, it is queued in an `InjectionQueue`. On the next `inference.done` event (turn boundary), the queue is drained: each queued message is delivered via `agentProxy.deliver()` and a `"mid-run.delivered"` emitter event is fired so the badge count in the App updates. The queue is cleared on session rotation (`/clear`).
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
@@ -210,7 +210,7 @@ Profiles with `orchestrator: true` may themselves call `task` (one hop only): ne
 
 **Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
 
-**Observe (OpenTUI)**: `shell.ts:enterSubagentObserve` swaps the transcript for a child's stream (live while running, historical when done) without stealing the parent reactor; child events are mapped to stream rows by `src/tui-opentui/observe-map.ts`. Esc leaves observe and restores the parent transcript. Parent Esc/stop and `/clear` still call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops. The host-injection point that resolves a live session (`onObserveRequest` → `observeSessionFromSubAgents`, `src/tui-opentui/runner-host.ts`, picking the newest running child else the most recent session of any status) is triggered by Alt+O (`shell.ts:observeActiveSubagent`) — the command palette action that used to call it is gone along with `src/tui-opentui/palette.ts` itself, but the chord replaces it rather than dropping the feature.
+**Observe (OpenTUI)**: `shell.ts:enterSubagentObserve` swaps the transcript for a child's stream (live while running, historical when done) without stealing the parent reactor; child events are mapped to stream rows by `src/tui/observe-map.ts`. Esc leaves observe and restores the parent transcript. Parent Esc/stop and `/clear` still call `cancelAll` so live children close (`agent.close`) instead of continuing after the parent stops. The host-injection point that resolves a live session (`onObserveRequest` → `observeSessionFromSubAgents`, `src/tui/runner-host.ts`, picking the newest running child else the most recent session of any status) is triggered by Alt+O (`shell.ts:observeActiveSubagent`) — the command palette action that used to call it is gone along with `src/tui/palette.ts` itself, but the chord replaces it rather than dropping the feature.
 
 Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlugin.agents[]` from `agents/*.md` or flat `*.md` in the plugin directory, with optional co-located `skills/`. `loadPluginEntry` tries JS entrypoints first, then falls back to this layout (`/plugins` add-by-path supports filesystem completion via `listPathSuggestions`).
 
@@ -296,16 +296,16 @@ tool call
 
 Approval scopes offered: Allow Once (persist nothing), Allow Always for a file or its directory (file tools), or a command shape (shell). There is intentionally no "all files" rung.
 
-A queued gate's display-dependent timers (auto-deny timeout, tool-budget pause ceiling) arm when the request is actually shown to the operator, not when it is received — a request sitting behind others in the queue does not burn its timeout invisibly. `ask_operator` has the same abort/timeout safety net as the permission gate, so a queued operator question behind a stuck overlay cannot hang a run. Both live in `src/tui-opentui/gate-wire.ts`'s `onPermission`/`onOperator`.
+A queued gate's display-dependent timers (auto-deny timeout, tool-budget pause ceiling) arm when the request is actually shown to the operator, not when it is received — a request sitting behind others in the queue does not burn its timeout invisibly. `ask_operator` has the same abort/timeout safety net as the permission gate, so a queued operator question behind a stuck overlay cannot hang a run. Both live in `src/tui/gate-wire.ts`'s `onPermission`/`onOperator`.
 
-### TUI (`src/tui-opentui/`)
+### TUI (`src/tui/`)
 
-OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been deleted from the repo. The runner (`src/tui/runner.ts`) mounts the host via `mountRunnerHost` (`src/tui-opentui/runner-host.ts`), which mounts `mountProductHost` (`src/tui-opentui/product-host.ts`) over the shell (`src/tui-opentui/shell.ts`).
+OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been deleted from the repo. The runner (`src/tui/runner.ts`) mounts the host via `mountRunnerHost` (`src/tui/runner-host.ts`), which mounts `mountProductHost` (`src/tui/product-host.ts`) over the shell (`src/tui/shell.ts`).
 
 - **Shell** (`shell.ts`) — Owns the transcript window, header, status line, prompt, overlay/palette stack, and layout/relayout (`applyLayout`, `relayout`). Transcript rows are appended via `appendStreamRow`/`appendObserveStreamRow`; focus moves between prompt and transcript via `applyFocus`/`toggleShellFocus`.
 - **Product host** (`product-host.ts`) — Creates the `CliRenderer`, wires the event emitter bridge, model/command catalogs, and chrome pushes.
 - **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and session teardown (quitting is Ctrl+C twice, owned by the shell).
-- **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) and session-mode prompt (`src/tui/session-mode-prompt.ts`) use `runListModal` (`src/tui-opentui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui-opentui/command-surfaces.ts`).
+- **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) and session-mode prompt (`src/tui/session-mode-prompt.ts`) use `runListModal` (`src/tui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui/command-surfaces.ts`).
 - **Auto mode** — Toggled by CLI flags only (`--auto` / `--no-auto`); there is currently no in-session key bound to it.
 - `@file` mention resolution and image paste are not wired on the OpenTUI send path.
 

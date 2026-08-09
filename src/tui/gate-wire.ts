@@ -24,7 +24,7 @@ import { EXPAND_KEY } from "./stream.js"
 import type {
   OperatorGateEvent,
   PermissionGateEvent,
-} from "../tui/gate-events.js"
+} from "./gate-events.js"
 import {
   createPermissionRequestQueue,
   wirePermissionGrantReconciliation,

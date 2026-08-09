@@ -61,7 +61,7 @@ import {
   turnStateOnSubmit,
   type TurnState,
 } from "./turn-state.js"
-import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js"
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import {

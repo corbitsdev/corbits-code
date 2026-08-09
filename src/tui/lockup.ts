@@ -37,7 +37,7 @@
 import { type MarkCell } from "./mark-anim.js"
 import { rampFg, rampPulse, type RampPhase, type StallAge } from "./ramp.js"
 import { UI } from "./theme.js"
-import { stringWidth } from "../tui/view/height.js"
+import { stringWidth } from "./view/height.js"
 
 export const LOCKUP_WORDMARK = "corbits code"
 

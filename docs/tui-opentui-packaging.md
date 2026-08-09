@@ -109,7 +109,7 @@ bun install --frozen-lockfile
 bun run test:tui   # or whatever harness lands with the platform
 ```
 
-OpenTUI has since shipped: root `package.json` on `main` depends on `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`, `@opentui/keymap@0.5.1`, and `solid-js@1.9.14`, and `src/tui-opentui/` is the shipping shell (see `docs/TUI.md`).
+OpenTUI has since shipped: root `package.json` on `main` depends on `@opentui/core@0.5.1`, `@opentui/solid@0.5.1`, `@opentui/keymap@0.5.1`, and `solid-js@1.9.14`, and `src/tui/` is the shipping shell (see `docs/TUI.md`).
 
 ### Solid contributor notes
 

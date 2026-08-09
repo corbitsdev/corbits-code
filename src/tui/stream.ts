@@ -5,7 +5,7 @@
 
 import { SyntaxStyle } from "@opentui/core"
 
-import { stringWidth, wrapLines } from "../tui/view/height.js"
+import { stringWidth, wrapLines } from "./view/height.js"
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
 import {

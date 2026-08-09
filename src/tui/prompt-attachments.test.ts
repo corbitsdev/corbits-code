@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import type { AttachImageResult, PendingImageAttachment } from "../tui/image-attachments.js"
+import type { AttachImageResult, PendingImageAttachment } from "./image-attachments.js"
 import {
   ingestPathMentions,
   spliceMentionCompletion,

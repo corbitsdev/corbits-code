@@ -19,7 +19,7 @@ const SENTENCE =
   "The agent wants to run a destructive command on the working tree and this cannot be undone"
 
 const LONG_PATH =
-  "/Users/someone/abklabs/corbits-code/src/tui-opentui/geometry/margins.ts"
+  "/Users/someone/abklabs/corbits-code/src/tui/geometry/margins.ts"
 
 const LONG_URL =
   "https://registry.internal.example.com/artifactory/api/npm/npm-virtual/package"

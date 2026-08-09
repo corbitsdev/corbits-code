@@ -48,8 +48,8 @@ describe("filterMentionSuggestions", () => {
   })
 
   test("directory entries keep their trailing slash", () => {
-    expect(filterMentionSuggestions(["src/tui-opentui/"], "opentui")).toEqual([
-      "src/tui-opentui/",
+    expect(filterMentionSuggestions(["src/tui/"], "tui")).toEqual([
+      "src/tui/",
     ])
   })
 })

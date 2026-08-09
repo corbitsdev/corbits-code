@@ -3,7 +3,7 @@
  *
  * This is the source of truth for the help overlay — every row here must
  * match a real, currently-working chord: either a handler in
- * src/tui-opentui/shell.ts's `onKey`/`onEnter` listeners, or a default
+ * src/tui/shell.ts's `onKey`/`onEnter` listeners, or a default
  * binding of the prompt's InputRenderable (see `defaultTextareaKeyBindings`
  * in @opentui/core — Ctrl+B/F/D, Alt+B/F, and arrow motion come from there,
  * not from shell.ts). Do not hand-transcribe from docs.

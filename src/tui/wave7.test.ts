@@ -36,7 +36,7 @@ function testObserveSession(): ObserveSession {
     lines: [
       { role: "system", text: "— child session explore —" },
       { role: "user", text: "find every openListOverlay caller" },
-      { role: "assistant", text: "Searching src/tui-opentui…" },
+      { role: "assistant", text: "Searching src/tui…" },
     ],
   }
 }

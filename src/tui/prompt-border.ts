@@ -12,7 +12,7 @@
  * lockup's exact width is passed in rather than the cells themselves.
  */
 
-import { stringWidth } from "../tui/view/height.js"
+import { stringWidth } from "./view/height.js"
 import { renderRamp } from "./ramp.js"
 import { formatContextPercentLabel } from "../cost/cost-summary.js"
 

@@ -6,7 +6,7 @@ import {
   type Settings,
 } from "../config/settings.js";
 import { validateProviderConnection } from "../provider/validate-connection.js";
-import type { ProviderSetupSubmit } from "../tui-opentui/provider-setup.js";
+import type { ProviderSetupSubmit } from "./provider-setup.js";
 
 /**
  * The single write path every provider-setup exit takes, shared by first-run

@@ -1,6 +1,6 @@
 import { COMMAND_NAME } from "../branding.js";
 import { listSessions, type SessionSummary } from "../session/index.js";
-import { runListModal } from "../tui-opentui/list-modal.js";
+import { runListModal } from "./list-modal.js";
 import { formatRelativeTime } from "./format-relative-time.js";
 
 // Interrupted (cancelled) sessions are prime resume candidates alongside

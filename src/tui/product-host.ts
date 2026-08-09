@@ -57,7 +57,7 @@ import type { QueueKind } from "./session-queue.js"
 import { hydrateHistoryRows } from "./history-hydrate.js"
 import type { StreamRow } from "./stream.js"
 
-import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js"
 
 const PROVIDER_GROUP_PREFIX = "providerGroup:"
 

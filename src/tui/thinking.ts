@@ -13,7 +13,7 @@ import {
   sliceTailToWidth,
   sliceToWidth,
   stringWidth,
-} from "../tui/view/height.js"
+} from "./view/height.js"
 
 /** What a settled reasoning row remembers about the thinking it finished. */
 export type Thought = {

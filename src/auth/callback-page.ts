@@ -6,7 +6,7 @@
  * sees before returning to the terminal, so it carries the brand rather than a
  * browser's default serif on white: the mark animates through the same
  * dithered draw/fill timeline as the boot screen and the TUI landing
- * (`tui-opentui/mark-anim.ts`), which is the canvas original the terminal
+ * (`tui/mark-anim.ts`), which is the canvas original the terminal
  * approximates rather than a second interpretation of it.
  *
  * Everything is inline. The loopback server has no asset route, and a page
@@ -33,7 +33,7 @@ const MARK_PATH =
 // Backgrounds are black/white; element neutrals are cream on dark and charcoal
 // on light, and never cross over.
 // The terminal palette, not the print one: the charcoal ground and the stepped
-// creams are `tui-opentui/theme.ts` verbatim, so the tab an operator lands on
+// creams are `tui/theme.ts` verbatim, so the tab an operator lands on
 // and the terminal they came from are the same surface.
 const STYLE = `
 :root {

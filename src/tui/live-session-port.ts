@@ -3,7 +3,7 @@
  * host hooks (runner agentProxy send / interrupt / deliver). No React/Ink.
  */
 
-import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js"
 import type { QueueItem, QueueKind } from "./session-queue.js"
 import type { SessionPort } from "./runtime-bridge.js"
 

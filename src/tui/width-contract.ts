@@ -2,7 +2,7 @@
  * Startup check that our column arithmetic and OpenTUI's width table agree.
  *
  * Every wrap, pad and truncation budget in the shell is computed with
- * `stringWidth` (see `../tui/view/height.ts`), but the cells are actually
+ * `stringWidth` (see `./view/height.ts`), but the cells are actually
  * allocated by OpenTUI's native table, negotiated with the terminal at boot.
  * The two only have to disagree on East Asian Ambiguous characters — which is
  * most of what the chrome is drawn from — for every border to come out short.
@@ -16,7 +16,7 @@
 
 import { resolveRenderLib, type WidthMethod } from "@opentui/core"
 
-import { stringWidth, WIDTH_PROBE } from "../tui/view/height.js"
+import { stringWidth, WIDTH_PROBE } from "./view/height.js"
 
 export type WidthContractReport = {
   readonly agrees: boolean

@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 
-import type { PendingImageAttachment } from "../tui/image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js"
 import { withTestRenderer, type Harness } from "./harness"
 import {
   acceptOverlaySelection,
@@ -447,14 +447,14 @@ describe("@-mention suggestions", () => {
       // so the source is asked for `src/`, not the whole typed token.
       setMentionSuggestionSource(shell, async (prefix) => {
         expect(prefix).toBe("src/")
-        return ["src/tui/", "src/tui-opentui/", "src/config/"]
+        return ["src/tui/", "src/telemetry/", "src/config/"]
       })
-      shell.prompt.value = "read @src/tu"
+      shell.prompt.value = "read @src/t"
       shell.prompt.cursorOffset = shell.prompt.value.length
 
       expect(await openAtMentionSuggestions(shell)).toBe(true)
       expect(shell.overlayKind).toBe("mentions")
-      expect(shell.overlayItems).toEqual(["src/tui/", "src/tui-opentui/"])
+      expect(shell.overlayItems).toEqual(["src/tui/", "src/telemetry/"])
     })
   })
 

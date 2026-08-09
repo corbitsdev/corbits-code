@@ -1,6 +1,6 @@
-# tui-opentui
+# tui
 
-Platform kit for the OpenTUI shell on the `migration/opentui-tui` branch. Pure TypeScript modules and later Solid surfaces live here; this tree is **not** wired to the `corbits` CLI entry yet (Ink remains production until later migration tasks).
+Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript and Solid surfaces live here; the runner mounts this tree as the product shell.
 
 ## Modules
 
@@ -68,6 +68,6 @@ appendTranscript(shell, "hello")
 // stickyScroll follows bottom until operator scrolls up (FOLLOW / PINNED)
 ```
 
-Interactive demo (TTY): `bun src/tui-opentui/demo.ts`
+Interactive demo (TTY): `bun src/tui/demo.ts`
 
 Binding for the shell frame: **core-class** (not Solid) — VNode ScrollBox broke `scrollTop` in the spike; class `ScrollBoxRenderable` is required for sticky/scroll leases.

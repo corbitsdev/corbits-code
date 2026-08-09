@@ -7,7 +7,7 @@
  *   setPaletteCatalog(shell, commandItemsFromRegistry(listCommands()))
  */
 
-import { sliceToWidth, stringWidth } from "../tui/view/height.js"
+import { sliceToWidth, stringWidth } from "./view/height.js"
 
 /** Minimal registry shape — matches `listCommands()` entries without importing them. */
 export type RegistryCommandSource = {

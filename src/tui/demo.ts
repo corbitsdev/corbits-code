@@ -1,6 +1,6 @@
 /**
  * Interactive OpenTUI product-skin demo (real TTY only).
- * Run: bun src/tui-opentui/demo.ts
+ * Run: bun src/tui/demo.ts
  *
  * Wave 7: residual surfaces + observe on shared kit.
  * Not production CLI. Ink remains production.
@@ -61,7 +61,7 @@ const DEMO_RESUME_ITEMS: readonly string[] = [
 ]
 
 const DEMO_MENTION_ITEMS: readonly string[] = [
-  "@src/tui-opentui/shell.ts",
+  "@src/tui/shell.ts",
   "@AGENTS.md",
   "Close mentions",
 ]
@@ -74,7 +74,7 @@ function demoObserveSession(): ObserveSession {
     lines: [
       { role: "system", text: "— child session explore —" },
       { role: "user", text: "find every openListOverlay caller" },
-      { role: "assistant", text: "Searching src/tui-opentui…" },
+      { role: "assistant", text: "Searching src/tui…" },
       { role: "tool", text: "grep openListOverlay → 6 hits", meta: "tool.done" },
       { role: "assistant", text: "Report ready for parent." },
     ],

@@ -42,9 +42,9 @@ import {
   type LocalSettings,
   type PluginConfig,
 } from "../config/settings.js";
-import { unconnectedProviderChoices } from "../tui-opentui/provider-setup.js";
-import { connectProviderInline } from "../tui-opentui/provider-connect.js";
-import type { SessionModeScope } from "../tui-opentui/command-surfaces.js";
+import { unconnectedProviderChoices } from "./provider-setup.js";
+import { connectProviderInline } from "./provider-connect.js";
+import type { SessionModeScope } from "./command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
@@ -145,7 +145,7 @@ import { scrubSecrets } from "../web/secret-scrub.js";
 import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
-import { mountRunnerHost } from "../tui-opentui/runner-host.js";
+import { mountRunnerHost } from "./runner-host.js";
 import {
   attachClipboardImage,
   setMentionSuggestionSource,
@@ -153,13 +153,13 @@ import {
   setSentMessageHistory,
   setShellRunState,
   surfaceSystemNotice,
-} from "../tui-opentui/shell.js";
+} from "./shell.js";
 import {
   captureAuthFailure,
   classifyAgentSendFailure,
   shouldSettleUiAfterSendFailure,
-} from "../tui-opentui/session-chrome.js";
-import { ingestPathMentions } from "../tui-opentui/prompt-attachments.js";
+} from "./session-chrome.js";
+import { ingestPathMentions } from "./prompt-attachments.js";
 import { listPathSuggestions } from "./components/at-mention/list.js";
 import { resolveAtMentions } from "./mention-resolution.js";
 import {

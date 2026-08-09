@@ -5,7 +5,7 @@
  * paint without a renderer. No OpenTUI or Ink deps.
  */
 
-import { validateView, viewToLines } from "../tui/view/index.js"
+import { validateView, viewToLines } from "./view/index.js"
 import { toolCallRow } from "./diff.js"
 import { toolResultRow } from "./mcp-view.js"
 import type { StreamRow } from "./stream.js"

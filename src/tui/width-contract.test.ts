@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { WIDTH_PROBE, stringWidth } from "../tui/view/height.js"
+import { WIDTH_PROBE, stringWidth } from "./view/height.js"
 import {
   checkWidthContract,
   measureRendererWidth,

@@ -25,7 +25,7 @@ import {
   toggleTasksPanel,
 } from "./shell"
 import { createRecordingClipboard } from "./copy-path"
-import { stringWidth } from "../tui/view/height"
+import { stringWidth } from "./view/height"
 import type { PaletteCommand } from "./command-catalog"
 
 const CATALOG: readonly PaletteCommand[] = [

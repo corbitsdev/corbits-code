@@ -19,7 +19,7 @@ import {
   toolResultRow,
   type ToolResultRowInput,
 } from "./mcp-view.js"
-import { extractMcpRecords } from "../tui/mcp-result-format.js"
+import { extractMcpRecords } from "./mcp-result-format.js"
 import type { StreamRow, StyledBodyLine } from "./stream.js"
 import { UI } from "./theme.js"
 

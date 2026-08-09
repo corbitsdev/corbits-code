@@ -12,10 +12,10 @@
  * renderer. `shell.ts` maps segments to chunks at paint time.
  */
 
-import { describeToolCall } from "../tui/tool-formatter.js"
+import { describeToolCall } from "./tool-formatter.js"
 // The one wrap implementation: a diff row soft-wraps by the same column rules
 // as every other row, so a wide glyph cannot overflow the gutter here alone.
-import { wrapRanges } from "../tui/view/height.js"
+import { wrapRanges } from "./view/height.js"
 import { DIFF_FG, type StreamRow } from "./stream.js"
 import { toolArgsView } from "./tool-args.js"
 

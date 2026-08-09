@@ -8,7 +8,7 @@ import { describe, expect, test } from "bun:test"
 import {
   extractMcpRecord,
   extractMcpRecords,
-} from "../tui/mcp-result-format.js"
+} from "./mcp-result-format.js"
 import { toolCallRow } from "./diff"
 import { withTestRenderer, type Harness } from "./harness"
 import { mcpStructuredView, toolResultRow } from "./mcp-view"

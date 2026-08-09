@@ -6,7 +6,7 @@
 // grouping is coarser (pipes stay inline) and must never feed back into a
 // security decision.
 
-import { sliceTailToWidth, sliceToWidth, stringWidth } from "../tui/view/height.js";
+import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 
 // `&` participates in a redirect when it opens a bash combined redirect
 // (`&>file`) or duplicates a fd (`2>&1`, `<&-`); only a lone `&` word is the
