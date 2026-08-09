@@ -114,14 +114,22 @@ export async function saveState(
 // Callers writing a non-terminal ("running") snapshot should call saveState
 // directly — clearing the active-run handle on a running snapshot would be
 // wrong, not merely redundant.
+//
+// The clear happens before the saveState await, not after: this run is
+// closing out regardless of whether the write below succeeds, and a signal
+// or uncaught exception landing during that await must see the handle
+// already gone, or it races a second "crashed" write (src/index.ts's process
+// handlers, via saveCrashState) against the terminal write in flight here.
+// Clearing after the await leaves that exact window open on every terminal
+// write, not only the crash path's own.
 export async function finalizeRunState(
   cwd: string,
   sessionId: string,
   state: RunState,
   home?: string,
 ): Promise<void> {
-  await saveState(cwd, sessionId, state, home);
   clearActiveRun();
+  await saveState(cwd, sessionId, state, home);
 }
 
 // Crash-time terminal write. Deliberately bypasses writeChains: a hung or
