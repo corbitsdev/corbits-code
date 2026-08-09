@@ -208,6 +208,12 @@ export type SessionSummary = {
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** True when `value` is a UUID v7 session id Corbits would write on disk. */
+export function isSessionId(value: string): boolean {
+  return SESSION_ID_RE.test(value);
+}
+
+
 async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   const ids = new Set<string>();
   const roots = [projectSessionsRoot(cwd, home), ...legacySessionRoots(cwd)];

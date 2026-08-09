@@ -7,6 +7,8 @@ import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEnt
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
+import { generateSessionId, initSessionDir } from "./session/index.js";
+import { saveState } from "./session/state.js";
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
@@ -176,6 +178,185 @@ describe("loadConfig", () => {
       assertConfigured(config);
       expect(config.command).toBe("exec");
       expect(config.task).toBe("alias task");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resume --pick opens the session picker without requiring prior sessions", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["resume", "--pick", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("tui");
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
+      expect(config.skipInitialTask).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("continue is an alias of resume", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["continue", "--list", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resume last fails when this project has no sessions", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["resume", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        }),
+      ).rejects.toThrow(/No previous session/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume <id> reopens a known session and skips the initial task", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "done",
+          turnsUsed: 2,
+          task: "ship resume",
+          startedAt: Date.now() - 1_000,
+          finishedAt: Date.now(),
+        },
+        home,
+      );
+      const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("id");
+      expect(config.sessionId).toBe(sessionId);
+      expect(config.skipInitialTask).toBe(true);
+      expect(config.task).toBe("ship resume");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume last follows the latest symlink for this project", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "done",
+          turnsUsed: 1,
+          task: "keep going",
+          startedAt: Date.now() - 500,
+          finishedAt: Date.now(),
+        },
+        home,
+      );
+      const config = await loadConfig(["resume", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("last");
+      expect(config.sessionId).toBe(sessionId);
+      expect(config.skipInitialTask).toBe(true);
+      expect(config.task).toBe("keep going");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume <id> rejects an unknown session id for this project", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const missing = generateSessionId();
+      await expect(
+        loadConfig(["resume", missing, "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        }),
+      ).rejects.toThrow(new RegExp(`No session ${missing}`));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("resume rejects a non-id positional instead of treating it as last", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["resume", "not-a-uuid", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow(/not a session id/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resume rejects combining a session id with --pick", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const id = generateSessionId();
+      await expect(
+        loadConfig(["resume", id, "--pick", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow(/cannot combine a session id with --pick/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("resume accepts --pick after other flags", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["resume", "--cwd", cwd, "--pick"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

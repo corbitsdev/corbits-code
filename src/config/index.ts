@@ -1,7 +1,10 @@
 import { join, resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId } from "../session/index.js";
+import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded, resolveLatestSession } from "../session/index.js";
+import { loadState } from "../session/state.js";
+
+
 import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
@@ -303,6 +306,13 @@ export type Config = {
   resumePicker?: boolean;
   /** When true, the TUI does not auto-send `task` on mount (resumed session). */
   skipInitialTask?: boolean;
+  /**
+   * How this process was asked to resume. `"last"` continues the latest session
+   * for the project key without a picker; `"id"` continues an explicit session
+   * id; `"pick"` opens the interactive picker. Omitted for a fresh session.
+   */
+  resumeMode?: "last" | "id" | "pick";
+
   // Deprecated workflow profile metadata; workflows are manual-only slash commands.
   workflow?: string;
   // Deprecated no-op retained for CLI compatibility.
@@ -344,9 +354,37 @@ export type UnconfiguredConfig = {
   settingsDiagnostics?: SettingsLoadDiagnostic[];
 };
 
+/** Printed for `corbits --help` / `-h`. Keep in sync with docs/IMPLEMENTATION.md. */
+export const CLI_HELP_TEXT = `corbits — coding agent CLI
+
+Usage:
+  corbits [flags] [task...]
+  corbits exec|run [flags] <prompt>
+  corbits resume|continue [session-id|--pick] [flags]
+
+Continue verbs (project-keyed; worktrees of the same git root share sessions):
+  resume / continue           reopen the latest session for this folder
+  resume <session-id>         reopen a specific session
+  resume --pick / --list      interactive session picker
+
+Flags:
+  --cwd <dir>                 working directory (default: process.cwd())
+  --config <path>             settings file (default: ~/.corbits/settings.json)
+  --provider <name>           configured provider name
+  --model <id>                model for the active provider
+  --profile <name>            settings profile
+  --force                     override an existing run state
+  --dangerously-skip-permissions
+  --auto / --no-auto          auto mode on/off
+  --help, -h                  show this help
+`;
+
 export type LoadConfigOptions = {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
+  // Override the home directory used for project-key session roots (tests).
+  // Production callers leave this unset so sessions resolve under ~/.corbits.
+  home?: string;
   // When true, a missing/unresolvable provider returns an UnconfiguredConfig
   // instead of throwing. The TUI uses this to open the onboarding flow rather
   // than exiting. Headless callers should leave this false (the default).
@@ -372,11 +410,43 @@ export async function loadConfig(
   const args = [...argv];
 
   // Leading subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
+  // `corbits resume` / `continue` reopen a prior session for this project key
+  // (shared across worktrees of the same git root — see docs/IMPLEMENTATION.md).
   let command: "tui" | "exec" = "tui";
-  if (args[0] === "exec" || args[0] === "run") {
+  let resumeMode: "last" | "id" | "pick" | undefined;
+  let resumeSessionId: string | undefined;
+  const leading = args[0];
+  if (leading === "exec" || leading === "run") {
     command = "exec";
     args.shift();
+  } else if (leading === "resume" || leading === "continue") {
+    command = "tui";
+    args.shift();
+    // Default: last session. Explicit id, or --pick for the interactive list.
+    // Invalid non-flag positionals error instead of falling through to last
+    // (a free-form token would otherwise become task while skipInitialTask is set).
+    const next = args.slice()[0];
+    if (next === "--pick" || next === "--list") {
+      resumeMode = "pick";
+      args.shift();
+    } else if (next !== undefined && !next.startsWith("--")) {
+      if (!isSessionId(next)) {
+        throw new Error(
+          `'${next}' is not a session id. Use a UUID session id, \`corbits resume\` for the latest, or \`corbits resume --pick\` to choose.`,
+        );
+      }
+      resumeMode = "id";
+      resumeSessionId = next;
+      args.shift();
+    } else {
+      resumeMode = "last";
+    }
   }
+
+  if (args[0] === "--help" || args[0] === "-h") {
+    throw new Error(CLI_HELP_TEXT);
+  }
+
 
   let cwd = process.cwd();
   let force = false;
@@ -443,6 +513,13 @@ export async function loadConfig(
     }
     if (arg === "--no-workflow") {
       noWorkflow = true;
+      continue;
+    }
+    if ((arg === "--pick" || arg === "--list") && resumeMode !== undefined) {
+      if (resumeMode === "id") {
+        throw new Error("cannot combine a session id with --pick/--list");
+      }
+      resumeMode = "pick";
       continue;
     }
     if (arg.startsWith("--")) {
@@ -548,18 +625,54 @@ export async function loadConfig(
     }
   }
 
+  // Resume resolution: project-key sessions live under ~/.corbits/projects/<key>/
+  // and are shared across worktrees of the same git root.
+  let sessionId = generateSessionId();
+  let skipInitialTask = false;
+  let resumePicker = false;
+  let resumeTask = task;
+  if (resumeMode === "pick") {
+    resumePicker = true;
+    skipInitialTask = true;
+  } else if (resumeMode === "id") {
+    const id = resumeSessionId!;
+    await migrateLegacySessionIfNeeded(cwd, id, options.home);
+    const state = await loadState(cwd, id, options.home);
+    if (state === null) {
+      throw new Error(
+        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (shared across worktrees of the same git root). Use \`corbits resume --pick\` to list, or \`corbits resume\` for the latest.`,
+      );
+    }
+    sessionId = id;
+    skipInitialTask = true;
+    if (task.length === 0) resumeTask = state.task;
+  } else if (resumeMode === "last") {
+    const latest = await resolveLatestSession(cwd, options.home);
+    if (latest === null) {
+      throw new Error(
+        "No previous session for this project. Start a new one with `corbits`, or pass `corbits resume --pick` once you have sessions under ~/.corbits/projects/.",
+      );
+    }
+    sessionId = latest.sessionId;
+    skipInitialTask = true;
+    const state = await loadState(cwd, sessionId, options.home);
+    if (task.length === 0 && state !== null) resumeTask = state.task;
+  }
+
   return {
     configured: true,
     ...resolved,
     cwd,
-    task,
+    task: resumeTask,
     force,
     dangerouslySkipPermissions,
     auto,
     command,
     globalSettingsPath: effectiveSettingsPath,
-    sessionId: generateSessionId(),
+    sessionId,
     noWorkflow,
+    ...(resumeMode !== undefined ? { resumeMode, skipInitialTask } : {}),
+    ...(resumePicker ? { resumePicker: true } : {}),
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
     providers: mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles),
