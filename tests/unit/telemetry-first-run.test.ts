@@ -68,6 +68,7 @@ test("activation stamps the notice, swaps the singleton, and fires cli_start", a
   await activateHeldTelemetry("/fake/path", () => true, deps);
   expect(markCalls()).toBe(1);
   expect(getInstance()?.enabled).toBe(true);
+  await getInstance()?.flush();
   expect(fetchCalls()).toBe(1);
 });
 
@@ -99,5 +100,6 @@ test("a failed notice stamp does not block activation", async () => {
   });
   await activateHeldTelemetry("/fake/path", () => true, deps);
   expect(getInstance()?.enabled).toBe(true);
+  await getInstance()?.flush();
   expect(fetchCalls()).toBe(1);
 });

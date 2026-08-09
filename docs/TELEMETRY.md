@@ -46,6 +46,13 @@ Any of the following disables telemetry entirely:
 - `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
 
+Turning telemetry off also discards whatever is still queued and unsent.
+Events captured earlier in the session but not yet transmitted are thrown
+away at the moment you opt out, not sent on the way out — opting out covers
+the activity you have already generated, not just the activity still to
+come. A batch already in flight to the server at the moment you opt out is
+not recalled; discarding only reaches events still held in memory.
+
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —
 the env override always wins, and the attempt is refused rather than
@@ -91,6 +98,27 @@ and cannot be used to link one run to another.
 Events are sent to PostHog. PostHog derives an approximate country from the
 request IP server-side; the client sends no location data itself. No
 self-hosted or third-party analytics beyond PostHog are used.
+
+## On the wire
+
+Events are not sent one at a time. Each captured event is stamped with its
+capture time and held in an in-memory queue, which is posted to PostHog's
+`/batch/` endpoint when it reaches the batch size or when the batch
+interval elapses, whichever comes first. At most one request is ever in
+flight: events captured while a request is open wait for it rather than
+opening another connection. Exit paths flush the queue, bounded by a short
+deadline so a slow endpoint cannot delay quitting.
+
+The queue has a hard depth limit. Once it is full — which in practice means
+the endpoint is unreachable, as on a captive portal or behind a hung proxy
+— the oldest queued events are dropped to make room for new ones. Telemetry
+is therefore lossy by design: it never grows memory without bound, never
+retries indefinitely, and never blocks or reports failures to the user.
+Nothing is written to disk, so dropped events are gone rather than deferred
+to a later run.
+
+See `src/telemetry/index.ts` for the batch size, interval, and queue limit
+in force.
 
 ## Not this document
 
