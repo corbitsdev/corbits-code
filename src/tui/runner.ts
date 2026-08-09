@@ -557,14 +557,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // handler isn't the only reader of the handle: index.ts installs its own
     // uncaughtException/unhandledRejection listeners that call getActiveRun()
     // directly and, if it's still set, write a competing "crashed" record via
-    // saveCrashState. An escaped throw during flushPartialOnCrash or the
-    // finalizeRunState await below would otherwise reach that listener while
-    // the handle still reads as live, racing its write against the "failed"
-    // write in progress here. finalizeRunState (state.ts) also clears the
-    // handle, but only after its own saveState resolves — too late to close
-    // that window, so the clear is duplicated here. finalizeRunState is left
-    // unchanged: its other callers (normal completion, session rotation) rely
-    // on it being the one that clears the handle.
+    // saveCrashState. finalizeRunState (state.ts) also clears the handle
+    // before its own saveState await, but only once it's called below — an
+    // escaped throw during the flushPartialOnCrash await just above would
+    // still reach that listener with the handle live, so it's cleared here
+    // too to close that earlier window.
     clearActiveRun();
     clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
@@ -2340,6 +2337,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // The run itself is over here, so this write clears the active-run handle
   // (via finalizeRunState in state.ts) in the same call, rather than pairing
   // the on-disk write with a separate in-memory statement at this call site.
+  // The dispose host has no on-disk counterpart to piggyback on, so it still
+  // needs its own clear here, mirroring finalizeOnCrash — otherwise a signal
+  // arriving after this normal exit would find a handle pointing at a
+  // torn-down closure.
+  clearActiveDisposeHost();
   await writeRunSnapshot(
     persistedStatus,
     {
