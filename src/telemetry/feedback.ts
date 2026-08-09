@@ -23,24 +23,34 @@ export const FEEDBACK_BLOCKED =
   "Feedback could not be sent (disabled by environment or missing install identity).";
 
 export const FEEDBACK_UNCONFIGURED =
-  "Feedback is not configured (missing survey id). Set CORBITS_FEEDBACK_SURVEY_ID and CORBITS_FEEDBACK_QUESTION_ID.";
+  "Feedback is not configured (missing survey id).";
 
 /**
- * PostHog survey id for /feedback. Set via CORBITS_FEEDBACK_SURVEY_ID once the
- * survey exists in the project (user creates it in PostHog UI).
+ * Corbits team survey — public routing ids (same trust class as the baked-in
+ * PostHog project key). Operators never set these. Env override is for tests
+ * and forks: when the env key is present (even empty), it wins over the default.
  */
+export const DEFAULT_FEEDBACK_SURVEY_ID = "019fe7ff-d12a-0000-7a63-303f3a874b90";
+export const DEFAULT_FEEDBACK_QUESTION_ID = "913862f4-82aa-4814-8f68-146c05c38a74";
+export const FEEDBACK_QUESTION_TEXT = "What feedback do you have about Corbits Code?";
+
+function envOverride(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  // Present key wins (including empty → fail closed for tests/forks).
+  if (!Object.prototype.hasOwnProperty.call(env, key)) return undefined;
+  return (env[key] ?? "").trim();
+}
+
+/** PostHog survey id for /feedback. */
 export function feedbackSurveyId(env: NodeJS.ProcessEnv = process.env): string {
-  return env.CORBITS_FEEDBACK_SURVEY_ID?.trim() ?? "";
+  return envOverride(env, "CORBITS_FEEDBACK_SURVEY_ID") ?? DEFAULT_FEEDBACK_SURVEY_ID;
 }
 
-/**
- * Free-text question id inside the survey. Set via CORBITS_FEEDBACK_QUESTION_ID.
- */
+/** Free-text question id inside the survey. */
 export function feedbackQuestionId(env: NodeJS.ProcessEnv = process.env): string {
-  return env.CORBITS_FEEDBACK_QUESTION_ID?.trim() ?? "";
+  return envOverride(env, "CORBITS_FEEDBACK_QUESTION_ID") ?? DEFAULT_FEEDBACK_QUESTION_ID;
 }
 
-/** True when both survey env ids are present (command is useful to show). */
+/** True when both survey ids resolve (defaults always do unless env blanks them). */
 export function isFeedbackConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return feedbackSurveyId(env).length > 0 && feedbackQuestionId(env).length > 0;
 }
@@ -68,7 +78,7 @@ export function buildSurveyProperties(
     $survey_questions: [
       {
         id: questionId,
-        question: "What feedback do you have for Corbits Code?",
+        question: FEEDBACK_QUESTION_TEXT,
         response: capped,
       },
     ],

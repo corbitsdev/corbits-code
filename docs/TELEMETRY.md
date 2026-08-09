@@ -158,11 +158,12 @@ because the operator typed the text for that purpose. Hard env kill switches
 still win — `DO_NOT_TRACK=1` or `CORBITS_TELEMETRY=0/false/off/no` block
 `/feedback` as well. Sending also requires an installation id and API key.
 
-Survey id / question id come from env (`CORBITS_FEEDBACK_SURVEY_ID`,
-`CORBITS_FEEDBACK_QUESTION_ID`). Both must be set or capture fails closed with
-an “not configured” message — no default survey is baked into the client. When
-ids are missing the command is also hidden from the slash menu (still callable
-if typed). Success copy says “queued,” not delivered; free text over 2000
+Survey id / question id are **baked into the client** (Corbits team survey
+`Corbits Code Feedback`). Same trust class as the public PostHog project key —
+operators never configure them. Optional env overrides
+(`CORBITS_FEEDBACK_SURVEY_ID`, `CORBITS_FEEDBACK_QUESTION_ID`) exist for tests
+and forks; setting either to empty fails closed and hides the command from the
+slash menu. Success copy says “queued,” not delivered; free text over 2000
 characters is truncated with an explicit notice.
 
 ## Opting out

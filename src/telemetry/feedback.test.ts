@@ -62,21 +62,27 @@ describe("buildSurveyProperties", () => {
   test("shapes PostHog custom survey properties", () => {
     const props = buildSurveyProperties("ship it", {
       turnTraceId: "trace-1",
-      env: {
-        CORBITS_FEEDBACK_SURVEY_ID: "survey-abc",
-        CORBITS_FEEDBACK_QUESTION_ID: "q-1",
-      },
     });
-    expect(props.$survey_id).toBe("survey-abc");
+    expect(props.$survey_id).toBe("019fe7ff-d12a-0000-7a63-303f3a874b90");
     expect(props.$survey_response).toBe("ship it");
     expect(props.turn_trace_id).toBe("trace-1");
     expect(props.$survey_questions).toEqual([
       {
-        id: "q-1",
-        question: "What feedback do you have for Corbits Code?",
+        id: "913862f4-82aa-4814-8f68-146c05c38a74",
+        question: "What feedback do you have about Corbits Code?",
         response: "ship it",
       },
     ]);
+  });
+
+  test("env override can blank the survey ids", () => {
+    const props = buildSurveyProperties("x", {
+      env: {
+        CORBITS_FEEDBACK_SURVEY_ID: "",
+        CORBITS_FEEDBACK_QUESTION_ID: "",
+      },
+    });
+    expect(props.$survey_id).toBe("");
   });
 });
 
@@ -84,16 +90,12 @@ describe("captureFeedback", () => {
   test("sends survey sent when ambient telemetry is off", () => {
     const { telemetry, events } = captureSpy();
     expect(telemetry.enabled).toBe(false);
-    const status = captureFeedback(telemetry, "great product", {
-      env: {
-        CORBITS_FEEDBACK_SURVEY_ID: "s1",
-        CORBITS_FEEDBACK_QUESTION_ID: "q1",
-      },
-    });
+    const status = captureFeedback(telemetry, "great product");
     expect(status).toBe("sent");
     expect(events).toHaveLength(1);
     expect(events[0]?.event).toBe("survey sent");
     expect(events[0]?.properties.$survey_response).toBe("great product");
+    expect(events[0]?.properties.$survey_id).toBe("019fe7ff-d12a-0000-7a63-303f3a874b90");
   });
 
   test("rejects empty text", () => {
@@ -110,14 +112,7 @@ describe("captureFeedback", () => {
       batch: { size: 100, intervalMs: 60_000, queueLimit: 100 },
       fetchFn: noopFetch,
     });
-    expect(
-      captureFeedback(telemetry, "hi", {
-        env: {
-          CORBITS_FEEDBACK_SURVEY_ID: "s1",
-          CORBITS_FEEDBACK_QUESTION_ID: "q1",
-        },
-      }),
-    ).toBe("blocked");
+    expect(captureFeedback(telemetry, "hi")).toBe("blocked");
   });
 
   test("blocks under env kill switch even with identity", () => {
@@ -133,30 +128,28 @@ describe("captureFeedback", () => {
     });
     expect(
       captureFeedback(telemetry, "hi", {
-        env: {
-          CORBITS_TELEMETRY: "0",
-          CORBITS_FEEDBACK_SURVEY_ID: "s1",
-          CORBITS_FEEDBACK_QUESTION_ID: "q1",
-        },
+        env: { CORBITS_TELEMETRY: "0" },
       }),
     ).toBe("blocked");
   });
 
-  test("fails closed when survey ids are missing", () => {
+  test("fails closed when survey ids are blanked via env", () => {
     const { telemetry, events } = captureSpy();
-    expect(captureFeedback(telemetry, "hi", { env: {} })).toBe("unconfigured");
+    expect(
+      captureFeedback(telemetry, "hi", {
+        env: {
+          CORBITS_FEEDBACK_SURVEY_ID: "",
+          CORBITS_FEEDBACK_QUESTION_ID: "",
+        },
+      }),
+    ).toBe("unconfigured");
     expect(events).toHaveLength(0);
   });
 
   test("reports truncation when free text exceeds the cap", () => {
     const { telemetry, events } = captureSpy();
     const long = "x".repeat(FEEDBACK_MAX_CHARS + 50);
-    const status = captureFeedback(telemetry, long, {
-      env: {
-        CORBITS_FEEDBACK_SURVEY_ID: "s1",
-        CORBITS_FEEDBACK_QUESTION_ID: "q1",
-      },
-    });
+    const status = captureFeedback(telemetry, long);
     expect(status).toBe("sent_truncated");
     expect(events).toHaveLength(1);
     expect(String(events[0]?.properties.$survey_response).length).toBe(FEEDBACK_MAX_CHARS);
