@@ -96,6 +96,8 @@ import {
   type FocusState,
 } from "./focus/index.js"
 import {
+  FLEET_FLOOR_MIN_LANES,
+  FLEET_TRANSCRIPT_FLOOR,
   PROMPT_IDLE_ROWS,
   resolveBottomMarginRows,
   resolveGeometry,
@@ -2053,10 +2055,25 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
     // a long list would claim the whole screen instead of scrolling.
     ...(isLanding(shell) && overlayMode === "closed"
       ? { transcriptFloor: 0 }
-      : {}),
+      : fleetTranscriptFloor(shell)),
   })
   applyLayout(shell, layout)
   return layout
+}
+
+/**
+ * Rows the transcript holds back once a fleet is running.
+ *
+ * With several lanes live the operator is managing a fleet rather than reading
+ * a conversation, so the transcript gives up its idle floor to the board. It
+ * keeps enough to stay a live tail — the orchestrator reporting back and asking
+ * questions is still the main way the operator learns anything.
+ */
+function fleetTranscriptFloor(shell: AppShell): { transcriptFloor?: number } {
+  const bag = internals.get(shell)
+  if (!bag) return {}
+  const lanes = bag.chrome.agents.filter((row) => row.kind === "lane").length
+  return lanes >= FLEET_FLOOR_MIN_LANES ? { transcriptFloor: FLEET_TRANSCRIPT_FLOOR } : {}
 }
 
 /**
@@ -4161,7 +4178,17 @@ function taskStatusMarker(status: TaskPanelRow["status"]): string {
  */
 function fitAgentRow(row: AgentPanelRow, maxWidth: number): string {
   const full = ` ${row.label}${row.tail}`
-  if (stringWidth(full) <= maxWidth) return full
+  if (stringWidth(full) <= maxWidth) {
+    // Push every lane's tail to the right edge so the clocks line up as a
+    // column. A lane that has been silent far longer than its neighbours then
+    // stands out of that column by its shape, before any of it is read — which
+    // is the one thing the board has to get right at a glance.
+    if (row.kind === "lane") {
+      const pad = maxWidth - stringWidth(full)
+      return ` ${row.label}${" ".repeat(Math.max(0, pad))}${row.tail}`
+    }
+    return full
+  }
 
   const leadingSpace = 1
   const ellipsis = 1
@@ -4223,10 +4250,17 @@ function renderAgentsRows(
   }
   for (const row of rows) {
     // Green for working, not the task zone's bronze immediately above it —
-    // adjacent zones sharing a hue read as one undifferentiated block.
+    // adjacent zones sharing a hue read as one undifferentiated block. The
+    // header and the hidden-count row are chrome about the board rather than
+    // lanes in it, so they sit back in dim and leave the colour to the work.
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitAgentRow(row, maxWidth),
-      fg: row.stalled ? UI.textDim : UI.done,
+      fg:
+        row.kind === "header" || row.kind === "more"
+          ? UI.textDim
+          : row.stalled
+            ? UI.action
+            : UI.done,
     })
     shell.agentsBox.add(text)
   }

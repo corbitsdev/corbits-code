@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   AGENTS_PANEL_MAX_VISIBLE,
   COLLAPSE_ORDER,
+  FLEET_BOARD_CAP_FRACTION,
+  FLEET_TRANSCRIPT_FLOOR,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_TRANSCRIPT_FLOOR,
   PROMPT_BASE_ROWS,
@@ -99,11 +101,12 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 });
 
 describe("resolveGeometry — agents panel", () => {
-  test("N running agents request N rows, bounded by the zone max", () => {
-    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 4; n++) {
-      const requested = Math.min(n, ZONE_REGISTRY.agents.max);
+  test("the board is sized to its content, one row per lane", () => {
+    // Small boards get exactly what they ask for; only once the transcript
+    // floor is at risk does the board start giving rows back.
+    for (let n = 0; n <= 6; n++) {
       const layout = idle80x24({ visibility: { agents: n } });
-      expect(layout.heights.agents).toBe(requested);
+      expect(layout.heights.agents).toBe(n);
     }
   });
 
@@ -113,15 +116,41 @@ describe("resolveGeometry — agents panel", () => {
     expect(layout.regions.agents).toBeUndefined();
   });
 
-  test("a large fan-out never grows the zone past its bounded max", () => {
+  test("a large fan-out never grows the board without bound", () => {
     const layout = idle80x24({ visibility: { agents: 50 } });
-    expect(layout.heights.agents).toBe(ZONE_REGISTRY.agents.max);
-    // Fleet summary + the visible lanes + the "+N more" trailer.
-    expect(layout.heights.agents).toBe(AGENTS_PANEL_MAX_VISIBLE + 2);
+    // Two independent bounds, and the tighter one wins: the fraction of the
+    // terminal the board may take, and whatever the transcript floor leaves.
+    expect(layout.heights.agents).toBeLessThanOrEqual(
+      Math.floor(24 * FLEET_BOARD_CAP_FRACTION),
+    );
+    expect(layout.heights.agents).toBeLessThanOrEqual(ZONE_REGISTRY.agents.max);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+  });
+
+  test("a taller terminal gives the board room for a bigger fleet", () => {
+    const tall = resolveGeometry({
+      terminal: { columns: 120, rows: 40 },
+      visibility: { agents: 14 },
+      transcriptFloor: FLEET_TRANSCRIPT_FLOOR,
+    });
+    // A dozen lanes plus a header fit on a 40-row terminal without hiding any.
+    expect(tall.heights.agents).toBe(14);
+  });
+
+  test("with a fleet running the transcript yields its idle floor to the board", () => {
+    const fleet = resolveGeometry({
+      terminal: { columns: 80, rows: 24 },
+      visibility: { agents: 13 },
+      transcriptFloor: FLEET_TRANSCRIPT_FLOOR,
+    });
+    expect(fleet.heights.agents).toBe(13);
+    expect(fleet.transcriptHeight).toBeGreaterThanOrEqual(FLEET_TRANSCRIPT_FLOOR);
+    // The prompt box never leaves the screen, whatever the fleet is doing.
+    expect(fleet.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
   });
 
   test("a bounded agents panel never eats the transcript floor", () => {
-    const layout = idle80x24({ visibility: { agents: ZONE_REGISTRY.agents.max } });
+    const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
 

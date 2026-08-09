@@ -86,6 +86,42 @@ if (!process.stdout.isTTY) {
   process.exit(1)
 }
 
+/**
+ * A fleet big enough to exercise the board, including the states that matter:
+ * a lane gone silent, one waiting on an approval, and enough lanes to push the
+ * board past what a short terminal can show. A single-lane fixture cannot
+ * demonstrate sorting, the aggregate header, or the hidden-lane disclosure —
+ * which is to say it cannot demonstrate anything the board exists to do.
+ */
+const DEMO_FLEET = [
+  ["a5", "provider catalog groundwork", 554, 390, "bash npm test"],
+  ["a2", "geometry resolver split", 252, 3, "edit zones.ts"],
+  ["a3", "stall watchdog thresholds", 118, 1, "edit watchdog.ts"],
+  ["a4", "transcript dedupe", 12, 12, null],
+  ["a6", "chrome-state formatters", 44, 2, "grep formatAgents"],
+  ["a8", "keybinding audit", 161, 6, "edit keybindings"],
+  ["a9", "release note sweep", 67, 67, "approve rm -rf"],
+  ["a10", "telemetry catalog", 8, 8, null],
+  ["a11", "docs/TUI.md rewrite", 199, 4, "write TUI.md"],
+  ["a13", "pricing metadata refresh", 302, 40, "read pricing.ts"],
+  ["a14", "eval harness rewrite", 123, 200, "bash bun test"],
+  ["a15", "mcp view polish", 90, 5, "edit mcp-view.ts"],
+].map(([agentId, description, ranSec, idleSec, tool]) => {
+  const lastActivityAt = Date.now() - (idleSec as number) * 1000
+  return {
+    agentId: agentId as string,
+    description: description as string,
+    status: "running" as const,
+    currentToolName: tool as string | null,
+    // Hybrid chrome requires the tool clock; without it a long-running tool
+    // would be reclassified as stalled. Align with last activity when a tool
+    // is named so demo lanes still exercise working / in_tool / stalled.
+    currentToolStartedAt: tool === null ? null : lastActivityAt,
+    startedAt: Date.now() - (ranSec as number) * 1000,
+    lastActivityAt,
+  }
+})
+
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   targetFps: 30,
@@ -292,21 +328,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
   ) {
     const on = shell.layout.heights.agents > 0
     setChromeZones(shell, {
-      agents: on
-        ? null
-        : formatChromeZones({
-            agents: [
-              {
-                agentId: "explore",
-                currentToolStartedAt: null,
-                description: "map callers",
-                status: "running",
-                currentToolName: "grep",
-                startedAt: Date.now() - 42_000,
-                lastActivityAt: Date.now(),
-              },
-            ],
-          }).agents,
+      agents: on ? null : formatChromeZones({ agents: DEMO_FLEET }).agents,
     })
     return
   }

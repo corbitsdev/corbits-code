@@ -24,9 +24,12 @@
 
 import {
   agentProgress,
-  fleetLabel,
   fleetProgress,
+  laneState,
   DEFAULT_STALL_MS,
+  type AgentProgressSession,
+  type FleetProgress,
+  type LaneState,
 } from "./agent-progress.js"
 import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
 import type { ChromeZoneContent } from "./shell.js"
@@ -95,7 +98,20 @@ export type AgentPanelRow = {
   readonly label: string
   readonly tail: string
   readonly stalled: boolean
+  /**
+   * What the row is, so the renderer can colour and align it without parsing
+   * `label`. Absent means a lane row (the default, and every row before the
+   * board grew a header).
+   */
+  readonly kind?: "header" | "lane" | "more"
 }
+
+/**
+ * Board paint order for main's `LaneState` vocabulary — trouble first so an
+ * operator answers "is everything fine" without reading a word. This is a
+ * display order only; stall/`in_tool` semantics live in `agent-progress`.
+ */
+const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"]
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export type FormattedChromeZones = {
@@ -159,9 +175,10 @@ export function formatTasksPanel(
 /**
  * Format the live agents panel: one row per running agent, bounded to
  * `maxVisible` with a trailing "+N more" row, sourced from the same
- * `agentProgress` clock/tool/stall computation the transcript trailer uses.
- * Terminal-only sessions (done/failed/cancelled) render no rows — the panel
- * shows live work, not a history; Ctrl+E / agents-nav covers inspection.
+ * `agentProgress` / `laneState` clock/tool/stall computation the transcript
+ * trailer uses. Terminal-only sessions (done/failed/cancelled) render no
+ * rows — the panel shows live work, not a history; Ctrl+E / agents-nav covers
+ * inspection.
  */
 export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -178,49 +195,105 @@ export function formatAgentsPanel(
   const running = agents.filter((s) => s.status === "running")
   if (running.length === 0) return null
 
-  // Two different sorts for two different jobs. Selection (which N survive
-  // a fan-out past maxVisible) must key on staleness, or the stalest —
-  // most likely stalled — agent is exactly the one that gets folded into
-  // "+N more". Presentation must NOT key on staleness: lastActivityAt is
-  // the most rapidly-changing field in the record, so sorting rows by it
-  // reshuffles the panel on every tool event. startedAt never changes for
-  // a live agent, so it gives stable row order; agentId breaks ties since
-  // a simultaneous fan-out can share a startedAt and the input feed's own
-  // order (newest-first, itself not stable under updates) must not leak
-  // through as a tiebreak.
-  const selected = [...running]
+  // One sort, not two. Both jobs the old pair of sorts did — which lanes
+  // survive a fan-out, and what order the survivors paint in — want trouble
+  // first, and neither key here churns: a lane's state changes only when
+  // something real happens to it, and startedAt never changes at all. Sorting
+  // by staleness would have reshuffled the board on every tool event.
+  const ranked = [...running]
+    .map((session) => ({
+      session,
+      state: boardLaneState(session, nowMs, stallMs),
+    }))
     .sort(
-      (a, b) => (a.lastActivityAt ?? a.startedAt ?? 0) - (b.lastActivityAt ?? b.startedAt ?? 0),
+      (a, b) =>
+        BOARD_LANE_ORDER.indexOf(a.state) - BOARD_LANE_ORDER.indexOf(b.state) ||
+        (a.session.startedAt ?? 0) - (b.session.startedAt ?? 0) ||
+        a.session.agentId.localeCompare(b.session.agentId),
     )
-    .slice(0, maxVisible)
-  const hidden = running.length - selected.length
 
-  const presented = [...selected].sort(
-    (a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.agentId.localeCompare(b.agentId),
-  )
-  const rows = presented.map((s) => formatAgentRow(s, nowMs, stallMs))
-  if (hidden > 0) rows.push({ label: `+${hidden} more`, tail: "", stalled: false })
+  // The header always costs a row, so it is part of the budget it summarises.
+  const bodyBudget = Math.max(1, maxVisible - 1)
+  const hidden = Math.max(0, ranked.length - bodyBudget)
+  // Below a few body rows, a whole row spent on the hidden count carries less
+  // than the lane it displaces; the header states it instead.
+  const countInHeader = hidden > 0 && bodyBudget < 4
+  const shown = ranked.slice(0, countInHeader ? bodyBudget : bodyBudget - (hidden > 0 ? 1 : 0))
+  const stillHidden = ranked.length - shown.length
 
-  // Fleet roll-up first: past a couple of lanes an operator reads the summary,
-  // not six individual rows, and any row folded into "+N more" is otherwise
-  // invisible. Counted from the same lane states the rows below are rendered
-  // from, so the header can never disagree with them.
+  // Fleet roll-up from the same `laneState` path the rows use — never a second
+  // stall opinion grown in this file.
   const fleet = fleetProgress(
-    running.map((s) => ({
-      status: "running" as const,
-      currentToolName: s.currentToolName ?? null,
-      currentToolStartedAt: s.currentToolStartedAt ?? null,
-      startedAt: s.startedAt ?? 0,
-      lastActivityAt: s.lastActivityAt ?? s.startedAt ?? 0,
-    })),
+    running.flatMap((s) => {
+      const progress = toProgressSession(s)
+      return progress === null ? [] : [progress]
+    }),
     nowMs,
     stallMs,
   )
-  const summary = fleetLabel(fleet)
-  if (summary !== null && running.length > 1) {
-    rows.unshift({ label: summary, tail: "", stalled: fleet.stalled > 0 })
+
+  const rows: AgentPanelRow[] = [fleetHeaderRow(fleet, countInHeader ? stillHidden : 0)]
+  for (const { session, state } of shown) {
+    rows.push(formatAgentRow(session, state, nowMs, stallMs))
+  }
+  if (stillHidden > 0 && !countInHeader) {
+    rows.push({
+      label: `+${stillHidden} more lanes`,
+      tail: "",
+      stalled: false,
+      kind: "more",
+    })
   }
   return rows
+}
+
+/**
+ * Map a chrome session into the shape `laneState` / `agentProgress` require.
+ * Missing clocks mean we cannot ask those helpers — callers fall back to a
+ * safe display default rather than inventing timestamps.
+ */
+function toProgressSession(session: ChromeAgentSession): AgentProgressSession | null {
+  if (session.startedAt === undefined) return null
+  return {
+    status: session.status,
+    currentToolName: session.currentToolName ?? null,
+    currentToolStartedAt: session.currentToolStartedAt,
+    startedAt: session.startedAt,
+    lastActivityAt: session.lastActivityAt ?? session.startedAt,
+  }
+}
+
+/**
+ * Board-facing lane word: main's `laneState` when clocks exist, else `working`
+ * (no second stall path — without clocks we simply cannot claim stalled).
+ */
+function boardLaneState(
+  session: ChromeAgentSession,
+  nowMs: number,
+  stallMs: number,
+): LaneState {
+  const progress = toProgressSession(session)
+  if (progress === null) return "working"
+  return laneState(progress, nowMs, stallMs)
+}
+
+/**
+ * The one-line answer to "is everything fine". Counts run worst-first so that
+ * a narrow terminal ellipsizes away the routine tail rather than the trouble.
+ * Counts come from main's `fleetProgress`; the FLEET chrome layout is the board.
+ */
+function fleetHeaderRow(fleet: FleetProgress, hidden: number): AgentPanelRow {
+  const parts = [`${fleet.running} ${fleet.running === 1 ? "lane" : "lanes"}`]
+  // Trouble first (matches BOARD_LANE_ORDER); skip zero counts; working last.
+  if (fleet.stalled > 0) parts.push(`${fleet.stalled} stalled`)
+  if (fleet.inTool > 0) parts.push(`${fleet.inTool} in tool`)
+  if (fleet.working > 0) parts.push(`${fleet.working} working`)
+  return {
+    label: `FLEET  ${parts.join(" · ")}`,
+    tail: hidden > 0 ? ` · +${hidden} hidden` : "",
+    stalled: fleet.stalled > 0,
+    kind: "header",
+  }
 }
 
 function formatObserveRow(observe: ChromeLiveState["observe"]): AgentPanelRow | null | undefined {
@@ -233,33 +306,38 @@ function formatObserveRow(observe: ChromeLiveState["observe"]): AgentPanelRow | 
   return { label: `observe: ${label}`, tail: "", stalled: false }
 }
 
-function formatAgentRow(session: ChromeAgentSession, nowMs: number, stallMs: number): AgentPanelRow {
+function formatAgentRow(
+  session: ChromeAgentSession,
+  state: LaneState,
+  nowMs: number,
+  stallMs: number,
+): AgentPanelRow {
   const label = `${session.agentId}: ${session.description}`.trim()
-  const progress =
-    session.startedAt !== undefined
-      ? agentProgress(
-          {
-            status: "running",
-            currentToolName: session.currentToolName ?? null,
-            currentToolStartedAt: session.currentToolStartedAt,
-            startedAt: session.startedAt,
-            lastActivityAt: session.lastActivityAt ?? session.startedAt,
-          },
-          nowMs,
-          stallMs,
-        )
-      : null
+  const stalled = state === "stalled"
+  const tool = session.currentToolName
+  const doing = tool !== undefined && tool !== null && tool.length > 0 ? tool : null
 
-  if (progress !== null) {
-    const tail = progress.stalled ? ` · ${progress.stat} · stalled` : ` · ${progress.stat}`
-    return { label, tail, stalled: progress.stalled }
+  const progressSession = toProgressSession(session)
+  if (progressSession === null) {
+    // No clock to report (the host omitted startedAt) — still surface what the
+    // lane is doing rather than dropping detail the row already has.
+    return { label, tail: doing !== null ? ` · ${doing}` : "", stalled, kind: "lane" }
   }
 
-  // No startedAt to compute a clock from (host omitted it) — still surface
-  // the tool name so the row is not silently missing detail it has.
-  const tool = session.currentToolName
-  const tail = tool !== undefined && tool !== null && tool.length > 0 ? ` · ${tool}` : ""
-  return { label, tail, stalled: false }
+  // Prefer main's agentProgress for tool-clock / in_tool / quiet clocks so the
+  // board never invents a second stall path. Board presentation still prefixes
+  // the state word (and kind: lane) the way the fleet board reads.
+  const progress = agentProgress(progressSession, nowMs, stallMs)
+  if (progress !== null) {
+    return {
+      label,
+      tail: ` · ${state} · ${progress.stat}`,
+      stalled,
+      kind: "lane",
+    }
+  }
+
+  return { label, tail: doing !== null ? ` · ${doing}` : "", stalled, kind: "lane" }
 }
 
 /**
@@ -385,4 +463,3 @@ function mapSessionAgents(
     }
   })
 }
-

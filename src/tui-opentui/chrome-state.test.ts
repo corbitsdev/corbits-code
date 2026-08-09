@@ -68,11 +68,15 @@ describe("formatChromeZones", () => {
       { label: "wire chrome zone", status: "todo" },
       { label: "wire agents zone", status: "todo" },
     ])
+    // Hybrid: board FLEET header + kind; tail is `state · agentProgress.stat`
+    // (elapsed · tool), not the branch's tool-first wording.
     expect(out.agents).toEqual([
+      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
       {
         label: "explore: map setChromeZones callers",
-        tail: " · 0:05 · grep",
+        tail: " · working · 0:05 · grep",
         stalled: false,
+        kind: "lane",
       },
     ])
   })
@@ -158,7 +162,7 @@ describe("formatAgentsPanel", () => {
     expect(formatAgentsPanel([], undefined, NOW)).toBeNull()
   })
 
-  test("one row per running agent, oldest-started first", () => {
+  test("a header row leads the board, then one row per running lane", () => {
     const rows = formatAgentsPanel(
       [
         { agentId: "a", description: "one", status: "running", currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW },
@@ -168,9 +172,9 @@ describe("formatAgentsPanel", () => {
       NOW,
     )
     expect(rows).toEqual([
-      { label: "2 agents", tail: "", stalled: false },
-      { label: "b: two", tail: " · 0:02", stalled: false },
-      { label: "a: one", tail: " · 0:01", stalled: false },
+      { label: "FLEET  2 lanes · 2 working", tail: "", stalled: false, kind: "header" },
+      { label: "b: two", tail: " · working · 0:02", stalled: false, kind: "lane" },
+      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" },
     ])
   })
 
@@ -187,7 +191,7 @@ describe("formatAgentsPanel", () => {
     ).toBeNull()
   })
 
-  test("stalled agent is visually distinct in its label", () => {
+  test("a stalled lane names its state and reports how long it has been silent", () => {
     const rows = formatAgentsPanel(
       [
         {
@@ -202,25 +206,63 @@ describe("formatAgentsPanel", () => {
       undefined,
       NOW,
     )
-    expect(rows).toEqual([
-      { label: "a: quiet worker", tail: " · 1:00 · quiet 0:40 · stalled", stalled: true },
-    ])
+    // Hybrid uses main's agentProgress wording (`quiet`, with lifetime in the
+    // stat) under the board's `stalled · …` prefix — not branch `silent`.
+    expect(rows?.[1]).toEqual({
+      label: "a: quiet worker",
+      tail: " · stalled · 1:00 · quiet 0:40",
+      stalled: true,
+      kind: "lane",
+    })
+    expect(rows?.[0]?.label).toContain("1 stalled")
+    expect(rows?.[0]?.kind).toBe("header")
   })
 
-  test("bounds fan-out to maxVisible plus a +N more row", () => {
+  test("trouble sorts above routine progress", () => {
+    const rows = formatAgentsPanel(
+      [
+        { agentId: "fine", description: "busy", status: "running", currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW },
+        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 90_000, lastActivityAt: NOW - 60_000 },
+      ],
+      undefined,
+      NOW,
+    )
+    expect(rows?.slice(1).map((r) => r.label.split(":")[0])).toEqual(["quiet", "fine"])
+  })
+
+  test("bounds fan-out and says how many lanes it is hiding", () => {
     const running = Array.from({ length: 8 }, (_, i) => ({
       agentId: `agent-${i}`,
       currentToolStartedAt: null,
       description: "working",
       status: "running" as const,
-      startedAt: NOW,
+      startedAt: NOW + i,
       lastActivityAt: NOW,
     }))
-    const rows = formatAgentsPanel(running, undefined, NOW, 5)
-    // Fleet summary, five lanes, then the fold-away row.
-    expect(rows?.[0]).toEqual({ label: "8 agents", tail: "", stalled: false })
-    expect(rows).toHaveLength(7)
-    expect(rows?.[6]).toEqual({ label: "+3 more", tail: "", stalled: false })
+    const rows = formatAgentsPanel(running, undefined, NOW, 6)
+    expect(rows).toHaveLength(6)
+    expect(rows?.[5]).toEqual({
+      label: "+4 more lanes",
+      tail: "",
+      stalled: false,
+      kind: "more",
+    })
+  })
+
+  test("with too few rows for a disclosure line the header carries the count", () => {
+    const running = Array.from({ length: 8 }, (_, i) => ({
+      agentId: `agent-${i}`,
+      currentToolStartedAt: null,
+      description: "working",
+      status: "running" as const,
+      startedAt: NOW + i,
+      lastActivityAt: NOW,
+    }))
+    // A whole row spent on "+N more" would cost more than the lane it displaces.
+    const rows = formatAgentsPanel(running, undefined, NOW, 3)
+    expect(rows).toHaveLength(3)
+    expect(rows?.[0]?.tail).toBe(" · +6 hidden")
+    expect(rows?.some((r) => r.kind === "more")).toBe(false)
   })
 
   test("observe empty id+desc hides", () => {
@@ -230,10 +272,9 @@ describe("formatAgentsPanel", () => {
   })
 
   test("row order is stable across an activity update between frames", () => {
-    // Selection may key on staleness (lastActivityAt), but presentation must
-    // not: lastActivityAt is the field a tool event updates most often, so
-    // keying the visible row order on it would reshuffle the panel every
-    // time any agent made progress — unreadable at a busy 200ms repaint.
+    // Neither sort key churns: a lane's state changes only when something real
+    // happens to it, and startedAt never changes at all. Keying on
+    // lastActivityAt would reshuffle the board on every tool event.
     const frame1 = [
       { agentId: "b", description: "second", status: "running" as const, currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW - 1_000 },
       { agentId: "a", description: "first", status: "running" as const, currentToolStartedAt: null, startedAt: NOW - 2_000, lastActivityAt: NOW - 2_000 },
@@ -241,30 +282,24 @@ describe("formatAgentsPanel", () => {
     ]
     const rowsBefore = formatAgentsPanel(frame1, undefined, NOW)
 
-    // Same agents, one tick later: "b" reported activity (its lastActivityAt
-    // moved), the others did not. startedAt — what row order actually keys
-    // on — is unchanged for all three.
     const frame2 = frame1.map((a) => (a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a))
     const rowsAfter = formatAgentsPanel(frame2, undefined, NOW + 200)
 
-    const lanes = (rows: readonly { label: string }[] | null) =>
-      rows?.slice(1).map((r) => r.label.split(":")[0])
-    expect(lanes(rowsBefore)).toEqual(lanes(rowsAfter))
-    // Sanity: presentation order is oldest-started first (a, b, c), matching
-    // the tiebreak-free startedAt sort.
-    expect(lanes(rowsBefore)).toEqual(["a", "b", "c"])
+    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(
+      rowsAfter?.map((r) => r.label.split(":")[0]),
+    )
+    expect(rowsBefore?.slice(1).map((r) => r.label.split(":")[0])).toEqual(["a", "b", "c"])
   })
 
-  test("a stalled agent stays visible over newer agents when the fan-out is truncated", () => {
-    // The real feed (listForStrip) sorts running agents newest-first; the
-    // panel must not blindly take that order, or the one worker most likely
-    // to need attention is exactly the one that gets folded into "+N more".
+  test("a stalled lane survives a truncated fan-out", () => {
+    // The real feed sorts newest-first; the board must not take that order, or
+    // the one lane most likely to need attention is exactly the one hidden.
     const newest = Array.from({ length: 5 }, (_, i) => ({
       agentId: `fresh-${i}`,
       currentToolStartedAt: null,
       description: "just started",
       status: "running" as const,
-      startedAt: NOW,
+      startedAt: NOW + i,
       lastActivityAt: NOW,
     }))
     const stalled = {
@@ -275,12 +310,12 @@ describe("formatAgentsPanel", () => {
       startedAt: NOW - 300_000,
       lastActivityAt: NOW - 250_000,
     }
-    const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 5)
+    const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 4)
     expect(rows?.some((r) => r.label.includes("quiet"))).toBe(true)
     expect(rows?.some((r) => r.stalled)).toBe(true)
-    expect(rows).toHaveLength(7)
-    expect(rows?.[0]).toEqual({ label: "6 agents · 1 stalled", tail: "", stalled: true })
-    expect(rows?.[6]).toEqual({ label: "+1 more", tail: "", stalled: false })
+    // And the ones it could not show are still accounted for.
+    expect(rows?.[0]?.label).toContain("6 lanes")
+    expect(rows?.[0]?.label).toContain("1 stalled")
   })
 })
 
@@ -298,6 +333,10 @@ describe("chromeFromSession", () => {
           description: "map callers",
           status: "running",
           currentToolName: "grep",
+          // Clocks so fleetProgress can count the lane (without them the hybrid
+          // header would report 0 lanes while the board still paints the row).
+          startedAt: NOW - 5_000,
+          lastActivityAt: NOW,
         },
       ],
     })
@@ -313,6 +352,8 @@ describe("chromeFromSession", () => {
         description: "map callers",
         status: "running",
         currentToolName: "grep",
+        startedAt: NOW - 5_000,
+        lastActivityAt: NOW,
       },
     ])
 
@@ -322,7 +363,8 @@ describe("chromeFromSession", () => {
       { label: "export index", status: "todo" },
     ])
     expect(zones.agents).toEqual([
-      { label: "explore: map callers", tail: " · grep", stalled: false },
+      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
+      { label: "explore: map callers", tail: " · working · 0:05 · grep", stalled: false, kind: "lane" },
     ])
   })
 
@@ -405,9 +447,14 @@ describe("lane state survives the mapping hops", () => {
       undefined,
       NOW,
     )
-    expect(rows?.[0]?.stalled).toBe(false)
-    expect(rows?.[0]?.tail).toContain("run_shell 1:30")
-    expect(rows?.[0]?.tail).not.toContain("stalled")
+    // Board: header first, then the lane. Expect main's in_tool vocabulary.
+    expect(rows?.[0]?.kind).toBe("header")
+    expect(rows?.[0]?.label).toContain("in tool")
+    expect(rows?.[1]?.kind).toBe("lane")
+    expect(rows?.[1]?.stalled).toBe(false)
+    expect(rows?.[1]?.tail).toContain("in_tool")
+    expect(rows?.[1]?.tail).toContain("run_shell 1:30")
+    expect(rows?.[1]?.tail).not.toContain("stalled")
 
     expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 1:30")
   })
@@ -421,7 +468,10 @@ describe("lane state survives the mapping hops", () => {
       undefined,
       NOW,
     )
-    expect(rows?.[0]?.stalled).toBe(true)
+    expect(rows?.[0]?.kind).toBe("header")
+    expect(rows?.[0]?.label).toContain("1 stalled")
+    expect(rows?.[1]?.stalled).toBe(true)
+    expect(rows?.[1]?.kind).toBe("lane")
   })
 
   // A progress ping renames the tool but carries no clock of its own, so it

@@ -39,7 +39,28 @@ export type ZoneDeclaration = {
  * degrades to a trailing "+N more" row instead of growing the zone (and
  * therefore the chrome budget) without limit.
  */
-export const AGENTS_PANEL_MAX_VISIBLE = 5;
+export const AGENTS_PANEL_MAX_VISIBLE = 13;
+
+/**
+ * Share of the terminal the fleet board may take before it starts hiding
+ * lanes. The board is sized to its content, so a single lane costs two rows
+ * and a dozen costs thirteen; this only bounds the large fan-out, and the
+ * transcript keeps everything the board does not ask for.
+ */
+export const FLEET_BOARD_CAP_FRACTION = 0.62;
+
+/**
+ * Transcript floor while a fleet is running.
+ *
+ * With two or more lanes live the operator's job is watching the fleet, not
+ * reading a conversation, so the transcript stops being entitled to half the
+ * screen. It never disappears — this is still enough to read the last thing
+ * the orchestrator said, which is how it keeps reporting and asking.
+ */
+export const FLEET_TRANSCRIPT_FLOOR = 4;
+
+/** Lanes live before the fleet floor replaces the idle one. */
+export const FLEET_FLOOR_MIN_LANES = 2;
 
 /**
  * Bound on rendered task rows in the live task-list panel. Mirrors
