@@ -25,6 +25,11 @@ export type SubAgentSession = {
   status: SubAgentSessionStatus;
   toolNames: string[];
   currentToolName: string | null;
+  // Clock of when the in-flight tool call began executing, or null when no
+  // tool is outstanding. A worker inside one long tool emits no events for the
+  // whole execution, so silence alone cannot tell "wedged" from "running a
+  // ten-minute test suite". This is the fact that separates them.
+  currentToolStartedAt: number | null;
   entries: SubAgentTranscriptEntry[];
   startedAt: number;
   // Clock of the last event this session recorded (a stream token, a tool
@@ -93,6 +98,28 @@ let nextId = 0;
 function defaultCreateId(): string {
   nextId += 1;
   return `subagent-${nextId}`;
+}
+
+/**
+ * Name and clock move together so no caller can leave a tool name outstanding
+ * with a stale (or absent) start time — the pair is what the UI reads to tell
+ * a long tool call from silence with no explanation.
+ */
+function setCurrentTool(
+  session: SubAgentSession,
+  name: string | null,
+  nowMs: number,
+  restartClock = false,
+): void {
+  if (name === null) {
+    session.currentToolName = null;
+    session.currentToolStartedAt = null;
+    return;
+  }
+  if (restartClock || session.currentToolName !== name || session.currentToolStartedAt === null) {
+    session.currentToolStartedAt = nowMs;
+  }
+  session.currentToolName = name;
 }
 
 function capText(text: string, max: number): string {
@@ -164,7 +191,7 @@ export function createSubAgentSessionStore(
     session.status = "cancelled";
     session.finishedAt = now();
     session.lastActivityAt = now();
-    session.currentToolName = null;
+    setCurrentTool(session, null, now());
     session.error = reason;
     pushEntry(session, {
       kind: "report",
@@ -268,6 +295,7 @@ export function createSubAgentSessionStore(
         status: "running",
         toolNames: [],
         currentToolName: null,
+        currentToolStartedAt: null,
         entries: [],
         startedAt: now(),
         lastActivityAt: now(),
@@ -309,7 +337,7 @@ export function createSubAgentSessionStore(
             const data = event.data as { name?: unknown; callId?: unknown };
             const name = typeof data.name === "string" ? data.name : "tool";
             const callId = typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
-            session.currentToolName = name;
+            setCurrentTool(session, name, now());
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             pushEntry(session, { kind: "tool", callId, name, arguments: "" });
             return;
@@ -344,14 +372,14 @@ export function createSubAgentSessionStore(
               if (callId !== null && entry.callId !== callId) continue;
               if (name !== null) entry.name = name;
               if (args !== null && args.length > 0) entry.arguments = args;
-              session.currentToolName = entry.name;
+              setCurrentTool(session, entry.name, now());
               return;
             }
             // No matching start — record a complete tool entry.
             if (name !== null) {
               const idForEntry = callId ?? `${name}-${session.entries.length}`;
               if (!session.toolNames.includes(name)) session.toolNames.push(name);
-              session.currentToolName = name;
+              setCurrentTool(session, name, now());
               pushEntry(session, {
                 kind: "tool",
                 callId: idForEntry,
@@ -367,7 +395,9 @@ export function createSubAgentSessionStore(
             const call = (event as { data?: { call?: { name?: unknown; id?: unknown } } }).data?.call;
             const name = typeof call?.name === "string" ? call.name : null;
             if (name === null) return;
-            session.currentToolName = name;
+            // Execution start, not argument streaming: restart the clock so the
+            // elapsed figure beside the tool name is time spent running it.
+            setCurrentTool(session, name, now(), true);
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             return;
           }
@@ -388,7 +418,7 @@ export function createSubAgentSessionStore(
             const content = capText(stringifyUnknown(result.content ?? ""), maxEntryChars);
             const isError = result.isError === true;
             pushEntry(session, { kind: "tool_result", callId, name, content, isError });
-            session.currentToolName = null;
+            setCurrentTool(session, null, now());
             return;
           }
           default:
@@ -404,7 +434,7 @@ export function createSubAgentSessionStore(
         if (session.status !== "running") return;
         session.status = "done";
         session.finishedAt = now();
-        session.currentToolName = null;
+        setCurrentTool(session, null, now());
         session.report = report;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         cancelHandles.delete(id);
@@ -417,7 +447,7 @@ export function createSubAgentSessionStore(
         if (session.status !== "running") return;
         session.status = "failed";
         session.finishedAt = now();
-        session.currentToolName = null;
+        setCurrentTool(session, null, now());
         session.error = error;
         pushEntry(session, {
           kind: "report",
@@ -475,6 +505,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     status: session.status,
     toolNames: [...session.toolNames],
     currentToolName: session.currentToolName,
+    currentToolStartedAt: session.currentToolStartedAt,
     entries: session.entries.map(cloneEntry),
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt,

@@ -104,3 +104,44 @@ describe("session-store snapshot caching", () => {
     expect(snapshot?.entries).toEqual([]);
   });
 });
+
+
+describe("outstanding tool clock", () => {
+  // A worker inside one long tool call emits nothing until the result lands.
+  // Without a start clock for that call, silence is indistinguishable from a
+  // wedged reactor, and a whole fleet running shell commands reads as stalled.
+  test("tool.start stamps the clock and tool.done clears it", () => {
+    let clock = 1_000;
+    const store = createSubAgentSessionStore({ now: () => clock });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+
+    clock = 5_000;
+    store.appendEvent(session.id, {
+      type: "tool.start",
+      seq: 1,
+      data: { call: { id: "call-1", name: "run_shell", arguments: {} } },
+    } as unknown as ReactorEmittedEvent);
+    expect(store.get(session.id)?.currentToolName).toBe("run_shell");
+    expect(store.get(session.id)?.currentToolStartedAt).toBe(5_000);
+
+    clock = 95_000;
+    store.appendEvent(session.id, {
+      type: "tool.done",
+      seq: 2,
+      data: { result: { callId: "call-1", content: "ok", isError: false } },
+    } as unknown as ReactorEmittedEvent);
+    expect(store.get(session.id)?.currentToolName).toBeNull();
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+  });
+
+  test("a terminal transition never leaves a tool clock outstanding", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.appendEvent(session.id, startCall(1, "call-1", "grep"));
+    expect(store.get(session.id)?.currentToolStartedAt).not.toBeNull();
+
+    store.complete(session.id, "report");
+    expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
+  });
+});
