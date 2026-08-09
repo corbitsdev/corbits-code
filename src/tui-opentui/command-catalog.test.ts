@@ -6,7 +6,7 @@ import {
 } from "./command-catalog"
 
 describe("commandItemsFromRegistry", () => {
-  test("maps listCommands-shaped entries to `/`-prefixed labels", () => {
+  test("maps listCommands-shaped entries to name-only `/` labels", () => {
     const items = commandItemsFromRegistry([
       { name: "tasks", description: "Show work list" },
       { name: "clear", description: "Clear screen" },
@@ -14,13 +14,13 @@ describe("commandItemsFromRegistry", () => {
     expect(items).toEqual([
       {
         id: "tasks",
-        label: "/tasks — Show work list",
-        keywords: ["tasks", "slash", "command"],
+        label: "/tasks",
+        keywords: ["tasks", "Show work list", "slash", "command"],
       },
       {
         id: "clear",
-        label: "/clear — Clear screen",
-        keywords: ["clear", "slash", "command"],
+        label: "/clear",
+        keywords: ["clear", "Clear screen", "slash", "command"],
       },
     ])
   })
@@ -36,7 +36,7 @@ describe("filterPaletteCommands", () => {
     expect(filterPaletteCommands("", catalog)).toEqual(catalog)
   })
 
-  test("matches by id, label, or keyword substring", () => {
+  test("matches by id, label, or description keyword substring", () => {
     expect(filterPaletteCommands("compact", catalog).map((c) => c.id)).toEqual([
       "compact",
     ])
@@ -55,6 +55,6 @@ describe("paletteLabels", () => {
     const catalog = commandItemsFromRegistry([
       { name: "tasks", description: "Show work list" },
     ])
-    expect(paletteLabels(catalog)).toEqual(["/tasks — Show work list"])
+    expect(paletteLabels(catalog)).toEqual(["/tasks"])
   })
 })

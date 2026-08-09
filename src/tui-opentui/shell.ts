@@ -3541,12 +3541,13 @@ function repaintPalette(shell: AppShell): void {
     kind: "palette",
     title: state.title,
     items: labels,
-    // Filter query row, Amp-style: the palette always shows what it filtered on.
-    body: `> ${state.query}`,
+    // Typed filter row only when the overlay owns keystrokes. The `/` popup
+    // keeps its query in the prompt, so a body of `>` would be orphan chrome.
+    ...(state.typeToFilter ? { body: `> ${state.query}` } : {}),
     frameId: "command-palette",
   })
-  // No title rule row: the box is only ever the palette, and the filter row
-  // underneath already shows what's typed — a second header said nothing new.
+  // No title rule row: the box is only ever the palette, and when a filter
+  // row is present it already shows what's typed.
   shell.overlayTitle.visible = false
   shell.overlayTitle.content = ""
   paintOverlayList(shell)

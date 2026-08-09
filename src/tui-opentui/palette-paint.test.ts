@@ -17,9 +17,9 @@ import {
 } from "./shell"
 
 const CATALOG: readonly PaletteCommand[] = [
-  { id: "help", label: "/help — show keymap help", keywords: ["help"] },
-  { id: "model", label: "/model — switch model / provider", keywords: ["model"] },
-  { id: "mcp", label: "/mcp — manage MCP servers", keywords: ["mcp"] },
+  { id: "help", label: "/help", keywords: ["help", "show keymap help"] },
+  { id: "model", label: "/model", keywords: ["model", "switch model / provider"] },
+  { id: "mcp", label: "/mcp", keywords: ["mcp", "manage MCP servers"] },
 ]
 
 async function paletteFrame(width: number): Promise<readonly string[]> {
@@ -46,15 +46,36 @@ function rowFor(rows: readonly string[], label: string): string | undefined {
 }
 
 describe("command list rows", () => {
-  test("shows the filter prompt with no title rule above it", async () => {
+  test("slash mode omits the orphan filter row and the title rule", async () => {
     const rows = await paletteFrame(100)
     expect(rows.some((r) => r.startsWith("─ command palette ─"))).toBe(false)
+    // Default open is typeToFilter:false — query lives in the prompt.
+    expect(rows.some((r) => r.trim() === ">")).toBe(false)
+  })
+
+  test("typed filter mode keeps the Amp-style filter prompt", async () => {
+    const rows = await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell, { catalog: CATALOG, typeToFilter: true })
+        await h.renderOnce()
+        return h
+          .captureCharFrame()
+          .split("\n")
+          .map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd())
+      },
+      { width: 100, height: 32 },
+    )
     expect(rows.some((r) => r.trim() === ">")).toBe(true)
   })
 
   test("has no leading selection marker or kind column", async () => {
     const rows = await paletteFrame(100)
-    const help = rowFor(rows, "show keymap help")
+    const help = rowFor(rows, "/help")
     expect(help).toBeDefined()
     expect(help).not.toContain(">")
     expect(help).not.toContain("view")
