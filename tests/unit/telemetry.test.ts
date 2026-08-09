@@ -144,7 +144,7 @@ test("capture strips properties not in the event's allowlist", async () => {
   expect(body.properties.secret_field).toBeUndefined();
 });
 
-test("capture strips properties not in inference_turn's allowlist", async () => {
+test("capture strips properties not in $ai_generation's allowlist", async () => {
   const { impl, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWith("id"),
@@ -152,30 +152,92 @@ test("capture strips properties not in inference_turn's allowlist", async () => 
     fetchFn: impl,
     apiKey: "test-key",
   });
-  telemetry.capture("inference_turn", {
-    provider_id: "anthropic",
-    model_id: "claude-x",
-    input_tokens: 10,
-    output_tokens: 20,
+  telemetry.capture("$ai_generation", {
+    $ai_trace_id: "trace-1",
+    $ai_provider: "openai-compatible",
+    $ai_model: "model-x",
+    $ai_input_tokens: 10,
+    $ai_output_tokens: 20,
+    $ai_latency: 0.4,
+    $ai_is_error: false,
     cache_read_tokens: 1,
     cache_write_tokens: 2,
     thinking_tokens: 3,
-    duration_ms: 400,
     prompt: "should-not-appear",
+    completion: "should-not-appear",
   });
   await telemetry.flush();
   expect(events().length).toBe(1);
-  const body = events()[0];
-  expect(body.event).toBe("inference_turn");
-  expect(body.properties.provider_id).toBe("anthropic");
-  expect(body.properties.model_id).toBe("claude-x");
-  expect(body.properties.input_tokens).toBe(10);
-  expect(body.properties.output_tokens).toBe(20);
-  expect(body.properties.cache_read_tokens).toBe(1);
-  expect(body.properties.cache_write_tokens).toBe(2);
-  expect(body.properties.thinking_tokens).toBe(3);
-  expect(body.properties.duration_ms).toBe(400);
+  const body = events()[0]!;
+  expect(body.event).toBe("$ai_generation");
+  expect(body.properties.$ai_trace_id).toBe("trace-1");
+  expect(body.properties.$ai_provider).toBe("openai-compatible");
+  expect(body.properties.$ai_model).toBe("model-x");
+  expect(body.properties.$ai_latency).toBe(0.4);
   expect(body.properties.prompt).toBeUndefined();
+  expect(body.properties.completion).toBeUndefined();
+});
+
+test("capture strips properties not in $ai_span's allowlist, including raw tool name and args", async () => {
+  const { impl, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
+  telemetry.capture("$ai_span", {
+    $ai_trace_id: "trace-1",
+    $ai_span_id: "span-1",
+    $ai_parent_id: "trace-1",
+    $ai_span_name: "tool_call",
+    tool_name: "mcp__acme__fetch_secret",
+    tool_arguments: { path: "/etc/passwd" },
+    tool_result: "should-not-appear",
+  });
+  await telemetry.flush();
+  expect(events().length).toBe(1);
+  const body = events()[0]!;
+  expect(body.event).toBe("$ai_span");
+  expect(body.properties.$ai_trace_id).toBe("trace-1");
+  expect(body.properties.$ai_span_id).toBe("span-1");
+  expect(body.properties.$ai_parent_id).toBe("trace-1");
+  expect(body.properties.$ai_span_name).toBe("tool_call");
+  expect(body.properties.tool_name).toBeUndefined();
+  expect(body.properties.tool_arguments).toBeUndefined();
+  expect(body.properties.tool_result).toBeUndefined();
+});
+
+test("capture transmits nothing for an event name inherited from Object.prototype", async () => {
+  const { impl, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
+  for (const name of ["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"]) {
+    telemetry.capture(name as Parameters<typeof telemetry.capture>[0], { leaked: "should-not-appear" });
+  }
+  await telemetry.flush();
+  expect(events().length).toBe(0);
+});
+
+test("capture ignores allowlisted property names inherited from a payload's prototype", async () => {
+  const { impl, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
+  const properties = Object.create({ $ai_trace_id: "inherited-should-not-appear" }) as Record<string, unknown>;
+  properties.$ai_span_id = "span-1";
+  telemetry.capture("$ai_span", properties);
+  await telemetry.flush();
+  const body = events()[0];
+  expect(body?.properties.$ai_span_id).toBe("span-1");
+  expect(body?.properties.$ai_trace_id).toBeUndefined();
 });
 
 test("capture payload shape includes distinct_id and common props, with no client-side geoip flag", async () => {

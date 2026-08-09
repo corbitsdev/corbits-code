@@ -20,6 +20,12 @@ export type RunSinkArgs = {
   // turn actually ran against, so consumers report per-turn provider/model
   // even if the live selection changed mid-run.
   onTurnComplete?: (ctx: import("./hooks.js").TurnContext) => void;
+  // Fired at most once per turn, when that turn ends in an error instead of
+  // completing. onTurnComplete only ever sees turns that produced a full
+  // TurnContext, so a consumer relying on it alone goes silent exactly when a
+  // run goes wrong. The turn index is the collector's current count: the
+  // in-flight turn is the one that would have been recorded next.
+  onTurnFailed?: (info: { turnIndex: number; error: string }) => void;
   // Continues a resumed session's persisted run.json turn count instead of
   // restarting the collector at zero.
   initialTurnCount?: number;
@@ -81,7 +87,8 @@ export function resolveExecRunStatus(args: {
 }
 
 export function createRunSink(args: RunSinkArgs): RunSink {
-  const { emitter, hookManager, onTurnComplete, initialTurnCount, onTurnBoundarySnapshot } = args;
+  const { emitter, hookManager, onTurnComplete, onTurnFailed, initialTurnCount, onTurnBoundarySnapshot } =
+    args;
 
   function hasConfiguredHooks(): boolean {
     return hookManager.getStatuses().length > 0;
@@ -110,12 +117,36 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   let runCompleted = false;
   let runError: string | undefined;
   let turnCollector = createCollector(initialTurnCount);
+  // True between `inference.start` and whichever event settles that turn.
+  // One give-up reaches this sink twice — the director surfaces the failed
+  // inference, then the reactor terminates the run — and a turn that already
+  // completed is finished, so a later shutdown error belongs to no turn at
+  // all. Both cases resolve to the same question: is there a turn in flight
+  // for this error to be about?
+  let turnInFlight = false;
+  // Retries re-enter `inference.start` without advancing the turn count, so
+  // a second failure on a retried turn would report the index a consumer
+  // already recorded a failure for. Consumers key per-turn identity off that
+  // index, which makes a repeat indistinguishable from a duplicate.
+  let failedTurnIndex: number | null = null;
   // Always-on local PerfTrace: not gated by lifecycle hooks.
   let perfObserver = createPerfReactorObserver();
+
+  function reportTurnFailure(error: string): void {
+    if (!turnInFlight) return;
+    turnInFlight = false;
+    const turnIndex = turnCollector.getTurnCount();
+    if (turnIndex === failedTurnIndex) return;
+    failedTurnIndex = turnIndex;
+    onTurnFailed?.({ turnIndex, error });
+  }
 
   const sink = (event: ReactorEmittedEvent): void => {
     turnCollector.observe(event);
     perfObserver.observe(event);
+    if (event.type === "inference.start") {
+      turnInFlight = true;
+    }
     if (event.type === "reactor.done") {
       runCompleted = true;
       // Terminal success clears any earlier transient inference error.
@@ -125,16 +156,19 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     // (ChatDirector retries timeout/retryable/aborted). Leaving the sticky error
     // would mark a recovered successful send as failed.
     if (onTurnBoundary(event)) {
+      turnInFlight = false;
       runError = undefined;
       onTurnBoundarySnapshot?.();
     }
     if (event.type === "reactor.error") {
       const data = event.data as { error: string };
       runError = data.error;
+      reportTurnFailure(data.error);
     }
     if (event.type === "inference.error") {
       const data = event.data as { error: { message: string } };
       runError = data.error.message;
+      reportTurnFailure(data.error.message);
     }
     emitter.emit("event", event);
   };
@@ -151,6 +185,8 @@ export function createRunSink(args: RunSinkArgs): RunSink {
     reset: () => {
       runCompleted = false;
       runError = undefined;
+      turnInFlight = false;
+      failedTurnIndex = null;
       turnCollector = createCollector();
       perfObserver.reset();
     },

@@ -12,7 +12,8 @@ Each event carries a small set of properties:
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
+| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens` |
+| `$ai_span` | Once per top-level tool call in a completed turn | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error` |
 | `slash_command` | A slash command is dispatched in the TUI | `command_name` |
 | `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
 | `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
@@ -37,9 +38,9 @@ request IP; no location data is collected by the client.
 Every event is capped to an explicit property allowlist before it leaves the
 process — no other field can ever be attached, even by accident.
 
-`provider_id` is the canonical provider kind resolved by the runtime (e.g.
+`$ai_provider` is the canonical provider kind resolved by the runtime (e.g.
 `openai-compatible`), never the free-text name you gave the provider in
-onboarding or settings. `model_id` is the model identifier exactly as
+onboarding or settings. `$ai_model` is the model identifier exactly as
 configured — it is the one user-entered string that is sent, so do not put
 anything identifying in a model name.
 
@@ -74,6 +75,53 @@ provider's rejection message is sent.
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each
 emission site a deliberately identifying name and assert it reaches no part of
 the payload are in `tests/unit/telemetry-product-events.test.ts`.
+
+## AI observability events
+
+`$ai_generation` and `$ai_span` are the two PostHog AI observability events,
+emitted from `src/telemetry/ai-observability.ts`. PostHog's LLM analytics
+views query the `$ai_`-prefixed properties and nothing else, which is why
+these names are not ours to choose. `$ai_latency` is a duration in **seconds**
+as a float, per PostHog's schema — the runtime measures milliseconds and
+converts.
+
+The trace is **flat**. Every turn gets one `$ai_trace_id` derived from the
+runtime's session id and the turn index; the turn's `$ai_generation` and each
+of its `$ai_span`s carry it, and every span's `$ai_parent_id` is that same
+trace id rather than another span. PostHog documents `$ai_parent_id` as
+accepting either a trace id or a span id, so this is a legal trace, and it is
+all the runtime can honestly describe: the turn record only exposes top-level
+tool calls. No `$ai_trace` event is emitted — PostHog synthesises the trace
+from its children.
+
+`$ai_span_id` is the provider-generated opaque tool call id. It identifies
+the call within the trace and carries nothing else.
+
+`$ai_span_name` is one of a fixed enum (`tool_call`, `subagent_call`). The raw
+tool name is never sent: an MCP tool name embeds the server identifier it was
+configured under, which can be a local path.
+
+`$ai_error` is likewise one of a fixed enum (`rate_limit`, `auth`, `timeout`,
+`cancelled`, `inference_failed`). The provider's error message is classified
+into one of these and then discarded — a raw message routinely embeds the
+request URL, a prompt excerpt, or a file path.
+
+The cache and thinking token counts keep unprefixed names because PostHog does
+not publish property names for them in its manual-capture schema; a guessed
+`$ai_` name would land as an unread custom property either way.
+
+Stopping a turn mid-inference is reported, not silent: the runtime aborts the
+in-flight call and classifies the resulting error as `cancelled`, so a stopped
+turn produces the same errored `$ai_generation` as a failed one and is told
+apart by `$ai_error`. A turn that never reaches inference at all — suspended
+at an approval prompt and never resumed — emits nothing, because the runtime
+raises no event for it.
+
+Exactly one `$ai_generation` is ever emitted per turn. A single give-up
+usually surfaces twice at the event stream (the failed inference, then the
+reactor terminating), and a turn that already reported completion is finished;
+`src/session/run-sink.ts` latches on both so neither can double-count a turn
+or append a phantom failure to a successful one.
 
 ## What's never collected
 

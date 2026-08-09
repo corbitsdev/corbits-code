@@ -93,6 +93,7 @@ import {
 } from "./commands/registry.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
+import { createTurnObserver } from "../telemetry/ai-observability.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { classifyCommandName } from "../telemetry/classify.js";
@@ -116,7 +117,7 @@ import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
-import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
+import { createSubAgentSessionStore, taskToolDefinition, type SubAgentProvider } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -1329,25 +1330,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   };
 
+  const turnObserver = createTurnObserver({
+    telemetry: getTelemetry,
+    getSessionId: () => sessionId,
+    getSource: () => liveSource,
+    subagentToolName: taskToolDefinition.name,
+  });
+
   const runSink = createRunSink({
     emitter,
     hookManager,
     initialTurnCount: resumeSeed.turnsUsed,
-    onTurnComplete: (ctx) => {
-      // provider_id is the canonical provider kind, never ctx.source.sourceId:
-      // sourceId is the user-typed label from onboarding/settings, and free
-      // text must not leave the process under the no-PII contract.
-      getTelemetry().capture("inference_turn", {
-        provider_id: ctx.source.provider,
-        model_id: ctx.source.model,
-        input_tokens: ctx.usage.input,
-        output_tokens: ctx.usage.output,
-        cache_read_tokens: ctx.usage.cacheRead,
-        cache_write_tokens: ctx.usage.cacheWrite,
-        thinking_tokens: ctx.usage.thinking,
-        duration_ms: ctx.durationMs,
-      });
-    },
+    onTurnComplete: turnObserver.onTurnComplete,
+    onTurnFailed: turnObserver.onTurnFailed,
     // persistRunSnapshot is defined below but not invoked until the stream
     // starts consuming events, well after this closure captures it.
     onTurnBoundarySnapshot: () => {
