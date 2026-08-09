@@ -27,9 +27,11 @@ import {
   appendStreamRow,
   createAppShell,
   isSlashPopupOpen,
+  leaveSubagentObserve,
   openHelpOverlay,
   setMentionSuggestionSource,
   setPaletteCatalog,
+  setPaletteOnObserveRequest,
   setPromptImageSource,
   setSentMessageHistory,
   setShellBridgeHooks,
@@ -39,6 +41,7 @@ import {
   shellFocusPrompt,
   shellFocusTranscript,
   streamRowAt,
+  streamRowCount,
   submitPrompt,
   type AppShell,
 } from "./shell.js"
@@ -307,6 +310,33 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(shell.taskBox.visible).toBe(false)
       press(h, chords[0])
       expect(shell.taskBox.visible).toBe(true)
+    },
+  },
+  "Alt+O": {
+    group: "surfaces",
+    probe: ({ h, shell, chords }) => {
+      // No session wired: an honest system row, not silence.
+      const before = streamRowCount(shell)
+      press(h, chords[0])
+      expect(streamRowCount(shell)).toBe(before + 1)
+      expect(streamRowAt(shell, before)?.text).toBe(
+        "no subagent session to observe",
+      )
+      expect(shell.observe).toBeNull()
+
+      // Host wires a live session: the same chord enters it for real.
+      setPaletteOnObserveRequest(shell, () => ({
+        sessionId: "live-1",
+        agentId: "explore",
+        description: "map callers",
+        lines: [{ role: "assistant", text: "child line" }],
+      }))
+      press(h, chords[0])
+      expect(shell.observe?.sessionId).toBe("live-1")
+      // Leave the way Esc would, so later probes in this shared-shell
+      // sequence see the same prompt-focused state they'd get otherwise.
+      leaveSubagentObserve(shell)
+      setPaletteOnObserveRequest(shell, undefined)
     },
   },
   "Alt+E": {

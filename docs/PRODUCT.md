@@ -37,8 +37,8 @@ $ corbits "Add JWT auth to the API"
 A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
 
 **Behavior spec** (OpenTUI is the shipping shell): `docs/TUI.md` — layout,
-chrome budget, overlays, selectors, palette, prompt box, and scroll/mouse
-behavior.
+chrome budget, overlays, selectors, the `/` command list, prompt box, and
+scroll/mouse behavior.
 
 ### Exec mode (non-TUI product path)
 

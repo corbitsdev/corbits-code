@@ -13,6 +13,7 @@ import {
   createAppShell,
   noticeText,
   paintChrome,
+  setChromeZones,
   setPromptWorkspace,
   isLanding,
   paintLanding,
@@ -695,6 +696,56 @@ describe("landing screen", () => {
         }
       },
       shortRows,
+    )
+  })
+
+  test("the task panel and the version badge both paint while landing is still mounted, without clipping the prompt", async () => {
+    // A resumed session can land with tasks already visible while the
+    // landing screen has not been torn down yet (no transcript content sent)
+    // — restored chrome and the version badge's reserved row both compete
+    // for the same short terminal at once. This is the regression case for
+    // that interaction (CL-5735/5736 review, blocker 4).
+    const size = { width: 100, height: 17 }
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: size.width, rows: size.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          setChromeZones(shell, {
+            task: [{ label: "wire the version badge", status: "doing" }],
+          })
+          await settle(h)
+
+          expect(isLanding(shell)).toBe(true)
+          expect(shell.taskBox.visible).toBe(true)
+
+          const painted = rows(h)
+          // captureCharFrame's trailing newline yields one extra split entry.
+          expect(painted.length).toBe(size.height + 1)
+          // Nothing is clipped off past the terminal's own row count — the
+          // frame is exactly as tall as the terminal, not taller.
+          expect(painted.slice(size.height).every((row) => row === "")).toBe(
+            true,
+          )
+
+          const frame = painted.join("\n")
+          expect(frame).toContain("wire the version badge")
+          expect(frame).toContain(LANDING_VERSION)
+          // The prompt field itself is on screen, intact, not pushed off by
+          // the combination of the task row and the version row.
+          const promptRow = painted.findIndex((row) => row.includes("message"))
+          expect(promptRow).toBeGreaterThan(0)
+          const box = shell.layout.regions.prompt
+          expect(box).toBeDefined()
+          expect(box!.y + box!.height).toBeLessThanOrEqual(size.height)
+        } finally {
+          shell.dispose()
+        }
+      },
+      size,
     )
   })
 

@@ -59,11 +59,14 @@ export const LANDING_HERO_GAP = 3
 export const LANDING_VERSION = `v${pkg.version}`
 
 /**
- * Minimum terminal size the version badge needs before it hides. Set well
- * above the floors real chrome needs (`IDLE_TRANSCRIPT_FLOOR` and the
- * prompt box's own minimum width) so the badge — pure decoration — is
- * always the first thing gone on a shrinking terminal, never a cause of
- * layout trouble itself.
+ * Minimum terminal size the version badge needs before it hides. 16 rows is
+ * above `IDLE_TRANSCRIPT_FLOOR` (12) — the only row floor real chrome is
+ * actually held to at rest — so the badge is gone well before the
+ * transcript itself would be squeezed. It is below `BOTTOM_MARGIN_MIN_ROWS`
+ * (24, in `geometry/margins.ts`); that constant does not currently mean
+ * anything in practice (`BOTTOM_MARGIN_ROWS` it gates is 0), so there is no
+ * real floor at 24 to be above yet, but if one is ever added there this
+ * threshold does not automatically clear it and should be revisited.
  */
 export const VERSION_BADGE_MIN_COLUMNS = 60
 export const VERSION_BADGE_MIN_ROWS = 16

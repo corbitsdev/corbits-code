@@ -769,9 +769,15 @@ function terminalOf(
  * The version row is real chrome, not a float — it holds its own reserved
  * row at the foot of the shell rather than overlaying content that already
  * fills every row (there is no other spare one; `BOTTOM_MARGIN_ROWS` is 0).
- * The geometry resolver gets one fewer row to lay the rest of the shell out
- * in whenever that row will actually be reserved, so the badge never clips
- * something else instead of showing, and nothing else has to know about it.
+ *
+ * This genuinely costs the rest of the shell a row, not just the space it
+ * paints in: the geometry resolver is handed `terminal.rows - 1`, so every
+ * height it derives from that — including `PROMPT_CAP_FRACTION *
+ * terminal.rows`, which runs before collapse and outside `COLLAPSE_ORDER` —
+ * is computed one row short of the real terminal. The badge does not sit in
+ * the collapse order and does not give the row back under prompt-growth
+ * pressure; it is not "free" chrome, it is chrome the operator pays a row
+ * for on the landing screen, same as the task or agents panel would.
  */
 function terminalForGeometry(terminal: {
   readonly columns: number
@@ -4470,6 +4476,27 @@ export function leaveSubagentObserve(shell: AppShell): void {
 }
 
 /**
+ * Alt+O: observe a live subagent (its only entry point now that the palette
+ * is gone — the palette's "observe" action used to call this same
+ * `onObserveRequest` host hook). An honest "nothing to observe" flash rather
+ * than doing nothing when there is no live session, so the chord is
+ * discoverable as working even when it currently has nothing to show.
+ */
+export function observeActiveSubagent(shell: AppShell): void {
+  const onObserveRequest = getPaletteOnObserveRequest(shell)
+  const session = onObserveRequest ? onObserveRequest() : null
+  if (session) {
+    enterSubagentObserve(shell, session)
+    return
+  }
+  appendStreamRow(shell, {
+    role: "system",
+    text: "no subagent session to observe",
+    meta: "observe",
+  })
+}
+
+/**
  * Host-injected residual list open. `items` is owned by the caller — there is
  * no fallback, so a missing dependency must produce an honest empty state or
  * a surfaced error upstream rather than reach this with nothing to show.
@@ -5515,6 +5542,15 @@ export function createAppShell(
       // Losing the palette must not lose the toggle with it.
       key.preventDefault()
       toggleTasksPanel(shell)
+      return
+    }
+
+    if ((key.meta || key.option) && (key.name === "o" || key.name === "O") && !key.ctrl) {
+      // Alt+O: observe a live subagent, same rationale as Alt+T — this was
+      // the palette's "observe" action and needs a real chord now the
+      // palette is gone, not a silently orphaned feature.
+      key.preventDefault()
+      observeActiveSubagent(shell)
       return
     }
 

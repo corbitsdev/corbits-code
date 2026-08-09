@@ -28,6 +28,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+M", description: "release the mouse to the terminal for native drag-select and copy; on by default for wheel scroll and click-to-expand" },
   { keys: "Alt+E", description: "expand or collapse every collapsible row (tool call, diff, skill, reasoning)" },
   { keys: "Alt+T", description: "show or hide the task list above the prompt" },
+  { keys: "Alt+O", description: "observe a live subagent session; a system row says so when there is none" },
   { keys: "Tab", description: "move focus between the prompt and the transcript" },
   { keys: "Esc", description: "close the open overlay, or leave subagent observe" },
   { keys: "Ctrl+B / Ctrl+F", description: "move the cursor back / forward one character" },

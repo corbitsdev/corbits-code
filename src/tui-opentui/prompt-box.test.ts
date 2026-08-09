@@ -101,6 +101,23 @@ describe("prompt box height", () => {
     })
   })
 
+  test("the version badge costs the prompt cap a real row while it reserves one", async () => {
+    // The badge is not free chrome: `terminalForGeometry` subtracts its row
+    // from the terminal size handed to the resolver before PROMPT_CAP_FRACTION
+    // ever runs, so a landing-screen prompt caps one row lower than the same
+    // terminal would allow once real transcript content takes the row back.
+    // This is the regression test for that interaction (CL-5735/5736 review).
+    for (const totalRows of [18, 20, 23]) {
+      await withShell({ columns: 80, rows: totalRows }, async (shell, h) => {
+        const reducedCap = Math.floor((totalRows - 1) * PROMPT_CAP_FRACTION)
+        const naiveCap = Math.floor(totalRows * PROMPT_CAP_FRACTION)
+        expect(reducedCap).toBeLessThan(naiveCap)
+        await compose(shell, h, lines(80))
+        expect(shell.layout.heights.prompt).toBe(reducedCap)
+      })
+    }
+  })
+
   test("shrinks back toward the base box on a terminal too short for both", async () => {
     await withShell({ columns: 80, rows: 16 }, (shell) => {
       expect(shell.layout.heights.prompt).toBeLessThan(PROMPT_IDLE_ROWS)

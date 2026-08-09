@@ -134,7 +134,7 @@ src/
     runner-host.ts          Runner-facing mount: catalogs, chrome, quit key
     list-modal.ts           Shared list-picker overlay (runListModal)
     command-surfaces.ts     Slash-command surface routing (openCommandSurface)
-    command-catalog.ts, model-catalog.ts, chrome-state.ts, palette.ts,
+    command-catalog.ts, model-catalog.ts, chrome-state.ts,
     provider-setup.ts       Onboarding provider setup flow
 docs/
   PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, TUI.md, HOOKS.md, MCP.md,

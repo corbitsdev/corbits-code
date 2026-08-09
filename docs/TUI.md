@@ -136,8 +136,8 @@ on any terminal, tall or short; the collapse order bounds what other zones
 are allowed to take from it once the transcript floor is at risk.
 
 The panel is toggleable independent of its live data: `toggleTasksPanel`
-(bound to the `toggle_task` palette action) flips a hidden flag held on the
-shell for its lifetime — in memory only, nothing written to storage — while
+(bound to Alt+T) flips a hidden flag held on the shell for its lifetime — in
+memory only, nothing written to storage — while
 the live task list keeps updating underneath it. Un-hiding shows the current
 list, not a stale snapshot from before the hide. Hidden or empty, the zone
 costs zero rows.
@@ -288,8 +288,19 @@ showing (`relayout`'s `versionReserved`/`terminalForGeometry`) — once there
 is real transcript content the row goes back to whatever needed it, and the
 badge stops rendering. On a narrow or short terminal it hides
 (`versionBadgeVisible`, thresholds `VERSION_BADGE_MIN_COLUMNS`/
-`VERSION_BADGE_MIN_ROWS` in `landing.ts`) well before the prompt box or any
-other actionable chrome would need to shrink.
+`VERSION_BADGE_MIN_ROWS` in `landing.ts`) before the prompt box or any other
+actionable chrome would degrade for width/height reasons.
+
+This is not a free row, though, while it is showing: `terminalForGeometry`
+subtracts it from the terminal size handed to the geometry resolver before
+the resolver runs, so every height the resolver derives — including
+`PROMPT_CAP_FRACTION * terminal.rows`, computed before `COLLAPSE_ORDER` ever
+runs — sees one row fewer than the real terminal. The badge does not sit in
+`COLLAPSE_ORDER` and is never given back under prompt-growth pressure the
+way the task or agents panel is. An operator composing a long prompt on the
+landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
+known, accepted cost of the badge rather than an oversight — see
+`terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
 The model/provider picker is provider-first
 (`src/tui-opentui/product-host.ts:groupModelsForPicker`/`openLevel`): recent

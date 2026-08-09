@@ -7,7 +7,7 @@
  *
  * Keys:
  *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
- *   Ctrl+O=palette · Alt+C=copy
+ *   Alt+C=copy
  *   p=permissions · o=operator · m=model
  *   s=settings · h=help · l=plugins · e=resume · n=mentions · v=observe
  *   t/a=toggle task/agents chrome
@@ -101,7 +101,7 @@ const bridge = attachSessionBridge(shell, port)
 
 appendStreamRow(shell, {
   role: "system",
-  text: "Wave 7 — residuals + observe (s/h/l/e/n/v · Ctrl+O palette)",
+  text: "Wave 7 — residuals + observe (s/h/l/e/n/v)",
 })
 appendStreamRow(shell, {
   role: "system",
@@ -331,5 +331,5 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
 })
 
 console.log(
-  "OpenTUI Wave 7 demo — residuals s/h/l/e/n · observe v · Ctrl+O palette · q quit",
+  "OpenTUI Wave 7 demo — residuals s/h/l/e/n · observe v · q quit",
 )

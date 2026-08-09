@@ -136,7 +136,7 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
         agentName !== undefined && agentName.length > 0
           ? agentName[0]!.toUpperCase() + agentName.slice(1)
           : "Task";
-      // Collapsed row uses the abbreviated description; Ctrl+O uses the full text.
+      // Collapsed row uses the abbreviated description; Alt+E expands to the full text.
       return {
         display,
         role: "accent",
@@ -214,7 +214,7 @@ function abbreviate(value: string, max: number): string {
 
 /**
  * Render tool arguments as a human-readable "key: value" line rather than raw
- * JSON. The full form keeps every pair on its own line for the Ctrl+O reveal.
+ * JSON. The full form keeps every pair on its own line for the Alt+E reveal.
  */
 export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSummary {
   const obj = tryParseObject(rawArgs);
@@ -234,7 +234,7 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
     }
     case "task": {
       // Spawns carry a large structured brief (prompt, intent, criteria). The
-      // transcript only needs the short description; Ctrl+O still shows the
+      // transcript only needs the short description; Alt+E still shows the
       // full description text, not every spawn field.
       const parsed = TaskArgSchema(obj);
       if (!(parsed instanceof type.errors)) {
@@ -505,7 +505,7 @@ function webFetchSummary(raw: string): ToolResultSummary | null {
 
 /**
  * Collapse a tool result to a single human-readable preview line. The raw
- * content is preserved in `full` for the Ctrl+O reveal. `isJSONDocument` is
+ * content is preserved in `full` for the Alt+E reveal. `isJSONDocument` is
  * true ONLY when the content is genuinely a JSON document the user would want
  * to read as JSON — never for tool envelopes or status strings.
  */
