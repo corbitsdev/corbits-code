@@ -329,27 +329,33 @@ describe("Wave 6: chrome zones", () => {
           wireKeys: false,
         })
         try {
+          // Seed both zones so later retitles keep the row budget stable.
+          // A budget change re-clamps the board and must repaint; this test is
+          // about content-identity rebuilds, not clamp-on-resize.
           setChromeZones(shell, {
+            task: [{ label: "seed", status: "todo" }],
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
-          const rowsBefore = [...shell.agentsBox.getChildren()]
-          expect(rowsBefore).toHaveLength(1)
+          const firstBefore = shell.agentsBox.getChildren()[0]
+          expect(shell.agentsBox.getChildren()).toHaveLength(1)
+          expect(firstBefore).toBeDefined()
 
-          // An unrelated task push must not touch the agents rows.
+          // Task retitle only (same row count) must not rebuild agents rows.
+          // Use reference identity — deep-equal on OpenTUI trees hangs on cycles.
           setChromeZones(shell, { task: [{ label: "unrelated", status: "todo" }] })
-          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+          expect(shell.agentsBox.getChildren()[0]).toBe(firstBefore)
 
-          // Pushing the exact same agent lines again must not rebuild either.
+          // Exact same agent lines again must not rebuild either.
           setChromeZones(shell, {
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
-          expect([...shell.agentsBox.getChildren()]).toEqual(rowsBefore)
+          expect(shell.agentsBox.getChildren()[0]).toBe(firstBefore)
 
           // Changed lines must rebuild.
           setChromeZones(shell, {
             agents: [{ label: "explore: map callers", tail: " · 0:01", stalled: false }],
           })
-          expect([...shell.agentsBox.getChildren()]).not.toEqual(rowsBefore)
+          expect(shell.agentsBox.getChildren()[0]).not.toBe(firstBefore)
           expect(shell.agentsBox.getChildren()).toHaveLength(1)
         } finally {
           shell.dispose()
