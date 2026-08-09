@@ -50,20 +50,39 @@ const MARK_GAP_ROWS = 1
 /** Columns of air between the mark's right edge and the hint block. */
 export const LANDING_HERO_GAP = 3
 
-/** The running build, read from `package.json` so it cannot drift from what shipped. */
+/**
+ * The running build, read from `package.json` so it cannot drift from what
+ * shipped. Rendered in the shell's persistent chrome (bottom-right of the
+ * terminal), not as part of this module's landing composition — see
+ * `versionBadgeVisible` and `shell.ts`'s `versionBadge`.
+ */
 export const LANDING_VERSION = `v${pkg.version}`
 
 /**
- * The two doors off the landing screen. Every other key lives behind one of
- * them, so this list never grows.
+ * Minimum terminal size the version badge needs before it hides. 16 rows is
+ * above `IDLE_TRANSCRIPT_FLOOR` (12) — the only row floor real chrome is
+ * actually held to at rest — so the badge is gone well before the
+ * transcript itself would be squeezed. It is below `BOTTOM_MARGIN_MIN_ROWS`
+ * (24, in `geometry/margins.ts`); that constant does not currently mean
+ * anything in practice (`BOTTOM_MARGIN_ROWS` it gates is 0), so there is no
+ * real floor at 24 to be above yet, but if one is ever added there this
+ * threshold does not automatically clear it and should be revisited.
+ */
+export const VERSION_BADGE_MIN_COLUMNS = 60
+export const VERSION_BADGE_MIN_ROWS = 16
+
+export function versionBadgeVisible(columns: number, rows: number): boolean {
+  return columns >= VERSION_BADGE_MIN_COLUMNS && rows >= VERSION_BADGE_MIN_ROWS
+}
+
+/**
+ * The one door off the landing screen — `/help` (listed among the commands
+ * `/` opens) is the other, so this stays a single row rather than growing.
  */
 export const LANDING_HINTS: readonly {
   readonly key: string
   readonly rest: string
-}[] = [
-  { key: "ctrl+o", rest: "for commands" },
-  { key: "?", rest: "for shortcuts" },
-]
+}[] = [{ key: "/", rest: "for commands" }]
 
 /**
  * Columns held for the key, so the descriptions beside them start on one
@@ -78,13 +97,10 @@ export const LANDING_KEY_WIDTH = LANDING_HINTS.reduce(
 const LANDING_KEY_GAP = 2
 
 /** Columns the hint block needs, its longest line deciding. */
-export const LANDING_HINT_WIDTH = Math.max(
-  LANDING_HINTS.reduce(
-    (widest, hint) =>
-      Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
-    0,
-  ),
-  LANDING_VERSION.length,
+export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
+  (widest, hint) =>
+    Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
+  0,
 )
 
 /** Largest first: the landing takes the best-reading mark its zone can seat. */
@@ -366,24 +382,6 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
       }),
     )
   })
-  // The build is a fact about what is running, not a third door. Flush against
-  // the two keys it read as one of them.
-  block.add(
-    new TextRenderable(ctx, {
-      id: "shell-landing-version-gap",
-      height: 1,
-      content: "",
-      fg: UI.ground,
-    }),
-  )
-  block.add(
-    new TextRenderable(ctx, {
-      id: "shell-landing-version",
-      height: 1,
-      content: LANDING_VERSION,
-      fg: UI.textFaint,
-    }),
-  )
   return block
 }
 
@@ -393,9 +391,8 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
  */
 export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
   above.grid = grid
-  // With no mark, the hero is exactly the hint block: the two keys, the blank
-  // row, and the version.
-  const rows = grid?.rows ?? LANDING_HINTS.length + 2
+  // With no mark, the hero is exactly the hint block: one row per door.
+  const rows = grid?.rows ?? LANDING_HINTS.length
   above.hero.height = rows
   above.markColumn.visible = grid !== null
   above.markColumn.width = grid?.cols ?? 0

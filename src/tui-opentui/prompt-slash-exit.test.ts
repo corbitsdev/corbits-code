@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { withTestRenderer } from "./harness"
-import type { PaletteCommand } from "./palette"
+import type { PaletteCommand } from "./command-catalog"
 import {
   CTRL_C_EXIT_WINDOW_MS,
   createAppShell,
@@ -19,9 +19,9 @@ import {
 } from "./shell"
 
 const CATALOG: readonly PaletteCommand[] = [
-  { id: "model", label: "/model — switch model", dispatch: "command" },
-  { id: "mcp", label: "/mcp — manage MCP servers", dispatch: "command" },
-  { id: "compact", label: "/compact — compact history", dispatch: "command" },
+  { id: "model", label: "/model — switch model" },
+  { id: "mcp", label: "/mcp — manage MCP servers" },
+  { id: "compact", label: "/compact — compact history" },
 ]
 
 type Ctx = {

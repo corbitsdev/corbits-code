@@ -37,8 +37,8 @@ export const PERMISSION_ONCE_ID = "__once__" as const
 /**
  * Expand/collapse chord for collapsed payloads. Scoped to the open permission
  * overlay rather than registered in SHELL_SHORTCUTS: the overlay is modal, so
- * a bare letter is free there, and Ctrl+O (the Ink-era chord) is the command
- * palette in this shell. Shared with the transcript's collapsed rows so the
+ * a bare letter is free there — nothing else in the shell claims it while
+ * this overlay is open. Shared with the transcript's collapsed rows so the
  * product has one expand idiom.
  */
 export const PERMISSION_EXPAND_KEY = EXPAND_KEY

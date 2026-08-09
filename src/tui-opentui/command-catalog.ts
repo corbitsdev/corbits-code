@@ -1,47 +1,78 @@
 /**
- * Registry → palette catalog bridge for OpenTUI production host.
+ * Registry → `/` command list catalog (pure).
  *
  * Pure: host injects `listCommands()` results (or fixtures). No registry import
  * here — avoids circular / heavy deps from `src/tui/commands`.
  *
- *   setPaletteCatalog(shell, buildCommandCatalog(listCommands()))
+ *   setPaletteCatalog(shell, commandItemsFromRegistry(listCommands()))
  */
 
-import {
-  buildPaletteCatalog,
-  commandsToPaletteItems,
-  type BuildPaletteCatalogOpts,
-  type PaletteCommand,
-  type RegistryCommandSource,
-} from "./palette.js"
+import { sliceToWidth, stringWidth } from "../tui/view/height.js"
 
-export type { PaletteCommand, RegistryCommandSource }
-
-export type BuildCommandCatalogOpts = Omit<BuildPaletteCatalogOpts, "commands">
-
-/**
- * Map `listCommands()`-shaped entries into a palette catalog for setPaletteCatalog.
- *
- * Includes residual product openers (permissions, model picker, …) plus registry
- * slash commands with `dispatch: "command"` and `id` = command name. Registry
- * names win over residual openers with the same id (preferRegistry default).
- */
-export function buildCommandCatalog(
-  commands: readonly RegistryCommandSource[],
-  opts?: BuildCommandCatalogOpts,
-): readonly PaletteCommand[] {
-  return buildPaletteCatalog({
-    ...opts,
-    commands,
-  })
+/** Minimal registry shape — matches `listCommands()` entries without importing them. */
+export type RegistryCommandSource = {
+  readonly name: string
+  readonly description: string
 }
 
-/**
- * Registry slash entries only (no residual openers). Each item has
- * `dispatch: "command"` and `id` equal to the command name.
- */
+/** One entry in the `/` command list: registry command name + display label. */
+export type PaletteCommand = {
+  readonly id: string
+  readonly label: string
+  /** Optional keywords for name-prefix / substring filter. */
+  readonly keywords?: readonly string[]
+}
+
+/** Map registry command definitions to `/` list items. */
 export function commandItemsFromRegistry(
   commands: readonly RegistryCommandSource[],
 ): PaletteCommand[] {
-  return commandsToPaletteItems(commands)
+  return commands.map((c) => ({
+    id: c.name,
+    label: `/${c.name} — ${c.description}`,
+    keywords: [c.name, "slash", "command"],
+  }))
+}
+
+/**
+ * Case-insensitive substring filter over label + keywords.
+ * Empty query returns the full catalog (stable order).
+ */
+export function filterPaletteCommands(
+  query: string,
+  catalog: readonly PaletteCommand[],
+): readonly PaletteCommand[] {
+  const q = query.trim().toLowerCase()
+  if (q.length === 0) return catalog
+  return catalog.filter((cmd) => {
+    if (cmd.label.toLowerCase().includes(q)) return true
+    if (cmd.id.toLowerCase().includes(q)) return true
+    return (cmd.keywords ?? []).some((k) => k.toLowerCase().includes(q))
+  })
+}
+
+/** Labels for the shared list viewport. */
+export function paletteLabels(
+  commands: readonly PaletteCommand[],
+): readonly string[] {
+  return commands.map((c) => c.label)
+}
+
+function fitLabel(label: string, width: number): string {
+  if (width <= 0) return ""
+  const columns = stringWidth(label)
+  // padEnd counts code units, so a label carrying a wide glyph has to be padded
+  // by the column shortfall rather than to a code-unit length.
+  if (columns <= width) return label + " ".repeat(width - columns)
+  if (width === 1) return "…"
+  const cut = `${sliceToWidth(label, width - 1)}…`
+  return cut + " ".repeat(Math.max(0, width - stringWidth(cut)))
+}
+
+/** Render labels to exactly `width` columns each, ellipsizing long ones. */
+export function formatPaletteRows(
+  labels: readonly string[],
+  width: number,
+): readonly string[] {
+  return labels.map((label) => fitLabel(label, width))
 }

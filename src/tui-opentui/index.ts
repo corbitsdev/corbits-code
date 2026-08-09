@@ -20,7 +20,6 @@ export {
 export * from "./live-session-port"
 export * from "./overlays"
 export * from "./long-log"
-export * from "./palette"
 export * from "./command-catalog"
 export * from "./model-catalog"
 export * from "./copy-path"

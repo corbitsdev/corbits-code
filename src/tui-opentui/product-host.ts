@@ -35,7 +35,7 @@ import {
   RUNTIME_FLASH_MS,
   type RuntimeNotice,
 } from "./runtime-notices.js"
-import type { PaletteCommand } from "./palette.js"
+import type { PaletteCommand } from "./command-catalog.js"
 import {
   appendObserveStreamRow,
   appendStreamRow,

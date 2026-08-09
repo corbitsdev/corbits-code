@@ -88,7 +88,9 @@ describe("prompt box height", () => {
   })
 
   test("stops growing at the cap fraction and scrolls instead", async () => {
-    await withShell({ columns: 80, rows: 40 }, async (shell, h) => {
+    // +1 row: this shell never sends a message, so it stays on the landing
+    // screen, where the version badge reserves the terminal's last row.
+    await withShell({ columns: 80, rows: 41 }, async (shell, h) => {
       const cap = Math.floor(40 * PROMPT_CAP_FRACTION)
       await compose(shell, h, lines(60))
       expect(shell.layout.heights.prompt).toBe(cap)
@@ -97,6 +99,23 @@ describe("prompt box height", () => {
       expect(promptRowCount(shell.prompt)).toBeGreaterThan(cap)
       expect(shell.prompt.height).toBe(cap - 2)
     })
+  })
+
+  test("the version badge costs the prompt cap a real row while it reserves one", async () => {
+    // The badge is not free chrome: `terminalForGeometry` subtracts its row
+    // from the terminal size handed to the resolver before PROMPT_CAP_FRACTION
+    // ever runs, so a landing-screen prompt caps one row lower than the same
+    // terminal would allow once real transcript content takes the row back.
+    // This is the regression test for that interaction (CL-5735/5736 review).
+    for (const totalRows of [18, 20, 23]) {
+      await withShell({ columns: 80, rows: totalRows }, async (shell, h) => {
+        const reducedCap = Math.floor((totalRows - 1) * PROMPT_CAP_FRACTION)
+        const naiveCap = Math.floor(totalRows * PROMPT_CAP_FRACTION)
+        expect(reducedCap).toBeLessThan(naiveCap)
+        await compose(shell, h, lines(80))
+        expect(shell.layout.heights.prompt).toBe(reducedCap)
+      })
+    }
   })
 
   test("shrinks back toward the base box on a terminal too short for both", async () => {
@@ -126,7 +145,9 @@ describe("prompt box height", () => {
   })
 
   test("the box stays anchored at the foot of the terminal", async () => {
-    await withShell({ columns: 80, rows: 30 }, async (shell, h) => {
+    // +1 row: composing without sending stays on the landing screen, where
+    // the version badge reserves the terminal's last row.
+    await withShell({ columns: 80, rows: 31 }, async (shell, h) => {
       await compose(shell, h, lines(5))
       const box = shell.layout.regions.prompt
       expect(box).toBeDefined()
@@ -192,15 +213,10 @@ describe("Enter is still the send key", () => {
 })
 
 describe("openers toggle their surface shut", () => {
-  test("Ctrl+O opens the palette and closes it", async () => {
+  test("Ctrl+O no longer opens anything (removed; use / or the help command)", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
       h.pressKey("o", { ctrl: true })
-      expect(shell.overlayKind).toBe("palette")
-      expect(focusOwner(shell.focus)).toBe("palette")
-
-      h.pressKey("o", { ctrl: true })
       expect(shell.overlayKind).toBeNull()
-      expect(shell.overlayList).toBeNull()
       expect(focusOwner(shell.focus)).not.toBe("palette")
     })
   })
@@ -217,12 +233,9 @@ describe("openers toggle their surface shut", () => {
     })
   })
 
-  test("? opens the shortcut list and closes it", async () => {
+  test("? no longer opens the shortcut list (removed; use /help)", async () => {
     await withShell({ columns: 80, rows: 30 }, (shell, h) => {
       toggleShellFocus(shell)
-      h.pressKey("?")
-      expect(shell.overlayKind).toBe("help")
-
       h.pressKey("?")
       expect(shell.overlayKind).toBeNull()
     })

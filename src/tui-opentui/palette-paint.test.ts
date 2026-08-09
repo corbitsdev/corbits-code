@@ -1,14 +1,13 @@
 /**
- * Frame-level checks for the command palette's rows: the label, the
- * right-aligned chord, and how the chord degrades at narrow widths.
+ * Frame-level checks for the `/` command list's rows: the label, and how it
+ * ellipsizes at narrow widths.
  */
 import { describe, expect, test } from "bun:test"
 
 import type { KeyEvent } from "@opentui/core"
 
 import { withTestRenderer } from "./harness"
-import { openModelPickerOverlay } from "./overlays"
-import type { PaletteCommand } from "./palette"
+import type { PaletteCommand } from "./command-catalog"
 import {
   createAppShell,
   handlePaletteFilterKey,
@@ -16,6 +15,12 @@ import {
   openPalette,
   type AppShell,
 } from "./shell"
+
+const CATALOG: readonly PaletteCommand[] = [
+  { id: "help", label: "/help — show keymap help", keywords: ["help"] },
+  { id: "model", label: "/model — switch model / provider", keywords: ["model"] },
+  { id: "mcp", label: "/mcp — manage MCP servers", keywords: ["mcp"] },
+]
 
 async function paletteFrame(width: number): Promise<readonly string[]> {
   return withTestRenderer(
@@ -25,7 +30,7 @@ async function paletteFrame(width: number): Promise<readonly string[]> {
         wireKeys: false,
         run: "idle",
       })
-      openPalette(shell)
+      openPalette(shell, { catalog: CATALOG })
       await h.renderOnce()
       return h
         .captureCharFrame()
@@ -40,7 +45,7 @@ function rowFor(rows: readonly string[], label: string): string | undefined {
   return rows.find((r) => r.includes(label))
 }
 
-describe("command palette rows", () => {
+describe("command list rows", () => {
   test("shows the filter prompt with no title rule above it", async () => {
     const rows = await paletteFrame(100)
     expect(rows.some((r) => r.startsWith("─ command palette ─"))).toBe(false)
@@ -49,27 +54,16 @@ describe("command palette rows", () => {
 
   test("has no leading selection marker or kind column", async () => {
     const rows = await paletteFrame(100)
-    const help = rowFor(rows, "Show keymap help")
+    const help = rowFor(rows, "show keymap help")
     expect(help).toBeDefined()
-    expect(help).toMatch(/^\s*Show keymap help\s+\?$/)
     expect(help).not.toContain(">")
     expect(help).not.toContain("view")
   })
 
-  test("keeps the right-aligned chord at 100 columns", async () => {
-    const rows = await paletteFrame(100)
-    const copy = rowFor(rows, "Copy active message / tool")
-    expect(copy?.endsWith("Alt+C")).toBe(true)
-  })
-
-  test("drops the chord at a narrow width, and the label always survives", async () => {
-    const rows = await paletteFrame(36)
-    const help = rowFor(rows, "Show keymap help")
+  test("ellipsizes a label that cannot fit a narrow width, never dropping it", async () => {
+    const rows = await paletteFrame(20)
+    const help = rowFor(rows, "help")
     expect(help).toBeDefined()
-    expect(help?.endsWith("?")).toBe(false)
-
-    const copy = rowFor(rows, "Copy active")
-    expect(copy?.includes("Alt+C")).toBe(false)
   })
 })
 
@@ -86,7 +80,7 @@ describe("palette filters as you type", () => {
           run: "idle",
         })
         try {
-          openPalette(shell, { typeToFilter: true })
+          openPalette(shell, { catalog: CATALOG, typeToFilter: true })
           fn(shell)
         } finally {
           shell.dispose()
@@ -121,9 +115,7 @@ describe("palette filters as you type", () => {
       press(shell, "o")
       press(shell, "d")
       expect(shell.paletteCommands.length).toBeLessThan(all)
-      expect(shell.paletteCommands.some((c) => c.id === "model_picker")).toBe(
-        true,
-      )
+      expect(shell.paletteCommands.some((c) => c.id === "model")).toBe(true)
       expect(shell.overlayBodyLines[0]).toBe("> mod")
     })
   })
@@ -131,13 +123,13 @@ describe("palette filters as you type", () => {
   test("backspace widens the list again", async () => {
     await withPalette((shell) => {
       press(shell, "m")
-      press(shell, "o")
-      press(shell, "d")
       const narrowed = shell.paletteCommands.length
+      press(shell, "c")
+      expect(shell.paletteCommands.length).toBeLessThanOrEqual(narrowed)
       expect(handlePaletteFilterKey(shell, BACKSPACE)).toBe(true)
       expect(handlePaletteFilterKey(shell, BACKSPACE)).toBe(true)
-      expect(shell.paletteCommands.length).toBeGreaterThan(narrowed)
-      expect(shell.overlayBodyLines[0]).toBe("> m")
+      expect(shell.paletteCommands.length).toBe(CATALOG.length)
+      expect(shell.overlayBodyLines[0]).toBe(">")
     })
   })
 
@@ -165,7 +157,7 @@ describe("palette filters as you type", () => {
     })
   })
 
-  test("a query matching nothing leaves the palette open and empty", async () => {
+  test("a query matching nothing leaves the list open and empty", async () => {
     await withPalette((shell) => {
       for (const ch of "zzqq") press(shell, ch)
       expect(shell.paletteCommands).toEqual([])
@@ -173,30 +165,11 @@ describe("palette filters as you type", () => {
       expect(shell.overlayKind).toBe("palette")
     })
   })
-
-  test("other overlays keep j/k navigation", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 100, rows: 32 },
-          wireKeys: false,
-          run: "idle",
-        })
-        try {
-          openModelPickerOverlay(shell)
-          expect(press(shell, "j")).toBe(false)
-        } finally {
-          shell.dispose()
-        }
-      },
-      { width: 100, height: 32 },
-    )
-  })
 })
 
-describe("command palette width", () => {
+describe("command list width", () => {
   // Both boxes are children of the same padded root; a width computed a
-  // second way for the floating palette drifts from the prompt box's "100%".
+  // second way for the floating list drifts from the prompt box's "100%".
   test("shares the prompt box's left/right edges while floating over landing", async () => {
     const rows = await withTestRenderer(
       async (h) => {
@@ -205,7 +178,7 @@ describe("command palette width", () => {
           wireKeys: false,
           run: "idle",
         })
-        openPalette(shell)
+        openPalette(shell, { catalog: CATALOG })
         await h.renderOnce()
         return h.captureCharFrame().split("\n")
       },
@@ -220,7 +193,7 @@ describe("command palette width", () => {
   })
 })
 
-describe("command palette selection colour", () => {
+describe("command list selection colour", () => {
   test("marks the active row by text colour, not a filled background", async () => {
     await withTestRenderer(
       async (h) => {
@@ -229,14 +202,14 @@ describe("command palette selection colour", () => {
           wireKeys: false,
           run: "idle",
         })
-        openPalette(shell)
+        openPalette(shell, { catalog: CATALOG })
         await h.renderOnce()
         const frame = h.captureSpans()
         const activeLine = frame.lines.find((line) =>
-          line.spans.some((s) => s.text.includes("Open permissions")),
+          line.spans.some((s) => s.text.includes("/help")),
         )
         const groundLine = frame.lines.find((line) =>
-          line.spans.some((s) => s.text.includes("Ask operator question")),
+          line.spans.some((s) => s.text.includes("/model")),
         )
         expect(activeLine).toBeDefined()
         expect(groundLine).toBeDefined()
@@ -246,10 +219,10 @@ describe("command palette selection colour", () => {
         // (fg), not a filled band behind the row.
         expect(activeBg).toEqual(groundBg)
         const activeFg = activeLine!.spans.find((s) =>
-          s.text.includes("Open permissions"),
+          s.text.includes("/help"),
         )!.fg
         const groundFg = groundLine!.spans.find((s) =>
-          s.text.includes("Ask operator question"),
+          s.text.includes("/model"),
         )!.fg
         expect(activeFg).not.toEqual(groundFg)
       },
@@ -258,13 +231,12 @@ describe("command palette selection colour", () => {
   })
 })
 
-describe("command palette height cap", () => {
+describe("command list height cap", () => {
   const BIG_CATALOG: readonly PaletteCommand[] = Array.from(
     { length: 50 },
     (_, i) => ({
       id: `cmd_${String(i)}`,
       label: `Fake command number ${String(i)} with a longish label`,
-      dispatch: "command" as const,
     }),
   )
 
@@ -317,4 +289,3 @@ describe("command palette height cap", () => {
     )
   })
 })
-

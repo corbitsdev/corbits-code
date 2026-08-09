@@ -244,7 +244,7 @@ export type CollapsedSegment = {
   // collapsed segment always render as a single line.
   display: string;
   // The full text of each collapsed payload, in placeholder order, shown when
-  // the operator expands via Ctrl+O.
+  // the operator expands via Alt+E.
   payloads: CollapsedPayload[];
 };
 

@@ -322,7 +322,11 @@ describe("provider-first model picker", () => {
   }
 
   async function mountPicker(overrides: Partial<ProductHostConfig> = {}) {
-    const harness = await createHarness({ width: 80, height: 24 })
+    // One row taller than the usual fixture: on the landing screen (no
+    // session content yet, which this fixture never sends) the version badge
+    // reserves the terminal's last row, and this picker's row list needs
+    // every row of the 24-row case to fit every provider.
+    const harness = await createHarness({ width: 80, height: 25 })
     const port = makeFakeSessionPort()
     const catalog = buildModelsFirstCatalog({
       providers,

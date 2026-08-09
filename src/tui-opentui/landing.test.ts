@@ -13,6 +13,7 @@ import {
   createAppShell,
   noticeText,
   paintChrome,
+  setChromeZones,
   setPromptWorkspace,
   isLanding,
   paintLanding,
@@ -29,6 +30,9 @@ import {
   landingSuggestionFor,
   resolveMarkGrid,
   splitLandingRows,
+  VERSION_BADGE_MIN_COLUMNS,
+  VERSION_BADGE_MIN_ROWS,
+  versionBadgeVisible,
   wrapLanding,
 } from "./landing"
 import { LOCKUP_WORDMARK } from "./lockup"
@@ -106,7 +110,10 @@ describe("landing layout math", () => {
     expect(resolveMarkGrid(12, 96)).toBe(MARK_MID)
     expect(resolveMarkGrid(9, 96)).toBe(MARK_SMALL)
     // Narrow enough that the mark would crowd the hints: the hints win.
-    expect(resolveMarkGrid(20, 50)).toBe(MARK_SMALL)
+    // (The version moved off this hint block into the shell's own chrome —
+    // CL-5736 — so the block is narrower and a bit more room stays for the
+    // mark at this width than before.)
+    expect(resolveMarkGrid(20, 50)).toBe(MARK_MID)
     expect(resolveMarkGrid(20, 30)).toBeNull()
     expect(resolveMarkGrid(3, 96)).toBeNull()
   })
@@ -161,9 +168,20 @@ describe("landing screen", () => {
           descriptionColumns.add(row!.indexOf(hint.rest))
         }
         expect(descriptionColumns.size).toBe(1)
-        // The version sits with the hints, and cannot drift from package.json.
+        // The version is chrome, not part of the hero: it never shares a row
+        // with a hint, and cannot drift from package.json.
         expect(LANDING_VERSION).toBe(`v${pkg.version}`)
-        expect(h.captureCharFrame()).toContain(LANDING_VERSION)
+        for (const hint of LANDING_HINTS) {
+          const row = painted.find((line) => line.includes(hint.rest))
+          expect(row).not.toContain(LANDING_VERSION)
+        }
+        const versionRow = painted.findIndex((row) => row.includes(LANDING_VERSION))
+        expect(versionRow).toBeGreaterThanOrEqual(0)
+        // Bottom-right: on the terminal's last content row, hugging the right
+        // edge rather than sitting under the hints.
+        expect(versionRow).toBeGreaterThanOrEqual(SIZE.height - 2)
+        const versionCol = painted[versionRow]!.lastIndexOf(LANDING_VERSION)
+        expect(versionCol + LANDING_VERSION.length).toBeGreaterThan(SIZE.width - 4)
         const noticeRow = painted.findIndex((row) => row.includes("telemetry"))
         expect(noticeRow).toBeGreaterThan(bottom)
         for (const item of LANDING_SUGGESTIONS) {
@@ -306,7 +324,9 @@ describe("landing screen", () => {
         const ruleRow = painted.findIndex((row) =>
           row.includes(LOCKUP_WORDMARK),
         )
-        // The prompt box rests on the terminal's last row.
+        // Session-active: the version row only reserves space on the landing
+        // screen (see `relayout`), so once there is real transcript content
+        // the box is back on the terminal's very last row.
         expect(ruleRow).toBe(SIZE.height - 1)
         const row = painted[ruleRow]!
         // Left end of the rule, inside the shell gutter, costing no row.
@@ -604,5 +624,154 @@ describe("landing screen", () => {
         shell.dispose()
       }
     }, SIZE)
+  })
+
+  test("the version is chrome, not the hero: it hides before actionable chrome does on a narrow terminal", async () => {
+    // Comfortably above the badge's own thresholds but below nothing else —
+    // proves the badge is what degrades, and degrades first.
+    const roomy = { width: VERSION_BADGE_MIN_COLUMNS + 20, height: VERSION_BADGE_MIN_ROWS + 8 }
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: roomy.width, rows: roomy.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          await settle(h)
+          expect(h.captureCharFrame()).toContain(LANDING_VERSION)
+        } finally {
+          shell.dispose()
+        }
+      },
+      roomy,
+    )
+
+    // Just under the badge's column floor: the badge is gone, but the prompt
+    // field — genuinely actionable chrome — is still on screen.
+    const narrowColumns = {
+      width: VERSION_BADGE_MIN_COLUMNS - 1,
+      height: VERSION_BADGE_MIN_ROWS + 8,
+    }
+    expect(versionBadgeVisible(narrowColumns.width, narrowColumns.height)).toBe(false)
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: narrowColumns.width, rows: narrowColumns.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          await settle(h)
+          const frame = h.captureCharFrame()
+          expect(frame).not.toContain(LANDING_VERSION)
+          expect(frame).toContain("message")
+        } finally {
+          shell.dispose()
+        }
+      },
+      narrowColumns,
+    )
+
+    // Just under the badge's row floor: same story, short rather than narrow.
+    const shortRows = {
+      width: VERSION_BADGE_MIN_COLUMNS + 20,
+      height: VERSION_BADGE_MIN_ROWS - 1,
+    }
+    expect(versionBadgeVisible(shortRows.width, shortRows.height)).toBe(false)
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: shortRows.width, rows: shortRows.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          await settle(h)
+          const frame = h.captureCharFrame()
+          expect(frame).not.toContain(LANDING_VERSION)
+          expect(frame).toContain("message")
+        } finally {
+          shell.dispose()
+        }
+      },
+      shortRows,
+    )
+  })
+
+  test("the task panel and the version badge both paint while landing is still mounted, without clipping the prompt", async () => {
+    // A resumed session can land with tasks already visible while the
+    // landing screen has not been torn down yet (no transcript content sent)
+    // — restored chrome and the version badge's reserved row both compete
+    // for the same short terminal at once. This is the regression case for
+    // that interaction (CL-5735/5736 review, blocker 4).
+    const size = { width: 100, height: 17 }
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: size.width, rows: size.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          setChromeZones(shell, {
+            task: [{ label: "wire the version badge", status: "doing" }],
+          })
+          await settle(h)
+
+          expect(isLanding(shell)).toBe(true)
+          expect(shell.taskBox.visible).toBe(true)
+
+          const painted = rows(h)
+          // captureCharFrame's trailing newline yields one extra split entry.
+          expect(painted.length).toBe(size.height + 1)
+          // Nothing is clipped off past the terminal's own row count — the
+          // frame is exactly as tall as the terminal, not taller.
+          expect(painted.slice(size.height).every((row) => row === "")).toBe(
+            true,
+          )
+
+          const frame = painted.join("\n")
+          expect(frame).toContain("wire the version badge")
+          expect(frame).toContain(LANDING_VERSION)
+          // The prompt field itself is on screen, intact, not pushed off by
+          // the combination of the task row and the version row.
+          const promptRow = painted.findIndex((row) => row.includes("message"))
+          expect(promptRow).toBeGreaterThan(0)
+          const box = shell.layout.regions.prompt
+          expect(box).toBeDefined()
+          expect(box!.y + box!.height).toBeLessThanOrEqual(size.height)
+        } finally {
+          shell.dispose()
+        }
+      },
+      size,
+    )
+  })
+
+  test("the version never appears inside the hero block beside the mark/hints", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: SIZE.width, rows: SIZE.height },
+          wireKeys: false,
+          run: "idle",
+        })
+        try {
+          await settle(h)
+          const painted = rows(h)
+          const heroEnd = painted.findIndex((row) => /[┌╭]/.test(row))
+          expect(heroEnd).toBeGreaterThan(0)
+          // Nothing above the box's own top border carries the version — the
+          // hero (mark + hint doors) is exactly the two lines, no third.
+          for (const row of painted.slice(0, heroEnd)) {
+            expect(row).not.toContain(LANDING_VERSION)
+          }
+        } finally {
+          shell.dispose()
+        }
+      },
+      SIZE,
+    )
   })
 })

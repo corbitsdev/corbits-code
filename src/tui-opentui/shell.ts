@@ -108,12 +108,14 @@ import {
   createLandingAbove,
   createLandingBelow,
   fitLandingMark,
+  LANDING_VERSION,
   landingBelowContent,
   landingSuggestionFor,
   paintLandingBelow,
   paintLandingMark,
   resolveMarkGrid,
   splitLandingRows,
+  versionBadgeVisible,
   type LandingAbove,
   type LandingBelowContent,
 } from "./landing.js"
@@ -128,17 +130,12 @@ import {
 } from "./list-viewport.js"
 import { retentionOverflow } from "./long-log.js"
 import {
-  DEFAULT_PALETTE_COMMANDS,
   filterPaletteCommands,
   formatPaletteRows,
-  isResidualActionId,
-  paletteDispatchOf,
   paletteLabels,
-  paletteRowColumns,
-  type PaletteActionId,
   type PaletteCommand,
-} from "./palette.js"
-import { SHELL_SHORTCUTS, shortcutForPaletteId } from "./keybindings.js"
+} from "./command-catalog.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import { destroySubtree } from "./teardown.js"
 import {
   filterMentionSuggestions,
@@ -552,6 +549,13 @@ export type AppShell = {
   /** Blank row below the prompt box (0 on short terminals). */
   readonly bottomPad: BoxRenderable
   /**
+   * Build version's row, pinned to the terminal's last line and right-aligned
+   * (persistent chrome, not part of the landing composition — visible
+   * whether or not landing is showing). Hides on a narrow/short terminal,
+   * ahead of anything actionable (`versionBadgeVisible`).
+   */
+  readonly versionRow: BoxRenderable
+  /**
    * Optional chrome zones (constitution task/agents). Distinct panels: a
    * task is a unit of work with a status, an agent is an executor.
    * One row per rendered task-panel line; rebuilt whenever the line count
@@ -759,6 +763,28 @@ function terminalOf(
     columns: Math.max(1, Math.floor(renderer.width || 80)),
     rows: Math.max(1, Math.floor(renderer.height || 24)),
   }
+}
+
+/**
+ * The version row is real chrome, not a float — it holds its own reserved
+ * row at the foot of the shell rather than overlaying content that already
+ * fills every row (there is no other spare one; `BOTTOM_MARGIN_ROWS` is 0).
+ *
+ * This genuinely costs the rest of the shell a row, not just the space it
+ * paints in: the geometry resolver is handed `terminal.rows - 1`, so every
+ * height it derives from that — including `PROMPT_CAP_FRACTION *
+ * terminal.rows`, which runs before collapse and outside `COLLAPSE_ORDER` —
+ * is computed one row short of the real terminal. The badge does not sit in
+ * the collapse order and does not give the row back under prompt-growth
+ * pressure; it is not "free" chrome, it is chrome the operator pays a row
+ * for on the landing screen, same as the task or agents panel would.
+ */
+function terminalForGeometry(terminal: {
+  readonly columns: number
+  readonly rows: number
+}): { columns: number; rows: number } {
+  if (!versionBadgeVisible(terminal.columns, terminal.rows)) return terminal
+  return { columns: terminal.columns, rows: Math.max(1, terminal.rows - 1) }
 }
 
 function defaultVisibility(visibility?: ZoneVisibility): ZoneVisibility {
@@ -1308,10 +1334,10 @@ function overlayInteriorWidth(shell: AppShell): number {
  */
 function paintPaletteList(shell: AppShell, list: ListViewportState): void {
   const interior = overlayInteriorWidth(shell)
-  const columns = shell.paletteCommands.map((cmd) =>
-    paletteRowColumns(cmd, shortcutForPaletteId),
+  const lines = formatPaletteRows(
+    shell.paletteCommands.map((cmd) => cmd.label),
+    Math.max(4, interior - 1),
   )
-  const lines = formatPaletteRows(columns, Math.max(4, interior - 1))
   const slice = visibleSlice(list)
   for (let i = slice.start; i < slice.end; i++) {
     const line = lines[i] ?? ""
@@ -1630,6 +1656,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.root.paddingLeft = layout.sideMargin
   shell.root.paddingRight = layout.sideMargin
 
+  // Raw renderer size, not `layout.terminal` — that is already net of the row
+  // this badge itself reserves (see `terminalForGeometry`), which would make
+  // the threshold check its own effect. Landing-only: see `relayout`.
+  shell.versionRow.visible =
+    isLanding(shell) &&
+    versionBadgeVisible(shell.renderer.width, shell.renderer.height)
+
   const taskH = Math.max(0, h.task)
   shell.taskBox.height = taskH > 0 ? taskH : 1
   shell.taskBox.visible = taskH > 0
@@ -1861,8 +1894,8 @@ type ShellInternals = {
   /** Fired once the shell has no overlay open, so queued gates can re-open. */
   overlayClosedListeners: Set<() => void>
   /**
-   * Default palette catalog (static or lazy). Used when openPalette omits catalog.
-   * Residual DEFAULT_PALETTE_COMMANDS when unset.
+   * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
+   * when unset.
    */
   paletteCatalog:
     | readonly PaletteCommand[]
@@ -1984,8 +2017,14 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
 
   const columns = opts?.columns ?? shell.renderer.width
   const rows = opts?.rows ?? shell.renderer.height
+  const terminal = terminalOf(shell.renderer, { columns, rows })
+  // Only the landing screen ever gives up a row for the version badge — once
+  // a session has real transcript content every row is that content's, and
+  // the badge simply stops showing (see `applyLayout`) rather than taking
+  // space back from it.
+  const versionReserved = isLanding(shell)
   const layout = resolveGeometry({
-    terminal: terminalOf(shell.renderer, { columns, rows }),
+    terminal: versionReserved ? terminalForGeometry(terminal) : terminal,
     visibility,
     overlay:
       overlayMode === "closed"
@@ -3406,17 +3445,17 @@ export function openInsetOverlay(
   })
 }
 
-/** Resolve the shell's default palette catalog (injected or residual-only). */
+/** Resolve the shell's registry-backed command catalog (host-injected). */
 export function resolvePaletteCatalog(shell: AppShell): readonly PaletteCommand[] {
   const bag = internals.get(shell)
   const raw = bag?.paletteCatalog
-  if (raw === null || raw === undefined) return DEFAULT_PALETTE_COMMANDS
+  if (raw === null || raw === undefined) return []
   return typeof raw === "function" ? raw() : raw
 }
 
 /**
- * Replace the shell default palette catalog (host rebinds after registry load).
- * Pass null to restore residual-only DEFAULT_PALETTE_COMMANDS.
+ * Replace the shell's `/` command catalog (host rebinds after registry load).
+ * Pass null to clear it.
  */
 export function setPaletteCatalog(
   shell: AppShell,
@@ -3430,9 +3469,8 @@ export function setPaletteCatalog(
 }
 
 /**
- * Open Amp-class command palette (Ctrl+O).
- * Chord reclaimed from tool-expand — document in interaction contract.
- * Catalog: opts.catalog → shell default (injected registry build) → residuals.
+ * Open the `/` command list overlay. Catalog: opts.catalog when given, else
+ * the shell's registry-backed default (see `resolvePaletteCatalog`).
  */
 export function openPalette(
   shell: AppShell,
@@ -3450,8 +3488,8 @@ export function openPalette(
     bag.paletteFilter = {
       query: opts?.query ?? "",
       title,
-      // Slash and other callers pass a pre-narrowed catalog; a bare Ctrl+O open
-      // re-resolves the shell default so a registry loaded later is picked up.
+      // `/` passes a pre-narrowed catalog; omitting it re-resolves the shell
+      // default so a registry loaded later is picked up.
       catalog: opts?.catalog ?? null,
       // The `/` popup keeps its query in the prompt and drives its own reopen.
       typeToFilter: opts?.typeToFilter ?? false,
@@ -3625,14 +3663,8 @@ export function handleOverlayAnswerKey(
  * pressing them again inserts them rather than closing the popup.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
-  if (key.ctrl && !key.meta && !key.option && (key.name === "o" || key.name === "O")) {
-    return "palette"
-  }
   if ((key.meta || key.option) && !key.ctrl && (key.name === "c" || key.name === "C")) {
     return "copy"
-  }
-  if (!key.ctrl && !key.meta && !key.option && key.sequence === "?") {
-    return "help"
   }
   return null
 }
@@ -4025,144 +4057,22 @@ function overlayKindWord(kind: PrimaryOverlayKind): string {
 }
 
 /**
- * Dispatch a selected palette item after the palette has closed.
- * - residual → `runPaletteAction` (overlays / chrome)
- * - command → injectable `onCommand(name)` (registry slash path)
+ * Dispatch a selected `/` command list item after the popup has closed.
+ * Every entry is registry-backed — the host's `onCommand(name)` runs it.
  */
 export function dispatchPaletteSelection(
   shell: AppShell,
   cmd: PaletteCommand,
 ): void {
-  const dispatch = paletteDispatchOf(cmd)
-  if (dispatch === "command") {
-    const onCommand = getPaletteOnCommand(shell)
-    if (onCommand) {
-      onCommand(cmd.id)
-      return
-    }
-    appendStreamRow(shell, {
-      role: "system",
-      text: `palette: /${cmd.id} (no onCommand handler)`,
-    })
-    return
-  }
-  if (isResidualActionId(cmd.id)) {
-    runPaletteAction(shell, cmd.id)
+  const onCommand = getPaletteOnCommand(shell)
+  if (onCommand) {
+    onCommand(cmd.id)
     return
   }
   appendStreamRow(shell, {
     role: "system",
-    text: `palette: unknown residual ${cmd.id}`,
+    text: `palette: /${cmd.id} (no onCommand handler)`,
   })
-}
-
-/** Run a residual palette action after the palette has closed. */
-export function runPaletteAction(
-  shell: AppShell,
-  id: PaletteActionId,
-): void {
-  switch (id) {
-    case "permissions": {
-      // Lazy import surface — open via openListOverlay to avoid overlays circular init.
-      openListOverlay(shell, {
-        kind: "permissions",
-        title: "permissions",
-        items: [
-          "Allow once",
-          "Allow session",
-          "Always allow this tool",
-          "Deny",
-          ...Array.from({ length: 26 }, (_, i) => `Allow tool call #${i + 2}`),
-        ],
-        frameId: "permissions",
-      })
-      return
-    }
-    case "operator": {
-      openListOverlay(shell, {
-        kind: "operator",
-        title: "operator",
-        body:
-          "The agent wants to run a destructive command that may modify your working tree.\n\nProceed with git reset --hard HEAD~1?",
-        items: [
-          "Cancel",
-          "Allow this once",
-          "Allow for session",
-          "Deny and tell agent",
-          "Open diff first",
-          "Always ask",
-          "Skip remaining questions",
-          "Abort run",
-        ],
-        frameId: "operator-question",
-      })
-      return
-    }
-    case "model_picker": {
-      openListOverlay(shell, {
-        kind: "model_picker",
-        title: "model / provider",
-        items: [
-          "anthropic / claude-sonnet-4",
-          "anthropic / claude-opus-4",
-          "openai / gpt-4.1",
-          "openai / o3",
-          "google / gemini-2.5-pro",
-          "local / ollama",
-        ],
-        frameId: "model-picker",
-      })
-      return
-    }
-    case "toggle_task": {
-      toggleTasksPanel(shell)
-      return
-    }
-    case "toggle_agents": {
-      const bag = internals.get(shell)
-      const on = (bag?.chrome.agents.length ?? 0) > 0
-      setChromeZones(shell, {
-        agents: on
-          ? null
-          : [{ label: "explore: map callers", tail: "", stalled: false }],
-      })
-      appendStreamRow(shell, {
-        role: "system",
-        text: on ? "agents strip off" : "agents strip on",
-        meta: "agents",
-      })
-      return
-    }
-    case "copy_active": {
-      enterCopyMode(shell)
-      return
-    }
-    case "toggle_mouse": {
-      toggleMouseCapture(shell)
-      return
-    }
-    case "help": {
-      openHelpOverlay(shell)
-      return
-    }
-    case "mentions": {
-      void openAtMentionSuggestions(shell)
-      return
-    }
-    case "observe": {
-      const onObserveRequest = getPaletteOnObserveRequest(shell)
-      const session = onObserveRequest ? onObserveRequest() : null
-      if (session) enterSubagentObserve(shell, session)
-      else {
-        appendStreamRow(shell, {
-          role: "system",
-          text: "no subagent session to observe",
-          meta: "observe",
-        })
-      }
-      return
-    }
-  }
 }
 
 export type ChromeZoneContent = {
@@ -4566,6 +4476,27 @@ export function leaveSubagentObserve(shell: AppShell): void {
 }
 
 /**
+ * Alt+O: observe a live subagent (its only entry point now that the palette
+ * is gone — the palette's "observe" action used to call this same
+ * `onObserveRequest` host hook). An honest "nothing to observe" flash rather
+ * than doing nothing when there is no live session, so the chord is
+ * discoverable as working even when it currently has nothing to show.
+ */
+export function observeActiveSubagent(shell: AppShell): void {
+  const onObserveRequest = getPaletteOnObserveRequest(shell)
+  const session = onObserveRequest ? onObserveRequest() : null
+  if (session) {
+    enterSubagentObserve(shell, session)
+    return
+  }
+  appendStreamRow(shell, {
+    role: "system",
+    text: "no subagent session to observe",
+    meta: "observe",
+  })
+}
+
+/**
  * Host-injected residual list open. `items` is owned by the caller — there is
  * no fallback, so a missing dependency must produce an honest empty state or
  * a surfaced error upstream rather than reach this with nothing to show.
@@ -4797,13 +4728,6 @@ function slashPopupQuery(shell: AppShell): string | null {
   return /\s/.test(head) ? null : head
 }
 
-/** Registry-backed slash entries only — residual openers stay on Ctrl+O. */
-function slashCatalog(shell: AppShell): readonly PaletteCommand[] {
-  return resolvePaletteCatalog(shell).filter(
-    (cmd) => paletteDispatchOf(cmd) === "command",
-  )
-}
-
 export function closeSlashPopup(shell: AppShell): void {
   if (!slashPopups.has(shell)) return
   slashPopups.delete(shell)
@@ -4824,7 +4748,7 @@ export function openSlashCommands(shell: AppShell): boolean {
   // Name-prefix, not the palette's fuzzy label match: at the prompt the
   // operator is typing the command they already mean.
   const q = query.toLowerCase()
-  const matches = slashCatalog(shell).filter((cmd) =>
+  const matches = resolvePaletteCatalog(shell).filter((cmd) =>
     cmd.id.toLowerCase().startsWith(q),
   )
   if (matches.length === 0) {
@@ -4986,7 +4910,7 @@ export function createAppShell(
 
   const terminal = terminalOf(renderer, options?.terminal)
   const layout = resolveGeometry({
-    terminal,
+    terminal: terminalForGeometry(terminal),
     visibility,
     overlay: { mode: "closed" },
     promptContentRows,
@@ -5022,6 +4946,32 @@ export function createAppShell(
     flexShrink: 0,
     backgroundColor: UI.ground,
   })
+
+  // Persistent chrome, not part of the landing composition (`landing.ts`
+  // never renders it, unlike the old in-hero version line): its own row at
+  // the very foot of root's column, after everything else, right-aligned.
+  // Every other zone here already toggles a reserved row on/off by terminal
+  // size (taskBox, agentsBox, bottomPad) rather than floating over content,
+  // so this follows the same pattern — the row only exists (and can only
+  // move the prompt box up by exactly one line) at the size threshold where
+  // `versionBadgeVisible` already says the badge itself should degrade away,
+  // well before anything else in the shell would need to.
+  const versionRow = new BoxRenderable(ctx, {
+    id: "shell-version-row",
+    width: "100%",
+    height: 1,
+    flexShrink: 0,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    backgroundColor: UI.ground,
+    visible: versionBadgeVisible(terminal.columns, terminal.rows),
+  })
+  const versionBadge = new TextRenderable(ctx, {
+    id: "shell-version-badge",
+    content: LANDING_VERSION,
+    fg: UI.textFaint,
+  })
+  versionRow.add(versionBadge)
 
   // Optional chrome zones (off by default; setChromeZones turns them on).
   const taskBox = new BoxRenderable(ctx, {
@@ -5183,6 +5133,7 @@ export function createAppShell(
   root.add(promptBox)
   root.add(landingBelow)
   root.add(bottomPad)
+  root.add(versionRow)
 
   if (mount) {
     renderer.root.add(root)
@@ -5572,27 +5523,6 @@ export function createAppShell(
       }
     }
 
-    // Bare key, so it is live only while the transcript holds focus and can
-    // never shadow a `?` typed into the prompt.
-    if (
-      !key.ctrl &&
-      !key.meta &&
-      !key.option &&
-      key.sequence === "?" &&
-      focusOwner(shell.focus) === "transcript"
-    ) {
-      key.preventDefault()
-      openHelpOverlay(shell)
-      return
-    }
-
-    if (key.ctrl && (key.name === "o" || key.name === "O")) {
-      // Ctrl+O reclaimed from tool-expand → command palette (Wave 6).
-      key.preventDefault()
-      openPalette(shell, { typeToFilter: true })
-      return
-    }
-
     if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
       // Alt+C: keyboard copy path (no mouse drag-select).
       key.preventDefault()
@@ -5604,6 +5534,23 @@ export function createAppShell(
       // Alt+M: release mouse reporting so the terminal can drag-select.
       key.preventDefault()
       toggleMouseCapture(shell)
+      return
+    }
+
+    if ((key.meta || key.option) && (key.name === "t" || key.name === "T") && !key.ctrl) {
+      // Alt+T: the task panel's only entry point now that the palette is gone.
+      // Losing the palette must not lose the toggle with it.
+      key.preventDefault()
+      toggleTasksPanel(shell)
+      return
+    }
+
+    if ((key.meta || key.option) && (key.name === "o" || key.name === "O") && !key.ctrl) {
+      // Alt+O: observe a live subagent, same rationale as Alt+T — this was
+      // the palette's "observe" action and needs a real chord now the
+      // palette is gone, not a silently orphaned feature.
+      key.preventDefault()
+      observeActiveSubagent(shell)
       return
     }
 
@@ -5680,6 +5627,7 @@ export function createAppShell(
     root,
     topPad,
     bottomPad,
+    versionRow,
     taskBox,
     agentsBox,
     transcript,

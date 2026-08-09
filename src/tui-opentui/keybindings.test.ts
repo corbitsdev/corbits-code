@@ -17,19 +17,21 @@ import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js"
-import { SHELL_SHORTCUTS, shortcutForPaletteId } from "./keybindings.js"
-import { isResidualActionId } from "./palette.js"
-import { listCommands } from "../tui/commands/registry.js"
-import { registerBuiltInCommands } from "../tui/commands/built-in.js"
+import { SHELL_SHORTCUTS } from "./keybindings.js"
 import { createHarness, withTestRenderer, type Harness } from "./harness.js"
 import { mountRunnerHost } from "./runner-host.js"
+import { openCommandSurface } from "./command-surfaces.js"
 import { focusOwner } from "./focus/focus-state.js"
+import { setChromeZones } from "./shell.js"
 import {
   appendStreamRow,
   createAppShell,
   isSlashPopupOpen,
+  leaveSubagentObserve,
+  openHelpOverlay,
   setMentionSuggestionSource,
   setPaletteCatalog,
+  setPaletteOnObserveRequest,
   setPromptImageSource,
   setSentMessageHistory,
   setShellBridgeHooks,
@@ -39,6 +41,7 @@ import {
   shellFocusPrompt,
   shellFocusTranscript,
   streamRowAt,
+  streamRowCount,
   submitPrompt,
   type AppShell,
 } from "./shell.js"
@@ -271,15 +274,6 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     },
   },
 
-  "Ctrl+O": {
-    group: "surfaces",
-    probe: ({ h, shell, chords }) => {
-      press(h, chords[0])
-      expect(shell.overlayKind).toBe("palette")
-      press(h, chords[0])
-      expect(shell.overlayKind).toBeNull()
-    },
-  },
   "Alt+C": {
     group: "surfaces",
     probe: ({ h, shell, chords }) => {
@@ -305,6 +299,44 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       press(h, chords[0])
       expect(captured).toBe(false)
       shell.mouseCapture = null
+    },
+  },
+  "Alt+T": {
+    group: "surfaces",
+    probe: ({ h, shell, chords }) => {
+      setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
+      expect(shell.taskBox.visible).toBe(true)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(false)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(true)
+    },
+  },
+  "Alt+O": {
+    group: "surfaces",
+    probe: ({ h, shell, chords }) => {
+      // No session wired: an honest system row, not silence.
+      const before = streamRowCount(shell)
+      press(h, chords[0])
+      expect(streamRowCount(shell)).toBe(before + 1)
+      expect(streamRowAt(shell, before)?.text).toBe(
+        "no subagent session to observe",
+      )
+      expect(shell.observe).toBeNull()
+
+      // Host wires a live session: the same chord enters it for real.
+      setPaletteOnObserveRequest(shell, () => ({
+        sessionId: "live-1",
+        agentId: "explore",
+        description: "map callers",
+        lines: [{ role: "assistant", text: "child line" }],
+      }))
+      press(h, chords[0])
+      expect(shell.observe?.sessionId).toBe("live-1")
+      // Leave the way Esc would, so later probes in this shared-shell
+      // sequence see the same prompt-focused state they'd get otherwise.
+      leaveSubagentObserve(shell)
+      setPaletteOnObserveRequest(shell, undefined)
     },
   },
   "Alt+E": {
@@ -336,28 +368,15 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
   Esc: {
     group: "surfaces",
     probe: async ({ h, shell, chords }) => {
-      press(h, "\x0f") // Ctrl+O opens something to close
+      setPaletteCatalog(shell, [{ id: "cost", label: "cost" }])
+      shellFocusPrompt(shell)
+      shell.prompt.value = ""
+      shell.prompt.cursorOffset = 0
+      press(h, "/") // opens the / command popup, something Esc must close
       expect(shell.overlayKind).toBe("palette")
       press(h, chords[0])
       await escapeSettles()
       expect(shell.overlayKind).toBeNull()
-    },
-  },
-  "?": {
-    group: "surfaces",
-    probe: ({ h, shell, chords }) => {
-      shellFocusPrompt(shell)
-      shell.prompt.value = ""
-      press(h, chords[0])
-      // The condition, not just the chord: at the prompt it is a character.
-      expect(shell.overlayKind).toBeNull()
-
-      shellFocusTranscript(shell)
-      press(h, chords[0])
-      expect(shell.overlayKind).toBe("help")
-      press(h, chords[0])
-      expect(shell.overlayKind).toBeNull()
-      shellFocusPrompt(shell)
       shell.prompt.value = ""
     },
   },
@@ -386,7 +405,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
   "/": {
     group: "surfaces",
     probe: async ({ h, shell, chords }) => {
-      setPaletteCatalog(shell, [{ id: "cost", label: "cost", dispatch: "command" }])
+      setPaletteCatalog(shell, [{ id: "cost", label: "cost" }])
       shellFocusPrompt(shell)
 
       shell.prompt.value = "note"
@@ -687,25 +706,73 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
   })
 })
 
-describe("palette chords", () => {
-  test("every mapped entry id is a real palette action or registered command", () => {
-    registerBuiltInCommands()
-    const commands = new Set(listCommands().map((c) => c.name))
-    for (const id of PALETTE_IDS) {
-      expect(isResidualActionId(id) || commands.has(id)).toBe(true)
-    }
-  })
+describe("? no longer opens help", () => {
+  test("bare ? types a literal character instead of opening the shortcut list", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    try {
+      const shell = createAppShell(harness.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: true,
+        run: "idle",
+      })
+      try {
+        shellFocusPrompt(shell)
+        shell.prompt.value = ""
+        harness.pressKey("?")
+        expect(shell.overlayKind).toBeNull()
+        expect(shell.prompt.value).toBe("?")
 
-  test("every mapped chord is a chord the catalog proved", () => {
-    for (const id of PALETTE_IDS) {
-      expect(shortcutForPaletteId(id)).toBeString()
+        shellFocusTranscript(shell)
+        harness.pressKey("?")
+        // No binding claims it with the transcript focused either — help has
+        // no chord left at all, only the /help command.
+        expect(shell.overlayKind).toBeNull()
+      } finally {
+        shell.dispose()
+      }
+    } finally {
+      harness.destroy()
     }
   })
 })
 
-/**
- * PALETTE_CHORDS is private, so the ids it maps are listed here. A new mapping
- * without an entry here is caught by the palette test in wave7, which walks the
- * painted rows.
- */
-const PALETTE_IDS = ["help", "mentions", "copy_active", "toggle_mouse", "paste-image"] as const
+describe("help stays reachable as a command", () => {
+  test("/help still opens the shortcut list", async () => {
+    const notifications: string[] = []
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      try {
+        expect(shell.overlayKind).toBeNull()
+        const opened = openCommandSurface(shell, "help", {
+          notify: (text) => notifications.push(text),
+        })
+        expect(opened).toBe(true)
+        expect(shell.overlayKind).toBe("help")
+      } finally {
+        shell.dispose()
+      }
+    })
+  })
+
+  test("openHelpOverlay (the /help handler) opens the same overlay the removed ? chord used to", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    try {
+      const shell = createAppShell(harness.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        run: "idle",
+      })
+      try {
+        openHelpOverlay(shell)
+        expect(shell.overlayKind).toBe("help")
+      } finally {
+        shell.dispose()
+      }
+    } finally {
+      harness.destroy()
+    }
+  })
+})
+

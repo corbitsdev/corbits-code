@@ -136,8 +136,8 @@ on any terminal, tall or short; the collapse order bounds what other zones
 are allowed to take from it once the transcript floor is at risk.
 
 The panel is toggleable independent of its live data: `toggleTasksPanel`
-(bound to the `toggle_task` palette action) flips a hidden flag held on the
-shell for its lifetime — in memory only, nothing written to storage — while
+(bound to Alt+T) flips a hidden flag held on the shell for its lifetime — in
+memory only, nothing written to storage — while
 the live task list keeps updating underneath it. Un-hiding shows the current
 list, not a stale snapshot from before the hide. Hidden or empty, the zone
 costs zero rows.
@@ -200,7 +200,7 @@ same last-resort floor every other optional zone shares.
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
-picker, settings, help, the command palette, …) shares one overlay host and
+picker, settings, help, the `/` command list, …) shares one overlay host and
 one height path — there is no second modal stack with independent row
 accounting (`src/tui-opentui/geometry/resolve.ts`,
 `src/tui-opentui/shell.ts:openListOverlay`). Opening a second surface either
@@ -238,7 +238,7 @@ rather than a background fill.
 ## How selectors should work
 
 Every list surface — permissions, the operator question, the model picker,
-the command palette, resume/session-mode pickers, settings — shares one list
+the `/` command list, resume/session-mode pickers, settings — shares one list
 viewport kit: shared windowing, keep-active-visible, and page/jump behavior.
 There is exactly one scroll lease at a time; keyboard paging and the mouse
 wheel both follow whichever surface currently holds it, so a modal open on
@@ -250,28 +250,57 @@ every picker open — independent of the recents list, which only moves on an
 explicit pick and can go stale (`ProductHostConfig.activeModelId`'s doc
 comment and `annotateCurrent` in `src/tui-opentui/product-host.ts`).
 
-The command palette specifically (`src/tui-opentui/palette.ts`,
+The `/` command list specifically (`src/tui-opentui/command-catalog.ts`,
 `shell.ts:openPalette`/`repaintPalette`): width matches the prompt box — both
 are painted at the geometry resolver's shared `contentWidth`
 (`geometry/resolve.ts:assignRects`, `shell.ts:overlayRowWidth`). There is no
 leading marker column and no per-row kind column; the selected row is marked
 by text color only (`paintPaletteList` in `shell.ts`: "the highlighted row
 already stands out by sitting under the cursor, so a leading `>` and a grey
-block would both be saying the same thing twice"). The palette also paints
-with no title rule — the filter row (`> query`) directly under the box
-already shows what was typed, so a second header line would say nothing new
+block would both be saying the same thing twice"). The list also paints with
+no title rule — the filter row (`> query`) directly under the box already
+shows what was typed, so a second header line would say nothing new
 (`repaintPalette`).
 
 ## Slash commands and pickers
 
-`Ctrl+O` opens the command palette from anywhere in the shell (reclaimed from
-the Ink-era tool-expand chord); `/` at an empty prompt opens the same
-palette narrowed to registry slash commands. Every user-facing slash command
-has a palette twin. Palette entries are either "residual" product actions
-owned by the shell (open permissions, switch model, toggle a chrome zone,
-copy, toggle mouse capture, help, insert a mention, observe a subagent) or
-"command" entries backed by the live command registry
-(`src/tui-opentui/palette.ts`).
+`/` at an empty prompt opens the command list, narrowed by name prefix as
+more is typed; Tab completes the name so arguments can be typed, Enter runs
+it. Every entry is backed by the live command registry
+(`src/tui-opentui/command-catalog.ts:commandItemsFromRegistry`) — there is no
+separate palette overlay and no shell-owned action outside the registry. The
+overlay this reuses is still internally called `"palette"` (`shell.ts`'s
+`PrimaryOverlayKind`), a naming leftover from when a Ctrl+O command palette
+also opened it; that chord is gone (see keybindings.ts), and the identifier
+stayed because renaming an internal overlay tag has no user-facing effect.
+
+`?` no longer binds anything — it is a literal character everywhere, prompt
+or transcript. The shortcut list it used to open is still reachable, as
+`/help` (`src/tui/commands/built-in.ts`, routed to `shell.ts:openHelpOverlay`
+via `openCommandSurface`'s `"help"` case, `command-surfaces.ts`); the `/` row
+in `SHELL_SHORTCUTS` documents that in place of a dedicated `?` row.
+
+The running build version is chrome, not part of the landing composition:
+`shell.ts`'s `versionRow`/`versionBadge`, a dedicated row pinned to the
+terminal's last line and right-aligned, distinct from `landing.ts`'s hero and
+below sections. It only reserves that row while the landing screen is
+showing (`relayout`'s `versionReserved`/`terminalForGeometry`) — once there
+is real transcript content the row goes back to whatever needed it, and the
+badge stops rendering. On a narrow or short terminal it hides
+(`versionBadgeVisible`, thresholds `VERSION_BADGE_MIN_COLUMNS`/
+`VERSION_BADGE_MIN_ROWS` in `landing.ts`) before the prompt box or any other
+actionable chrome would degrade for width/height reasons.
+
+This is not a free row, though, while it is showing: `terminalForGeometry`
+subtracts it from the terminal size handed to the geometry resolver before
+the resolver runs, so every height the resolver derives — including
+`PROMPT_CAP_FRACTION * terminal.rows`, computed before `COLLAPSE_ORDER` ever
+runs — sees one row fewer than the real terminal. The badge does not sit in
+`COLLAPSE_ORDER` and is never given back under prompt-growth pressure the
+way the task or agents panel is. An operator composing a long prompt on the
+landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
+known, accepted cost of the badge rather than an oversight — see
+`terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
 The model/provider picker is provider-first
 (`src/tui-opentui/product-host.ts:groupModelsForPicker`/`openLevel`): recent
