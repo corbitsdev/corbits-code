@@ -22,6 +22,12 @@ export type MCPConnectResult = { ok: true; client: MCPClient } | { ok: false; se
 export type MCPConnectOptions = {
   stderr?: "inherit" | "ignore" | "pipe";
   onAuthURL?: (serverName: string, authorizationUrl: string) => void;
+  /**
+   * Interactive OAuth finished and the retried operation succeeded. Callers
+   * that already registered tools for this server can re-emit a connected
+   * status so standing "needs auth" chrome clears mid-session.
+   */
+  onAuthorized?: (serverName: string) => void;
   signal?: AbortSignal;
 };
 
@@ -39,7 +45,15 @@ export function unwrapToolContent(content: unknown): string {
   }).join("\n");
 }
 
-type HTTPAuthContext = { url: URL; authProvider: CorbitsOAuthProvider; callback: CallbackServer; signal?: AbortSignal; interactive: boolean };
+type HTTPAuthContext = {
+  url: URL;
+  authProvider: CorbitsOAuthProvider;
+  callback: CallbackServer;
+  signal?: AbortSignal;
+  interactive: boolean;
+  serverName: string;
+  onAuthorized?: (serverName: string) => void;
+};
 
 function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
@@ -51,14 +65,35 @@ async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> 
   await new StreamableHTTPClientTransport(context.url, { authProvider: context.authProvider }).finishAuth(code);
 }
 
+/**
+ * Run interactive OAuth, retry the failed operation, and notify only when the
+ * retry itself succeeded — a failed re-auth must leave standing "needs auth"
+ * chrome alone.
+ */
+export async function retryAfterInteractiveAuth<T>(
+  completeAuth: () => Promise<void>,
+  operation: () => Promise<T>,
+  onAuthorized: (() => void) | undefined,
+): Promise<T> {
+  await completeAuth();
+  const value = await operation();
+  onAuthorized?.();
+  return value;
+}
+
 async function recoverHTTPAuthorization<T>(err: unknown, context: HTTPAuthContext | undefined, operation: () => Promise<T>): Promise<T> {
   if (context === undefined || !isRecoverableAuthError(err)) throw err;
   let lastErr: unknown = err;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (lastErr instanceof OAuthError) await context.authProvider.resetAuthorization();
     if (lastErr instanceof UnauthorizedError) {
-      await completeInteractiveAuth(context);
-      return operation();
+      return retryAfterInteractiveAuth(
+        () => completeInteractiveAuth(context),
+        operation,
+        context.onAuthorized === undefined
+          ? undefined
+          : () => context.onAuthorized?.(context.serverName),
+      );
     }
     try {
       return await operation();
@@ -128,7 +163,15 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
   });
   const makeTransport = (): Transport => new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
-  const authContext: HTTPAuthContext = { url, authProvider, callback, interactive: options.onAuthURL !== undefined, ...(options.signal !== undefined ? { signal: options.signal } : {}) };
+  const authContext: HTTPAuthContext = {
+    url,
+    authProvider,
+    callback,
+    interactive: options.onAuthURL !== undefined,
+    serverName: config.name,
+    ...(options.onAuthorized !== undefined ? { onAuthorized: options.onAuthorized } : {}),
+    ...(options.signal !== undefined ? { signal: options.signal } : {}),
+  };
   try {
     await withHTTPAuthorizationRecovery(authContext, () => client.connect(makeTransport()));
     return { ok: true, client: await finishClient(client, config.name, authContext) };

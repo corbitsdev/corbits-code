@@ -115,13 +115,15 @@ describe("mcp.status channel", () => {
     }
   })
 
-  test("connecting clears the standing auth segment", async () => {
+  test("connected clears the standing auth segment from state and the painted frame", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
       emitter.emit("mcp.status", { name: "linear", state: "needs-auth", url: "https://x/a" })
+      expect(await frame()).toContain("needs auth")
       emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] })
-      await frame()
+      const painted = await frame()
       expect(host.shell.mcpNeedsAuth).toEqual([])
+      expect(painted).not.toContain("needs auth")
     } finally {
       cleanup()
     }

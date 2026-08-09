@@ -353,6 +353,18 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const result = await connectMCPServer(config, {
           stderr: "ignore",
           onAuthURL: (name, url) => callbacks.onStatus({ name, state: "needs-auth", url }),
+          // Mid-session re-auth fires needs-auth again without a later connected
+          // event. Re-emit connected only when tools are already registered so
+          // first-connect still waits for the real post-connect status.
+          onAuthorized: (name) => {
+            const client = connectedClients.find((c) => c.serverName === name);
+            if (client === undefined) return;
+            callbacks.onStatus({
+              name,
+              state: "connected",
+              tools: client.tools.map((t) => t.name),
+            });
+          },
           ...(signal !== undefined ? { signal } : {}),
         });
         if (!result.ok) {
