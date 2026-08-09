@@ -139,7 +139,7 @@ describe("attachSessionBridge", () => {
     )
   })
 
-  test("Ctrl+C hits port.interrupt and clears pending", async () => {
+  test("Ctrl+C hits port.interrupt and keeps pending for the next turn", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -157,9 +157,14 @@ describe("attachSessionBridge", () => {
           h.pressKey("c", { ctrl: true })
           await h.renderOnce()
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(true)
-          expect(badgeCount(shell.session)).toBe(0)
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
+          // Handed over, not thrown away — and handed over here rather than
+          // left waiting on an idle event the stop may never produce.
+          expect(
+            port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
+          ).toEqual(["b", "a"])
+          expect(badgeCount(shell.session)).toBe(0)
         } finally {
           bridge.dispose()
           shell.dispose()

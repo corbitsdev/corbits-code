@@ -263,6 +263,39 @@ the way down. Only once every other collapsible zone ahead of it in
 `COLLAPSE_ORDER` and the panel itself are exhausted does it reach 0, the
 same last-resort floor every other optional zone shares.
 
+### Unprompted fleet reports
+
+The agents panel is a standing picture of what is running right now; it says
+nothing when a lane finishes, stalls, or fails unless the operator interrupts
+to ask. `src/subagent/fleet-report.ts` closes that gap with its own channel:
+a system-notice line, pushed into the transcript through the same
+`surfaceSystemNotice` path as any other system row, the moment a lane
+transition is worth saying. It does not touch the panel's rows or its
+`laneState()` computation — it reads the same sub-agent session store the
+panel reads, and calls the same `agentProgress()` stall definition
+(`isStalled`) so the two surfaces never disagree about whether a lane is
+stalled, only about *when* they say so: the panel shows it continuously,
+the notice announces the transition once.
+
+Store changes drive it directly, so a lane finishing or failing lands the
+moment it happens. A `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel
+dispatch that lands as N store changes settle into one observation instead
+of N lines. Quiet detection is separate: `FLEET_STALL_POLL_MS` (5s) re-runs
+observation so a lane that went quiet with no further store event is still
+announced once. Past `COALESCE_ABOVE` (3) changes in one observation the
+individual lines collapse into a single tally (`"9 done, 3 failed"`); below
+that threshold each change gets its own line. The one case both the fleet
+going idle and a coalesced tally would otherwise say the same thing —
+all changes are terminal and the tally alone already says "N done, N
+failed" — the idle line replaces the tally instead of repeating it with
+"— nothing running" tacked on.
+
+Outcomes and errors are clipped to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
+same "one update is one row, never wrapped" rule the panel's rows follow.
+`fleetDigest()` is the on-demand counterpart: the same picture in one line,
+answering "where is the fleet" without an interrupt, for `/status` or an
+operator question mid-run.
+
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
@@ -446,7 +479,13 @@ Ctrl+C interrupts a busy run (or clears a non-empty idle prompt); a second
 Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
-`shell.ts`).
+`shell.ts`). The interrupt keeps whatever is sitting in the queue rather than
+discarding it — the operator typed those messages meaning them delivered, not
+meaning "cancel this run and also throw away what I typed"; the transcript
+row says so (`"interrupt — N pending kept"`). Kept items are handed over at
+the interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
+`port.interrupt()`), serialized behind the agent rebuild the stop starts —
+a stop does not reliably produce an idle event to drain against later.
 
 ## Overflows, scrolling, and key macros
 

@@ -117,7 +117,16 @@ import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
-import { createSubAgentSessionStore, taskToolDefinition, type SubAgentProvider } from "../subagent/index.js";
+import {
+  createFleetWatch,
+  createSubAgentSessionStore,
+  fleetDigest,
+  FLEET_REPORT_SETTLE_MS,
+  FLEET_STALL_POLL_MS,
+  observeFleet,
+  taskToolDefinition,
+  type SubAgentProvider,
+} from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -189,6 +198,7 @@ import {
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+import { deliverAgentMessage } from "./deliver-agent-message.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -1198,11 +1208,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const sessionOps = createSessionOperationQueue();
   const enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
     void sessionOps.enqueue(async () => {
-      try {
-        deliverToLiveAgent();
-      } catch {
-        // Agent may be mid-reload or closing; a dropped message is harmless.
-      }
+      // The shell already popped the queue item and painted it as delivered
+      // by the time this runs, so a failed rebuild must be surfaced here —
+      // otherwise the message silently never reaches the agent.
+      deliverAgentMessage({
+        getFatalBuildError: () => fatalBuildError,
+        deliverToLiveAgent,
+        onDeliverFailure: systemNotice,
+      });
     });
   };
 
@@ -1779,6 +1792,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     },
     startWorkflow: (name) => workflowController.start(name),
+    getFleetStatus: () => fleetDigest(subAgentSessions.list(), Date.now()),
     renameSession: (name) => {
       const trimmed = name.trim();
       if (trimmed.length === 0) return "Session name cannot be empty";
@@ -2232,6 +2246,29 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
 
+  // The fleet reports itself. Store changes drive it, so a lane finishing or
+  // failing is on screen the moment it happens rather than at the next turn
+  // boundary. The settle timer coalesces a parallel burst into one observation;
+  // the stall poll re-runs so a lane that goes quiet with no further store
+  // event is still announced once. `observeFleet` decides what is worth saying.
+  let fleetWatch = createFleetWatch();
+  const reportFleet = (): void => {
+    const observation = observeFleet(fleetWatch, subAgentSessions.list(), Date.now());
+    fleetWatch = observation.watch;
+    for (const update of observation.updates) surfaceSystemNotice(host.shell, update);
+  };
+  let fleetSettle: ReturnType<typeof setTimeout> | null = null;
+  const unsubscribeFleetReport = subAgentSessions.subscribe(() => {
+    if (fleetSettle !== null) return;
+    fleetSettle = setTimeout(() => {
+      fleetSettle = null;
+      reportFleet();
+    }, FLEET_REPORT_SETTLE_MS);
+    if (typeof fleetSettle.unref === "function") fleetSettle.unref();
+  });
+  const fleetStallPoll = setInterval(reportFleet, FLEET_STALL_POLL_MS);
+  if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();
+
   // Same names the operator can already reach by typing them: skills the
   // session discovered at startup, agents from the live profile registry
   // (which trust changes can update mid-session, so read through the
@@ -2332,6 +2369,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     surfaceSystemNotice(host.shell, notice);
 
   await host.waitUntilExit();
+  clearInterval(fleetStallPoll);
+  if (fleetSettle !== null) clearTimeout(fleetSettle);
+  unsubscribeFleetReport();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
   await cycleRecorder.dispose("exit");

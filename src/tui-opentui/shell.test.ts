@@ -448,7 +448,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("Ctrl+C interrupt clears pending + flash", async () => {
+  test("Ctrl+C interrupt keeps pending + sets flash", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -463,14 +463,12 @@ describe("product skin: stream + queue + overlay", () => {
           submitPrompt(shell, "steer")
           expect(shell.pendingQueue).toBe(2)
           interruptShell(shell)
-          expect(shell.pendingQueue).toBe(0)
+          expect(shell.pendingQueue).toBe(2)
           expect(shell.session.interruptFlash).toBe(true)
           expect(shell.session.run).toBe("idle")
           await h.renderOnce()
           const row = noticeRow(h.captureCharFrame())
           expect(row).toContain("interrupt")
-          // An empty queue is the default state, so it stays off the row.
-          expect(row).not.toContain("queue")
         } finally {
           shell.dispose()
         }

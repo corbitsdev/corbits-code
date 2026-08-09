@@ -120,6 +120,18 @@ export function registerBuiltInCommands(): void {
   });
 
   registerCommand({
+    name: "status",
+    description: "Show what the dispatched fleet is doing right now",
+    handler: (_args, ctx) => {
+      const status = ctx.getFleetStatus?.();
+      if (status === undefined) {
+        return { type: "message", text: "Fleet status is not available in this session." };
+      }
+      return { type: "message", text: status };
+    },
+  });
+
+  registerCommand({
     name: "changelog",
     description: "Show recent release notes (or full history)",
     argumentHint: "[full]",

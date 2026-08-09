@@ -52,12 +52,12 @@ describe("session-queue", () => {
     expect(d3.item?.text).toBe("q1")
   })
 
-  test("Ctrl+C interrupt clears pending + sets flash + idle", () => {
+  test("Ctrl+C interrupt keeps pending + sets flash + idle", () => {
     let s = createSessionQueue("busy")
     s = enqueue(s, "a")
     s = enqueueSteer(s, "b")
     s = interrupt(s)
-    expect(badgeCount(s)).toBe(0)
+    expect(drainOrder(s).map((i) => i.text)).toEqual(["b", "a"])
     expect(s.interruptFlash).toBe(true)
     expect(s.run).toBe("idle")
     s = clearInterruptFlash(s)

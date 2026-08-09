@@ -3171,13 +3171,16 @@ export function applyShellInterrupt(shell: AppShell): void {
   shell.prompt.value = ""
   appendStreamRow(shell, {
     role: "system",
-    text: `interrupt — discarded ${had} pending`,
+    text:
+      had > 0
+        ? `interrupt — ${had} pending kept`
+        : "interrupt",
     meta: "stop",
   })
   paintChrome(shell)
 }
 
-/** Ctrl+C interrupt path: clear pending, flash, idle. */
+/** Ctrl+C interrupt path: keep pending, flash, idle. */
 export function interruptShell(shell: AppShell): void {
   const hooks = getShellBridgeHooks(shell)
   if (hooks?.exclusive) {

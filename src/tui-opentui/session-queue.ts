@@ -93,15 +93,17 @@ export function enqueueSteer(
 }
 
 /**
- * Hard interrupt: discard all pending queue + steer, clear flash flag set,
- * force run to idle (caller re-sets busy when a new run starts).
+ * Hard interrupt: stop the run, keep everything the operator queued. Typing a
+ * correction and then interrupting so it lands sooner is the common shape of
+ * this gesture, so discarding the queue destroyed exactly the input the
+ * operator most wanted delivered. Pending items survive to the next drain
+ * boundary; only the run state and the flash change here.
  */
 export function interrupt(state: SessionQueueState): SessionQueueState {
   return {
+    ...state,
     run: "idle",
-    items: [],
     interruptFlash: true,
-    nextId: state.nextId,
   }
 }
 
