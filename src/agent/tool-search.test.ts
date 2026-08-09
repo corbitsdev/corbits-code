@@ -63,15 +63,12 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read_file");
   });
 
-  test("orchestrator mode advertises task and search_agents; single mode omits them", () => {
+  test("orchestrator mode advertises task and search_agents", () => {
     expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("task");
     expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("search_agents");
-    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("task");
-    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("search_agents");
   });
 
-  test("manage_tasks is advertised in both session modes regardless of availability", () => {
-    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("manage_tasks");
+  test("manage_tasks is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
   });
 
@@ -89,8 +86,7 @@ describe("createToolIndex", () => {
     ).not.toContain("lsp");
   });
 
-  test("ask_operator is advertised regardless of session mode or availability", () => {
-    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("ask_operator");
+  test("ask_operator is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("ask_operator");
   });
 
@@ -160,15 +156,15 @@ describe("advertisedTools", () => {
     { name: "mcp__linear__create_issue", description: "create", inputSchema: { type: "object", properties: {}, required: [] } },
   ];
 
-  test("single session mode omits multi-agent tools from the wire prefix", () => {
-    const names = advertisedTools(
-      registry,
-      [],
-      advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY),
-    ).map((d) => d.name);
-    expect(names).not.toContain("task");
-    expect(names).not.toContain("search_agents");
+  test("orchestrator wire prefix names include multi-agent tools", () => {
+    const prefix = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(prefix).toContain("task");
+    expect(prefix).toContain("search_agents");
+    // advertisedTools only emits tools present in the registry; multi-agent
+    // tools appear on the wire when createAgentToolset registers them.
+    const names = advertisedTools(registry, [], prefix).map((d) => d.name);
     expect(names).toContain("read_file");
+    expect(names).not.toContain("mcp__linear__create_issue");
   });
 
   test("with no activation, advertises only the fixed built-in set, never MCP tools", () => {

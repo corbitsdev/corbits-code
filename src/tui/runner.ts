@@ -44,7 +44,6 @@ import {
 } from "../config/settings.js";
 import { unconnectedProviderChoices } from "./provider-setup.js";
 import { connectProviderInline } from "./provider-connect.js";
-import type { SessionModeScope } from "./command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
@@ -125,8 +124,7 @@ import {
 } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
-import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
-import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
+import { type SessionMode } from "../config/session-mode.js";
 import {
   createFleetWatch,
   createSubAgentSessionStore,
@@ -1140,27 +1138,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const liveToolWatchdog: ToolWatchdogConfig = {
     ...(toolWatchdogFromSettings(config.settings) ?? {}),
   };
-  const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
-  // A local override wins on read; the settings surface's scope switch mirrors
-  // that back so the operator sees which file a change would land in.
-  let liveSessionModeScope: SessionModeScope = localSettingsForMode?.sessionMode !== undefined ? "local" : "global";
-  let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
-  if (liveSessionMode === undefined) {
-    const picked = await promptSessionModeIfUnset(config.globalSettingsPath);
-    liveSessionMode = picked ?? "orchestrator";
-    if (picked !== undefined) {
-      const refreshed = await loadSettings(config.globalSettingsPath).catch((err: unknown) => {
-        // loadSettings already maps ENOENT → null; a throw is a real I/O or
-        // schema failure. Keep the in-memory config rather than pretending
-        // settings are empty.
-        tuiLogger.warn("Failed to reload settings after session mode pick: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return null;
-      });
-      if (refreshed !== null) config = { ...config, settings: refreshed };
-    }
-  }
+  // CL-5814: orchestrator is the only product path — no first-run mode picker.
+  const liveSessionMode: SessionMode = "orchestrator";
+  // Local settings still supply shell env; sessionMode is ignored if present.
+  const localSettingsForEnv = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
   };
@@ -1179,7 +1160,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     skillDirs,
     telemetry: liveTelemetry,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-    ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
+    ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
@@ -2305,8 +2286,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       settings: {
         read: () => ({
           compactionMode: liveCompactionMode,
-          sessionMode: liveSessionMode ?? "orchestrator",
-          sessionModeScope: liveSessionModeScope,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
           showPromptCost: liveShowPromptCost,
@@ -2317,22 +2296,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             ...base,
             compactionMode: mode,
           }));
-        },
-        setSessionMode: (mode, scope) => {
-          liveSessionMode = mode;
-          liveSessionModeScope = scope;
-          if (scope === "local") {
-            void persistLocalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
-            return;
-          }
-          // A stale local override would keep outranking this write on the next
-          // resolve (resolveSessionMode prefers local), so switching back to
-          // "everywhere" clears it rather than leaving it to shadow the global value.
-          void persistLocalSettings("session mode", (base) => {
-            const { sessionMode: _drop, ...rest } = base;
-            return rest;
-          });
-          void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
         },
         setWaitForApproval: (value) => {
           liveToolWatchdog.waitForApproval = value;

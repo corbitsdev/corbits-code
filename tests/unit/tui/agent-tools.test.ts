@@ -288,20 +288,7 @@ const subAgentDeps = {
   profiles: () => [],
 };
 
-test("single session mode omits task and search_agents from registered tools", async () => {
-  const toolset = await createAgentToolset({
-    cwd: "/fake",
-    permissionGate: fakePermissionGate,
-    onOperatorGate: async () => ({ kind: "option", index: 0 }),
-    sessionMode: "single",
-    subAgent: subAgentDeps,
-  });
-  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
-  expect(names).not.toContain("task");
-  expect(names).not.toContain("search_agents");
-});
-
-test("orchestrator session mode registers task and search_agents", async () => {
+test("default session registers task and search_agents", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,

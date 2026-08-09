@@ -38,14 +38,7 @@ function formatDateDDMMYYYY(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export function buildChatRole(sessionMode: SessionMode = "orchestrator"): string {
-  if (sessionMode === "single") {
-    return [
-      `You are ${PRODUCT_NAME}, a senior coding assistant in a terminal harness.`,
-      "You work directly in this session: read, edit, run checks, and report back yourself.",
-      "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
-    ].join(" ");
-  }
+export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): string {
   return [
     `You are ${PRODUCT_NAME}, an orchestrator in a terminal harness.`,
     "The operator chats with you and may queue more work while workers run.",
@@ -66,7 +59,6 @@ export function buildHarnessFacts(
 ): string {
   const dynamicTools = opts.dynamicTools ?? true;
   const subAgent = opts.subAgent ?? false;
-  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Harness facts:",
     "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
@@ -83,12 +75,8 @@ export function buildHarnessFacts(
     ...(dynamicTools
       ? [
           "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
-          ...(sessionMode === "orchestrator"
-            ? [
-                "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
-                "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
-              ]
-            : ["- This session runs in single-agent mode: sub-agents are disabled; do all work yourself with the tools below."]),
+          "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
+          "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
         ]
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
@@ -101,7 +89,6 @@ export function buildHarnessFacts(
 
 export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: SessionMode } = {}): string {
   const subAgent = opts.subAgent ?? false;
-  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Guidelines:",
     "",
@@ -138,8 +125,9 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
     "- Before finishing a code change, run relevant checks (typecheck, tests) when practical.",
-    ...(sessionMode === "orchestrator" && !subAgent
-      ? [
+    ...(subAgent
+      ? []
+      : [
           "",
           "Orchestration:",
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
@@ -148,8 +136,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
           "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
-        ]
-      : []),
+        ]),
   ].join("\n");
 }
 
@@ -262,16 +249,7 @@ function contextSection(env?: EnvironmentInfo): string {
 function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
-    // SYSTEM.md can describe orchestration; still enforce single-mode harness rules on the wire.
-    if (sessionMode === "single") {
-      return joinSections([
-        custom,
-        "## Session mode",
-        buildHarnessFacts({ sessionMode: "single" }),
-        buildGuidelines({ sessionMode: "single" }),
-        buildPromptDisciplineBlock(),
-      ]);
-    }
+    // SYSTEM.md can describe the role; orchestrator harness rules always apply on the wire.
     return joinSections([
       custom,
       "## Session mode",

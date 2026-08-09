@@ -38,7 +38,7 @@ The evidence is in how the product fails today: the personas already produce exc
 6. **Legible loop** — A live event log, working-tree diff panel, plan tracker, and real-time cost meter show what happened, when, and why.
 7. **Operator-in-the-loop** — The agent can call `ask_operator` to pause and ask a clarifying question; the operator answers from a modal (TUI) or via stdin when the product agent runs under `corbits exec`.
 8. **Mid-run steering** — Two modes while the agent is running: **Enter** queues the message for delivery at the next turn boundary without stopping the current run; **Alt+Enter** steers by interrupting the current run immediately and starting a new turn with your message. **Ctrl+C** stops the run outright. A badge on the input shows the count of queued messages. A hint line in the input area (`Enter queue · Alt+Enter steer · Ctrl+C stop`) makes the options discoverable.
-9. **Session mode (TUI)** — **Single-agent** keeps one primary loop on the wire (no `task` / `search_agents` tools). **Orchestrator** is for chatting with the top agent while it delegates via `task` and manages parallel sub-agents. On first launch, Corbits Code asks once; **Enter** saves to global settings (highlight defaults to single-agent; **Ctrl+C** skips save, runs orchestrator this session only, and the prompt returns on later launches until you save). **Settings → Session** can change global or per-repo defaults, but mode takes effect on the **next** session start (unlike `/model` provider switches). The `exec` path uses the same `sessionMode` resolution as the TUI (global + per-repo settings; defaults to orchestrator when unset).
+9. **Orchestrator-only (TUI + exec)** — The primary session is always the orchestrator: it can act directly and delegates via `task` / `search_agents`. Single-agent session mode, the first-run mode picker, and Settings → Session are gone (CL-5814). Legacy `sessionMode` values on disk are ignored.
 
 ## User Experience
 
@@ -135,7 +135,7 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 ## Multi-agent (sub-agents)
 
-In the TUI, sub-agents are available when **session mode** is **orchestrator** (see value prop #9); **single-agent** mode removes the `task` and `search_agents` tools from the primary session.
+In the TUI, the primary session is always **orchestrator**: it can act directly and delegates work via `task` / `search_agents`. Single-agent session mode is gone (CL-5814).
 
 Corbits Code can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
 

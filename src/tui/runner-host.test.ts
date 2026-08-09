@@ -205,14 +205,11 @@ describe("mountRunnerHost command surfaces", () => {
         settings: {
           read: () => ({
             compactionMode: "llm",
-            sessionMode: "orchestrator",
-            sessionModeScope: "global",
             waitForApproval: true,
             telemetryEnabled: false,
             showPromptCost: false,
           }),
           setCompactionMode: () => {},
-          setSessionMode: () => {},
           setWaitForApproval: () => {},
           setTelemetryEnabled: () => {},
           setShowPromptCost: () => {},

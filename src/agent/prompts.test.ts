@@ -81,11 +81,6 @@ describe("shared discipline block appears exactly once per built prompt", () => 
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
-  it("appears exactly once in the single-session chat prompt", () => {
-    const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
-  });
-
   it("appears exactly once in a leaf sub-agent prompt (default family)", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,

@@ -1,26 +1,34 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveSessionMode, sessionModeEnablesSubAgents } from "./session-mode.js";
+import {
+  isSessionMode,
+  resolveSessionMode,
+  sessionModeEnablesSubAgents,
+} from "./session-mode.js";
 
 describe("resolveSessionMode", () => {
-  test("local overrides global", () => {
+  test("always returns orchestrator regardless of settings", () => {
     expect(
-      resolveSessionMode({ providers: {}, sessionMode: "orchestrator" }, { sessionMode: "single" }),
-    ).toBe("single");
-  });
-
-  test("falls back to global when local unset", () => {
-    expect(resolveSessionMode({ providers: {}, sessionMode: "single" }, null)).toBe("single");
-  });
-
-  test("returns undefined when neither file sets mode", () => {
-    expect(resolveSessionMode({ providers: {} }, null)).toBeUndefined();
+      resolveSessionMode({ providers: {}, sessionMode: "orchestrator" }, { sessionMode: "single" as never }),
+    ).toBe("orchestrator");
+    expect(resolveSessionMode({ providers: {}, sessionMode: "single" as never }, null)).toBe(
+      "orchestrator",
+    );
+    expect(resolveSessionMode({ providers: {} }, null)).toBe("orchestrator");
   });
 });
 
 describe("sessionModeEnablesSubAgents", () => {
-  test("orchestrator enables sub-agents; single does not", () => {
+  test("always enables sub-agents", () => {
     expect(sessionModeEnablesSubAgents("orchestrator")).toBe(true);
-    expect(sessionModeEnablesSubAgents("single")).toBe(false);
+    expect(sessionModeEnablesSubAgents()).toBe(true);
+  });
+});
+
+describe("isSessionMode", () => {
+  test("accepts orchestrator only", () => {
+    expect(isSessionMode("orchestrator")).toBe(true);
+    expect(isSessionMode("single")).toBe(false);
+    expect(isSessionMode("fleet")).toBe(false);
   });
 });

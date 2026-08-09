@@ -33,16 +33,14 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Corbits Code with mode-specific primary roles", () => {
-  const single = buildChatRole("single");
-  expect(single).toContain("Corbits Code");
-  expect(single).toContain("senior coding assistant");
-  expect(single).toContain("read, edit");
+test("agent identity is Corbits Code as orchestrator", () => {
   const orchestrator = buildChatRole("orchestrator");
   expect(orchestrator).toContain("Corbits Code");
   expect(orchestrator).toContain("orchestrator");
   expect(orchestrator).toContain("delegate");
   expect(orchestrator).toContain("Match their tone");
+  // Mode arg is ignored — product is orchestrator-only (CL-5814).
+  expect(buildChatRole()).toContain("orchestrator");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
@@ -82,8 +80,6 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("do_not");
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
-  const single = buildGuidelines({ sessionMode: "single" });
-  expect(single).not.toContain("success_criteria");
 });
 
 test("chat system prompt satisfies system prompt quality markers", () => {
@@ -93,21 +89,7 @@ test("chat system prompt satisfies system prompt quality markers", () => {
   }
 });
 
-test("single session mode satisfies system prompt quality markers", () => {
-  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-  for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
-    expect(prompt).toContain(marker);
-  }
-});
-
-test("single session mode omits task and search_agents from the tools list", () => {
-  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-  expect(prompt).toContain("read_file");
-  expect(prompt).not.toContain("- task:");
-  expect(prompt).not.toContain("- search_agents:");
-});
-
-test("orchestrator session mode lists task and search_agents", () => {
+test("default session always lists task and search_agents", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
   expect(prompt).toContain("- task:");
   expect(prompt).toContain("- search_agents:");
@@ -147,12 +129,13 @@ test("a SYSTEM.md base override replaces the static base but keeps tools and con
   expect(prompt).toContain("Active context:");
 });
 
-test("SYSTEM.md override in single mode still appends single-agent harness rules", () => {
+test("SYSTEM.md override still appends orchestrator harness rules", () => {
   const override = "You are a custom agent that mentions delegating to workers.";
-  const prompt = buildChatSystemPrompt(undefined, undefined, override, [], "single");
+  const prompt = buildChatSystemPrompt(undefined, undefined, override, []);
   expect(prompt).toContain(override);
-  expect(prompt).toContain("single-agent mode");
-  expect(prompt).not.toContain("- task:");
+  expect(prompt).toContain("## Session mode");
+  expect(prompt).toContain("Orchestration:");
+  expect(prompt).toContain("- task:");
 });
 
 test("an empty base override falls back to the default base", () => {

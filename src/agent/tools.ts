@@ -106,7 +106,7 @@ export type AgentToolsetArgs = {
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
-  // Primary session mode: single-agent sessions omit sub-agent tooling.
+  // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
   // Session-start facts gating lsp advertisement. Omitted callers (tests,
   // ad-hoc toolset construction) get it advertised, matching prior behavior.
