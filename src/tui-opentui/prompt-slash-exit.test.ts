@@ -19,9 +19,9 @@ import {
 } from "./shell"
 
 const CATALOG: readonly PaletteCommand[] = [
-  { id: "model", label: "/model — switch model" },
-  { id: "mcp", label: "/mcp — manage MCP servers" },
-  { id: "compact", label: "/compact — compact history" },
+  { id: "model", label: "/model" },
+  { id: "mcp", label: "/mcp" },
+  { id: "compact", label: "/compact" },
 ]
 
 type Ctx = {

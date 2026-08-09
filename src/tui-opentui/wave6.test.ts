@@ -29,9 +29,9 @@ import { stringWidth } from "../tui/view/height"
 import type { PaletteCommand } from "./command-catalog"
 
 const CATALOG: readonly PaletteCommand[] = [
-  { id: "compact", label: "/compact — compact history" },
-  { id: "help", label: "/help — show keymap help" },
-  { id: "model", label: "/model — switch model" },
+  { id: "compact", label: "/compact" },
+  { id: "help", label: "/help" },
+  { id: "model", label: "/model" },
 ]
 
 describe("Wave 6: command list", () => {
@@ -56,9 +56,9 @@ describe("Wave 6: command list", () => {
 
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          // The list drops its title rule row, so identify it on screen by
-          // its filter prompt and first row rather than the word "palette".
-          expect(frame).toMatch(/│\s*>\s*│/)
+          // Slash mode has no title rule and no orphan filter row — identify
+          // the list by its name-only command labels.
+          expect(frame).not.toMatch(/│\s*>\s*│/)
           expect(frame).toContain("/compact")
           // List labels live in overlayItems (frame may clip first row under tight height).
           expect(shell.overlayItems[0]).toBe(CATALOG[0]!.label)

@@ -29,8 +29,10 @@ export function commandItemsFromRegistry(
 ): PaletteCommand[] {
   return commands.map((c) => ({
     id: c.name,
-    label: `/${c.name} — ${c.description}`,
-    keywords: [c.name, "slash", "command"],
+    // Name-only rows keep the slash popup scannable; description stays in
+    // keywords so typed filter still finds prose matches.
+    label: `/${c.name}`,
+    keywords: [c.name, c.description, "slash", "command"],
   }))
 }
 
