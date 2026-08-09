@@ -3,6 +3,12 @@ import type { CostSummary } from "../../cost/cost-summary.js";
 export type CommandContext = {
   signalClear: () => void;
   getCostSummary?: () => CostSummary;
+  /**
+   * One-row answer to "where are we" on the dispatched fleet. Read live and
+   * answered locally, so asking never costs the operator an interrupt (and
+   * with it whatever they had queued).
+   */
+  getFleetStatus?: () => string;
   // Start a workflow by name; returns a status message to surface to the user.
   startWorkflow?: (name: string) => string;
   /** Rename the active session (persisted as run.json task). */

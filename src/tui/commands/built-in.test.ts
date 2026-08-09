@@ -41,6 +41,26 @@ describe("removed commands", () => {
   });
 });
 
+describe("/status command", () => {
+  it("answers from the live fleet without sending anything to the model", () => {
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      getFleetStatus: () => "fleet · 2 running (api 1:20, docs 0:04) · 1 done",
+    };
+    expect(getCommand("status")!.handler("", ctx)).toEqual({
+      type: "message",
+      text: "fleet · 2 running (api 1:20, docs 0:04) · 1 done",
+    });
+  });
+
+  it("says so rather than throwing when no fleet source is wired", () => {
+    expect(getCommand("status")!.handler("", makeCtx())).toEqual({
+      type: "message",
+      text: "Fleet status is not available in this session.",
+    });
+  });
+});
+
 describe("removed approval command", () => {
   it("is not registered", () => {
     expect(getCommand("auto")).toBeUndefined();

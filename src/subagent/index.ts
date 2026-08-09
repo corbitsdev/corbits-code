@@ -8,6 +8,15 @@
 export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
 export {
+  createFleetWatch,
+  fleetDigest,
+  FLEET_STALL_POLL_MS,
+  observeFleet,
+  type FleetLane,
+  type FleetObservation,
+  type FleetWatch,
+} from "./fleet-report.js";
+export {
   DEFAULT_THRASH_CONFIG,
   EMPTY_THRASH_STATE,
   evaluateThrashStop,

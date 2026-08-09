@@ -117,7 +117,12 @@ import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
-import { createSubAgentSessionStore, taskToolDefinition, type SubAgentProvider } from "../subagent/index.js";
+import {
+  createSubAgentSessionStore,
+  fleetDigest,
+  taskToolDefinition,
+  type SubAgentProvider,
+} from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -1741,6 +1746,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     },
     startWorkflow: (name) => workflowController.start(name),
+    getFleetStatus: () => fleetDigest(subAgentSessions.list(), Date.now()),
     renameSession: (name) => {
       const trimmed = name.trim();
       if (trimmed.length === 0) return "Session name cannot be empty";
