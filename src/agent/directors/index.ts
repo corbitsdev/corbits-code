@@ -15,7 +15,10 @@ export {
 export {
   DIRECTOR_REGISTRY,
   INTENT_DEFAULT_DIRECTOR,
+  directorProfiles,
   isDirectorId,
   listDirectors,
+  packageToCapabilities,
+  packageToProfile,
   resolveDirector,
 } from "./registry.js";

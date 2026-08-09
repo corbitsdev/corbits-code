@@ -46,6 +46,15 @@ mid-session switches.
   mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
   settings files still loads without error and is ignored (CL-5814).
 
+### Added
+
+- **Closed director fleet (CL-5818 Level 6 wiring).** Sixteen director packages
+  under `src/agent/directors/<id>/` (prompts, tool envelopes, spawn rights, nudge
+  budgets, report contract) register in `DIRECTOR_REGISTRY`. `task(agent=…)`
+  resolves directors without requiring plugin profiles; `task(intent=…)` maps
+  implement/explore/plan/review→critique (`general` is refused). Default agent
+  profiles are the closed fleet via `directorProfiles()`.
+
 ### Providers
 
 - **Named API-key instances.** First-class API-key providers (OpenAI key,

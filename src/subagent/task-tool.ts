@@ -14,6 +14,11 @@ import type {
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
+import {
+  isDirectorId,
+  packageToCapabilities,
+  resolveDirector,
+} from "../agent/directors/registry.js";
 import type { Settings } from "../config/settings.js";
 import {
   resolveSubAgentMaxTurns,
@@ -241,7 +246,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let systemPromptRole: string | undefined;
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
+      let resolvedDirectorId: string | undefined;
       const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       // OAuth providers live in the live catalog, not settings.json. Overlay so
       // inference resolution can target Codex/xAI the same way the TUI does.
@@ -300,56 +307,104 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       };
 
       if (agentId !== undefined && agentId.length > 0) {
-        // Fail closed: an explicit agent= that cannot be resolved is an error,
-        // not a silent fall-through to a generic worker. Silent fall-through
-        // made typos and stale ids look like successful generic dispatches.
-        if (profiles === undefined) {
-          return taskToolResult(
-            call.id,
-            `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`,
-          );
-        }
-        const profile = profiles.find((p) => p.id === agentId);
-        if (profile === undefined) {
-          const known = profiles.map((p) => p.id).sort();
-          // Point at search_agents (which injects full system prompt bodies) rather
-          // than read_file on plugin roots — path-escape blocks those paths by design.
-          const hint =
-            known.length > 0
-              ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
-              : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
-          return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
-        }
-        if (profile.capabilities !== undefined) {
-          capabilities = profile.capabilities;
-        }
-        if (profile.maxTurns !== undefined) {
-          profileMaxTurns = profile.maxTurns;
-        }
-        if (profile.systemPromptRole !== undefined) {
-          systemPromptRole = profile.systemPromptRole;
-        }
-        // Nested workers (allowOrchestrator: false) cannot re-enter orchestration
-        // even if their profile is marked orchestrator — recursion bottoms out.
-        if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
-          orchestrator = true;
-        }
-        // Per-agent pinned inference (provider/model/effort), if declared.
-        // Resolution uses policy (mode: pin / agentModelFallback: none) so a
-        // forbidden fallback surfaces as a dispatch error rather than
-        // silently running on the parent's provider.
-        if (profile.inference !== undefined && settings !== undefined) {
-          const outcome = resolveInferenceWithPolicy(profile.inference, settings);
-          if (outcome.kind === "unavailable") {
+        // Closed director fleet (CL-5818): resolve package even when profiles
+        // are not loaded; profiles may still pin inference for the same id.
+        if (isDirectorId(agentId)) {
+          const resolved = resolveDirector({ agentId });
+          if (!resolved.ok) {
+            return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
+          }
+          const pkg = resolved.package;
+          resolvedDirectorId = pkg.id;
+          systemPromptRole = pkg.systemPrompt;
+          const caps = packageToCapabilities(pkg);
+          if (caps !== undefined) capabilities = caps;
+          if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
+          if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
+            orchestrator = true;
+          }
+          const profile = profiles?.find((p) => p.id === agentId);
+
+          if (profile?.inference !== undefined && settings !== undefined) {
+            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+            if (outcome.kind === "unavailable") {
+              return taskToolResult(
+                call.id,
+                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              );
+            }
+            if (outcome.kind === "resolved") {
+              const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+              if (err !== null) return taskToolResult(call.id, err);
+            }
+          }
+        } else {
+          // Fail closed: an explicit agent= that cannot be resolved is an error,
+          // not a silent fall-through to a generic worker. Silent fall-through
+          // made typos and stale ids look like successful generic dispatches.
+          if (profiles === undefined) {
             return taskToolResult(
               call.id,
-              `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`,
             );
           }
-          if (outcome.kind === "resolved") {
-            const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
-            if (err !== null) return taskToolResult(call.id, err);
+          const profile = profiles.find((p) => p.id === agentId);
+          if (profile === undefined) {
+            const known = profiles.map((p) => p.id).sort();
+            // Point at search_agents (which injects full system prompt bodies) rather
+            // than read_file on plugin roots — path-escape blocks those paths by design.
+            const hint =
+              known.length > 0
+                ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
+                : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
+            return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
           }
+          if (profile.capabilities !== undefined) {
+            capabilities = profile.capabilities;
+          }
+          if (profile.maxTurns !== undefined) {
+            profileMaxTurns = profile.maxTurns;
+          }
+          if (profile.systemPromptRole !== undefined) {
+            systemPromptRole = profile.systemPromptRole;
+          }
+          // Nested workers (allowOrchestrator: false) cannot re-enter orchestration
+          // even if their profile is marked orchestrator — recursion bottoms out.
+          if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
+            orchestrator = true;
+          }
+          // Per-agent pinned inference (provider/model/effort), if declared.
+          // Resolution uses policy (mode: pin / agentModelFallback: none) so a
+          // forbidden fallback surfaces as a dispatch error rather than
+          // silently running on the parent's provider.
+          if (profile.inference !== undefined && settings !== undefined) {
+            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+            if (outcome.kind === "unavailable") {
+              return taskToolResult(
+                call.id,
+                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              );
+            }
+            if (outcome.kind === "resolved") {
+              const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+              if (err !== null) return taskToolResult(call.id, err);
+            }
+          }
+        }
+      } else if (intent !== undefined) {
+        // intent-only dispatch maps to closed directors (no general leaf).
+        const resolved = resolveDirector({ intent });
+        if (!resolved.ok) {
+          return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
+        }
+        const pkg = resolved.package;
+        resolvedDirectorId = pkg.id;
+        systemPromptRole = pkg.systemPrompt;
+        const caps = packageToCapabilities(pkg);
+        if (caps !== undefined) capabilities = caps;
+        if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
+        if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
+          orchestrator = true;
         }
       }
 
@@ -411,8 +466,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       }
       const dispatchCount = admission.dispatchCount;
 
-      const agentLabel = agentId !== undefined && agentId.length > 0 ? agentId : "worker";
+      const agentLabel =
+        agentId !== undefined && agentId.length > 0
+          ? agentId
+          : (resolvedDirectorId ?? "worker");
       const session =
+
         deps.sessions !== undefined
           ? deps.sessions.start({
               id: call.id,

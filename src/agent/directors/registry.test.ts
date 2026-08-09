@@ -4,8 +4,10 @@ import { DIRECTOR_IDS } from "./types.js";
 import {
   DIRECTOR_REGISTRY,
   INTENT_DEFAULT_DIRECTOR,
+  directorProfiles,
   isDirectorId,
   listDirectors,
+  packageToProfile,
   resolveDirector,
 } from "./registry.js";
 
@@ -87,5 +89,26 @@ describe("director registry", () => {
     expect(Object.keys(INTENT_DEFAULT_DIRECTOR).sort()).toEqual(
       ["explore", "implement", "plan", "review"].sort(),
     );
+  });
+
+  test("packageToProfile maps envelope and spawn", () => {
+    const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
+    expect(explore.id).toBe("explore");
+    expect(explore.systemPromptRole).toBe(DIRECTOR_REGISTRY.explore.systemPrompt);
+    expect(explore.capabilities).toEqual({
+      mode: "exclude",
+      tools: ["write_file", "edit_file", "delete_file"],
+    });
+    expect(explore.orchestrator).toBe(false);
+
+    const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
+    expect(grey.orchestrator).toBe(true);
+    expect(grey.maxTurns).toBe(DIRECTOR_REGISTRY.greybeard.nudge?.maxTurns);
+  });
+
+  test("directorProfiles covers closed set", () => {
+    const profiles = directorProfiles();
+    expect(profiles).toHaveLength(16);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(16);
   });
 });

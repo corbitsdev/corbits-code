@@ -1,0 +1,53 @@
+import { describe, expect, test } from "bun:test";
+import { planPackage } from "./package.js";
+
+describe("planPackage", () => {
+  test("id matches directory", () => {
+    expect(planPackage.id).toBe("plan");
+  });
+
+  test("systemPrompt is real (not Placeholder)", () => {
+    expect(planPackage.systemPrompt.length).toBeGreaterThan(0);
+    expect(planPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+  });
+
+  test("systemPrompt states PRIMARY INTENT", () => {
+    expect(planPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+  });
+
+  test("spawn.maySpawn is false", () => {
+    expect(planPackage.spawn.maySpawn).toBe(false);
+  });
+
+  test("denies product write tools", () => {
+    const deny = planPackage.tools?.deny ?? [];
+    expect(deny).toContain("write_file");
+    expect(deny).toContain("edit_file");
+    expect(deny).toContain("delete_file");
+  });
+
+  test("report requires envelope sections", () => {
+    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
+      expect(planPackage.report.requiredSections).toContain(section);
+    }
+  });
+
+  test("modelRole is plan", () => {
+    expect(planPackage.modelRole).toBe("plan");
+  });
+
+  test("optionalSkills order", () => {
+    expect(planPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
+  });
+
+  test("primaryIntent and outOfLane match plan lane", () => {
+    expect(planPackage.primaryIntent).toBe("Author eng change plans; do not implement");
+    expect(planPackage.outOfLane).toContain("shipping code");
+    expect(planPackage.outOfLane).toContain("architecture gate sign-off as Greybeard");
+    expect(planPackage.outOfLane).toContain("running the fleet");
+  });
+
+  test("nudge maxTurns is 40", () => {
+    expect(planPackage.nudge?.maxTurns).toBe(40);
+  });
+});
