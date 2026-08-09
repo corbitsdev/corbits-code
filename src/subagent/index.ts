@@ -10,6 +10,7 @@ export { createSubAgentSessionStore } from "./session-store.js";
 export {
   createFleetWatch,
   fleetDigest,
+  FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   observeFleet,
   type FleetLane,

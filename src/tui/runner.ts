@@ -121,6 +121,7 @@ import {
   createFleetWatch,
   createSubAgentSessionStore,
   fleetDigest,
+  FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   observeFleet,
   taskToolDefinition,
@@ -2213,7 +2214,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     fleetWatch = observation.watch;
     for (const update of observation.updates) surfaceSystemNotice(host.shell, update);
   };
-  const unsubscribeFleetReport = subAgentSessions.subscribe(reportFleet);
+  let fleetSettle: ReturnType<typeof setTimeout> | null = null;
+  const unsubscribeFleetReport = subAgentSessions.subscribe(() => {
+    if (fleetSettle !== null) return;
+    fleetSettle = setTimeout(() => {
+      fleetSettle = null;
+      reportFleet();
+    }, FLEET_REPORT_SETTLE_MS);
+    if (typeof fleetSettle.unref === "function") fleetSettle.unref();
+  });
   const fleetStallPoll = setInterval(reportFleet, FLEET_STALL_POLL_MS);
   if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();
 
@@ -2318,6 +2327,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   await host.waitUntilExit();
   clearInterval(fleetStallPoll);
+  if (fleetSettle !== null) clearTimeout(fleetSettle);
   unsubscribeFleetReport();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.

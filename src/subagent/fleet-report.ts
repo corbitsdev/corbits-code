@@ -56,7 +56,13 @@ export function createFleetWatch(): FleetWatch {
 const COALESCE_ABOVE = 3;
 
 /** Enough of an outcome to judge it; past this the operator opens the lane. */
-const OUTCOME_CHARS = 72;
+const OUTCOME_CHARS = 56;
+
+/**
+ * One update is one row. A line that wraps doubles the cost of every update on
+ * screen, which is how a report meant to be glanced at turns into a scroll.
+ */
+const MAX_UPDATE_CHARS = 76;
 
 const PREFIX = "fleet";
 
@@ -66,6 +72,13 @@ const PREFIX = "fleet";
  * the observation is a cheap diff either way.
  */
 export const FLEET_STALL_POLL_MS = 5_000;
+
+/**
+ * A parallel dispatch lands as one store change per lane, so observing each
+ * one on its own turns a single decision into a line per lane. Settling first
+ * is what lets the tally do its job.
+ */
+export const FLEET_REPORT_SETTLE_MS = 400;
 
 /** Lanes named in a digest before it starts counting instead of listing. */
 const DIGEST_NAMED_LANES = 4;
@@ -177,7 +190,10 @@ export function observeFleet(
     lines.push(`${idleSummary(lanes)} — nothing running`);
   }
 
-  return { watch, updates: lines.map((line) => `${PREFIX} · ${line}`) };
+  return {
+    watch,
+    updates: lines.map((line) => clip(`${PREFIX} · ${line}`, MAX_UPDATE_CHARS)),
+  };
 }
 
 function tally(changes: readonly Change[]): string {

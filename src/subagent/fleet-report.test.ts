@@ -104,6 +104,23 @@ describe("observeFleet", () => {
     expect(busy.updates).toEqual([]);
   });
 
+  test("an update is one row — a long outcome is clipped, never wrapped", () => {
+    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({
+          id: "api",
+          status: "done",
+          report: "Rewired the reporter, added the digest, wired the poll, and updated every affected test in the suite.",
+        }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates[0]!.length).toBeLessThanOrEqual(76);
+    expect(updates[0]).toContain("…");
+  });
+
   test("a dozen lanes landing at once collapse into one tally", () => {
     const before = Array.from({ length: 12 }, (_, i) => lane({ id: `l${i}` }));
     const seeded = observeFleet(createFleetWatch(), before, T0).watch;
