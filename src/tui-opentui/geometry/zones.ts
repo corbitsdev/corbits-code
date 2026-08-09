@@ -84,12 +84,14 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     idleDefault: 0,
     alwaysOn: false,
   },
-  // One row per running agent (bounded by AGENTS_PANEL_MAX_VISIBLE) plus an
-  // optional trailing "+N more" row.
+  // A leading fleet-summary row, one row per running agent (bounded by
+  // AGENTS_PANEL_MAX_VISIBLE), then an optional trailing "+N more" row. All
+  // three must fit: clipping the last one drops the fold-away count at exactly
+  // the fan-out size where it is the only thing reporting the hidden lanes.
   agents: {
     id: "agents",
     min: 0,
-    max: AGENTS_PANEL_MAX_VISIBLE + 1,
+    max: AGENTS_PANEL_MAX_VISIBLE + 2,
     idleDefault: 0,
     alwaysOn: false,
   },

@@ -100,8 +100,8 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 
 describe("resolveGeometry — agents panel", () => {
   test("N running agents request N rows, bounded by the zone max", () => {
-    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
-      const requested = Math.min(n, AGENTS_PANEL_MAX_VISIBLE + 1);
+    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 4; n++) {
+      const requested = Math.min(n, ZONE_REGISTRY.agents.max);
       const layout = idle80x24({ visibility: { agents: n } });
       expect(layout.heights.agents).toBe(requested);
     }
@@ -116,11 +116,12 @@ describe("resolveGeometry — agents panel", () => {
   test("a large fan-out never grows the zone past its bounded max", () => {
     const layout = idle80x24({ visibility: { agents: 50 } });
     expect(layout.heights.agents).toBe(ZONE_REGISTRY.agents.max);
-    expect(layout.heights.agents).toBe(AGENTS_PANEL_MAX_VISIBLE + 1);
+    // Fleet summary + the visible lanes + the "+N more" trailer.
+    expect(layout.heights.agents).toBe(AGENTS_PANEL_MAX_VISIBLE + 2);
   });
 
   test("a bounded agents panel never eats the transcript floor", () => {
-    const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
+    const layout = idle80x24({ visibility: { agents: ZONE_REGISTRY.agents.max } });
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
 
