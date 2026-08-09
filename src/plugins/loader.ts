@@ -7,6 +7,7 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
   resolvePluginWarningHandler,
@@ -114,6 +115,7 @@ export async function loadPluginEntry(
     onWarning?: (msg: string) => void;
     diagnostics?: PluginLoadDiagnostics;
     origin?: PluginOrigin;
+    telemetry?: Telemetry;
   } = {},
 ): Promise<PluginModule | null> {
   const cwd = opts.cwd ?? process.cwd();
@@ -127,6 +129,7 @@ export async function loadPluginEntry(
         : { onWarning: stderrPluginWarning },
   );
   const origin = opts.origin;
+  const telemetry = opts.telemetry ?? NOOP_TELEMETRY;
   let target = entryPath;
   let pluginDir = entryPath;
   try {
@@ -163,6 +166,7 @@ export async function loadPluginEntry(
             mod.origin = origin;
             mod.pluginPath = resolve(entryPath);
           }
+          if (origin !== undefined) telemetry.capture("plugin_loaded", { origin });
           return mod;
         }
         return null;
@@ -209,6 +213,7 @@ export async function loadPluginEntry(
       result.origin = origin;
       result.pluginPath = resolve(pluginDir);
     }
+    if (origin !== undefined) telemetry.capture("plugin_loaded", { origin });
     return result;
   } catch (err) {
     // Route through the same sink as skill/load warnings so a diagnostics
@@ -494,6 +499,7 @@ async function scanPluginsDir(
   origin: PluginOrigin,
   isTrusted?: (pluginPath: string) => boolean,
   diagnostics?: PluginLoadDiagnostics,
+  telemetry?: Telemetry,
 ): Promise<PluginModule[]> {
   let entries: string[];
   try {
@@ -519,6 +525,7 @@ async function scanPluginsDir(
         cwd,
         origin,
         ...(diagnostics !== undefined ? { diagnostics } : {}),
+        ...(telemetry !== undefined ? { telemetry } : {}),
       });
       if (plugin !== null) results.push(plugin);
     }
@@ -537,13 +544,14 @@ export async function discoverUserPlugins(
   opts: {
     isPluginTrusted?: (pluginPath: string) => boolean;
     diagnostics?: PluginLoadDiagnostics;
+    telemetry?: Telemetry;
   } = {},
 ): Promise<PluginModule[]> {
   const projectDir = join(cwd, SETTINGS_DIR_NAME, "plugins");
   const userDir = join(homedir(), SETTINGS_DIR_NAME, "plugins");
   const [project, user] = await Promise.all([
-    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted, opts.diagnostics),
-    scanPluginsDir(userDir, cwd, "user", undefined, opts.diagnostics),
+    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted, opts.diagnostics, opts.telemetry),
+    scanPluginsDir(userDir, cwd, "user", undefined, opts.diagnostics, opts.telemetry),
   ]);
   return [...project, ...user];
 }
@@ -584,6 +592,7 @@ export async function loadPluginsFromPaths(
   opts: {
     isPluginTrusted?: (pluginPath: string) => boolean;
     diagnostics?: PluginLoadDiagnostics;
+    telemetry?: Telemetry;
   } = {},
 ): Promise<PluginModule[]> {
   // A skipped member routes into `diagnostics` when the caller has one, same
@@ -613,6 +622,7 @@ export async function loadPluginsFromPaths(
           cwd,
           origin: "path",
           ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : {}),
+          ...(opts.telemetry !== undefined ? { telemetry: opts.telemetry } : {}),
         });
       }),
   );
@@ -626,11 +636,11 @@ export async function loadPluginsFromPaths(
 // different working directory. Product-shipped plugins are auto-trusted.
 export async function discoverRepoPlugins(
   cwd: string,
-  opts: { diagnostics?: PluginLoadDiagnostics } = {},
+  opts: { diagnostics?: PluginLoadDiagnostics; telemetry?: Telemetry } = {},
 ): Promise<PluginModule[]> {
   const repoRoot = new URL("../../", import.meta.url).pathname;
   const pluginsDir = join(repoRoot, "plugins");
-  return scanPluginsDir(pluginsDir, cwd, "repo", undefined, opts.diagnostics);
+  return scanPluginsDir(pluginsDir, cwd, "repo", undefined, opts.diagnostics, opts.telemetry);
 }
 
 // Claude Code records marketplace installs in
@@ -650,6 +660,7 @@ export async function discoverClaudeInstalledPlugins(
     home?: string;
     onExpandSkip?: (skip: ExpandPluginPathSkip) => void;
     diagnostics?: PluginLoadDiagnostics;
+    telemetry?: Telemetry;
   } = {},
 ): Promise<PluginModule[]> {
   const home = opts.home ?? homedir();
@@ -769,6 +780,7 @@ export async function discoverClaudeInstalledPlugins(
               : plugin.manifest.name,
         };
       }
+      opts.telemetry?.capture("plugin_loaded", { origin: "user" });
       results.push(plugin);
     }
   }

@@ -1,0 +1,352 @@
+// Each test here feeds an emission site a name that identifies an employer, a
+// service, or a path, then asserts that string appears NOWHERE in the bytes
+// that would go to PostHog. Serializing the whole request body (not just the
+// property the site meant to set) is the point: a comment claiming a value is
+// a safe enum is not evidence, and a leak smuggled in under a different key
+// would pass a property-by-property check.
+
+import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { createUseSkillTool } from "../../src/agent/use-skill.js";
+import type { Settings } from "../../src/config/settings.js";
+import { createPermissionGate } from "../../src/permission/gate.js";
+import { loadPluginEntry } from "../../src/plugins/loader.js";
+import { createSessionPruningCompactor } from "../../src/session/runtime-assembly.js";
+import { createTaskTool } from "../../src/subagent/task-tool.js";
+import {
+  classifyAgentName,
+  classifyCommandName,
+  classifyErrorClass,
+  classifyPermissionKind,
+} from "../../src/telemetry/classify.js";
+import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
+import {
+  captureAuthFailure,
+  classifyAgentSendFailure,
+} from "../../src/tui-opentui/session-chrome.js";
+
+type BatchBody = {
+  batch: { event: string; properties: Record<string, unknown> }[];
+};
+
+function harness(): { telemetry: Telemetry; wire: () => Promise<string>; events: () => Promise<BatchBody["batch"]> } {
+  const bodies: BatchBody[] = [];
+  const fetchFn = ((_url: string, init: RequestInit) => {
+    bodies.push(JSON.parse(init.body as string) as BatchBody);
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  const settings: Settings = { providers: {}, telemetry: { installationId: "install-id" } };
+  const telemetry = createTelemetry({ settings, env: {}, fetchFn, apiKey: "test-key" });
+  const wire = async (): Promise<string> => {
+    await telemetry.flush();
+    return JSON.stringify(bodies);
+  };
+  return {
+    telemetry,
+    wire,
+    events: async () => {
+      await telemetry.flush();
+      return bodies.flatMap((body) => body.batch);
+    },
+  };
+}
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  while (tempDirs.length > 0) {
+    await rm(tempDirs.pop()!, { recursive: true, force: true });
+  }
+});
+
+async function tempDir(prefix: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+// ---------------------------------------------------------------------------
+// 1. permission_kind — an MCP tool id embeds the server key from settings
+// ---------------------------------------------------------------------------
+
+test("permission_prompt buckets an MCP tool to \"mcp\" and never ships the server key", async () => {
+  const { telemetry, wire, events } = harness();
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    requestApproval: async () => ({ allow: true }),
+    telemetry,
+  });
+
+  const verdict = await gate.evaluate({
+    id: "call-1",
+    name: "mcp__acme-internal__deploy",
+    arguments: {},
+  });
+
+  expect(verdict.allowed).toBe(true);
+  const [event] = await events();
+  expect(event?.event).toBe("permission_prompt");
+  expect(event?.properties.permission_kind).toBe("mcp");
+  expect(event?.properties.decision).toBe("allow");
+  expect(await wire()).not.toContain("acme-internal");
+});
+
+test("permission_prompt buckets an unrecognised tool id to \"custom\"", async () => {
+  const { telemetry, wire, events } = harness();
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    requestApproval: async () => ({ allow: false }),
+    telemetry,
+  });
+
+  await gate.evaluate({ id: "call-1", name: "acmecorp_payroll_export", arguments: {} });
+
+  const [event] = await events();
+  expect(event?.properties.permission_kind).toBe("custom");
+  expect(event?.properties.decision).toBe("deny");
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("permission_prompt reports built-in tool ids by name", () => {
+  expect(classifyPermissionKind("run_shell")).toBe("run_shell");
+  expect(classifyPermissionKind("edit_file")).toBe("edit_file");
+});
+
+// ---------------------------------------------------------------------------
+// 2. skill_name — a project-local skill can be named after the employer
+// ---------------------------------------------------------------------------
+
+test("skill_used carries no skill name, so an employer-named skill cannot leak", async () => {
+  const { telemetry, wire, events } = harness();
+  const cwd = await tempDir("corbits-skill-");
+  const skillDir = join(cwd, ".agents", "skills", "acme-internal-deploy");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    "---\nname: acme-internal-deploy\n---\n\nDeploy the internal service.\n",
+  );
+
+  const tool = createUseSkillTool(cwd, [], telemetry);
+  if (tool.kind !== "string") throw new Error(`expected string tool, got ${tool.kind}`);
+  const result = await tool.handler({ name: "acme-internal-deploy" });
+
+  // Guard against the test passing because resolution failed: the event only
+  // fires on a resolved skill, so a silent miss would trivially "not leak".
+  expect(result).toContain("Deploy the internal service");
+  const [event] = await events();
+  expect(event?.event).toBe("skill_used");
+  expect(event?.properties.skill_name).toBeUndefined();
+  expect(await wire()).not.toContain("acme-internal");
+});
+
+// ---------------------------------------------------------------------------
+// 3. plugin_id — an author-chosen manifest id on a private local plugin
+// ---------------------------------------------------------------------------
+
+test("plugin_loaded carries only the discovery origin, never the manifest id", async () => {
+  const { telemetry, wire, events } = harness();
+  const root = await tempDir("corbits-plugin-");
+  const pluginDir = join(root, "plugin");
+  await mkdir(join(pluginDir, "commands"), { recursive: true });
+  await writeFile(
+    join(pluginDir, "plugin.json"),
+    JSON.stringify({ id: "acmecorp/internal-tools", name: "acmecorp internal tools", version: "1.0.0" }),
+  );
+  await writeFile(join(pluginDir, "commands", "ship.md"), "---\ndescription: ship it\n---\n\nShip.\n");
+
+  const mod = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
+
+  expect(mod).not.toBeNull();
+  const [event] = await events();
+  expect(event?.event).toBe("plugin_loaded");
+  expect(event?.properties.origin).toBe("project");
+  expect(event?.properties.plugin_id).toBeUndefined();
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// 4. agent_name — agent profiles are user-definable per project
+// ---------------------------------------------------------------------------
+
+test("subagent events bucket a project-defined profile id to \"custom\"", async () => {
+  const { telemetry, wire, events } = harness();
+  const cwd = await tempDir("corbits-agent-");
+  const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
+
+  const tool = createTaskTool({
+    cwd,
+    getWorkdirBase: () => cwd,
+    permissionGate: gate,
+    provider: { providerName: "test-provider", baseURL: "http://localhost", model: "test-model" },
+    profiles: [{ id: "acmecorp-release-captain", description: "release", prompt: "release" }],
+    run: async () => "done",
+    telemetry,
+  });
+  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  await tool.handler(
+    {
+      id: "call-1",
+      name: "task",
+      arguments: { description: "Ship", prompt: "Ship it", agent: "acmecorp-release-captain" },
+    },
+    new AbortController().signal,
+  );
+
+  const captured = await events();
+  const names = captured.map((e) => e.event);
+  expect(names).toContain("subagent_start");
+  expect(names).toContain("subagent_end");
+  for (const event of captured) {
+    expect(event.properties.agent_name).toBe("custom");
+    // Sub-agents run in this process on the same session id, so a parent id
+    // would only ever restate session_id.
+    expect(event.properties.parent_session_id).toBeUndefined();
+  }
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("the built-in worker label is reported by name", () => {
+  expect(classifyAgentName("worker")).toBe("worker");
+  expect(classifyAgentName("acmecorp-release-captain")).toBe("custom");
+});
+
+// ---------------------------------------------------------------------------
+// 5. command_name — plugins register into the same slash-command registry
+// ---------------------------------------------------------------------------
+
+test("slash_command buckets a plugin-registered command to \"custom\"", async () => {
+  const { telemetry, wire, events } = harness();
+
+  telemetry.capture("slash_command", { command_name: classifyCommandName("acmecorp-deploy") });
+  telemetry.capture("slash_command", { command_name: classifyCommandName("settings") });
+
+  const captured = await events();
+  expect(captured[0]?.properties.command_name).toBe("custom");
+  expect(captured[1]?.properties.command_name).toBe("settings");
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// crash — an application or plugin error subclass is author-chosen text
+// ---------------------------------------------------------------------------
+
+test("crash reports language error types by name and buckets everything else", async () => {
+  const { telemetry, wire, events } = harness();
+
+  class AcmeCorpVaultError extends Error {}
+  telemetry.capture("crash", {
+    kind: "uncaughtException",
+    error_class: classifyErrorClass(new AcmeCorpVaultError("boom")),
+  });
+  telemetry.capture("crash", {
+    kind: "unhandledRejection",
+    error_class: classifyErrorClass(new TypeError("boom")),
+  });
+  telemetry.capture("crash", { kind: "uncaughtException", error_class: classifyErrorClass("boom") });
+
+  const captured = await events();
+  expect(captured.map((e) => e.properties.error_class)).toEqual([
+    "custom",
+    "TypeError",
+    "non_error",
+  ]);
+  expect(await wire()).not.toContain("AcmeCorp");
+});
+
+// ---------------------------------------------------------------------------
+// auth_failure — the provider's rejection message names the profile
+// ---------------------------------------------------------------------------
+
+test("auth_failure names the provider and never ships the rejection message", async () => {
+  const { telemetry, wire, events } = harness();
+  const isCodexAuth = (e: unknown) => e instanceof Error && /codex profile/i.test(e.message);
+  const isXaiAuth = (e: unknown) => e instanceof Error && /xai profile/i.test(e.message);
+
+  const codexRejection = new Error('Codex profile "acmecorp-eng" is not authorized.');
+  const rejections = [
+    codexRejection,
+    new Error('xai profile "acmecorp-eng" is not authorized.'),
+    new Error("connection reset by /Users/someone/acmecorp"),
+  ];
+  for (const err of rejections) {
+    captureAuthFailure(
+      telemetry,
+      classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth),
+    );
+  }
+  // An aborted send outranks the auth match, so it must emit nothing.
+  captureAuthFailure(
+    telemetry,
+    classifyAgentSendFailure(codexRejection, true, isCodexAuth, isXaiAuth),
+  );
+
+  const captured = await events();
+  expect(captured.map((e) => e.event)).toEqual(["auth_failure", "auth_failure"]);
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual(["codex", "xai"]);
+  const body = await wire();
+  expect(body).not.toContain("acmecorp");
+  expect(body).not.toContain("error_class");
+});
+
+// ---------------------------------------------------------------------------
+// compaction — must not fire when the compactor did nothing
+// ---------------------------------------------------------------------------
+
+test("compaction fires only when turns were actually folded away", async () => {
+  const { telemetry, events } = harness();
+  const compactor = createSessionPruningCompactor({
+    compactionMode: "pruning",
+    summarize: async () => "summary",
+    telemetry,
+  });
+
+  const shortHistory = [
+    { role: "user" as const, content: [{ type: "text" as const, text: "hi" }], timestamp: 1 },
+  ];
+  await compactor.apply(shortHistory, {} as never);
+  expect(await events()).toEqual([]);
+
+  const longHistory = Array.from({ length: 60 }, (_, i) => ({
+    role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+    content: [{ type: "text" as const, text: `turn ${i}` }],
+    timestamp: i,
+  }));
+  await compactor.apply(longHistory, {} as never);
+
+  const captured = await events();
+  expect(captured.length).toBe(1);
+  expect(captured[0]?.event).toBe("compaction");
+  expect(captured[0]?.properties.mode).toBe("pruning");
+  expect(captured[0]?.properties.turns_before).toBe(60);
+});
+
+// ---------------------------------------------------------------------------
+// The allowlist itself: unknown events and unknown keys never reach the wire
+// ---------------------------------------------------------------------------
+
+test("an unknown event name is dropped rather than sent", async () => {
+  const { telemetry, wire } = harness();
+  telemetry.capture("not_a_real_event" as never, { anything: "acmecorp" });
+  expect(await wire()).toBe("[]");
+});
+
+test("keys outside an event's allowlist are stripped from the payload", async () => {
+  const { telemetry, wire, events } = harness();
+  telemetry.capture("permission_prompt", {
+    decision: "allow",
+    permission_kind: "run_shell",
+    command: "rm -rf /Users/someone/acmecorp-secrets",
+    subject: "/Users/someone/acmecorp-secrets",
+  });
+
+  const [event] = await events();
+  expect(event?.properties.command).toBeUndefined();
+  expect(await wire()).not.toContain("acmecorp");
+});

@@ -5,6 +5,7 @@
  * duplicating the state machine that produces it.
  */
 
+import type { Telemetry } from "../telemetry/index.js"
 import type { RampPhase } from "./ramp.js"
 
 /** Agent lifecycle status the progress label reads (mirrors the stream state). */
@@ -135,6 +136,20 @@ export function classifyAgentSendFailure(
 
 export function shouldSettleUiAfterSendFailure(kind: SendFailureKind): boolean {
   return kind === "codex_auth" || kind === "xai_auth" || kind === "error"
+}
+
+// Send-failure kinds are first-party constants, so the provider each one names
+// is a fixed mapping rather than a classification over author-chosen text.
+const AUTH_FAILURE_PROVIDERS: Partial<Record<SendFailureKind, string>> = {
+  codex_auth: "codex",
+  xai_auth: "xai",
+}
+
+/** Report which provider rejected the stored credentials; silent otherwise. */
+export function captureAuthFailure(telemetry: Telemetry, kind: SendFailureKind): void {
+  const provider = AUTH_FAILURE_PROVIDERS[kind]
+  if (provider === undefined) return
+  telemetry.capture("auth_failure", { auth_provider: provider })
 }
 
 // The stream carries a failure as a bare message string, so the auth errors are

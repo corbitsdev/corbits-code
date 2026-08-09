@@ -16,6 +16,7 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
+import type { Telemetry } from "../telemetry/index.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
@@ -112,6 +113,9 @@ export type AgentToolsetArgs = {
   // Real sessions always pass their detected values — see tool-search.ts for
   // why these must be fixed for the session's life.
   toolAvailability?: ToolAvailability;
+  // Records skill loads and sub-agent dispatch. Omitted (tests, ad-hoc
+  // toolsets) means those events are never emitted.
+  telemetry?: Telemetry;
   // When provided, the agent gets a `task` tool that delegates to autonomous
   // sub-agents. Omitted in contexts that cannot spawn sub-agents (e.g. tests).
   subAgent?: {
@@ -210,7 +214,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ),
     })),
     createListDirTool(cwd),
-    createUseSkillTool(cwd, skillDirs),
+    createUseSkillTool(cwd, skillDirs, args.telemetry),
     createWebFetchTool(),
     createWebSearchTool(),
     ...(subAgentsEnabled && args.subAgent !== undefined
@@ -237,6 +241,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ...(args.subAgent.useWorktree !== undefined
               ? { useWorktree: args.subAgent.useWorktree }
               : {}),
+            ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
           }),
           ...(args.subAgent.profiles !== undefined
             ? [

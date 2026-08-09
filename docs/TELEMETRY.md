@@ -6,13 +6,26 @@ includes prompts, code, file contents, or paths.
 
 ## What's collected
 
-Three events, each with a small set of properties:
+Each event carries a small set of properties:
 
 | Event | When | Properties |
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
 | `inference_turn` | Once per completed turn | `provider_id`, `model_id`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens`, `duration_ms` |
+| `slash_command` | A slash command is dispatched in the TUI | `command_name` |
+| `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
+| `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
+| `subagent_start` | A `task` dispatch begins | `agent_name` |
+| `subagent_end` | A `task` dispatch finishes | `agent_name`, `status`, `duration_ms` |
+| `permission_prompt` | An approval prompt is answered (or abandoned) | `decision`, `permission_kind` |
+| `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
+| `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
+| `auth_failure` | A provider rejects the stored credentials | `auth_provider` |
+
+`compaction` is deliberately silent on the runs where the compactor decides
+there is nothing to compact — an event that also fires on no-ops makes its own
+duration and turn-count averages meaningless.
 
 Common properties attached to every event: a random installation UUID
 (`distinct_id`), `session_id`, `service_version`, `os_type`, `os_arch`, and a
@@ -30,10 +43,45 @@ onboarding or settings. `model_id` is the model identifier exactly as
 configured — it is the one user-entered string that is sent, so do not put
 anything identifying in a model name.
 
+## Names are never sent, only categories
+
+Most of the things a usage event would naturally want to name are named by
+someone other than us: an MCP server key is a key in your settings, a skill is
+a directory in your repo, a plugin id is chosen by its author, an agent profile
+and a plugin's slash commands are project-local. On a private repo those names
+are your employer, your internal services, or fragments of your paths.
+
+So none of them are transmitted. Each is matched against a fixed list of names
+this project itself ships and reported as that name, or as `custom` when it
+matches nothing — with `mcp` as its own bucket for `permission_kind`, so the
+share of prompts driven by MCP stays visible without the server key coming
+with it. `skill_used` and `plugin_loaded` go further: there is no first-party
+list of skills or plugins to match against, so `skill_used` carries no name at
+all and `plugin_loaded` carries only `origin`, the discovery tier
+(`repo`, `user`, `project`, `path`).
+
+`error_class` is bucketed the same way: only the error types defined by the
+language are reported by name, because an error subclass defined in
+application or plugin code is as author-chosen as any other string. It appears
+on `crash` and nowhere else, so the column means one thing everywhere it is
+recorded.
+
+`auth_provider` is a separate property for that reason: it names which
+provider's sign-in was rejected (`codex`, `xai`), chosen from a fixed
+first-party set in `src/tui-opentui/session-chrome.ts`. No part of the
+provider's rejection message is sent.
+
+The mapping is `src/telemetry/classify.ts`, and the tests that feed each
+emission site a deliberately identifying name and assert it reaches no part of
+the payload are in `tests/unit/telemetry-product-events.test.ts`.
+
 ## What's never collected
 
 - Prompts, model output, or any conversation content
 - File paths, file contents, or repo/project names
+- Names anyone but this project chose: MCP servers, skills, plugins, agent
+  profiles, plugin-registered slash commands, error subclasses (see above)
+- Shell commands, tool arguments, or tool results
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above
 
@@ -45,6 +93,12 @@ Any of the following disables telemetry entirely:
 - Set `"telemetry": { "enabled": false }` in `~/.corbits/settings.json`
 - `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
 - `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
+
+Turning telemetry off also discards whatever is still queued and unsent.
+Events captured earlier in the session but not yet transmitted are thrown
+away at the moment you opt out, not sent on the way out — opting out covers
+the activity you have already generated, not just the activity still to
+come.
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —
@@ -92,9 +146,30 @@ Events are sent to PostHog. PostHog derives an approximate country from the
 request IP server-side; the client sends no location data itself. No
 self-hosted or third-party analytics beyond PostHog are used.
 
+## On the wire
+
+Events are not sent one at a time. Each captured event is stamped with its
+capture time and held in an in-memory queue, which is posted to PostHog's
+`/batch/` endpoint when it reaches the batch size or when the batch
+interval elapses, whichever comes first. At most one request is ever in
+flight: events captured while a request is open wait for it rather than
+opening another connection. Exit paths flush the queue, bounded by a short
+deadline so a slow endpoint cannot delay quitting.
+
+The queue has a hard depth limit. Once it is full — which in practice means
+the endpoint is unreachable, as on a captive portal or behind a hung proxy
+— the oldest queued events are dropped to make room for new ones. Telemetry
+is therefore lossy by design: it never grows memory without bound, never
+retries indefinitely, and never blocks or reports failures to the user.
+Nothing is written to disk, so dropped events are gone rather than deferred
+to a later run.
+
+See `src/telemetry/index.ts` for the batch size, interval, and queue limit
+in force.
+
 ## Not this document
 
 Local performance tracing and optional OpenTelemetry export to an operator-owned
 collector (Phoenix, PostHog OTEL, Jaeger, generic OTLP) are documented in
-`docs/PERFTRACE.md`. That pipe is separate: it does not expand these three
-events, and product telemetry opt-out does not control OTEL export.
+`docs/PERFTRACE.md`. That pipe is separate: it does not expand the events
+above, and product telemetry opt-out does not control OTEL export.

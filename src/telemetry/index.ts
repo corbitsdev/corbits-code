@@ -20,13 +20,41 @@ export const POSTHOG_API_KEY = process.env[TELEMETRY_KEY_ENV] ?? DEFAULT_POSTHOG
 // in flight past this is dropped.
 const FLUSH_DEADLINE_MS = 500;
 
+// Batching defaults. A busy turn can emit an event per tool call, so events
+// accumulate until either trigger fires rather than opening a socket each
+// time. The queue limit bounds memory when the endpoint is unreachable —
+// a captive portal or hung proxy would otherwise grow the queue for the
+// whole session behind a single stuck request.
+const DEFAULT_BATCH_SIZE = 20;
+const DEFAULT_BATCH_INTERVAL_MS = 10_000;
+const DEFAULT_QUEUE_LIMIT = 500;
+const REQUEST_TIMEOUT_MS = 3000;
+
+export type BatchTuning = {
+  size?: number;
+  intervalMs?: number;
+  queueLimit?: number;
+};
+
 // Shown once per installation, in whichever surface a new user reaches
 // first: the onboarding panel on a fresh install (so disclosure accompanies
 // the very first event), and the TUI banner otherwise.
 export const TELEMETRY_NOTICE =
   "Anonymous usage telemetry is enabled (no prompts, code, or paths collected). Disable in /settings > Telemetry. Docs: docs/TELEMETRY.md";
 
-export type TelemetryEvent = "cli_start" | "session_end" | "inference_turn";
+export type TelemetryEvent =
+  | "cli_start"
+  | "session_end"
+  | "inference_turn"
+  | "slash_command"
+  | "skill_used"
+  | "plugin_loaded"
+  | "subagent_start"
+  | "subagent_end"
+  | "permission_prompt"
+  | "compaction"
+  | "crash"
+  | "auth_failure";
 
 // One id per interactive process (TUI session or CLI invocation), generated
 // once at module load and reused by every createTelemetry() instance for the
@@ -57,7 +85,28 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "thinking_tokens",
     "duration_ms",
   ],
+  // Every identifier below is a first-party enum produced by
+  // src/telemetry/classify.ts, not the name the user or author wrote. The
+  // allowlist bounds which keys travel; the classifiers bound which values
+  // can, and the two are independent guards on purpose.
+  slash_command: ["command_name"],
+  // Skill names are project- or plugin-authored with no first-party set to
+  // match against, so the event counts skill use and carries nothing else.
+  skill_used: [],
+  // origin is the discovery tier (repo/user/project/path); the manifest id is
+  // author-chosen free text and is not sent.
+  plugin_loaded: ["origin"],
+  subagent_start: ["agent_name"],
+  subagent_end: ["agent_name", "status", "duration_ms"],
+  permission_prompt: ["decision", "permission_kind"],
+  compaction: ["mode", "duration_ms", "turns_before", "turns_after"],
+  crash: ["kind", "error_class"],
+  // Which provider rejected the credentials, not why — the rejection detail is
+  // provider-authored text and error_class means a JS constructor name.
+  auth_failure: ["auth_provider"],
 };
+
+const KNOWN_EVENTS: ReadonlySet<string> = new Set(Object.keys(EVENT_PROPERTY_ALLOWLIST));
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -113,19 +162,44 @@ export type CreateTelemetryOptions = {
   fetchFn?: typeof fetch;
   host?: string;
   apiKey?: string;
+  batch?: BatchTuning;
+};
+
+type QueuedEvent = {
+  event: TelemetryEvent;
+  properties: Record<string, unknown>;
+  timestamp: string;
 };
 
 export type Telemetry = {
   enabled: boolean;
   capture(event: TelemetryEvent, properties?: Record<string, unknown>): void;
-  // Waits briefly for captures currently in flight to settle, giving up
+  // Sends whatever is queued and waits briefly for it to settle, giving up
   // after a short deadline so a slow endpoint can never hold up process
   // exit. Callers use this to bound exit against dropped fire-and-forget
   // requests without ever making capture() itself blocking.
   flush(): Promise<void>;
+  // Throws away everything queued and disarms the batch timer, so nothing
+  // captured before this call can ever reach the network. Opting out uses
+  // this: a user who says stop mid-session is saying they do not want the
+  // activity they have already generated sent, which makes discarding the
+  // queue the honest reading of that intent and flushing it a betrayal.
+  discard(): void;
 };
 
-// Fire-and-forget PostHog capture client. Never throws, never blocks the
+// Stand-in for callers that were constructed without a telemetry handle —
+// tests, and any code path that runs before startup has built the real one.
+// Modules take Telemetry as an injected dependency rather than reaching for a
+// global, and this is what makes "not injected" mean "emits nothing" instead
+// of "throws".
+export const NOOP_TELEMETRY: Telemetry = {
+  enabled: false,
+  capture: () => {},
+  flush: async () => {},
+  discard: () => {},
+};
+
+// Fire-and-forget PostHog batch client. Never throws, never blocks the
 // caller — errors (including timeouts) are swallowed silently since
 // telemetry must never affect product behavior.
 export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
@@ -136,18 +210,64 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const fetchFn = options.fetchFn ?? fetch;
   const installationId = options.settings?.telemetry?.installationId ?? "";
 
-  // Tracked so flush() can wait for in-flight requests without making
-  // capture() itself awaitable.
-  const pending = new Set<Promise<void>>();
+  const batchSize = options.batch?.size ?? DEFAULT_BATCH_SIZE;
+  const batchIntervalMs = options.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
+  const queueLimit = options.batch?.queueLimit ?? DEFAULT_QUEUE_LIMIT;
+
+  const queue: QueuedEvent[] = [];
+  let inFlight: Promise<void> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelTimer(): void {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+  }
+
+  async function send(events: QueuedEvent[]): Promise<void> {
+    const body = {
+      api_key: apiKey,
+      batch: events.map((queued) => ({
+        event: queued.event,
+        timestamp: queued.timestamp,
+        properties: { ...queued.properties, distinct_id: installationId },
+      })),
+    };
+    try {
+      await fetchFn(`${host}/batch/`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      // Swallow all errors — telemetry must never surface failures.
+    }
+  }
+
+  // Returns the existing drain when one is running so at most one request is
+  // ever open: events captured mid-flight are picked up by that drain's next
+  // iteration instead of opening a second socket.
+  function drain(): Promise<void> {
+    if (inFlight !== null) return inFlight;
+    const running = (async () => {
+      while (queue.length > 0) {
+        await send(queue.splice(0, batchSize));
+      }
+    })().finally(() => {
+      inFlight = null;
+    });
+    inFlight = running;
+    return running;
+  }
 
   function capture(event: TelemetryEvent, properties?: Record<string, unknown>): void {
     if (!enabled) return;
-    if (!(event === "cli_start" || event === "session_end" || event === "inference_turn")) return;
+    if (!KNOWN_EVENTS.has(event)) return;
 
-    const body = {
-      api_key: apiKey,
+    queue.push({
       event,
-      distinct_id: installationId,
+      timestamp: new Date().toISOString(),
       properties: {
         ...allowedProperties(event, properties),
         service_version: pkg.version,
@@ -156,34 +276,47 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
         schema_version: 1,
         session_id: SESSION_ID,
       },
-    };
+    });
 
-    const request = fetchFn(`${host}/capture/`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(3000),
-    })
-      .then(() => undefined)
-      .catch(() => {
-        // Swallow all errors — telemetry must never surface failures.
-      });
-    pending.add(request);
-    void request.finally(() => pending.delete(request));
+    // Oldest first: a stuck endpoint makes the head of the queue the least
+    // likely to still be worth reporting, and unbounded growth is never an
+    // acceptable alternative.
+    if (queue.length > queueLimit) queue.splice(0, queue.length - queueLimit);
+
+    if (queue.length >= batchSize) {
+      cancelTimer();
+      void drain();
+      return;
+    }
+    if (timer === null) {
+      timer = setTimeout(() => {
+        timer = null;
+        void drain();
+      }, batchIntervalMs);
+      timer.unref?.();
+    }
   }
 
   async function flush(): Promise<void> {
-    if (pending.size === 0) return;
+    cancelTimer();
+    if (queue.length === 0 && inFlight === null) return;
     // Race against a short deadline: stragglers are dropped rather than
-    // allowed to delay exit for the full 3s per-request AbortSignal window.
+    // allowed to delay exit for the full per-request AbortSignal window.
     await Promise.race([
-      Promise.allSettled(pending),
+      drain(),
       new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, FLUSH_DEADLINE_MS);
-        timer.unref?.();
+        const deadline = setTimeout(resolve, FLUSH_DEADLINE_MS);
+        deadline.unref?.();
       }),
     ]);
   }
 
-  return { enabled, capture, flush };
+  // A request already on the wire cannot be unsent, but nothing still held
+  // in memory follows it.
+  function discard(): void {
+    cancelTimer();
+    queue.length = 0;
+  }
+
+  return { enabled, capture, flush, discard };
 }

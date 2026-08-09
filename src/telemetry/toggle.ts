@@ -57,10 +57,14 @@ export function createTelemetryToggleHandler(
       return;
     }
     if (!enabled) {
-      // Opt-out must be immediate and absolute: swap the in-memory singleton
-      // synchronously, before any await, so no capture in flight during the
-      // persistence step below can land on a still-enabled instance, and so
-      // an unhandled rejection from disk I/O can never leave telemetry on.
+      // Opt-out must be immediate and absolute: discard whatever the outgoing
+      // instance has queued (dropping the singleton alone would leave its
+      // batch timer armed to send it anyway), then swap the in-memory
+      // singleton synchronously, before any await, so no capture in flight
+      // during the persistence step below can land on a still-enabled
+      // instance, and so an unhandled rejection from disk I/O can never
+      // leave telemetry on.
+      deps.getTelemetry().discard();
       deps.setTelemetry(
         deps.createTelemetry({ settings: { providers: {}, telemetry: { enabled: false } } }),
       );

@@ -28,6 +28,25 @@ import {
 import type { MCPClient } from "../mcp/client.js";
 import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
+import { classifyPermissionKind } from "../telemetry/classify.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+
+// Closes out an operator prompt: ends the wait span and records the outcome.
+// buildRequests yields at most one request per tool call, and the two prompt
+// sites below are mutually exclusive, so this runs once per prompt shown.
+function finishApprovalWait(
+  telemetry: Telemetry,
+  waitSpanId: string,
+  tool: string,
+  outcome: ApprovalOutcome | undefined,
+): void {
+  const decision = outcome !== undefined && outcome.allow ? "allow" : "deny";
+  end(waitSpanId, outcome !== undefined ? { decision } : undefined);
+  telemetry.capture("permission_prompt", {
+    decision,
+    permission_kind: classifyPermissionKind(tool),
+  });
+}
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
 
@@ -211,6 +230,10 @@ export type PermissionGateOptions = {
   // restriction anchored to the session cwd; a caller resolving a sub-agent
   // request's own cwd would clear restrictions the gate still enforces.
   onGrant?: (approval: Approval, covers: (request: PermissionRequest) => boolean) => void;
+  // Records that a prompt was shown and how it was answered. Injected rather
+  // than read from the process-wide handle so a gate built without one is
+  // silent by construction.
+  telemetry?: Telemetry;
 };
 
 export type PermissionGate = {
@@ -246,6 +269,7 @@ export type PermissionGate = {
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
+  const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
   const rootsProvider = options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
@@ -463,12 +487,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         try {
           outcome = await requestApproval(requestForOperator);
         } finally {
-          end(
-            waitSpanId,
-            outcome !== undefined
-              ? { decision: outcome.allow ? "allow" : "deny" }
-              : undefined,
-          );
+          finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
         }
         if (outcome === undefined || !outcome.allow) {
           const suffix =
@@ -516,12 +535,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       try {
         outcome = await requestApproval(request);
       } finally {
-        end(
-          waitSpanId,
-          outcome !== undefined
-            ? { decision: outcome.allow ? "allow" : "deny" }
-            : undefined,
-        );
+        finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
       }
       if (outcome === undefined || !outcome.allow) {
         const suffix =

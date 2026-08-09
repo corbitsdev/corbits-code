@@ -56,6 +56,43 @@ test("capture called immediately after toggle-off makes zero fetch calls", () =>
   expect(fetchCalls()).toBe(0);
 });
 
+// Opting out is a statement about activity already generated, not only about
+// activity to come: events captured before the toggle must never be sent
+// afterwards. Dropping the singleton is not enough on its own — the outgoing
+// instance's batch timer would still fire and post its queue — so this test
+// guards the explicit discard. If a future change makes opt-out flush what it
+// was holding, this fails, and that is the point.
+test("opting out discards events captured before the toggle instead of sending them", async () => {
+  let sends = 0;
+  const fetchFn = (() => {
+    sends++;
+    return Promise.resolve(new Response("1", { status: 200 }));
+  }) as unknown as typeof fetch;
+  const { deps, getInstance } = fakeDeps({
+    createTelemetry: (opts) =>
+      createTelemetry({
+        ...opts,
+        env: opts.env ?? {},
+        apiKey: opts.apiKey ?? "test-key",
+        fetchFn,
+        // Short enough that an undiscarded queue would reach the network well
+        // inside this test's wait, rather than passing by outrunning a timer.
+        batch: { intervalMs: 20 },
+      }),
+  });
+  const handler = createTelemetryToggleHandler("/fake/path", deps);
+
+  handler(true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  getInstance().capture("cli_start");
+  expect(sends).toBe(0);
+
+  handler(false);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  expect(getInstance().enabled).toBe(false);
+  expect(sends).toBe(0);
+});
+
 test("save rejection leaves the singleton disabled with no unhandled rejection", async () => {
   const { deps, getInstance } = fakeDeps({
     saveGlobalSettings: async () => {
@@ -90,7 +127,12 @@ test("load failure skips persistence entirely and stays disabled in memory", asy
 test("toggle on while env-killed writes nothing and swaps no instance", async () => {
   let ensureCalled = false;
   let saveCalled = false;
-  const initial: Telemetry = { enabled: false, capture: () => {}, flush: async () => {} };
+  const initial: Telemetry = {
+    enabled: false,
+    capture: () => {},
+    flush: async () => {},
+    discard: () => {},
+  };
   let setInstance: Telemetry | undefined;
   const { deps } = fakeDeps({
     getTelemetry: () => initial,
@@ -180,7 +222,7 @@ test("toggle on re-enables after settings load/save resolve", async () => {
 });
 
 test("session_id on captured payloads stays constant across an enable/disable/enable toggle cycle", async () => {
-  const capturedBodies: { properties: Record<string, unknown> }[] = [];
+  const capturedBodies: { batch: { properties: Record<string, unknown> }[] }[] = [];
   const fetchFn = ((_url: string, init: RequestInit) => {
     capturedBodies.push(JSON.parse(init.body as string));
     return Promise.resolve(new Response("1", { status: 200 }));
@@ -197,6 +239,9 @@ test("session_id on captured payloads stays constant across an enable/disable/en
   handler(true);
   await new Promise((resolve) => setTimeout(resolve, 10));
   getInstance().capture("cli_start");
+  // Toggling off discards the outgoing instance and its queue, so anything
+  // captured before it has to leave the process first.
+  await getInstance().flush();
 
   handler(false);
   await new Promise((resolve) => setTimeout(resolve, 10));
@@ -205,12 +250,12 @@ test("session_id on captured payloads stays constant across an enable/disable/en
   handler(true);
   await new Promise((resolve) => setTimeout(resolve, 10));
   getInstance().capture("cli_start");
+  await getInstance().flush();
 
-  await new Promise((resolve) => setTimeout(resolve, 0));
   expect(capturedBodies.length).toBe(2);
-  const sessionId = capturedBodies[0].properties.session_id;
+  const sessionId = capturedBodies[0].batch[0].properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(capturedBodies[1].properties.session_id).toBe(sessionId);
+  expect(capturedBodies[1].batch[0].properties.session_id).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });
