@@ -471,7 +471,7 @@ function dispatchOverlayAccept(
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
-  "root" | "width" | "height" | "keyInput" | "on" | "off"
+  "root" | "width" | "height" | "keyInput" | "on" | "off" | "isDestroyed"
 >
 
 export type AppShellOptions = {
@@ -1930,6 +1930,13 @@ type ShellInternals = {
   landingAnimating: boolean
   /** Clock of the last painted mark frame, so a resize can redraw in place. */
   landingNowMs: number
+  /**
+   * Cancels the mount-scoped idle repaint timer (see `armLandingIdleTimer`
+   * in `createAppShell`), or null while none is armed. Cleared by whichever
+   * teardown happens first — the landing going away (`clearLandingMark`) or
+   * the whole shell disposing (`dispose`) — so it can never outlive either.
+   */
+  landingIdleTimerCancel: (() => void) | null
   /** Chrome content (empty array = zone off). */
   chrome: {
     /**
@@ -2533,6 +2540,8 @@ function clearLandingMark(shell: AppShell): void {
   const landing = bag?.landing
   if (bag === undefined || landing === null || landing === undefined) return
   bag.landing = null
+  bag.landingIdleTimerCancel?.()
+  bag.landingIdleTimerCancel = null
   shell.transcript.remove(landing.above.box)
   destroySubtree(landing.above.box)
   shell.root.remove(landing.below)
@@ -2556,26 +2565,36 @@ function clearLandingMark(shell: AppShell): void {
 }
 
 /**
- * Repaint the landing mark for `nowMs`. `animating` runs the draw/fill/fade
- * timeline; anything else holds the filled frame. No-op once the landing is
- * gone, so the caller can drive it unconditionally.
+ * Cadence of the mount-scoped idle repaint timer (see `armLandingIdleTimer`
+ * in `createAppShell`). The snow only needs to advance about half a row per
+ * second, so ~8fps is comfortably enough to read as motion.
+ */
+const LANDING_IDLE_REPAINT_INTERVAL_MS = 125
+
+/**
+ * Repaint the landing mark for `nowMs`. `animating` runs the mountain's
+ * draw/fill/fade timeline; anything else holds its filled frame. No-op once
+ * the landing is gone, so the caller can drive it unconditionally.
  *
- * A still mark draws the same frame for every clock value, so repainting it
- * only dirties renderables; the guard mirrors `setLockupFrame` and lets an idle
- * session sit without touching the paint tree.
+ * Always repaints while the landing is up, even when `animating` is false:
+ * the landing is idle by definition (no turn processing), and snow still
+ * needs to drift across a frozen mountain. Driven by the mount-scoped timer
+ * armed in `createAppShell` (see `armLandingIdleTimer`) rather than a render
+ * event, so the repaint cadence is independent of however often the renderer
+ * happens to paint.
  */
 export function paintLanding(
   shell: AppShell,
   nowMs: number,
   animating: boolean,
+  reducedMotion = false,
 ): void {
   const bag = internals.get(shell)
   const landing = bag?.landing
   if (bag === undefined || landing === null || landing === undefined) return
-  if (!animating && !bag.landingAnimating) return
   bag.landingAnimating = animating
   bag.landingNowMs = nowMs
-  paintLandingMark(landing.above, nowMs, !animating)
+  paintLandingMark(landing.above, nowMs, !animating, reducedMotion)
 }
 
 /** True while the landing composition is still mounted. */
@@ -5687,6 +5706,7 @@ export function createAppShell(
       }
       renderer.off(CliRenderEvents.FRAME, onFrame)
       renderer.off(CliRenderEvents.RESIZE, onResize)
+      internals.get(shell)?.landingIdleTimerCancel?.()
       flashTimers.get(shell)?.()
       flashTimers.delete(shell)
       try {
@@ -5726,9 +5746,48 @@ export function createAppShell(
     landingSuggestionsVisible: true,
     landingAnimating: false,
     landingNowMs: 0,
+    landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
     tasksPanelHidden: false,
   })
+  // The landing's snow needs a frame source that keeps running while the
+  // turn monitor is deliberately quiet (idle, no session yet). A plain timer
+  // armed at mount is that source: it does not depend on the renderer
+  // scheduling further frames, so it cannot stall the way riding the
+  // renderer's own FRAME event did (see CL-5737 history in the PR).
+  //
+  // Only repaints while idle (`landingAnimating` false): while a turn is
+  // processing, `paintPhaseAt` in runtime-bridge.ts drives the mountain's
+  // own draw/fill/fade loop off the turn monitor's clock, and this timer
+  // must not stomp that with an unrelated real-clock value.
+  //
+  // Cleared on whichever teardown happens first: the landing going away
+  // (`clearLandingMark`, first transcript row) or the whole shell disposing
+  // (`dispose` below, e.g. tests that never grow a transcript).
+  //
+  // Also self-cancels on `renderer.isDestroyed`: a real terminal session
+  // always disposes the shell, but headless test harnesses commonly destroy
+  // the renderer directly (`withTestRenderer`'s cleanup) without ever
+  // calling `shell.dispose()`. Without this check the timer would keep
+  // firing against renderables the harness already tore down.
+  const landingIdleHandle = setInterval(() => {
+    if (renderer.isDestroyed) {
+      clearInterval(landingIdleHandle)
+      return
+    }
+    const bag = internals.get(shell)
+    if (bag?.landing == null || bag.landingAnimating) return
+    paintLanding(shell, Date.now(), false)
+  }, LANDING_IDLE_REPAINT_INTERVAL_MS)
+  landingIdleHandle.unref?.()
+  {
+    const bag = internals.get(shell)
+    if (bag !== undefined) {
+      bag.landingIdleTimerCancel = () => clearInterval(landingIdleHandle)
+    } else {
+      clearInterval(landingIdleHandle)
+    }
+  }
   transcriptSpacers.set(shell, transcriptSpacer)
   if (onCommandOpt) setPaletteOnCommand(shell, onCommandOpt)
   if (onObserveRequestOpt) {
