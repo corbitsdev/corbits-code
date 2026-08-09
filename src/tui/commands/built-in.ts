@@ -5,6 +5,7 @@ import {
   parseChangelog,
   resolveChangelogPath,
 } from "../../changelog/index.js";
+import { FEEDBACK_PROMPT, isFeedbackConfigured } from "../../telemetry/feedback.js";
 
 /**
  * Register every built-in slash command.
@@ -160,6 +161,30 @@ export function registerBuiltInCommands(): void {
         fullHint: "Run /changelog full for complete history.",
       });
       return { type: "message", text: formatted.markdown };
+    },
+  });
+
+  // Intentional product feedback → PostHog survey (headless). Can ship when
+  // ambient telemetry is off; env kill switches still block. Free text 2000 cap.
+  // Hidden from the slash menu until survey env ids are set (still callable).
+  registerCommand({
+    name: "feedback",
+    description: "Send product feedback (env kill switches still apply)",
+    argumentHint: "[your feedback]",
+    available: () => isFeedbackConfigured(),
+    handler: (args, ctx) => {
+      const text = args.trim();
+      if (text.length === 0) {
+        if (ctx.beginFeedbackCapture === undefined) {
+          return { type: "message", text: "Feedback is not available in this mode." };
+        }
+        ctx.beginFeedbackCapture();
+        return { type: "message", text: FEEDBACK_PROMPT };
+      }
+      if (ctx.submitFeedback === undefined) {
+        return { type: "message", text: "Feedback is not available in this mode." };
+      }
+      return { type: "message", text: ctx.submitFeedback(text) };
     },
   });
 

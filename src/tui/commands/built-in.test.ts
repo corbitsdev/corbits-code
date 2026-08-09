@@ -150,3 +150,54 @@ describe("/cost command", () => {
     expect((result as { text: string }).text).toContain("Cost: $0.4200");
   });
 });
+
+describe("/feedback command", () => {
+  it("is registered", () => {
+    expect(getCommand("feedback")).toBeDefined();
+  });
+
+  it("arms multi-turn capture when invoked bare", () => {
+    let armed = false;
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      beginFeedbackCapture: () => {
+        armed = true;
+      },
+    };
+    expect(getCommand("feedback")!.handler("", ctx)).toEqual({
+      type: "message",
+      text: "Please share your feedback. When done please hit enter. (Empty Enter cancels.)",
+    });
+    expect(armed).toBe(true);
+  });
+
+  it("submits inline text immediately", () => {
+    const sent: string[] = [];
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      submitFeedback: (text) => {
+        sent.push(text);
+        return "Thanks — feedback sent.";
+      },
+    };
+    expect(getCommand("feedback")!.handler("love the TUI", ctx)).toEqual({
+      type: "message",
+      text: "Thanks — feedback sent.",
+    });
+    expect(sent).toEqual(["love the TUI"]);
+  });
+
+  it("fails closed for bare /feedback when capture is not wired", () => {
+    expect(getCommand("feedback")!.handler("", makeCtx())).toEqual({
+      type: "message",
+      text: "Feedback is not available in this mode.",
+    });
+  });
+
+  it("explains when the feedback path is not wired", () => {
+    expect(getCommand("feedback")!.handler("x", makeCtx())).toEqual({
+      type: "message",
+      text: "Feedback is not available in this mode.",
+    });
+  });
+});

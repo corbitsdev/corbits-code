@@ -56,6 +56,14 @@ export type RunnerHostDeps = {
     text: string,
     attachments?: readonly PendingImageAttachment[],
   ) => void
+  /**
+   * Classify a submit without side effects so slash commands and multi-turn
+   * /feedback never mark the session busy or enter the mid-run queue.
+   */
+  readonly classifySubmit?: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => "agent" | "local" | "empty"
   readonly interrupt: () => void
   readonly deliver?: (
     text: string,
@@ -249,6 +257,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     eventEmitter: deps.eventEmitter,
     send: deps.send,
     interrupt: deps.interrupt,
+    ...(deps.classifySubmit !== undefined
+      ? { classifySubmit: deps.classifySubmit }
+      : {}),
     ...(deps.deliver !== undefined ? { deliver: deps.deliver } : {}),
     ...(deps.onConnectProvider !== undefined
       ? { onConnectProvider: deps.onConnectProvider }

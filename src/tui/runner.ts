@@ -94,11 +94,21 @@ import {
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
+import {
+  armFeedbackCapture,
+  cancelFeedbackCapture,
+  captureFeedback,
+  feedbackResultMessage,
+  getLastTurnTraceId,
+  isFeedbackCapturePending,
+  takeFeedbackCapture,
+} from "../telemetry/feedback.js";
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
-import { classifyCommandName } from "../telemetry/classify.js";
+import { captureSlashCommand } from "../telemetry/product-events.js";
 import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
+
 import { loadStartupChangelogMarkdown } from "../changelog/index.js";
 import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -128,6 +138,7 @@ import {
   type SubAgentProvider,
 } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
@@ -294,7 +305,7 @@ export async function loadLocalSettingsWriteBase(
   }
 }
 
-function buildCompactionContinuationMessage(): InboundMessage {
+export function buildCompactionContinuationMessage(): InboundMessage {
   return {
     ref: { uid: 0, mailbox: "system" },
     headers: {
@@ -344,25 +355,98 @@ export type SubmitHandlerDeps = {
   sendPrompt: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
+  /**
+   * When true, the next non-command submit is treated as intentional feedback
+   * text (bare `/feedback` multi-turn mode) instead of a model prompt.
+   */
+  isFeedbackCapturePending?: () => boolean;
+  /** Consume the pending feedback arm and handle the text; return operator message. */
+  onFeedbackText?: (text: string) => string;
+  /** Drop a pending multi-turn /feedback arm (empty Enter cancel). */
+  cancelFeedbackCapture?: () => void;
+  /** Surface a local system notice (feedback thanks / blocked / cancelled). */
+  onSystemNotice?: (text: string) => void;
 };
+
 
 /**
  * Composer submit handler. Slash input is dispatched against the command
- * registry instead of being sent to the model.
+ * registry instead of being sent to the model. When feedback capture is armed
+ * (bare `/feedback`), the next non-command line is captured as survey text.
+ *
+ * Returns an outcome so the session bridge can keep local-only submits off the
+ * agent busy path and out of the mid-run queue.
  */
+export type SubmitOutcome = "agent" | "local" | "empty";
+
+/**
+ * Classify a composer line without side effects. Local = slash command or
+ * armed multi-turn feedback text; empty = no-op (or cancel-feedback); agent =
+ * real model turn.
+ */
+export function classifySubmission(
+  text: string,
+  options: {
+    hasAttachments?: boolean;
+    feedbackPending?: boolean;
+    feedbackCaptureEnabled?: boolean;
+  } = {},
+): SubmitOutcome {
+  const route = routeSubmission(text);
+  const hasAttachments = options.hasAttachments === true;
+  if (route.kind === "empty" && !hasAttachments) return "empty";
+  if (route.kind === "command") return "local";
+  if (
+    route.kind === "prompt" &&
+    options.feedbackPending === true &&
+    options.feedbackCaptureEnabled === true
+  ) {
+    return "local";
+  }
+  return "agent";
+}
+
 export function createSubmitHandler(
   deps: SubmitHandlerDeps,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+): (text: string, attachments?: readonly PendingImageAttachment[]) => SubmitOutcome {
   return (text, attachments) => {
     const route = routeSubmission(text);
     const hasAttachments = attachments !== undefined && attachments.length > 0;
-    if (route.kind === "empty" && !hasAttachments) return;
+    const feedbackPending = deps.isFeedbackCapturePending?.() === true;
+    const feedbackCaptureEnabled = deps.onFeedbackText !== undefined;
+    const outcome = classifySubmission(text, {
+      hasAttachments,
+      feedbackPending,
+      feedbackCaptureEnabled,
+    });
+
+    // Empty Enter while /feedback is armed cancels instead of trapping the
+    // operator until they type free text or /clear.
+    if (outcome === "empty") {
+      if (feedbackPending) {
+        deps.cancelFeedbackCapture?.();
+        deps.onSystemNotice?.("Feedback cancelled.");
+      }
+      return "empty";
+    }
     if (route.kind === "command") {
+      // Any other slash command drops a bare-/feedback arm so the next
+      // free-text line is not mis-routed as survey text.
+      if (feedbackPending && route.name !== "feedback") {
+        deps.cancelFeedbackCapture?.();
+      }
       deps.dispatchCommand(route.name, route.args);
-      return;
+      return "local";
+    }
+    // Multi-turn /feedback: next Enter is survey text, not a model prompt.
+    if (outcome === "local" && deps.onFeedbackText !== undefined) {
+      const notice = deps.onFeedbackText(route.kind === "prompt" ? route.text : text);
+      deps.onSystemNotice?.(notice);
+      return "local";
     }
     deps.onPromptSubmitted?.();
     deps.sendPrompt(route.kind === "prompt" ? route.text : "", attachments);
+    return "agent";
   };
 }
 
@@ -370,8 +454,11 @@ export function createSubmitHandler(
 export const IMAGE_ONLY_PROMPT = "Please inspect the attached image.";
 
 /**
- * Build the inbound message carrying image attachments. Plain text sends stay
- * on the string overload; only attachment sends need the envelope.
+ * Build the inbound message for a genuine operator submit — the real
+ * prompt-submit path in the TUI (sendUserPrompt / the "send" command
+ * result), with or without attachments. Carries OPERATOR_ORIGINATED_FLAG so
+ * director.ts's loop-protection backstop can tell this apart from
+ * system-originated sends (compaction continuations, retries, nudges).
  */
 export function userInboundMessage(
   text: string,
@@ -386,7 +473,7 @@ export function userInboundMessage(
       messageId: `<${crypto.randomUUID()}@local>`,
       interchangeType: "conversation.message",
     },
-    flags: [],
+    flags: [OPERATOR_ORIGINATED_FLAG],
     signatureStatus: "missing",
     content: text.length > 0 ? text : IMAGE_ONLY_PROMPT,
     attachments: attachments.map((a) => ({
@@ -1657,6 +1744,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
+    cancelFeedbackCapture();
     // Wipe the painted transcript immediately. The product host listens for
     // session.clear; the Ink App used to clear its own stream unconditionally
     // and that path never moved to OpenTUI.
@@ -1807,6 +1895,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       void renameSession(config.cwd, sessionId, trimmed).then(() => persistRunSnapshot("running"));
       return undefined;
     },
+    submitFeedback: (text) => {
+      // Inline /feedback <text> must drop a prior bare-/feedback arm so the
+      // next normal prompt is not stolen as survey text.
+      cancelFeedbackCapture();
+      const status = captureFeedback(getTelemetry(), text, {
+        turnTraceId: getLastTurnTraceId(),
+      });
+      return feedbackResultMessage(status);
+    },
+    beginFeedbackCapture: () => {
+      armFeedbackCapture();
+    },
   };
 
   // Routed through the shell's notice path rather than straight into the
@@ -1820,14 +1920,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   /** Settle the shell after a rejected send so the run does not look live. */
   const handleSendFailure = (err: unknown): void => {
-    const kind = classifyAgentSendFailure(
+    const failure = classifyAgentSendFailure(
       err,
       sendAborted,
       isCodexAuthError,
       isXaiAuthError,
     );
-    captureAuthFailure(getTelemetry(), kind);
-    if (!shouldSettleUiAfterSendFailure(kind)) return;
+    captureAuthFailure(getTelemetry(), failure);
+    if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
     recordRunError(err);
     systemNotice(err instanceof Error ? err.message : String(err));
     setShellRunState(host.shell, "idle");
@@ -1877,7 +1977,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         systemNotice(result.text);
         return;
       case "send":
-        void agentProxy.send(result.text).catch(handleSendFailure);
+        // A command the operator typed and submitted at the prompt — same
+        // provenance as a plain-text send, just composed by the command
+        // handler instead of typed verbatim.
+        void agentProxy.send(userInboundMessage(result.text, [])).catch(handleSendFailure);
         return;
       case "workflow":
         systemNotice(workflowController.start(result.name));
@@ -1923,10 +2026,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const ingested = await ingestPathMentions(text, config.cwd, imageAttachmentFromPath);
     const resolved = await resolveAtMentions(ingested.text, config.cwd);
     const attachments = [...pending, ...ingested.attachments];
-    if (attachments.length === 0) {
-      await agentProxy.send(resolved);
-      return;
-    }
     await agentProxy.send(userInboundMessage(resolved, attachments));
   };
 
@@ -1938,7 +2037,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     }
     // Plugins register into the same command registry as the built-ins, so an
     // unrecognised name is plugin-authored and is bucketed rather than sent.
-    getTelemetry().capture("slash_command", { command_name: classifyCommandName(command.name) });
+    // Shared emitter so TUI and any headless path report the same event.
+    captureSlashCommand(getTelemetry(), command.name);
     applyCommandResult(command.handler(args, commandContext));
   };
 
@@ -1971,7 +2071,24 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           void activateHeldTelemetry(trueGlobalSettingsPath, () => liveTelemetryIntent);
         }
       },
+      isFeedbackCapturePending,
+      cancelFeedbackCapture,
+      onFeedbackText: (text) => {
+        takeFeedbackCapture();
+        const status = captureFeedback(getTelemetry(), text, {
+          turnTraceId: getLastTurnTraceId(),
+        });
+        return feedbackResultMessage(status);
+      },
+      onSystemNotice: systemNotice,
+
     }),
+    classifySubmit: (text, attachments) =>
+      classifySubmission(text, {
+        hasAttachments: attachments !== undefined && attachments.length > 0,
+        feedbackPending: isFeedbackCapturePending(),
+        feedbackCaptureEnabled: true,
+      }),
     interrupt,
     // Consent by proceeding requires the disclosure to be on screen before the
     // first prompt activates the held telemetry instance: the landing shows it,
@@ -2225,8 +2342,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           }));
         },
         setTelemetryEnabled: (enabled) => {
+          // Only flip the live intent when the toggle is accepted. Env kill
+          // switches refuse re-enable; leaving the UI on while capture stays
+          // off is a silent lie.
+          if (!onChangeTelemetryEnabled(enabled)) {
+            systemNotice(
+              "Telemetry stays off — disabled by DO_NOT_TRACK or CORBITS_TELEMETRY.",
+            );
+            return;
+          }
           liveTelemetryIntent = enabled;
-          void onChangeTelemetryEnabled(enabled);
         },
         setShowPromptCost: (value) => {
           liveShowPromptCost = value;
@@ -2292,7 +2417,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
 
   if (!resumeSkipInitialTask && config.task.trim().length > 0) {
-    void agentProxy.send(config.task.trim()).catch(handleSendFailure);
+    // The operator's initial task, typed as a CLI argument before launch —
+    // same provenance as a prompt submit.
+    void agentProxy.send(userInboundMessage(config.task.trim(), [])).catch(handleSendFailure);
   }
 
   // Hydrate a resumed session's transcript after first paint. Reading history and

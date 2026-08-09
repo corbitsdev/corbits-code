@@ -23,7 +23,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { BlobReader } from "@intx/types/runtime";
+import type { BlobReader, InboundMessage } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
@@ -97,6 +97,22 @@ export type {
   SubAgentProvider,
   SubAgentSandboxDeps,
 } from "./types.js";
+
+/** Content-less inbound used after compact so the reactor re-enters (matches TUI/exec). */
+export function buildCompactionContinuationMessage(): InboundMessage {
+  return {
+    ref: { uid: 0, mailbox: "system" },
+    headers: {
+      from: "user@local",
+      to: ["agent@local"],
+      date: new Date().toISOString(),
+      messageId: `compact-continue-${Date.now()}@local`,
+    },
+    flags: [],
+    content: "",
+    signatureStatus: "missing",
+  };
+}
 
 // The source used when no profile tier resolves. Exported for tests: the
 // parent's provider may need a non-default adapter (Bifrost virtual keys,
@@ -367,18 +383,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
   const requestContinuation = (): void => {
     try {
-      agentHandle?.deliver({
-        ref: { uid: 0, mailbox: "system" },
-        headers: {
-          from: "user@local",
-          to: ["agent@local"],
-          date: new Date().toISOString(),
-          messageId: `compact-continue-${Date.now()}@local`,
-        },
-        flags: [],
-        content: "",
-        signatureStatus: "missing",
-      });
+      agentHandle?.deliver(buildCompactionContinuationMessage());
     } catch {
       // Agent may be closing; a dropped continuation is harmless.
     }

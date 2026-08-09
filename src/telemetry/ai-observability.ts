@@ -5,7 +5,9 @@
 // the scalar/id fields off it and never the content fields.
 
 import type { TurnContext } from "../session/hooks.js";
+import { noteLastTurnTraceId } from "./feedback.js";
 import type { AiErrorKind, AiSpanKind, Telemetry } from "./index.js";
+
 
 // PostHog reports latency in seconds as a float; the runtime measures every
 // duration in milliseconds. Reporting milliseconds under the seconds-typed
@@ -75,6 +77,9 @@ export function emitAiObservability(
   options: EmitAiObservabilityOptions,
 ): void {
   const traceId = turnTraceId(options.sessionId, ctx.turnIndex);
+  // Remember for intentional /feedback linking (works even when ambient capture
+  // is a no-op because this call still computes the id).
+  noteLastTurnTraceId(traceId);
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
@@ -87,9 +92,9 @@ export function emitAiObservability(
     $ai_output_tokens: ctx.usage.output,
     $ai_latency: secondsFromMs(ctx.durationMs),
     $ai_is_error: false,
-    cache_read_tokens: ctx.usage.cacheRead,
-    cache_write_tokens: ctx.usage.cacheWrite,
-    thinking_tokens: ctx.usage.thinking,
+    $ai_cache_read_input_tokens: ctx.usage.cacheRead,
+    $ai_cache_creation_input_tokens: ctx.usage.cacheWrite,
+    $ai_reasoning_tokens: ctx.usage.thinking,
   });
 
   const resultsByCallId = new Map(ctx.toolResults.map((result) => [result.callId, result]));

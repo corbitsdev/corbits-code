@@ -105,6 +105,15 @@ export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext }
 
 /** Outbound actions the UI asks the session runtime to perform. */
 export type SessionPort = {
+  /**
+   * Classify a composer submit without side effects. Local-only lines (slash
+   * commands, armed multi-turn /feedback text) must never enter the mid-run
+   * queue or mark the session busy. Default when omitted: treat as agent.
+   */
+  classifySubmit?: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => "agent" | "local" | "empty"
   /** Idle prompt submit — deliver now. */
   sendImmediate: (
     text: string,
@@ -208,7 +217,9 @@ export type PortCall =
   | { readonly op: "interrupt" }
   | { readonly op: "deliver"; readonly item: QueueItem }
 
-export function createRecordingPort(): SessionPort & {
+export function createRecordingPort(opts?: {
+  classifySubmit?: SessionPort["classifySubmit"]
+}): SessionPort & {
   readonly calls: readonly PortCall[]
   clear: () => void
 } {
@@ -220,6 +231,9 @@ export function createRecordingPort(): SessionPort & {
     clear: () => {
       calls.length = 0
     },
+    ...(opts?.classifySubmit !== undefined
+      ? { classifySubmit: opts.classifySubmit }
+      : {}),
     sendImmediate: (text) => {
       calls.push({ op: "sendImmediate", text })
     },
@@ -379,6 +393,9 @@ const bridges = new WeakMap<AppShell, BridgeBag>()
 
 function resolvePort(handlers?: SessionPortHandlers): SessionPort {
   return {
+    ...(handlers?.classifySubmit !== undefined
+      ? { classifySubmit: handlers.classifySubmit }
+      : {}),
     sendImmediate: handlers?.sendImmediate ?? NOOP_PORT.sendImmediate,
     enqueue: handlers?.enqueue ?? NOOP_PORT.enqueue,
     interrupt: handlers?.interrupt ?? NOOP_PORT.interrupt,
@@ -943,7 +960,30 @@ export function attachSessionBridge(
     if (bag.disposed) return
     const t = text.trim()
     const attached = attachments ?? []
-    if (t.length === 0 && attached.length === 0) return
+    if (t.length === 0 && attached.length === 0) {
+      // Still run host empty handling (e.g. cancel armed /feedback).
+      if (bag.port.classifySubmit?.(t, attachments) === "empty") {
+        bag.port.sendImmediate(t, attachments)
+      }
+      return
+    }
+
+    // Local-only submits (slash commands, multi-turn /feedback) never mark the
+    // session busy and never enter the mid-run queue — they are not agent turns.
+    const classification = bag.port.classifySubmit?.(t, attachments) ?? "agent"
+    if (classification === "empty") {
+      bag.port.sendImmediate(t, attachments)
+      return
+    }
+    if (classification === "local") {
+      appendStreamRow(shell, {
+        role: "user",
+        text: userRowText(t, attached),
+      })
+      bag.port.sendImmediate(t, attachments)
+      paintChrome(shell)
+      return
+    }
 
     if (kind === "reinject") {
       // Not a boundary wait: stop the run right now, then fall straight into

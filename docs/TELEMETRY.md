@@ -1,8 +1,11 @@
 # Telemetry
 
 Corbits Code sends a small amount of anonymous usage telemetry to PostHog to help
-us understand aggregate usage. It is opt-out, contains no PII, and never
-includes prompts, code, file contents, or paths.
+us understand aggregate usage. It is opt-out. **Ambient** product and AI events
+contain no PII and never include prompts, code, file contents, or paths.
+**Intentional** free text the operator submits via `/feedback` is the sole
+exception — that path can ship when ambient telemetry is off, still subject to
+env kill switches (see Intentional feedback below).
 
 ## What's collected
 
@@ -12,9 +15,9 @@ Each event carries a small set of properties:
 |---|---|---|
 | `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
 | `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `cache_read_tokens`, `cache_write_tokens`, `thinking_tokens` |
+| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens` |
 | `$ai_span` | Once per top-level tool call in a completed turn | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error` |
-| `slash_command` | A slash command is dispatched in the TUI | `command_name` |
+| `slash_command` | A slash command is dispatched (shared product-event path) | `command_name` |
 | `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
 | `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
 | `subagent_start` | A `task` dispatch begins | `agent_name` |
@@ -23,6 +26,7 @@ Each event carries a small set of properties:
 | `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
 | `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
 | `auth_failure` | A provider rejects the stored credentials | `auth_provider` |
+| `survey sent` | User submits intentional feedback via `/feedback` | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id` |
 
 `compaction` is deliberately silent on the runs where the compactor decides
 there is nothing to compact — an event that also fires on no-ops makes its own
@@ -68,9 +72,9 @@ on `crash` and nowhere else, so the column means one thing everywhere it is
 recorded.
 
 `auth_provider` is a separate property for that reason: it names which
-provider's sign-in was rejected (`codex`, `xai`), chosen from a fixed
-first-party set in `src/tui/session-chrome.ts`. No part of the
-provider's rejection message is sent.
+provider's sign-in was rejected (`codex`, `xai`, `anthropic`, `other`),
+chosen from a fixed first-party set in `src/tui/session-chrome.ts`. No
+part of the provider's rejection message is sent.
 
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each
 emission site a deliberately identifying name and assert it reaches no part of
@@ -106,9 +110,10 @@ configured under, which can be a local path.
 into one of these and then discarded — a raw message routinely embeds the
 request URL, a prompt excerpt, or a file path.
 
-The cache and thinking token counts keep unprefixed names because PostHog does
-not publish property names for them in its manual-capture schema; a guessed
-`$ai_` name would land as an unread custom property either way.
+Cache and reasoning token counts use PostHog's documented cost-property names
+(`$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`,
+`$ai_reasoning_tokens`) so LLM cost views see them. Confirmed against PostHog
+manual-capture installation docs and the cost-properties reference (CL-5749).
 
 Stopping a turn mid-inference is reported, not silent: the runtime aborts the
 in-flight call and classifies the resulting error as `cancelled`, so a stopped
@@ -125,7 +130,8 @@ or append a phantom failure to a successful one.
 
 ## What's never collected
 
-- Prompts, model output, or any conversation content
+- Prompts, model output, or any conversation content (except intentional
+  free-text the operator types into `/feedback` — see below)
 - File paths, file contents, or repo/project names
 - Names anyone but this project chose: MCP servers, skills, plugins, agent
   profiles, plugin-registered slash commands, error subclasses (see above)
@@ -133,20 +139,55 @@ or append a phantom failure to a successful one.
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above
 
+## Intentional feedback (`/feedback`)
+
+`/feedback` is a first-party slash command that captures operator free text as
+a PostHog custom survey response (`survey sent`). Two UX modes:
+
+1. `/feedback <text>` — send immediately
+2. bare `/feedback` — prompts for free text; the next non-command Enter submits
+   that line as the response (Empty Enter cancels)
+
+Free text is capped at 2000 characters. When known, the last turn’s
+`$ai_trace_id` is attached as `turn_trace_id` so a report can be linked to the
+recent generation.
+
+This path is **intentional**: it can still ship when ambient product telemetry
+is off (`settings.telemetry.enabled === false` or the Telemetry toggle Off),
+because the operator typed the text for that purpose. Hard env kill switches
+still win — `DO_NOT_TRACK=1` or `CORBITS_TELEMETRY=0/false/off/no` block
+`/feedback` as well. Sending also requires an installation id and API key.
+
+Survey id / question id are **baked into the client** (Corbits team survey
+`Corbits Code Feedback`). Same trust class as the public PostHog project key —
+operators never configure them. Optional env overrides
+(`CORBITS_FEEDBACK_SURVEY_ID`, `CORBITS_FEEDBACK_QUESTION_ID`) exist for tests
+and forks; setting either to empty fails closed and hides the command from the
+slash menu. Success copy says “sent” after the capture is accepted and flushed
+toward PostHog (best-effort network delivery is not awaited on the operator
+path). Free text over 2000 characters is truncated with an explicit notice.
+
 ## Opting out
 
-Any of the following disables telemetry entirely:
+Any of the following disables ambient product telemetry (not intentional
+`/feedback` unless noted):
 
 - Turn it off in the TUI: `/settings` → Telemetry tab → Off
 - Set `"telemetry": { "enabled": false }` in `~/.corbits/settings.json`
 - `CORBITS_TELEMETRY` set to any falsy value: `0`, `false`, `off`, `no`, or empty
-- `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/) convention)
+  (also blocks intentional `/feedback`)
+- `DO_NOT_TRACK=1` (the standard [Console Do Not Track](https://consoledonottrack.com/)
+  convention; also blocks intentional `/feedback`)
 
-Turning telemetry off also discards whatever is still queued and unsent.
-Events captured earlier in the session but not yet transmitted are thrown
-away at the moment you opt out, not sent on the way out — opting out covers
-the activity you have already generated, not just the activity still to
-come.
+Turning ambient telemetry off discards whatever is still queued and unsent for
+product events. Events captured earlier in the session but not yet transmitted
+are thrown away at the moment you opt out, not sent on the way out — opting out
+covers the activity you have already generated, not just the activity still to
+come. Installation identity is retained so intentional `/feedback` can still
+send (unless an env kill switch is active).
+
+Env kill switches disable **everything**, including `/feedback`. The settings
+toggle alone does not.
 
 Re-enable from the same Telemetry tab or by removing the env var / settings
 override. While an env kill is active the Telemetry tab cannot re-enable —

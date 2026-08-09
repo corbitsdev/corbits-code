@@ -19,9 +19,11 @@ function fakeTelemetry(): { telemetry: Telemetry; captured: { event: string; pro
   const captured: { event: string; properties: Record<string, unknown> }[] = [];
   const telemetry: Telemetry = {
     enabled: true,
+    installationId: "test-install",
     capture: (event, properties = {}) => {
       captured.push({ event, properties });
     },
+    captureIntentional: () => false,
     flush: async () => {},
     discard: () => {},
   };
@@ -221,6 +223,25 @@ describe("emitAiObservability", () => {
     expect(generation?.properties).not.toHaveProperty("provider_id");
     expect(generation?.properties).not.toHaveProperty("input_tokens");
     expect(generation?.properties).not.toHaveProperty("duration_ms");
+  });
+
+  // CL-5749: PostHog cost views read only $ai_*-prefixed cache/reasoning
+  // properties. Unprefixed names land as custom fields and skew spend.
+  // Source: https://posthog.com/docs/ai-observability/installation/manual-capture
+  // and PostHog cost-properties reference ($ai_cache_read_input_tokens,
+  // $ai_cache_creation_input_tokens, $ai_reasoning_tokens).
+  test("names cache and reasoning token properties for PostHog cost views", () => {
+    const { telemetry, captured } = fakeTelemetry();
+
+    emitAiObservability(telemetry, fakeTurnContext(), emitOptions);
+
+    const generation = captured.find((c) => c.event === "$ai_generation");
+    expect(generation?.properties.$ai_cache_read_input_tokens).toBe(1);
+    expect(generation?.properties.$ai_cache_creation_input_tokens).toBe(2);
+    expect(generation?.properties.$ai_reasoning_tokens).toBe(3);
+    expect(generation?.properties).not.toHaveProperty("cache_read_tokens");
+    expect(generation?.properties).not.toHaveProperty("cache_write_tokens");
+    expect(generation?.properties).not.toHaveProperty("thinking_tokens");
   });
 
   test("flat trace: spans parent onto the trace id, not onto each other", () => {

@@ -104,7 +104,14 @@ describe("markdown transcript rows", () => {
 
       const frame = await settle(
         h,
-        (f) => f.includes("What the site is") && !f.includes("###") && !f.includes("**Hardware:**"),
+        // Require the bold body line too: heading-only frames can pass a
+        // "no ### / no **Hardware:**" check while the body has not painted yet
+        // (CI flake CL-5715).
+        (f) =>
+          f.includes("What the site is") &&
+          f.includes("Hardware:") &&
+          !f.includes("###") &&
+          !f.includes("**Hardware:**"),
       )
       expect(frame).toContain("What the site is")
       expect(frame).not.toContain("###")

@@ -3138,7 +3138,15 @@ export function submitPrompt(
   const text = shell.prompt.value
   const t = text.trim()
   const attachments = shell.pendingAttachments
-  if (t.length === 0 && attachments.length === 0) return
+  if (t.length === 0 && attachments.length === 0) {
+    // Empty Enter still reaches the exclusive host so multi-turn /feedback
+    // can cancel; non-exclusive shells have nothing to do with a blank line.
+    const hooks = getShellBridgeHooks(shell)
+    if (hooks?.exclusive) {
+      hooks.onSubmit(text, "immediate", attachments)
+    }
+    return
+  }
   if (kind === "reinject" && shell.session.run !== "busy") return
 
   // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being

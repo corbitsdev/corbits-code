@@ -132,7 +132,35 @@ export function resolveRampPhase(
   return "working"
 }
 
-export type SendFailureKind = "abort" | "codex_auth" | "xai_auth" | "error"
+export type SendFailureKind = "abort" | "auth" | "error"
+
+/** First-party auth_provider values only — never free-text provider labels. */
+export type AuthProviderId = "codex" | "xai" | "anthropic" | "other"
+
+export type ClassifiedSendFailure = {
+  readonly kind: SendFailureKind
+  readonly authProvider: AuthProviderId | null
+}
+
+// Phrase matchers for message-only classification (stream carries bare strings).
+// Codex/xAI constructors always emit the profile phrases below.
+const CODEX_AUTH_MESSAGE = /\bcodex profile\b/i
+const XAI_AUTH_MESSAGE = /\bxai profile\b/i
+// Anthropic API-key rejections: authentication_error type, invalid x-api-key,
+// or invalid api key phrasing in 401 bodies.
+const ANTHROPIC_AUTH_MESSAGE =
+  /\b(?:anthropic|claude)\b.*\b(?:auth|unauthorized|api[\s_-]?key|x-api-key)\b|\bauthentication_error\b|\binvalid[\s_-]?x?-?api[\s_-]?key\b/i
+// Generic credential rejection when the provider cannot be named safely.
+const GENERIC_AUTH_MESSAGE =
+  /\b(?:401|403)\b|\bunauthorized\b|\binvalid[\s_-]?api[\s_-]?key\b|\bauthentication\b.*\bfail/i
+
+function authProviderFromMessage(message: string): AuthProviderId | null {
+  if (CODEX_AUTH_MESSAGE.test(message)) return "codex"
+  if (XAI_AUTH_MESSAGE.test(message)) return "xai"
+  if (ANTHROPIC_AUTH_MESSAGE.test(message)) return "anthropic"
+  if (GENERIC_AUTH_MESSAGE.test(message)) return "other"
+  return null
+}
 
 /** Classify agent.send() rejection so the TUI can settle UI state consistently. */
 export function classifyAgentSendFailure(
@@ -140,47 +168,41 @@ export function classifyAgentSendFailure(
   aborted: boolean,
   isCodexAuth: (e: unknown) => boolean,
   isXaiAuth: (e: unknown) => boolean,
-): SendFailureKind {
-  if (aborted) return "abort"
-  if (isCodexAuth(err)) return "codex_auth"
-  if (isXaiAuth(err)) return "xai_auth"
-  return "error"
+): ClassifiedSendFailure {
+  if (aborted) return { kind: "abort", authProvider: null }
+  if (isCodexAuth(err)) return { kind: "auth", authProvider: "codex" }
+  if (isXaiAuth(err)) return { kind: "auth", authProvider: "xai" }
+  const message = err instanceof Error ? err.message : String(err)
+  const authProvider = authProviderFromMessage(message)
+  if (authProvider !== null) return { kind: "auth", authProvider }
+  return { kind: "error", authProvider: null }
 }
 
 export function shouldSettleUiAfterSendFailure(kind: SendFailureKind): boolean {
-  return kind === "codex_auth" || kind === "xai_auth" || kind === "error"
-}
-
-// Send-failure kinds are first-party constants, so the provider each one names
-// is a fixed mapping rather than a classification over author-chosen text.
-const AUTH_FAILURE_PROVIDERS: Partial<Record<SendFailureKind, string>> = {
-  codex_auth: "codex",
-  xai_auth: "xai",
+  return kind === "auth" || kind === "error"
 }
 
 /** Report which provider rejected the stored credentials; silent otherwise. */
-export function captureAuthFailure(telemetry: Telemetry, kind: SendFailureKind): void {
-  const provider = AUTH_FAILURE_PROVIDERS[kind]
-  if (provider === undefined) return
-  telemetry.capture("auth_failure", { auth_provider: provider })
+export function captureAuthFailure(
+  telemetry: Telemetry,
+  failure: ClassifiedSendFailure,
+): void {
+  if (failure.kind !== "auth" || failure.authProvider === null) return
+  telemetry.capture("auth_failure", { auth_provider: failure.authProvider })
 }
-
-// The stream carries a failure as a bare message string, so the auth errors are
-// recognised by the profile phrase their constructors always produce
-// (`Codex profile "default" is not authorized. …`).
-const CODEX_AUTH_MESSAGE = /\bcodex profile\b/i
-const XAI_AUTH_MESSAGE = /\bxai profile\b/i
 
 /** Same classification as `classifyAgentSendFailure`, from the message alone. */
-export function classifySendFailureMessage(message: string): SendFailureKind {
-  if (CODEX_AUTH_MESSAGE.test(message)) return "codex_auth"
-  if (XAI_AUTH_MESSAGE.test(message)) return "xai_auth"
-  return "error"
+export function classifySendFailureMessage(message: string): ClassifiedSendFailure {
+  const authProvider = authProviderFromMessage(message)
+  if (authProvider !== null) return { kind: "auth", authProvider }
+  return { kind: "error", authProvider: null }
 }
 
-const AUTH_FAILURE_TEXT: Partial<Record<SendFailureKind, string>> = {
-  codex_auth: "your chatgpt sign-in expired — /model to sign in again",
-  xai_auth: "your x.ai sign-in expired — /model to sign in again",
+const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
+  codex: "your chatgpt sign-in expired — /model to sign in again",
+  xai: "your x.ai sign-in expired — /model to sign in again",
+  anthropic: "your anthropic api key was rejected — /model to update credentials",
+  other: "provider credentials were rejected — /model to sign in again",
 }
 
 /**
@@ -189,5 +211,9 @@ const AUTH_FAILURE_TEXT: Partial<Record<SendFailureKind, string>> = {
  * the only detail the operator has.
  */
 export function sendFailureText(message: string): string {
-  return AUTH_FAILURE_TEXT[classifySendFailureMessage(message)] ?? message
+  const failure = classifySendFailureMessage(message)
+  if (failure.kind === "auth" && failure.authProvider !== null) {
+    return AUTH_FAILURE_TEXT[failure.authProvider]
+  }
+  return message
 }

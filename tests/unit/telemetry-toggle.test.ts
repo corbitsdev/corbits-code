@@ -43,7 +43,7 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
 test("toggle off disables the singleton synchronously, before any await", () => {
   const { deps, getInstance } = fakeDeps();
   const handler = createTelemetryToggleHandler("/fake/path", deps);
-  handler(false);
+  expect(handler(false)).toBe(true);
   // No awaited microtask has run yet — assert on the return of the sync call.
   expect(getInstance().enabled).toBe(false);
 });
@@ -129,7 +129,9 @@ test("toggle on while env-killed writes nothing and swaps no instance", async ()
   let saveCalled = false;
   const initial: Telemetry = {
     enabled: false,
+    installationId: "",
     capture: () => {},
+    captureIntentional: () => false,
     flush: async () => {},
     discard: () => {},
   };
@@ -149,7 +151,7 @@ test("toggle on while env-killed writes nothing and swaps no instance", async ()
     },
   });
   const handler = createTelemetryToggleHandler("/fake/path", deps);
-  handler(true);
+  expect(handler(true)).toBe(false);
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(ensureCalled).toBe(false);
   expect(saveCalled).toBe(false);

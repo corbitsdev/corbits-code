@@ -10,14 +10,14 @@ export type ModelFamilyPolicy = {
   family: ModelFamily;
   /**
    * Consecutive tool-only assistant turns (tool calls, no text) before the
-   * main chat director injects a one-shot wrap-up nudge.
+   * main chat director injects a one-shot wrap-up nudge. A long tool-only
+   * streak is normal orchestration (Linear lookups, code reads, etc.) and
+   * must not by itself stop the session — this is a soft check-in, not a
+   * loop-protection trigger. The real stop signal is a repeating cycle in
+   * the tool-fingerprint history, independent of this threshold — see
+   * detectToolFingerprintThrash in subagent/stop-policy.ts.
    */
   toolOnlyTurnNudgeAt: number;
-  /**
-   * Consecutive tool-only assistant turns before the main chat director stops
-   * issuing infers and surfaces a loud operator-facing pause.
-   */
-  toolOnlyTurnPauseAt: number;
   /** Ephemeral nudge text injected at toolOnlyTurnNudgeAt. */
   wrapUpNudgeText: string;
   /** Wall-clock inactivity, in ms, before a silent sub-agent leaf is nudged. */
@@ -36,24 +36,32 @@ const GROK_WRAP_UP_NUDGE_TEXT =
   "report progress now: what you have done, what is left, and whether you are " +
   "actually still making progress.";
 
-// Permissive defaults: a busy-but-progressing session (tool turns interleaved
-// with text) never trips these. Tightened only for families with observed
-// runaway tool-only behavior (see grok below).
+// Forensics on real session traces (see CL-5611, and the extended scan in
+// scripts/tool-fingerprint-forensics.ts, 328 sessions with a tool-only run /
+// 559 tool-only runs) found healthy tool-only streaks topping out at 28
+// consecutive turns (p50 3, p90 8, p99 16) and zero repeating
+// tool-fingerprint cycles for any period the scan checked (1 through 6). 25
+// sits comfortably above the observed healthy ceiling; the nudge is a
+// check-in, not a stop, so erring high costs nothing. Tightened only for
+// families with observed runaway tool-only behavior (see grok below).
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
-  toolOnlyTurnNudgeAt: 12,
-  toolOnlyTurnPauseAt: 20,
+  toolOnlyTurnNudgeAt: 25,
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: 5 * 60_000,
   applyGrokFinishBias: false,
 };
 
-// xAI's own CLI ships main-session auto-pause for grok ("Goal auto-paused
-// after N consecutive non-completing turns") — a directly observed 14-turn
-// pure-tool-call session the operator had to cancel motivates tightening
-// grok's thresholds below the shared default.
+// A directly observed 14-turn pure-tool-call session for this family
+// previously motivated a tightened nudge/pause pair here (6/10). That pair
+// was miscalibrated: it fired on a session that was making real progress
+// through Linear lookups and code reads (CL-5611), well inside the healthy
+// range other families tolerate. Grok keeps its own nudge copy and shorter
+// sub-agent stall timeout — both still warranted — but shares the default
+// tool-only-streak nudge threshold (the hard-pause thrash check is not
+// family-tuned at all; it runs the same period detection for every family)
+// rather than treating "no narration" as a family-specific failure mode.
 const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
-  toolOnlyTurnNudgeAt: 6,
-  toolOnlyTurnPauseAt: 10,
+  toolOnlyTurnNudgeAt: DEFAULT_POLICY.toolOnlyTurnNudgeAt,
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: 90_000,
   applyGrokFinishBias: true,

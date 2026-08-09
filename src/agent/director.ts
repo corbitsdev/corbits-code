@@ -22,9 +22,26 @@ import { createCorbitsRetryPolicy } from "./retry-policy.js";
 import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
+import {
+  fingerprintToolCalls,
+  detectToolFingerprintThrash,
+  detectTurnsSinceUserMessageBackstop,
+  TURNS_SINCE_USER_MESSAGE_BACKSTOP,
+  TOOL_FINGERPRINT_HISTORY_CAP,
+  type ToolFingerprintThrashCheck,
+} from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
+import { isOperatorOriginated } from "./message-provenance.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
+
+// Fired when turnsSinceUserMessage reaches TURNS_SINCE_USER_MESSAGE_BACKSTOP.
+// A nudge, not a pause — the operator explicitly wants long autonomous runs
+// to keep going, so silence alone (with no detected cycle) is not
+// sufficient grounds to stop. Only ignoring this request for a further full
+// backstop interval escalates to a hard pause.
+const BACKSTOP_NUDGE_TEXT =
+  "It has been a long stretch without a message from the operator. Send a brief progress summary — what has been done, what is left — so the operator can confirm you're still on track.";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
@@ -364,13 +381,50 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly modelFamilyPolicy: ModelFamilyPolicy;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
-  // spins in place on one thread of tool calls still converges to the pause,
-  // regardless of what it calls in between (same reset discipline as the
-  // idle/declined nudge budgets above).
+  // spins in place on one thread of tool calls still converges to the
+  // check-in nudge, regardless of what it calls in between (same reset
+  // discipline as the idle/declined nudge budgets above). This streak only
+  // drives the soft check-in nudge at toolOnlyTurnNudgeAt; the hard pause
+  // normally requires the tool-fingerprint history to actually repeat as a
+  // cycle (see applyToolOnlyLoopProtection and detectToolFingerprintThrash).
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
   private pausedForToolOnly = false;
+  // Rolling tail of tool-only-turn fingerprints, capped so a very long
+  // productive streak (200+ turns) doesn't grow the buffer or per-turn period
+  // scan unbounded — detection only ever looks at the tail. Cleared on any
+  // narrated turn (narration is legitimate evidence the model is not
+  // cycling) and on a fresh user message.
+  private toolFingerprintHistory: string[] = [];
+  private lastThrashCheck: ToolFingerprintThrashCheck | null = null;
+  // Turns since the operator last sent a genuine message — the raw backstop
+  // counter. Unlike toolFingerprintHistory, this is NOT cleared by narrated
+  // turns: model-emitted text is not evidence the operator has seen a
+  // checkpoint, so it must not buy back backstop budget (round-4 fix for a
+  // model that resets a narration-sensitive counter with one word every N
+  // turns). Only a message.received event whose message carries
+  // OPERATOR_ORIGINATED_FLAG resets it — not every message.received, since
+  // synthetic system sends (compaction continuations, retries, future
+  // director continuations) fire that event too without being operator
+  // input (round-5 fix; see message-provenance.ts for the flag's invariant).
+  // Increments on every turn boundary, tool-only or narrated alike.
+  private turnsSinceUserMessage = 0;
+  // Set to the turnsSinceUserMessage value at which the backstop nudge fired,
+  // so the escalation check can require a full further backstop interval to
+  // elapse (still with no user message and no period-detected thrash) before
+  // hard-pausing. Reset to null only on an operator-originated message; it
+  // is NOT reset when thrash detection or the escalation pause fires —
+  // pausedForToolOnly and toolOnlyPauseReason are recomputed fresh every
+  // turn instead, so a stale non-null value here is harmless once a pause
+  // is in effect (the next operator message clears both together).
+  private backstopNudgeFiredAtTurn: number | null = null;
+  private pendingBackstopNudge = false;
+  // Which mechanism triggered pausedForToolOnly — the period-detection fast
+  // path (a recognized cycle) or the backstop escalation (nudge went
+  // unheeded for a further full interval with no user message). Drives the
+  // pause message wording so the two are distinguishable.
+  private toolOnlyPauseReason: "thrash" | "backstop" | null = null;
 
   constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions) {
     super(systemPrompt, toolDefinitions, {});
@@ -429,26 +483,57 @@ class ChatDirectorImpl extends DefaultDirector {
 
   /**
    * Rewrites the infer action in a fall-through batch once pending tool
-   * calls have resolved: pause wins over a still-armed nudge (the streak
-   * only grows past pauseAt after nudgeAt), and each rewrite is one-shot —
-   * cleared as soon as it is actually applied to an infer.
+   * calls have resolved: pause wins over either still-armed nudge, and each
+   * rewrite is one-shot — cleared as soon as it is actually applied to an
+   * infer. The pause has two independent triggers, checked in order: the
+   * fast path is tool-fingerprint period detection
+   * (detectToolFingerprintThrash) — a repeating cycle (identical calls, or
+   * an alternating/rotating pattern) can and often does trip the pause well
+   * before the streak reaches toolOnlyTurnNudgeAt, so the check-in nudge is
+   * not a precondition for the pause. The backstop
+   * (detectTurnsSinceUserMessageBackstop) never pauses on its own the first
+   * time it fires — it only nudges, asking for a progress summary; it only
+   * escalates to a pause (toolOnlyPauseReason === "backstop") once that
+   * nudge has gone unheeded for a further full interval with still no user
+   * message and no period-detected thrash (see the escalation check in
+   * decideInner).
    */
   private applyToolOnlyLoopProtection(
     actions: ReactorAction[],
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (!this.pausedForToolOnly && !this.pendingToolOnlyNudge) return null;
+    if (!this.pausedForToolOnly && !this.pendingToolOnlyNudge && !this.pendingBackstopNudge) {
+      return null;
+    }
     const inferIndex = actions.findIndex((a) => a.type === "infer");
     if (inferIndex === -1) return null;
 
     if (this.pausedForToolOnly) {
+      const check = this.lastThrashCheck;
       const pauseMessage =
-        `Auto-paused: the model ran ${this.toolOnlyStreak} steps in a row without explaining its progress. ` +
-        "Send a message to resume.";
+        this.toolOnlyPauseReason === "backstop"
+          ? `Auto-paused: went ${this.turnsSinceUserMessage} turns without a message from the operator, and a progress-summary nudge went unanswered for a further ${TURNS_SINCE_USER_MESSAGE_BACKSTOP} turns. Send a message to resume.`
+          : (() => {
+              const detail =
+                check !== null && check.period === 1
+                  ? `repeated the same tool call ${check.repeats} times in a row`
+                  : check !== null && check.period !== null
+                    ? `repeated a ${check.period}-call cycle ${check.repeats} times in a row`
+                    : "repeated tool calls in a cycle";
+              return `Auto-paused: the model ${detail} without making progress. Send a message to resume.`;
+            })();
       return [
         capabilities.checkpoint("tool-only-loop-paused"),
         capabilities.reply(pauseMessage),
       ];
+    }
+
+    if (this.pendingBackstopNudge) {
+      this.pendingBackstopNudge = false;
+      const rewritten = [...actions];
+      const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
+      rewritten[inferIndex] = inferWithNudge(capabilities, BACKSTOP_NUDGE_TEXT, existing.options);
+      return rewritten;
     }
 
     this.pendingToolOnlyNudge = false;
@@ -544,6 +629,22 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
       this.pausedForToolOnly = false;
+      this.toolFingerprintHistory = [];
+      this.lastThrashCheck = null;
+      this.toolOnlyPauseReason = null;
+      // Only a message carrying OPERATOR_ORIGINATED_FLAG resets the
+      // backstop — not every message.received. Synthetic system sends
+      // (compaction continuations, retries, future director continuations)
+      // also fire message.received but never set this flag, so they cannot
+      // buy back backstop budget (round-5 fix: round 4 reset on any
+      // message.received, which synthetic compaction continuations satisfy
+      // just as easily as a real operator message — see
+      // turnsSinceUserMessage's declaration for the full history).
+      if (isOperatorOriginated(event.message.flags)) {
+        this.turnsSinceUserMessage = 0;
+        this.backstopNudgeFiredAtTurn = null;
+        this.pendingBackstopNudge = false;
+      }
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -594,22 +695,78 @@ class ChatDirectorImpl extends DefaultDirector {
       );
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
 
-      // Main-session loop protection: a run of tool-only turns (tool calls,
-      // no narration) is the shape of a runaway session an operator would
-      // otherwise have to notice and cancel by hand. A dismissed
-      // ask_operator counts toward this streak like any other tool-only turn
-      // (handled separately below; declined-tool early returns do not reset
-      // the streak because only text turns and fresh messages do).
+      // Main-session loop protection tracks two separate questions with two
+      // separate reset rules:
+      //  - "is the model cycling?" — toolFingerprintHistory / lastThrashCheck
+      //    / toolOnlyStreak. Narration is legitimate evidence the model is
+      //    not stuck in a tight loop, so any turn with text clears these
+      //    (same as a fresh user message). A long raw toolOnlyStreak alone
+      //    (toolOnlyTurnNudgeAt) is just a check-in nudge; the hard pause
+      //    from this side requires an actual repeating cycle —
+      //    detectToolFingerprintThrash runs exact-period detection (see
+      //    util/period-detection.ts) over the rolling fingerprint history,
+      //    catching not just identical-every-turn thrash but also
+      //    alternating/rotating cycles (A,B,A,B,...; A,B,C,A,B,C,...).
+      //  - "how long since the operator last saw a real checkpoint?" —
+      //    turnsSinceUserMessage / backstopNudgeFiredAtTurn. Model-emitted
+      //    text does NOT clear this, and neither does a system-originated
+      //    message.received (e.g. a compaction continuation) — only a
+      //    message carrying OPERATOR_ORIGINATED_FLAG does (see
+      //    turnsSinceUserMessage's declaration for why: narration and
+      //    synthetic sends must not be able to buy back backstop budget).
+      // A dismissed ask_operator counts toward both like any other tool-only
+      // turn (handled separately below; declined-tool early returns do not
+      // reset the cycle-detection side because only text turns and fresh
+      // messages do).
+      this.turnsSinceUserMessage++;
       if (hasToolCalls && !hasText) {
         this.toolOnlyStreak++;
+        const fingerprint = fingerprintToolCalls(event.turn.content);
+        if (fingerprint !== null) {
+          this.toolFingerprintHistory.push(fingerprint);
+          if (this.toolFingerprintHistory.length > TOOL_FINGERPRINT_HISTORY_CAP) {
+            this.toolFingerprintHistory.shift();
+          }
+        }
+        this.lastThrashCheck = detectToolFingerprintThrash(this.toolFingerprintHistory);
       } else {
         this.toolOnlyStreak = 0;
         this.toolOnlyNudgeFired = false;
         this.pendingToolOnlyNudge = false;
-        this.pausedForToolOnly = false;
+        this.toolFingerprintHistory = [];
+        this.lastThrashCheck = null;
       }
-      if (this.toolOnlyStreak >= this.modelFamilyPolicy.toolOnlyTurnPauseAt) {
+
+      // Recomputed fresh every turn boundary; whichever branch below fires
+      // (if any) is this turn's outcome, in priority order:
+      //  1. thrash (period detection) — fast path, always wins, hard pause.
+      //  2. backstop escalation — the backstop nudge already fired and a
+      //     further full backstop interval has elapsed with still no user
+      //     message and no thrash detected — hard pause. This is the one
+      //     case the backstop itself pauses on: a model that ignores a
+      //     direct request for a progress summary is a real no-progress
+      //     signal, unlike mere silence during a long autonomous stretch.
+      //  3. backstop nudge — first time turnsSinceUserMessage reaches the
+      //     threshold, ask for a progress summary. Does not pause.
+      //  4. check-in nudge — the older, softer nudge on the raw
+      //     narration-sensitive tool-only streak, unrelated to the backstop.
+      this.pausedForToolOnly = false;
+      this.toolOnlyPauseReason = null;
+      if (this.lastThrashCheck?.repeating === true) {
         this.pausedForToolOnly = true;
+        this.toolOnlyPauseReason = "thrash";
+      } else if (
+        this.backstopNudgeFiredAtTurn !== null &&
+        this.turnsSinceUserMessage - this.backstopNudgeFiredAtTurn >= TURNS_SINCE_USER_MESSAGE_BACKSTOP
+      ) {
+        this.pausedForToolOnly = true;
+        this.toolOnlyPauseReason = "backstop";
+      } else if (
+        this.backstopNudgeFiredAtTurn === null &&
+        detectTurnsSinceUserMessageBackstop(this.turnsSinceUserMessage)
+      ) {
+        this.backstopNudgeFiredAtTurn = this.turnsSinceUserMessage;
+        this.pendingBackstopNudge = true;
       } else if (
         this.toolOnlyStreak === this.modelFamilyPolicy.toolOnlyTurnNudgeAt &&
         !this.toolOnlyNudgeFired

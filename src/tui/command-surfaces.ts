@@ -358,8 +358,9 @@ function settingsCycleRows(
       value: `${"telemetry".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off")}`,
       chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.telemetryEnabled ? "on" : "off"),
       describe: {
-        what: "anonymous usage data shared to help improve corbits.",
-        impact: "off stops all telemetry from this session.",
+        what: "anonymous ambient usage data (product events and AI traces). Free text only leaves via /feedback if you send it.",
+        impact:
+          "off stops ambient telemetry for this session. /feedback still works unless DO_NOT_TRACK or CORBITS_TELEMETRY=0 is set.",
         tone: "consequence",
       },
       cycle: () => settings.setTelemetryEnabled(!snapshot.telemetryEnabled),

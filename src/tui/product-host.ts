@@ -130,6 +130,11 @@ export type ProductHostSend = (
   text: string,
   attachments?: readonly PendingImageAttachment[],
 ) => void
+/** Classify a composer submit without side effects (see SessionPort.classifySubmit). */
+export type ProductHostClassifySubmit = (
+  text: string,
+  attachments?: readonly PendingImageAttachment[],
+) => "agent" | "local" | "empty"
 export type ProductHostInterrupt = () => void
 export type ProductHostDeliver = (
   text: string,
@@ -158,6 +163,11 @@ export type ProductHostConfig = {
   readonly cwd?: string
   readonly eventEmitter: EventEmitter
   readonly send: ProductHostSend
+  /**
+   * Classify a submit without side effects so slash commands and multi-turn
+   * /feedback never mark the session busy or enter the mid-run queue.
+   */
+  readonly classifySubmit?: ProductHostClassifySubmit
   readonly interrupt: ProductHostInterrupt
   readonly deliver?: ProductHostDeliver
   /** Model/provider rows for the picker (id applied on select). */
@@ -355,6 +365,9 @@ export async function mountProductHost(
   const port = createLiveSessionPort({
     send: config.send,
     interrupt: config.interrupt,
+    ...(config.classifySubmit !== undefined
+      ? { classifySubmit: config.classifySubmit }
+      : {}),
     ...(config.deliver !== undefined ? { deliver: config.deliver } : {}),
   })
   // Empty options accept the defaults (real clock, 250 ms tick, 15 min stall)
