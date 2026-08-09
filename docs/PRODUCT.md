@@ -8,6 +8,20 @@ A single-process coding agent CLI that autonomously implements features in a cod
 
 Existing coding agents stall. They get stuck in thinking loops, read files endlessly without writing, drift from their own plans, or forget to signal completion. The user watches a "Thinking..." spinner and hopes. This tool replaces the chat interface with a deterministic event loop that enforces progress and makes every action — and its cost — visible.
 
+## The Harness Is the Product
+
+Corbits Code is a **local agentic software factory**, and the thing being built is the harness: the loop that dispatches work, watches it, decides what happens next, and reports to the operator. Everything else is content that runs inside it.
+
+That distinction sets priority.
+
+**The harness is core and cannot be swapped in later**, because everything runs inside it. Fleet events waking the director, continuous dispatch while capacity is free, unprompted reporting, aggregated health, a bound grounded in real cost rather than a turn count. This is the part no one can hand us and the part a competitor cannot copy from a directory of prompts.
+
+**Agent personas and skills are content.** They define who gets dispatched and to what standard. They are valuable, they are swappable, and they can ship as a directory long before any packaging system exists. The default engineering set is built in and always enabled — not an optional install, not something an operator has to discover.
+
+**Distribution is packaging for content**, and content is not the constraint. A catalog and an install surface matter eventually; they do not gate anything the product is actually judged on.
+
+The evidence is in how the product fails today: the personas already produce excellent work — reviewers catch real defects, refuse unsafe operations, and correct their own briefs — while the loop around them goes quiet with capacity free, forcing the operator to interrupt and ask whether anything is alive. The content is not the weak part.
+
 ## Target Users
 
 - Developers who want to delegate discrete feature implementations to an agent
