@@ -39,6 +39,13 @@ mid-session switches.
   worker failing until a restart. Provider, model catalog, and settings are now
   read live at spawn time, so tier settings written mid-session are visible too.
 
+### Breaking
+
+- **Single-agent session mode is gone.** The primary session is always
+  orchestrator-capable (`task` / `search_agents` always available). The first-run
+  mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
+  settings files still loads without error and is ignored (CL-5814).
+
 ### Providers
 
 - **Named API-key instances.** First-class API-key providers (OpenAI key,
