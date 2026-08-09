@@ -274,14 +274,24 @@ describe("landing screen", () => {
           await settle(h)
           const before = markRows(h).join("\n")
 
-          // Real wall-clock wait, no renderOnce in between: only the mount's
-          // own idle-repaint timer can be advancing the snow here. `flush`
-          // waits on the renderer's own scheduler settling rather than
-          // forcing frames, so it does not manufacture the motion itself.
-          await new Promise((resolve) => setTimeout(resolve, 3_000))
-
-          await h.flush()
-          const after = markRows(h).join("\n")
+          // Poll until the product's own idle-repaint timer moves the snow, or
+          // until a deadline. A single fixed sleep-then-check races the timer
+          // under CI load (CL-5766): when the interval is delayed past the
+          // sleep, `flush` finds nothing scheduled and the capture is still
+          // the mount frame. Polling keeps the property intact — nothing here
+          // calls `paintLanding`/`renderMark`/`renderOnce`, so a frozen timer
+          // still fails — while early exit drops the average suite cost below
+          // the old fixed 3s wait.
+          const deadline = performance.now() + 5_000
+          let after = before
+          while (performance.now() < deadline) {
+            // Drain any render the product already scheduled; do not force one.
+            await h.flush()
+            after = markRows(h).join("\n")
+            if (after !== before) break
+            // Yield so the mount-scoped interval can fire; not a frame pump.
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
 
           expect(after).not.toBe(before)
 
