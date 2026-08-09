@@ -120,6 +120,64 @@ describe("diff transcript rows", () => {
     }, WIDE)
   })
 
+  test("a task/dispatch call paints a sentence, never the full spawn JSON (CL-5762)", async () => {
+    const brief = {
+      agent: "explore",
+      description: "map callers of leaveObserve",
+      prompt: "Find every call site of leaveObserve.\nReport paths and line numbers.",
+      intent: "explore",
+      maxTurns: 40,
+      success_criteria: ["list call sites", "note tests"],
+      do_not: ["edit code", "open PRs"],
+    }
+    const args = JSON.stringify(brief)
+    const row = toolCallRow({ name: "task", arguments: args })
+
+    // Structural: summary set, not raw args; detail expands with real newlines.
+    expect(row.summary).toBe("map callers of leaveObserve")
+    expect(row.verb).toBe("Explore")
+    expect(row.text).toBe(args) // clipboard still has raw; paint must not use it
+    expect(row.summary).not.toContain("success_criteria")
+    expect(row.summary).not.toContain("maxTurns")
+    // Expanded body uses real line breaks, not literal \\n escape sequences.
+    const detailPlain = (row.detail ?? [])
+      .map((line) => line.map((s) => s.text).join(""))
+      .join("\n")
+    expect(detailPlain).toContain("Find every call site of leaveObserve.")
+    expect(detailPlain).toContain("Report paths and line numbers.")
+    // A pretty-printed JSON dump would keep \\n inside the prompt string.
+    expect(detailPlain).not.toContain("\\n")
+    expect(detailPlain).toContain("list call sites")
+
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts)
+      appendStreamRow(shell, row)
+      await settle(h)
+      const frame = h.captureCharFrame()
+      expect(frame).toContain("map callers of leaveObserve")
+      expect(frame).not.toContain('"maxTurns"')
+      expect(frame).not.toContain('"success_criteria"')
+      expect(frame).not.toContain(args.slice(0, 40))
+    }, WIDE)
+  })
+
+  test("a task without description still collapses — falls back to prompt, not raw JSON", () => {
+    const prompt = "Find every call site of leaveObserve and report them."
+    const args = JSON.stringify({
+      agent: "explore",
+      prompt,
+      intent: "explore",
+      success_criteria: ["list sites"],
+    })
+    const row = toolCallRow({ name: "task", arguments: args })
+    expect(row.summary).toBeDefined()
+    expect(row.summary!.length).toBeGreaterThan(0)
+    expect(row.summary).not.toContain("success_criteria")
+    expect(row.summary).not.toContain('"intent"')
+    // Paint layer must not fall through to raw text.
+    expect(row.summary).not.toBe(args)
+  })
+
   test("a write_file call paints the whole body as additions", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts)

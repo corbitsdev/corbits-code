@@ -285,6 +285,18 @@ describe("describeToolCall for task tool", () => {
     expect(result.summary).toBe("map all callers");
   });
 
+  test("task without description falls back to the prompt subject", () => {
+    const prompt = "Find every call site of leaveObserve and report them.";
+    const args = JSON.stringify({ agent: "explore", prompt, intent: "explore" });
+    const result = describeToolCall("task", args);
+    expect(result.display).toBe("Explore");
+    // ARG_VALUE_MAX = 48 with ellipsis when truncated
+    expect(result.summary.length).toBeLessThanOrEqual(48);
+    expect(result.full).toBe(prompt);
+    expect(result.summary.startsWith("Find every call site")).toBe(true);
+    expect(result.summary).not.toContain("intent");
+  });
+
   test("long description is abbreviated", () => {
     const long = "a".repeat(100);
     const args = JSON.stringify({ agent: "critique", description: long, prompt: "..." });
@@ -331,6 +343,19 @@ describe("task activity transcript lines", () => {
     expect(s.summary).not.toContain("maxTurns");
     expect(s.summary).not.toContain("success_criteria");
     expect(s.full).toBe("map callers of leaveObserve");
+  });
+
+  test("summarizeToolArgs falls back to prompt when description is missing", () => {
+    const prompt = "Find every call site of leaveObserve and report them with paths.";
+    const s = summarizeToolArgs(
+      "task",
+      JSON.stringify({ agent: "explore", prompt, intent: "explore", maxTurns: 40 }),
+    );
+    expect(s.summary.length).toBeLessThanOrEqual(48);
+    expect(s.full).toBe(prompt);
+    expect(s.summary.startsWith("Find every call site")).toBe(true);
+    expect(s.summary).not.toContain("maxTurns");
+    expect(s.summary).not.toContain("intent");
   });
 
   test("describeToolCall full keeps the untrimmed description for Ctrl+O", () => {
