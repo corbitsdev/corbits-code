@@ -110,6 +110,7 @@ import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleto
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 
 import { loadStartupChangelogMarkdown } from "../changelog/index.js";
+import { scheduleUpgradeNotice } from "../upgrade/index.js";
 import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
@@ -2501,6 +2502,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // shell to say them to (queued above, before `host` existed).
   for (const notice of startupPluginNotices)
     surfaceSystemNotice(host.shell, notice);
+
+  // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
+  // surfaceSystemNotice keeps the landing hero up and flushes into the transcript
+  // once a session row ends the landing (same path as plugin/MCP startup chatter).
+  scheduleUpgradeNotice({
+    notify: (text) => surfaceSystemNotice(host.shell, text),
+    options: {
+      currentVersion: typeof pkg.version === "string" ? pkg.version : "0.0.0",
+    },
+  });
 
   await host.waitUntilExit();
   clearInterval(fleetStallPoll);
