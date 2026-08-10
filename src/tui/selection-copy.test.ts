@@ -76,4 +76,17 @@ describe("copyFinishedSelection", () => {
     expect(h.flashes[0]).toContain("…")
     expect(h.flashes[0]!.length).toBeLessThan(long.length + 40)
   })
+
+  test("collapses multi-line selections in the flash preview", () => {
+    const h = host()
+    const ok = copyFinishedSelection(h, {
+      isDragging: false,
+      getSelectedText: () => "ok\ngo",
+    })
+    expect(ok).toBe(true)
+    expect(h.clipboard.writes).toEqual(["ok\ngo"])
+    expect(h.flashes[0]).toContain("ok go")
+    expect(h.flashes[0]).not.toContain("\n")
+  })
 })
+

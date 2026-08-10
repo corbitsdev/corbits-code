@@ -35,8 +35,11 @@ export function copyFinishedSelection(
   if (text.length === 0) return false
 
   void host.clipboard.writeText(text)
+  // Notice row is one line; always collapse whitespace so multi-line
+  // drag-selects do not inject raw newlines into chrome.
+  const oneLine = text.replace(/\s+/g, " ").trim()
   const preview =
-    text.length > 48 ? `${text.slice(0, 45).replace(/\s+/g, " ")}…` : text
+    oneLine.length > 48 ? `${oneLine.slice(0, 45)}…` : oneLine
   host.flash(`Copied ${text.length} chars: ${preview}`)
   host.clearSelection()
   return true
