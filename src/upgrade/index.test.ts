@@ -8,6 +8,7 @@ import {
   compareVersionStrings,
   detectInstallMethod,
   formatUpgradeMessage,
+  scheduleUpgradeNotice,
   type InstallProbe,
 } from "./index.js";
 
@@ -251,5 +252,65 @@ describe("checkForUpgrade", () => {
     if (result.kind !== "available") return;
     expect(result.notice.method).toBe("source");
     expect(result.notice.message).toContain("bun install");
+  });
+});
+
+describe("scheduleUpgradeNotice", () => {
+  test("notifies only when an upgrade is available", async () => {
+    const notices: string[] = [];
+    let resolveDone!: () => void;
+    const done = new Promise<void>((r) => {
+      resolveDone = r;
+    });
+    scheduleUpgradeNotice({
+      notify: (text) => {
+        notices.push(text);
+        resolveDone();
+      },
+      options: {
+        currentVersion: "0.1.0",
+        fetchLatest: async () => "0.2.0",
+        method: "homebrew",
+      },
+    });
+    await done;
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("0.2.0");
+    expect(notices[0]).toContain("brew upgrade");
+  });
+
+  test("stays quiet when current or skipped", async () => {
+    const notices: string[] = [];
+    scheduleUpgradeNotice({
+      notify: (text) => notices.push(text),
+      options: {
+        currentVersion: "0.2.0",
+        fetchLatest: async () => "0.2.0",
+      },
+    });
+    scheduleUpgradeNotice({
+      notify: (text) => notices.push(text),
+      options: {
+        currentVersion: "0.1.0",
+        fetchLatest: async () => null,
+      },
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(notices).toEqual([]);
+  });
+
+  test("swallows notify throws without rejecting", async () => {
+    scheduleUpgradeNotice({
+      notify: () => {
+        throw new Error("flash failed");
+      },
+      options: {
+        currentVersion: "0.1.0",
+        fetchLatest: async () => "0.2.0",
+        method: "unknown",
+      },
+    });
+    // Internal .catch must absorb the throw; wait a tick for the chain.
+    await new Promise((r) => setTimeout(r, 20));
   });
 });

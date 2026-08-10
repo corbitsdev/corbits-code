@@ -31,7 +31,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
   drag selection in the transcript writes the selected text to the system
   clipboard on mouse-up and flashes a short status line. Alt+M still hands the
   mouse back for native terminal selection; Alt+C remains the keyboard copy
-  path for whole messages, tool outputs, and diffs.
+  path for whole messages, tool outputs, and diffs. Status flash only after a
+  successful clipboard write; failures show `Copy failed` and still clear the
+  highlight.
 - **Install-aware upgrade notice.** When a newer GitHub release exists, a
   non-blocking startup notice names the running and latest versions and the
   right upgrade step for Homebrew, source/Bun, deb, release binary, or

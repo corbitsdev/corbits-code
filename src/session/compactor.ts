@@ -206,18 +206,18 @@ export type CompactorConfig = {
   maxAnchorTurns: number;
 };
 
-const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
-  keepRecentTurns: 6,
-  summaryMaxChars: 2000,
-  maxAnchorTurns: 8,
-};
-
 // Recent turns kept verbatim by both real pruning-compactor registrations
 // (the main session and sub-agents). Exported so callers that need to know
 // in advance whether a compaction would do anything — the compaction
 // governor's arming floor — derive it from this value instead of carrying
 // an independent literal that can silently drift out of sync.
 export const COMPACTOR_KEEP_RECENT_TURNS = 6;
+
+const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
+  keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
+  summaryMaxChars: 2000,
+  maxAnchorTurns: 8,
+};
 
 // `apply` below no-ops at or below this turn count: keeping `keepRecentTurns`
 // turns plus at least one more is what makes pruning worth doing at all.

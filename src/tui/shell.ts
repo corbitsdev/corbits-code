@@ -149,6 +149,7 @@ import {
   buildCopyTargets,
   createRecordingClipboard,
   streamLogMarkdown,
+  writeClipboard,
   type ClipboardPort,
   type CopyTarget,
 } from "./copy-path.js"
@@ -3411,7 +3412,8 @@ export type OpenListOverlayOpts = {
   readonly echoChoice?: boolean
   /**
    * Claim printable keys for a `>` filter row so the list narrows as you type.
-   * Opt-in per open (model picker); other overlays keep j/k navigation.
+   * Opt-in per open (model picker, palette). Overlays without it keep j/k
+   * navigation; with it, j/k type into the filter and arrows still navigate.
    */
   readonly typeToFilter?: boolean
 }
@@ -3684,13 +3686,14 @@ function repaintPalette(shell: AppShell): void {
 }
 
 /**
- * Keys the palette claims while it is open, so the `>` row filters as you type.
+ * Keys a type-to-filter list claims while it is open, so the `>` row filters
+ * as you type.
  *
- * Opt-in per open rather than a property of the shared list overlay: every other
- * picker (permissions, model, resume, workers, copy) keeps j/k navigation, which
- * only the palette has to give up to get its printable keys back. Arrow and page
- * keys are never claimed here, so they keep working in every overlay including
- * this one.
+ * Opt-in per open (`typeToFilter`): palette and the flat model picker give up
+ * j/k navigation so printable keys feed the filter. Overlays without
+ * type-to-filter (permissions, resume, workers, copy, …) keep j/k. Arrow and
+ * page keys are never claimed here, so they keep working in every overlay
+ * including type-to-filter ones.
  */
 export function handlePaletteFilterKey(
   shell: AppShell,
@@ -4566,15 +4569,21 @@ export function confirmCopySelection(shell: AppShell): boolean {
     closeInsetOverlay(shell)
     return false
   }
-  void shell.clipboard.writeText(target.text)
   const preview =
     target.text.length > 48
       ? `${target.text.slice(0, 45).replace(/\s+/g, " ")}…`
       : target.text
-  setStatusFlash(
-    shell,
-    `Copied ${target.label} (${target.text.length} chars): ${preview}`,
-  )
+  writeClipboard(shell.clipboard, target.text, {
+    onSuccess: () => {
+      setStatusFlash(
+        shell,
+        `Copied ${target.label} (${target.text.length} chars): ${preview}`,
+      )
+    },
+    onFailure: () => {
+      setStatusFlash(shell, "Copy failed")
+    },
+  })
   closeInsetOverlay(shell)
   return true
 }
@@ -4588,11 +4597,17 @@ export function copyAllTargets(shell: AppShell): boolean {
     return false
   }
   const text = streamLogMarkdown(targets)
-  void shell.clipboard.writeText(text)
-  setStatusFlash(
-    shell,
-    `Copied all (${targets.length} items, ${text.length} chars)`,
-  )
+  writeClipboard(shell.clipboard, text, {
+    onSuccess: () => {
+      setStatusFlash(
+        shell,
+        `Copied all (${targets.length} items, ${text.length} chars)`,
+      )
+    },
+    onFailure: () => {
+      setStatusFlash(shell, "Copy failed")
+    },
+  })
   closeInsetOverlay(shell)
   return true
 }
@@ -5466,8 +5481,8 @@ export function createAppShell(
         key.preventDefault()
         return
       }
-      // The palette filters as you type, so it claims printable keys — including
-      // the j/k every other overlay still uses to navigate.
+      // Type-to-filter overlays (palette, model picker) claim printables —
+      // including j/k that non-filter overlays still use to navigate.
       if (handlePaletteFilterKey(shell, key)) {
         key.preventDefault()
         return

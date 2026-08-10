@@ -28,6 +28,37 @@ export type ClipboardPort = {
   readonly writeText: (text: string) => void | Promise<void>
 }
 
+/**
+ * Write to the clipboard, then run success/failure handlers.
+ * Never throws: sync throws and promise rejections both hit onFailure.
+ * Flash "Copied …" only from onSuccess so a failed write never lies.
+ */
+export function writeClipboard(
+  port: ClipboardPort,
+  text: string,
+  handlers: {
+    readonly onSuccess: () => void
+    readonly onFailure?: () => void
+  },
+): void {
+  const fail = () => {
+    handlers.onFailure?.()
+  }
+  try {
+    const result = port.writeText(text)
+    if (
+      result != null
+      && typeof (result as PromiseLike<void>).then === "function"
+    ) {
+      void Promise.resolve(result).then(handlers.onSuccess, fail)
+      return
+    }
+    handlers.onSuccess()
+  } catch {
+    fail()
+  }
+}
+
 /** Recording port for headless tests. */
 export function createRecordingClipboard(): ClipboardPort & {
   readonly writes: string[]
