@@ -6,6 +6,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ## [Unreleased]
 
+Drag-select auto-copy, a flat type-to-filter model picker, install-aware upgrade
+notices, quieter long-session compaction (re-read stubs), and layout breathing
+room — plus honesty fixes for the changelog watermark and clipboard flash.
+
 ### Planned
 
 - Local context estimate for compaction when providers omit usage
@@ -23,18 +27,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### TUI
 
-- **Flat model picker.** Choosing a model is one type-to-filter list of
-  `provider / model` rows — no nested provider drill-down. Type to narrow,
-  Enter selects; Alt+F still toggles favorites when wired. Filtered accept
-  uses the row's stable id (never the unfiltered catalog index).
 - **Drag-select auto-copy.** With mouse capture on (the default), finishing a
   drag selection in the transcript writes the selected text to the system
-  clipboard on mouse-up and flashes a short status line. Alt+M still hands the
-  mouse back for native terminal selection; Alt+C remains the keyboard copy
-  path for whole messages, tool outputs, and diffs. Highlight clears
-  immediately; status flash only after the clipboard write settles — success
-  shows the preview, throw/reject shows `Copy failed` (same honesty on Alt+C
-  structured copy).
+  clipboard on mouse-up. Highlight clears immediately so a slow clipboard
+  helper cannot pin the selection; the status flash waits for write settlement
+  (`Copied …` on success, `Copy failed` on throw/reject). Alt+C structured copy
+  uses the same honesty. Alt+M still hands the mouse back for native terminal
+  selection.
+- **Flat model picker.** Choosing a model is one type-to-filter list of
+  `provider / model` rows — no nested provider drill-down. Type to narrow,
+  Enter selects; Alt+F still toggles favorites when wired. Accept uses the
+  filtered row's stable id (never the unfiltered catalog index); empty
+  `(no matches)` cannot select or favorite.
 - **Install-aware upgrade notice.** When a newer GitHub release exists, a
   non-blocking startup notice names the running and latest versions and the
   right upgrade step for Homebrew, source/Bun, deb, release binary, or
@@ -45,7 +49,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
   feels flush against the frame edge.
 - **User-message breathing room.** Operator turns in the transcript keep a
   blank bar row above and below the message text, so user prompts are easier
-  to spot while scrolling through assistant and tool rows (CL-5603).
+  to spot while scrolling through assistant and tool rows.
 - **Landing survives MCP connect failure.** An MCP status failure still
   routes through the system-notice channel and cannot wipe the mountain
   landing by falling through to a stream-row path.
@@ -57,10 +61,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 ### Session
 
 - **Superseded read stubs.** When compaction keeps more than one successful
-  `read_file` of the same path (or same path+offset+limit range), older results
-  become a one-line stub and the newest stays whole. Errors stay verbatim.
-  Dedup only considers turns that survive compaction, so a summarized re-read
-  cannot hollow a kept older body.
+  `read_file` of the same identity, older results become a one-line stub and
+  the newest stays whole. Errors stay verbatim. Identity is path alone for
+  full-file reads, or path+offset+limit when either range arg is present, so
+  chunked reads of the same file do not hollow each other. Dedup only
+  considers turns that survive compaction (anchors + recent window), so a
+  summarized re-read cannot hollow a kept older body.
+- **Single-source recent window.** Main session and sub-agent compactors share
+  `COMPACTOR_KEEP_RECENT_TURNS` (6); the compaction governor's arming floor
+  derives from the same constant so it cannot silently drift.
 - **Changelog watermark honesty.** The OpenTUI path no longer stamps
   `lastChangelogVersion` as a side effect of computing upgrade notes it never
   shows. First-install still stamps; upgrade stamps only when notes are
