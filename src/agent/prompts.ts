@@ -59,11 +59,13 @@ export function buildHarnessFacts(
   const subAgent = opts.subAgent ?? false;
   return [
     "Harness facts:",
-    "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
     ...(subAgent
-      ? []
+      ? [
+          "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
+        ]
       : [
           "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT/docs) for durable edits.",
+          "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
@@ -154,12 +156,16 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
 // appended exactly once per built prompt. Prohibition form throughout: these
 // are the failure modes observed across shipped agents (OpenCode, Codex CLI,
 // Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
-export function buildPromptDisciplineBlock(): string {
+export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): string {
+  const subAgent = opts.subAgent ?? false;
+  const toolsOverShell = subAgent
+    ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
+    : "- Never use run_shell to read, edit, or write files — use read_file for reads; durable product edits go through implement/docs directors (write tools are not mounted on Skywalker); cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",
     "Tools over shell:",
-    "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.",
+    toolsOverShell,
     "- Never use echo or shell output to talk to the user — that is what your reply is for.",
     "",
     "Environment:",
@@ -395,7 +401,7 @@ export function buildSubAgentSystemPrompt(
           `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
           buildHarnessFacts({ dynamicTools: false, subAgent: true }),
           buildGuidelines({ subAgent: true }),
-          buildPromptDisciplineBlock(),
+          buildPromptDisciplineBlock({ subAgent: true }),
           buildSubAgentReportContract(),
         ]);
   const toolListForPrompt =

@@ -208,13 +208,14 @@ export const COLLAPSE_ORDER = [
 
 /**
  * Top-to-bottom paint order for y-stacked rects.
- * Transcript is residual in the middle; the prompt box is the last thing painted.
+ * Transcript is residual at the top; orchestration chrome (agents, task) sits
+ * at the bottom above the prompt, with notice closest to the prompt box.
  */
 export const PAINT_ORDER = [
-  "task",
-  "agents",
   "transcript",
   "overlay_host",
+  "agents",
+  "task",
   "plugin_banner",
   "command_banner",
   "settings_notice",

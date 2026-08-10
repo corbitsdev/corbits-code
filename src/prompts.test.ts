@@ -47,7 +47,7 @@ test("agent identity is Skywalker orchestrator", () => {
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
-  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("write_file, edit_file, delete_file");
   expect(facts).toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
@@ -63,6 +63,12 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain(".corbits/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
   expect(facts).not.toContain("Tool results already render richly");
+});
+
+test("leaf harness facts advertise product write tools", () => {
+  const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
+  expect(facts).toContain("write_file/edit_file");
+  expect(facts).not.toContain("not mounted on the primary Skywalker session");
 });
 
 test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {

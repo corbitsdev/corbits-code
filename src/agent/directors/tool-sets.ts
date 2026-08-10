@@ -1,6 +1,8 @@
 // Small, explicit tool allowlists for director packages.
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
 // manage_tasks is always mounted by runSubAgent after the filter — omit it here.
+// use_skill / tool_search / ask_operator are primary-session tools: leaves do
+// not mount them (skill guidance is baked into package system prompts).
 
 /** Read/search/shell — no product mutation. */
 export const READ_TOOLS = [
@@ -14,13 +16,12 @@ export const READ_TOOLS = [
   "web_search",
 ] as const;
 
-/** Implement: read + full file mutation + skills. */
+/** Implement: read + full file mutation. */
 export const IMPLEMENT_TOOLS = [
   ...READ_TOOLS,
   "write_file",
   "edit_file",
   "delete_file",
-  "use_skill",
 ] as const;
 
 /** Docs leaves that may write only under writePaths authz. */
@@ -28,21 +29,17 @@ export const DOCS_TOOLS = [
   ...READ_TOOLS,
   "write_file",
   "edit_file",
-  "use_skill",
 ] as const;
 
-/** Review / counsel: read + skills, no writes. */
-export const REVIEW_TOOLS = [...READ_TOOLS, "use_skill"] as const;
+/** Review / counsel: read surface, no writes. */
+export const REVIEW_TOOLS = [...READ_TOOLS] as const;
 
 /** Mechanical intern: shell-first, minimal surface. */
 export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir"] as const;
 
-/** Orchestrator (Skywalker / greybeard spawn path): dispatch, no product writes. */
+/** Nested orchestrator surface (greybeard / package filter): dispatch only. */
 export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
-  "use_skill",
-  "tool_search",
   "search_agents",
   "task",
-  "ask_operator",
 ] as const;

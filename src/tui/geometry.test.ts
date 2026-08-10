@@ -204,6 +204,26 @@ describe("resolveGeometry — task panel", () => {
     expect(layout.regions.task).not.toEqual(layout.regions.agents);
   });
 
+  test("orchestration chrome stacks below the transcript and above the prompt", () => {
+    // Visual order top → bottom: transcript, agents, task, prompt.
+    // Agents sit above the task list; both sit in the bottom chrome, not
+    // above the conversation residual.
+    const layout = idle80x24({
+      visibility: { task: 3, agents: 2 },
+    });
+    const transcript = layout.regions.transcript;
+    const agents = layout.regions.agents;
+    const task = layout.regions.task;
+    const prompt = layout.regions.prompt;
+    expect(transcript).toBeDefined();
+    expect(agents).toBeDefined();
+    expect(task).toBeDefined();
+    expect(prompt).toBeDefined();
+    expect(transcript!.y).toBeLessThan(agents!.y);
+    expect(agents!.y).toBeLessThan(task!.y);
+    expect(task!.y).toBeLessThan(prompt!.y);
+  });
+
   test("under pressure the task panel shrinks one row at a time rather than vanishing in one step", () => {
     const layout = resolveGeometry({
       terminal: { columns: 80, rows: 20 },

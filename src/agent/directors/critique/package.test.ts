@@ -28,7 +28,8 @@ describe("critiquePackage", () => {
   test("tools.allow is review surface without product writes", () => {
     const allow = critiquePackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).toContain("use_skill");
+    expect(allow).toContain("read_file");
+    expect(allow).not.toContain("use_skill");
     expect(allow).not.toContain("write_file");
     expect(allow).not.toContain("edit_file");
     expect(allow).not.toContain("delete_file");

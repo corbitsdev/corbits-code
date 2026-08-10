@@ -1779,7 +1779,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows the flow spends before the prompt box — where a floated host's bottom
   // edge has to land, since the landing's box sits mid-screen rather than at
   // the foot and covering it would hide the thing the operator types into.
-  const promptTop = padH + taskH + agentsH + transcriptBody
+  // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
+  // same as before; it is transient chrome between task and prompt).
+  const promptTop = padH + transcriptBody + agentsH + taskH
   const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
   shell.overlayHost.height = hostH > 0 ? hostH : 1
@@ -4466,7 +4468,7 @@ function renderAgentsRows(
     destroySubtree(child)
   }
   for (const row of rows) {
-    // Green for working, not the task zone's bronze immediately above it —
+    // Green for working, not the task zone's bronze immediately below it —
     // adjacent zones sharing a hue read as one undifferentiated block. The
     // header and the hidden-count row are chrome about the board rather than
     // lanes in it, so they sit back in dim and leave the colour to the work.
@@ -5445,10 +5447,10 @@ export function createAppShell(
   promptBox.add(promptBottomRule)
 
   root.add(topPad)
-  root.add(taskBox)
-  root.add(agentsBox)
   root.add(transcript)
   root.add(overlayHost)
+  root.add(agentsBox)
+  root.add(taskBox)
   root.add(notice)
   root.add(promptBox)
   root.add(landingBelow)

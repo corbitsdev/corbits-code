@@ -12,8 +12,8 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
     pkg.optionalSkills === undefined
       ? null
       : pkg.optionalSkills.length === 0
-        ? "Optional skills: none by default (do not load skills unless the brief requires)."
-        : `Optional skills (load via use_skill when the job needs them): ${pkg.optionalSkills.join(", ")}.`;
+        ? "Optional skills: none by default."
+        : `Optional skills (names for awareness; guidance is baked into this prompt — use_skill is not mounted on leaves): ${pkg.optionalSkills.join(", ")}.`;
   const header = [
     `Identity: agent id \`${pkg.id}\` — spawn as task(agent="${pkg.id}").`,
     `Model role: ${pkg.modelRole}.`,

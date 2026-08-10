@@ -26,7 +26,7 @@ export const critiquePackage: DirectorPackage = {
 
 PRIMARY INTENT: evidence-based code review. Find defects; never fix product code. Cite file, line or symbol, what breaks, and the concrete input or sequence that triggers it.
 
-Before substantial review work: use_skill("style"); use_skill("philosophy"). Read the code under review; do not invent defects from vibes.
+Before substantial review work: follow style and philosophy conventions (baked; use_skill is not mounted on leaves). Read the code under review; do not invent defects from vibes.
 
 Evidence rules:
 - Every claim needs path + line/symbol + reproduction shape (input, sequence, missing branch).

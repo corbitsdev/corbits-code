@@ -133,11 +133,11 @@ removed line), not a decision marker, and no decision-marker shares that row.
 
 ## The live task list panel
 
-The `task` chrome zone renders a standing panel above the transcript, one row
-per task the task tool has written (`manage_tasks`) — distinct from the
-`agents` panel below it. A task is a unit of work with a status; an agent is
-an executor with its own context and transcript. The two are never merged
-into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
+The `task` chrome zone renders a standing panel in the bottom chrome above the
+prompt, one row per task the task tool has written (`manage_tasks`) — distinct
+from the `agents` panel above it. A task is a unit of work with a status; an
+agent is an executor with its own context and transcript. The two are never
+merged into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
 `formatAgentsPanel` are separate formatters feeding separate zones with
 separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
 
@@ -185,7 +185,8 @@ fail a test as well as the type checker.
 
 ## The live agents panel
 
-The `agents` chrome zone renders a standing panel above the transcript, one
+The `agents` chrome zone renders a standing panel in the bottom chrome above
+the prompt (above the task list when both are live), one
 row per currently-running sub-agent. Each row reads
 `agentId: description · elapsed · tool`, sourced from the same
 `agentProgress()` clock/tool/stall computation used to trail a task row in the
