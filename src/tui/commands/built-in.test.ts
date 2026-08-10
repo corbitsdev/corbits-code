@@ -45,11 +45,11 @@ describe("/status command", () => {
   it("answers from the live fleet without sending anything to the model", () => {
     const ctx: CommandContext = {
       signalClear: () => {},
-      getFleetStatus: () => "fleet · 2 running (api 1:20, docs 0:04) · 1 done",
+      getFleetStatus: () => "2 running (api 1:20, docs 0:04) · 1 done",
     };
     expect(getCommand("status")!.handler("", ctx)).toEqual({
       type: "message",
-      text: "fleet · 2 running (api 1:20, docs 0:04) · 1 done",
+      text: "2 running (api 1:20, docs 0:04) · 1 done",
     });
   });
 

@@ -1,11 +1,11 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
  *
- * Live lanes already paint on the fleet board. Parent prose already narrates
- * phase plans. This module only emits transcript lines for attention the board
- * cannot keep: a lane failed or stalled, and the single moment the fleet runs
+ * Live lanes already paint on the activity strip. Parent prose already narrates
+ * phase plans. This module only emits transcript lines for attention the strip
+ * cannot keep: a lane failed or went quiet, and the single moment the fleet runs
  * dry. Per-lane "done — summary" walls are intentionally never printed — they
- * restate the board and the parent and turn the transcript into a second
+ * restate the strip and the parent and turn the transcript into a second
  * status log (CL-5846).
  *
  * Pure and stateless per call — the caller keeps the returned watch and hands
@@ -65,8 +65,6 @@ const OUTCOME_CHARS = 56;
  * screen, which is how a report meant to be glanced at turns into a scroll.
  */
 const MAX_UPDATE_CHARS = 76;
-
-const PREFIX = "fleet";
 
 /**
  * A lane going quiet is the one change that produces no event, so it has to be
@@ -161,12 +159,10 @@ export function observeFleet(
       continue;
     }
 
-    if (lane.status === "running" && stalled && before.stallReported !== true) {
-      changes.push({
-        kind: "stalled",
-        line: `${lane.description} stalled — quiet for ${clockLabel(nowMs - lane.lastActivityAt)}`,
-      });
-    }
+    // A lane going quiet is no longer emitted to the transcript: the single
+    // agents-panel rollup row carries the quiet count instead, so a stalled
+    // fleet stops producing "went quiet" walls (CL-5846). stallReported is
+    // still tracked internally so the strip does not flap.
   }
 
   const watch: FleetWatch = { lanes: marks, running, seeded: true };
@@ -179,7 +175,7 @@ export function observeFleet(
     return {
       watch,
       updates: [
-        clip(`${PREFIX} · ${idleSummary(lanes)} — nothing running`, MAX_UPDATE_CHARS),
+        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
       ],
     };
   }
@@ -196,7 +192,7 @@ export function observeFleet(
 
   return {
     watch,
-    updates: lines.map((line) => clip(`${PREFIX} · ${line}`, MAX_UPDATE_CHARS)),
+    updates: lines.map((line) => clip(line, MAX_UPDATE_CHARS)),
   };
 }
 
@@ -206,10 +202,10 @@ function tally(changes: readonly Change[]): string {
   const parts: string[] = [];
   const done = count("done");
   const failed = count("failed");
-  const stalled = count("stalled");
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
-  if (stalled > 0) parts.push(`${stalled} stalled`);
+  // stalled changes are not operator-facing; tally fails/done only
+  void count("stalled");
   return parts.join(", ");
 }
 
@@ -230,7 +226,7 @@ export function fleetDigest(
   nowMs: number,
   stallMs: number = DEFAULT_STALL_MS,
 ): string {
-  if (lanes.length === 0) return `${PREFIX} · no lanes dispatched`;
+  if (lanes.length === 0) return "nothing running";
   const running = lanes.filter((l) => l.status === "running");
   const done = lanes.filter((l) => l.status === "done").length;
   const failed = lanes.filter((l) => l.status === "failed").length;
@@ -243,8 +239,9 @@ export function fleetDigest(
     const named = running
       .slice(0, DIGEST_NAMED_LANES)
       .map((lane) => {
-        const quiet = isStalled(lane, nowMs, stallMs) ? " stalled" : "";
-        return `${lane.description} ${clockLabel(nowMs - lane.startedAt)}${quiet}`;
+        void isStalled
+        void stallMs
+        return `${lane.description} ${clockLabel(nowMs - lane.startedAt)}`;
       })
       .join(", ");
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
@@ -255,5 +252,5 @@ export function fleetDigest(
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
   if (cancelled > 0) parts.push(`${cancelled} cancelled`);
-  return `${PREFIX} · ${parts.join(" · ")}`;
+  return parts.join(" · ");
 }

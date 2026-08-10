@@ -40,7 +40,6 @@ export const ACTIVITY_STATES = [
   "building",
   "working",
   "waiting",
-  "orchestrating",
   "stalled",
   "stopping",
 ] as const
@@ -100,13 +99,14 @@ export function resolveTurnLabel(
   if (input.status === "stopping" || input.status === "stopped") {
     return "stopping"
   }
-  // Live lanes outrank the parent's own stall clock: while sub-agents run the
-  // parent is idle by design, so its silence says nothing about the session.
-  // The fleet is the thing actually working, so it is the thing reported.
+  // Live fleet means the session is working — recovery is silent. Never paint
+  // "stalled" for the operator; the orchestrator keeps lanes moving.
   if (fleet !== null && fleet.running > 0) {
-    return fleet.stalled > 0 ? "stalled" : "orchestrating"
+    return "working"
   }
-  if (isStalled) return "stalled"
+  // Parent silence is still work-in-progress from the operator's POV; nudge
+  // paths handle recovery without renaming the ticker.
+  void isStalled
   if (input.currentToolName !== null) return activityStateForTool(input.currentToolName)
   if (input.streamingType === "thinking") return "thinking"
   return "working"
@@ -125,10 +125,12 @@ export function resolveRampPhase(
 ): RampPhase {
   if (input.status === "blocked") return "blocked"
   if (input.status === "done") return "done"
+  // Operator chrome never enters the stalled ramp: fleet or parent silence is
+  // still "working" while recovery runs under the hood.
   if (fleet !== null && fleet.running > 0) {
-    return fleet.stalled > 0 ? "stalled" : "working"
+    return "working"
   }
-  if (isStalled) return "stalled"
+  void isStalled
   return "working"
 }
 

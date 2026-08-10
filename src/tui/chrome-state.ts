@@ -95,9 +95,9 @@ export type ChromeLiveState = {
 /**
  * One rendered agents-panel row. `stalled` is a fact the formatter already
  * knows from `agentProgress` — carried explicitly so the renderer never has
- * to recover it by sniffing `text` for a marker string. `label` (agentId +
- * description) is the part the renderer may ellipsize under width pressure;
- * `tail` (elapsed/tool/stalled) must never be trimmed away.
+ * to recover it by sniffing `label` for a marker string. `label` (the ●/!
+ * marker, agentId + description) is the part the renderer may ellipsize under
+ * width pressure; `tail` (clock/tool) must never be trimmed away.
  */
 export type AgentPanelRow = {
   readonly label: string
@@ -368,21 +368,6 @@ function withHiddenCount(header: AgentPanelRow, hidden: number): AgentPanelRow {
 }
 
 /**
- * Operator-facing state word. Machine `LaneState` stays snake_case for code;
- * the board never paints that vocabulary into the terminal.
- */
-function laneStateWord(state: LaneState): string {
-  switch (state) {
-    case "in_tool":
-      return "in tool"
-    case "stalled":
-      return "stalled"
-    case "working":
-      return "working"
-  }
-}
-
-/**
  * The one-line answer to "is everything fine". Counts run worst-first so that
  * a narrow terminal ellipsizes away the routine tail rather than the trouble.
  * Counts come from main's `fleetProgress`; the FLEET chrome layout is the board.
@@ -417,10 +402,13 @@ function formatAgentRow(
   nowMs: number,
   stallMs: number,
 ): AgentPanelRow {
-  const label = `${session.agentId}: ${session.description}`.trim()
   const stalled = state === "stalled"
+  // Rail grammar: ● for live work, ! when quiet. The marker names the state so
+  // the tail stays clock/tool only (variant A single-line lanes).
+  const marker = stalled ? "!" : "●"
+  const label = `${marker} ${session.agentId}  ${session.description}`.trim()
   // Prefer the argument subject (command / path) over the bare tool name so a
-  // fleet of shell calls is distinguishable at a glance (CL-5765).
+  // strip of shell calls is distinguishable at a glance (CL-5765).
   const preview = session.currentToolPreview
   const tool = session.currentToolName
   const doing =
@@ -437,14 +425,14 @@ function formatAgentRow(
     return { label, tail: doing !== null ? ` · ${doing}` : "", stalled, kind: "lane" }
   }
 
-  // Prefer main's agentProgress for tool-clock / in_tool / quiet clocks so the
-  // board never invents a second stall path. Board presentation still prefixes
-  // the operator-facing state word (and kind: lane) the way the fleet board reads.
+  // Prefer agentProgress for tool-clock / in_tool / silence clocks so the
+  // board never invents a second stall path. Tail is clock · tool only — the
+  // ●/! marker already names the state.
   const progress = agentProgress(progressSession, nowMs, stallMs)
   if (progress !== null) {
     return {
       label,
-      tail: ` · ${laneStateWord(state)} · ${progress.stat}`,
+      tail: ` · ${progress.stat}`,
       stalled,
       kind: "lane",
     }
@@ -456,35 +444,22 @@ function formatAgentRow(
 /**
  * Overlay live per-agent tool names onto the agents zone.
  *
- * The subagent store records what a worker was asked to do, never what it is
- * doing right now — that arrives only as `subagent.progress`. Keying by
- * description is what the emitter gives us: progress carries the worker's
- * description and tool name, not its agent id.
+ * This is now an identity: the subagent store is the sole source of truth for
+ * what a worker is doing, via `currentToolName` paired with the matching
+ * `currentToolStartedAt` clock. The `subagent.progress` ping carries only a
+ * tool name with no clock of its own, so painting it onto a lane with no
+ * outstanding call would announce a dead tool — exactly the false "quiet ·
+ * read_file" stall this surface exists to expose. Progress pings are also
+ * emitted on tool completion, so any name they hand us may already be stale.
+ *
+ * The signature is kept so call sites and tests can be updated in their own
+ * diffs; passing a map here no longer changes any row.
  */
 export function annotateAgentTools(
   state: ChromeLiveState,
-  toolByDescription: ReadonlyMap<string, string>,
+  _toolByDescription?: ReadonlyMap<string, string>,
 ): ChromeLiveState {
-  const agents = state.agents
-  if (agents === null || agents === undefined || toolByDescription.size === 0) {
-    return state
-  }
-  return {
-    ...state,
-    agents: agents.map((a) => {
-      if (a.status !== "running") return a
-      const tool = toolByDescription.get(a.description)
-      if (tool === undefined) return a
-      // Gap-fill only. When the store has a call outstanding it owns both the
-      // name and the clock, and overriding just the name would paint one
-      // tool's identifier beside another tool's elapsed time. A progress ping
-      // also cannot supply a clock of its own — only the store observes a call
-      // ending, so a ping-sourced clock would keep a finished lane reading
-      // busy forever, hiding exactly the stalls this surface exists to show.
-      if (a.currentToolStartedAt !== null) return a
-      return { ...a, currentToolName: tool }
-    }),
-  }
+  return state
 }
 
 // ---------------------------------------------------------------------------

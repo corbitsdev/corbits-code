@@ -45,7 +45,7 @@ describe("composeNoticeLine", () => {
     )
     expect(line).toContain("queue 2")
     expect(line).toContain("pinned")
-    expect(line).toContain("interrupt")
+    expect(line).not.toContain("interrupt")
     expect(line).toContain("1 image")
   })
 

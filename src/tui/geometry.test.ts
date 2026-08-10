@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AGENTS_PANEL_MAX_VISIBLE,
   COLLAPSE_ORDER,
+  DUAL_MIN_COLUMNS,
   FLEET_BOARD_CAP_FRACTION,
   FLEET_TRANSCRIPT_FLOOR,
   IDLE_TRANSCRIPT_FLOOR,
@@ -9,6 +10,9 @@ import {
   PROMPT_BASE_ROWS,
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_ROWS,
+  RAIL_GUTTER,
+  RAIL_WIDTH_MAX,
+  RAIL_WIDTH_MIN,
   SIDE_MARGIN,
   TASKS_PANEL_MAX_VISIBLE,
   ZONE_IDS,
@@ -72,6 +76,11 @@ describe("resolveGeometry — 80×24 idle floor", () => {
     expect(layout.regions.transcript?.height).toBe(24 - PROMPT_IDLE_ROWS);
     expect(layout.overlayHeight).toBe(0);
     expect(layout.overlayMode).toBe("closed");
+    // No agents → stack defaults for dual fields.
+    expect(layout.layoutMode).toBe("stack");
+    expect(layout.chatWidth).toBe(layout.contentWidth);
+    expect(layout.railWidth).toBe(0);
+    expect(layout.railGutter).toBe(0);
   });
 
   test("rects sit inside the gutter and y-stack without gaps or overlap", () => {
@@ -101,12 +110,18 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 });
 
 describe("resolveGeometry — agents panel", () => {
-  test("the board is sized to its content, one row per lane", () => {
-    // Small boards get exactly what they ask for; only once the transcript
-    // floor is at risk does the board start giving rows back.
-    for (let n = 0; n <= 6; n++) {
+  test("agents zone max allows more than one row again", () => {
+    expect(ZONE_REGISTRY.agents.max).toBe(AGENTS_PANEL_MAX_VISIBLE + 2);
+    for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
       const layout = idle80x24({ visibility: { agents: n } });
-      expect(layout.heights.agents).toBe(n);
+      const fracCap = Math.max(1, Math.floor(24 * FLEET_BOARD_CAP_FRACTION));
+      const expected = Math.min(n, ZONE_REGISTRY.agents.max, fracCap);
+      // Collapse may shrink further to protect the transcript floor.
+      expect(layout.heights.agents).toBeLessThanOrEqual(expected);
+      if (n <= 3) {
+        // Small requests fit under the floor without collapse.
+        expect(layout.heights.agents).toBe(n);
+      }
     }
   });
 
@@ -114,6 +129,8 @@ describe("resolveGeometry — agents panel", () => {
     const layout = idle80x24({ visibility: { agents: 0 } });
     expect(layout.heights.agents).toBe(0);
     expect(layout.regions.agents).toBeUndefined();
+    expect(layout.layoutMode).toBe("stack");
+    expect(layout.railWidth).toBe(0);
   });
 
   test("a large fan-out never grows the board without bound", () => {
@@ -127,23 +144,26 @@ describe("resolveGeometry — agents panel", () => {
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
 
-  test("a taller terminal gives the board room for a bigger fleet", () => {
+  test("a taller dual terminal honours the agents row request (capped by residual)", () => {
     const tall = resolveGeometry({
       terminal: { columns: 120, rows: 40 },
       visibility: { agents: 14 },
       transcriptFloor: FLEET_TRANSCRIPT_FLOOR,
     });
-    // A dozen lanes plus a header fit on a 40-row terminal without hiding any.
+    expect(tall.layoutMode).toBe("dual");
+    // Dual caps agents to transcript residual, not to 1.
     expect(tall.heights.agents).toBe(14);
+    expect(tall.heights.agents).toBeLessThanOrEqual(tall.transcriptHeight);
   });
 
-  test("with a fleet running the transcript yields its idle floor to the board", () => {
+  test("with a fleet running on a narrow terminal the agents zone stacks", () => {
     const fleet = resolveGeometry({
       terminal: { columns: 80, rows: 24 },
-      visibility: { agents: 13 },
+      visibility: { agents: 1 },
       transcriptFloor: FLEET_TRANSCRIPT_FLOOR,
     });
-    expect(fleet.heights.agents).toBe(13);
+    expect(fleet.layoutMode).toBe("stack");
+    expect(fleet.heights.agents).toBe(1);
     expect(fleet.transcriptHeight).toBeGreaterThanOrEqual(FLEET_TRANSCRIPT_FLOOR);
     // The prompt box never leaves the screen, whatever the fleet is doing.
     expect(fleet.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
@@ -209,7 +229,7 @@ describe("resolveGeometry — task panel", () => {
     // Agents sit above the task list; both sit in the bottom chrome, not
     // above the conversation residual.
     const layout = idle80x24({
-      visibility: { task: 3, agents: 2 },
+      visibility: { task: 3, agents: 1 },
     });
     const transcript = layout.regions.transcript;
     const agents = layout.regions.agents;
@@ -455,6 +475,10 @@ describe("resolveGeometry — resize / residual", () => {
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
     expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
     expect(layout.transcriptHeight).toBe(40 - PROMPT_IDLE_ROWS);
+    // Idle has no agents → stack even on a wide terminal.
+    expect(layout.layoutMode).toBe("stack");
+    expect(layout.railWidth).toBe(0);
+    expect(layout.chatWidth).toBe(layout.contentWidth);
   });
 
   test("does not read process.stdout — pure input only", () => {
@@ -467,3 +491,100 @@ describe("resolveGeometry — resize / residual", () => {
     expect(sum).toBe(18);
   });
 });
+
+describe("resolveGeometry — dual column fleet rail", () => {
+  test("wide terminal with agents → dual: rail width clamped, columns sum to contentWidth", () => {
+    const layout = resolveGeometry({
+      terminal: { columns: 120, rows: 32 },
+      visibility: { agents: 8 },
+    });
+    expect(layout.layoutMode).toBe("dual");
+    expect(layout.railWidth).toBeGreaterThanOrEqual(RAIL_WIDTH_MIN);
+    expect(layout.railWidth).toBeLessThanOrEqual(RAIL_WIDTH_MAX);
+    expect(layout.railGutter).toBe(RAIL_GUTTER);
+    expect(layout.chatWidth + layout.railGutter + layout.railWidth).toBe(
+      layout.contentWidth,
+    );
+
+    const transcript = layout.regions.transcript;
+    const agents = layout.regions.agents;
+    const prompt = layout.regions.prompt;
+    expect(transcript).toBeDefined();
+    expect(agents).toBeDefined();
+    expect(prompt).toBeDefined();
+
+    // Agents rail sits to the right of chat at the same y.
+    expect(agents!.x).toBeGreaterThan(transcript!.x);
+    expect(agents!.y).toBe(transcript!.y);
+    expect(transcript!.width).toBe(layout.chatWidth);
+    expect(agents!.width).toBe(layout.railWidth);
+    expect(agents!.height).toBe(layout.heights.agents);
+
+    // Prompt stays full content width under both columns.
+    expect(prompt!.width).toBe(layout.contentWidth);
+    expect(prompt!.x).toBe(layout.sideMargin);
+  });
+
+  test("dual agents height does not reduce transcript vs stack baseline", () => {
+    const dual = resolveGeometry({
+      terminal: { columns: 120, rows: 32 },
+      visibility: { agents: 8 },
+    });
+    // Same width/rows with no agents: stack residual is the dual baseline.
+    const stack = resolveGeometry({
+      terminal: { columns: 120, rows: 32 },
+      visibility: { agents: 0 },
+    });
+    expect(dual.layoutMode).toBe("dual");
+    expect(stack.layoutMode).toBe("stack");
+    // Dual excludes agents from chrome, so transcript matches idle residual.
+    expect(dual.transcriptHeight).toBe(stack.transcriptHeight);
+    expect(dual.chromeHeight).toBe(stack.chromeHeight);
+    expect(dual.heights.agents).toBe(8);
+    expect(dual.heights.agents).toBeLessThanOrEqual(dual.transcriptHeight);
+  });
+
+  test("narrow terminal with agents → stack, full-width regions, railWidth 0", () => {
+    expect(80).toBeLessThan(DUAL_MIN_COLUMNS);
+    const layout = resolveGeometry({
+      terminal: { columns: 80, rows: 24 },
+      visibility: { agents: 5 },
+    });
+    expect(layout.layoutMode).toBe("stack");
+    expect(layout.railWidth).toBe(0);
+    expect(layout.railGutter).toBe(0);
+    expect(layout.chatWidth).toBe(layout.contentWidth);
+    expect(layout.regions.transcript?.width).toBe(layout.contentWidth);
+    expect(layout.regions.agents?.width).toBe(layout.contentWidth);
+    // Stack: agents sit below transcript.
+    expect(layout.regions.agents!.y).toBeGreaterThan(layout.regions.transcript!.y);
+    // Stack agents consume vertical chrome.
+    expect(layout.chromeHeight).toBeGreaterThan(PROMPT_IDLE_ROWS);
+  });
+
+  test("no agents → always stack even on a wide terminal", () => {
+    const layout = resolveGeometry({
+      terminal: { columns: 120, rows: 40 },
+      visibility: { agents: 0 },
+    });
+    expect(layout.layoutMode).toBe("stack");
+    expect(layout.railWidth).toBe(0);
+    expect(layout.railGutter).toBe(0);
+    expect(layout.chatWidth).toBe(layout.contentWidth);
+    expect(layout.regions.agents).toBeUndefined();
+  });
+
+  test("dual threshold is DUAL_MIN_COLUMNS (100)", () => {
+    const justBelow = resolveGeometry({
+      terminal: { columns: DUAL_MIN_COLUMNS - 1, rows: 32 },
+      visibility: { agents: 4 },
+    });
+    const atThreshold = resolveGeometry({
+      terminal: { columns: DUAL_MIN_COLUMNS, rows: 32 },
+      visibility: { agents: 4 },
+    });
+    expect(justBelow.layoutMode).toBe("stack");
+    expect(atThreshold.layoutMode).toBe("dual");
+  });
+});
+

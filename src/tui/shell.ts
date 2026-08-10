@@ -1690,7 +1690,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows lay themselves out against the column budget (right-aligned bubbles,
   // pre-wrapped reasoning blocks), so a width change invalidates every painted
   // row rather than just reflowing it.
-  const widthChanged = shell.layout.contentWidth !== layout.contentWidth
+  const widthChanged =
+    shell.layout.contentWidth !== layout.contentWidth ||
+    shell.layout.chatWidth !== layout.chatWidth ||
+    shell.layout.layoutMode !== layout.layoutMode
   shell.layout = layout
   const h = layout.heights
 
@@ -1709,7 +1712,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.taskBox.visible = taskH > 0
 
   const agentsH = Math.max(0, h.agents)
-  shell.agentsBox.height = agentsH > 0 ? agentsH : 1
+  const dualRail = layout.layoutMode === "dual" && agentsH > 0
+  // Height/position for dual finalized after pad + transcript body are known.
   shell.agentsBox.visible = agentsH > 0
 
   // Both pads are taken out of the transcript residual, never out of chrome,
@@ -1758,6 +1762,27 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.transcript.visible = transcriptBody > 0
   syncTranscriptSpacer(shell)
 
+  // Fleet rail: absolute beside the transcript in dual mode; full-width strip
+  // in the flex stack otherwise. Absolute escapes root padding (floatOverlayHost).
+  if (dualRail) {
+    const railH = Math.max(1, Math.min(agentsH, transcriptBody > 0 ? transcriptBody : agentsH))
+    shell.agentsBox.position = "absolute"
+    shell.agentsBox.left = layout.sideMargin + layout.chatWidth + layout.railGutter
+    shell.agentsBox.width = layout.railWidth
+    shell.agentsBox.top = padH
+    shell.agentsBox.height = railH
+    shell.agentsBox.zIndex = 1
+    shell.transcript.width = layout.chatWidth
+  } else {
+    shell.agentsBox.position = "relative"
+    shell.agentsBox.left = 0
+    shell.agentsBox.top = 0
+    shell.agentsBox.width = "100%"
+    shell.agentsBox.height = agentsH > 0 ? agentsH : 1
+    shell.agentsBox.zIndex = 0
+    shell.transcript.width = "100%"
+  }
+
   const noticeH = Math.max(0, h.notice)
   shell.notice.height = noticeH > 0 ? noticeH : 1
   shell.notice.visible = noticeH > 0
@@ -1781,7 +1806,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // the foot and covering it would hide the thing the operator types into.
   // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
   // same as before; it is transient chrome between task and prompt).
-  const promptTop = padH + transcriptBody + agentsH + taskH
+  // Dual: agents is absolute beside the transcript, so it does not add to the
+  // vertical stack before the prompt.
+  const stackAgentsH = dualRail ? 0 : agentsH
+  const promptTop = padH + transcriptBody + stackAgentsH + taskH
   const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
   shell.overlayHost.height = hostH > 0 ? hostH : 1
@@ -1805,6 +1833,19 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // resize there must not rebuild them out from under it.
   if (widthChanged && shell.streamLog.length > 0 && !isLanding(shell)) {
     repaintTranscriptWindow(shell)
+  }
+
+  // Dual/stack flip or rail resize changes the column budget the board fits to.
+  // Content may be unchanged, so setChromeZones would skip the rebuild — do it
+  // here when the layout mode or rail width moved.
+  if (widthChanged && bag !== undefined && bag.chrome.agents.length > 0) {
+    const agentsWidth =
+      dualRail && layout.railWidth > 0 ? layout.railWidth : layout.contentWidth
+    renderAgentsRows(
+      shell,
+      clampBoardRows(bag.chrome.agents, agentsH),
+      agentsWidth,
+    )
   }
 
   paintChrome(shell)
@@ -3326,8 +3367,8 @@ export function applyShellInterrupt(shell: AppShell): void {
     role: "system",
     text:
       had > 0
-        ? `interrupt — ${had} pending kept`
-        : "interrupt",
+        ? `${had} pending kept`
+        : "stopped",
     meta: "stop",
   })
   paintChrome(shell)
@@ -4468,18 +4509,18 @@ function renderAgentsRows(
     destroySubtree(child)
   }
   for (const row of rows) {
-    // Green for working, not the task zone's bronze immediately below it —
-    // adjacent zones sharing a hue read as one undifferentiated block. The
-    // header and the hidden-count row are chrome about the board rather than
-    // lanes in it, so they sit back in dim and leave the colour to the work.
+    // Bronze for a live working lane (inFlight), red for a stalled one — the
+    // ●/! marker already names the state, the hue only carries the urgency.
+    // The "+N more" fold-away row is chrome about the strip, not a lane in it,
+    // so it sits back in dim and leaves the colour to the work.
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitAgentRow(row, maxWidth),
       fg:
-        row.kind === "header" || row.kind === "more"
+        row.kind === "more"
           ? UI.textDim
           : row.stalled
             ? UI.action
-            : UI.done,
+            : UI.inFlight,
     })
     shell.agentsBox.add(text)
   }
@@ -4559,12 +4600,17 @@ export function setChromeZones(
 
   // Painted after the resolver has spoken, and only ever as many rows as it
   // granted: a board that paints past its box lands on top of the transcript
-  // and tears down the renderables underneath it.
+  // and tears down the renderables underneath it. Dual mode fits rows to the
+  // rail width; stack uses full content width.
   if (agentsChanged || !budgetUnchanged) {
+    const agentsWidth =
+      shell.layout.layoutMode === "dual" && shell.layout.railWidth > 0
+        ? shell.layout.railWidth
+        : shell.layout.contentWidth
     renderAgentsRows(
       shell,
       clampBoardRows(bag.chrome.agents, shell.layout.heights.agents),
-      shell.layout.contentWidth,
+      agentsWidth,
     )
   }
   if (budgetUnchanged) paintChrome(shell)
@@ -6096,7 +6142,12 @@ export function createAppShell(
     landingNowMs: 0,
     landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
-    tasksPanelHidden: false,
+    // CL-5847: the manage_tasks checklist panel is hidden by default. The
+    // panel owns too much of the screen for the operator to want it forced
+    // into view on a fresh shell; Alt+T (toggleTasksPanel) opts in for the
+    // shell's lifetime. Live task data still lands in tasksRaw while hidden,
+    // so the first toggle shows current data rather than a stale snapshot.
+    tasksPanelHidden: true,
   })
   // The landing's snow needs a frame source that keeps running while the
   // turn monitor is deliberately quiet (idle, no session yet). A plain timer

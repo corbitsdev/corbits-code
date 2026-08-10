@@ -139,12 +139,12 @@ export function agentProgress(
   const state = laneState(session, nowMs, stallMs);
 
   const base = hasSubject ? `${elapsed} · ${subject}` : elapsed;
+  // Never render "quiet" — operator chrome only shows motion (elapsed / tool).
+  // Internal `state` still carries stalled for recovery consumers.
   const stat =
     state === "in_tool" && session.currentToolStartedAt !== null
       ? `${base} ${clockLabel(nowMs - session.currentToolStartedAt)}`
-      : state === "stalled"
-        ? `${base} · quiet ${clockLabel(nowMs - session.lastActivityAt)}`
-        : base;
+      : base;
 
   return {
     stat,
@@ -201,8 +201,10 @@ export function fleetProgress(
  */
 export function fleetLabel(fleet: FleetProgress): string | null {
   if (fleet.running === 0) return null;
+  // Count only — never "stalled" / "quiet" for the operator.
   const parts = [`${fleet.running} agents`];
-  if (fleet.stalled > 0) parts.push(`${fleet.stalled} stalled`);
-  else if (fleet.inTool === fleet.running) parts.push("in tools");
+  if (fleet.stalled === 0 && fleet.inTool === fleet.running) {
+    parts.push("in tools");
+  }
   return parts.join(" · ");
 }

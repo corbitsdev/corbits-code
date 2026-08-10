@@ -196,21 +196,22 @@ describe("permission.grant channel", () => {
   })
 })
 
-describe("subagent.progress channel", () => {
+describe("agents chrome (store-driven tool state)", () => {
   test("the live tool name reaches the agents chrome zone", async () => {
-    const { host, emitter, frame, cleanup } = await mountHeadless({
+    const { host, frame, cleanup } = await mountHeadless({
       chrome: {
         agents: [
-          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+            currentToolName: "grep",
+            currentToolStartedAt: null,
+          },
         ],
       },
     })
     try {
-      expect(await frame()).not.toContain("grep")
-      emitter.emit("subagent.progress", {
-        description: "map callers",
-        toolName: "grep",
-      })
       // The board right-aligns each lane's tail into a column, so the tool
       // name is on the row but no longer adjacent to the description.
       const painted = await frame()
@@ -225,15 +226,17 @@ describe("subagent.progress channel", () => {
   })
 
   test("a later chrome push keeps the live tool name", async () => {
-    const { host, emitter, frame, cleanup } = await mountHeadless()
+    const { host, frame, cleanup } = await mountHeadless()
     try {
-      emitter.emit("subagent.progress", {
-        description: "map callers",
-        toolName: "grep",
-      })
       host.setChrome({
         agents: [
-          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+            currentToolName: "grep",
+            currentToolStartedAt: null,
+          },
         ],
       })
       const painted = await frame()
@@ -250,6 +253,12 @@ describe("subagent.progress channel", () => {
  * anywhere is a feature nobody can see, and it fails silently. Static because
  * the subscribers are spread across the runner itself and the product host,
  * and only some of them exist at any one mount.
+ *
+ * `subagent.progress` is still emitted by the runner for external listeners,
+ * but the product host no longer paints from it — tool state rides the
+ * subagent store (`currentToolName` + clock) via setChrome. Drop it from the
+ * "must have a .on somewhere" set so a deliberate non-subscriber is not a
+ * false alarm.
  */
 describe("every emitted runtime channel has a subscriber", () => {
   const srcDir = fileURLToPath(new URL("../", import.meta.url))
@@ -258,13 +267,14 @@ describe("every emitted runtime channel has a subscriber", () => {
   const emitted = new Set(
     [...runner.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!),
   )
+  // Progress pings are store-mirrored chrome, not a host paint path.
+  emitted.delete("subagent.progress")
 
   test("the runner still emits the channels this suite knows about", () => {
     for (const channel of [
       "hook",
       "mcp.status",
       "permission.grant",
-      "subagent.progress",
     ]) {
       expect([...emitted]).toContain(channel)
     }

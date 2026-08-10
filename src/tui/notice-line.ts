@@ -4,7 +4,7 @@
  * There is no permanent status strip: keys are discoverable from the landing
  * screen and the command palette, and the prompt box's border already carries
  * the model and the workspace. What is left is state that is only sometimes
- * true — a queued message, a latched interrupt, a copy result, a live turn —
+ * true — a queued message, a copy result, pinned scroll, attachments —
  * and that gets a row only while it has something to say. When every segment
  * is at its default the row composes to the empty string and the shell hides
  * it, giving the row back to the transcript.
@@ -54,7 +54,8 @@ export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = []
   if (state.queue > 0) segments.push(`queue ${state.queue}`)
   if (state.pinned) segments.push("pinned")
-  if (state.interrupt) segments.push("interrupt")
+  // "interrupt" is not a standing notice. Mid-run stop feedback is a system
+  // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.
   if (state.attachments > 0) {
     segments.push(
       `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,

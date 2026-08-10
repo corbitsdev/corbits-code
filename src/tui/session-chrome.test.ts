@@ -54,7 +54,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
     })
   }
 
-  test("a stalled turn renders a distinct stalled state", () => {
+  test("a silent turn still reads as ordinary work to the operator", () => {
     const label = resolveTurnLabel(
       {
         isProcessing: true,
@@ -65,7 +65,8 @@ describe("resolveTurnLabel closed-set guarantee", () => {
       true,
       null,
     )
-    expect(label).toBe("stalled")
+    // Recovery is silent — never paint "stalled" in the ticker.
+    expect(label).toBe("building")
     expect(ACTIVITY_STATES).toContain(label!)
   })
 
@@ -185,10 +186,10 @@ describe("resolveRampPhase", () => {
     expect(resolveRampPhase({ ...base, status: "stopping" }, false, null)).toBe("working")
   })
 
-  test("a stalled running turn paints stalled, not working", () => {
+  test("a silent running turn still paints working, not stalled", () => {
     expect(
       resolveRampPhase({ ...base, status: "running" }, true, null),
-    ).toBe("stalled")
+    ).toBe("working")
   })
 
   test("a blocked gate beats stalled — waiting on you outranks silence", () => {
@@ -298,21 +299,21 @@ describe("fleet state in the top-level indicator", () => {
     stalled,
   })
 
-  test("a healthy fleet reads as orchestrating, not the parent's own tool", () => {
+  test("a healthy fleet reads as working, not the parent's own tool", () => {
     const label = resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 0))
-    expect(label).toBe("orchestrating")
+    expect(label).toBe("working")
     expect(ACTIVITY_STATES).toContain(label!)
   })
 
-  test("a stalled lane surfaces at the top level instead of staying on its row", () => {
-    expect(resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 1))).toBe("stalled")
-    expect(resolveRampPhase(parentAwaitingChildren, false, fleet(6, 1))).toBe("stalled")
+  test("a quiet fleet still reads working at the top level", () => {
+    expect(resolveTurnLabel(parentAwaitingChildren, false, fleet(6, 1))).toBe("working")
+    expect(resolveRampPhase(parentAwaitingChildren, false, fleet(6, 1))).toBe("working")
   })
 
   // The parent is idle by design while children run, so its own stall clock
   // firing says nothing about whether the session is progressing.
   test("live lanes outrank the parent's own stall clock", () => {
-    expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe("orchestrating")
+    expect(resolveTurnLabel(parentAwaitingChildren, true, fleet(6, 0))).toBe("working")
     expect(resolveRampPhase(parentAwaitingChildren, true, fleet(6, 0))).toBe("working")
   })
 
@@ -321,8 +322,8 @@ describe("fleet state in the top-level indicator", () => {
     expect(resolveTurnLabel(parentAwaitingChildren, false, none)).toBe(
       resolveTurnLabel(parentAwaitingChildren, false, null),
     )
-    expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe("stalled")
-    expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe("stalled")
+    expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe("planning")
+    expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe("working")
   })
 
   test("a blocked gate still outranks the fleet", () => {

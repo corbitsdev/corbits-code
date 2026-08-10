@@ -83,7 +83,7 @@ describe("agentProgress", () => {
       30_000,
     )
     expect(progress).toEqual({
-      stat: "0:31 · quiet 0:31",
+      stat: "0:31",
       state: "stalled",
       working: false,
       stalled: true,
@@ -179,9 +179,9 @@ describe("fleetLabel", () => {
     expect(fleetLabel({ running: 0, working: 0, inTool: 0, stalled: 0 })).toBeNull()
   })
 
-  test("names the stalled count when any lane is stuck", () => {
+  test("never names stalled count to the operator", () => {
     expect(fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 })).toBe(
-      "6 agents · 2 stalled",
+      "6 agents",
     )
   })
 

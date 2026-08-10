@@ -6,7 +6,7 @@ import type { KeyEvent } from "@opentui/core"
 import type { CostSummary } from "../cost/cost-summary.js"
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
-import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction } from "./shell.js"
+import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction, toggleTasksPanel } from "./shell.js"
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -174,6 +174,10 @@ describe("mountRunnerHost chrome wiring", () => {
       liveTasks = [{ title: "wire task panel", status: "doing" }]
       notify?.()
 
+      // CL-5847: the panel is hidden by default, so the live push lands in
+      // tasksRaw underneath without showing. It stays hidden until opt-in.
+      expect(host.shell.taskBox.visible).toBe(false)
+      toggleTasksPanel(host.shell)
       expect(host.shell.taskBox.visible).toBe(true)
       await harness.renderOnce()
       const frame = harness.captureCharFrame()

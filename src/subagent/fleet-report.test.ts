@@ -62,7 +62,7 @@ describe("observeFleet", () => {
       [lane({ id: "api", status: "done", report: "done" }), lane({ id: "docs", status: "done" })],
       T0 + 1000,
     );
-    expect(updates).toEqual(["fleet · 2 done — nothing running"]);
+    expect(updates).toEqual(["2 done · nothing running"]);
   });
 
   test("a failure names what went wrong while the fleet is still live", () => {
@@ -92,11 +92,11 @@ describe("observeFleet", () => {
     expect(updates).toEqual([]);
   });
 
-  test("a quiet lane is announced once, not on every tick it stays quiet", () => {
+  test("a quiet lane is not announced into the transcript (rollup owns it)", () => {
     const quiet = lane({ id: "api", lastActivityAt: T0 });
     const seeded = observeFleet(createFleetWatch(), [quiet], T0).watch;
     const first = observeFleet(seeded, [quiet], T0 + 60_000);
-    expect(first.updates[0]).toContain("api stalled");
+    expect(first.updates).toEqual([]);
     const second = observeFleet(first.watch, [quiet], T0 + 90_000);
     expect(second.updates).toEqual([]);
   });
@@ -120,7 +120,7 @@ describe("observeFleet", () => {
         : { ...l, status: "failed" as const, error: "boom" },
     );
     const { updates } = observeFleet(seeded, after, T0 + 1000);
-    expect(updates).toEqual(["fleet · 9 done, 3 failed — nothing running"]);
+    expect(updates).toEqual(["9 done, 3 failed · nothing running"]);
   });
 });
 
@@ -135,13 +135,13 @@ describe("fleetDigest", () => {
       ],
       T0,
     );
-    expect(digest).toBe("fleet · 2 running (api 1:20, docs 0:20 stalled) · 1 done · 1 failed");
+    expect(digest).toBe("2 running (api 1:20, docs 0:20) · 1 done · 1 failed");
   });
 
   test("a fleet with nothing left running says so rather than going blank", () => {
     expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
-      "fleet · nothing running · 1 done",
+      "nothing running · 1 done",
     );
-    expect(fleetDigest([], T0)).toBe("fleet · no lanes dispatched");
+    expect(fleetDigest([], T0)).toBe("nothing running");
   });
 });

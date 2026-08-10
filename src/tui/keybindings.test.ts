@@ -312,11 +312,12 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     group: "surfaces",
     probe: ({ h, shell, chords }) => {
       setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
-      expect(shell.taskBox.visible).toBe(true)
-      press(h, chords[0])
+      // CL-5847: hidden by default — first press shows, second hides.
       expect(shell.taskBox.visible).toBe(false)
       press(h, chords[0])
       expect(shell.taskBox.visible).toBe(true)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(false)
     },
   },
   "Alt+O": {
@@ -513,7 +514,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(shell.pendingQueue).toBe(1)
       expect(shell.session.items[0]!.text).toBe("keep me")
       const notice = shell.streamLog[shell.streamLog.length - 1]
-      expect(notice?.text).toBe("interrupt — 1 pending kept")
+      expect(notice?.text).toBe("1 pending kept")
       expect(notice?.text).not.toContain("discarded")
       // Other probes in this group share one shell — leave both the queue
       // and the transcript as this probe found them.

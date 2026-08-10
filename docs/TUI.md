@@ -38,12 +38,25 @@ row at a time down to its 3-row base — never the transcript
 
 Horizontally, every surface sits inside one shared gutter
 (`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
-as a single column of content rather than stacked panes. The gutter is one
-column per side at every width that can afford it, and zero below
-`MARGIN_MIN_COLUMNS` (40), where every column belongs to content. There is no
-middle tier: one column is already enough to keep content off the frame edge,
-which is the gutter's entire job, and anything wider only read as excess air on
-a wide pane. The gutter costs no rows.
+as a single column of content rather than stacked panes — **except** the
+fleet rail. When the terminal is at least `DUAL_MIN_COLUMNS` (100) wide
+and the agents zone has rows, `resolveGeometry` switches to `layoutMode:
+"dual"`: the transcript (chat) keeps the left column and the agents board
+sits as a right rail of width clamped between `RAIL_WIDTH_MIN` (28) and
+`RAIL_WIDTH_MAX` (48), targeting `RAIL_WIDTH_FRACTION` (0.38) of content
+width with a one-column `RAIL_GUTTER` between them. Dual mode excludes
+agents from the vertical chrome sum so the transcript residual is not
+shrunk by the board — the rail shares the transcript's vertical residual
+instead. Below the dual threshold, or with zero running agents, layout
+stays `"stack"` (full-width y-stack, agents under the transcript, above
+the task list and prompt). The shell paints dual by absolutely positioning
+`agentsBox` beside the transcript (`applyLayout` in `src/tui/shell.ts`);
+stack keeps it in the flex column. The side gutter is one column per side
+at every width that can afford it, and zero below `MARGIN_MIN_COLUMNS`
+(40), where every column belongs to content. There is no middle tier: one
+column is already enough to keep content off the frame edge, which is the
+gutter's entire job, and anything wider only read as excess air on a wide
+pane. The gutter costs no rows.
 
 Vertically, the same file keeps content off the top and bottom edges with one
 blank row each: `TOP_PAD_ROWS` above the first transcript row, and
@@ -73,7 +86,7 @@ activity word — never the raw tool, MCP server, or plugin identifier that is
 actually executing. `resolveTurnLabel` (`src/tui/session-chrome.ts`)
 maps execution onto the closed set `ACTIVITY_STATES` exported from that
 module (`thinking`, `planning`, `researching`, `building`, `working`,
-`waiting`, `orchestrating`, `stalled`, `stopping`); that export is the source
+`waiting`, `stalled`, `stopping`); that export is the source
 of truth for what the slot can say, not this list. It is led by a single density cell
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
@@ -99,7 +112,7 @@ While sub-agents are running, the slot reports the *fleet*, not the parent.
 rank it above the parent's own stall clock: with live lanes the parent is
 idle by design, so its silence says nothing about whether the session is
 progressing, and reporting it was how a session with every lane wedged still
-read as `working`. A fleet with no stalled lane reads `orchestrating`; one
+read as `working`. A fleet with no stalled lane reads `working`; one
 stalled lane makes the whole indicator read `stalled`, which is the state that
 should pull an operator's eye to the panel. A blocked gate and a stopping turn
 still outrank the fleet. With zero running sub-agents the roll-up is empty and
@@ -168,41 +181,53 @@ mechanism substitutes for the other: the cap bounds the prompt's own growth
 on any terminal, tall or short; the collapse order bounds what other zones
 are allowed to take from it once the transcript floor is at risk.
 
-The panel is toggleable independent of its live data: `toggleTasksPanel`
-(bound to Alt+T) flips a hidden flag held on the shell for its lifetime — in
-memory only, nothing written to storage — while
-the live task list keeps updating underneath it. Un-hiding shows the current
-list, not a stale snapshot from before the hide. Hidden or empty, the zone
-costs zero rows.
+The panel is **hidden by default** (CL-5847): a fresh shell does not paint the
+checklist even when `manage_tasks` has open work. `toggleTasksPanel` (bound to
+Alt+T) opts in for the shell's lifetime — it flips a hidden flag held on the
+shell in memory only, nothing written to storage — while the live task list
+keeps updating underneath it. Un-hiding shows the current list, not a stale
+snapshot from before the hide. Hidden or empty, the zone costs zero rows. The
+default is opt-in because the checklist's chrome owns too much of the screen to
+force into view; the operator toggles it on when they want it, and the fleet
+board's CL-5846 one-live-surface rules still apply once it is shown.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
-`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui/runner-host.ts`):
-`subscribeChrome` is a required dependency, not optional. The production
-caller has always passed a real subscription, so this did not fix an
-observed break; it closes a shape that could have been omitted and would
-still have type-checked — the same "callback that types fine when absent"
-hazard this feature's own callback (`onTasksChange`) is named after in the
-tracking issue. `runner-host.test.ts` drives a live `subscribeChrome` notify
-end to end and asserts the panel actually repaints, so an omission would now
-fail a test as well as the type checker.
+The `agents` chrome zone is the **fleet board**: a standing picture of live
+workers. On a dual-width terminal it paints as the right rail beside chat;
+on a narrow terminal it stacks under the transcript and above the task list
+and prompt. `formatAgentsPanel` (`src/tui/chrome-state.ts`) always leads
+with a one-line `FLEET` header (`N lanes · N working` / trouble counts
+first), then one single-line row per currently-running sub-agent. The
+marker is `●` for a live lane and `!` for one that has gone quiet, painted
+in bronze (`UI.inFlight`) for live work and red (`UI.action`) for a stalled
+one — the marker already names the state, the hue only carries the urgency.
+Past the marker each row reads `agentId  description` with a right-aligned
+tail `· <clock> · <tool-or-preview>`: the clock/tool/stall computation is
+shared with the transcript task trailer (`agentProgress` in
+`src/tui/agent-progress.ts`). The panel does not compute progress a second
+way. Only a fan-out past `AGENTS_PANEL_MAX_VISIBLE` adds a trailing
+`+N more` row (or a header `+N hidden` under a tight height), painted in
+dim because it is chrome about the strip, not a lane in it.
 
-## The live agents panel
-
-The `agents` chrome zone renders a standing panel in the bottom chrome above
-the prompt (above the task list when both are live), one
-row per currently-running sub-agent. Each row reads
-`agentId: description · elapsed · tool`, sourced from the same
-`agentProgress()` clock/tool/stall computation used to trail a task row in the
-transcript (`src/tui/agent-progress.ts`); the panel does not compute
-progress a second way. Past one running agent the panel is led by a fleet
-summary row (`N agents`, plus `· N stalled` or `· in tools`), counted from the
-same lane states the rows below render, so header and rows can never disagree.
-The zone reserves `AGENTS_PANEL_MAX_VISIBLE + 2` rows to hold that summary, the
-lanes, and the `+N more` trailer together — clipping the last of the three
-would drop the fold-away count at exactly the fan-out where it is the only
-thing reporting the hidden lanes.
+Tool names on the board come from the **subagent store**
+(`currentToolName` + `currentToolStartedAt`), not from the
+`subagent.progress` event channel. Progress pings carry a name with no
+clock and can fire on completion, so painting from them produced false
+stalls; the host paints zones straight from store-backed chrome state.
+fleet header row: each row is one lane, led by a health marker that is what
+makes the strip read as a strip of workers rather than a list of titles
+(`formatAgentsPanel` in `src/tui/chrome-state.ts`). The marker is `●` for a
+live lane and `!` for one that has gone quiet, painted in bronze
+(`UI.inFlight`) for live work and red (`UI.action`) for a stalled one — the
+marker already names the state, the hue only carries the urgency. Past the
+marker each row reads `agentId: description · <clock> · <tool>`: a clock
+tail from the same `agentProgress()` clock/tool/stall computation used to
+trail a task row in the transcript (`src/tui/agent-progress.ts`), with no
+state word prefix — the marker already carries it. The panel does not
+compute progress a second way. Only a fan-out past `AGENTS_PANEL_MAX_VISIBLE`
+adds a trailing `+N more` row, painted in dim because it is chrome about the
+strip, not a lane in it.
 
 `laneState()` is the single definition of what a lane is doing, and every
 surface consumes it rather than comparing timestamps itself. It returns one of
@@ -289,11 +314,12 @@ same last-resort floor every other optional zone shares.
 
 The agents panel is the standing picture of live work. Parent prose owns
 success narratives. Transcript fleet notices exist only for attention the
-board cannot keep (CL-5846): a lane **failed** or **stalled** while other work
-is still running, and **one** dry-fleet line when the last lane finishes
-(`fleet · N done — nothing running`). Per-lane `done — summary` walls and
+strip cannot keep (CL-5846): a lane **failed** or **went quiet** while other
+work is still running, and **one** dry-fleet line when the last lane
+finishes (`N done · nothing running`). Per-lane `done — summary` walls and
 live `dispatched` re-announcements are never printed — they restated the
-board and the parent and turned the transcript into a second status log.
+strip and the parent and turned the transcript into a second status log.
+A stall reads `desc went quiet (clock)`.
 
 `src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
 store the panel reads and the same `agentProgress()` stall definition so the
@@ -553,7 +579,7 @@ mid-run gestures and what interrupting does to sub-agent lanes. The interrupt
 keeps whatever is sitting in the queue rather than discarding it — the
 operator typed those messages meaning them delivered, not meaning "cancel
 this run and also throw away what I typed"; the transcript row says so
-(`"interrupt — N pending kept"`). Kept items are handed over at the
+(`"N pending kept"`). Kept items are handed over at the
 interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
 `port.interrupt()`), serialized behind the agent rebuild the stop starts —
 a stop does not reliably produce an idle event to drain against later.

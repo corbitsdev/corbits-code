@@ -19,6 +19,7 @@ import {
   paintLanding,
   streamRowCount,
   surfaceSystemNotice,
+  toggleTasksPanel,
 } from "./shell"
 import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
@@ -775,6 +776,10 @@ describe("landing screen", () => {
           setChromeZones(shell, {
             task: [{ label: "wire the version badge", status: "doing" }],
           })
+          // CL-5847: hidden by default — opt in so the regression case (task
+          // row + version badge competing for the same short terminal) still
+          // exercises both painting at once.
+          toggleTasksPanel(shell)
           await settle(h)
 
           expect(isLanding(shell)).toBe(true)
