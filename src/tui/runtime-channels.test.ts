@@ -13,6 +13,7 @@ import { describe, expect, test } from "bun:test"
 
 import { createHarness } from "./harness.js"
 import { mountProductHost, type ProductHostConfig } from "./product-host.js"
+import { isLanding } from "./shell.js"
 
 async function mountHeadless(overrides: Partial<ProductHostConfig> = {}): Promise<{
   host: Awaited<ReturnType<typeof mountProductHost>>
@@ -129,15 +130,36 @@ describe("mcp.status channel", () => {
     }
   })
 
-  test("a failed connect keeps a row saying the tools are gone", async () => {
-    const { emitter, frame, cleanup } = await mountHeadless()
+  test("a failed connect keeps the landing mountain and rides the notice strip (CL-5600)", async () => {
+    // Full product-host path: mcp.status → mcpNotice → surfaceSystemNotice.
+    // The unit landing suite covers surfaceSystemNotice alone; this locks the
+    // wire so a future re-route through appendStreamRow cannot wipe the hero
+    // again without failing here.
+    const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
+      expect(isLanding(host.shell)).toBe(true)
+      const before = await frame()
+      const markBefore = before
+        .split("\n")
+        .filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length
+      expect(markBefore).toBeGreaterThan(0)
+
       emitter.emit("mcp.status", {
         name: "linear",
         state: "failed",
         error: "ECONNREFUSED",
       })
-      expect(await frame()).toContain("its tools are unavailable")
+      const painted = await frame()
+      expect(painted).toContain("its tools are unavailable")
+      expect(painted).toContain("mcp linear did not connect")
+      // Still on landing: no transcript row, mountain still painted, wording on flash.
+      expect(isLanding(host.shell)).toBe(true)
+      expect(host.shell.streamLog).toEqual([])
+      expect(host.shell.statusFlash).toContain("mcp linear did not connect")
+      const markAfter = painted
+        .split("\n")
+        .filter((row) => /[░▒▓█▁▂▃▄▅▆▇]/.test(row)).length
+      expect(markAfter).toBe(markBefore)
     } finally {
       cleanup()
     }
