@@ -77,7 +77,7 @@ function assertNever(x: never): never {
  * for one inference only and never written to durable history, so transient
  * director guidance leaves the cached transcript prefix untouched.
  *
- * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+ * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-ephemeral-turns
  */
 export type ExtendedInferenceOptions = InferenceOptions & {
   ephemeralTurns?: ConversationTurn[];
@@ -473,7 +473,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     // The success path used to leave the id in the set forever, leaking one
     // entry per correlated message for the life of the session.
     //
-    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-correlating-ids-leak
     try {
       if (correlationValidator !== undefined) {
         let valid: boolean;
@@ -892,7 +892,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     // the persisted prefix is well-formed rather than an assistant turn with
     // unanswered tool calls.
     //
-    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-checkpoint-after-tool-cycle
     if (addToHistory) {
       await commitCycle();
     }
@@ -980,7 +980,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     const message = buildCycleMessage();
 
     try {
-      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-skip-unchanged-history
       const currentRevision = stateManager.getTurnsRevision();
       if (currentRevision !== lastWrittenTurnsRevision) {
         await contextStore.writeTurns(stateManager.getTurns());
@@ -1010,7 +1010,7 @@ export function createReactor(config: ReactorConfig): Reactor {
     // action that produced the work) gets afterCheckpoint invoked twice
     // for what is, from the director's perspective, a single checkpoint.
     //
-    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-after-checkpoint-director-only
     if (afterCheckpoint !== undefined && hasOverride) {
       try {
         await afterCheckpoint();
@@ -1474,7 +1474,7 @@ export function createReactor(config: ReactorConfig): Reactor {
   // than re-serializing the entire (potentially large) conversation and its
   // historical tool-output blobs.
   //
-  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-last-written-turns-revision
   let lastWrittenTurnsRevision = 0;
 
   async function initiateShutdown(): Promise<void> {
