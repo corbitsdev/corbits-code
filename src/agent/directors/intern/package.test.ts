@@ -21,10 +21,13 @@ describe("internPackage", () => {
     expect(internPackage.nudge?.maxTurns).toBe(20);
   });
 
-  test("tools.deny blocks product writes, search, and task", () => {
-    const deny = internPackage.tools?.deny ?? [];
+  test("tools.allow is shell-first minimal surface", () => {
+    const allow = internPackage.tools?.allow ?? [];
+    expect(allow).toContain("run_shell");
+    expect(allow).toContain("read_file");
+    expect(allow).toContain("list_dir");
     for (const name of ["write_file", "edit_file", "delete_file", "grep", "search_files", "task"]) {
-      expect(deny).toContain(name);
+      expect(allow).not.toContain(name);
     }
   });
 

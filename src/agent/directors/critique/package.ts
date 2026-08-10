@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Critique leaf (CL-5819).
@@ -16,7 +17,7 @@ export const critiquePackage: DirectorPackage = {
   ],
   description: "Code quality review leaf",
   optionalSkills: ["style", "philosophy"],
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 45 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
@@ -34,7 +35,7 @@ Evidence rules:
 - Call out gaps: what you did not cover so the parent does not assume closed.
 - Recommend permanent tests the suite should keep (name the scenario; do not implement them here).
 
-tmp/critique-tests/: the only write surface you may mention for throwaway repro scaffolding if the parent explicitly grants it. Product paths stay read-only. tools.deny blocks write_file, edit_file, delete_file — do not attempt product edits.
+Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/implement.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to implement)

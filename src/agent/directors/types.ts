@@ -28,9 +28,9 @@ export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general"
 export type ModelRole = "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
 
 export type ToolEnvelope = {
-  /** Tools always allowed when present in the session registry. */
+  /** Tools mounted when present — prefer small allowlists over deny-everything. */
   readonly allow?: readonly string[];
-  /** Tools denied even if present in the session registry. */
+  /** Tools denied even if present in the session registry. Prefer allow when possible. */
   readonly deny?: readonly string[];
 };
 
@@ -68,6 +68,13 @@ export type DirectorPackage = {
   /** Optional skills the leaf may load dynamically (ordered). */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
+  /**
+   * Authz write-path allowlist for write_file/edit_file/delete_file.
+   * Enforced by the permission gate (not prompt policy). Bare filenames match
+   * that basename at any depth under the worker cwd. Omitted = no path lock
+   * (tool allow/deny alone decides whether writes exist).
+   */
+  readonly writePaths?: readonly string[];
   readonly spawn: SpawnRights;
   readonly nudge?: NudgePolicy;
   readonly report: ReportContract;

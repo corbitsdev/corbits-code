@@ -19,11 +19,11 @@ describe("implementPackage", () => {
     expect(implementPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("does not deny product write tools", () => {
-    const deny = implementPackage.tools?.deny ?? [];
-    expect(deny).not.toContain("write_file");
-    expect(deny).not.toContain("edit_file");
-    expect(deny).not.toContain("delete_file");
+  test("tools.allow includes product write tools", () => {
+    const allow = implementPackage.tools?.allow ?? [];
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {

@@ -21,11 +21,12 @@ describe("testsmithPackage", () => {
     expect(testsmithPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.deny blocks product write paths", () => {
-    const deny = testsmithPackage.tools?.deny ?? [];
-    expect(deny).toContain("write_file");
-    expect(deny).toContain("edit_file");
-    expect(deny).toContain("delete_file");
+  test("tools.allow is read-only (no product writes)", () => {
+    const allow = testsmithPackage.tools?.allow ?? [];
+    expect(allow).toContain("read_file");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
   });
 
   test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {

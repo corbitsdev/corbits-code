@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Emil — design-engineering + software-laws critique (dev-scoped). CL-5827.
@@ -14,8 +15,8 @@ export const emilPackage: DirectorPackage = {
     "suggesting full rewrites as implementer",
   ],
   description: "Design-engineering leaf (dev-scoped)",
-  // Critique only — no product write paths.
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  // Critique only — write tools not mounted.
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

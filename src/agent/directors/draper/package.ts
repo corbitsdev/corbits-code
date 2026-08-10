@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Draper — product visual / CBS critique (dev-scoped). CL-5830.
@@ -14,8 +15,8 @@ export const draperPackage: DirectorPackage = {
     "applying product fixes",
   ],
   description: "Visual/CBS critique leaf (dev-scoped)",
-  // Read-only critique — product write paths hard-denied.
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  // Read-only critique — product write tools not mounted.
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

@@ -18,7 +18,6 @@ describe("critiquePackage", () => {
   test("systemPrompt is evidence-based and never-fix", () => {
     expect(critiquePackage.systemPrompt).toMatch(/evidence-based/i);
     expect(critiquePackage.systemPrompt).toMatch(/never fix/i);
-    expect(critiquePackage.systemPrompt).toMatch(/tmp\/critique-tests/);
     expect(critiquePackage.systemPrompt).toMatch(/permanent tests/i);
   });
 
@@ -26,11 +25,13 @@ describe("critiquePackage", () => {
     expect(critiquePackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.deny blocks product write paths", () => {
-    const deny = critiquePackage.tools?.deny ?? [];
-    expect(deny).toContain("write_file");
-    expect(deny).toContain("edit_file");
-    expect(deny).toContain("delete_file");
+  test("tools.allow is review surface without product writes", () => {
+    const allow = critiquePackage.tools?.allow ?? [];
+    expect(allow).toContain("read_file");
+    expect(allow).toContain("use_skill");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
   });
 
   test("report.requiredSections covers the leaf envelope", () => {

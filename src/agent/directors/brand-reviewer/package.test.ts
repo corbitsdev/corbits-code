@@ -19,15 +19,16 @@ describe("brandReviewerPackage", () => {
     expect(brandReviewerPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("does not deny write_file/edit_file (DESIGN.md lane)", () => {
-    const deny = brandReviewerPackage.tools?.deny ?? [];
-    expect(deny).not.toContain("write_file");
-    expect(deny).not.toContain("edit_file");
+  test("tools.allow includes write tools; writePaths lock DESIGN.md", () => {
+    const allow = brandReviewerPackage.tools?.allow ?? [];
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(brandReviewerPackage.writePaths).toEqual(["DESIGN.md"]);
   });
 
-  test("systemPrompt restricts writes to DESIGN.md", () => {
+  test("systemPrompt mentions DESIGN.md and authz path locks", () => {
     expect(brandReviewerPackage.systemPrompt).toMatch(/DESIGN\.md/);
-    expect(brandReviewerPackage.systemPrompt).toMatch(/only/i);
+    expect(brandReviewerPackage.systemPrompt).toMatch(/authz/i);
   });
 
   test("report.requiredSections covers the leaf envelope", () => {

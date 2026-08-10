@@ -32,12 +32,15 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.spawn.maySpawn).toBe(false);
   });
 
-  test("does not deny product write tools (docs writes allowed)", () => {
-    expect(shakespearePackage.tools).toBeUndefined();
-    const deny = shakespearePackage.tools?.deny ?? [];
-    expect(deny).not.toContain("write_file");
-    expect(deny).not.toContain("edit_file");
-    expect(deny).not.toContain("delete_file");
+  test("tools.allow includes write tools; writePaths lock docs", () => {
+    const allow = shakespearePackage.tools?.allow ?? [];
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(shakespearePackage.writePaths).toEqual([
+      "PRODUCT.md",
+      "ARCHITECTURE.md",
+      "IMPLEMENTATION.md",
+    ]);
   });
 
   test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {

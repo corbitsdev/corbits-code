@@ -244,6 +244,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
+      let writePaths: readonly string[] | undefined;
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
@@ -319,6 +320,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           systemPromptRole = pkg.systemPrompt;
           const caps = packageToCapabilities(pkg);
           if (caps !== undefined) capabilities = caps;
+          if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
+            writePaths = pkg.writePaths;
+          }
           if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
@@ -362,6 +366,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.capabilities !== undefined) {
             capabilities = profile.capabilities;
           }
+          if (profile.writePaths !== undefined && profile.writePaths.length > 0) {
+            writePaths = profile.writePaths;
+          }
           if (profile.maxTurns !== undefined) {
             profileMaxTurns = profile.maxTurns;
           }
@@ -402,6 +409,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         systemPromptRole = pkg.systemPrompt;
         const caps = packageToCapabilities(pkg);
         if (caps !== undefined) capabilities = caps;
+        if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
+          writePaths = pkg.writePaths;
+        }
         if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
@@ -616,6 +626,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
+            ...(writePaths !== undefined ? { writePaths } : {}),
             ...(orchestrator
               ? { orchestrator: true, nestedDispatch: nestedDispatch! }
               : {}),

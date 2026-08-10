@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { READ_TOOLS } from "../tool-sets.js";
 
 export const explorePackage: DirectorPackage = {
   id: "explore",
@@ -21,7 +22,7 @@ Deliver a scannable map: key paths, symbols, call flow, ownership. Cite paths. N
 OUT OF LANE → report Blockers naming the right director: implement, plan, critique, greybeard, intern.
 
 Report: Summary, Findings, Blockers, Paths.`,
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

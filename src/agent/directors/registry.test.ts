@@ -95,15 +95,23 @@ describe("director registry", () => {
     const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
     expect(explore.id).toBe("explore");
     expect(explore.systemPromptRole).toBe(DIRECTOR_REGISTRY.explore.systemPrompt);
-    expect(explore.capabilities).toEqual({
-      mode: "exclude",
-      tools: ["write_file", "edit_file", "delete_file"],
-    });
+    expect(explore.capabilities?.mode).toBe("allow");
+    expect(explore.capabilities?.tools).toContain("read_file");
+    expect(explore.capabilities?.tools).not.toContain("write_file");
     expect(explore.orchestrator).toBe(false);
 
     const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
     expect(grey.orchestrator).toBe(true);
     expect(grey.maxTurns).toBe(DIRECTOR_REGISTRY.greybeard.nudge?.maxTurns);
+
+    const shakespeare = packageToProfile(DIRECTOR_REGISTRY.shakespeare);
+    expect(shakespeare.writePaths).toEqual([
+      "PRODUCT.md",
+      "ARCHITECTURE.md",
+      "IMPLEMENTATION.md",
+    ]);
+    expect(shakespeare.capabilities?.mode).toBe("allow");
+    expect(shakespeare.capabilities?.tools).toContain("write_file");
   });
 
   test("directorProfiles covers closed set", () => {

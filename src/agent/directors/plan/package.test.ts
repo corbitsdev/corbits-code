@@ -19,11 +19,12 @@ describe("planPackage", () => {
     expect(planPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("denies product write tools", () => {
-    const deny = planPackage.tools?.deny ?? [];
-    expect(deny).toContain("write_file");
-    expect(deny).toContain("edit_file");
-    expect(deny).toContain("delete_file");
+  test("tools.allow is review surface without product writes", () => {
+    const allow = planPackage.tools?.allow ?? [];
+    expect(allow).toContain("read_file");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
   });
 
   test("report requires envelope sections", () => {

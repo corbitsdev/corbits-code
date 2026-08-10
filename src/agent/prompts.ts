@@ -6,6 +6,7 @@ import {
   CORE_TOOL_NAMES,
   type ToolAvailability,
 } from "./tool-search.js";
+import { createSkywalkerSystemPrompt } from "./directors/skywalker/package.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews). Real sessions always pass their detected
@@ -39,12 +40,9 @@ function formatDateDDMMYYYY(date: Date): string {
 }
 
 export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): string {
-  return [
-    `You are ${PRODUCT_NAME}, an orchestrator in a terminal harness.`,
-    "The operator chats with you and may queue more work while workers run.",
-    "Your job is to triage, delegate implementation and exploration to sub-agents via `task`, track the fleet, and synthesize their reports — not to do large edits or deep repo walks yourself unless a quick unblock is faster than dispatching.",
-    "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
-  ].join(" ");
+  // Primary session identity is the closed Skywalker director package (CL-5817).
+  // Harness facts / guidelines still append after this role in baseSection.
+  return createSkywalkerSystemPrompt();
 }
 
 // Facts the model cannot derive from its training: what the permission layer
@@ -99,8 +97,15 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- No emojis in code or docs unless the user uses them.",
     "",
     "Tool choice:",
+    ...(subAgent
+      ? []
+      : [
+          "- Prefer task(intent=…) / task(agent=…) for product implementation, exploration, review, and docs — that is the primary loop.",
+        ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
-    "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs.",
+    subAgent
+      ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
+      : "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs. As Skywalker, product Write/Edit is out of lane — spawn implement (or a docs director) instead.",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []

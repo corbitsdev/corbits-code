@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { INTERN_TOOLS } from "../tool-sets.js";
 
 /**
  * Mechanical intern leaf (CL-5822).
@@ -18,14 +19,10 @@ export const internPackage: DirectorPackage = {
   ],
   description: "Mechanical intern leaf",
   optionalSkills: [],
-  tools: {
-    // Deny product writes + exploration/search by default (CL-5822).
-    deny: ["write_file", "edit_file", "delete_file", "grep", "search_files", "task"],
-  },
+  tools: { allow: INTERN_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 20 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
-  // Cheap/luna still uses implement role tag per registry placeholder.
   modelRole: "implement",
   systemPrompt: `You are InternDirector, a leaf director in Corbits Code.
 

@@ -19,11 +19,11 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("does not deny product write tools (discovery docs allowed)", () => {
-    const deny = bruckheimerPackage.tools?.deny ?? [];
-    expect(deny).not.toContain("write_file");
-    expect(deny).not.toContain("edit_file");
-    expect(deny).not.toContain("delete_file");
+  test("tools.allow includes write tools; writePaths lock discovery docs", () => {
+    const allow = bruckheimerPackage.tools?.allow ?? [];
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(bruckheimerPackage.writePaths).toEqual(["PRODUCT.md", "docs/*"]);
   });
 
   test("report requires envelope sections", () => {

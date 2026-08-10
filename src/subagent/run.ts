@@ -429,9 +429,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
   // Every tool call this sub-agent makes runs under its own identity in ALS
-  // (description + cwd), so the permission gate can attribute an approval
-  // prompt to the sub-agent that raised it (see identity-context.ts).
-  const subAgentIdentity = { description: params.description, cwd: params.cwd };
+  // (description + cwd + optional writePaths), so the permission gate can
+  // attribute approvals and enforce director path locks (see identity-context.ts).
+  const subAgentIdentity = {
+    description: params.description,
+    cwd: params.cwd,
+    ...(params.writePaths !== undefined && params.writePaths.length > 0
+      ? { writePaths: params.writePaths }
+      : {}),
+  };
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/subagent-tools`,
     // Without the watchdog config, child tool calls run under default budgets

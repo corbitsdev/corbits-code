@@ -2,7 +2,8 @@
 // Used by src/prompts.test.ts as a lightweight regression harness.
 
 export const CHAT_PROMPT_QUALITY_MARKERS = [
-  "Match their tone",
+  "Match operator tone",
+  "PRIMARY INTENT",
   "Response style:",
   "Tool choice:",
   "Ask vs proceed:",

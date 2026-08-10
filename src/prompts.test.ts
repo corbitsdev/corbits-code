@@ -33,14 +33,15 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Corbits Code as orchestrator", () => {
+test("agent identity is Corbits Code as Skywalker orchestrator", () => {
   const orchestrator = buildChatRole("orchestrator");
   expect(orchestrator).toContain("Corbits Code");
-  expect(orchestrator).toContain("orchestrator");
-  expect(orchestrator).toContain("delegate");
-  expect(orchestrator).toContain("Match their tone");
+  expect(orchestrator).toContain("SkywalkerDirector");
+  expect(orchestrator).toContain("PRIMARY INTENT");
+  expect(orchestrator).toContain("Delegate");
+  expect(orchestrator).toContain("Match operator tone");
   // Mode arg is ignored — product is orchestrator-only (CL-5814).
-  expect(buildChatRole()).toContain("orchestrator");
+  expect(buildChatRole()).toContain("SkywalkerDirector");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {

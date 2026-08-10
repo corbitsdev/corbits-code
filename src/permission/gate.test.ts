@@ -152,3 +152,70 @@ describe("grant coverage rebinds relative paths to the request process cwd", () 
     ).toBe(true);
   });
 });
+
+describe("director writePaths authz on evaluate", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "gate-writepaths-"));
+
+  test("denies write_file outside allowlist under ALS identity", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const gate = createPermissionGate({
+      approvals: [{ tool: "write_file", pattern: "*" }],
+      interactive: false,
+      skipPermissions: false,
+      cwd,
+    });
+    const verdict = await runWithSubAgentIdentity(
+      { description: "shakespeare", cwd, writePaths: ["PRODUCT.md"] },
+      () =>
+        gate.evaluate({
+          id: "w1",
+          name: "write_file",
+          arguments: { path: "src/hack.ts", content: "nope" },
+        }),
+    );
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/authz allowlist/i);
+    }
+  });
+
+  test("allows write_file matching bare basename allowlist", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const gate = createPermissionGate({
+      approvals: [{ tool: "write_file", pattern: "*" }],
+      interactive: false,
+      skipPermissions: false,
+      cwd,
+    });
+    const verdict = await runWithSubAgentIdentity(
+      { description: "shakespeare", cwd, writePaths: ["PRODUCT.md"] },
+      () =>
+        gate.evaluate({
+          id: "w2",
+          name: "write_file",
+          arguments: { path: "PRODUCT.md", content: "ok" },
+        }),
+    );
+    expect(verdict.allowed).toBe(true);
+  });
+
+  test("yolo (skipPermissions) bypasses writePaths", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      cwd,
+    });
+    const verdict = await runWithSubAgentIdentity(
+      { description: "shakespeare", cwd, writePaths: ["PRODUCT.md"] },
+      () =>
+        gate.evaluate({
+          id: "w3",
+          name: "write_file",
+          arguments: { path: "src/hack.ts", content: "yolo" },
+        }),
+    );
+    expect(verdict.allowed).toBe(true);
+  });
+});

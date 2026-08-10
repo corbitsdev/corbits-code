@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { READ_TOOLS } from "../tool-sets.js";
 
 /**
  * Testsmith: test design leaf — strategy and cases only; never implements product
@@ -31,9 +32,7 @@ OUT OF LANE: product Write/Edit, fixing production code, becoming the implemente
 You may read and search the codebase to ground the design. You must not write product source.
 
 Report: Summary, Findings (strategy + cases), Blockers, Paths.`,
-  tools: {
-    deny: ["write_file", "edit_file", "delete_file"],
-  },
+  tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

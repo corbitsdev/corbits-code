@@ -6,7 +6,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 // sub-agent around its own tool-call dispatch (see run.ts's toolsFactory) so
 // every awaited call within that sub-agent's turn — including the permission
 // gate and its operator prompt — can read it back via getSubAgentIdentity().
-export type SubAgentIdentity = { description: string; cwd: string };
+export type SubAgentIdentity = {
+  description: string;
+  cwd: string;
+  /**
+   * When set, write/edit/delete subjects must match (authz path lock).
+   * Omitted = no director path allowlist.
+   */
+  writePaths?: readonly string[];
+};
 
 const subAgentIdentityAls = new AsyncLocalStorage<SubAgentIdentity>();
 

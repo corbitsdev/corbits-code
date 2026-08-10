@@ -32,11 +32,13 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("plan");
   });
 
-  test("denies product write tools", () => {
-    const deny = greybeardPackage.tools?.deny ?? [];
-    expect(deny).toContain("write_file");
-    expect(deny).toContain("edit_file");
-    expect(deny).toContain("delete_file");
+  test("tools.allow is orchestrator surface without product writes", () => {
+    const allow = greybeardPackage.tools?.allow ?? [];
+    expect(allow).toContain("task");
+    expect(allow).toContain("search_agents");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
   });
 
   test("report requires envelope sections", () => {

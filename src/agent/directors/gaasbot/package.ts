@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * CTO advice leaf (CL-5826).
@@ -16,7 +17,7 @@ export const gaasbotPackage: DirectorPackage = {
   ],
   description: "CTO advice leaf — strategic counsel, not a gate",
   optionalSkills: ["philosophy"],
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

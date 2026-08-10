@@ -19,11 +19,12 @@ describe("emilPackage", () => {
     expect(emilPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.deny blocks product write paths", () => {
-    const deny = emilPackage.tools?.deny ?? [];
-    expect(deny).toContain("write_file");
-    expect(deny).toContain("edit_file");
-    expect(deny).toContain("delete_file");
+  test("tools.allow is review surface without product writes", () => {
+    const allow = emilPackage.tools?.allow ?? [];
+    expect(allow).toContain("read_file");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
   });
 
   test("report.requiredSections covers the leaf envelope", () => {

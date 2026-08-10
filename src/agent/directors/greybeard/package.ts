@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { ORCHESTRATOR_TOOLS } from "../tool-sets.js";
 
 /**
  * Architecture review leaf with limited spawn (CL-5821).
@@ -13,7 +14,7 @@ export const greybeardPackage: DirectorPackage = {
   ],
   description: "Architecture review leaf",
   optionalSkills: ["style", "philosophy"],
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: ORCHESTRATOR_TOOLS },
   spawn: {
     maySpawn: true,
     allowlist: ["intern", "explore", "critique"],

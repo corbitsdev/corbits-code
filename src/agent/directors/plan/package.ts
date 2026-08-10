@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 export const planPackage: DirectorPackage = {
   id: "plan",
@@ -10,7 +11,7 @@ export const planPackage: DirectorPackage = {
   ],
   description: "Planning leaf — eng plans only; Greybeard reviews",
   optionalSkills: ["style", "philosophy", "interview"],
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

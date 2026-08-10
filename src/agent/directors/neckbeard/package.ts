@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Adversarial pedantic review leaf (CL-5820).
@@ -15,7 +16,7 @@ export const neckbeardPackage: DirectorPackage = {
   ],
   description: "Adversarial review leaf",
   optionalSkills: ["style", "philosophy"],
-  tools: { deny: ["write_file", "edit_file", "delete_file"] },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

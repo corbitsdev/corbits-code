@@ -100,15 +100,15 @@ export function resolveDirector(input: ResolveDirectorInput): ResolveDirectorRes
   return { ok: true, package: DIRECTOR_REGISTRY[id] };
 }
 
-/** Map package tool envelope → profile capability filter. */
+/** Map package tool envelope → profile capability filter. Prefer allow (small mount). */
 export function packageToCapabilities(pkg: DirectorPackage): CapabilityFilter | undefined {
-  const deny = pkg.tools?.deny;
-  if (deny !== undefined && deny.length > 0) {
-    return { mode: "exclude", tools: [...deny] };
-  }
   const allow = pkg.tools?.allow;
   if (allow !== undefined && allow.length > 0) {
     return { mode: "allow", tools: [...allow] };
+  }
+  const deny = pkg.tools?.deny;
+  if (deny !== undefined && deny.length > 0) {
+    return { mode: "exclude", tools: [...deny] };
   }
   return undefined;
 }
@@ -125,6 +125,9 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     orchestrator: pkg.spawn.maySpawn,
     ...(pkg.nudge?.maxTurns !== undefined ? { maxTurns: pkg.nudge.maxTurns } : {}),
     ...(capabilities !== undefined ? { capabilities } : {}),
+    ...(pkg.writePaths !== undefined && pkg.writePaths.length > 0
+      ? { writePaths: [...pkg.writePaths] }
+      : {}),
   };
 }
 

@@ -1,4 +1,5 @@
 import type { DirectorPackage } from "../types.js";
+import { READ_TOOLS } from "../tool-sets.js";
 
 /**
  * Tester: runtime verification leaf — run tests and report; never fix product code.
@@ -29,9 +30,7 @@ If tests fail: document failures, suspected area, and blockers. Do not write_fil
 OUT OF LANE: product Write/Edit, "just quickly" fixing, redesigning the whole suite as Testsmith's primary job, fleet orchestration.
 
 Report: Summary, Findings (commands + results), Blockers, Paths.`,
-  tools: {
-    deny: ["write_file", "edit_file", "delete_file"],
-  },
+  tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
