@@ -7,6 +7,8 @@ const line = "big.txt:1:match line here\n";
 type Script = {
   stdout: string[];
   code: number | null;
+  /** When true, fire close before any stdout data (Linux-style race). */
+  closeFirst?: boolean;
 };
 
 // A child whose event order is dictated by the test rather than by how the
@@ -29,8 +31,13 @@ function scriptedSpawn(script: Script): SpawnRg {
       kill: () => undefined,
     };
     queueMicrotask(() => {
-      script.stdout.forEach((chunk) => onData?.(chunk));
-      onClose?.(script.code);
+      if (script.closeFirst) {
+        onClose?.(script.code);
+        script.stdout.forEach((chunk) => onData?.(chunk));
+      } else {
+        script.stdout.forEach((chunk) => onData?.(chunk));
+        onClose?.(script.code);
+      }
     });
     return child;
   };
@@ -52,6 +59,21 @@ test("an over-cap run is capped regardless of how stdout is chunked", async () =
     // truncation notice, from result-truncation-plugin.ts.
     expect(result.notice).toBeUndefined();
   }
+});
+
+// The Linux CI failure: process close can be delivered before the last stdout
+// chunk is dispatched to the data handler. Ordering is now explicit — close is
+// deferred one immediate turn so queued data runs first, and the collector
+// re-checks the cap at process end. Either way partial wins over complete
+// output when the body is over the limit.
+test("an over-cap run is capped when close is ordered before stdout data", async () => {
+  const bulk = line.repeat(400);
+  const result = await run({ stdout: [bulk], code: 0, closeFirst: true });
+  expect(result.kind).toBe("partial");
+  if (result.kind !== "partial") return;
+  expect(result.stdout.length).toBeLessThanOrEqual(200);
+  expect(result.stdout).toContain("match line here");
+  expect(result.notice).toBeUndefined();
 });
 
 test("a run under the cap settles as complete output", async () => {
