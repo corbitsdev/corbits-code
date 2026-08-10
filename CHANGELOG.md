@@ -37,6 +37,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
   mouse back for native terminal selection; Alt+C remains the keyboard copy
   path for whole messages, tool outputs, and diffs.
 
+### Session
+
+- **Superseded read stubs.** When compaction keeps more than one successful
+  `read_file` of the same path (or same path+offset+limit range), older results
+  become a one-line stub and the newest stays whole. Errors stay verbatim.
+  Dedup only considers turns that survive compaction, so a summarized re-read
+  cannot hollow a kept older body.
+
+### Tooling
+
+- **Vendored patch ledger.** `bin/vendor-patch-diff` and
+  `vendor/intx-inference/PATCHES.md` site markers prove local patches against
+  upstream without a manual re-sync checklist.
+
 ## [0.2.95] - 2026-08-09
 
 Tool-only auto-pause that no longer stops healthy work, resume the last session

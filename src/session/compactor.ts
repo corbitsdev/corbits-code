@@ -207,7 +207,7 @@ export type CompactorConfig = {
 };
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
-  keepRecentTurns: 5,
+  keepRecentTurns: 6,
   summaryMaxChars: 2000,
   maxAnchorTurns: 8,
 };
@@ -231,11 +231,17 @@ const ANCHOR_SCORE_THRESHOLD = 5;
 // Tool names whose results are path-keyed for re-read dedup during compaction.
 const READ_TOOLS = new Set(["read_file"]);
 
-// Call-id index for stub rendering (name + path). Not path-keyed — that is
-// buildPathToReads below.
+// Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
 type ToolCallInfo = {
   name: string;
+  /** Display path for stubs (always the raw path arg when present). */
   pathArg?: string;
+  /**
+   * Dedup identity for re-read stubbing. Full-file reads share the path alone;
+   * ranged reads (offset/limit) get a distinct key so chunked reads of the same
+   * file do not hollow each other.
+   */
+  readKey?: string;
 };
 
 type PathRead = {
@@ -245,7 +251,20 @@ type PathRead = {
   isError: boolean;
 };
 
-function pathArgFromArguments(raw: unknown): string | undefined {
+function scalarArg(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") return value;
+  return "";
+}
+
+/**
+ * Extract path + re-read identity from a tool_call's arguments.
+ * Identity is path alone for full-file reads; path+offset+limit when either
+ * range arg is present so partial reads don't supersede each other.
+ */
+function readIdentityFromArguments(
+  raw: unknown,
+): { path: string; readKey: string } | undefined {
   let args: unknown = raw ?? {};
   if (typeof args === "string") {
     try {
@@ -255,8 +274,16 @@ function pathArgFromArguments(raw: unknown): string | undefined {
     }
   }
   if (args === null || typeof args !== "object" || Array.isArray(args)) return undefined;
-  const path = (args as Record<string, unknown>)["path"];
-  return typeof path === "string" && path.length > 0 ? path : undefined;
+  const rec = args as Record<string, unknown>;
+  const path = rec["path"];
+  if (typeof path !== "string" || path.length === 0) return undefined;
+  const offsetPart = scalarArg(rec["offset"]);
+  const limitPart = scalarArg(rec["limit"]);
+  const readKey =
+    offsetPart === "" && limitPart === ""
+      ? path
+      : `${path}\0${offsetPart}\0${limitPart}`;
+  return { path, readKey };
 }
 
 // callId → tool name/path for readable stubs. Inverse of path-to-reads.
@@ -266,8 +293,11 @@ function buildCallIndex(turns: readonly ConversationTurn[]): Map<string, ToolCal
     for (const block of turn.content) {
       if (block.type !== "tool_call") continue;
       const info: ToolCallInfo = { name: block.name };
-      const path = pathArgFromArguments(block.arguments);
-      if (path !== undefined) info.pathArg = path;
+      const identity = readIdentityFromArguments(block.arguments);
+      if (identity !== undefined) {
+        info.pathArg = identity.path;
+        info.readKey = identity.readKey;
+      }
       index.set(block.id, info);
     }
   }
@@ -275,9 +305,14 @@ function buildCallIndex(turns: readonly ConversationTurn[]): Map<string, ToolCal
 }
 
 /**
- * Path → every read_file result that targeted it, in session order.
- * Groups repeated reads so older successful results can be stubbed when a
- * later read of the same path survives compaction.
+ * Read-identity → every read_file result that matched it, in session order.
+ * Groups repeated full-file (or same-range) reads so older successful results
+ * can be stubbed when a later identical read survives compaction.
+ *
+ * Callers must pass only turns that survive compaction (anchors + recent).
+ * Computing supersession over the full transcript would hollow a kept older
+ * read when the newer re-read was summarized away — leaving the model with a
+ * stub and no full body.
  */
 function buildPathToReads(
   turns: readonly ConversationTurn[],
@@ -289,14 +324,14 @@ function buildPathToReads(
     for (const block of turn.content) {
       if (block.type !== "tool_result") continue;
       const info = callIndex.get(block.callId);
-      if (info === undefined || !READ_TOOLS.has(info.name) || info.pathArg === undefined) continue;
+      if (info === undefined || !READ_TOOLS.has(info.name) || info.readKey === undefined) continue;
       const entry: PathRead = {
         callId: block.callId,
         order: order++,
         isError: block.isError === true,
       };
-      const list = pathToReads.get(info.pathArg);
-      if (list === undefined) pathToReads.set(info.pathArg, [entry]);
+      const list = pathToReads.get(info.readKey);
+      if (list === undefined) pathToReads.set(info.readKey, [entry]);
       else list.push(entry);
     }
   }
@@ -305,8 +340,9 @@ function buildPathToReads(
 
 /**
  * Call ids of successful read_file results that are superseded by a later
- * successful read of the same path. Error results never appear here — they
- * stay verbatim so the model still sees the failure.
+ * successful read of the same identity (path, or path+offset+limit). Error
+ * results never appear here — they stay verbatim so the model still sees the
+ * failure.
  */
 function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Set<string> {
   const superseded = new Set<string>();
@@ -494,7 +530,7 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.3.0",
+    version: "1.3.1",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -520,12 +556,9 @@ export function createPruningCompactor(
         };
       }
 
-      // callId → name/path for stubs; path → ordered reads for re-read dedup.
-      // Only older successful reads of a path re-read later are stubbed — not a
-      // blanket strip of every kept tool_result (see CL-5595 / CL-4374).
+      // callId → name/path for stubs. Built over the full transcript so a kept
+      // result can still name its path even when its call turn was summarized.
       const callIndex = buildCallIndex(aged.turns);
-      const pathToReads = buildPathToReads(aged.turns, callIndex);
-      const supersededReads = supersededReadCallIds(pathToReads);
 
       const keepCount = Math.min(cfg.keepRecentTurns, aged.turns.length - 1);
       const keepFrom = aged.turns.length - keepCount;
@@ -568,6 +601,12 @@ export function createPruningCompactor(
       const anchorTurns = sortedAnchorIndices.map((i) => olderTurns[i]!);
       const summarizedTurns = olderTurns.filter((_, i) => !anchorIndices.has(i));
 
+      // Path-dedup only among turns that survive. Supersession over the full
+      // transcript would hollow a kept older read when the newer re-read is only
+      // in the summary (CL-4374 review follow-up).
+      const pathToReads = buildPathToReads([...anchorTurns, ...recentTurns], callIndex);
+      const supersededReads = supersededReadCallIds(pathToReads);
+
       const summary = cfg.summarize !== undefined
         ? await cfg.summarize(summarizedTurns)
         : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
@@ -584,11 +623,11 @@ export function createPruningCompactor(
       };
 
       // Anchors and recent turns stay contentful except for path-dedup: when the
-      // same file was read successfully more than once, older results become a
-      // one-line stub and the newest stays whole. Error results are never
-      // stubbed. SummarizedTurns lose content wholesale via the summary above.
-      // Anchors are already image-aged (outside the recent window). Recent turns
-      // keep live base64 so a just-pasted screenshot still reaches the model.
+      // same file was read successfully more than once among kept turns, older
+      // results become a one-line stub and the newest stays whole. Error results
+      // are never stubbed. SummarizedTurns lose content wholesale via the summary
+      // above. Anchors are already image-aged (outside the recent window). Recent
+      // turns keep live base64 so a just-pasted screenshot still reaches the model.
       const process = (t: ConversationTurn): ConversationTurn =>
         stubSupersededReads(t, supersededReads, callIndex);
       const output = coalesceAdjacentTextTurns([

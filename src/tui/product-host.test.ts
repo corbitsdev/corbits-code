@@ -333,9 +333,9 @@ describe("mountProductHost", () => {
   })
 })
 
-describe("provider-first model picker", () => {
-  // Mirrors the bug-report shape: several providers, one (codex) with three
-  // accounts, plus a favorite so the top level has a reachable-without-descending pick.
+describe("flat type-to-filter model picker", () => {
+  // Several providers, one (codex) with three accounts, plus a favorite so the
+  // top of the flat list has a reachable pick without typing.
   const providers = {
     "codex/abk-labs": { models: ["gpt-5.5", "gpt-5.6-sol"] },
     "codex/dirtroad": { models: ["gpt-5.5", "gpt-5.6-sol"] },
@@ -521,6 +521,67 @@ describe("provider-first model picker", () => {
         host.dispose()
       }
     } finally {
+      harness.destroy()
+    }
+  })
+
+  test("Enter on a no-matches filter does not apply a model", async () => {
+    const { harness, host, selected } = await mountPicker()
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      for (const ch of "zzzz-no-such-model") {
+        harness.pressKey(ch)
+      }
+      await harness.renderOnce()
+      expect(host.shell.overlayItems).toEqual(["(no matches)"])
+      acceptOverlaySelection(host.shell)
+      expect(selected).toEqual([])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("filtered accept uses the filtered row id, not the unfiltered catalog index", async () => {
+    // Catalog order puts favorites/recents first; after filtering to "grok",
+    // index 0 is the grok row — accepting must still apply the grok id, never
+    // the catalog's index-0 favorite.
+    const { harness, host, selected } = await mountPicker()
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      for (const ch of "grok") {
+        harness.pressKey(ch)
+      }
+      await harness.renderOnce()
+      // Accept whatever is focused after filter (should be the sole match).
+      acceptOverlaySelection(host.shell)
+      expect(selected).toEqual(["xai/thegreataxios:grok-4.5"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Alt+F on the no-matches sentinel does not toggle a favorite", async () => {
+    const favorites: string[] = []
+    const { harness, host } = await mountPicker({
+      onFavoriteToggle: (id) => favorites.push(id),
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      for (const ch of "zzzz-no-such-model") {
+        harness.pressKey(ch)
+      }
+      await harness.renderOnce()
+      expect(host.shell.overlayItems).toEqual(["(no matches)"])
+      harness.pressKey("f", { meta: true })
+      await harness.renderOnce()
+      expect(favorites).toEqual([])
+    } finally {
+      host.dispose()
       harness.destroy()
     }
   })

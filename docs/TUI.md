@@ -424,6 +424,9 @@ narrows the list in place (printable keys claimed by the filter row, same
 pattern as the command palette); Enter selects. Escape closes the picker.
 The row matching the session's live active model gets a `(current)` suffix.
 Alt+F on a model row still toggles favorite when a favorite hook is wired.
+While type-to-filter is active, bare `j`/`k` type into the filter rather than
+moving the highlight — use arrow keys (or the filtered list's navigation) to
+move.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection
@@ -663,11 +666,6 @@ asserted as fact:
   tiny-terminal, sub-24-row path) has a corresponding test that pins the
   exact row counts, or whether some of that path is only exercised
   indirectly.
-- Whether the `(current)` marking on a provider *group* row
-  (`withGroupMark` in `openModels`, `product-host.ts`) is reachable and
-  correct in every case where the active model's provider itself has no
-  favorites/recents entry — the code path exists but was not traced through
-  a live picker session.
 - Full coverage of which chords are guaranteed deliverable on every terminal
   emulator Corbits Code targets (Shift+Enter and Alt+letter reporting depend
   on kitty-protocol negotiation the harness cannot test — see Test-harness

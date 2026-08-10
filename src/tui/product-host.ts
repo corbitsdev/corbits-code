@@ -86,13 +86,9 @@ export type ProductHostDeliver = (
 ) => void
 
 /**
- * `section` groups rows for the provider-first picker: "recent" and
- * "favorites" stay flat at the top (already single models, reachable without
- * descending); "provider" rows are grouped into one top-level entry per
- * provider (or per account, since each configured provider entry is already
- * account-scoped — `codex/abk-labs`, `codex/dirtroad`); "unconnected" stays
- * flat as a "connect →" row. Omitted (from a caller not using
- * buildModelsFirstCatalog) falls back to one flat list, unwrapped.
+ * `section` tags catalog rows for grouping/ordering in `buildModelsFirstCatalog`
+ * (recent and favorites first, then provider models, then unconnected connect
+ * rows). The live picker is flat + type-to-filter — it does not nest by section.
  */
 export type ProductHostModelOption = {
   readonly id: string
@@ -131,7 +127,7 @@ export type ProductHostConfig = {
    * `models`/`describeModel` via `setModels` and reopens the picker.
    */
   readonly onConnectProvider?: (providerName: string) => void
-  /** `f` on a focused model/provider row; absent rows (connect →) are skipped by the caller. */
+  /** Alt+F on a focused model row; connect rows are skipped by the caller. Bare `f` is claimed by type-to-filter. */
   readonly onFavoriteToggle?: (itemId: string) => void
   /** Command palette catalog (registry-backed). */
   readonly commands?: readonly PaletteCommand[]
@@ -519,8 +515,11 @@ export async function mountProductHost(
         // Flat list: type to narrow rather than drill into a provider pane.
         typeToFilter: true,
         onAccept: (sel) => {
-          const id = sel.id ?? items[sel.index]?.id
-          if (!id) return
+          // Prefer the stable id from the (possibly filtered) row. Do not fall
+          // back to `items[sel.index]` — that index is into the filtered list,
+          // not the unfiltered catalog, so it would pick the wrong model.
+          const id = sel.id
+          if (id === undefined || id.length === 0) return
           const providerName = id.startsWith("connect:") ? id.slice("connect:".length) : null
           if (providerName !== null) {
             onConnect?.(providerName)
@@ -535,7 +534,8 @@ export async function mountProductHost(
                 // Alt+F, never bare f — type-to-filter claims printable keys.
                 const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
                 if (name !== "f" || key.ctrl || !(key.meta || key.option)) return false
-                if (itemId.startsWith("connect:")) return false
+                // Empty id is the "(no matches)" filter sentinel — not a model.
+                if (itemId.length === 0 || itemId.startsWith("connect:")) return false
                 onFavoriteToggle(itemId)
                 return true
               },
@@ -543,8 +543,6 @@ export async function mountProductHost(
           : {}),
       })
     }
-    ;(shell as AppShell & { __openModels?: () => void }).__openModels =
-      openModels
   }
   const setModels = (
     models: readonly ProductHostModelOption[],
