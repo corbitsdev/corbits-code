@@ -243,34 +243,55 @@ if [ "$SKIP_TAP" != 1 ]; then
 fi
 info "repo: $ROOT"
 
-# Resolve release notes: explicit --notes, else scripts/notes/<tag>.md, else
-# a generated body with the standard install instructions.
-if [ -z "$NOTES_FILE" ] && [ -f "scripts/notes/$TAG.md" ]; then NOTES_FILE="scripts/notes/$TAG.md"; fi
-NOTES_TMP=""
+# Resolve release notes: explicit --notes, else the matching CHANGELOG.md
+# section plus a standard Install footer. CHANGELOG is the only product-notes
+# source — do not reintroduce scripts/notes/ or docs/release-notes-* copies.
+NOTES_TMP=$(mktemp)
+trap 'rm -f "$NOTES_TMP"' EXIT
 if [ -n "$NOTES_FILE" ]; then
   [ -f "$NOTES_FILE" ] || die "notes file not found: $NOTES_FILE"
-  info "notes: $NOTES_FILE"
+  info "notes: $NOTES_FILE (override)"
+  cat "$NOTES_FILE" > "$NOTES_TMP"
 else
-  NOTES_TMP=$(mktemp); NOTES_FILE="$NOTES_TMP"
+  [ -f CHANGELOG.md ] || die "CHANGELOG.md missing at repo root"
+  # Body of ## [X.Y.Z] … until the next ## [ header (header line itself omitted).
+  SECTION=$(awk -v ver="$VERSION" '
+    BEGIN { keep = 0 }
+    /^## \[/ {
+      if (index($0, "[" ver "]") > 0) { keep = 1; next }
+      if (keep) exit
+      next
+    }
+    keep { print }
+  ' CHANGELOG.md)
+  if [ -z "$(printf '%s' "$SECTION" | sed '/^[[:space:]]*$/d')" ]; then
+    die "no ## [$VERSION] section in CHANGELOG.md — rename [Unreleased] first"
+  fi
   {
-    echo "# $FORMULA $VERSION"; echo
-    echo "## Install"; echo
-    echo "### macOS (Homebrew)"; echo
+    printf '%s\n\n' "$SECTION"
+    echo "## Install"
+    echo
+    echo "### macOS (Homebrew)"
+    echo
     echo '```'
     echo "brew install $TAP_SLUG/$BREW_FORMULA"
-    echo '```'; echo
-    echo "### Debian / Ubuntu"; echo
+    echo '```'
+    echo
+    echo "### Debian / Ubuntu"
+    echo
     echo '```'
     echo "sudo dpkg -i ${BINARY}_${VERSION}_amd64.deb   # or _arm64.deb"
-    echo '```'; echo
-    echo "### Any macOS or Linux (tarball)"; echo
+    echo '```'
+    echo
+    echo "### Any macOS or Linux (tarball)"
+    echo
     echo "Download the matching \`$BINARY-$VERSION-<platform>.tar.gz\` below,"
     echo "extract, and put the \`$BINARY\` binary on your PATH. It is"
     echo "self-contained; no runtime is required."
   } > "$NOTES_TMP"
-  info "notes: (generated -- no scripts/notes/$TAG.md found)"
+  info "notes: CHANGELOG.md ## [$VERSION] + install footer"
 fi
-trap '[ -n "$NOTES_TMP" ] && rm -f "$NOTES_TMP"' EXIT
+NOTES_FILE="$NOTES_TMP"
 
 # ---- 1-2. version bump, commit, tag (local only; push after build) ---------
 step "Version, commit, and tag (local)"

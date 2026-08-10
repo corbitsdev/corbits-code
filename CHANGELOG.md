@@ -2,7 +2,14 @@
 
 All notable changes to Corbits Code are documented here.
 
-Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions are `package.json` / `vX.Y.Z` git tags cut by `scripts/release.sh`.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
+are `package.json` / `vX.Y.Z` git tags cut by `scripts/release.sh`.
+
+**This file is the only release-notes source.** `/changelog` and the shipped
+binary read it; `scripts/release.sh` builds the GitHub release body from the
+matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
+parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
+`## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
 ## [Unreleased]
 
