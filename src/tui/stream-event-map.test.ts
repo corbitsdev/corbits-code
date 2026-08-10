@@ -346,6 +346,28 @@ describe("inference.error text", () => {
     ).toContain("Context window full")
   })
 
+  test("Codex usage_limit_reached raw body surfaces reset ETA and profile switch", () => {
+    const line = message({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "codex/abk-labs",
+      raw: {
+        detail: {
+          error: {
+            code: "usage_limit_reached",
+            message: "You have reached your usage limit.",
+            plan_type: "workspace_member",
+            resets_in_seconds: 3435,
+          },
+        },
+      },
+    })
+    expect(line).toContain('Codex profile "abk-labs"')
+    expect(line).toMatch(/Resets in ~/)
+    expect(line).toContain("/model")
+  })
+
   test("an unclassified failure keeps the provider's own words", () => {
     expect(message({ message: "socket hang up" })).toBe("socket hang up")
     expect(message({ category: "wat", message: "socket hang up" })).toBe("socket hang up")

@@ -31,4 +31,28 @@ describe("createCorbitsRetryPolicy", () => {
     });
     expect(decision).toEqual({ kind: "abort" });
   });
+
+  test("aborts Codex usage_limit_reached when resets_in_seconds is a long window", async () => {
+    const policy = createCorbitsRetryPolicy();
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        raw: {
+          detail: {
+            error: {
+              code: "usage_limit_reached",
+              message: "You have reached your usage limit.",
+              plan_type: "workspace_member",
+              resets_in_seconds: 3435,
+            },
+          },
+        },
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
 });

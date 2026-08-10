@@ -179,4 +179,91 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.message.toLowerCase()).toMatch(/usage limit|quota/);
   });
+
+  test("maps Codex usage_limit_reached detail.error body to quota_exhausted with reset ETA", () => {
+    const liveBody = {
+      detail: {
+        error: {
+          code: "usage_limit_reached",
+          message: "You have reached your usage limit. Try again later.",
+          plan_type: "workspace_member",
+          resets_in_seconds: 3435,
+        },
+      },
+    };
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      raw: liveBody,
+      providerId: "codex/abk-labs",
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.retryAfterMs).toBe(3_435_000);
+    expect(normalized.message).toContain('Codex profile "abk-labs"');
+    expect(normalized.message).toContain("workspace member");
+    expect(normalized.message).toMatch(/Resets in ~/);
+    expect(normalized.message).toContain("/model");
+  });
+
+  test("Codex usage limit without profile still formats plan and switch path", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "retryable",
+      message: "Too Many Requests",
+      statusCode: 429,
+      raw: JSON.stringify({
+        detail: {
+          error: {
+            code: "usage_limit_reached",
+            message: "limit",
+            plan_type: "plus",
+            resets_in_seconds: 120,
+          },
+        },
+      }),
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.retryAfterMs).toBe(120_000);
+    expect(normalized.message.startsWith("Codex usage limit reached")).toBe(true);
+    expect(normalized.message).toContain("~2m");
+  });
+
+  test("does not rebrand OpenAI insufficient_quota as Codex", () => {
+    const error = {
+      category: "quota_exhausted" as const,
+      message: "You exceeded your current quota, please check your plan and billing details.",
+      statusCode: 429,
+      raw: {
+        error: {
+          message: "You exceeded your current quota, please check your plan and billing details.",
+          type: "insufficient_quota",
+          code: "insufficient_quota",
+        },
+      },
+    };
+    const normalized = normalizeInferenceErrorForRetry(error);
+    expect(normalized).toBe(error);
+    expect(normalized.message).not.toContain("Codex");
+  });
+
+  test("skips Codex rebrand when providerId is known non-Codex", () => {
+    const error = {
+      category: "retryable" as const,
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "openai",
+      raw: {
+        detail: {
+          error: {
+            code: "usage_limit_reached",
+            message: "limit",
+            plan_type: "plus",
+            resets_in_seconds: 120,
+          },
+        },
+      },
+    };
+    const normalized = normalizeInferenceErrorForRetry(error);
+    expect(normalized).toBe(error);
+  });
 });

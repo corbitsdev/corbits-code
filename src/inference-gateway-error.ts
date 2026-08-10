@@ -4,6 +4,12 @@ import {
   isOpenCodeGoURL,
   parseGoAPIError,
 } from "../packages/opencode-go/src/index.js";
+import {
+  codexUsageLimitRetryAfterMs,
+  formatCodexUsageLimitMessage,
+  parseCodexUsageLimitError,
+} from "./auth/codex/usage-limit-error.js";
+import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
 
 export type InferenceErrorLike = {
   category: string;
@@ -13,7 +19,7 @@ export type InferenceErrorLike = {
   retryAfterMs?: number;
   /** Optional request base/url when known — used to scope Go error reclassification. */
   requestURL?: string;
-  /** Provider catalog id when known (e.g. opencode-go). */
+  /** Provider catalog id when known (e.g. opencode-go, codex/abk-labs). */
   providerId?: string;
   /** Explicit OpenCode Go provider flag when known. */
   opencodeGo?: boolean;
@@ -179,15 +185,64 @@ export function normalizeOpenCodeGoInferenceError(
 }
 
 /**
+ * Lift Codex `usage_limit_reached` bodies onto quota_exhausted with a reset ETA
+ * and profile-switch hint. The harness leaves nested `detail.error` on `raw`
+ * while message falls back to statusText, so retry and transcript both re-read it.
+ *
+ * When providerId is known and not a Codex source, leave the error alone so
+ * OpenAI/Go/etc. quota bodies never get Codex-branded copy.
+ */
+function normalizeCodexUsageLimitError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (error.providerId !== undefined && !isCodexProviderName(error.providerId)) {
+    return error;
+  }
+
+  const candidates: unknown[] = [];
+  if (error.raw !== undefined) candidates.push(error.raw);
+  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
+    candidates.push(error.message);
+  }
+
+  let parsed = undefined as ReturnType<typeof parseCodexUsageLimitError>;
+  for (const candidate of candidates) {
+    parsed = parseCodexUsageLimitError(candidate);
+    if (parsed !== undefined) break;
+  }
+  if (parsed === undefined) return error;
+
+  const profile =
+    error.providerId !== undefined
+      ? codexProfileFromProviderName(error.providerId)
+      : undefined;
+  const retryAfterMs = codexUsageLimitRetryAfterMs(parsed) ?? error.retryAfterMs;
+
+  return {
+    category: "quota_exhausted",
+    message: formatCodexUsageLimitMessage(parsed, {
+      ...(profile !== undefined ? { profile } : {}),
+    }),
+    statusCode: error.statusCode ?? 429,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+  };
+}
+
+/**
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
- * Go quota/rate-limit shapes (including HTTP 400 mis-status).
+ * Go quota/rate-limit shapes (including HTTP 400 mis-status) and Codex usage
+ * limits (nested detail.error with resets_in_seconds).
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
 ): InferenceError {
   const goNormalized = normalizeOpenCodeGoInferenceError(error);
   if (goNormalized !== error) return goNormalized;
+
+  const codexNormalized = normalizeCodexUsageLimitError(error);
+  if (codexNormalized !== error) return codexNormalized;
 
   if (!isGatewayOverloadInferenceError(error)) return error;
   if (error.category === "retryable" || error.category === "timeout") return error;

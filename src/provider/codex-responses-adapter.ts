@@ -281,8 +281,10 @@ function buildRequest(
     model,
     input,
     instructions: codexInstructions(),
-    // The Codex backend requires server-side storage off and streaming on, and
-    // asks for encrypted reasoning so it can be round-tripped across turns.
+    // The Codex ChatGPT backend requires `store: false` (store:true → 400) and
+    // rejects `previous_response_id` as an unsupported parameter. Multi-turn
+    // continuity is full input plus encrypted reasoning round-trip only — do
+    // not attempt response-id chaining on this surface.
     store: false,
     stream: true,
     include: ["reasoning.encrypted_content"],

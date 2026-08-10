@@ -7,6 +7,11 @@
  */
 
 import {
+  formatCodexUsageLimitMessage,
+  parseCodexUsageLimitError,
+} from "./auth/codex/usage-limit-error.js";
+import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
+import {
   gatewayOverloadUserMessage,
   isGatewayOverloadInferenceError,
   type InferenceErrorLike,
@@ -49,8 +54,49 @@ export function classifyInferenceErrorCategory(error: InferenceErrorLike): strin
   return looksLikeContextOverflow(error.message ?? "") ? "context_overflow" : error.category;
 }
 
+function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
+  // Match normalizeCodexUsageLimitError: never brand a known non-Codex source.
+  if (error.providerId !== undefined && !isCodexProviderName(error.providerId)) {
+    return undefined;
+  }
+
+  const candidates: unknown[] = [];
+  if (error.raw !== undefined) candidates.push(error.raw);
+  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
+    candidates.push(error.message);
+  }
+  // Already-normalized path: message is our formatted line.
+  if (
+    typeof error.message === "string" &&
+    /codex .*usage limit reached/i.test(error.message) &&
+    error.message.includes("/model")
+  ) {
+    return error.message;
+  }
+
+  for (const candidate of candidates) {
+    const parsed = parseCodexUsageLimitError(candidate);
+    if (parsed === undefined) continue;
+    const profile =
+      error.providerId !== undefined
+        ? codexProfileFromProviderName(error.providerId)
+        : undefined;
+    return formatCodexUsageLimitMessage(parsed, {
+      ...(profile !== undefined ? { profile } : {}),
+    });
+  }
+  return undefined;
+}
+
 /** One line describing the failure, falling back to the provider's own message. */
 export function inferenceErrorMessage(error: InferenceErrorLike): string {
   if (isGatewayOverloadInferenceError(error)) return gatewayOverloadUserMessage(error);
-  return FRIENDLY_BY_CATEGORY[classifyInferenceErrorCategory(error)] ?? error.message ?? "inference error";
+
+  const category = classifyInferenceErrorCategory(error);
+  if (category === "quota_exhausted") {
+    const codexLine = codexUsageLimitLine(error);
+    if (codexLine !== undefined) return codexLine;
+  }
+
+  return FRIENDLY_BY_CATEGORY[category] ?? error.message ?? "inference error";
 }

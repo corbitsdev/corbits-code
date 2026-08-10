@@ -177,7 +177,37 @@ describe("renderer — error blocks", () => {
     const out = cap.stdout.join("");
     expect(out).toContain("error");
     expect(out).toContain("\x1b[31m"); // red
-    expect(out).toContain("request timed out");
+    expect(out).toContain("Request timed out");
+
+  });
+
+  test("inference.error surfaces Codex usage_limit_reached with reset ETA", () => {
+    const cap = captureOutput();
+    const renderer = createRenderer(Date.now());
+    renderer.render(event("inference.error", {
+      error: {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        raw: {
+          detail: {
+            error: {
+              code: "usage_limit_reached",
+              message: "You have reached your usage limit.",
+              plan_type: "workspace_member",
+              resets_in_seconds: 3435,
+            },
+          },
+        },
+      },
+      partial: {},
+    }));
+    cap.restore();
+    const out = cap.stdout.join("");
+    expect(out).toContain("Codex usage limit reached");
+    expect(out).toMatch(/Resets in ~/);
+    expect(out).toContain("/model");
+    expect(out).not.toContain("Too Many Requests");
   });
 
   test("reactor.error writes error block in red to stdout", () => {
