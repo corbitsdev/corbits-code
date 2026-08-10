@@ -416,18 +416,14 @@ landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `shell.ts` for the exact mechanism.
 
-The model/provider picker is provider-first
-(`src/tui/product-host.ts:groupModelsForPicker`/`openLevel`): recent
-and favorite provider+model pairs stay flat at the top of the list (already
-single models, nothing to descend into); every other provider collapses into
-one top-level group row. Selecting a provider group row descends into that
-provider's models; selecting a model dispatches the switch. Escape at the
-model level returns to the provider level rather than closing the picker
-outright (`openLevel(group.rows, onCancel)` passes the parent `openModels`
-reopen as the child level's `onCancel`); only Escape at the provider level
-closes the picker. Recent/favorite rows and the active provider's group row
-both get a `(current)` suffix when they match the session's live active
-model.
+The model/provider picker is one flat, type-to-filter list
+(`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
+recent and favorite provider+model pairs sit at the top, then every
+`provider / model` leaf from the catalog — no nested provider pane. Typing
+narrows the list in place (printable keys claimed by the filter row, same
+pattern as the command palette); Enter selects. Escape closes the picker.
+The row matching the session's live active model gets a `(current)` suffix.
+Alt+F on a model row still toggles favorite when a favorite hook is wired.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection

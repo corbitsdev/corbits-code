@@ -186,10 +186,15 @@ export type OpenModelPickerOpts = {
   readonly onAccept?: (selection: OverlaySelection) => void
   /** Description-zone source, keyed by the focused row's id. */
   readonly describe?: (itemId: string) => ItemDescription | null
-  /** Bare-key claim on the focused row (e.g. `f` to toggle favorite). */
+  /** Bare-key claim on the focused row (e.g. Alt+F to toggle favorite). */
   readonly onAction?: (itemId: string, key: KeyEvent) => boolean
-  /** Per-open Esc/dismiss — the provider-first picker steps back to the provider level instead of closing outright. */
+  /** Per-open Esc/dismiss. */
   readonly onCancel?: () => void
+  /**
+   * Claim printable keys for a `>` filter row so the flat model list narrows
+   * as you type. Off by default so other list overlays keep j/k.
+   */
+  readonly typeToFilter?: boolean
 }
 
 export function openModelPickerOverlay(
@@ -207,5 +212,9 @@ export function openModelPickerOverlay(
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
     ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
+    ...(opts?.typeToFilter !== undefined
+      ? { typeToFilter: opts.typeToFilter }
+      : {}),
   })
 }
+

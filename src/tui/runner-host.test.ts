@@ -323,9 +323,10 @@ describe("mountRunnerHost model picker", () => {
         [],
       )
       expect(host.openSurface("models")).toBe(true)
-      // The connect row is gone and the provider now has its own group row
-      // (drilling into it would surface "gpt-5") instead of a stub message.
-      expect(host.shell.overlayItems).toContain("openai")
+      // Flat list: connect row is gone; the new provider appears as a leaf
+      // `provider / model` row, not a nested group to drill into.
+      expect(host.shell.overlayItems.some((label) => label.includes("openai"))).toBe(true)
+      expect(host.shell.overlayItems.some((label) => label.includes("gpt-5"))).toBe(true)
       expect(host.shell.overlayItems).not.toContain("OpenAI — connect →")
     } finally {
       host.dispose()
@@ -353,9 +354,8 @@ describe("mountRunnerHost model picker", () => {
     })
     try {
       expect(host.openSurface("models")).toBe(true)
-      // Single provider, single model: top level shows the "xai" provider
-      // group first — descend into it before the model row is focusable.
-      acceptOverlaySelection(host.shell)
+      // Flat list: the model row is already focusable at the top level —
+      // Alt+F toggles favorite without a nested provider drill.
       const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])
