@@ -435,9 +435,11 @@ Codex or xAI login) unreachable — OAuth accounts are per-profile, so
 kind-level "already connected" filtering hid the connect path the moment the
 first profile existed. **Alt+A** now opens `add_provider`
 (`src/tui/overlays.ts:openAddProviderOverlay`), a separate `PrimaryOverlayKind`
-listing every first-class provider kind from `providerChoices()` — OAuth and
-API-key alike — each annotated with its live connected-account count and none
-of them filtered out. Esc returns to the model list through the same
+listing every first-class provider kind from `providerChoices()` — OAuth,
+API-key, and Custom alike — each annotated with its live connected-account
+count and none of them filtered out. Custom uses the full manual form (name,
+base URL, key, model); first-class kinds keep their auth-only or browser
+login paths. Esc returns to the model list through the same
 `openModels()` entry point the picker itself uses. Picking a row runs the
 existing inline connect flow (`provider-connect.ts`); first-class kinds (OAuth
 and API-key) both ask for an instance/account name before auth so multiple

@@ -423,6 +423,29 @@ export function resolveApiKeyInstanceName(
   return compound
 }
 
+/**
+ * Rows for the model picker's Alt+A add-provider selector. Every first-class
+ * kind is included, including Custom — filtering Custom out made free-form
+ * endpoints unreachable from Alt+A even though onboarding still offered them.
+ * Account counts use the same rules as the onboarding list.
+ */
+export function addProviderSelectorChoices(
+  choices: readonly ProviderChoice[],
+  providers: readonly { readonly name: string }[],
+): readonly {
+  readonly id: string
+  readonly label: string
+  readonly hint: string
+  readonly accountCount: number
+}[] {
+  return choices.map((choice) => ({
+    id: choice.id,
+    label: choice.label,
+    hint: choice.hint,
+    accountCount: connectedAccountCount(choice, providers),
+  }))
+}
+
 /** Pick-list rows for the provider step. */
 export function providerChoiceRows(
   choices: readonly ProviderChoice[] = providerChoices(),

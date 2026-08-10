@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 
 import { createHarness, type Harness } from "./harness.js"
 import {
+  addProviderSelectorChoices,
   connectedAccountCount,
   CUSTOM_CHOICE_ID,
   failureGuidance,
@@ -138,6 +139,25 @@ describe("provider setup pure helpers", () => {
       expect(choice.defaultModel.length).toBeGreaterThan(0)
     }
     expect(providerChoiceRows(choices)[0]?.label).toContain("OpenAI")
+  })
+
+  test("Alt+A selector rows include Custom and never filter by account count", () => {
+    // Regression for CL-5899: a prior filter dropped Custom from Alt+A even
+    // though onboarding still offered the full manual form. Connected kinds
+    // also stay listed so a second account remains reachable.
+    const choices = providerChoices()
+    const rows = addProviderSelectorChoices(choices, [
+      { name: "openai" },
+      { name: "codex/default" },
+    ])
+    expect(rows.map((r) => r.id)).toContain(CUSTOM_CHOICE_ID)
+    expect(rows.map((r) => r.id)).toEqual(choices.map((c) => c.id))
+    const openai = rows.find((r) => r.id === "openai")
+    const codex = rows.find((r) => r.id === "codex")
+    const custom = rows.find((r) => r.id === CUSTOM_CHOICE_ID)
+    expect(openai?.accountCount).toBe(1)
+    expect(codex?.accountCount).toBe(1)
+    expect(custom?.accountCount).toBe(0)
   })
 
   test("a connected Codex account counts under its profile-qualified name (CL-5606)", () => {

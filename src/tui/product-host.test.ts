@@ -612,6 +612,7 @@ describe("flat type-to-filter model picker", () => {
       addProviderChoices: () => [
         { id: "codex", label: "Codex", hint: "ChatGPT subscription", accountCount: 2 },
         { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+        { id: "custom", label: "Custom", hint: "any OpenAI-compatible endpoint", accountCount: 0 },
       ],
     })
     try {
@@ -623,12 +624,38 @@ describe("flat type-to-filter model picker", () => {
       expect(host.shell.overlayItems).toEqual([
         "Codex — 2 accounts",
         "OpenAI — 0 accounts",
+        "Custom — 0 accounts",
       ])
     } finally {
       host.dispose()
       harness.destroy()
     }
   })
+
+  test("Enter on a Custom add-provider row runs the connect flow for custom", async () => {
+    const connected: string[] = []
+    const { harness, host } = await mountPicker({
+      onConnectProvider: (name) => connected.push(name),
+      addProviderChoices: () => [
+        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+        { id: "custom", label: "Custom", hint: "", accountCount: 0 },
+      ],
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      runOverlayAction(host.shell, altA)
+      await harness.renderOnce()
+      // Move to the Custom row (second item) and accept.
+      moveOverlaySelection(host.shell, 1)
+      acceptOverlaySelection(host.shell)
+      expect(connected).toEqual(["custom"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
 
   test("Esc from the add-provider selector returns to the model list", async () => {
     const { harness, host } = await mountPicker({

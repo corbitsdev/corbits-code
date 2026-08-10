@@ -42,7 +42,7 @@ import {
   type LocalSettings,
   type PluginConfig,
 } from "../config/settings.js";
-import { connectedAccountCount, providerChoices } from "./provider-setup.js";
+import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
 import { connectProviderInline } from "./provider-connect.js";
 import { modelOptionId } from "./model-catalog.js";
 import type { SessionModeScope } from "./command-surfaces.js";
@@ -2044,19 +2044,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Mount OpenTUI before the initial task is sent so gate and stream listeners
   // are registered first. Ctrl+C stays with the shell (interrupt the run);
   // OpenTUI owns the alternate screen and mouse reporting itself.
-  // Alt+A add-provider selector rows: every first-class provider kind, no
-  // already-connected filtering, so a second OAuth account is reachable once
-  // the first is already connected. Read fresh on each open against the live
-  // catalog.
+  // Alt+A add-provider selector rows: every first-class provider kind, including
+  // Custom (full manual form). No already-connected filtering — OAuth and
+  // multi-instance accounts are per-name, so dropping a kind once it has one
+  // account would hide the path to a second. Read fresh on each open against
+  // the live catalog.
   const computeAddProviderChoices = () =>
-    providerChoices()
-      .filter((choice) => !choice.custom)
-      .map((choice) => ({
-        id: choice.id,
-        label: choice.label,
-        hint: choice.hint,
-        accountCount: connectedAccountCount(choice, config.providers),
-      }));
+    addProviderSelectorChoices(providerChoices(), config.providers);
 
   const host = await mountRunnerHost({
     // An unnamed session shows nothing rather than a placeholder.
