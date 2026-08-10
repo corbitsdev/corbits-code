@@ -774,8 +774,9 @@ function terminalOf(
 
 /**
  * The version row is real chrome, not a float — it holds its own reserved
- * row at the foot of the shell rather than overlaying content that already
- * fills every row (there is no other spare one; `BOTTOM_MARGIN_ROWS` is 0).
+ * row at the foot of the shell rather than painting into the optical bottom
+ * pad (`BOTTOM_MARGIN_ROWS`), which is blank breathing room, not a content
+ * slot.
  *
  * This genuinely costs the rest of the shell a row, not just the space it
  * paints in: the geometry resolver is handed `terminal.rows - 1`, so every

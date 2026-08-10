@@ -382,9 +382,10 @@ describe("landing screen", () => {
           row.includes(LOCKUP_WORDMARK),
         )
         // Session-active: the version row only reserves space on the landing
-        // screen (see `relayout`), so once there is real transcript content
-        // the box is back on the terminal's very last row.
-        expect(ruleRow).toBe(SIZE.height - 1)
+        // screen (see `relayout`). Once there is real transcript content the
+        // box sits one row above the terminal's last line — the optical
+        // bottom pad (`BOTTOM_MARGIN_ROWS`) keeps it off the frame edge.
+        expect(ruleRow).toBe(SIZE.height - 2)
         const row = painted[ruleRow]!
         // Left end of the rule, inside the shell gutter, costing no row.
         expect(row.startsWith(" ╰─ ")).toBe(true)
