@@ -51,9 +51,9 @@ export function registerBuiltInCommands(): void {
     handler: (_args, _ctx) => ({ type: "overlay", overlay: "hooks" }),
   });
 
-  // Models-first connect: providers are connected from /model (Ctrl+A / c), not a
-  // standalone /login picker. Keep codex/xai login modals reachable only via
-  // Connect or re-auth on an expired profile.
+  // Models-first connect: providers are connected from /model via the Alt+A
+  // add-provider selector, not a standalone /login picker. The OAuth sign-in
+  // surface is reachable only through that connect flow.
 
   // signalClear rotates to a fresh session: the on-screen transcript and run
   // telemetry are reset and the agent is rebuilt against a new state directory,
