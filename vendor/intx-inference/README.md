@@ -1,12 +1,4 @@
-# @intx/inference (vendored)
-
-Vendored fork of `interchange/packages/inference` at submodule commit
-`69c75847`, carrying intercode-local patches not yet upstream. The root
-workspace resolves `@intx/inference` here instead of the submodule.
-
-Local patches:
-- Reactor snapshots share deep-frozen turn references instead of
-  structuredClone-ing the full history on every director decision.
+# @intx/inference
 
 Provider-agnostic inference runtime. Adapters for Anthropic,
 OpenAI-compatible relays (including OpenCode Zen), and Google
