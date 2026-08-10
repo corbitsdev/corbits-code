@@ -70,6 +70,33 @@ Root `package.json`:
 - The package's own entry in root `dependencies` reads `"workspace:*"`
   rather than a version string.
 
+A clean `bun install` under those overrides links every consumer —
+including nested Bun package layouts such as
+`node_modules/.bun/@intx+agent@…/node_modules/@intx/types` — at the
+vendored tree. That is the runtime and install-time story.
+
+TypeScript needs a second pin. Published packages such as `@intx/agent@0.2.2`
+ship `dist/*.d.ts` that import `@intx/types/runtime`. When a stale or
+partial install leaves a nested published `@intx/types@0.2.2` (with its
+older `dist/` shapes, missing fields such as `PendingOperation.kind`),
+`tsc` treats that nested copy as a second type identity: first-party
+code and vendored inference resolve the vendor source, while agent
+declaration files resolve the nested publish, and assignability fails
+even though both packages share the name `@intx/types`. Root
+`tsconfig.json` therefore forces a single TypeScript-visible identity:
+
+```json
+"paths": {
+  "@intx/types": ["./vendor/intx-types/src/index.ts"],
+  "@intx/types/*": ["./vendor/intx-types/src/*"]
+}
+```
+
+Overrides keep the filesystem install on vendor; paths keep `tsc` on
+vendor even if a nested published copy reappears. Do not remove either
+layer without re-checking `bun run typecheck` against a layout that
+still has nested `@intx/types` under a published `@intx/*` package.
+
 This is also what collapses a duplicate-dependency problem: before
 `@intx/types` was vendored, every published `@intx/*` package we consumed
 carried its own nested `arktype` install (pinned to whatever `arktype` minor

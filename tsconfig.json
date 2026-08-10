@@ -6,7 +6,9 @@
     "baseUrl": ".",
     "paths": {
       "@corbits/provider-opencode-go": ["./packages/opencode-go/src/index.ts"],
-      "@corbits/first-class-providers": ["./packages/first-class-providers/src/index.ts"]
+      "@corbits/first-class-providers": ["./packages/first-class-providers/src/index.ts"],
+      "@intx/types": ["./vendor/intx-types/src/index.ts"],
+      "@intx/types/*": ["./vendor/intx-types/src/*"]
     }
   },
   "include": ["src/**/*.ts", "packages/**/*.ts"]
