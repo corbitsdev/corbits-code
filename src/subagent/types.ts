@@ -64,6 +64,11 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // Forwarded from the outer TaskToolDeps so nested workers get the same
   // worktree-isolation behavior as their orchestrator.
   useWorktree?: boolean;
+  /**
+   * When set (e.g. greybeard → intern/explore/critique), nested `task` may only
+   * spawn these director/profile ids. Omitted = no allowlist filter (primary).
+   */
+  spawnAllowlist?: readonly string[];
 };
 
 /** Typed spawn intent — optional on `task`; omit Intent section when unset. */

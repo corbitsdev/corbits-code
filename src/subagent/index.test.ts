@@ -1235,13 +1235,19 @@ describe("createTaskTool", () => {
       getWorkdirBase: () => "/repo/.corbits",
       provider,
       maxTurns: 25,
+      profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
         return "done";
       },
     } as Parameters<typeof createTaskTool>[0] & { maxTurns: number });
 
-    const result = await callTask(tool, { description: "Investigate", prompt: "Do the work" });
+    // Plugin profile (not a director package) so package nudge.maxTurns does not apply.
+    const result = await callTask(tool, {
+      description: "Investigate",
+      prompt: "Do the work",
+      agent: "leaf",
+    });
 
     expect(result).toContain("done");
     expect(captured).toBeDefined();
@@ -1256,13 +1262,18 @@ describe("createTaskTool", () => {
       getWorkdirBase: () => "/repo/.corbits",
       provider,
       settings: { providers: {}, subagentMaxTurns: 42 },
+      profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
         return "done";
       },
     });
 
-    await callTask(tool, { description: "Settings default", prompt: "Work" });
+    await callTask(tool, {
+      description: "Settings default",
+      prompt: "Work",
+      agent: "leaf",
+    });
 
     expect(captured?.maxTurns).toBe(42);
   });
@@ -1274,6 +1285,7 @@ describe("createTaskTool", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
+      profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
         return "done";
@@ -1284,6 +1296,7 @@ describe("createTaskTool", () => {
       description: "Long job",
       prompt: "Work",
       maxTurns: 50,
+      agent: "leaf",
     });
 
     expect(captured?.maxTurns).toBe(50);
@@ -1401,6 +1414,7 @@ describe("createTaskTool", () => {
       description: "Too long",
       prompt: "Work",
       maxTurns: 101,
+      intent: "explore",
     });
 
     expect(result).toContain("Error:");
@@ -1463,7 +1477,7 @@ describe("createTaskTool", () => {
       run: async () => forcedStopReport("turn-budget", "partial"),
     });
 
-    const result = await callTask(tool, { description: "Budget", prompt: "Work" });
+    const result = await callTask(tool, { description: "Budget", prompt: "Work", intent: "explore" });
 
     expect(result).toContain("turn budget");
     expect(result).toContain("Turn budget reached");
@@ -1488,7 +1502,7 @@ describe("createTaskTool", () => {
       },
     });
 
-    await callTask(tool, { description: "MCP parity", prompt: "check tools" });
+    await callTask(tool, { description: "MCP parity", prompt: "check tools", intent: "explore" });
 
     expect(captured?.permissionGate).toBe(testPermissionGate);
     expect(captured?.inheritMcpTools?.()).toEqual(inherited);
@@ -1508,7 +1522,7 @@ describe("createTaskTool", () => {
       },
     });
 
-    await callTask(tool, { description: "Env parity", prompt: "check env" });
+    await callTask(tool, { description: "Env parity", prompt: "check env", intent: "explore" });
 
     expect(captured?.shellEnv).toEqual({ FOO: "bar" });
   });
@@ -1548,7 +1562,7 @@ describe("createTaskTool", () => {
         return forcedStopReport("cancelled", "partial from tools");
       },
     });
-    const out = await callTask(tool, { description: "signal", prompt: "x" }, parent.signal);
+    const out = await callTask(tool, { description: "signal", prompt: "x", intent: "explore" }, parent.signal);
     expect(linkedAbort).toBe(true);
     expect(captured?.signal?.aborted).toBe(true);
     expect(out).toContain("cancelled");
@@ -1570,7 +1584,7 @@ describe("createTaskTool", () => {
         return forcedStopReport("cancelled", "salvaged work");
       },
     });
-    const out = await callTask(tool, { description: "race", prompt: "x" });
+    const out = await callTask(tool, { description: "race", prompt: "x", intent: "explore" });
     expect(out).toContain("salvaged work");
     expect(out).toContain("## Summary");
     expect(out).not.toBe('Sub-agent "race" cancelled by operator.');
@@ -1590,7 +1604,7 @@ describe("createTaskTool", () => {
         throw err;
       },
     });
-    const out = await callTask(tool, { description: "pre-progress", prompt: "x" });
+    const out = await callTask(tool, { description: "pre-progress", prompt: "x", intent: "explore" });
     expect(out).toContain("cancelled by operator");
     expect(out).not.toContain("## Summary");
   });
@@ -1603,7 +1617,7 @@ describe("createTaskTool", () => {
       provider,
       run: async () => forcedStopReport("cancelled", "Found path in gate.ts"),
     });
-    const out = await callTask(tool, { description: "salvage", prompt: "x" });
+    const out = await callTask(tool, { description: "salvage", prompt: "x", intent: "explore" });
     expect(out).toContain("## Summary");
     expect(out).toContain("## Findings");
     expect(out).toContain("gate.ts");
@@ -1627,7 +1641,7 @@ describe("createTaskTool", () => {
       {
         id: "auth-call",
         name: "task",
-        arguments: { description: "auth probe", prompt: "x" },
+        arguments: { description: "auth probe", prompt: "x", intent: "explore" },
       },
       new AbortController().signal,
     );
@@ -1660,7 +1674,7 @@ describe("createTaskTool", () => {
         return forcedStopReport("deadline", "partial before wall clock");
       },
     });
-    const out = await callTask(tool, { description: "deadline", prompt: "x" });
+    const out = await callTask(tool, { description: "deadline", prompt: "x", intent: "explore" });
     expect(captured?.deadlineMs).toBe(45_000);
     expect(out).toContain("## Summary");
     expect(out).toContain("deadline");
@@ -1690,7 +1704,7 @@ describe("createTaskTool", () => {
     });
     const runner = createDynamicToolRunner([task], { defaultMs: 10_000 });
     const pending = runner.run(
-      { id: "int-1", name: "task", arguments: { description: "race", prompt: "x" } },
+      { id: "int-1", name: "task", arguments: { description: "race", prompt: "x", intent: "explore" } },
       parent.signal,
     );
     await new Promise((r) => setTimeout(r, 15));
@@ -1746,9 +1760,10 @@ describe("createTaskTool", () => {
       },
     });
 
-    await callTask(tool, { description: "legacy", prompt: "Do the work" });
+    await callTask(tool, { description: "legacy", prompt: "Do the work", intent: "explore" });
 
-    expect(captured?.intent).toBeUndefined();
+    // Intent is required to select a director; other typed spawn fields stay optional.
+    expect(captured?.intent).toBe("explore");
     expect(captured?.successCriteria).toBeUndefined();
     expect(captured?.doNot).toBeUndefined();
     expect(captured?.reportFocus).toBeUndefined();
@@ -2047,7 +2062,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
         return budget;
       },
     });
-    const args = { description: "Budget job", prompt: "long job" };
+    const args = { description: "Budget job", prompt: "long job", intent: "explore" };
     const r1 = await callTask(tool, args);
     expect(r1).toContain("higher maxTurns");
     const r2 = await callTask(tool, { ...args, maxTurns: 50 });
@@ -2074,7 +2089,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
         return ok;
       },
     });
-    const args = { description: "Reset job", prompt: "reset budget" };
+    const args = { description: "Reset job", prompt: "reset budget", intent: "explore" };
     expect(await callTask(tool, args)).toContain("higher maxTurns");
     expect(await callTask(tool, args)).toContain("higher maxTurns");
     expect(await callTask(tool, args)).toContain("Done");
@@ -2098,7 +2113,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
         return budget;
       },
     });
-    const args = { description: "Crash then budget", prompt: "count carefully" };
+    const args = { description: "Crash then budget", prompt: "count carefully", intent: "explore" };
     const fail = await callTask(tool, args);
     expect(fail).toContain("failed");
     // First successful body is still dispatchCount 1 → invites higher maxTurns.

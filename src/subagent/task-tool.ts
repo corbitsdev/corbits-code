@@ -166,11 +166,18 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // sessions the Agents strip can indent under it.
   parentSessionId?: string;
   /**
+   * When set, only these agent/director ids may be spawned. Nested directors
+   * (greybeard) pass their package spawn.allowlist; primary omits this so
+   * plugin profiles remain reachable.
+   */
+  spawnAllowlist?: readonly string[];
+  /**
    * Optional wall-clock budget (ms) for each worker this tool spawns. Opt-in
    * only — there is no default leaf death clock. When set, clamped below the
    * outer tool-execution watchdog so a salvage report can return first.
    */
   deadlineMs?: number;
+
   /**
    * Opt-in: isolate each spawn in its own git worktree branched from the
    * dispatcher's HEAD instead of sharing deps.cwd. Fails closed (see
@@ -248,6 +255,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
+      /** Child-package spawn allowlist to forward into nested task (if this worker may spawn). */
+      let nestedSpawnAllowlist: readonly string[] | undefined;
       const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
 
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
@@ -326,6 +335,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
+            if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
+              nestedSpawnAllowlist = pkg.spawn.allowlist;
+            }
           }
           const profile = profiles?.find((p) => p.id === agentId);
 
@@ -415,6 +427,30 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
+          if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
+            nestedSpawnAllowlist = pkg.spawn.allowlist;
+          }
+        }
+      } else {
+        // No general leaf: bare task (no agent, no intent) is refused. Reclassify.
+        return taskToolResult(
+          call.id,
+          'Error: No director selected. Pass task(agent=…) for a named director, or task(intent=implement|explore|plan|review). Intent "general" is not a director.',
+        );
+      }
+
+      // Parent director spawn matrix (e.g. greybeard → intern/explore/critique only).
+      if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
+        const childId =
+          agentId !== undefined && agentId.length > 0
+            ? agentId
+            : (resolvedDirectorId ?? "");
+        if (childId.length === 0 || !deps.spawnAllowlist.includes(childId)) {
+          const allowed = deps.spawnAllowlist.join(", ");
+          return taskToolResult(
+            call.id,
+            `Error: spawn of "${childId.length > 0 ? childId : "(unresolved)"}" is outside this director's allowlist. Allowed: ${allowed}.`,
+          );
         }
       }
 
@@ -527,6 +563,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             ...(session !== undefined ? { parentSessionId: session.id } : {}),
             ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
+            ...(nestedSpawnAllowlist !== undefined
+              ? { spawnAllowlist: nestedSpawnAllowlist }
+              : {}),
           }
         : undefined;
       // Per-spawn controller so strip cancel and parent stop share one abort

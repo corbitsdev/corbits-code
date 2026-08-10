@@ -229,7 +229,7 @@ Profiles with `orchestrator: true` may themselves call `task` (one hop only): ne
 
 #### Closed director fleet (`src/agent/directors/`)
 
-Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no general leaf: `task(intent="general")` fails closed and the primary reclassifies.
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no general leaf: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only).
 
 **Primary**
 

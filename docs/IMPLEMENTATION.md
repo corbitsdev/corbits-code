@@ -154,13 +154,14 @@ docs/
 
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
-1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built.
+1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`.
-3. `directorProfiles()` is the default profile catalog (`default-agents.ts`); plugin agent profiles still load and can override by id.
-4. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`.
-5. Leaf `writePaths` (shakespeare docs trio, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT + docs/*) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
+3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. Primary omits the list so plugin profiles stay reachable.
+4. `directorProfiles()` is the default profile catalog (`default-agents.ts`); plugin agent profiles still load and can override by id.
+5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()` (never-implement stance is prompt-first; product write tools may still be mounted on the primary session until a separate tool-envelope pass).
+6. Leaf `writePaths` (shakespeare docs trio, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT + docs/*) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
 
-Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`.
+Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`. `modelRole` / `optionalSkills` are package fields for later wiring (CL-5816), not resolved at spawn yet.
 
 ### Auto Mode
 

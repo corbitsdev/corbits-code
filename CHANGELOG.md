@@ -54,6 +54,9 @@ mid-session switches.
   resolves directors without requiring plugin profiles; `task(intent=…)` maps
   implement/explore/plan/review→critique (`general` is refused). Default agent
   profiles are the closed fleet via `directorProfiles()`.
+- **No general leaf at the wire.** Bare `task` (no `agent`, no `intent`) and
+  `intent=general` fail closed; nested directors enforce `spawn.allowlist`
+  (greybeard → intern/explore/critique).
 - **Skywalker is the primary system role.** `buildChatRole()` returns
   `createSkywalkerSystemPrompt()` so the main session gets the closed
   orchestrate-only identity (classify → dispatch → synthesize), not the short

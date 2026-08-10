@@ -74,7 +74,7 @@ test("generic leaf gets role-default medium even when parent effort is high", as
     },
   });
 
-  await callHandler(tool, { description: "task", prompt: "do it" });
+  await callHandler(tool, { description: "task", prompt: "do it", intent: "explore" });
 
   expect(receivedEffort?.provider.reasoningEffort).toBe("medium");
 });
@@ -94,7 +94,7 @@ test("a provider getter is resolved at spawn time, so a live switch reaches suba
 
   // Simulate a /agent switch after the tool was constructed.
   current = { ...provider, model: "model-b", reasoningEffort: "high" };
-  await callHandler(tool, { description: "task", prompt: "do it" });
+  await callHandler(tool, { description: "task", prompt: "do it", intent: "explore" });
 
   expect(received?.provider.model).toBe("model-b");
   // Live model switch is honored; effort still follows leaf role default.
@@ -116,6 +116,7 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
   const result = await callHandler(tool, {
     description: "  map callers  ",
     prompt: "  find every caller of X  ",
+    intent: "explore",
   });
 
   expect(received?.description).toBe("map callers");
@@ -135,7 +136,7 @@ test("handler reports runner failures without throwing", async () => {
     },
   });
 
-  const result = await callHandler(tool, { description: "boom", prompt: "trigger failure" });
+  const result = await callHandler(tool, { description: "boom", prompt: "trigger failure", intent: "explore" });
   expect(result).toContain("Error:");
   expect(result).toContain("provider exploded");
 });
@@ -267,6 +268,78 @@ test("intent general is refused (no general director)", async () => {
   expect(ran).toBe(false);
 });
 
+test("bare task without agent or intent is refused (no general leaf)", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "vague",
+    prompt: "do something",
+  });
+  expect(result).toContain("Error:");
+  expect(result).toContain("No director selected");
+  expect(ran).toBe(false);
+});
+
+test("spawnAllowlist rejects children outside the parent director matrix", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    spawnAllowlist: ["intern", "explore", "critique"],
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const denied = await callHandler(tool, {
+    description: "ship code",
+    prompt: "implement the feature",
+    agent: "implement",
+  });
+  expect(denied).toContain("Error:");
+  expect(denied).toContain("allowlist");
+  expect(ran).toBe(false);
+
+  const allowed = await callHandler(tool, {
+    description: "map",
+    prompt: "read the tree",
+    agent: "explore",
+  });
+  expect(allowed).not.toContain("Error:");
+  expect(ran).toBe(true);
+});
+
+test("greybeard nestedDispatch carries spawn allowlist into nested task", async () => {
+  let nestedAllow: readonly string[] | undefined;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async (params) => {
+      nestedAllow = params.nestedDispatch?.spawnAllowlist;
+      return "reviewed";
+    },
+  });
+  await callHandler(tool, {
+    description: "arch review",
+    prompt: "review approach",
+    agent: "greybeard",
+  });
+  expect(nestedAllow).toEqual(["intern", "explore", "critique"]);
+});
+
 test("orchestrator profile installs nestedDispatch so task can be re-dispatched", async () => {
   let received: RunSubAgentParams | undefined;
   const tool = createTaskTool({ permissionGate: testPermissionGate,
@@ -381,6 +454,7 @@ test("handler injects context and goals into runner params when provided", async
     context: "The codebase uses functional programming with no classes.",
     prompt: "Extract duplicated validation logic into a shared function.",
     goals: [" find duplicates ", "", " extract helper "],
+    intent: "implement",
   });
 
   expect(received?.context).toBe("The codebase uses functional programming with no classes.");
@@ -416,6 +490,7 @@ test("handler omits context and goals when empty", async () => {
   await callHandler(toolNoContext, {
     description: "check code",
     prompt: "Review the function signatures.",
+    intent: "explore",
   });
 
   await callHandler(toolEmptyContext, {
@@ -423,6 +498,7 @@ test("handler omits context and goals when empty", async () => {
     context: "  ",
     prompt: "Review the function signatures.",
     goals: [],
+    intent: "explore",
   });
 
   expect(receivedNoContext?.context).toBeUndefined();

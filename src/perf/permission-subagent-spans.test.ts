@@ -237,7 +237,7 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     const result = await tool.handler(
-      { id: "call-sa-1", name: "task", arguments: { description: "Job", prompt: "Do it" } },
+      { id: "call-sa-1", name: "task", arguments: { description: "Job", prompt: "Do it", intent: "explore" } },
       new AbortController().signal,
     );
     expect(runEntered).toBe(true);
@@ -278,7 +278,7 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     await tool.handler(
-      { id: "call-child", name: "task", arguments: { description: "Child", prompt: "Work" } },
+      { id: "call-child", name: "task", arguments: { description: "Child", prompt: "Work", intent: "explore" } },
       new AbortController().signal,
     );
 
@@ -308,7 +308,7 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     const result = await tool.handler(
-      { id: "call-fail", name: "task", arguments: { description: "Fail", prompt: "Work" } },
+      { id: "call-fail", name: "task", arguments: { description: "Fail", prompt: "Work", intent: "explore" } },
       new AbortController().signal,
     );
     expect(typeof result.content === "string" ? result.content : "").toContain("Error:");
@@ -339,7 +339,7 @@ describe("subagent spans", () => {
       {
         id: "call-wt-fail",
         name: "task",
-        arguments: { description: "Worktree fail", prompt: "Work" },
+        arguments: { description: "Worktree fail", prompt: "Work", intent: "explore" },
       },
       new AbortController().signal,
     );

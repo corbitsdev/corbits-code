@@ -353,6 +353,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
         ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
         ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
+        ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
       }),
       ...(nd.profiles !== undefined
         ? [

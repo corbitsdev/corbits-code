@@ -75,7 +75,7 @@ describe("createTaskTool worktree isolation", () => {
       },
     });
 
-    const result = await callTask(tool, { description: "Isolated job", prompt: "Do the work" });
+    const result = await callTask(tool, { description: "Isolated job", prompt: "Do the work", intent: "explore" });
 
     expect(result).toContain("done");
     expect(captured?.cwd).toBeDefined();
@@ -106,7 +106,7 @@ describe("createTaskTool worktree isolation", () => {
       },
     });
 
-    await callTask(tool, { description: "Shared job", prompt: "Do the work" });
+    await callTask(tool, { description: "Shared job", prompt: "Do the work", intent: "explore" });
 
     expect(captured?.cwd).toBe(repo);
   });
@@ -130,7 +130,7 @@ describe("createTaskTool worktree isolation", () => {
       },
     });
 
-    const result = await callTask(tool, { description: "Blocked job", prompt: "Do the work" });
+    const result = await callTask(tool, { description: "Blocked job", prompt: "Do the work", intent: "explore" });
 
     expect(result).toContain("Error:");
     expect(result).toContain("not inside a git repository");
@@ -158,7 +158,7 @@ describe("createTaskTool worktree isolation", () => {
       },
     });
 
-    const result = await callTask(tool, { description: "Dirty job", prompt: "Do the work" });
+    const result = await callTask(tool, { description: "Dirty job", prompt: "Do the work", intent: "explore" });
 
     expect(result).toContain("done");
     expect(result).toContain("uncommitted changes and was left in place");
@@ -195,7 +195,7 @@ describe("createTaskTool worktree isolation", () => {
       },
     });
 
-    const result = await callTask(tool, { description: "Stashing job", prompt: "Do the work" });
+    const result = await callTask(tool, { description: "Stashing job", prompt: "Do the work", intent: "explore" });
 
     expect(result).toContain("done");
     expect(result).toContain("stash");
