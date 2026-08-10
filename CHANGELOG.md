@@ -25,6 +25,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
   terminal's last line on terminals tall enough to spare it
   (`BOTTOM_MARGIN_ROWS`, collapsed below 24 rows), so the layout no longer
   feels flush against the frame edge.
+- **User-message breathing room.** Operator turns in the transcript keep a
+  blank bar row above and below the message text, so user prompts are easier
+  to spot while scrolling through assistant and tool rows (CL-5603).
 - **Drag-select auto-copy.** With mouse capture on (the default), finishing a
   drag selection in the transcript writes the selected text to the system
   clipboard on mouse-up and flashes a short status line. Alt+M still hands the

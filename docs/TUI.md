@@ -53,6 +53,13 @@ heights, so they never change the resolver's row budget. Each collapses to
 zero when the terminal is too short to spare it (`TOP_PAD_MIN_TRANSCRIPT_ROWS`
 for the top pad, `BOTTOM_MARGIN_MIN_ROWS` for the bottom).
 
+Operator turns in the transcript are left-aligned bubbles with a solid bar
+down the left edge (`userBubbleLines` in `src/tui/stream.ts`). Each bubble
+keeps one empty bar row above and below its text so the operator's voice
+stays easy to find while scrolling through denser assistant and tool rows —
+the pad is part of the bubble itself, not an extra turn-boundary gap, and
+assistant/tool rows are unchanged.
+
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule; the brand
 lockup sits at the left of the bottom rule with the working directory and git
