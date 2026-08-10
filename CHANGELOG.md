@@ -11,6 +11,39 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+Codex connect works again: streaming responses no longer die on a missing
+header, multiple ChatGPT accounts can be connected by name, and providers are
+added from the model picker with Alt+A.
+
+### Providers
+
+- **Codex streaming repaired.** Some Codex models (the gpt-5.6 family) stream
+  valid responses with no Content-Type header, which failed every turn with
+  "Cannot detect response kind". The response protocol is now recovered from
+  what the request asked for, so those models work; genuinely malformed
+  responses still fail loudly.
+- **Named accounts with re-auth.** Browser sign-in asks for an account name
+  first, so any number of ChatGPT or Grok accounts can be connected side by
+  side (`codex/work`, `codex/personal`, …). Reusing an existing name
+  re-authorizes that account after an explicit confirmation — the recovery
+  path for expired sign-ins. Second sign-ins can no longer silently overwrite
+  an existing account's credentials.
+
+### TUI
+
+- **Alt+A adds providers.** The model picker lists only connected accounts
+  and their models; Alt+A opens an add-provider selector that always shows
+  every provider with its connected-account count, so adding a second account
+  is never blocked. After connecting, the picker reopens focused on the new
+  account.
+- **Connect works mid-session.** Adding a provider from a running session no
+  longer crashes with a renderer conflict; the sign-in surface shares the
+  session's screen and hands control back when done.
+- **Pickers stay on screen.** Overlays opened after using one on the launch
+  screen no longer render below the prompt box.
+
 ## [0.2.96] - 2026-09-08
 
 Drag-select auto-copy, a flat type-to-filter model picker, install-aware upgrade
