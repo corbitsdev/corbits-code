@@ -21,6 +21,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `anthropic/work`, …). Reusing an existing name replaces that instance after
   an explicit confirm. Custom endpoints stay free-form and single-entry.
 
+### TUI
+
+- **Custom from Alt+A.** The add-provider selector now includes Custom alongside
+  first-class kinds, so free-form OpenAI-compatible endpoints are reachable from
+  the model picker without dropping into onboarding. Custom still uses the full
+  manual form (name, base URL, key, model).
+
 ## [0.2.97] - 2026-08-10
 
 Codex connect works again: streaming responses no longer die on a missing
