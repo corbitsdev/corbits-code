@@ -195,6 +195,8 @@ export type OpenModelPickerOpts = {
    * as you type. Off by default so other list overlays keep j/k.
    */
   readonly typeToFilter?: boolean
+  /** Advertise Alt+A in the footer — only when the caller wired the handler. */
+  readonly addProviderHint?: boolean
 }
 
 export function openModelPickerOverlay(
@@ -215,6 +217,40 @@ export function openModelPickerOverlay(
     ...(opts?.typeToFilter !== undefined
       ? { typeToFilter: opts.typeToFilter }
       : {}),
+    ...(opts?.addProviderHint !== undefined
+      ? { addProviderHint: opts.addProviderHint }
+      : {}),
+  })
+}
+
+export type OpenAddProviderOpts = {
+  readonly items?: readonly string[]
+  /** Stable provider ids aligned with `items`. */
+  readonly itemIds?: readonly string[]
+  readonly activeIndex?: number
+  /** Per-open accept; host runs the connect flow for the chosen provider. */
+  readonly onAccept?: (selection: OverlaySelection) => void
+  /** Description-zone source, keyed by the focused row's id. */
+  readonly describe?: (itemId: string) => ItemDescription | null
+  /** Per-open Esc/dismiss — the caller returns to the model list. */
+  readonly onCancel?: () => void
+}
+
+/** Alt+A from the model picker: every first-class provider kind, no already-connected filtering. */
+export function openAddProviderOverlay(
+  shell: AppShell,
+  opts?: OpenAddProviderOpts,
+): void {
+  openListOverlay(shell, {
+    kind: "add_provider",
+    title: "add provider",
+    items: opts?.items ?? [],
+    activeIndex: opts?.activeIndex ?? 0,
+    frameId: "overlay-add-provider",
+    ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
+    ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
+    ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
+    ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
   })
 }
 

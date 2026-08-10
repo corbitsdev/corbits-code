@@ -714,6 +714,7 @@ export type PrimaryOverlayKind =
   | "permissions"
   | "operator"
   | "model_picker"
+  | "add_provider"
   | "demo"
   | "palette"
   | "settings"
@@ -1300,12 +1301,25 @@ const DEFAULT_OVERLAY_HINTS = [
  * Never promises "Enter choose" when there is nothing to choose: an overlay
  * with no rows says what the operator can actually do instead.
  */
+/** Model picker only: same three-tier fallback shape as DEFAULT_OVERLAY_HINTS. */
+const MODEL_PICKER_HINTS = [
+  "Esc cancel · Enter choose · Alt+A add provider",
+  "Esc · Enter · Alt+A add",
+  "Esc · Enter",
+] as const
+
 function overlayHints(shell: AppShell): readonly string[] {
   const answer = overlayAnswerState(shell)
   const hasChoices = shell.overlayItems.length > 0
   if (answer === null) {
-    if (hasChoices) return DEFAULT_OVERLAY_HINTS
-    return ["Esc dismiss"]
+    if (!hasChoices) return ["Esc dismiss"]
+    if (
+      shell.overlayKind === "model_picker" &&
+      internals.get(shell)?.overlayAddProviderHint === true
+    ) {
+      return MODEL_PICKER_HINTS
+    }
+    return DEFAULT_OVERLAY_HINTS
   }
   if (answer.active) {
     return hasChoices
@@ -1864,6 +1878,7 @@ type PriorOverlaySnapshot = {
   readonly answer: OverlayAnswerState | null
   readonly titleText: string
   readonly onCancel: (() => void) | null
+  readonly addProviderHint: boolean
 }
 
 type ShellInternals = {
@@ -1890,6 +1905,8 @@ type ShellInternals = {
   overlayDescribe: ((itemId: string) => ItemDescription | null) | null
   /** Per-open bare-key claim for the open primary overlay. */
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
+  /** Whether the open primary advertises Alt+A in the footer hints. */
+  overlayAddProviderHint: boolean
   /** Per-open free-text answer field, when the overlay opted into one. */
   overlayAnswer: OverlayAnswerState | null
   /** Bare title of the open overlay, so its key hints can be re-composed. */
@@ -3416,6 +3433,12 @@ export type OpenListOverlayOpts = {
    * navigation; with it, j/k type into the filter and arrows still navigate.
    */
   readonly typeToFilter?: boolean
+  /**
+   * Advertise the Alt+A add-provider hint in the footer for this open. Set
+   * only when the caller actually wired an Alt+A handler via `onAction`, so
+   * the hint can never name a key that is a dead end.
+   */
+  readonly addProviderHint?: boolean
 }
 
 /**
@@ -3454,6 +3477,7 @@ export function openListOverlay(
           answer: bag.overlayAnswer,
           titleText: bag.overlayTitleText,
           onCancel: bag.overlayOnCancel,
+          addProviderHint: bag.overlayAddProviderHint,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3484,6 +3508,7 @@ export function openListOverlay(
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
+      bag.overlayAddProviderHint = opts?.addProviderHint ?? false
       // Capture the full unfiltered set so typing can re-narrow in place.
       bag.listFilter =
         opts?.typeToFilter === true
@@ -3505,6 +3530,7 @@ export function openListOverlay(
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
+      bag.overlayAddProviderHint = opts?.addProviderHint ?? false
       bag.listFilter = null
     }
     if (!isPalette) {
@@ -3919,13 +3945,15 @@ export function closeInsetOverlay(shell: AppShell): void {
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
   // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
   // still settle that promise (as a deny/cancel) or the caller hangs forever.
-  // model_picker onCancel is optional back-navigation for callers that set one;
-  // palette/mentions/copy have no awaited caller and drop silently.
+  // model_picker/add_provider onCancel is optional back-navigation for
+  // callers that set one; palette/mentions/copy have no awaited caller and
+  // drop silently.
   const cancelable =
     !prior &&
     (shell.overlayKind === "permissions" ||
       shell.overlayKind === "operator" ||
-      shell.overlayKind === "model_picker")
+      shell.overlayKind === "model_picker" ||
+      shell.overlayKind === "add_provider")
   const onCancel = cancelable ? bag?.overlayOnCancel ?? null : null
 
   shell.overlayList = null
@@ -3945,6 +3973,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayOnCycle = null
     bag.overlayDescribe = null
     bag.overlayOnAction = null
+    bag.overlayAddProviderHint = false
     bag.overlayAnswer = null
     bag.overlayOnCancel = null
   }
@@ -3978,6 +4007,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayAnswer = prior.answer
     bag.overlayTitleText = prior.titleText
     bag.overlayOnCancel = prior.onCancel
+    bag.overlayAddProviderHint = prior.addProviderHint
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -5995,6 +6025,7 @@ export function createAppShell(
     overlayOnCycle: null,
     overlayDescribe: null,
     overlayOnAction: null,
+    overlayAddProviderHint: false,
     overlayAnswer: null,
     overlayTitleText: "",
     overlayOnCancel: null,

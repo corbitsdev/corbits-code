@@ -364,6 +364,42 @@ describe("mountRunnerHost model picker", () => {
       harness.destroy()
     }
   })
+
+  test("Alt+A opens the add-provider selector built from addProviderChoices", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const connected: string[] = []
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      onConnectProvider: (name) => connected.push(name),
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+      ],
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.openSurface("models")).toBe(true)
+      const altA = { name: "a", ctrl: false, meta: false, option: true } as KeyEvent
+      expect(runOverlayAction(host.shell, altA)).toBe(true)
+      expect(host.shell.overlayKind).toBe("add_provider")
+      expect(host.shell.overlayItems).toEqual(["Codex — 1 account", "OpenAI — 0 accounts"])
+      acceptOverlaySelection(host.shell)
+      expect(connected).toEqual(["codex"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
 })
 
 describe("bottom border cost run", () => {
