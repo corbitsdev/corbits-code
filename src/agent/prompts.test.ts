@@ -14,6 +14,10 @@ import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 const REGISTERED_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
+  // Product mutation tools mount on leaves, not primary CORE/CATALOG ads.
+  "write_file",
+  "edit_file",
+  "delete_file",
   "web_fetch",
   "web_search",
 ]);

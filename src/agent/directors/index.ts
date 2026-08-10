@@ -22,3 +22,9 @@ export {
   packageToProfile,
   resolveDirector,
 } from "./registry.js";
+
+export {
+  MODEL_ROLE_DEFAULT_EFFORT,
+  defaultEffortForDirector,
+  formatDirectorSystemPrompt,
+} from "./identity.js";

@@ -15,6 +15,7 @@ import { shakespearePackage } from "./shakespeare/index.js";
 import { skywalkerPackage } from "./skywalker/index.js";
 import { testerPackage } from "./tester/index.js";
 import { testsmithPackage } from "./testsmith/index.js";
+import { formatDirectorSystemPrompt } from "./identity.js";
 import {
   DIRECTOR_IDS,
   type DirectorId,
@@ -118,8 +119,8 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
   const capabilities = packageToCapabilities(pkg);
   return {
     id: pkg.id,
-    description: pkg.description,
-    systemPromptRole: pkg.systemPrompt,
+    description: `${pkg.description} (agent id: ${pkg.id})`,
+    systemPromptRole: formatDirectorSystemPrompt(pkg),
     // Nested spawn is still gated by allowOrchestrator on the parent task tool.
     // Greybeard/skywalker maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,

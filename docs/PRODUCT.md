@@ -135,7 +135,7 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 ## Multi-agent (sub-agents)
 
-The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker**: classify work, dispatch a **closed fleet of 16 directors**, track the fleet, and synthesize — not implement product code by default.
+The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, dispatch a **closed fleet of 16 directors**, track the fleet, and synthesize. Product mutation tools are not mounted on the primary session — implement/docs leaves own durable writes.
 
 | Lane | Directors |
 |---|---|

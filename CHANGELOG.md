@@ -54,13 +54,18 @@ mid-session switches.
   resolves directors without requiring plugin profiles; `task(intent=…)` maps
   implement/explore/plan/review→critique (`general` is refused). Default agent
   profiles are the closed fleet via `directorProfiles()`.
+- **Primary is Skywalker by name.** System role answers "Skywalker"; agent id
+  `skywalker`. Product mutation tools are not mounted on the primary session
+  (structural never-implement), not only prompt policy.
+- **Director identity at spawn.** Every package system prompt is prefixed with
+  agent id, model role, and optional skills; profiles include `agent id:` in
+  description so search_agents / re-spawn are unambiguous.
+- **modelRole drives leaf effort.** Spawn effort cascade is pin → package
+  modelRole default (intern=low) → orchestrator/leaf → parent. Env block adds
+  arch + runtime alongside platform/date/git.
 - **No general leaf at the wire.** Bare `task` (no `agent`, no `intent`) and
   `intent=general` fail closed; nested directors enforce `spawn.allowlist`
   (greybeard → intern/explore/critique).
-- **Skywalker is the primary system role.** `buildChatRole()` returns
-  `createSkywalkerSystemPrompt()` so the main session gets the closed
-  orchestrate-only identity (classify → dispatch → synthesize), not the short
-  generic orchestrator blurb.
 - **Director write-path locks.** Docs/design packages may write only under
   package `writePaths` (shakespeare: PRODUCT/ARCHITECTURE/IMPLEMENTATION;
   brand-reviewer: DESIGN.md; bruckheimer: PRODUCT.md + docs/*), enforced in

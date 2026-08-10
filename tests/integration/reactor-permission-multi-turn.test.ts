@@ -59,7 +59,7 @@ describe("integration — reactor permission + multi-turn", () => {
     }
   });
 
-  test.serial("approved write_file executes after operator approval and second inference turn completes", async () => {
+  test.serial("approved run_shell executes after operator approval and second inference turn completes", async () => {
     let asked = 0;
     const session = await openIntegrationSession({
       permissionGate: createPermissionGate({
@@ -75,29 +75,34 @@ describe("integration — reactor permission + multi-turn", () => {
     });
 
     try {
+      // Primary Skywalker does not mount write_file; permission multi-turn
+      // still covers a consequential tool that remains on the primary surface.
       session.harness.scenario.replyOnce("anthropic", {
         toolCalls: [
           {
-            name: "write_file",
-            args: { path: "integration-out.txt", content: "integration-ok\n" },
+            name: "run_shell",
+            args: { command: "curl -sS https://example.com" },
           },
         ],
       });
       session.harness.scenario.replyOnce("anthropic", {
-        text: "File written.",
+        text: "Fetched.",
       });
 
-      const { events } = await runUntilDone(
-        session,
-        "Write integration-out.txt with content integration-ok.",
-      );
+      const { events } = await runUntilDone(session, "Please fetch example.com with curl.");
 
       expect(asked).toBeGreaterThan(0);
       expect(events.some((e) => e.type === "reactor.error")).toBe(false);
 
       const toolDones = toolDoneEvents(events);
-      const writeDone = toolDones.find((e) => !e.data.result.isError);
-      expect(writeDone).toBeDefined();
+      expect(toolDones.length).toBeGreaterThanOrEqual(1);
+      const denied = toolDones.find(
+        (e) =>
+          e.data.result.isError === true &&
+          typeof e.data.result.content === "string" &&
+          e.data.result.content.includes("Blocked by permission policy"),
+      );
+      expect(denied).toBeUndefined();
     } finally {
       await closeIntegrationSession(session);
     }

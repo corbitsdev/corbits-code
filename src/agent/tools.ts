@@ -32,7 +32,7 @@ import {
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
+import { advertisedToolNamesForSessionMode, PRIMARY_DENIED_PRODUCT_TOOLS, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
@@ -338,7 +338,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
+  // Primary Skywalker never mounts product mutation tools — never-implement is
+  // structural (toolset), not prompt-only. Leaves that need write/edit/delete
+  // mount them via createTaskTool / runSubAgent's own tool assembly.
+  const primaryDenied = new Set(PRIMARY_DENIED_PRODUCT_TOOLS);
+  const primaryTools = baseTools.filter((tool) => !primaryDenied.has(tool.definition.name));
+
+  const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerRef = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 

@@ -155,13 +155,14 @@ docs/
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
 1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
-2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`.
+2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
 3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. Primary omits the list so plugin profiles stay reachable.
 4. `directorProfiles()` is the default profile catalog (`default-agents.ts`); plugin agent profiles still load and can override by id.
-5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()` (never-implement stance is prompt-first; product write tools may still be mounted on the primary session until a separate tool-envelope pass).
+5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools are stripped from the primary toolset and from CORE/CATALOG ads (`PRIMARY_DENIED_PRODUCT_TOOLS`) — never-implement is structural.
 6. Leaf `writePaths` (shakespeare docs trio, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT + docs/*) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
+7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low) > orchestrator/leaf binary > parent inheritance. Optional skills are listed in the identity header (model loads via `use_skill`); not auto-injected as full skill bodies.
 
-Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`. `modelRole` / `optionalSkills` are package fields for later wiring (CL-5816), not resolved at spawn yet.
+Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and leaf prompt.
 
 ### Auto Mode
 

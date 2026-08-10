@@ -33,20 +33,22 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Corbits Code as Skywalker orchestrator", () => {
+test("agent identity is Skywalker orchestrator", () => {
   const orchestrator = buildChatRole("orchestrator");
+  expect(orchestrator).toContain("You are Skywalker");
   expect(orchestrator).toContain("Corbits Code");
-  expect(orchestrator).toContain("SkywalkerDirector");
+  expect(orchestrator).toContain("When asked your name, answer: Skywalker");
   expect(orchestrator).toContain("PRIMARY INTENT");
   expect(orchestrator).toContain("Delegate");
   expect(orchestrator).toContain("Match operator tone");
   // Mode arg is ignored — product is orchestrator-only (CL-5814).
-  expect(buildChatRole()).toContain("SkywalkerDirector");
+  expect(buildChatRole()).toContain("You are Skywalker");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
@@ -170,6 +172,8 @@ test("when an env is supplied, the prompt ends with a live <env> block instead",
   const env = {
     cwd: "/repo/root",
     platform: "Darwin 25.4.0",
+    arch: "arm64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 5, 5),
     isGitRepo: true,
     gitBranch: "main",
@@ -181,6 +185,8 @@ test("when an env is supplied, the prompt ends with a live <env> block instead",
   expect(prompt).toContain("<env>");
   expect(prompt.trim()).toMatch(/<\/env>$/);
   expect(prompt).toContain("Working directory: /repo/root");
+  expect(prompt).toContain("Arch: arm64");
+  expect(prompt).toContain("Runtime: Bun 1.2.0");
   expect(prompt).toContain("Git: on main, 2 uncommitted change(s):");
   expect(prompt).toContain(" M src/a.ts");
   expect(prompt).not.toContain("Active context:");
@@ -190,16 +196,21 @@ test("buildEnvironmentContext reports a clean tree and a non-git directory", () 
   const clean = buildEnvironmentContext({
     cwd: "/r",
     platform: "Linux 6",
+    arch: "x64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 0, 1),
     isGitRepo: true,
     gitBranch: "dev",
     gitDirtyCount: 0,
   });
   expect(clean).toContain("Git: on dev, working tree clean");
+  expect(clean).toContain("Arch: x64");
 
   const noGit = buildEnvironmentContext({
     cwd: "/r",
     platform: "Linux 6",
+    arch: "x64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 0, 1),
     isGitRepo: false,
   });

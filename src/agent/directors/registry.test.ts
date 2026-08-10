@@ -94,7 +94,9 @@ describe("director registry", () => {
   test("packageToProfile maps envelope and spawn", () => {
     const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
     expect(explore.id).toBe("explore");
-    expect(explore.systemPromptRole).toBe(DIRECTOR_REGISTRY.explore.systemPrompt);
+    expect(explore.systemPromptRole).toContain('agent id `explore`');
+    expect(explore.systemPromptRole).toContain(DIRECTOR_REGISTRY.explore.systemPrompt);
+    expect(explore.description).toContain("agent id: explore");
     expect(explore.capabilities?.mode).toBe("allow");
     expect(explore.capabilities?.tools).toContain("read_file");
     expect(explore.capabilities?.tools).not.toContain("write_file");
@@ -176,9 +178,19 @@ describe("director registry", () => {
   test("skywalker primary stance: never implement, no product write tools", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
     expect(s.systemPrompt).toContain("NEVER implement");
+    expect(s.systemPrompt).toContain("You are Skywalker");
     expect(s.systemPrompt).toMatch(/No general leaf/i);
     expect(s.tools?.allow).toContain("task");
     expect(s.tools?.allow).not.toContain("write_file");
     expect(s.spawn.allowlist).toHaveLength(15);
+  });
+
+  test("every director profile declares matching agent id in system prompt", () => {
+    for (const id of DIRECTOR_IDS) {
+      const profile = packageToProfile(DIRECTOR_REGISTRY[id]);
+      expect(profile.systemPromptRole).toContain(`agent id \`${id}\``);
+      expect(profile.systemPromptRole).toContain(`task(agent="${id}")`);
+      expect(profile.description).toContain(`agent id: ${id}`);
+    }
   });
 });

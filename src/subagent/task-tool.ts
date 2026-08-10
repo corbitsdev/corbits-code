@@ -19,6 +19,11 @@ import {
   packageToCapabilities,
   resolveDirector,
 } from "../agent/directors/registry.js";
+import {
+  defaultEffortForDirector,
+  formatDirectorSystemPrompt,
+} from "../agent/directors/identity.js";
+import type { DirectorPackage } from "../agent/directors/types.js";
 import type { Settings } from "../config/settings.js";
 import {
   resolveSubAgentMaxTurns,
@@ -255,6 +260,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
+      let resolvedPackage: DirectorPackage | undefined;
       /** Child-package spawn allowlist to forward into nested task (if this worker may spawn). */
       let nestedSpawnAllowlist: readonly string[] | undefined;
       const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
@@ -325,8 +331,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
           }
           const pkg = resolved.package;
+          resolvedPackage = pkg;
           resolvedDirectorId = pkg.id;
-          systemPromptRole = pkg.systemPrompt;
+          systemPromptRole = formatDirectorSystemPrompt(pkg);
           const caps = packageToCapabilities(pkg);
           if (caps !== undefined) capabilities = caps;
           if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
@@ -417,8 +424,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
         }
         const pkg = resolved.package;
+        resolvedPackage = pkg;
         resolvedDirectorId = pkg.id;
-        systemPromptRole = pkg.systemPrompt;
+        systemPromptRole = formatDirectorSystemPrompt(pkg);
         const caps = packageToCapabilities(pkg);
         if (caps !== undefined) capabilities = caps;
         if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
@@ -454,13 +462,18 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         }
       }
 
-      // Role-based effort: pin > orchestrator/leaf default > parent inheritance.
-      // Leaves default to medium so a primary on high/sol does not multiply the
-      // latency cliff across every spawned worker (see resolveEffortForRole).
+      // Role-based effort: pin > package modelRole default > orchestrator/leaf > parent.
+      // Leaves default to medium (intern: low) so a primary on high/sol does not
+      // multiply the latency cliff across every spawned worker.
       {
+        const roleDefault =
+          resolvedPackage !== undefined
+            ? defaultEffortForDirector(resolvedPackage)
+            : undefined;
         const effort = resolveEffortForRole({
           orchestrator,
           ...(effortPin !== undefined ? { pin: effortPin } : {}),
+          ...(roleDefault !== undefined ? { roleDefault } : {}),
           ...(parentEffort !== undefined ? { parentEffort } : {}),
           model: provider.model,
           isCodex: isCodexProviderName(provider.providerName),

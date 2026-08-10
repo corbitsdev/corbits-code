@@ -9,6 +9,7 @@ import {
   coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
+  PRIMARY_DENIED_PRODUCT_TOOLS,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -75,6 +76,14 @@ describe("createToolIndex", () => {
   test("present is never in the advertised core set — discovered via tool_search only", () => {
     expect(CORE_TOOL_NAMES).not.toContain("present");
     expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
+  });
+
+  test("primary CORE and CATALOG omit product mutation tools", () => {
+    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+      expect(CORE_TOOL_NAMES).not.toContain(name);
+      expect(CATALOG_TOOL_NAMES).not.toContain(name);
+    }
+    expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual(["write_file", "edit_file", "delete_file"]);
   });
 
   test("lsp is advertised only when a language server was detected at startup", () => {
@@ -171,7 +180,8 @@ describe("advertisedTools", () => {
     const names = advertisedTools(registry).map((d) => d.name);
     expect(names).toContain("read_file");
     expect(names).toContain("grep");
-    expect(names).toContain("write_file");
+    // write_file is not in primary CATALOG — product mutations are leaf-only.
+    expect(names).not.toContain("write_file");
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 

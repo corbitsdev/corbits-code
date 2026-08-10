@@ -9,6 +9,8 @@ describe("skywalkerPackage", () => {
   test("systemPrompt is real, not placeholder", () => {
     expect(skywalkerPackage.systemPrompt.length).toBeGreaterThan(0);
     expect(skywalkerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(skywalkerPackage.systemPrompt).toContain("You are Skywalker");
+    expect(skywalkerPackage.systemPrompt).toContain("When asked your name, answer: Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain("PRIMARY INTENT");
     expect(skywalkerPackage.systemPrompt).toContain("NEVER implement");
   });

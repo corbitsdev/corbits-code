@@ -60,6 +60,11 @@ export function buildHarnessFacts(
   return [
     "Harness facts:",
     "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
+    ...(subAgent
+      ? []
+      : [
+          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT/docs) for durable edits.",
+        ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
     "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
@@ -105,7 +110,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
       ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
-      : "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs. As Skywalker, product Write/Edit is out of lane — spawn implement (or a docs director) instead.",
+      : "- Product write tools are not mounted on Skywalker. Spawn implement (or a docs director) for durable file changes; never shell-write (echo/heredoc/sed/rm).",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
@@ -228,6 +233,8 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     "<env>",
     `Working directory: ${env.cwd} — your shell already runs here; never run pwd, ls, or find just to orient.`,
     `Platform: ${env.platform}`,
+    `Arch: ${env.arch}`,
+    `Runtime: ${env.runtime}`,
     `Current Date: ${formatDateDDMMYYYY(env.date)} (prompt cache survives for <=24hr)`,
   ];
   if (!env.isGitRepo) {
