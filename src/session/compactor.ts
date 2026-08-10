@@ -228,6 +228,99 @@ export function compactorNoOpFloor(keepRecentTurns: number): number {
 // Minimum anchor score for a turn to be pulled forward past the summary boundary.
 const ANCHOR_SCORE_THRESHOLD = 5;
 
+// Tool names whose results are path-keyed for re-read dedup during compaction.
+const READ_TOOLS = new Set(["read_file"]);
+
+// Call-id index for stub rendering (name + path). Not path-keyed — that is
+// buildPathToReads below.
+type ToolCallInfo = {
+  name: string;
+  pathArg?: string;
+};
+
+type PathRead = {
+  callId: string;
+  /** Monotonic order across the turn list; higher = later in the session. */
+  order: number;
+  isError: boolean;
+};
+
+function pathArgFromArguments(raw: unknown): string | undefined {
+  let args: unknown = raw ?? {};
+  if (typeof args === "string") {
+    try {
+      args = JSON.parse(args) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (args === null || typeof args !== "object" || Array.isArray(args)) return undefined;
+  const path = (args as Record<string, unknown>)["path"];
+  return typeof path === "string" && path.length > 0 ? path : undefined;
+}
+
+// callId → tool name/path for readable stubs. Inverse of path-to-reads.
+function buildCallIndex(turns: readonly ConversationTurn[]): Map<string, ToolCallInfo> {
+  const index = new Map<string, ToolCallInfo>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type !== "tool_call") continue;
+      const info: ToolCallInfo = { name: block.name };
+      const path = pathArgFromArguments(block.arguments);
+      if (path !== undefined) info.pathArg = path;
+      index.set(block.id, info);
+    }
+  }
+  return index;
+}
+
+/**
+ * Path → every read_file result that targeted it, in session order.
+ * Groups repeated reads so older successful results can be stubbed when a
+ * later read of the same path survives compaction.
+ */
+function buildPathToReads(
+  turns: readonly ConversationTurn[],
+  callIndex: ReadonlyMap<string, ToolCallInfo>,
+): Map<string, PathRead[]> {
+  const pathToReads = new Map<string, PathRead[]>();
+  let order = 0;
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type !== "tool_result") continue;
+      const info = callIndex.get(block.callId);
+      if (info === undefined || !READ_TOOLS.has(info.name) || info.pathArg === undefined) continue;
+      const entry: PathRead = {
+        callId: block.callId,
+        order: order++,
+        isError: block.isError === true,
+      };
+      const list = pathToReads.get(info.pathArg);
+      if (list === undefined) pathToReads.set(info.pathArg, [entry]);
+      else list.push(entry);
+    }
+  }
+  return pathToReads;
+}
+
+/**
+ * Call ids of successful read_file results that are superseded by a later
+ * successful read of the same path. Error results never appear here — they
+ * stay verbatim so the model still sees the failure.
+ */
+function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Set<string> {
+  const superseded = new Set<string>();
+  for (const reads of pathToReads.values()) {
+    const successes = reads.filter((r) => !r.isError);
+    if (successes.length < 2) continue;
+    // Newest success (highest order) stays whole; every earlier success stubs.
+    for (let i = 0; i < successes.length - 1; i++) {
+      superseded.add(successes[i]!.callId);
+    }
+  }
+  return superseded;
+}
+
 // Locate the turn index of each tool_call and its matching tool_result. In this
 // runtime a call lives on one turn and its result on the following turn, so the
 // two halves of a pair can straddle a keep/summarize boundary.
@@ -275,6 +368,43 @@ function firstUserTurnIndex(turns: ConversationTurn[]): number {
 
 function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
+}
+
+function buildResultStub(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+  callIndex: ReadonlyMap<string, ToolCallInfo>,
+): string {
+  const info = callIndex.get(block.callId);
+  const name = info?.name ?? "tool_result";
+  const size = resultContentSize(block);
+  if (info?.pathArg !== undefined) {
+    const path = info.pathArg;
+    const spillHint =
+      path.startsWith("tool-output://")
+        ? " Re-read with read_file offset/limit or grep on that URI."
+        : "";
+    return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
+  }
+  return `[${name} — ${size} chars, omitted]`;
+}
+
+// Hollow out superseded successful read_file results; leave everything else.
+// Errors and the newest successful read of each path stay whole.
+function stubSupersededReads(
+  turn: ConversationTurn,
+  superseded: ReadonlySet<string>,
+  callIndex: ReadonlyMap<string, ToolCallInfo>,
+): ConversationTurn {
+  if (superseded.size === 0) return turn;
+  let changed = false;
+  const content = turn.content.map((block): ConversationTurn["content"][number] => {
+    if (block.type !== "tool_result" || !superseded.has(block.callId)) return block;
+    // Defensive: errors never enter the superseded set, but keep them whole.
+    if (block.isError === true) return block;
+    changed = true;
+    return { ...block, content: [{ type: "text", text: buildResultStub(block, callIndex) }] };
+  });
+  return changed ? { ...turn, content } : turn;
 }
 
 // True when a turn carries no tool_call/tool_result blocks.
@@ -364,7 +494,7 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.2.0",
+    version: "1.3.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -389,6 +519,13 @@ export function createPruningCompactor(
           ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
         };
       }
+
+      // callId → name/path for stubs; path → ordered reads for re-read dedup.
+      // Only older successful reads of a path re-read later are stubbed — not a
+      // blanket strip of every kept tool_result (see CL-5595 / CL-4374).
+      const callIndex = buildCallIndex(aged.turns);
+      const pathToReads = buildPathToReads(aged.turns, callIndex);
+      const supersededReads = supersededReadCallIds(pathToReads);
 
       const keepCount = Math.min(cfg.keepRecentTurns, aged.turns.length - 1);
       const keepFrom = aged.turns.length - keepCount;
@@ -446,17 +583,18 @@ export function createPruningCompactor(
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
-      // Anchors and recent turns are exactly what compaction chose to keep —
-      // pulling a turn forward and then hollowing out its tool_result defeats
-      // the reason it was kept. Only summarizedTurns lose their content, and
-      // they lose it wholesale (folded into `summary` above), not stubbed
-      // in place. Anchors are already image-aged (outside the recent window).
-      // Recent turns keep live base64 so a just-pasted screenshot still
-      // reaches the model.
+      // Anchors and recent turns stay contentful except for path-dedup: when the
+      // same file was read successfully more than once, older results become a
+      // one-line stub and the newest stays whole. Error results are never
+      // stubbed. SummarizedTurns lose content wholesale via the summary above.
+      // Anchors are already image-aged (outside the recent window). Recent turns
+      // keep live base64 so a just-pasted screenshot still reaches the model.
+      const process = (t: ConversationTurn): ConversationTurn =>
+        stubSupersededReads(t, supersededReads, callIndex);
       const output = coalesceAdjacentTextTurns([
         summaryTurn,
-        ...anchorTurns,
-        ...recentTurns,
+        ...anchorTurns.map(process),
+        ...recentTurns.map(process),
       ]);
 
       return {
@@ -476,6 +614,7 @@ export function createPruningCompactor(
             recentTurnCount: recentTurns.length,
             summaryLength: summary.length,
             agedImageCount: aged.agedImageCount,
+            supersededReadCount: supersededReads.size,
           },
         },
         ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
