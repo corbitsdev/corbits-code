@@ -1907,6 +1907,13 @@ type ShellInternals = {
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
   /** Whether the open primary advertises Alt+A in the footer hints. */
   overlayAddProviderHint: boolean
+  /**
+   * While true the shell ignores its own key/paste/submit handlers. Set for
+   * the lifetime of a full-screen surface (inline provider connect) that
+   * shares this renderer — two live key handlers on one stdin would both
+   * act on every keystroke.
+   */
+  inputSuspended: boolean
   /** Per-open free-text answer field, when the overlay opted into one. */
   overlayAnswer: OverlayAnswerState | null
   /** Bare title of the open overlay, so its key hints can be re-composed. */
@@ -2236,6 +2243,17 @@ function evictedRowsNotice(evicted: number): string {
  * and the plugin producer kept the defect, which is what per-call-site rules
  * buy you. Reaching for `appendStreamRow` directly is the bug.
  */
+/**
+ * Suspend or resume the shell's own key/paste/submit handling. A full-screen
+ * surface that borrows this renderer (the inline provider connect) owns the
+ * keyboard for its lifetime; without this, Ctrl+C during a sign-in would
+ * also reach the shell and interrupt the running agent.
+ */
+export function setShellInputSuspended(shell: AppShell, suspended: boolean): void {
+  const bag = internals.get(shell)
+  if (bag !== undefined) bag.inputSuspended = suspended
+}
+
 export function surfaceSystemNotice(shell: AppShell, text: string): void {
   if (isLanding(shell)) {
     const bag = internals.get(shell)
@@ -5441,11 +5459,13 @@ export function createAppShell(
   let lastKeyWasPrintable = false
   let suppressNextLinefeed = false
   const onPaste = (): void => {
+    if (internals.get(shell)?.inputSuspended === true) return
     sawBracketedPaste = true
   }
 
   const onKey = (key: KeyEvent): void => {
     if (disposed) return
+    if (internals.get(shell)?.inputSuspended === true) return
 
     if (key.name === "escape") {
       if (exitOverlayAnswerMode(shell)) {
@@ -5874,6 +5894,7 @@ export function createAppShell(
 
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return
+    if (internals.get(shell)?.inputSuspended === true) return
     // Every mid-run send steers — there is no longer a plain "queue and wait
     // quietly" gesture distinct from it (that's what collapsed into Alt+Enter
     // stop-and-reinject instead). Idle sends ignore "kind" entirely.
@@ -6026,6 +6047,7 @@ export function createAppShell(
     overlayDescribe: null,
     overlayOnAction: null,
     overlayAddProviderHint: false,
+    inputSuspended: false,
     overlayAnswer: null,
     overlayTitleText: "",
     overlayOnCancel: null,
