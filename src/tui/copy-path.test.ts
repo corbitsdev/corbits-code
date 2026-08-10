@@ -7,6 +7,7 @@ import {
   formatCopyText,
   pickCopyRow,
   streamLogMarkdown,
+  writeClipboard,
 } from "./copy-path"
 import type { StreamRow } from "./stream"
 
@@ -27,6 +28,79 @@ describe("classifyCopy", () => {
 
   test("plain message", () => {
     expect(classifyCopy({ role: "user", text: "hello" })).toBe("message")
+  })
+})
+
+describe("writeClipboard", () => {
+  test("sync success runs onSuccess", () => {
+    const events: string[] = []
+    writeClipboard(
+      {
+        writeText: (text) => {
+          events.push(`write:${text}`)
+        },
+      },
+      "hi",
+      {
+        onSuccess: () => events.push("ok"),
+        onFailure: () => events.push("fail"),
+      },
+    )
+    expect(events).toEqual(["write:hi", "ok"])
+  })
+
+  test("sync throw runs onFailure", () => {
+    const events: string[] = []
+    writeClipboard(
+      {
+        writeText: () => {
+          throw new Error("nope")
+        },
+      },
+      "hi",
+      {
+        onSuccess: () => events.push("ok"),
+        onFailure: () => events.push("fail"),
+      },
+    )
+    expect(events).toEqual(["fail"])
+  })
+
+  test("async resolve defers onSuccess", async () => {
+    let resolveWrite!: () => void
+    const writeP = new Promise<void>((r) => {
+      resolveWrite = r
+    })
+    const events: string[] = []
+    writeClipboard(
+      { writeText: () => writeP },
+      "hi",
+      {
+        onSuccess: () => events.push("ok"),
+        onFailure: () => events.push("fail"),
+      },
+    )
+    expect(events).toEqual([])
+    resolveWrite()
+    await writeP
+    await Promise.resolve()
+    expect(events).toEqual(["ok"])
+  })
+
+  test("async reject runs onFailure", async () => {
+    const events: string[] = []
+    writeClipboard(
+      { writeText: () => Promise.reject(new Error("nope")) },
+      "hi",
+      {
+        onSuccess: () => events.push("ok"),
+        onFailure: () => events.push("fail"),
+      },
+    )
+    expect(events).toEqual([])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(events).toEqual(["fail"])
   })
 })
 

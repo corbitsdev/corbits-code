@@ -281,36 +281,61 @@ describe("scheduleUpgradeNotice", () => {
 
   test("stays quiet when current or skipped", async () => {
     const notices: string[] = [];
+    const fetches: Promise<string | null>[] = [];
+    const track = (value: string | null) => {
+      const p = Promise.resolve(value);
+      fetches.push(p);
+      return p;
+    };
     scheduleUpgradeNotice({
       notify: (text) => notices.push(text),
       options: {
         currentVersion: "0.2.0",
-        fetchLatest: async () => "0.2.0",
+        fetchLatest: () => track("0.2.0"),
       },
     });
     scheduleUpgradeNotice({
       notify: (text) => notices.push(text),
       options: {
         currentVersion: "0.1.0",
-        fetchLatest: async () => null,
+        fetchLatest: () => track(null),
       },
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await Promise.all(fetches);
+    await Promise.resolve();
+    await Promise.resolve();
     expect(notices).toEqual([]);
   });
 
-  test("swallows notify throws without rejecting", async () => {
-    scheduleUpgradeNotice({
-      notify: () => {
-        throw new Error("flash failed");
-      },
-      options: {
-        currentVersion: "0.1.0",
-        fetchLatest: async () => "0.2.0",
-        method: "unknown",
-      },
-    });
-    // Internal .catch must absorb the throw; wait a tick for the chain.
-    await new Promise((r) => setTimeout(r, 20));
+  test("swallows notify throws without unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let resolveFetch!: (v: string) => void;
+      const fetchP = new Promise<string>((r) => {
+        resolveFetch = r;
+      });
+      scheduleUpgradeNotice({
+        notify: () => {
+          throw new Error("flash failed");
+        },
+        options: {
+          currentVersion: "0.1.0",
+          fetchLatest: () => fetchP,
+          method: "unknown",
+        },
+      });
+      resolveFetch!("0.2.0");
+      await fetchP;
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
   });
 });

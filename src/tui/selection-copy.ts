@@ -25,7 +25,10 @@ export type FinishedSelection = {
 /**
  * Copy a finished (non-dragging) selection. Returns true when a write was
  * attempted. Empty selections and still-dragging states are no-ops.
- * Status flash only runs after a successful clipboard write.
+ *
+ * Clears the highlight immediately so a slow or hung clipboard helper cannot
+ * leave the selection stuck. Status flash waits for write settlement:
+ * `Copied …` on success, `Copy failed` on throw/reject.
  */
 export function copyFinishedSelection(
   host: SelectionCopyHost,
@@ -41,14 +44,14 @@ export function copyFinishedSelection(
   const preview =
     oneLine.length > 48 ? `${oneLine.slice(0, 45)}…` : oneLine
 
+  // Clear before the write settles — honesty only gates the flash message.
+  host.clearSelection()
   writeClipboard(host.clipboard, text, {
     onSuccess: () => {
       host.flash(`Copied ${text.length} chars: ${preview}`)
-      host.clearSelection()
     },
     onFailure: () => {
       host.flash("Copy failed")
-      host.clearSelection()
     },
   })
   return true

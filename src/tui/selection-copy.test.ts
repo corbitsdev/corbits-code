@@ -89,7 +89,41 @@ describe("copyFinishedSelection", () => {
     expect(h.flashes[0]).not.toContain("\n")
   })
 
-  test("flashes Copy failed and still clears when write rejects", async () => {
+  test("clears highlight immediately while write is still pending", async () => {
+    let resolveWrite!: () => void
+    const writeP = new Promise<void>((r) => {
+      resolveWrite = r
+    })
+    const flashes: string[] = []
+    let cleared = 0
+    const ok = copyFinishedSelection(
+      {
+        clipboard: {
+          writeText: () => writeP,
+        },
+        flash: (text: string) => {
+          flashes.push(text)
+        },
+        clearSelection: () => {
+          cleared += 1
+        },
+      },
+      {
+        isDragging: false,
+        getSelectedText: () => "pending",
+      },
+    )
+    expect(ok).toBe(true)
+    expect(cleared).toBe(1)
+    expect(flashes).toEqual([])
+    resolveWrite()
+    await writeP
+    await Promise.resolve()
+    expect(flashes[0]).toContain("Copied 7 chars")
+    expect(cleared).toBe(1)
+  })
+
+  test("flashes Copy failed after clear when write rejects", async () => {
     const flashes: string[] = []
     let cleared = 0
     const ok = copyFinishedSelection(
@@ -110,6 +144,8 @@ describe("copyFinishedSelection", () => {
       },
     )
     expect(ok).toBe(true)
+    expect(cleared).toBe(1)
+    expect(flashes).toEqual([])
     await Promise.resolve()
     await Promise.resolve()
     expect(flashes).toEqual(["Copy failed"])
@@ -139,8 +175,8 @@ describe("copyFinishedSelection", () => {
       },
     )
     expect(ok).toBe(true)
-    expect(flashes).toEqual(["Copy failed"])
     expect(cleared).toBe(1)
+    expect(flashes).toEqual(["Copy failed"])
   })
 })
 

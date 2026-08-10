@@ -165,6 +165,7 @@ export function streamLogMarkdown(targets: readonly CopyTarget[]): string {
 /**
  * Copy the active (or last) stream row via the clipboard port.
  * Returns the payload, or null when there is nothing to copy.
+ * Write errors are swallowed (no flash here — callers own chrome).
  */
 export function copyStreamRow(
   row: StreamRow | undefined | null,
@@ -172,7 +173,9 @@ export function copyStreamRow(
 ): CopyPayload | null {
   if (!row) return null
   const payload = formatCopyText(row)
-  void port.writeText(payload.text)
+  writeClipboard(port, payload.text, {
+    onSuccess: () => {},
+  })
   return payload
 }
 
