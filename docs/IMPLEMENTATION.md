@@ -68,9 +68,15 @@ src/
   index.ts                CLI entry: verbs, dispatch, help
   agent/
     director.ts           ChatDirector; director-layer tool defs
-    prompts.ts            System prompt builders (agent + chat)
+    prompts.ts            System prompt builders; buildChatRole → Skywalker
     tools.ts              Agent tool registration helpers
     agent-search.ts       search_agents tool + profile lexical index
+    default-agents.ts     Built-in profiles = directorProfiles() closed fleet
+    directors/            Closed director fleet packages + registry
+      types.ts            DirectorId, DirectorPackage, TaskIntent, ModelRole
+      registry.ts         DIRECTOR_REGISTRY, resolveDirector, packageToProfile
+      tool-sets.ts        Shared allowlists (READ/IMPLEMENT/DOCS/REVIEW/…)
+      <id>/package.ts     Per-director prompt, envelope, spawn, report
     renderer.ts           Event-stream renderer (stderr + live cost; used by tests/utilities)
   session/
     index.ts              Session lifecycle (was session.ts)
@@ -82,7 +88,9 @@ src/
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
     index.ts              Sub-agent spawn + SubAgentDirector
+    task-tool.ts          task() — resolveDirector first; writePaths on child
     session-store.ts      Retained child session transcripts for observe UI
+    identity-context.ts   ALS: worker cwd + optional writePaths for gate
   config/
     index.ts              Config resolution (settings files + flags) (was config.ts)
     settings.ts           Settings schema, validators, loaders, resolveProvider
@@ -98,7 +106,8 @@ src/
     classify.ts           Tool tier + approval-request construction
     command.ts            Chained-command split + command scopes
     auto-shell-policy.ts  Auto-mode run_shell deny/ask rule table
-    gate.ts               Permission gate evaluation
+    gate.ts               Permission gate evaluation (+ director writePaths)
+    write-path-policy.ts  Basename/glob match for leaf write allowlists
     matcher.ts            Approval glob matching
     store.ts              Per-directory approval persistence
     types.ts              Approval / scope / request / outcome types
@@ -140,6 +149,18 @@ docs/
   PRODUCT.md, ARCHITECTURE.md, IMPLEMENTATION.md, TUI.md, HOOKS.md, MCP.md,
   PLUGINS.md, TELEMETRY.md, PERFTRACE.md
 ```
+
+### Closed director fleet
+
+Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
+
+1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built.
+2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`.
+3. `directorProfiles()` is the default profile catalog (`default-agents.ts`); plugin agent profiles still load and can override by id.
+4. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`.
+5. Leaf `writePaths` (shakespeare docs trio, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT + docs/*) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
+
+Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`.
 
 ### Auto Mode
 

@@ -135,15 +135,24 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 ## Multi-agent (sub-agents)
 
-In the TUI, the primary session is always **orchestrator**: it can act directly and delegates work via `task` / `search_agents`. Single-agent session mode is gone (CL-5814).
+The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker**: classify work, dispatch a **closed fleet of 16 directors**, track the fleet, and synthesize — not implement product code by default.
 
-Corbits Code can fan work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
+| Lane | Directors |
+|---|---|
+| Primary | skywalker |
+| Eng | implement, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot |
+| Design | draper, emil, brand-reviewer |
+| Docs / QA | shakespeare, testsmith, tester |
+
+There is **no general leaf**. `task(intent=…)` maps implement/explore/plan/review→critique; `general` is refused. Named `task(agent=…)` selects a director package without requiring a plugin profile. Only skywalker (full fleet) and greybeard (intern/explore/critique) may spawn nested workers.
+
+Corbits Code fans work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
 
 - **Agents** are runtime entities (primary session or child).
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.
 - **Sub-agents** are spawned with the `task` tool (wire name kept; meaning is "spawn a child agent," not "add a checklist item").
 
-Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip shows who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Leaf workers hard-stop after 2 consecutive identical tool calls, when their inference-turn budget is exhausted (default 30; parent can pass `maxTurns` per dispatch; profiles and global settings can raise the default; cap 100), when they finish without ever using tools (never-acted salvage — planning/prose only is not a successful implement), or when `intent=implement` finishes after tools but without any file write/edit/delete (never-edited salvage — a pure-explore plan is not a successful implement). Progressive re-read thrash also hard-stops a leaf that keeps re-reading the same path past a limit; before that hard stop, a soft mid-run nudge asks implement leaves to edit or wrap up (explore leaves: expand findings / change approach — never forced to edit). Each hard stop returns a salvage report so a runaway or idle child cannot quietly burn a large token budget or look done after prose alone.
+Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip and fleet board show who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Leaf workers hard-stop after 2 consecutive identical tool calls, when their inference-turn budget is exhausted (default 30; parent can pass `maxTurns` per dispatch; profiles and global settings can raise the default; cap 100), when they finish without ever using tools (never-acted salvage — planning/prose only is not a successful implement), or when `intent=implement` finishes after tools but without any file write/edit/delete (never-edited salvage — a pure-explore plan is not a successful implement). Progressive re-read thrash also hard-stops a leaf that keeps re-reading the same path past a limit; before that hard stop, a soft mid-run nudge asks implement leaves to edit or wrap up (explore leaves: expand findings / change approach — never forced to edit). Each hard stop returns a salvage report so a runaway or idle child cannot quietly burn a large token budget or look done after prose alone.
  The parent tracks same-brief fingerprints for the session (`src/subagent/brief-dispatch.ts`): after thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is refused — change prompt, agent, intent, success_criteria, and/or do_not to unlock a new run (`maxTurns` or tier alone does not). Turn-budget salvage still allows a few same-brief retries with a higher `maxTurns`, then flips the parent hint to stop and change approach; a successful complete resets the same-brief retry budget.
 
 ## Roadmap (planned, not yet shipped)

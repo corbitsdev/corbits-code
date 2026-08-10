@@ -227,6 +227,68 @@ When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** 
 
 Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 
+#### Closed director fleet (`src/agent/directors/`)
+
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no general leaf: `task(intent="general")` fails closed and the primary reclassifies.
+
+**Primary**
+
+| Director | Owns | Does not own |
+|---|---|---|
+| skywalker | Orchestrate only — classify, dispatch, track fleet, synthesize | Product tree edits; being the implementer/reviewer by default |
+
+**Engineering leaves**
+
+| Director | Owns | Does not own |
+|---|---|---|
+| implement | Ship product code | Pure docs, pure review |
+| explore | Map/read codebase | Product edits |
+| plan | Eng change plan (steps, paths, tests, risks) | Arch gate, product discovery, code |
+| intern | Mechanical commands only | Ambiguous or product-design work |
+| critique | Evidence-based code review | Fixing product code |
+| greybeard | Architecture/approach review of plans/docs; limited spawn | Authoring eng plans, implementing |
+| neckbeard | Adversarial hygiene / refactor stress | Real review substitute |
+| bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code |
+| gaasbot | Quick CTO opinion voice | Formal review gate, implement |
+
+**Design trio (dev perspective)**
+
+| Director | Owns |
+|---|---|
+| draper | Product visual / design-system critique |
+| emil | Design-engineering + software laws on product UI/code |
+| brand-reviewer | **DESIGN.md** create-if-missing + alignment gate |
+
+**Docs + QA**
+
+| Director | Owns |
+|---|---|
+| shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION write paths |
+| testsmith | Test design only (what/how to test) |
+| tester | Runtime verification; never fix product code |
+
+**Intent → director** (`task(intent=…)` when `agent` is omitted)
+
+| Intent | Default director |
+|---|---|
+| implement | implement |
+| explore | explore |
+| plan | plan |
+| review | critique (override with `agent=…`) |
+| general | **none** — reclassify only |
+
+**Spawn matrix**
+
+| Who | Spawn rights |
+|---|---|
+| skywalker (primary session) | Full closed fleet |
+| greybeard | intern, explore, critique only |
+| All other leaves | no `task` |
+
+**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Docs directors may write only under package `writePaths` (enforced by the permission gate, not prompt policy): shakespeare → PRODUCT/ARCHITECTURE/IMPLEMENTATION; brand-reviewer → DESIGN.md; bruckheimer → PRODUCT.md + docs/*.
+
+**Typical chain:** bruckheimer → plan → greybeard → implement (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
+
 **Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole`): spawn-time defaults are orchestrator → `high`, leaf → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
 
 **Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
@@ -237,11 +299,11 @@ Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlug
 
 ### System Prompt (`src/agent/prompts.ts`)
 
-The agent's identity is **Corbits Code**, framed as a senior coding assistant running in a terminal harness. The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
+The agent's identity is **Corbits Code**. The primary session role is **SkywalkerDirector** (`buildChatRole` → `createSkywalkerSystemPrompt`): orchestrate-only — classify, dispatch closed directors via `task`, track the fleet, synthesize. A frontier model already knows how to code; the static prompt carries harness-specific facts and the closed-fleet orchestration policy. The base is three individually-exported sections:
 
-- `buildChatRole` — one-line identity and purpose.
+- `buildChatRole` — Skywalker primary identity (orchestrate; do not implement product work by default).
 - `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
-- `buildGuidelines` — be concise, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
+- `buildGuidelines` — be concise, prefer `task` for product work, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
 - `buildPromptDisciplineBlock` — a shared, prohibition-form section appended exactly once to every built prompt (chat and sub-agent, every provider family): dedicated tools over shell (`read_file`/`edit_file`/`write_file`, never `cat`/`sed`/heredoc/`echo`), no setting or exporting environment variables (recurring needs belong in project settings), `web_fetch`/`web_search` instead of `curl`/`wget`/hand-rolled queries, one operation per `run_shell` call, turn semantics (a tool-less reply is the final answer, no repeat searches, stop and change approach after three failed attempts, batch independent reads in parallel), and TTY output rules (short bold headers, one-line bullets, backticks for paths/commands, no wide tables).
 
 **Provider-conditional residuals.** Per-family additions layer on top of the shared block via the same `ModelFamilyPolicy` mechanism the directors use (`src/subagent/provider-family.ts`, `src/agent/model-family-policy.ts`) — additive lines, never prompt forks. **Grok** leaves get `buildGrokLeafAntiThrashNote` (gated by `shouldApplyGrokAntiThrash` / `applyGrokFinishBias`, withheld from orchestrators): a compact finish-bias reinforcement plus a one-line reminder to route file/web work through the dedicated tools rather than `run_shell`, motivated by observed tool-routing thrash on the same harness. **Kimi** intentionally has no residual yet — `detectModelFamily` already resolves the family so callers can branch on it, but the prompt seam is left unfilled pending eval characterization of Kimi's behavior, mirroring the provisional (permissive-default) policy in `model-family-policy.ts`.

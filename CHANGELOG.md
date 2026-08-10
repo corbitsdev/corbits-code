@@ -58,6 +58,12 @@ mid-session switches.
   `createSkywalkerSystemPrompt()` so the main session gets the closed
   orchestrate-only identity (classify → dispatch → synthesize), not the short
   generic orchestrator blurb.
+- **Director write-path locks.** Docs/design packages may write only under
+  package `writePaths` (shakespeare: PRODUCT/ARCHITECTURE/IMPLEMENTATION;
+  brand-reviewer: DESIGN.md; bruckheimer: PRODUCT.md + docs/*), enforced in
+  the permission gate.
+- **PRODUCT / ARCHITECTURE / IMPLEMENTATION** document the closed director
+  fleet, spawn matrix, intent map, and tool envelopes.
 
 ### Providers
 

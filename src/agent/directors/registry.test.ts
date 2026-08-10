@@ -119,4 +119,66 @@ describe("director registry", () => {
     expect(profiles).toHaveLength(16);
     expect(new Set(profiles.map((p) => p.id)).size).toBe(16);
   });
+
+  // Phase 5 acceptance (CL-5818 / CL-5843): spawn matrix, review envelopes, primary stance.
+  test("greybeard spawn allowlist is intern/explore/critique only", () => {
+    const g = DIRECTOR_REGISTRY.greybeard;
+    expect(g.spawn.maySpawn).toBe(true);
+    expect(g.spawn.allowlist?.slice().sort()).toEqual(["critique", "explore", "intern"]);
+    expect(packageToProfile(g).orchestrator).toBe(true);
+  });
+
+  test("review and design leaves deny product write tools", () => {
+    for (const id of [
+      "critique",
+      "greybeard",
+      "neckbeard",
+      "draper",
+      "emil",
+      "explore",
+      "plan",
+      "testsmith",
+      "tester",
+      "gaasbot",
+      "skywalker",
+    ] as const) {
+      const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
+      expect(allow).not.toContain("write_file");
+      expect(allow).not.toContain("edit_file");
+      expect(allow).not.toContain("delete_file");
+    }
+  });
+
+  test("docs writePaths: shakespeare trio + brand DESIGN.md + bruckheimer PRODUCT", () => {
+    expect(DIRECTOR_REGISTRY.shakespeare.writePaths).toEqual([
+      "PRODUCT.md",
+      "ARCHITECTURE.md",
+      "IMPLEMENTATION.md",
+    ]);
+    expect(DIRECTOR_REGISTRY["brand-reviewer"].writePaths).toEqual(["DESIGN.md"]);
+    expect(DIRECTOR_REGISTRY.bruckheimer.writePaths).toEqual(["PRODUCT.md", "docs/*"]);
+  });
+
+  test("implement mounts product writes; intern is shell-only; other leaves do not spawn", () => {
+    expect(DIRECTOR_REGISTRY.implement.tools?.allow).toEqual(
+      expect.arrayContaining(["write_file", "edit_file", "delete_file"]),
+    );
+    const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
+    expect(internAllow).toContain("run_shell");
+    expect(internAllow).not.toContain("write_file");
+    expect(internAllow).not.toContain("edit_file");
+    for (const id of DIRECTOR_IDS) {
+      if (id === "skywalker" || id === "greybeard") continue;
+      expect(DIRECTOR_REGISTRY[id].spawn.maySpawn).toBe(false);
+    }
+  });
+
+  test("skywalker primary stance: never implement, no product write tools", () => {
+    const s = DIRECTOR_REGISTRY.skywalker;
+    expect(s.systemPrompt).toContain("NEVER implement");
+    expect(s.systemPrompt).toMatch(/No general leaf/i);
+    expect(s.tools?.allow).toContain("task");
+    expect(s.tools?.allow).not.toContain("write_file");
+    expect(s.spawn.allowlist).toHaveLength(15);
+  });
 });
