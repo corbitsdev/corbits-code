@@ -28,6 +28,37 @@ export type ClipboardPort = {
   readonly writeText: (text: string) => void | Promise<void>
 }
 
+/**
+ * Write to the clipboard, then run success/failure handlers.
+ * Never throws: sync throws and promise rejections both hit onFailure.
+ * Flash "Copied …" only from onSuccess so a failed write never lies.
+ */
+export function writeClipboard(
+  port: ClipboardPort,
+  text: string,
+  handlers: {
+    readonly onSuccess: () => void
+    readonly onFailure?: () => void
+  },
+): void {
+  const fail = () => {
+    handlers.onFailure?.()
+  }
+  try {
+    const result = port.writeText(text)
+    if (
+      result != null
+      && typeof (result as PromiseLike<void>).then === "function"
+    ) {
+      void Promise.resolve(result).then(handlers.onSuccess, fail)
+      return
+    }
+    handlers.onSuccess()
+  } catch {
+    fail()
+  }
+}
+
 /** Recording port for headless tests. */
 export function createRecordingClipboard(): ClipboardPort & {
   readonly writes: string[]
@@ -134,6 +165,7 @@ export function streamLogMarkdown(targets: readonly CopyTarget[]): string {
 /**
  * Copy the active (or last) stream row via the clipboard port.
  * Returns the payload, or null when there is nothing to copy.
+ * Write errors are swallowed (no flash here — callers own chrome).
  */
 export function copyStreamRow(
   row: StreamRow | undefined | null,
@@ -141,7 +173,9 @@ export function copyStreamRow(
 ): CopyPayload | null {
   if (!row) return null
   const payload = formatCopyText(row)
-  void port.writeText(payload.text)
+  writeClipboard(port, payload.text, {
+    onSuccess: () => {},
+  })
   return payload
 }
 

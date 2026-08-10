@@ -1,9 +1,8 @@
 /**
  * Interactive OpenTUI product-skin demo (real TTY only).
- * Run: bun src/tui/demo.ts
+ * Run: `bun src/tui/demo.ts`
  *
- * Wave 7: residual surfaces + observe on shared kit.
- * Not production CLI. Ink remains production.
+ * Not the production CLI (`src/index.ts` → OpenTUI shell). Playground only.
  *
  * Keys:
  *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
