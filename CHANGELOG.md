@@ -21,6 +21,9 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### TUI
 
+- **Flat model picker.** Choosing a model is one type-to-filter list of
+  `provider / model` rows — no nested provider drill-down. Type to narrow,
+  Enter selects; Alt+F still toggles favorites when wired.
 - **Bottom breathing room.** The prompt box sits one blank row above the
   terminal's last line on terminals tall enough to spare it
   (`BOTTOM_MARGIN_ROWS`, collapsed below 24 rows), so the layout no longer

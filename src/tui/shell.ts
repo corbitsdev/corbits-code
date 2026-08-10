@@ -1911,6 +1911,8 @@ type ShellInternals = {
     | null
   /** Live filter state for the open palette, so typing can re-filter it. */
   paletteFilter: PaletteFilterState | null
+  /** Live type-to-filter state for a non-palette list overlay (model picker). */
+  listFilter: ListFilterState | null
   /**
    * Landing composition shown while the transcript has no content: the mark
    * above the prompt box, the disclosure and starters below it. Dropped (not
@@ -3407,6 +3409,11 @@ export type OpenListOverlayOpts = {
    * server needs authorization.
    */
   readonly echoChoice?: boolean
+  /**
+   * Claim printable keys for a `>` filter row so the list narrows as you type.
+   * Opt-in per open (model picker); other overlays keep j/k navigation.
+   */
+  readonly typeToFilter?: boolean
 }
 
 /**
@@ -3475,6 +3482,16 @@ export function openListOverlay(
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
+      // Capture the full unfiltered set so typing can re-narrow in place.
+      bag.listFilter =
+        opts?.typeToFilter === true
+          ? {
+              query: "",
+              allItems: [...labels],
+              allItemIds: opts?.itemIds ? [...opts.itemIds] : [],
+              allItemValues: opts?.itemValues ? [...opts.itemValues] : [],
+            }
+          : null
     } else if (!bag.priorOverlay) {
       // Bare palette (no primary under it): no accept payload.
       bag.overlayItemIds = opts?.itemIds ? [...opts.itemIds] : []
@@ -3486,6 +3503,7 @@ export function openListOverlay(
       bag.overlayDescribe = opts?.describe ?? null
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
+      bag.listFilter = null
     }
     if (!isPalette) {
       bag.overlayAnswer =
@@ -3501,7 +3519,12 @@ export function openListOverlay(
     }
   }
 
-  const bodyText = opts?.body ?? ""
+  // Type-to-filter list overlays paint a `>` query row; everything else uses
+  // the caller's body text (or empty).
+  const bodyText =
+    !isPalette && opts?.typeToFilter === true
+      ? `> ${bag?.listFilter?.query ?? ""}`
+      : (opts?.body ?? "")
   // Operator question and permission approval context get body lines; other
   // list-only overlays keep the body empty.
   applyOverlayBodyText(shell, bodyText, 0)
@@ -3623,6 +3646,18 @@ type PaletteFilterState = {
   readonly typeToFilter: boolean
 }
 
+/**
+ * Live type-to-filter state for a non-palette list overlay (model picker).
+ * Holds the full unfiltered row set so each keystroke can re-narrow in place
+ * without reopening the overlay (openListOverlay no-ops when one is already up).
+ */
+type ListFilterState = {
+  query: string
+  readonly allItems: readonly string[]
+  readonly allItemIds: readonly string[]
+  readonly allItemValues: readonly (string | undefined)[]
+}
+
 /** Re-open the palette against the current filter state (used on every keystroke). */
 function repaintPalette(shell: AppShell): void {
   const state = internals.get(shell)?.paletteFilter
@@ -3679,6 +3714,68 @@ export function handlePaletteFilterKey(
   state.query += seq
   repaintPalette(shell)
   return true
+}
+
+/**
+ * Keys a type-to-filter list overlay claims while open, so the `>` row
+ * narrows as you type. Mirrors the palette filter, but updates the open
+ * list in place via setOverlayItems (openListOverlay is a no-op when a
+ * non-palette overlay is already up).
+ */
+export function handleListFilterKey(
+  shell: AppShell,
+  key: KeyEvent,
+): boolean {
+  const bag = internals.get(shell)
+  const state = bag?.listFilter
+  if (!state || shell.overlayList === null) return false
+  if (shell.overlayKind === "palette") return false
+  if (key.ctrl || key.meta || key.option) return false
+
+  if (key.name === "backspace") {
+    if (state.query.length === 0) return true
+    state.query = state.query.slice(0, -1)
+    repaintListFilter(shell)
+    return true
+  }
+
+  const seq = typeof key.sequence === "string" ? key.sequence : ""
+  if (seq.length !== 1 || seq < " ") return false
+
+  state.query += seq
+  repaintListFilter(shell)
+  return true
+}
+
+function repaintListFilter(shell: AppShell): void {
+  const bag = internals.get(shell)
+  const state = bag?.listFilter
+  if (!state) return
+  const q = state.query.trim().toLowerCase()
+  const matched: { label: string; id: string; value: string | undefined }[] = []
+  for (let i = 0; i < state.allItems.length; i++) {
+    const label = state.allItems[i] ?? ""
+    const id = state.allItemIds[i] ?? label
+    if (q.length > 0) {
+      const hay = `${label} ${id}`.toLowerCase()
+      if (!hay.includes(q)) continue
+    }
+    matched.push({
+      label,
+      id,
+      value: state.allItemValues[i],
+    })
+  }
+  const labels = matched.length > 0 ? matched.map((m) => m.label) : ["(no matches)"]
+  const ids = matched.length > 0 ? matched.map((m) => m.id) : [""]
+  const values =
+    state.allItemValues.length > 0
+      ? matched.length > 0
+        ? matched.map((m) => m.value)
+        : [undefined]
+      : undefined
+  setOverlayItems(shell, labels, ids, values)
+  setOverlayBody(shell, `> ${state.query}`)
 }
 
 /**
@@ -3815,13 +3912,12 @@ export function closeInsetOverlay(shell: AppShell): void {
     if (filterBag) filterBag.paletteFilter = null
   }
   const bag = internals.get(shell)
+  if (bag) bag.listFilter = null
   const prior = wasPalette ? bag?.priorOverlay ?? null : null
   // Permissions/operator overlays back a caller awaiting ev.resolve — Esc must
   // still settle that promise (as a deny/cancel) or the caller hangs forever.
-  // model_picker's onCancel is how the provider-first picker steps back to
-  // the provider level instead of closing outright; harmless no-op for a
-  // caller that never set one. Palette/mentions/copy have no awaited caller
-  // and no back-navigation, so they drop silently.
+  // model_picker onCancel is optional back-navigation for callers that set one;
+  // palette/mentions/copy have no awaited caller and drop silently.
   const cancelable =
     !prior &&
     (shell.overlayKind === "permissions" ||
@@ -5376,6 +5472,12 @@ export function createAppShell(
         key.preventDefault()
         return
       }
+      // Same opt-in for list overlays (model picker): type-to-filter claims
+      // printables so a long flat catalog narrows without a nested pane.
+      if (handleListFilterKey(shell, key)) {
+        key.preventDefault()
+        return
+      }
       if (key.name === "up" || key.name === "k") {
         key.preventDefault()
         moveOverlaySelection(shell, -1)
@@ -5884,6 +5986,7 @@ export function createAppShell(
     overlayClosedListeners: new Set(),
     paletteCatalog: paletteCatalogOpt,
     paletteFilter: null,
+    listFilter: null,
     landing: { above: landingAbove, below: landingBelow },
     landingNotice: options?.telemetryNotice ?? null,
     landingDeferredRows: [],

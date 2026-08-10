@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 import type { PermissionRequest } from "../permission/types.js"
 import { createHarness } from "./harness.js"
-import { acceptOverlaySelection, closeInsetOverlay, moveOverlaySelection } from "./shell.js"
+import { acceptOverlaySelection, moveOverlaySelection } from "./shell.js"
 import {
   mountProductHost,
   operatorResultFromSelection,
@@ -369,66 +369,65 @@ describe("provider-first model picker", () => {
     return { harness, host, selected }
   }
 
-  test("top level lists providers (one row per account), not one row per model", async () => {
+  test("opens a flat provider/model list (no nested provider drill)", async () => {
     const { harness, host } = await mountPicker()
     try {
       host.openModels?.()
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
-      // Each codex account is its own row; the account name appears once,
-      // not once per model it exposes.
-      expect(frame).toContain("codex/abk-labs")
-      expect(frame).toContain("codex/dirtroad")
-      expect(frame).toContain("codex/fleur")
-      expect(frame).toContain("xai/thegreataxios")
-      // The favorite is a leaf row, reachable without descending — it, not
-      // its provider group, carries the model name at the top level.
-      expect(frame).toContain("gpt-5.5")
+      const items = host.shell.overlayItems
+      // Flat list: every model is a leaf row at the top level (assert the
+      // data, not the scrolled viewport — short harness heights clip later rows).
+      expect(items.some((label) => label.includes("gpt-5.5"))).toBe(true)
+      expect(items.some((label) => label.includes("grok-4.5"))).toBe(true)
+      expect(items.some((label) => label.includes("codex/abk-labs"))).toBe(true)
+      expect(items.some((label) => label.includes("xai/thegreataxios"))).toBe(true)
+      // No provider-group-only rows (those were `providerGroup:` ids with no model).
+      expect(items.every((label) => label.includes(" / ") || label.startsWith("("))).toBe(true)
+      // Filter row is present so the list can narrow without another pane.
+      expect(frame).toContain(">")
     } finally {
       host.dispose()
       harness.destroy()
     }
   })
 
-  test("selecting a provider descends into its models; Escape returns to the provider level", async () => {
-    const { harness, host } = await mountPicker()
+  test("typing narrows the flat list; selecting a model applies the pick", async () => {
+    const { harness, host, selected } = await mountPicker()
     try {
       host.openModels?.()
       await harness.renderOnce()
 
+      // Type "grok" into the filter row (printable keys claimed by type-to-filter).
+      for (const ch of "grok") {
+        harness.pressKey(ch)
+      }
+      await harness.renderOnce()
+
       const items = host.shell.overlayItems
-      const xaiIndex = items.findIndex((label) => label.includes("xai/thegreataxios"))
-      expect(xaiIndex).toBeGreaterThanOrEqual(0)
-      moveOverlaySelection(host.shell, xaiIndex)
+      expect(items.some((label) => label.includes("grok-4.5"))).toBe(true)
+      expect(items.every((label) => label.includes("grok") || label === "(no matches)")).toBe(true)
+
+      const grokIndex = items.findIndex((label) => label.includes("grok-4.5"))
+      expect(grokIndex).toBeGreaterThanOrEqual(0)
+      moveOverlaySelection(host.shell, grokIndex)
       acceptOverlaySelection(host.shell)
-      await harness.renderOnce()
-
-      const modelFrame = harness.captureCharFrame()
-      expect(modelFrame).toContain("grok-4.5")
-      expect(modelFrame).not.toContain("codex/abk-labs")
-
-      closeInsetOverlay(host.shell)
-      await harness.renderOnce()
-      const backFrame = harness.captureCharFrame()
-      expect(backFrame).toContain("codex/abk-labs")
-      expect(host.shell.overlayList).not.toBeNull()
+      expect(selected).toEqual(["xai/thegreataxios:grok-4.5"])
     } finally {
       host.dispose()
       harness.destroy()
     }
   })
 
-  test("selecting a model at the model level applies the pick", async () => {
+  test("selecting a model applies the pick without descending", async () => {
     const { harness, host, selected } = await mountPicker()
     try {
       host.openModels?.()
       await harness.renderOnce()
       const items = host.shell.overlayItems
-      const xaiIndex = items.findIndex((label) => label.includes("xai/thegreataxios"))
-      moveOverlaySelection(host.shell, xaiIndex)
-      acceptOverlaySelection(host.shell)
-      await harness.renderOnce()
-
+      const grokIndex = items.findIndex((label) => label.includes("grok-4.5"))
+      expect(grokIndex).toBeGreaterThanOrEqual(0)
+      moveOverlaySelection(host.shell, grokIndex)
       acceptOverlaySelection(host.shell)
       expect(selected).toEqual(["xai/thegreataxios:grok-4.5"])
     } finally {
@@ -488,14 +487,7 @@ describe("provider-first model picker", () => {
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
       expect(frame).not.toContain("xai/thegreataxios / grok-4.5 (current)")
-      const items = host.shell.overlayItems
-      const codexIndex = items.findIndex((label) => label.includes("codex/abk-labs"))
-      expect(codexIndex).toBeGreaterThanOrEqual(0)
-      moveOverlaySelection(host.shell, codexIndex)
-      acceptOverlaySelection(host.shell)
-      await harness.renderOnce()
-      const modelFrame = harness.captureCharFrame()
-      expect(modelFrame).toContain("gpt-5.5 (current)")
+      expect(frame).toContain("gpt-5.5 (current)")
     } finally {
       host.dispose()
       harness.destroy()
