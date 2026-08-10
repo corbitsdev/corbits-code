@@ -185,6 +185,15 @@ describe("director registry", () => {
     expect(s.spawn.allowlist).toHaveLength(15);
   });
 
+  test("writePaths guards: a director with non-empty writePaths never allows run_shell", () => {
+    for (const id of DIRECTOR_IDS) {
+      const pkg = DIRECTOR_REGISTRY[id];
+      if (!pkg.writePaths || pkg.writePaths.length === 0) continue;
+      const allow = pkg.tools?.allow ?? [];
+      expect(allow).not.toContain("run_shell");
+    }
+  });
+
   test("every director profile declares matching agent id in system prompt", () => {
     for (const id of DIRECTOR_IDS) {
       const profile = packageToProfile(DIRECTOR_REGISTRY[id]);
