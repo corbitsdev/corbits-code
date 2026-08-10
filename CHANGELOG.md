@@ -11,7 +11,7 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.96] - 2026-09-08
 
 Drag-select auto-copy, a flat type-to-filter model picker, install-aware upgrade
 notices, quieter long-session compaction, and layout breathing room.
