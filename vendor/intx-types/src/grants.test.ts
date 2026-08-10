@@ -1,13 +1,17 @@
 import { describe, test, expect } from "bun:test";
 import { type } from "arktype";
-import { grantRequirementSources, GrantRequirement } from "./grants";
+import {
+  CreateGrant,
+  grantRequirementSources,
+  GrantRequirement,
+} from "./grants";
 
 // ---------------------------------------------------------------------------
 // 1. Source enum
 // ---------------------------------------------------------------------------
 
 describe("source enums", () => {
-  test("grantRequirementSources includes only creator and invoker", () => {
+  test("grantRequirementSources are creator and invoker", () => {
     expect([...grantRequirementSources]).toEqual(["creator", "invoker"]);
   });
 });
@@ -29,19 +33,19 @@ describe("GrantRequirement validator", () => {
   test("accepts creator and invoker sources", () => {
     for (const source of ["creator", "invoker"] as const) {
       const result = GrantRequirement({
-        resource: "wallet:*",
-        action: "spend",
+        resource: "credential:crd_stripe",
+        action: "use",
         source,
       });
       expect(result instanceof type.errors).toBe(false);
     }
   });
 
-  test("rejects tenant source", () => {
+  test("rejects an unknown source", () => {
     const result = GrantRequirement({
       resource: "tool:bash",
       action: "invoke",
-      source: "tenant",
+      source: "system",
     });
     expect(result instanceof type.errors).toBe(true);
   });
@@ -124,5 +128,53 @@ describe("GrantRequirement validator", () => {
     });
     expect(withoutEffect instanceof type.errors).toBe(false);
     expect(withEffect instanceof type.errors).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. CreateGrant: exactly one target (matches the grant_target_exactly_one DB
+//    CHECK, so a malformed request is a 400 rather than a database 500)
+// ---------------------------------------------------------------------------
+
+describe("CreateGrant target validation", () => {
+  const base = {
+    resource: "credential:crd_x",
+    action: "use",
+    effect: "allow",
+    origin: "system",
+  };
+
+  test("accepts a role-targeted grant", () => {
+    expect(
+      CreateGrant({ ...base, roleId: "rol_x" }) instanceof type.errors,
+    ).toBe(false);
+  });
+
+  test("accepts a principal-targeted grant", () => {
+    expect(
+      CreateGrant({ ...base, principalId: "prn_x" }) instanceof type.errors,
+    ).toBe(false);
+  });
+
+  test("rejects a grant with neither target", () => {
+    expect(CreateGrant({ ...base }) instanceof type.errors).toBe(true);
+  });
+
+  test("rejects a grant with both targets", () => {
+    expect(
+      CreateGrant({ ...base, roleId: "rol_x", principalId: "prn_x" }) instanceof
+        type.errors,
+    ).toBe(true);
+  });
+
+  test("treats an explicit null target as absent", () => {
+    expect(
+      CreateGrant({ ...base, roleId: "rol_x", principalId: null }) instanceof
+        type.errors,
+    ).toBe(false);
+    expect(
+      CreateGrant({ ...base, roleId: null, principalId: null }) instanceof
+        type.errors,
+    ).toBe(true);
   });
 });
