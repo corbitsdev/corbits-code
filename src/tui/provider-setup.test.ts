@@ -5,6 +5,7 @@ import {
   connectedAccountCount,
   CUSTOM_CHOICE_ID,
   failureGuidance,
+  instanceSlugsForKind,
   LOGIN_CANCELLED_MESSAGE,
   LOGIN_TIMEOUT_MESSAGE,
   maskEcho,
@@ -14,6 +15,7 @@ import {
   providerChoiceById,
   providerChoiceRows,
   providerChoices,
+  resolveApiKeyInstanceName,
   runProviderSetup,
   secretFromMaskedEdit,
   stepHeadline,
@@ -78,12 +80,12 @@ describe("provider setup pure helpers", () => {
     expect(secretFromMaskedEdit(secret, "")).toBe("")
   })
 
-  test("a picked provider takes three steps, custom takes five, oauth takes four", () => {
+  test("a picked API-key provider names an instance before the key; custom and oauth keep their shapes", () => {
     const openai = providerChoiceById("openai")
     expect(openai?.baseURL).toBe("https://api.openai.com/v1")
-    expect(stepsFor(openai ?? null)).toEqual(["provider", "apiKey", "model"])
-    // A subscription provider swaps the paste for a name-then-sign-in pair,
-    // so it lands one step longer than a preset.
+    // Multi-instance API-key path: pick, name, key, model.
+    expect(stepsFor(openai ?? null)).toEqual(["provider", "name", "apiKey", "model"])
+    // A subscription provider swaps the paste for a name-then-sign-in pair.
     expect(stepsFor(providerChoiceById("codex") ?? null)).toEqual([
       "provider",
       "name",
@@ -151,11 +153,36 @@ describe("provider setup pure helpers", () => {
     expect(connectedAccountCount(codexChoice, [])).toBe(0)
   })
 
-  test("connectedAccountCount does not prefix-match key-based providers", () => {
+  test("connected API-key instances count under kind and kind/slug", () => {
+    // CL-5898: first-class API-key kinds are multi-instance. A bare "openai"
+    // key is the legacy single-instance row; "openai/work" is a sibling.
+    // Unrelated names like "openai-eu" must not count.
     const openaiChoice = providerChoiceById("openai")
     if (openaiChoice === undefined) throw new Error("expected an openai choice")
     expect(connectedAccountCount(openaiChoice, [{ name: "openai-eu" }])).toBe(0)
     expect(connectedAccountCount(openaiChoice, [{ name: "openai" }])).toBe(1)
+    expect(
+      connectedAccountCount(openaiChoice, [
+        { name: "openai" },
+        { name: "openai/work" },
+        { name: "openai-eu" },
+      ]),
+    ).toBe(2)
+  })
+
+  test("instance slug helpers map legacy bare keys and compound names", () => {
+    expect(instanceSlugsForKind("openai", [])).toEqual([])
+    expect(instanceSlugsForKind("openai", ["openai"])).toEqual(["default"])
+    expect(instanceSlugsForKind("openai", ["openai", "openai/work", "anthropic"])).toEqual([
+      "default",
+      "work",
+    ])
+    expect(resolveApiKeyInstanceName("openai", "work", [])).toBe("openai/work")
+    expect(resolveApiKeyInstanceName("openai", "default", ["openai"])).toBe("openai")
+    expect(resolveApiKeyInstanceName("openai", "default", ["openai/default"])).toBe(
+      "openai/default",
+    )
+    expect(resolveApiKeyInstanceName("openai", "default", [])).toBe("openai/default")
   })
 
   test("model rows come from the provider catalog plus a free-text escape", () => {
@@ -182,6 +209,14 @@ describe("provider setup pure helpers", () => {
     const steps = stepsFor(codex)
     expect(stepHeadline(steps, 1, codex)).toBe("step 2 of 4 · account name")
     const rows = summaryRows(steps, 2, { ...EMPTY, oauthProfile: "work" }, codex)
+    expect(rows[1]).toMatchObject({ label: "account name", value: "work" })
+  })
+
+  test("the API-key name step is headlined and summarized as an account name", () => {
+    const openai = providerChoiceById("openai") ?? null
+    const steps = stepsFor(openai)
+    expect(stepHeadline(steps, 1, openai)).toBe("step 2 of 4 · account name")
+    const rows = summaryRows(steps, 2, { ...EMPTY, oauthProfile: "work" }, openai)
     expect(rows[1]).toMatchObject({ label: "account name", value: "work" })
   })
 
@@ -216,11 +251,13 @@ describe("provider setup pure helpers", () => {
 async function mountSetup(
   onSubmit: ProviderSetupSubmit = async () => {},
   showTelemetryNotice = false,
+  existingProviderNames: readonly string[] = [],
 ): Promise<{ done: Promise<boolean>; harness: Harness }> {
   const harness = await createHarness({ width: 80, height: 30 })
   const done = runProviderSetup({
     onSubmit,
     showTelemetryNotice,
+    existingProviderNames,
     createRenderer: async () => harness.renderer,
   })
   await harness.renderOnce()
@@ -252,9 +289,13 @@ async function pickRow(
 
 const PROVIDER_IDS = providerChoiceRows().map((r) => r.id)
 
-/** Pick OpenAI, type a key, accept its default model. */
+/** Pick OpenAI, accept the suggested instance name, type a key, accept model. */
 async function connectOpenAI(harness: Harness, key = "sk-key"): Promise<void> {
   await pickRow(harness, PROVIDER_IDS, "openai")
+  await flush(harness)
+  // Suggested slug is "default" when no instances exist yet.
+  harness.pressKey("Enter")
+  await harness.renderOnce()
   type(harness, key)
   harness.pressKey("Enter")
   await harness.renderOnce()
@@ -677,14 +718,14 @@ describe("runProviderSetup", () => {
     await harness.renderOnce()
     const frame = harness.captureCharFrame()
     expect(frame).toContain("setup")
-    expect(frame).toContain("step 1 of 3")
+    expect(frame).toContain("step 1 of 4")
     expect(frame).toContain("OpenAI")
     expect(frame).toContain("Custom")
     harness.pressKey("Ctrl+C")
     expect(await done).toBe(false)
   })
 
-  test("picking a known provider prefills base URL and model", async () => {
+  test("picking a known provider names an instance then takes a key", async () => {
     const seen: ProviderFormValues[] = []
     const opts: SubmitOpts[] = []
     const { done, harness } = await mountSetup(async (values, _phase, o) => {
@@ -692,23 +733,27 @@ describe("runProviderSetup", () => {
       opts.push(o)
     })
     await pickRow(harness, PROVIDER_IDS, "openai")
-    // Two steps left: only the key is typed.
-    expect(harness.captureCharFrame()).toContain("step 2 of 3")
+    await flush(harness)
+    expect(harness.captureCharFrame()).toContain("step 2 of 4")
+    // Accept suggested "default" instance name.
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    expect(harness.captureCharFrame()).toContain("step 3 of 4")
     type(harness, "sk-key")
     harness.pressKey("Enter")
     await harness.renderOnce()
-    expect(harness.captureCharFrame()).toContain("step 3 of 3")
+    expect(harness.captureCharFrame()).toContain("step 4 of 4")
     harness.pressKey("Enter")
     await harness.renderOnce()
 
     expect(await done).toBe(true)
     const openai = providerChoiceById("openai")
     expect(seen[0]).toEqual({
-      name: "openai",
+      name: "openai/default",
       baseURL: "https://api.openai.com/v1",
       apiKey: "sk-key",
       model: openai?.defaultModel ?? "",
-      oauthProfile: "",
+      oauthProfile: "default",
     })
     expect(opts[0]?.preset?.id).toBe("openai")
     expect(opts[0]?.preset?.models.length).toBeGreaterThan(1)
@@ -750,6 +795,9 @@ describe("runProviderSetup", () => {
       seen.push({ ...values })
     })
     await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
+    harness.pressKey("Enter")
+    await harness.renderOnce()
     type(harness, "sk-key")
     harness.pressKey("Enter")
     await harness.renderOnce()
@@ -763,6 +811,7 @@ describe("runProviderSetup", () => {
     await harness.renderOnce()
     expect(await done).toBe(true)
     expect(seen[0]?.model).toBe("gpt-4o")
+    expect(seen[0]?.name).toBe("openai/default")
   })
 
   test("shows the telemetry notice only when asked to", async () => {
@@ -792,9 +841,9 @@ describe("runProviderSetup", () => {
   test("Escape goes back a step", async () => {
     const { done, harness } = await mountSetup()
     await pickRow(harness, PROVIDER_IDS, "openai")
-    expect(harness.captureCharFrame()).toContain("step 2 of 3")
+    expect(harness.captureCharFrame()).toContain("step 2 of 4")
     await pressEscape(harness)
-    expect(harness.captureCharFrame()).toContain("step 1 of 3")
+    expect(harness.captureCharFrame()).toContain("step 1 of 4")
     harness.pressKey("Ctrl+C")
     await done
   })
@@ -802,7 +851,7 @@ describe("runProviderSetup", () => {
   test("Escape on the first step stays put", async () => {
     const { done, harness } = await mountSetup()
     await pressEscape(harness)
-    expect(harness.captureCharFrame()).toContain("step 1 of 3")
+    expect(harness.captureCharFrame()).toContain("step 1 of 4")
     harness.pressKey("Ctrl+C")
     await done
   })
@@ -821,6 +870,9 @@ describe("runProviderSetup", () => {
   test("the typed API key is never painted in the clear", async () => {
     const { done, harness } = await mountSetup()
     await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
+    harness.pressKey("Enter")
+    await harness.renderOnce()
     type(harness, "sk-secret")
     await harness.renderOnce()
     const frame = harness.captureCharFrame()
@@ -907,10 +959,69 @@ describe("runProviderSetup", () => {
       submits += 1
     })
     await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
     type(harness, "sk-key")
     harness.pressKey("Ctrl+C")
     expect(await done).toBe(false)
     expect(submits).toBe(0)
+  })
+
+  test("a second API-key instance gets a compound name without overwriting the first", async () => {
+    const seen: ProviderFormValues[] = []
+    const { done, harness } = await mountSetup(
+      async (values) => {
+        seen.push({ ...values })
+      },
+      false,
+      ["openai/default"],
+    )
+    await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
+    // Existing "default" forces suggested "default-2".
+    expect(harness.captureCharFrame()).toContain("default-2")
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    type(harness, "sk-work")
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    expect(await done).toBe(true)
+    expect(seen[0]?.name).toBe("openai/default-2")
+    expect(seen[0]?.oauthProfile).toBe("default-2")
+    expect(seen[0]?.apiKey).toBe("sk-work")
+  })
+
+  test("reusing an existing API-key instance name requires confirm before replace", async () => {
+    const seen: ProviderFormValues[] = []
+    const { done, harness } = await mountSetup(
+      async (values) => {
+        seen.push({ ...values })
+      },
+      false,
+      ["openai"],
+    )
+    await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
+    // Clear suggested "default-2" and type the legacy bare-key slug "default".
+    for (let i = 0; i < 80; i++) harness.pressKey("Backspace")
+    type(harness, "default")
+    harness.pressKey("Enter")
+    await flush(harness)
+    expect(harness.captureCharFrame()).toContain("already connected")
+    // Confirm replace.
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    type(harness, "sk-replaced")
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    harness.pressKey("Enter")
+    await harness.renderOnce()
+    expect(await done).toBe(true)
+    // Legacy bare key is updated in place rather than rewritten as openai/default.
+    expect(seen[0]?.name).toBe("openai")
+    expect(seen[0]?.oauthProfile).toBe("default")
+    expect(seen[0]?.apiKey).toBe("sk-replaced")
   })
 })
 
@@ -920,7 +1031,7 @@ describe("runProviderSetup", () => {
  * handler is registered would pass while paste was broken.
  */
 describe("runProviderSetup paste", () => {
-  /** Pick OpenAI, paste `key`, accept the default model, return what was saved. */
+  /** Pick OpenAI, accept the instance name, paste `key`, accept default model. */
   async function pasteKey(
     key: string,
   ): Promise<{ values: ProviderFormValues | null; frame: string }> {
@@ -930,6 +1041,9 @@ describe("runProviderSetup paste", () => {
     })
     try {
       await pickRow(harness, PROVIDER_IDS, "openai")
+      await flush(harness)
+      harness.pressKey("Enter")
+      await harness.renderOnce()
       await harness.mockInput.pasteBracketedText(key)
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
@@ -984,7 +1098,7 @@ describe("runProviderSetup pick-list height cap", () => {
       // The garbled-overlap bug glued the step line and the intro line
       // together on one row; each survives as its own line, or is clipped
       // entirely, but never merges into the other.
-      const stepLine = lines.find((l) => l.includes("step 1 of 3"))
+      const stepLine = lines.find((l) => l.includes("step 1 of 4"))
       if (stepLine !== undefined) {
         expect(stepLine).not.toContain("connect an inference provider")
       }
@@ -1025,6 +1139,9 @@ describe("runProviderSetup pick-list height cap", () => {
     await harness.renderOnce()
     await harness.renderOnce()
     await pickRow(harness, PROVIDER_IDS, "openai")
+    await flush(harness)
+    harness.pressKey("Enter")
+    await harness.renderOnce()
     type(harness, "sk-key")
     harness.pressKey("Enter")
     await harness.renderOnce()

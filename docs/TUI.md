@@ -439,9 +439,11 @@ listing every first-class provider kind from `providerChoices()` — OAuth and
 API-key alike — each annotated with its live connected-account count and none
 of them filtered out. Esc returns to the model list through the same
 `openModels()` entry point the picker itself uses. Picking a row runs the
-existing inline connect flow (`provider-connect.ts`); on success the picker
-reopens focused on the new account's default model instead of the top of the
-list.
+existing inline connect flow (`provider-connect.ts`); first-class kinds (OAuth
+and API-key) both ask for an instance/account name before auth so multiple
+instances coexist as `kind/slug` catalog rows, and reusing a name confirms
+before re-auth or re-key. On success the picker reopens focused on the new
+account's default model instead of the top of the list.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection

@@ -40,6 +40,7 @@ export async function connectProviderInline(
   const submitted = await runProviderSetup({
     showTelemetryNotice: false,
     initialProviderId: input.providerId,
+    existingProviderNames: Object.keys(input.existing?.providers ?? {}),
     ...(input.createRenderer !== undefined ? { createRenderer: input.createRenderer } : {}),
     ...(input.startLogin !== undefined ? { startLogin: input.startLogin } : {}),
     onSubmit: async (values, setPhase, opts) => {

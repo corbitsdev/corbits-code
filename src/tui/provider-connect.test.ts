@@ -27,7 +27,10 @@ describe("connectProviderInline", () => {
       })
       await harness.renderOnce()
 
-      // initialProviderId lands directly on the api key step; leave it blank.
+      // initialProviderId lands on the instance-name step first.
+      harness.pressKey("Enter")
+      await harness.renderOnce()
+      // Leave the api key blank.
       harness.pressKey("Enter")
       await harness.renderOnce()
       // Model step: accept the default.
