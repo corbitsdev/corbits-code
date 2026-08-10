@@ -38,7 +38,7 @@ describe("formatChromeZones", () => {
     expect(out.agents).toBeNull()
   })
 
-  test("full state formats both zones", () => {
+  test("full state: fleet board wins — checklist suppressed while lanes run", () => {
     const state: ChromeLiveState = {
       task: [
         { title: "chrome live helper", status: "doing" },
@@ -64,11 +64,8 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    expect(out.task).toEqual([
-      { label: "chrome live helper", status: "doing" },
-      { label: "wire chrome zone", status: "todo" },
-      { label: "wire agents zone", status: "todo" },
-    ])
+    // One live surface (CL-5846): board owns the chrome while lanes run.
+    expect(out.task).toBeNull()
     // Hybrid: board FLEET header + kind; tail is `state · agentProgress.stat`
     // (elapsed · tool), not the branch's tool-first wording.
     expect(out.agents).toEqual([
@@ -116,7 +113,7 @@ describe("formatTasksPanel", () => {
     expect(formatTasksPanel(undefined)).toBeNull()
   })
 
-  test("each row carries its own status", () => {
+  test("open work first; done rows trail while live work remains", () => {
     expect(
       formatTasksPanel([
         { title: "first", status: "done" },
@@ -124,22 +121,19 @@ describe("formatTasksPanel", () => {
         { title: "third", status: "todo" },
       ]),
     ).toEqual([
-      { label: "first", status: "done" },
       { label: "second", status: "doing" },
       { label: "third", status: "todo" },
+      { label: "first", status: "done" },
     ])
   })
 
-  test("terminal (done/cancelled) rows still render — the panel is a live list, not just what remains", () => {
+  test("terminal-only (all done/cancelled) collapses — no permanent [x] wall", () => {
     expect(
       formatTasksPanel([
         { title: "a", status: "done" },
         { title: "b", status: "cancelled" },
       ]),
-    ).toEqual([
-      { label: "a", status: "done" },
-      { label: "b", status: "cancelled" },
-    ])
+    ).toBeNull()
   })
 
   test("empty array hides", () => {
@@ -359,10 +353,8 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    expect(zones.task).toEqual([
-      { label: "wire catalogs", status: "doing" },
-      { label: "export index", status: "todo" },
-    ])
+    // Fleet board owns chrome while lanes run; checklist is suppressed (CL-5846).
+    expect(zones.task).toBeNull()
     expect(zones.agents).toEqual([
       { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
       { label: "explore: map callers", tail: " · working · 0:05 · grep", stalled: false, kind: "lane" },

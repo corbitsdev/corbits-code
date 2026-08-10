@@ -131,15 +131,19 @@ export type FormattedChromeZones = {
  *
  * Empty / partial / inactive inputs yield null for the corresponding zone
  * so geometry collapses that strip (idleDefault 0).
+ *
+ * When a live fleet board is up, the manage_tasks checklist is suppressed —
+ * two standing lists of the same work is the visual mess CL-5846 removes.
+ * Checklist returns once no lane is running.
  */
 export function formatChromeZones(
   state: ChromeLiveState,
   nowMs: number = Date.now(),
 ): FormattedChromeZones {
-  return {
-    task: formatTasksPanel(state.task),
-    agents: formatAgentsPanel(state.agents, state.observe, nowMs),
-  }
+  const agents = formatAgentsPanel(state.agents, state.observe, nowMs)
+  // One live work surface: fleet board while lanes run; checklist otherwise.
+  const task = agents !== null ? null : formatTasksPanel(state.task)
+  return { task, agents }
 }
 
 /**
@@ -156,9 +160,9 @@ export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
  * with a trailing "+N more" row, mirroring `formatAgentsPanel`'s shape but
  * keyed on status (not liveness) since a task has no clock of its own.
  *
- * Terminal tasks (done/cancelled) still render — the panel is a live list of
- * work, not just what remains — so an operator watching it sees a task move
- * to "done" rather than silently vanish.
+ * Terminal-only lists (every task done/cancelled) collapse to null — a wall of
+ * `[x]` rows is not live work, and once the fleet board or parent prose has
+ * moved on, painting them is noise (CL-5846).
  */
 export function formatTasksPanel(
   task: readonly ChromeTaskRow[] | null | undefined,
@@ -171,8 +175,17 @@ export function formatTasksPanel(
     .filter((r) => r.label.length > 0)
   if (rows.length === 0) return null
 
-  const visible = rows.slice(0, maxVisible)
-  const hidden = rows.length - visible.length
+  const live = rows.filter((r) => r.status === "todo" || r.status === "doing")
+  if (live.length === 0) return null
+
+  // Prefer open work; keep recently-done visible only while open work remains
+  // so the operator sees items flip to done without a permanent [x] wall.
+  const openFirst = [
+    ...live,
+    ...rows.filter((r) => r.status === "done" || r.status === "cancelled"),
+  ]
+  const visible = openFirst.slice(0, maxVisible)
+  const hidden = openFirst.length - visible.length
   if (hidden > 0) visible.push({ label: `+${hidden} more`, status: null })
   return visible
 }

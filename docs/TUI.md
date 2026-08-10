@@ -134,17 +134,22 @@ removed line), not a decision marker, and no decision-marker shares that row.
 ## The live task list panel
 
 The `task` chrome zone renders a standing panel in the bottom chrome above the
-prompt, one row per task the task tool has written (`manage_tasks`) — distinct
-from the `agents` panel above it. A task is a unit of work with a status; an
-agent is an executor with its own context and transcript. The two are never
+prompt, one row per open task the task tool has written (`manage_tasks`) —
+distinct from the `agents` panel. A task is a unit of work with a status; an
+agent is an executor with its own context and transcript. They are never
 merged into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
 `formatAgentsPanel` are separate formatters feeding separate zones with
 separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
 
+**One live surface at a time (CL-5846).** While any fleet lane is painted on
+the agents board, `formatChromeZones` suppresses the task checklist — the same
+work must not stand in two chrome lists. When the board is empty, the checklist
+returns for open work. A list that is only done/cancelled collapses to null
+(no permanent wall of `[x]` rows); while open work remains, recently-done rows
+trail so the operator can see items flip complete without a second status log.
+
 Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
-`[-]` cancelled) ahead of the title. Terminal tasks still render — the panel
-is a live list of work, not just what remains — so an operator watching it
-sees a task move to `[x]` rather than have it silently vanish. The panel is
+`[-]` cancelled) ahead of the title. Open work is listed first. The panel is
 bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
 longer list degrades to a trailing `+N more` row rather than growing the zone
 without limit, and it shrinks one row at a time under space pressure
@@ -282,36 +287,23 @@ same last-resort floor every other optional zone shares.
 
 ### Unprompted fleet reports
 
-The agents panel is a standing picture of what is running right now; it says
-nothing when a lane finishes, stalls, or fails unless the operator interrupts
-to ask. `src/subagent/fleet-report.ts` closes that gap with its own channel:
-a system-notice line, pushed into the transcript through the same
-`surfaceSystemNotice` path as any other system row, the moment a lane
-transition is worth saying. It does not touch the panel's rows or its
-`laneState()` computation — it reads the same sub-agent session store the
-panel reads, and calls the same `agentProgress()` stall definition
-(`isStalled`) so the two surfaces never disagree about whether a lane is
-stalled, only about *when* they say so: the panel shows it continuously,
-the notice announces the transition once.
+The agents panel is the standing picture of live work. Parent prose owns
+success narratives. Transcript fleet notices exist only for attention the
+board cannot keep (CL-5846): a lane **failed** or **stalled** while other work
+is still running, and **one** dry-fleet line when the last lane finishes
+(`fleet · N done — nothing running`). Per-lane `done — summary` walls and
+live `dispatched` re-announcements are never printed — they restated the
+board and the parent and turned the transcript into a second status log.
 
-Store changes drive it directly, so a lane finishing or failing lands the
-moment it happens. A `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel
-dispatch that lands as N store changes settle into one observation instead
-of N lines. Quiet detection is separate: `FLEET_STALL_POLL_MS` (5s) re-runs
-observation so a lane that went quiet with no further store event is still
-announced once. Past `COALESCE_ABOVE` (3) changes in one observation the
-individual lines collapse into a single tally (`"9 done, 3 failed"`); below
-that threshold each change gets its own line. The one case both the fleet
-going idle and a coalesced tally would otherwise say the same thing —
-all changes are terminal and the tally alone already says "N done, N
-failed" — the idle line replaces the tally instead of repeating it with
-"— nothing running" tacked on.
-
-Outcomes and errors are clipped to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
-same "one update is one row, never wrapped" rule the panel's rows follow.
-`fleetDigest()` is the on-demand counterpart: the same picture in one line,
-answering "where is the fleet" without an interrupt, for `/status` or an
-operator question mid-run.
+`src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
+store the panel reads and the same `agentProgress()` stall definition so the
+two surfaces never disagree about whether a lane is stalled. Store changes
+drive it; a `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel dispatch
+settle into one observation. Quiet detection uses `FLEET_STALL_POLL_MS` (5s).
+Past `COALESCE_ABOVE` (3) attention events in one observation, lines collapse
+into a single tally. Errors clip to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
+"one update is one row" rule. `fleetDigest()` is the on-demand counterpart
+for `/status` or an operator question mid-run.
 
 ## How pop-ups should feel
 

@@ -1,12 +1,12 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
  *
- * Every lane completion, stall and failure already passes through the parent
- * session, which then said nothing about any of it unless interrupted and
- * asked. This module turns that stream into the small number of lines that
- * change the operator's picture, and nothing else: a lane finished and what it
- * produced, a lane stalled or failed, and the moment the fleet runs dry.
- * Live dispatches stay on the fleet board — they are not re-announced here.
+ * Live lanes already paint on the fleet board. Parent prose already narrates
+ * phase plans. This module only emits transcript lines for attention the board
+ * cannot keep: a lane failed or stalled, and the single moment the fleet runs
+ * dry. Per-lane "done — summary" walls are intentionally never printed — they
+ * restate the board and the parent and turn the transcript into a second
+ * status log (CL-5846).
  *
  * Pure and stateless per call — the caller keeps the returned watch and hands
  * it back on the next observation. No painting, no store access.
@@ -102,11 +102,6 @@ function clip(text: string, max: number): string {
   return `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-function outcome(lane: FleetLane): string {
-  const summary = firstLine(lane.report);
-  return summary.length > 0 ? clip(summary, OUTCOME_CHARS) : "no summary reported";
-}
-
 function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
   // One definition of a stalled lane lives in `agentProgress`; asking it is
   // what keeps this report and the agents panel from disagreeing on screen.
@@ -154,7 +149,7 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        changes.push({ kind: "done", line: `${lane.description} done — ${outcome(lane)}` });
+        changes.push({ kind: "done", line: `${lane.description} done` });
       } else if (lane.status === "failed") {
         changes.push({
           kind: "failed",
@@ -175,32 +170,29 @@ export function observeFleet(
   }
 
   const watch: FleetWatch = { lanes: marks, running, seeded: true };
+  const wentDry = running === 0 && previous.running > 0;
 
-  // Live dispatches already appear on the fleet board (CL-5846). Transcript
-  // notices only for terminal / stall transitions — not "dispatched X".
-  const announced = changes.filter((c) => c.kind !== "dispatched");
-  if (announced.length === 0 && !(running === 0 && previous.running > 0)) {
+  // Board owns live lanes. Parent prose owns success narratives. Transcript
+  // only: fail/stall while work is still running, or one dry-fleet tally.
+  // Never per-lane "done — summary" walls (CL-5846).
+  if (wentDry) {
+    return {
+      watch,
+      updates: [
+        clip(`${PREFIX} · ${idleSummary(lanes)} — nothing running`, MAX_UPDATE_CHARS),
+      ],
+    };
+  }
+
+  const attention = changes.filter((c) => c.kind === "failed" || c.kind === "stalled");
+  if (attention.length === 0) {
     return { watch, updates: [] };
   }
 
   const lines: string[] =
-    announced.length > COALESCE_ABOVE
-      ? [tally(announced)]
-      : announced.map((c) => c.line);
-
-  // The defect this report exists for: work finished, nothing left running,
-  // and no one said so. That transition is always worth its own line — unless
-  // the tally above already said the same thing, in which case a second line
-  // restating it verbatim (with "— nothing running" tacked on) is noise, not
-  // information.
-  if (running === 0 && previous.running > 0) {
-    const idle = `${idleSummary(lanes)} — nothing running`;
-    if (lines.length === 1 && lines[0] === idleSummary(lanes)) {
-      lines[0] = idle;
-    } else {
-      lines.push(idle);
-    }
-  }
+    attention.length > COALESCE_ABOVE
+      ? [tally(attention)]
+      : attention.map((c) => c.line);
 
   return {
     watch,

@@ -32,8 +32,9 @@ describe("observeFleet", () => {
     expect(watch.running).toBe(2);
   });
 
-  test("a finished lane is reported with what it produced", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
+  test("a finished lane does not dump a done-summary into the transcript", () => {
+    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" }), lane({ id: "docs" })], T0)
+      .watch;
     const { updates } = observeFleet(
       seeded,
       [
@@ -42,15 +43,15 @@ describe("observeFleet", () => {
           status: "done",
           report: "## Summary\nRewired the reporter and added six tests.",
         }),
+        lane({ id: "docs" }),
       ],
       T0 + 1000,
     );
-    expect(updates[0]).toBe(
-      "fleet · api done — Rewired the reporter and added six tests.",
-    );
+    // Board still has a live lane; parent prose owns the success narrative.
+    expect(updates).toEqual([]);
   });
 
-  test("the last lane finishing says so, which is the silence the operator hit", () => {
+  test("the last lane finishing is one dry-fleet line, not per-lane prose", () => {
     const seeded = observeFleet(
       createFleetWatch(),
       [lane({ id: "api" }), lane({ id: "docs", status: "done" })],
@@ -61,17 +62,21 @@ describe("observeFleet", () => {
       [lane({ id: "api", status: "done", report: "done" }), lane({ id: "docs", status: "done" })],
       T0 + 1000,
     );
-    expect(updates).toEqual([
-      "fleet · api done — done",
-      "fleet · 2 done — nothing running",
-    ]);
+    expect(updates).toEqual(["fleet · 2 done — nothing running"]);
   });
 
-  test("a failure names what went wrong", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "build" })], T0).watch;
+  test("a failure names what went wrong while the fleet is still live", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "build" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
     const { updates } = observeFleet(
       seeded,
-      [lane({ id: "build", status: "failed", error: "typecheck exited 1" })],
+      [
+        lane({ id: "build", status: "failed", error: "typecheck exited 1" }),
+        lane({ id: "docs" }),
+      ],
       T0 + 1000,
     );
     expect(updates[0]).toContain("build failed — typecheck exited 1");
@@ -106,24 +111,7 @@ describe("observeFleet", () => {
     expect(busy.updates).toEqual([]);
   });
 
-  test("an update is one row — a long outcome is clipped, never wrapped", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" })], T0).watch;
-    const { updates } = observeFleet(
-      seeded,
-      [
-        lane({
-          id: "api",
-          status: "done",
-          report: "Rewired the reporter, added the digest, wired the poll, and updated every affected test in the suite.",
-        }),
-      ],
-      T0 + 1000,
-    );
-    expect(updates[0]!.length).toBeLessThanOrEqual(76);
-    expect(updates[0]).toContain("…");
-  });
-
-  test("a dozen lanes landing at once collapse into one tally", () => {
+  test("fleet going dry collapses a burst into one tally line", () => {
     const before = Array.from({ length: 12 }, (_, i) => lane({ id: `l${i}` }));
     const seeded = observeFleet(createFleetWatch(), before, T0).watch;
     const after = before.map((l, i) =>
