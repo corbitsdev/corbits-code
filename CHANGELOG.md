@@ -14,95 +14,41 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ## [Unreleased]
 
 Drag-select auto-copy, a flat type-to-filter model picker, install-aware upgrade
-notices, quieter long-session compaction (re-read stubs), and layout breathing
-room — plus honesty fixes for the changelog watermark and clipboard flash.
-
-### Planned
-
-- Local context estimate for compaction when providers omit usage
-- Image age → rehydratable attachment URI
-- Always-return subagent salvage without a default wall-clock death clock
-- Transcript rendering engine with per-line damage tracking, replacing whole-frame repaints
-
-### Operator follow-ups
-
-- Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision
-- Live OTEL collector verify (Phoenix or equivalent) against the merged sink
-- Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks
-- Wire an in-app whats-new surface so upgrade notes can stamp `lastChangelogVersion` again (CL-5475 left stamping off until a surface returns)
-- Optional opt-out / cache for the GitHub upgrade probe on TUI start
+notices, quieter long-session compaction, and layout breathing room.
 
 ### TUI
 
 - **Drag-select auto-copy.** With mouse capture on (the default), finishing a
   drag selection in the transcript writes the selected text to the system
-  clipboard on mouse-up. Highlight clears immediately so a slow clipboard
-  helper cannot pin the selection; the status flash waits for write settlement
-  (`Copied …` on success, `Copy failed` on throw/reject). Alt+C structured copy
-  uses the same honesty. Alt+M still hands the mouse back for native terminal
-  selection.
+  clipboard on mouse-up. Highlight clears immediately; the status flash waits
+  for the clipboard write (`Copied …` on success, `Copy failed` on error).
+  Alt+C structured copy uses the same honesty. Alt+M still hands the mouse
+  back for native terminal selection.
 - **Flat model picker.** Choosing a model is one type-to-filter list of
   `provider / model` rows — no nested provider drill-down. Type to narrow,
-  Enter selects; Alt+F still toggles favorites when wired. Accept uses the
-  filtered row's stable id (never the unfiltered catalog index); empty
-  `(no matches)` cannot select or favorite.
+  Enter selects; Alt+F still toggles favorites when wired.
 - **Install-aware upgrade notice.** When a newer GitHub release exists, a
   non-blocking startup notice names the running and latest versions and the
   right upgrade step for Homebrew, source/Bun, deb, release binary, or
   unknown. Network and detection failures skip quietly.
 - **Bottom breathing room.** The prompt box sits one blank row above the
-  terminal's last line on terminals tall enough to spare it
-  (`BOTTOM_MARGIN_ROWS`, collapsed below 24 rows), so the layout no longer
+  terminal's last line on tall enough terminals, so the layout no longer
   feels flush against the frame edge.
-- **User-message breathing room.** Operator turns in the transcript keep a
-  blank bar row above and below the message text, so user prompts are easier
-  to spot while scrolling through assistant and tool rows.
-- **Landing survives MCP connect failure.** An MCP status failure still
-  routes through the system-notice channel and cannot wipe the mountain
-  landing by falling through to a stream-row path.
-- **Approval-overlay overflow tests.** Short-terminal guarantees for the
-  permission/operator gate overlays are pinned: viewport shrinks under the
-  host fraction cap, every choice stays reachable, and gate-wire paths still
-  resolve the selected outcome.
+- **User-message breathing room.** Your turns in the transcript keep a blank
+  bar row above and below the message text, so prompts are easier to spot
+  while scrolling.
+- **Landing survives MCP connect failure.** An MCP status failure still shows
+  as a system notice and no longer wipes the mountain landing screen.
 
 ### Session
 
-- **Superseded read stubs.** When compaction keeps more than one successful
-  `read_file` of the same identity, older results become a one-line stub and
-  the newest stays whole. Errors stay verbatim. Identity is path alone for
-  full-file reads, or path+offset+limit when either range arg is present, so
-  chunked reads of the same file do not hollow each other. Dedup only
-  considers turns that survive compaction (anchors + recent window), so a
-  summarized re-read cannot hollow a kept older body.
-- **Single-source recent window.** Main session and sub-agent compactors share
-  `COMPACTOR_KEEP_RECENT_TURNS` (6); the compaction governor's arming floor
-  derives from the same constant so it cannot silently drift.
-- **Changelog watermark honesty.** The OpenTUI path no longer stamps
-  `lastChangelogVersion` as a side effect of computing upgrade notes it never
-  shows. First-install still stamps; upgrade stamps only when notes are
-  actually shown (currently no surface, so upgrades never mark-seen).
-
-### Reliability
-
-- **Ripgrep stdout byte cap.** Close settlement waits one turn for queued
-  stdout so the over-cap path cannot report a full success on Linux CI; the
-  cap is re-checked on every settle path.
-
-### Tooling
-
-- **Vendored patch ledger.** `bin/vendor-patch-diff` and
-  `vendor/intx-inference/PATCHES.md` site markers prove local patches against
-  upstream without a manual re-sync checklist.
-- **Single `@intx/types` identity.** `tsconfig` paths pin vendored
-  `@intx/types` so local typecheck matches CI even when a nested published
-  copy still exists under another package.
-- **PostHog app version.** Telemetry dual-stamps package version as both
-  `service_version` and PostHog's standard `$app_version` so the built-in
-  Version breakdown works.
-- **Permission docs truth.** Architecture notes describe the live permission
-  queue and worktree-aware grants; stale `use-gates` references are gone.
-- **AGENTS.md plans pointer.** `docs/plans/` is back as a Reference list item
-  (gitignored, non-normative working notes).
+- **Quieter re-reads under compaction.** When the same file is read more than
+  once in a long session, older successful `read_file` results become a short
+  stub and the newest stays whole, so context is not filled with duplicate
+  file bodies. Chunked reads of different ranges stay distinct. Errors stay
+  verbatim.
+- **Changelog watermark honesty.** Upgrade notes are no longer marked as
+  “already shown” when nothing was actually displayed.
 
 ## [0.2.95] - 2026-08-09
 
