@@ -105,7 +105,8 @@ export type Settings = {
   // shown. Controls whether subsequent launches show "Welcome to" vs "Welcome back".
   onboarded?: boolean;
   // Last package version whose release notes were shown (or stamped on first
-  // interactive install). Drives the one-shot post-upgrade notes banner.
+  // interactive install). Upgrade stamps only after notes are actually shown
+  // so a missing surface cannot silently swallow them (CL-5475).
   lastChangelogVersion?: string;
   // Controls the context-compaction strategy used when the context window fills.
   // "llm" (default) generates a structured handoff summary via LLM call.

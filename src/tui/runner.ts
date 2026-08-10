@@ -109,7 +109,10 @@ import { captureSlashCommand } from "../telemetry/product-events.js";
 import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 
-import { loadStartupChangelogMarkdown } from "../changelog/index.js";
+import {
+  loadStartupChangelogMarkdown,
+  stampVersionAfterStartup,
+} from "../changelog/index.js";
 import { scheduleUpgradeNotice } from "../upgrade/index.js";
 import pkg from "../../package.json" with { type: "json" };
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
@@ -1831,30 +1834,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
-  // Post-upgrade release notes: one-shot banner on a fresh interactive session.
-  // Resume skips the banner and does not stamp, so the next fresh session still
-  // surfaces notes. First install stamps without dumping history.
+  // Post-upgrade release notes watermark policy (CL-5475):
+  // - first_install: stamp quietly so later launches do not dump history.
+  // - upgrade: stamp only when notes were actually shown. The former Ink
+  //   whats-new banner is gone on the OpenTUI path, so notesShown is false
+  //   until a surface is restored — never silently consume upgrade notes.
+  // - resume / current: leave the watermark alone.
   const changelogDecision = loadStartupChangelogMarkdown({
     lastChangelogVersion: globalSettingsForOnboarding?.lastChangelogVersion,
     packageVersion: typeof pkg.version === "string" ? pkg.version : "0.0.0",
   });
-  let whatsNewMarkdown: string | undefined;
-  if (changelogDecision.kind === "upgrade" && !resumeSkipInitialTask) {
-    whatsNewMarkdown = changelogDecision.markdown;
-    void markLastChangelogVersion(trueGlobalSettingsPath, changelogDecision.stampVersion).catch(
-      () => {
-        // Best-effort watermark; worst case notes reappear next launch.
-      },
-    );
-  } else if (changelogDecision.kind === "first_install") {
-    void markLastChangelogVersion(trueGlobalSettingsPath, changelogDecision.stampVersion).catch(
-      () => {
-        // Best-effort watermark.
-      },
-    );
-  } else if (changelogDecision.kind === "upgrade" && resumeSkipInitialTask) {
-    // Resume with pending notes: leave watermark alone so a future fresh
-    // session can show them.
+  const notesShown = false;
+  const stampVersion = stampVersionAfterStartup(changelogDecision, notesShown);
+  if (stampVersion !== null) {
+    void markLastChangelogVersion(trueGlobalSettingsPath, stampVersion).catch(() => {
+      // Best-effort watermark.
+    });
   }
 
   const commandContext: CommandContext = {
