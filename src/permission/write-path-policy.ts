@@ -1,4 +1,4 @@
-import { relative, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import { matchesPattern } from "./matcher.js";
 
 /**
@@ -7,14 +7,19 @@ import { matchesPattern } from "./matcher.js";
  * target a path matching one of these patterns. Enforced in the permission
  * gate; skipPermissions (yolo) bypasses the whole gate before this runs.
  *
+ * Subject is resolved against cwd before any matching. Any path that resolves
+ * OUTSIDE cwd is hard-denied: the raw subject is never matched against a
+ * pattern, so traversal strings (e.g. `docs/../src/hack.ts`) cannot fool a
+ * `docs/*` glob and absolute paths under a different root never match.
+ *
  * Patterns:
  * - bare filename (`PRODUCT.md`, no `/ * ?`) matches ONLY the workspace-root
  *   file of that exact name — never a nested file sharing the basename.
  *   A bare name is compared to the workspace-relative path, so `docs/PRODUCT.md`
  *   or `vendor/x/PRODUCT.md` does NOT match `PRODUCT.md`.
- * - relative globs (`docs/*`, double-star-then-PRODUCT.md) use matchesPattern
- *   against the workspace-relative path; use a double-star prefix to match a
- *   basename at any depth.
+ * - relative globs (`docs/*`, a double-star-prefixed pattern) use matchesPattern
+ *   against the workspace-relative path only; use a double-star prefix to
+ *   match a basename at any depth.
  */
 export function matchesWritePathAllowlist(
   subject: string,
@@ -26,18 +31,15 @@ export function matchesWritePathAllowlist(
 
   const absCwd = resolve(cwd);
   const abs = resolve(cwd, subject);
-  let rel = subject;
+  let rel: string;
   if (abs === absCwd) {
     rel = ".";
   } else if (abs.startsWith(absCwd + sep)) {
     rel = abs.slice(absCwd.length + 1);
   } else {
-    // Outside cwd — still try pattern match on the raw subject / relative form.
-    try {
-      rel = relative(absCwd, abs);
-    } catch {
-      rel = subject;
-    }
+    // Outside cwd — hard-deny. Never fall through to pattern matching on the
+    // raw subject, which would let `docs/../src/hack.ts` match `docs/*`.
+    return false;
   }
 
   for (const pattern of allowlist) {
@@ -51,7 +53,6 @@ export function matchesWritePathAllowlist(
       continue;
     }
     if (matchesPattern(rel, pattern)) return true;
-    if (matchesPattern(subject, pattern)) return true;
   }
   return false;
 }

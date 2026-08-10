@@ -32,6 +32,30 @@ describe("matchesWritePathAllowlist", () => {
     const abs = resolve(cwd, "DESIGN.md");
     expect(matchesWritePathAllowlist(abs, ["DESIGN.md"], cwd)).toBe(true);
   });
+
+  test("path traversal cannot escape a glob (subject never matched raw)", () => {
+    // `docs/../src/hack.ts` resolves under src/, not docs/ — must NOT match
+    // `docs/*` even though the raw subject string starts with `docs/`.
+    expect(matchesWritePathAllowlist("docs/../src/hack.ts", ["docs/*"], cwd)).toBe(false);
+    expect(matchesWritePathAllowlist("docs/../src/hack.ts", ["docs/**"], cwd)).toBe(false);
+    // Same escape via a bare-name allowlist.
+    expect(matchesWritePathAllowlist("PRODUCT.md/../src/hack.ts", ["PRODUCT.md"], cwd)).toBe(false);
+    // A legitimately nested docs file still matches.
+    expect(matchesWritePathAllowlist("docs/a/b.md", ["docs/**"], cwd)).toBe(true);
+  });
+
+  test("absolute paths outside cwd are hard-denied even if basename matches", () => {
+    // Outside root: /tmp/evil/PRODUCT.md is not under cwd, so PRODUCT.md must
+    // not match — no fallthrough to pattern match on the outside path.
+    const outside = resolve("/tmp/write-path-policy-elsewhere", "PRODUCT.md");
+    expect(outside).not.toBe(resolve(cwd, "PRODUCT.md"));
+    expect(matchesWritePathAllowlist(outside, ["PRODUCT.md"], cwd)).toBe(false);
+    expect(matchesWritePathAllowlist(outside, ["**/PRODUCT.md"], cwd)).toBe(false);
+    // A sibling of cwd (shared /tmp parent) still denied.
+    expect(
+      matchesWritePathAllowlist("../sibling/PRODUCT.md", ["PRODUCT.md"], cwd),
+    ).toBe(false);
+  });
 });
 
 describe("writePathDeniedReason", () => {

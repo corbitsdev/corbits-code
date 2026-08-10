@@ -29,15 +29,12 @@ export const IMPLEMENT_TOOLS = [
  * Read/search/lsp/web + file writes — no run_shell. The writePaths gate only
  * locks write_file/edit_file/delete_file, so a shell here would bypass it;
  * docs leaves that need a shell mount IMPLEMENT_TOOLS instead.
+ *
+ * Composed from READ_TOOLS minus run_shell so it tracks the read surface
+ * automatically; only the write tools are added explicitly.
  */
 export const DOCS_TOOLS = [
-  "read_file",
-  "grep",
-  "search_files",
-  "list_dir",
-  "lsp",
-  "web_fetch",
-  "web_search",
+  ...READ_TOOLS.filter((t) => t !== "run_shell"),
   "write_file",
   "edit_file",
 ] as const;
