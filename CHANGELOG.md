@@ -18,12 +18,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - Dogfood a real pain-session PerfTrace dump and write the transport prioritization decision
 - Live OTEL collector verify (Phoenix or equivalent) against the merged sink
 - Dogfood session migrate: new session under `~/.corbits/projects`, one legacy `.agent-state` migrate, write under state root still asks
+- Wire an in-app whats-new surface so upgrade notes can stamp `lastChangelogVersion` again (CL-5475 left stamping off until a surface returns)
+- Optional opt-out / cache for the GitHub upgrade probe on TUI start
 
 ### TUI
 
 - **Flat model picker.** Choosing a model is one type-to-filter list of
   `provider / model` rows — no nested provider drill-down. Type to narrow,
-  Enter selects; Alt+F still toggles favorites when wired.
+  Enter selects; Alt+F still toggles favorites when wired. Filtered accept
+  uses the row's stable id (never the unfiltered catalog index).
+- **Drag-select auto-copy.** With mouse capture on (the default), finishing a
+  drag selection in the transcript writes the selected text to the system
+  clipboard on mouse-up and flashes a short status line. Alt+M still hands the
+  mouse back for native terminal selection; Alt+C remains the keyboard copy
+  path for whole messages, tool outputs, and diffs.
+- **Install-aware upgrade notice.** When a newer GitHub release exists, a
+  non-blocking startup notice names the running and latest versions and the
+  right upgrade step for Homebrew, source/Bun, deb, release binary, or
+  unknown. Network and detection failures skip quietly.
 - **Bottom breathing room.** The prompt box sits one blank row above the
   terminal's last line on terminals tall enough to spare it
   (`BOTTOM_MARGIN_ROWS`, collapsed below 24 rows), so the layout no longer
@@ -31,11 +43,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 - **User-message breathing room.** Operator turns in the transcript keep a
   blank bar row above and below the message text, so user prompts are easier
   to spot while scrolling through assistant and tool rows (CL-5603).
-- **Drag-select auto-copy.** With mouse capture on (the default), finishing a
-  drag selection in the transcript writes the selected text to the system
-  clipboard on mouse-up and flashes a short status line. Alt+M still hands the
-  mouse back for native terminal selection; Alt+C remains the keyboard copy
-  path for whole messages, tool outputs, and diffs.
+- **Landing survives MCP connect failure.** An MCP status failure still
+  routes through the system-notice channel and cannot wipe the mountain
+  landing by falling through to a stream-row path.
+- **Approval-overlay overflow tests.** Short-terminal guarantees for the
+  permission/operator gate overlays are pinned: viewport shrinks under the
+  host fraction cap, every choice stays reachable, and gate-wire paths still
+  resolve the selected outcome.
 
 ### Session
 
@@ -44,12 +58,32 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
   become a one-line stub and the newest stays whole. Errors stay verbatim.
   Dedup only considers turns that survive compaction, so a summarized re-read
   cannot hollow a kept older body.
+- **Changelog watermark honesty.** The OpenTUI path no longer stamps
+  `lastChangelogVersion` as a side effect of computing upgrade notes it never
+  shows. First-install still stamps; upgrade stamps only when notes are
+  actually shown (currently no surface, so upgrades never mark-seen).
+
+### Reliability
+
+- **Ripgrep stdout byte cap.** Close settlement waits one turn for queued
+  stdout so the over-cap path cannot report a full success on Linux CI; the
+  cap is re-checked on every settle path.
 
 ### Tooling
 
 - **Vendored patch ledger.** `bin/vendor-patch-diff` and
   `vendor/intx-inference/PATCHES.md` site markers prove local patches against
   upstream without a manual re-sync checklist.
+- **Single `@intx/types` identity.** `tsconfig` paths pin vendored
+  `@intx/types` so local typecheck matches CI even when a nested published
+  copy still exists under another package.
+- **PostHog app version.** Telemetry dual-stamps package version as both
+  `service_version` and PostHog's standard `$app_version` so the built-in
+  Version breakdown works.
+- **Permission docs truth.** Architecture notes describe the live permission
+  queue and worktree-aware grants; stale `use-gates` references are gone.
+- **AGENTS.md plans pointer.** `docs/plans/` is back as a Reference list item
+  (gitignored, non-normative working notes).
 
 ## [0.2.95] - 2026-08-09
 
