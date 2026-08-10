@@ -316,17 +316,33 @@ function toolPrefix(row: StreamRow): string {
 const BUBBLE_MAX_SHARE = 0.75
 
 /**
+ * Empty bar rows painted above and below the operator's text so the turn
+ * reads as a block when scrolling past denser assistant/tool rows (CL-5603).
+ */
+const USER_BUBBLE_PAD = 1
+
+/**
  * The operator's turn as a block hugging the left gutter, same as an answer,
  * with the bar down its left edge. The bar (not alignment) is what makes a
  * user turn findable now that both voices share cream and the left edge; the
  * body sits two columns past it so the boundary reads even at a glance.
+ * One empty bar row above and below the text gives the bubble breathing room
+ * without changing the turn-boundary gap used by every other row.
  */
 function userBubbleLines(text: string, width: number): string[] {
   const bar = `${BUBBLE_BAR} `
   const barWidth = stringWidth(bar)
   const body = Math.max(1, Math.min(width - barWidth, Math.ceil(width * BUBBLE_MAX_SHARE)))
   const lines = text.split("\n").flatMap((line) => wrapLines(line, body))
-  return lines.map((line) => `${bar}${line}`)
+  const content = lines.map((line) => `${bar}${line}`)
+  // Bare bar (no trailing body space) so the pad reads as air, not an empty
+  // content column — same glyph column as the body lines either way.
+  const pad = BUBBLE_BAR
+  return [
+    ...Array.from({ length: USER_BUBBLE_PAD }, () => pad),
+    ...content,
+    ...Array.from({ length: USER_BUBBLE_PAD }, () => pad),
+  ]
 }
 
 /**

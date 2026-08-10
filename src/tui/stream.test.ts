@@ -24,9 +24,16 @@ const CREW: RowLayout = { width: 56, multiAgent: true }
 const lines = (row: StreamRow, layout: RowLayout = SOLO): string[] =>
   paintStreamRow(row, layout).content.split("\n")
 
+/** Body lines of a user bubble (strip the empty pad rows above and below). */
+const userBody = (row: StreamRow, layout: RowLayout = SOLO): string[] => {
+  const painted = lines(row, layout)
+  expect(painted.length).toBeGreaterThanOrEqual(3)
+  return painted.slice(1, -1)
+}
+
 describe("stream paint", () => {
   test("one voice needs no labels: the operator is found by the bar", () => {
-    const you = lines({ role: "user", text: "hi" })[0] as string
+    const you = userBody({ role: "user", text: "hi" })[0] as string
     const agent = lines({ role: "assistant", text: "hello" })[0] as string
 
     expect(you).not.toContain("you")
@@ -59,6 +66,31 @@ describe("stream paint", () => {
       const bars = new Set(painted.map((line) => line.indexOf("▍")))
       expect(bars.size).toBe(1)
       for (const line of painted) expect(stringWidth(line)).toBeLessThanOrEqual(width)
+    }
+  })
+
+  test("the operator's bubble has a blank bar row above and below the text", () => {
+    const bar = "\u258d"
+    const painted = lines({ role: "user", text: "hi" })
+    // Shape: bare bar, body, bare bar — breathing room when scrolling (CL-5603).
+    expect(painted).toEqual([bar, `${bar} hi`, bar])
+    // Assistant and tool rows stay tight; the pad is user-only.
+    expect(lines({ role: "assistant", text: "hello" })).toEqual(["hello"])
+    expect(lines({ role: "tool", text: "ok", meta: "bash" })[0]).not.toBe(bar)
+    // A wrapped body still sits between exactly one pad row on each side.
+    const long = lines(
+      {
+        role: "user",
+        text: "please find every call site of the legacy token helper and report which still run",
+      },
+      { width: 40, multiAgent: false },
+    )
+    expect(long[0]).toBe(bar)
+    expect(long[long.length - 1]).toBe(bar)
+    expect(long.length).toBeGreaterThan(3)
+    for (const line of long.slice(1, -1)) {
+      expect(line.startsWith(`${bar} `)).toBe(true)
+      expect(line.length).toBeGreaterThan(2)
     }
   })
 
@@ -167,8 +199,8 @@ describe("stream paint", () => {
     expect(crew).not.toContain("●")
     expect(crew.startsWith("on it")).toBe(true)
     // The operator stays a left-aligned bubble either way.
-    expect(lines({ role: "user", text: "go" }, CREW)[0]).toBe(
-      lines({ role: "user", text: "go" })[0],
+    expect(lines({ role: "user", text: "go" }, CREW)).toEqual(
+      lines({ role: "user", text: "go" }),
     )
   })
 
