@@ -45,6 +45,14 @@ middle tier: one column is already enough to keep content off the frame edge,
 which is the gutter's entire job, and anything wider only read as excess air on
 a wide pane. The gutter costs no rows.
 
+Vertically, the same file keeps content off the top and bottom edges with one
+blank row each: `TOP_PAD_ROWS` above the first transcript row, and
+`BOTTOM_MARGIN_ROWS` below the prompt box. Both are carved out of the
+transcript residual by the shell after the geometry resolver has assigned
+heights, so they never change the resolver's row budget. Each collapses to
+zero when the terminal is too short to spare it (`TOP_PAD_MIN_TRANSCRIPT_ROWS`
+for the top pad, `BOTTOM_MARGIN_MIN_ROWS` for the bottom).
+
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule; the brand
 lockup sits at the left of the bottom rule with the working directory and git

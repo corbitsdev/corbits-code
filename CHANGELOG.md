@@ -21,6 +21,10 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 
 ### TUI
 
+- **Bottom breathing room.** The prompt box sits one blank row above the
+  terminal's last line on terminals tall enough to spare it
+  (`BOTTOM_MARGIN_ROWS`, collapsed below 24 rows), so the layout no longer
+  feels flush against the frame edge.
 - **Drag-select auto-copy.** With mouse capture on (the default), finishing a
   drag selection in the transcript writes the selected text to the system
   clipboard on mouse-up and flashes a short status line. Alt+M still hands the

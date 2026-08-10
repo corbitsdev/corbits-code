@@ -1,12 +1,12 @@
 /**
  * Optical breathing room shared by every shell surface.
  *
- * The margin is one number for the whole interface — transcript, prompt box,
- * model bar, hint row and overlay host all sit inside it — so the shell reads
- * as a single column of content rather than panes that happen to be stacked.
- *
- * Horizontal only. The row budget is the geometry resolver's business; nothing
- * here can take a row away from it.
+ * The side gutter is one number for the whole interface — transcript, prompt
+ * box, model bar, hint row and overlay host all sit inside it — so the shell
+ * reads as a single column of content rather than panes that happen to be
+ * stacked. Top and bottom pads are carved out of the transcript residual by
+ * the shell after the geometry resolver has assigned heights, so they never
+ * change the resolver's row budget.
  */
 
 /**
@@ -50,14 +50,14 @@ export function resolveTopPadRows(transcriptRows: number): number {
 }
 
 /**
- * Rows below the prompt box. Zero: the box sits on the terminal's last row.
+ * Rows below the prompt box once the terminal can afford them.
  *
- * A blank row here reads as the interface floating rather than resting on the
- * bottom edge — the box is the thing the operator types into, and it wants to
- * be where the cursor already is. The side gutters still keep it off the left
- * and right edges, which is where crowding actually shows.
+ * One blank row keeps the prompt off the terminal's last line the same way
+ * `TOP_PAD_ROWS` keeps the first transcript row off the top edge and
+ * `SIDE_MARGIN` keeps content off the left and right. More than one only
+ * reads as the interface floating, so there is no middle tier.
  */
-export const BOTTOM_MARGIN_ROWS = 0
+export const BOTTOM_MARGIN_ROWS = 1
 
 /**
  * Below this terminal height the margin is not worth the row it costs — the

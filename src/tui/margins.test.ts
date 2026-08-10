@@ -1,7 +1,7 @@
 /**
  * Breathing room: one optical gutter shared by every surface, a blank row above
- * the first transcript row, and a narrow-terminal floor where the gutter yields
- * to content rather than squeezing it.
+ * the first transcript row, a blank row below the prompt box, and a
+ * narrow-terminal floor where each pad yields to content rather than squeezing it.
  */
 import { describe, expect, test } from "bun:test"
 import {
@@ -107,7 +107,15 @@ describe("top padding", () => {
 })
 
 describe("bottom edge", () => {
-  test("the prompt box rests on the terminal's last row", async () => {
+  test("one blank row below the prompt once the terminal can afford it", () => {
+    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS)).toBe(1)
+    expect(resolveBottomMarginRows(30)).toBe(1)
+    expect(resolveBottomMarginRows(60)).toBe(1)
+    expect(resolveBottomMarginRows(BOTTOM_MARGIN_MIN_ROWS - 1)).toBe(0)
+    expect(resolveBottomMarginRows(12)).toBe(0)
+  })
+
+  test("the prompt box leaves a blank row above the terminal's last line", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -118,9 +126,14 @@ describe("bottom edge", () => {
           appendStreamRow(shell, { role: "user", text: "check the bottom" })
           await settle(h)
           const rows = frameRows(h)
-          // The box is what the operator types into; it belongs where the
-          // cursor already is, not floating a row above it.
-          expect(rows[rows.length - 1]?.trim()).not.toBe("")
+          // One optical row under the box — same job as the top pad and the
+          // side gutters, just at the other edge.
+          expect(shell.bottomPad.visible).toBe(true)
+          expect(shell.bottomPad.height).toBe(1)
+          expect(rows[rows.length - 1]?.trim()).toBe("")
+          // The box itself still paints: its bottom rule is the last content
+          // row, not the last terminal row.
+          expect(rows[rows.length - 2]?.includes("╰")).toBe(true)
         } finally {
           shell.dispose()
         }
@@ -136,7 +149,6 @@ describe("bottom edge", () => {
       expect(total).toBe(rows)
     }
   })
-
 
   test("collapses to zero on a short terminal so nothing else starves", async () => {
     const rows = BOTTOM_MARGIN_MIN_ROWS - 1

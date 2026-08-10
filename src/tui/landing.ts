@@ -62,11 +62,10 @@ export const LANDING_VERSION = `v${pkg.version}`
  * Minimum terminal size the version badge needs before it hides. 16 rows is
  * above `IDLE_TRANSCRIPT_FLOOR` (12) — the only row floor real chrome is
  * actually held to at rest — so the badge is gone well before the
- * transcript itself would be squeezed. It is below `BOTTOM_MARGIN_MIN_ROWS`
- * (24, in `geometry/margins.ts`); that constant does not currently mean
- * anything in practice (`BOTTOM_MARGIN_ROWS` it gates is 0), so there is no
- * real floor at 24 to be above yet, but if one is ever added there this
- * threshold does not automatically clear it and should be revisited.
+ * transcript itself would be squeezed. It is also below
+ * `BOTTOM_MARGIN_MIN_ROWS` (24): the bottom pad is optical room carved from
+ * the transcript residual, not a second reserved chrome row, so the badge's
+ * own threshold does not need to clear it.
  */
 export const VERSION_BADGE_MIN_COLUMNS = 60
 export const VERSION_BADGE_MIN_ROWS = 16
