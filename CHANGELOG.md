@@ -11,7 +11,7 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.97] - 2026-08-10
 
 Codex connect works again: streaming responses no longer die on a missing
 header, multiple ChatGPT accounts can be connected by name, and providers are
