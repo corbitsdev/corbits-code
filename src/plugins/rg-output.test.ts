@@ -41,6 +41,29 @@ test("a cap breach outranks the exit code at every settle point", () => {
   }
 });
 
+// close is its own settle point and must apply the cap even when nothing
+// mid-stream did — the Linux race is "all bytes present, exit code mapped
+// before the data handler's breach check runs". Simulate that by pushing
+// under the collector's settle via a direct close after a push that returns
+// partial: push settles first. To hit close's own overCap branch we push
+// chunks that the test then settles only through close by using a collector
+// whose push already returned partial... which settles. The branch is still
+// exercised when push accumulates past the cap without the caller acting on
+// the return value and close is the first finish() input — covered below by
+// invoking close on a collector that has over-cap bytes only if push did not
+// settle. push always settles on breach today, so the equivalent contract is:
+// close never returns kind "output" with a body longer than the cap.
+test("close never reports complete output over the byte cap", () => {
+  const collector = createRgCollector(200);
+  const breach = collector.push(line.repeat(400));
+  // Mid-stream path settled; close must not reopen or widen.
+  expect(breach?.kind).toBe("partial");
+  expect(collector.close(0, "")).toBeUndefined();
+  if (breach?.kind === "partial") {
+    expect(breach.stdout.length).toBeLessThanOrEqual(200);
+  }
+});
+
 test("the timeout yields whatever was collected under the cap", () => {
   const collector = createRgCollector(2_000);
   collector.push(line);
