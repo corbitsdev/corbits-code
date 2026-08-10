@@ -90,4 +90,4 @@ Interchange is the standard library for this repo, consumed as published `@intx/
 - `docs/PLUGINS.md` — plugin manifest system and discovery
 - `docs/TELEMETRY.md` — what usage telemetry is collected and why
 - `docs/PERFTRACE.md` — local PerfTrace and opt-in OTEL export settings
-`docs/plans/` is git-ignored: local working notes and design spikes only. Durable conclusions belong in the docs above or in the tracking issue — never left as a plan file, which is a stale doc waiting to happen.
+- `docs/plans/` — gitignored working notes and design spikes (local only); durable conclusions belong in the docs above or Linear — never left as a plan file, which is a stale doc waiting to happen
