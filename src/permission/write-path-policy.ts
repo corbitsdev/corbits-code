@@ -1,4 +1,4 @@
-import { basename, relative, resolve, sep } from "node:path";
+import { relative, resolve, sep } from "node:path";
 import { matchesPattern } from "./matcher.js";
 
 /**
@@ -8,9 +8,13 @@ import { matchesPattern } from "./matcher.js";
  * gate; skipPermissions (yolo) bypasses the whole gate before this runs.
  *
  * Patterns:
- * - bare filename (`PRODUCT.md`) matches that basename at any depth under cwd
- * - relative globs (`docs/*`, `DESIGN.md`) use matchesPattern against the
- *   workspace-relative path
+ * - bare filename (`PRODUCT.md`, no `/ * ?`) matches ONLY the workspace-root
+ *   file of that exact name — never a nested file sharing the basename.
+ *   A bare name is compared to the workspace-relative path, so `docs/PRODUCT.md`
+ *   or `vendor/x/PRODUCT.md` does NOT match `PRODUCT.md`.
+ * - relative globs (`docs/*`, double-star-then-PRODUCT.md) use matchesPattern
+ *   against the workspace-relative path; use a double-star prefix to match a
+ *   basename at any depth.
  */
 export function matchesWritePathAllowlist(
   subject: string,
@@ -36,15 +40,18 @@ export function matchesWritePathAllowlist(
     }
   }
 
-  const base = basename(rel);
   for (const pattern of allowlist) {
+    // Bare filename (no path separators, no glob metacharacters): root-only.
+    // Matching on the basename would re-open any-depth matching for bare names,
+    // so a bare pattern is compared only against the workspace-relative path.
+    const isBareName =
+      !pattern.includes("/") && !pattern.includes("*") && !pattern.includes("?");
+    if (isBareName) {
+      if (rel === pattern) return true;
+      continue;
+    }
     if (matchesPattern(rel, pattern)) return true;
     if (matchesPattern(subject, pattern)) return true;
-    if (matchesPattern(base, pattern)) return true;
-    // Bare filename: match any depth with that exact basename.
-    if (!pattern.includes("/") && !pattern.includes("*") && !pattern.includes("?") && base === pattern) {
-      return true;
-    }
   }
   return false;
 }

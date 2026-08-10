@@ -24,9 +24,20 @@ export const IMPLEMENT_TOOLS = [
   "delete_file",
 ] as const;
 
-/** Docs leaves that may write only under writePaths authz. */
+/**
+ * Docs leaves that may write only under writePaths authz.
+ * Read/search/lsp/web + file writes — no run_shell. The writePaths gate only
+ * locks write_file/edit_file/delete_file, so a shell here would bypass it;
+ * docs leaves that need a shell mount IMPLEMENT_TOOLS instead.
+ */
 export const DOCS_TOOLS = [
-  ...READ_TOOLS,
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "web_fetch",
+  "web_search",
   "write_file",
   "edit_file",
 ] as const;

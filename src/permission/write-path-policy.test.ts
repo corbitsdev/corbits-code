@@ -8,9 +8,13 @@ import {
 const cwd = resolve("/tmp/write-path-policy-fixture");
 
 describe("matchesWritePathAllowlist", () => {
-  test("bare filename matches any depth under cwd", () => {
+  test("bare filename matches only the workspace-root file", () => {
     expect(matchesWritePathAllowlist("PRODUCT.md", ["PRODUCT.md"], cwd)).toBe(true);
-    expect(matchesWritePathAllowlist("docs/PRODUCT.md", ["PRODUCT.md"], cwd)).toBe(true);
+    // Nested file of the same basename does NOT match a bare pattern.
+    expect(matchesWritePathAllowlist("docs/PRODUCT.md", ["PRODUCT.md"], cwd)).toBe(false);
+    expect(matchesWritePathAllowlist("vendor/x/PRODUCT.md", ["PRODUCT.md"], cwd)).toBe(false);
+    // An explicit glob reaches nested files of that name.
+    expect(matchesWritePathAllowlist("docs/PRODUCT.md", ["**/PRODUCT.md"], cwd)).toBe(true);
     expect(matchesWritePathAllowlist("src/foo.ts", ["PRODUCT.md"], cwd)).toBe(false);
   });
 
