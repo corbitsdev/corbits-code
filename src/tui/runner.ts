@@ -163,10 +163,12 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
 import {
+  applyFocus,
   attachClipboardImage,
   setMentionSuggestionSource,
   setPromptRecognitionSource,
   setSentMessageHistory,
+  setShellInputSuspended,
   setShellRunState,
   surfaceSystemNotice,
 } from "./shell.js";
@@ -2101,6 +2103,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     onConnectProvider: (providerName) => {
       void (async () => {
         let result: Awaited<ReturnType<typeof connectProviderInline>>;
+        // The setup surface shares the live session's renderer — a second
+        // CliRenderer cannot exist on the same stdin. Shell input stays
+        // suspended for the surface's lifetime so its keystrokes (including
+        // Ctrl+C to cancel the sign-in) never also reach the shell.
+        setShellInputSuspended(host.shell, true);
         try {
           result = await connectProviderInline({
             providerId: providerName,
@@ -2108,12 +2115,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             localSettingsPath: localSettingsFile,
             cwd: config.cwd,
             existing: config.settings ?? null,
+            createRenderer: () => Promise.resolve(host.renderer),
           });
         } catch (err) {
           systemNotice(
             `Connecting ${providerName} failed: ${err instanceof Error ? err.message : String(err)}`,
           );
           return;
+        } finally {
+          setShellInputSuspended(host.shell, false);
+          // The setup surface focused its own input; hand focus back to
+          // whatever shell zone owned it before the surface mounted.
+          applyFocus(host.shell);
         }
         if (!result.connected) return;
 
