@@ -80,7 +80,7 @@ export type PacingExtractor = (headers: Headers) => number | undefined;
 // waits for socket close hangs. Adapters for those protocols implement this so
 // the harness stops reading once the terminal event is processed.
 //
-// Locally patched — see vendor/intx-inference/PATCHES.md#adapter-ts
+// Locally patched — see vendor/intx-inference/PATCHES.md#adapter-ts-stream-terminal-detector
 export type StreamTerminalDetector = (sseData: string) => boolean;
 
 export type ProviderAdapter = {

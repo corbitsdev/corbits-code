@@ -19,7 +19,7 @@ const decoder = new TextDecoder();
 // memory. The limit is on `buffer.length` (UTF-16 code units), which bounds the
 // retained string regardless of the source encoding's bytes-per-character.
 //
-// Locally patched — see vendor/intx-inference/PATCHES.md#sse-ts
+// Locally patched — see vendor/intx-inference/PATCHES.md#sse-ts-max-line-length
 const MAX_LINE_LENGTH = 16 * 1024 * 1024;
 
 export async function* parseSSE(

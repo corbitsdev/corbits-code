@@ -47,7 +47,7 @@ export function classifyNetworkError(cause: unknown): InferenceError {
  * `origin` mirrors AbortSignal.reason from the send path
  * (e.g. intercode `user-stop` / `internal-recovery` string literals).
  *
- * Locally patched — see vendor/intx-inference/PATCHES.md#errors-ts
+ * Locally patched — see vendor/intx-inference/PATCHES.md#errors-ts-classify-abort-reason
  */
 export type ClassifiedAbortRaw = { origin: unknown };
 

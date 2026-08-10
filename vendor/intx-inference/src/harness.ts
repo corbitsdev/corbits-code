@@ -123,7 +123,7 @@ export type Dependencies = {
    * field for transforms; riding `deps` reaches the vendored assembly
    * without modifying the published package.
    *
-   * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+   * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-context-transforms
    */
   readonly contextTransforms?: ContextTransform[];
   readonly [HarnessId]?: symbol;
@@ -537,7 +537,7 @@ async function* runSingleAttempt(
         // trickles keep-alives forever without a terminal event never trips the
         // watchdog and pins the caller indefinitely.
         //
-        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-inactivity-on-semantic-progress
         if (rawEvents.length > 0) {
           armInactivity();
         }
@@ -547,7 +547,7 @@ async function* runSingleAttempt(
         // next read forever. Stop once the terminal event's own events (e.g.
         // its usage) have been processed above.
         //
-        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+        // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-is-stream-terminal
         if (adapter.isStreamTerminal?.(sseData)) {
           return;
         }
@@ -1361,7 +1361,7 @@ async function* runSingleAttempt(
  * `inference.error` from an attempt the policy chose to retry (only
  * uncommitted attempts are ever retried).
  *
- * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+ * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-commitment-boundary-streaming
  *
  * Caller-visible seqs stay contiguous across retries. Each attempt
  * runs against a private seq allocator; the wrapper re-stamps every
@@ -1612,7 +1612,7 @@ export async function* runInference(
  * `inference.error`, and `inference.retry` are terminal or wrapper-owned
  * and are handled by `runInference` before this predicate is consulted.
  *
- * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts
+ * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-is-committing
  */
 function isCommitting(event: InferenceEvent): boolean {
   switch (event.type) {

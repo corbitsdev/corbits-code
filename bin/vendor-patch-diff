@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# Diff vendored packages against a pristine upstream checkout at the SHA
+# recorded in docs/VENDORING.md. Prints only local divergences (the lines
+# that are ours). Markers in vendor/ are navigation; this diff is proof.
+#
+# Usage:
+#   bin/vendor-patch-diff [--upstream PATH] [package...]
+#
+# package is a vendor directory basename (e.g. intx-inference) or an
+# @intx/* name. With no packages, diffs every row in VENDORING.md that
+# carries local patches.
+#
+# Upstream clone resolution (first hit wins):
+#   1. --upstream PATH
+#   2. $INTERCHANGE_UPSTREAM
+#   3. ../interchange relative to the repo root
+#   4. ../../interchange relative to the repo root
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VENDORING="$REPO_ROOT/docs/VENDORING.md"
+
+usage() {
+  sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+}
+
+UPSTREAM=""
+PACKAGES=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --upstream)
+      [[ $# -ge 2 ]] || usage
+      UPSTREAM="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      ;;
+    --)
+      shift
+      PACKAGES+=("$@")
+      break
+      ;;
+    -*)
+      echo "unknown flag: $1" >&2
+      usage
+      ;;
+    *)
+      PACKAGES+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$UPSTREAM" ]]; then
+  if [[ -n "${INTERCHANGE_UPSTREAM:-}" ]]; then
+    UPSTREAM="$INTERCHANGE_UPSTREAM"
+  elif [[ -d "$REPO_ROOT/../interchange/.git" || -f "$REPO_ROOT/../interchange/.git" ]]; then
+    UPSTREAM="$(cd "$REPO_ROOT/../interchange" && pwd)"
+  elif [[ -d "$REPO_ROOT/../../interchange/.git" || -f "$REPO_ROOT/../../interchange/.git" ]]; then
+    UPSTREAM="$(cd "$REPO_ROOT/../../interchange" && pwd)"
+  else
+    echo "error: no upstream Interchange clone found." >&2
+    echo "Pass --upstream PATH or set INTERCHANGE_UPSTREAM." >&2
+    exit 1
+  fi
+fi
+
+if [[ ! -d "$UPSTREAM" ]]; then
+  echo "error: upstream path is not a directory: $UPSTREAM" >&2
+  exit 1
+fi
+if ! git -C "$UPSTREAM" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "error: upstream path is not a git repository: $UPSTREAM" >&2
+  exit 1
+fi
+
+# Rows look like:
+# | `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `SHA` | 2026-08-08 | Yes — see … |
+# Capture: name, vendor path, sha, local-patches cell.
+mapfile -t ROWS < <(
+  awk -F'|' '
+    /^\| `@intx\// {
+      name=$2; vendor=$3; sha=$5; patches=$7
+      gsub(/^ +| +$/, "", name)
+      gsub(/^ +| +$/, "", vendor)
+      gsub(/^ +| +$/, "", sha)
+      gsub(/^ +| +$/, "", patches)
+      gsub(/`/, "", name)
+      gsub(/`/, "", vendor)
+      gsub(/`/, "", sha)
+      gsub(/\/$/, "", vendor)
+      print name "\t" vendor "\t" sha "\t" patches
+    }
+  ' "$VENDORING"
+)
+
+if [[ ${#ROWS[@]} -eq 0 ]]; then
+  echo "error: no vendored packages parsed from $VENDORING" >&2
+  exit 1
+fi
+
+normalize_pkg() {
+  local raw="$1"
+  raw="${raw#@intx/}"
+  raw="${raw#vendor/}"
+  raw="${raw%/}"
+  if [[ "$raw" == intx-* ]]; then
+    echo "$raw"
+  else
+    echo "intx-$raw"
+  fi
+}
+
+# Build the work list: either explicit packages, or every "Yes" local-patches row.
+declare -a WORK_NAMES=()
+declare -a WORK_VENDORS=()
+declare -a WORK_SHAS=()
+
+if [[ ${#PACKAGES[@]} -eq 0 ]]; then
+  for row in "${ROWS[@]}"; do
+    IFS=$'\t' read -r name vendor sha patches <<<"$row"
+    if [[ "$patches" == Yes* ]]; then
+      WORK_NAMES+=("$name")
+      WORK_VENDORS+=("$vendor")
+      WORK_SHAS+=("$sha")
+    fi
+  done
+else
+  for want in "${PACKAGES[@]}"; do
+    want_norm="$(normalize_pkg "$want")"
+    found=0
+    for row in "${ROWS[@]}"; do
+      IFS=$'\t' read -r name vendor sha patches <<<"$row"
+      vendor_base="${vendor#vendor/}"
+      if [[ "$(normalize_pkg "$name")" == "$want_norm" || "$vendor_base" == "$want_norm" ]]; then
+        WORK_NAMES+=("$name")
+        WORK_VENDORS+=("$vendor")
+        WORK_SHAS+=("$sha")
+        found=1
+        break
+      fi
+    done
+    if [[ $found -eq 0 ]]; then
+      echo "error: package not listed in $VENDORING: $want" >&2
+      exit 1
+    fi
+  done
+fi
+
+if [[ ${#WORK_NAMES[@]} -eq 0 ]]; then
+  echo "error: no packages selected (no local-patches rows, or empty filter)" >&2
+  exit 1
+fi
+
+# Map @intx/<x> → packages/<x> in the upstream monorepo.
+upstream_pkg_path() {
+  local name="$1"
+  echo "packages/${name#@intx/}"
+}
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/vendor-patch-diff.XXXXXX")"
+cleanup() { rm -rf "$TMP"; }
+trap cleanup EXIT
+
+OVERALL=0
+
+for i in "${!WORK_NAMES[@]}"; do
+  name="${WORK_NAMES[$i]}"
+  vendor="${WORK_VENDORS[$i]}"
+  sha="${WORK_SHAS[$i]}"
+  up_path="$(upstream_pkg_path "$name")"
+  vendor_src="$REPO_ROOT/$vendor/src"
+
+  if [[ ! -d "$vendor_src" ]]; then
+    echo "error: missing vendored src: $vendor_src" >&2
+    exit 1
+  fi
+
+  if ! git -C "$UPSTREAM" cat-file -e "${sha}^{commit}" 2>/dev/null; then
+    echo "error: upstream $UPSTREAM has no commit $sha" >&2
+    echo "Fetch that commit into the clone, then re-run." >&2
+    exit 1
+  fi
+
+  if ! git -C "$UPSTREAM" cat-file -e "${sha}:${up_path}" 2>/dev/null; then
+    echo "error: $up_path does not exist at $sha in $UPSTREAM" >&2
+    exit 1
+  fi
+
+  pristine="$TMP/pristine-$i"
+  mkdir -p "$pristine"
+  # Extract only the package tree at the recorded SHA — read-only on upstream.
+  git -C "$UPSTREAM" archive "$sha" "$up_path" | tar -x -C "$pristine"
+
+  pristine_src="$pristine/$up_path/src"
+  if [[ ! -d "$pristine_src" ]]; then
+    echo "error: archived tree has no src/: $pristine_src" >&2
+    exit 1
+  fi
+
+  echo "### $name  upstream=$sha  vendor=$vendor"
+  echo "# pristine: $up_path/src  vs  $vendor/src"
+  echo
+
+  # Unified diff of source only. diff exits 1 on differences — that is success
+  # for this tool (we expect patches). Exit 2 is a real error.
+  set +e
+  diff -ruN "$pristine_src" "$vendor_src"
+  code=$?
+  set -e
+  if [[ $code -eq 0 ]]; then
+    echo "(no source differences)"
+  elif [[ $code -eq 1 ]]; then
+    OVERALL=1
+  else
+    echo "error: diff failed for $name (exit $code)" >&2
+    exit 1
+  fi
+  echo
+done
+
+# Exit 0 when there are differences (the usual patched case) so pipelines
+# treat a successful run as success. Exit 3 when everything is verbatim —
+# surprising for a "show our patches" tool, so callers can detect it.
+if [[ $OVERALL -eq 0 ]]; then
+  echo "note: no local source patches found for selected packages." >&2
+  exit 3
+fi
+exit 0

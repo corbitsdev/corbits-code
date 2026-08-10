@@ -116,10 +116,14 @@ paths will show 100% upstream-authored lines.
 
 `@intx/inference` carries local patches — real fixes not yet present
 upstream, not workarounds for something upstream has since fixed. Every
-patched location carries a one-line comment naming its entry in
-`vendor/intx-inference/PATCHES.md`, so `grep -rn "Locally patched" vendor/intx-inference/src`
-finds every divergence, and a diff against a fresh upstream checkout at the
-same commit should show ONLY those marked lines changed.
+patched location carries a one-line comment naming its site-specific entry
+in `vendor/intx-inference/PATCHES.md` (e.g. `#reactor-ts-correlating-ids-leak`),
+so `grep -rn "Locally patched" vendor/intx-inference/src` finds every
+divergence. **Markers are navigation; the SHA-diff is proof.** Run
+`bin/vendor-patch-diff` against a pristine upstream checkout at the
+recorded SHA to print exactly the lines that are ours. A correspondence
+test (`tests/unit/vendor-patch-ledger.test.ts`) fails if a marker anchor
+does not resolve to a ledger heading, or if a ledger heading has no marker.
 
 ## Re-syncing a vendored package to a newer upstream commit
 
@@ -132,19 +136,21 @@ same commit should show ONLY those marked lines changed.
    diff the two `package.json` files by hand). Run `bun install`,
    `bun run typecheck`, `bun run build`, `bun run test`.
 3. For a **patched** package (`@intx/inference`): before overwriting
-   anything, diff the current vendored `src/` against the upstream tag or
-   commit it was last synced from, to re-derive the exact patch content (do
-   not trust `PATCHES.md`'s prose alone — diff the code). Then overwrite
-   `src/` with the new upstream commit's source, and re-apply each patch
-   from the ledger by hand against the new file shapes. For each patch,
-   confirm from the new upstream source whether it: (a) still applies
-   as-is, (b) needs adapting to a changed surrounding shape, or (c) has been
-   subsumed by an equivalent upstream fix and can be dropped — verify (c) by
-   reading the new upstream code, never by assumption. Update
-   `PATCHES.md` to reflect what actually landed, including any patches
-   dropped as superseded and why. Run the full gate
-   (`typecheck`/`build`/`test`) and do not consider the sync complete until
-   it passes clean.
+   anything, run `bin/vendor-patch-diff` (optionally
+   `--upstream /path/to/interchange`) to re-derive the exact local
+   divergences against the recorded SHA — do not trust `PATCHES.md`'s
+   prose alone. Then overwrite `src/` with the new upstream commit's
+   source, and re-apply each patch from the ledger by hand against the
+   new file shapes. For each patch, confirm from the new upstream source
+   whether it: (a) still applies as-is, (b) needs adapting to a changed
+   surrounding shape, or (c) has been subsumed by an equivalent upstream
+   fix and can be dropped — verify (c) by reading the new upstream code,
+   never by assumption. Update `PATCHES.md` and the site-specific
+   `Locally patched` markers to reflect what actually landed, including
+   any patches dropped as superseded and why. Run the full gate
+   (`typecheck`/`build`/`test`, including
+   `tests/unit/vendor-patch-ledger.test.ts`) and do not consider the sync
+   complete until it passes clean.
 4. Because `@intx/inference`, `@intx/types`, and `@intx/storage-isogit` are
    coupled (see above), a re-sync that moves any one of their commit hashes
    should move all three together, even if only one had code changes worth
