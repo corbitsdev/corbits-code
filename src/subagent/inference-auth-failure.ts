@@ -26,6 +26,6 @@ export function formatSubAgentTaskAuthFailureMessage(
   // No "Error:" prefix — SessionStore.fail and tool-result surfaces add their own.
   return (
     `sub-agent "${description}" could not run inference (${providerLabel} profile "${profile}"). ` +
-    `${detailSentence} Re-authenticate the profile from /model (c or Ctrl+A to Connect) and retry the task.`
+    `${detailSentence} Re-authenticate the profile from /model (Alt+A to Connect) and retry the task.`
   );
 }

@@ -32,6 +32,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the model picker without dropping into onboarding. Custom still uses the full
   manual form (name, base URL, key, model).
 
+### Docs
+
+- **Models-only connect prose.** PRODUCT, IMPLEMENTATION, and operator-facing
+  error strings document `/model` as models-only with **Alt+A** to add a
+  provider. Stale bare-`c` / Ctrl+A / in-list “connect →” instructions are gone.
+
 ## [0.2.97] - 2026-08-10
 
 Codex connect works again: streaming responses no longer die on a missing
