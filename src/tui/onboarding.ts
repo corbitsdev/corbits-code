@@ -19,6 +19,7 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
 
   const submitted = await runProviderSetup({
     showTelemetryNotice,
+    existingProviderNames: Object.keys(existing?.providers ?? {}),
     onSubmit: buildProviderSubmitHandler(settingsPath, existing, config.cwd),
   });
 

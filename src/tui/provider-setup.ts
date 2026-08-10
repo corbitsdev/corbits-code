@@ -69,11 +69,13 @@ export type ProviderFormValues = {
   apiKey: string
   model: string
   /**
-   * Pre-login account slug for the OAuth path (e.g. "personal"). Kept apart
-   * from `name`, which for OAuth is only written once login succeeds and
-   * then carries the compound catalog name ("codex/personal") — reusing it
-   * for the slug would make the field mean two different things depending
-   * on where the operator is in the flow.
+   * Pre-login / pre-key account slug for multi-instance paths (e.g. "personal").
+   * Kept apart from `name`, which is only written once the account is settled
+   * and then carries the compound catalog name (`codex/personal`,
+   * `openai/work`) — reusing it for the slug would make the field mean two
+   * different things depending on where the operator is in the flow. Shared
+   * by OAuth and first-class API-key multi-instance connects; Custom still
+   * edits `name` free-form.
    */
   oauthProfile: string
 }
@@ -87,8 +89,8 @@ export type SetupStep =
   | "model"
   | "login"
 
-/** Known-provider path: pick, paste key, pick model. */
-export const PRESET_STEPS: readonly SetupStep[] = ["provider", "apiKey", "model"]
+/** Known-provider path: pick, name the instance, paste key, pick model. */
+export const PRESET_STEPS: readonly SetupStep[] = ["provider", "name", "apiKey", "model"]
 
 /**
  * Subscription path: pick, name the account (a suggested slug is prefilled;
@@ -129,10 +131,12 @@ const STEP_PROMPTS: Record<SetupStep, string> = {
   login: "authorize in the browser — this window waits for you",
 }
 
-/** Instruction for the "name" step on the OAuth path, which names an account
- * rather than a whole provider — reusing an existing name re-authorizes it. */
-function oauthNamePrompt(kind: OAuthKind): string {
-  return `name this account — stored as ${kind}/<name>, and used again if you reconnect it`
+/** Instruction for the multi-instance "name" step (OAuth and API-key). */
+function accountNamePrompt(choice: ProviderChoice): string {
+  if (choice.oauth != null) {
+    return `name this account — stored as ${choice.oauth}/<name>, and used again if you reconnect it`
+  }
+  return `name this instance — stored as ${choice.id}/<name>, and used again if you reconnect it`
 }
 
 // "testing" covers the connection-check call against the entered credentials;
@@ -366,21 +370,58 @@ export function providerChoiceById(id: string): ProviderChoice | undefined {
 }
 
 /**
- * How many connected accounts `choice` has in `providers`. OAuth choices
- * (`codex`, `xai`) are keyed by vendor id, but a signed-in account lands in
- * the catalog as `codex/<profile>` / `xai/<profile>` — one row per account —
- * so exact-id matching alone can only ever find zero or one. Key-based
- * choices still match by exact id, which is also at most one.
+ * How many connected accounts `choice` has in `providers`. Both OAuth and
+ * first-class API-key kinds store instances as `kind/<slug>` (plus a legacy
+ * bare `kind` key for the original single-instance connect), so prefix
+ * matching is required. Custom is free-form and never counted here.
  */
 export function connectedAccountCount(
   choice: ProviderChoice,
   providers: readonly { readonly name: string }[],
 ): number {
+  if (choice.custom) return 0
+  const prefix = `${choice.id}/`
   return providers.filter(
-    (p) => p.name === choice.id || (choice.oauth !== null && p.name.startsWith(`${choice.id}/`)),
+    (p) => p.name === choice.id || p.name.startsWith(prefix),
   ).length
 }
 
+/**
+ * Instance slugs already claimed for `kind` in the settings catalog. A legacy
+ * bare `kind` key counts as the slug `"default"` so reconnecting the original
+ * single-instance row still hits the confirm path.
+ */
+export function instanceSlugsForKind(
+  kind: string,
+  existingNames: readonly string[],
+): readonly string[] {
+  const prefix = `${kind}/`
+  const slugs: string[] = []
+  for (const name of existingNames) {
+    if (name === kind) slugs.push("default")
+    else if (name.startsWith(prefix)) {
+      const slug = name.slice(prefix.length)
+      if (slug.length > 0) slugs.push(slug)
+    }
+  }
+  return slugs
+}
+
+/**
+ * Catalog key an API-key instance of `kind`/`slug` is stored under. Reuses a
+ * legacy bare `kind` key when the slug is `"default"` and that bare key still
+ * exists; otherwise always writes the compound form so siblings coexist.
+ */
+export function resolveApiKeyInstanceName(
+  kind: string,
+  slug: string,
+  existingNames: readonly string[],
+): string {
+  const compound = `${kind}/${slug}`
+  if (existingNames.includes(compound)) return compound
+  if (slug === "default" && existingNames.includes(kind)) return kind
+  return compound
+}
 
 /** Pick-list rows for the provider step. */
 export function providerChoiceRows(
@@ -475,13 +516,13 @@ export function secretFromMaskedEdit(secret: string, displayed: string): string 
 }
 
 // The "name" step names a whole provider on the custom path but a single
-// account on the OAuth path; the shared label would mislabel the latter.
+// account/instance on multi-instance first-class kinds (OAuth and API-key).
 function stepLabel(step: SetupStep, choice: ProviderChoice | null): string {
-  if (step === "name" && choice?.oauth != null) return "account name"
+  if (step === "name" && choice !== null && !choice.custom) return "account name"
   return STEP_LABELS[step]
 }
 
-/** `step 2 of 3 · api key` — always says where the operator is and what is left. */
+/** `step 2 of 4 · api key` — always says where the operator is and what is left. */
 export function stepHeadline(
   steps: readonly SetupStep[],
   index: number,
@@ -525,7 +566,9 @@ function settledValue(
   if (step === "apiKey") {
     return values.apiKey.length > 0 ? maskSecret(values.apiKey) : "keyless"
   }
-  if (step === "name") return choice?.oauth != null ? values.oauthProfile : values.name
+  if (step === "name") {
+    return choice !== null && !choice.custom ? values.oauthProfile : values.name
+  }
   if (step === "baseURL") return values.baseURL
   return values.model
 }
@@ -665,11 +708,18 @@ export type ProviderSetupConfig = {
   /** Sign-in deadline override, in milliseconds. */
   readonly loginTimeoutMs?: number
   /**
-   * Skip the provider pick-list and start directly on that provider's
-   * apiKey/login step — the inline connect path from the model picker's
-   * add-provider selector already knows which provider it wants.
+   * Skip the provider pick-list and start directly on that provider's first
+   * form step (account name for multi-instance kinds, or the custom name
+   * field) — the inline connect path from the model picker's add-provider
+   * selector already knows which provider it wants.
    */
   readonly initialProviderId?: string
+  /**
+   * Catalog keys already present in global settings. Used by the API-key
+   * multi-instance name step for suggested slugs and collision confirms.
+   * OAuth still reads live profiles from the auth store.
+   */
+  readonly existingProviderNames?: readonly string[]
 }
 
 const SUMMARY_SLOTS = CUSTOM_STEPS.length
@@ -712,6 +762,7 @@ export async function runProviderSetup(
       })
 
   const choices = providerChoices()
+  const existingProviderNames = config.existingProviderNames ?? []
   const values: ProviderFormValues = {
     name: "",
     baseURL: "",
@@ -801,10 +852,11 @@ export async function runProviderSetup(
     return step === "model" && choice !== null && !choice.custom && !typedModel
   }
   // The "name" step means two different things depending on the path: a
-  // free-text provider name (custom) or an OAuth account slug with its own
-  // suggestion/collision machinery. Only the latter needs this branch.
-  const isOAuthNameStep = (): boolean =>
-    currentStep() === "name" && choice !== null && choice.oauth !== null
+  // free-text provider name (custom) or a multi-instance account slug (OAuth
+  // and first-class API-key) with suggestion/collision machinery. Only the
+  // latter needs this branch.
+  const isAccountNameStep = (): boolean =>
+    currentStep() === "name" && choice !== null && !choice.custom
 
   const root = new BoxRenderable(renderer, {
     id: "provider-setup",
@@ -1059,7 +1111,7 @@ export async function runProviderSetup(
   }
 
   const paintStatus = (): void => {
-    if (!submitting && isOAuthNameStep()) {
+    if (!submitting && isAccountNameStep()) {
       if (oauthProfileError !== null) {
         const ramp = rampFor({ phase: "blocked", nowMs: 0 })
         statusLine.content = rampLine(ramp, oauthProfileError)
@@ -1075,7 +1127,10 @@ export async function runProviderSetup(
           `"${confirmedSlug ?? values.oauthProfile}" is already connected`,
         )
         statusLine.fg = ramp.fg
-        guidance.content = "enter again to re-authorize this account · esc to cancel"
+        guidance.content =
+          choice?.oauth != null
+            ? "enter again to re-authorize this account · esc to cancel"
+            : "enter again to replace this instance's key · esc to cancel"
         guidance.fg = UI.textDim
         return
       }
@@ -1159,8 +1214,8 @@ export async function runProviderSetup(
     const active = currentStep()
     step.content = stepHeadline(steps(), stepIndex, choice)
     instruction.content =
-      isOAuthNameStep() && choice?.oauth != null
-        ? oauthNamePrompt(choice.oauth)
+      isAccountNameStep() && choice !== null
+        ? accountNamePrompt(choice)
         : STEP_PROMPTS[active]
     paintSummary()
     paintList()
@@ -1182,8 +1237,8 @@ export async function runProviderSetup(
       if (isLoginStep() && loginStatus === "idle") beginLogin()
       return
     }
-    if (isOAuthNameStep()) {
-      enterOAuthNameStep()
+    if (isAccountNameStep()) {
+      enterAccountNameStep()
       return
     }
     const field = active as ProviderField
@@ -1195,32 +1250,35 @@ export async function runProviderSetup(
   }
 
   /**
-   * Enter the OAuth "name" step: reset its per-visit state, show whatever
-   * slug is already typed, then fetch this provider's profiles fresh (never
-   * cached across visits — another sign-in could have landed between two
-   * visits to this step) to prefill a suggested, non-colliding slug when the
-   * field is still blank.
+   * Enter the multi-instance "name" step: reset per-visit state, show whatever
+   * slug is already typed, then resolve existing instance names to prefill a
+   * suggested, non-colliding slug when the field is still blank. OAuth reads
+   * the live auth store; API-key reads the settings catalog snapshot.
    */
-  const enterOAuthNameStep = (): void => {
+  const enterAccountNameStep = (): void => {
     oauthProfileError = null
     oauthProfileConfirmPending = false
     input.placeholder = OAUTH_PROFILE_HINT
     input.value = values.oauthProfile
     paint()
     input.focus()
-    const kind = choice?.oauth ?? null
-    if (kind === null) return
+    if (choice === null || choice.custom) return
     const attempt = (oauthNameAttempt += 1)
-    listOAuthProfiles(kind)
-      .catch((): readonly string[] => [])
-      .then((names) => {
-        if (settled || attempt !== oauthNameAttempt) return
-        if (values.oauthProfile.trim().length === 0) {
-          values.oauthProfile = suggestOAuthProfileSlug(names)
-          input.value = values.oauthProfile
-          paint()
-        }
-      })
+    const applySuggestion = (names: readonly string[]): void => {
+      if (settled || attempt !== oauthNameAttempt) return
+      if (values.oauthProfile.trim().length === 0) {
+        values.oauthProfile = suggestOAuthProfileSlug(names)
+        input.value = values.oauthProfile
+        paint()
+      }
+    }
+    if (choice.oauth !== null) {
+      listOAuthProfiles(choice.oauth)
+        .catch((): readonly string[] => [])
+        .then(applySuggestion)
+      return
+    }
+    applySuggestion(instanceSlugsForKind(choice.id, existingProviderNames))
   }
 
   let settled = false
@@ -1439,18 +1497,14 @@ export async function runProviderSetup(
       values.name = ""
       values.baseURL = ""
       values.model = ""
-    } else if (picked.oauth !== null) {
-      // Left blank until login succeeds — see the `oauthProfile` doc comment
-      // on `ProviderFormValues` for why the pre-login slug is a field of
-      // its own rather than a stand-in value here.
+    } else {
+      // Multi-instance first-class kinds (OAuth and API-key): leave the catalog
+      // name blank until the account/instance slug is settled. See the
+      // `oauthProfile` doc comment on `ProviderFormValues`.
       values.name = ""
       values.baseURL = picked.baseURL
       values.model = picked.defaultModel
       values.oauthProfile = ""
-    } else {
-      values.name = picked.id
-      values.baseURL = picked.baseURL
-      values.model = picked.defaultModel
     }
     stepIndex += 1
     if (isListStep()) enterModelList()
@@ -1519,8 +1573,8 @@ export async function runProviderSetup(
       if (loginStatus !== "pending") beginLogin()
       return
     }
-    if (isOAuthNameStep()) {
-      advanceOAuthNameStep()
+    if (isAccountNameStep()) {
+      advanceAccountNameStep()
       return
     }
     const field = currentStep() as ProviderField
@@ -1537,15 +1591,12 @@ export async function runProviderSetup(
   }
 
   /**
-   * Validate the entered slug, then re-derive the collision check against a
-   * fresh profile fetch rather than trusting the snapshot taken when the
-   * step was entered — a profile authorized elsewhere in the meantime must
-   * still be caught. A collision needs one more Enter to confirm before the
-   * step advances, worded as a re-authorization rather than a bare retry.
+   * Validate the entered slug, then check collisions against a fresh source
+   * (auth store for OAuth, settings catalog for API-key). A collision needs
+   * one more Enter to confirm before the step advances.
    */
-  const advanceOAuthNameStep = (): void => {
-    const kind = choice?.oauth ?? null
-    if (kind === null) return
+  const advanceAccountNameStep = (): void => {
+    if (choice === null || choice.custom) return
     const validated = validateOAuthProfileSlug(values.oauthProfile)
     if (!validated.ok) {
       oauthProfileError = validated.error
@@ -1559,30 +1610,40 @@ export async function runProviderSetup(
     // without another round-trip. Any edit since then cleared the flag (see
     // onInput), so this only fires on a genuine second, unmodified Enter.
     if (oauthProfileConfirmPending && confirmedSlug === slug) {
-      enterLoginStepWithSlug(slug)
+      settleAccountNameSlug(slug)
       return
     }
     const attempt = (oauthNameAttempt += 1)
-    listOAuthProfiles(kind)
-      .catch((): readonly string[] => [])
-      .then((names) => {
-        if (settled || attempt !== oauthNameAttempt) return
-        if (names.includes(slug)) {
-          oauthProfileError = null
-          oauthProfileConfirmPending = true
-          confirmedSlug = slug
-          paint()
-          return
-        }
-        enterLoginStepWithSlug(slug)
-      })
+    const handleNames = (names: readonly string[]): void => {
+      if (settled || attempt !== oauthNameAttempt) return
+      if (names.includes(slug)) {
+        oauthProfileError = null
+        oauthProfileConfirmPending = true
+        confirmedSlug = slug
+        paint()
+        return
+      }
+      settleAccountNameSlug(slug)
+    }
+    if (choice.oauth !== null) {
+      listOAuthProfiles(choice.oauth)
+        .catch((): readonly string[] => [])
+        .then(handleNames)
+      return
+    }
+    handleNames(instanceSlugsForKind(choice.id, existingProviderNames))
   }
 
-  const enterLoginStepWithSlug = (slug: string): void => {
+  const settleAccountNameSlug = (slug: string): void => {
     values.oauthProfile = slug
     oauthProfileError = null
     oauthProfileConfirmPending = false
     confirmedSlug = null
+    if (choice !== null && choice.oauth === null && !choice.custom) {
+      // API-key multi-instance: catalog key is kind/slug (or legacy bare kind
+      // when reconnecting the original single-instance "default").
+      values.name = resolveApiKeyInstanceName(choice.id, slug, existingProviderNames)
+    }
     stepIndex += 1
     showStep()
   }
@@ -1598,7 +1659,7 @@ export async function runProviderSetup(
 
   function onInput(next: string): void {
     if (submitting || isListStep()) return
-    if (isOAuthNameStep()) {
+    if (isAccountNameStep()) {
       values.oauthProfile = next
       // An edit invalidates whatever the last submit attempt found — the
       // confirm applies to one exact slug, and any inline error is stale
@@ -1650,7 +1711,7 @@ export async function runProviderSetup(
       key.preventDefault()
       if (isLoginStep()) {
         cancelLogin()
-      } else if (isOAuthNameStep() && oauthProfileConfirmPending) {
+      } else if (isAccountNameStep() && oauthProfileConfirmPending) {
         // Cancel the re-authorize confirm without leaving the step — the
         // operator is about to edit the name, not abandon the provider.
         oauthProfileConfirmPending = false

@@ -11,6 +11,16 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Providers
+
+- **Named API-key instances.** First-class API-key providers (OpenAI key,
+  Anthropic, Google, OpenCode Zen/Go, Z.AI, …) ask for an instance name before
+  the key, so personal and team keys can coexist (`openai/default`,
+  `anthropic/work`, …). Reusing an existing name replaces that instance after
+  an explicit confirm. Custom endpoints stay free-form and single-entry.
+
 ## [0.2.97] - 2026-08-10
 
 Codex connect works again: streaming responses no longer die on a missing
