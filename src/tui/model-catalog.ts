@@ -16,7 +16,7 @@ import { contextWindowFor, hasContextWindowFor } from "../provider/context-windo
 import { modelReasoningCapability } from "../provider/reasoning-effort.js"
 import type { ItemDescription } from "./shell.js"
 
-export type ModelCatalogSection = "recent" | "favorites" | "provider" | "unconnected"
+export type ModelCatalogSection = "recent" | "favorites" | "provider"
 
 /** Picker row — superset of ProductHostModelOption (`id`, `label`). */
 export type ModelCatalogOption = {
@@ -129,16 +129,6 @@ const GO_ON_ZEN_WARNING = "Go model on Zen path — billed as Zen credits"
 /** Default recent-section cap (mirrors config/settings.js DEFAULT_RECENT_MODELS_SHOWN). */
 const DEFAULT_RECENT_MAX = 5
 
-/** Known-but-unconfigured provider, surfaced as a "connect →" row. */
-export type ModelCatalogUnconnectedProvider = {
-  readonly name: string
-  readonly label?: string
-  /** How many models become selectable once this provider is connected. */
-  readonly modelCount: number
-  /** "key" prompts for an API key; "oauth" runs the authorize-link flow. */
-  readonly authKind: "key" | "oauth"
-}
-
 export type BuildModelsFirstCatalogArgs = {
   readonly providers: ModelCatalogProvidersInput
   readonly recent?: readonly ModelCatalogRef[]
@@ -151,8 +141,6 @@ export type BuildModelsFirstCatalogArgs = {
    * billing-product detector; override in tests.
    */
   readonly isGoModelOnZenPath?: (model: string, provider: ModelCatalogProvider) => boolean
-  /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
-  readonly unconnected?: readonly ModelCatalogUnconnectedProvider[]
 }
 
 function providerLabelOf(p: ModelCatalogProvider): string {
@@ -224,27 +212,7 @@ export function buildModelsFirstCatalog(
     }
   }
 
-  for (const provider of args.unconnected ?? []) {
-    const id = connectRowId(provider.name)
-    if (seen.has(id)) continue
-    seen.add(id)
-    const label = provider.label !== undefined && provider.label.trim().length > 0
-      ? provider.label.trim()
-      : provider.name
-    out.push({ id, label: `${label} — connect →`, section: "unconnected" })
-  }
-
   return out
-}
-
-/** Stable id for an unconnected-provider "connect" row. */
-export function connectRowId(providerName: string): string {
-  return `connect:${providerName}`
-}
-
-/** Provider name a connect-row id refers to, or null when `id` is not a connect row. */
-export function providerFromConnectRowId(id: string): string | null {
-  return id.startsWith("connect:") ? id.slice("connect:".length) : null
 }
 
 function formatPrice(perToken: number): string {
@@ -282,27 +250,15 @@ function whatLine(model: string): string {
 
 /**
  * Description-zone content for a picker row. `pricing` defaults to the live
- * models.dev cache; override in tests. Unconnected "connect →" rows and rows
- * with a billing warning override the plain what/impact pair.
+ * models.dev cache; override in tests. Rows with a billing warning override
+ * the plain what/impact pair.
  */
 export function describeModelCatalogOption(
   option: ModelCatalogOption,
   args?: {
     readonly pricing?: PricingCache | null
-    readonly unconnected?: readonly ModelCatalogUnconnectedProvider[]
   },
 ): ItemDescription | null {
-  const providerName = providerFromConnectRowId(option.id)
-  if (providerName !== null) {
-    const provider = (args?.unconnected ?? []).find((p) => p.name === providerName)
-    const count = provider?.modelCount ?? 0
-    return {
-      what: "Not set up yet. Connecting asks for an API key and stores it in your global settings.",
-      impact: `${count} model${count === 1 ? "" : "s"} become available. Nothing is sent until you send a message.`,
-      tone: "plain",
-    }
-  }
-
   const model = option.id.slice(option.id.indexOf(":") + 1)
   const pricing = args?.pricing !== undefined ? args.pricing : getActivePricingCache()
 

@@ -419,14 +419,29 @@ known, accepted cost of the badge rather than an oversight — see
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
 recent and favorite provider+model pairs sit at the top, then every
-`provider / model` leaf from the catalog — no nested provider pane. Typing
-narrows the list in place (printable keys claimed by the filter row, same
-pattern as the command palette); Enter selects. Escape closes the picker.
-The row matching the session's live active model gets a `(current)` suffix.
-Alt+F on a model row still toggles favorite when a favorite hook is wired.
-While type-to-filter is active, bare `j`/`k` type into the filter rather than
-moving the highlight — use arrow keys (or the filtered list's navigation) to
-move.
+`provider / model` leaf from the catalog. Typing narrows the list in place
+(printable keys claimed by the filter row, same pattern as the command
+palette); Enter selects. Escape closes the picker. The row matching the
+session's live active model gets a `(current)` suffix. Alt+F on a model row
+still toggles favorite when a favorite hook is wired. While type-to-filter is
+active, bare `j`/`k` type into the filter rather than moving the highlight —
+use arrow keys (or the filtered list's navigation) to move.
+
+The list itself never nests by provider, but connecting a new provider is not
+a flat-list row either: the picker used to grow a "connect →" row per
+not-yet-configured provider kind, filtered out once that kind had any
+connected account. That filtering made a second OAuth account (a second
+Codex or xAI login) unreachable — OAuth accounts are per-profile, so
+kind-level "already connected" filtering hid the connect path the moment the
+first profile existed. **Alt+A** now opens `add_provider`
+(`src/tui/overlays.ts:openAddProviderOverlay`), a separate `PrimaryOverlayKind`
+listing every first-class provider kind from `providerChoices()` — OAuth and
+API-key alike — each annotated with its live connected-account count and none
+of them filtered out. Esc returns to the model list through the same
+`openModels()` entry point the picker itself uses. Picking a row runs the
+existing inline connect flow (`provider-connect.ts`); on success the picker
+reopens focused on the new account's default model instead of the top of the
+list.
 
 Onboarding (the standalone provider-setup screen, `provider-setup.ts`) and
 the satellite pickers used for session resume and session-mode selection

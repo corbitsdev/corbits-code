@@ -223,8 +223,8 @@ describe("mountRunnerHost command surfaces", () => {
       expect(host.openSurface("settings")).toBe(true)
       expect(host.shell.overlayKind).toBe("settings")
       closeInsetOverlay(host.shell)
-      // onModelSelect is wired even with an empty catalog, since the "not
-      // connected" section can populate the picker on its own.
+      // onModelSelect being wired is enough to open the picker, even with an
+      // empty catalog (nothing to pick yet, but the surface itself opens).
       expect(host.openSurface("models")).toBe(true)
     } finally {
       host.dispose()
@@ -234,37 +234,6 @@ describe("mountRunnerHost command surfaces", () => {
 })
 
 describe("mountRunnerHost model picker", () => {
-  test("lists a connect row for each unconnected provider, described in the connect copy", async () => {
-    const harness = await createHarness({ width: 80, height: 24 })
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => {},
-      interrupt: () => {},
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => {},
-      unconnectedProviders: [
-        { name: "openai", label: "OpenAI", modelCount: 4, authKind: "key" },
-      ],
-      commands: [],
-      onCommand: () => {},
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => {},
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    })
-    try {
-      expect(host.openSurface("models")).toBe(true)
-      expect(host.shell.overlayItems).toContain("OpenAI — connect →")
-      expect(host.shell.overlayItems.some((i) => i.includes("Go model on Zen path"))).toBe(
-        false,
-      )
-    } finally {
-      host.dispose()
-      harness.destroy()
-    }
-  })
-
   test("refreshModels moves a selected pair into the Recent section", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     const host = await mountRunnerHost({
@@ -293,10 +262,10 @@ describe("mountRunnerHost model picker", () => {
     }
   })
 
-  test("refreshModels swaps in a freshly connected provider and drops its connect row", async () => {
+  test("refreshModels swaps in a freshly connected provider's models without a remount", async () => {
     // Mount-time deps are a snapshot; a live provider connect (CL-5602) must be
     // able to replace them without remounting the host, or the newly connected
-    // provider's models never appear and its "connect →" row never clears.
+    // provider's models never appear.
     const harness = await createHarness({ width: 80, height: 24 })
     const host = await mountRunnerHost({
       title: "test",
@@ -305,9 +274,6 @@ describe("mountRunnerHost model picker", () => {
       interrupt: () => {},
       providers: { xai: { models: ["grok-4"] } },
       onModelSelect: () => {},
-      unconnectedProviders: [
-        { name: "openai", label: "OpenAI", modelCount: 1, authKind: "key" },
-      ],
       commands: [],
       onCommand: () => {},
       chrome: () => ({ agents: [] }),
@@ -320,14 +286,12 @@ describe("mountRunnerHost model picker", () => {
         [],
         [],
         { xai: { models: ["grok-4"] }, openai: { models: ["gpt-5"] } },
-        [],
       )
       expect(host.openSurface("models")).toBe(true)
-      // Flat list: connect row is gone; the new provider appears as a leaf
-      // `provider / model` row, not a nested group to drill into.
+      // Flat list: the new provider appears as a leaf `provider / model` row,
+      // not a nested group to drill into.
       expect(host.shell.overlayItems.some((label) => label.includes("openai"))).toBe(true)
       expect(host.shell.overlayItems.some((label) => label.includes("gpt-5"))).toBe(true)
-      expect(host.shell.overlayItems).not.toContain("OpenAI — connect →")
     } finally {
       host.dispose()
       harness.destroy()

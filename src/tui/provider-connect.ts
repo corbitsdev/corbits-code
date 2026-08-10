@@ -1,5 +1,5 @@
 /**
- * Inline "connect →" flow for the model picker's not-connected providers.
+ * Inline connect flow for the model picker's Alt+A add-provider selector.
  * Extracted wiring around provider-setup's existing full-screen setup surface
  * (key entry + OAuth login, with its timeout/cancel/failure handling already
  * implemented there) — reused via `initialProviderId`, not reimplemented.
