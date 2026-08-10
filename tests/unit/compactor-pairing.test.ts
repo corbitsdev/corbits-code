@@ -98,3 +98,98 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
     expect(tokens).toBeGreaterThan(20000);
   });
 });
+
+// CL-4374: when the same path is read more than once and both results survive
+// compaction (recent window / anchors), older successful reads become one-line
+// stubs; the newest successful read stays whole; error results stay whole.
+function assistantRead(id: string, path: string): ConversationTurn {
+  return {
+    role: "assistant",
+    content: [{ type: "tool_call", id, name: "read_file", arguments: { path } }],
+    timestamp: 1,
+  };
+}
+
+function userReadResult(callId: string, body: string, isError = false): ConversationTurn {
+  return {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        callId,
+        content: [{ type: "text", text: body }],
+        ...(isError ? { isError: true } : {}),
+      },
+    ],
+    timestamp: 1,
+  };
+}
+
+function resultText(output: ConversationTurn[], callId: string): string | undefined {
+  for (const turn of output) {
+    for (const block of turn.content) {
+      if (block.type === "tool_result" && block.callId === callId) {
+        return block.content
+          .filter((c): c is { type: "text"; text: string } => c.type === "text")
+          .map((c) => c.text)
+          .join("");
+      }
+    }
+  }
+  return undefined;
+}
+
+describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
+  test("stubs an older successful read of a path re-read later; newest stays whole", async () => {
+    const oldBody = "OLD_CONTENT_" + "a".repeat(200);
+    const newBody = "NEW_CONTENT_" + "b".repeat(200);
+    // Both read pairs sit in the recent window so neither is folded into the
+    // summary — only the path-dedup pass should hollow the older result.
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantRead("r1", "src/hot.ts"),
+      userReadResult("r1", oldBody),
+      assistantRead("r2", "src/hot.ts"),
+      userReadResult("r2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+
+    const older = resultText(output, "r1");
+    const newer = resultText(output, "r2");
+    expect(older).toBeDefined();
+    expect(newer).toBe(newBody);
+    expect(older).not.toBe(oldBody);
+    expect(older).toMatch(/read_file/);
+    expect(older).toMatch(/src\/hot\.ts/);
+    expect(older).toMatch(/omitted|chars/);
+    expect(older!.length).toBeLessThan(oldBody.length);
+  });
+
+  test("preserves error read results verbatim even when a later success supersedes the path", async () => {
+    const errBody = "Error: ENOENT no such file " + "e".repeat(80);
+    const okBody = "OK_CONTENT_" + "c".repeat(200);
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantRead("r1", "src/hot.ts"),
+      userReadResult("r1", errBody, true),
+      assistantRead("r2", "src/hot.ts"),
+      userReadResult("r2", okBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+
+    expect(resultText(output, "r1")).toBe(errBody);
+    expect(resultText(output, "r2")).toBe(okBody);
+  });
+});
