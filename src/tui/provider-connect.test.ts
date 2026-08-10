@@ -21,7 +21,6 @@ describe("connectProviderInline", () => {
         providerId: "openai",
         settingsPath,
         localSettingsPath: join(dir, "local.json"),
-        cwd: dir,
         existing: null,
         createRenderer: async () => harness.renderer,
       })

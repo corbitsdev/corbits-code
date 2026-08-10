@@ -2107,7 +2107,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             providerId: providerName,
             settingsPath: trueGlobalSettingsPath,
             localSettingsPath: localSettingsFile,
-            cwd: config.cwd,
             existing: config.settings ?? null,
             createRenderer: () => Promise.resolve(host.renderer),
           });

@@ -12,8 +12,8 @@ import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js"
 export type ConnectProviderInput = {
   readonly providerId: string
   readonly settingsPath: string
+  /** Project-local selection file; written after a successful connect. */
   readonly localSettingsPath: string
-  readonly cwd: string
   readonly existing: Settings | null
   readonly createRenderer?: ProviderSetupConfig["createRenderer"]
   readonly startLogin?: ProviderSetupConfig["startLogin"]
@@ -35,7 +35,11 @@ export async function connectProviderInline(
   input: ConnectProviderInput,
 ): Promise<ConnectProviderResult> {
   let result: ConnectProviderResult = { connected: false }
-  const submitProvider = buildProviderSubmitHandler(input.settingsPath, input.existing, input.cwd)
+  const submitProvider = buildProviderSubmitHandler(
+    input.settingsPath,
+    input.existing,
+    input.localSettingsPath,
+  )
 
   const submitted = await runProviderSetup({
     showTelemetryNotice: false,
