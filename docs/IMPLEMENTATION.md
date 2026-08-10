@@ -154,9 +154,6 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 
 Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
-
-Plan approval is handled separately by `use-gates` (`pendingPlan`), independent of auto mode.
-
 ### Interrupt and Queue Steering
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true:
