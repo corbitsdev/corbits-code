@@ -202,11 +202,10 @@ a line of counts. This release fixes that path end to end.
   nothing while children run, the whole run read as silent: a no-response notice
   at ninety seconds, then an abort of everything in flight at fifteen minutes.
   The watchdog now consults the outstanding tool calls it was already tracking.
-  (CL-5641)
 - **The clock also ran while you read an approval.** Blocked-on-the-operator is
   now part of the turn state rather than something only the painter derived, so
   the watchdog and the phase line read one source. Gates still queued behind
-  another are covered, not only the one on screen. (CL-5642)
+  another are covered, not only the one on screen.
 
 ### Approvals
 
@@ -214,17 +213,17 @@ a line of counts. This release fixes that path end to end.
   every queued request it already covers. The reconciliation lives in the
   permission layer behind a single idempotent settle, so it holds for any
   surface and cannot double-resolve or strand a request. Session teardown denies
-  whatever is still queued instead of abandoning it. (CL-4995)
+  whatever is still queued instead of abandoning it.
 - **Every approval wrote two transcript rows.** A screen of approvals read as
   twice as many requests as had happened. There is now exactly one row per
   decision — including denials, timeouts, and aborts, which previously wrote
-  nothing, so a refused permission was indistinguishable from a hang. (CL-5644)
+  nothing, so a refused permission was indistinguishable from a hang.
 - **Project-scoped grants never matched a sub-agent.** A grant was stamped with
   the session root while a sub-agent asks from its own git worktree, and the two
   were compared as plain strings — so the agents generating the approvals could
   never benefit from an earlier answer. Both sides now resolve through the
   worktree registry that already governs path containment, by exact match rather
-  than prefix. (CL-5662)
+  than prefix.
 
 ### Watching the work
 
@@ -234,7 +233,6 @@ a line of counts. This release fixes that path end to end.
   at a time under a short terminal rather than disappearing, and when a fan-out
   exceeds the space the quietest agent stays visible. Rows are measured in
   terminal columns, so a wide-character description cannot overflow the zone.
-  (CL-5646)
 
 ### Turns that never ended
 
@@ -242,10 +240,9 @@ a line of counts. This release fixes that path end to end.
   tool call under different identities — one by id, one by name — so a call was
   counted twice and cleared once, and the turn waited forever on work that had
   finished. Goal mode was worst affected because it continues on its own and
-  never emits the fallback that settles a stalled turn. (CL-5645)
+  never emits the fallback that settles a stalled turn.
 - `run.json` records its turn count at every turn boundary rather than only at
   session start and end, so a resumed session reports what it actually did.
-  (CL-5570, CL-5534)
 
 ## [0.2.92] - 2026-08-07
 
@@ -264,15 +261,14 @@ top, and each account appears as its own row.
   `/clever` are retired rather than remapped — a tier was a per-name fallback
   chain, which neither a favourite nor a pinned model expresses. Per-agent
   selection continues through `profile.inference`. A settings file containing
-  `tiers` still loads; the key is dropped on save. (CL-5591)
+  `tiers` still loads; the key is dropped on save.
 - **The context meter was wrong by nearly four times** for any provider with a
   custom name. An account-qualified identity did not match the registry, so a
   500k window read as the 128k default. Resolution now tries the identity as
   given, the bare model id, and the canonical provider/model form, and marks a
-  figure as estimated only when it genuinely falls back. (CL-5587)
+  figure as estimated only when it genuinely falls back.
 - The current model is read from the live session rather than inferred from the
   most recent pick, which mislabelled any session that never opened the picker.
-  (CL-5597)
 
 ### Sessions could be killed outright
 
@@ -281,51 +277,51 @@ top, and each account appears as its own row.
   decrypt it, and every subsequent turn failed with HTTP 400. Signatures now
   carry the provider that issued them, so two backends sharing a model name
   cannot replay each other's. Switching accounts on the same provider still
-  preserves reasoning continuity. (CL-5592, CL-5594)
+  preserves reasoning continuity.
 - **A model that fell into a loop ran unbounded.** Repetition is detected by
   character period within a streaming cycle, and by comparing cycle
   fingerprints across tool calls, so a loop that emits a tool call each pass is
   still caught. Ordinary narration repeated before successive tool calls is
-  not. (CL-5577)
+  not.
 
 ### The screen
 
 - Plugin diagnostics wrote raw to stderr and corrupted the frame. They now go
   through the log sink, and the warnings that used to vanish with them are
-  surfaced where the operator can see them. (CL-5411)
+  surfaced where the operator can see them.
 - The provider setup screen garbled its own text on short terminals — rows were
-  compressed into one another instead of clipping. (CL-5363)
+  compressed into one another instead of clipping.
 - The command palette matches the prompt box width, drops its marker column,
   kind column, and title rule, and marks the selected row by colour rather than
-  a grey band. (CL-5581, CL-5582, CL-5583, CL-5584)
+  a grey band.
 - An open overlay reserves its own border, title, and content rows before any
-  other chrome is allowed to starve it. (CL-5584)
+  other chrome is allowed to starve it.
 - **`/resume` was offering sessions that did not exist.** Demo fixture data was
   shipping in the production bundle and rendering whenever a dependency was
-  missing. A missing dependency now produces an honest empty state. (CL-5596)
-- Dialog choices read as plain English rather than internal names. (CL-5586)
+  missing. A missing dependency now produces an honest empty state.
+- Dialog choices read as plain English rather than internal names.
 
 ### Context and state
 
 - Compaction stopped hollowing out the turns it had just decided to keep. A file
-  edit inside the recent window keeps its content. (CL-5595)
+  edit inside the recent window keeps its content.
 - `run.json` is finalized when the process crashes, without reading from disk on
-  the crash path. (CL-5574)
+  the crash path.
 - An `@`-mentioned file outside the workspace is inlined once rather than
   blocked, gated by the sensitive-path list and a total byte cap. That list now
   covers shell histories, system credential files, keychains, browser cookie and
-  login stores, and cloud credentials. (CL-5479)
+  login stores, and cloud credentials.
 
 ### Agents and the machine
 
 - **An agent could rewrite your global git configuration to push**, altering
   every repository on the machine. That now requires operator approval, and a
   scoped push path applies credentials per invocation with nothing written to
-  any config file. (CL-4762)
+  any config file.
 - `present`, `manage_goal`, `manage_tasks`, and `lsp` are advertised only when
-  they apply. (CL-5588)
-- Live progress appears on a dispatched sub-agent's transcript row. (CL-5576)
-- The most recently queued message can be cancelled. (CL-5572)
+  they apply.
+- Live progress appears on a dispatched sub-agent's transcript row.
+- The most recently queued message can be cancelled.
 
 ### Development
 
@@ -334,7 +330,7 @@ top, and each account appears as its own row.
   capture-then-restore idiom silently reinstalled the mock process-wide. Under
   randomized order the suite produced over a hundred failures; it now passes
   across every seed tried, and CI runs a fixed seed on each change plus a
-  rotating seed nightly. (CL-5579)
+  rotating seed nightly.
 - `docs/TUI.md` states how the terminal UI is meant to look and behave —
   overlays, selectors, the palette, the prompt box, scrolling, and key macros.
   Nine documents describing the finished migration are retired.
@@ -364,41 +360,39 @@ keep native selection either way.
 - Pressing Esc on a permission or operator prompt abandoned the request the
   agent was waiting on. The session hung permanently and Ctrl+C did not
   recover it — the interrupt path never reached that promise. Dismissing now
-  resolves it as a denial. (CL-5569)
+  resolves it as a denial.
 - Goal-mode auto-deny and the tool-watchdog abort were both inert. The
   producer sent a timeout and an abort signal; a locally redeclared event type
   in the renderer silently dropped both, so an unattended run could park on a
-  permission prompt forever. (CL-5568)
+  permission prompt forever.
 - A permission or operator prompt raised before any transcript row existed
   rendered its title and footer but clipped its choices, because the layout
   asked for room for exactly one option regardless of how many there were.
-  (CL-5560)
 - Messages typed while the agent was working were queued and never sent. The
   drain waited on a signal that fires once at shutdown rather than at each
-  turn boundary. (CL-5563)
+  turn boundary.
 - A detached throw left the process alive with the event loop held open. Real
   `uncaughtException` and `unhandledRejection` handlers now write a crash
-  report and exit non-zero. (CL-5565)
+  report and exit non-zero.
 
 **Memory and state grew or drifted without bound.**
 
 - Transcript rows were retained for the life of the process; a 600-row cap was
-  lost during the cutover and never restored. (CL-5551)
+  lost during the cutover and never restored.
 - History past 500 rows could not be reached by scrolling, and every appended
-  row rebuilt the whole painted window. (CL-5553)
+  row rebuilt the whole painted window.
 - Concurrent writes to a session's `run.json` are serialized per session, so a
   late progress snapshot can no longer resurrect a finished run as `running`.
-  (CL-5567)
 - Resuming a session reset `turnsUsed` to zero and dropped its connected MCP
-  servers. (CL-5566)
+  servers.
 - Quitting during an @-mention lookup or a clipboard read could write into
-  freed renderer memory. (CL-5554)
+  freed renderer memory.
 
 **The context meter lied, and compaction could not act.**
 
 - The meter read only provider-reported usage with no fallback, so a provider
   that omitted usage left it frozen while real occupancy climbed. It now falls
-  back to a local estimate and marks the number as approximate. (CL-5564)
+  back to a local estimate and marks the number as approximate.
 - The meter and the compaction governor computed context size from different
   fields, so they could disagree by the full size of the prompt cache.
 - The system prompt and tool schemas are counted, having previously been
@@ -410,21 +404,20 @@ keep native selection either way.
 **Input and rendering.**
 
 - Pasting several lines into a terminal that does not negotiate bracketed
-  paste sent each line as a separate message. (CL-5541)
+  paste sent each line as a separate message.
 - Markdown headings no longer flicker while the text below them streams.
-  (CL-5559)
 - Parallel `task` dispatches paired results to calls by tool name, so three
   concurrent sub-agents could resolve the wrong rows and append orphans. They
-  are keyed by call id. (CL-5562)
+  are keyed by call id.
 - The onboarding and session pickers no longer turn on mouse reporting, so
-  drag-select works there. (CL-5540)
+  drag-select works there.
 
 ### Changed
 
 - The sub-agent concurrency cap is removed. Sub-agents run unbounded, and the
   `maxConcurrentSubAgents` setting no longer exists — an existing settings
   file containing it still loads. Setting it to `0` previously disabled
-  sub-agents entirely; that capability is gone with it. (CL-5575)
+  sub-agents entirely; that capability is gone with it.
 
 ## [0.2.90] - 2026-08-07
 
@@ -440,7 +433,7 @@ unchanged: Ctrl+C interrupts, twice exits.
 ### New Features
 
 - **OpenTUI renderer** — zone-based geometry resolver with per-zone minimums and
-  an explicit collapse order, replacing React reconciliation. (CL-4426)
+  an explicit collapse order, replacing React reconciliation.
 - **Multi-line composer** that wraps and grows to 40vh before it scrolls.
 - **Copy mode** (Alt+C) writes to the system clipboard on macOS, Windows, and
   Linux, with an OSC 52 fallback for content selection cannot reach.
@@ -482,33 +475,31 @@ unchanged: Ctrl+C interrupts, twice exits.
   session start — unactionable, uncopyable, and gone once it scrolled away. The
   notice row now names the servers waiting (`mcp granola needs auth (/mcp)`)
   and clears when they connect; nothing blocks usage, an unauthorized server
-  simply has no tools. (CL-5555)
+  simply has no tools.
 - **`/mcp` is a real surface** listing every configured server and its live
   state — connected with tool count, needs auth, or failed with the reason.
   Enter on an unauthorized row opens its authorization page in the browser and
-  copies the link, so the flow also works over SSH. (CL-5555)
+  copies the link, so the flow also works over SSH.
 - **The OAuth callback page carries the brand.** One page now serves MCP
   servers and inference providers alike, on the terminal's own palette, with
   the mark animating through the same dithered draw/fill timeline as the
   landing. It names what happened — "Linear connected successfully", "Granola
   failed to connect" — and humanizes server names and error codes on the way
   in. Entirely inline: a local authorization callback makes no network call.
-  (CL-5556)
 
 ### Permissions
 
 - **Shell-block messaging** cites host safety and OOM risk, and names the
   bounded `grep`/`search_files` tools as the alternative, rather than reading as
   a tool-routing preference. Open-ended `find`/`rg`/`grep -r` still hard-deny.
-  (CL-5421, #328)
 - **Pure directory listing outside the workspace auto-allows again** — `ls`, and
   `tree` bounded by `-L`/`--max-depth` to depth 10. Content readers still ask.
   Unbounded recursive listing (`ls -R`, bare or over-deep `tree`) asks even
-  inside the workspace. (CL-5422, #329)
+  inside the workspace.
 - **`tree -o` no longer auto-allows** — a listing command that writes a file is
   not a listing command, and it had been bypassing `write_file` review. Long
   `--recursive` spellings on `ls`, down to every unambiguous abbreviation, are
-  caught too. (#329)
+  caught too.
 
 ### Known Issues
 
@@ -517,8 +508,8 @@ unchanged: Ctrl+C interrupts, twice exits.
 - **Markdown flickers mildly while streaming.** The deterministic cause is
   fixed; a residue remains from the async highlighter.
 - Transcript history past 500 rows cannot be scrolled to, and rows are retained
-  for the life of the process. (CL-5553, CL-5551)
-- A detached throw or a signal can leave a session marked running. (CL-5552)
+  for the life of the process.
+- A detached throw or a signal can leave a session marked running.
 
 ## [0.2.89] - 2026-08-05
 
@@ -526,15 +517,15 @@ Patch: models-first `/model` picker and OpenCode Go subscription billing pin.
 
 ### New Features
 
-- **Models-first `/model`** — open on a Recent / Favorites / all-models list; Alt+A / Alt+F for favorites; connect is auth-only for Tier A first-class providers. (CL-5355, #327)
-- **Tier A connect catalog** — OpenAI dual-path (ChatGPT login vs API key), Anthropic, xAI, Z.AI, OpenCode Zen, OpenCode Go; no OpenRouter/Copilot in the first-run list. (CL-5355, #327)
+- **Models-first `/model`** — open on a Recent / Favorites / all-models list; Alt+A / Alt+F for favorites; connect is auth-only for Tier A first-class providers.
+- **Tier A connect catalog** — OpenAI dual-path (ChatGPT login vs API key), Anthropic, xAI, Z.AI, OpenCode Zen, OpenCode Go; no OpenRouter/Copilot in the first-run list.
 
 ### Fixed
 
-- **OpenCode Go billed as Zen PAYG** — central `isOpenCodeGoProvider` / `isOpenCodeGoProviderId` identity; force subscription `OPENCODE_GO_BASE_URL` at catalog load, `buildProviderEntry`, `resolveProvider`, and inference source build so a wrong disk `baseURL` cannot mis-bill. (CL-5356, #327)
-- **Go model on Zen path** — `isGoModelOnZenPath` warning when a known Go model sits on a credits-billed Zen provider. (#327)
-- Recent/favorite model prefs serialize writes so concurrent toggles cannot clobber each other. (#327)
-- Empty success toasts and double-recording of recent models on apply. (#327)
+- **OpenCode Go billed as Zen PAYG** — central `isOpenCodeGoProvider` / `isOpenCodeGoProviderId` identity; force subscription `OPENCODE_GO_BASE_URL` at catalog load, `buildProviderEntry`, `resolveProvider`, and inference source build so a wrong disk `baseURL` cannot mis-bill.
+- **Go model on Zen path** — `isGoModelOnZenPath` warning when a known Go model sits on a credits-billed Zen provider.
+- Recent/favorite model prefs serialize writes so concurrent toggles cannot clobber each other.
+- Empty success toasts and double-recording of recent models on apply.
 
 ## [0.2.88] - 2026-08-04
 
@@ -554,39 +545,39 @@ Patch release: always-on PerfTrace measurement stack, session state under `~/.co
 
 ### New Features
 
-- **Always-on PerfTrace** — in-process span API, ring buffer, and privacy-strict tag allowlist (`src/perf/`). One span model for turns, inference (TTFT/stream), tools, permission waits, and subagents. No settings required for local measurement. (CL-5160, #303; CL-5171, #305; CL-5170, #308)
-- **Offline dump + rollup** — `dumpSpans` and pure rollups by phase/turn/session; TTFT vs stream shares. (CL-5169, #307)
-- **Attribution report** — exclusive wall-time shares (inference / tools / permission / subagent / other), open-turn stall dumps, CLI `bun scripts/perf-report.ts`, operator guide in `docs/perftrace-attribution-guide.md`. (CL-5167, #311)
-- **Opt-in OTEL export** — settings/env surface (`OTEL_EXPORTER_OTLP_*`, `~/.corbits/settings.json` `otel` block) plus OTLP HTTP JSON sink. Fail-closed config; dump-safe header redaction. Targets Phoenix, PostHog OTEL, or any OTLP collector — separate from PostHog product analytics. (CL-5175, #306; CL-5173, #309)
-- **Latency eval harness** — assert phase presence and relative magnitudes in tests (`assert-spans`, multi-tool fixture). (CL-5174, #310)
-- **Reasoning effort by agent role** — orchestrator vs task-leaf defaults so high-effort leaves stop multiplying wall time. (CL-5162, #302)
-- **Session state under `~/.corbits/projects`** — project key from git toplevel (worktrees share); dual-read migrate from in-repo `.agent-state`; path-restriction exception for the global state root. (CL-5257, #313)
-- **Post-upgrade release notes** — on a fresh interactive start after upgrade, show bounded Keep-a-Changelog sections in the session banner; stamp `lastChangelogVersion` in global settings; first install is quiet; `/changelog` and `/changelog full` for on-demand history. Ships `CHANGELOG.md` next to release binaries. (CL-5333, CL-5332, CL-5334, #314)
-- **Streaming stall / loop detection** — trailing-window repetition detection; preserve partial streamed output in exec and TUI; partial-capture lifecycle owned by the cycle recorder. (#280, #281)
-- **Nested UI polish** — quieter chrome, context meter, task/shell rows, observe-leave behavior. (#312)
-- **Approval queue re-eval** — when a grant widens, re-check the pending queue; stored approvals evaluated through `@intx/authz`. (#288, #295)
-- **Task re-dispatch cap** — parents stop re-dispatching identical thrashing / budget-exhausted briefs. (#294)
+- **Always-on PerfTrace** — in-process span API, ring buffer, and privacy-strict tag allowlist (`src/perf/`). One span model for turns, inference (TTFT/stream), tools, permission waits, and subagents. No settings required for local measurement.
+- **Offline dump + rollup** — `dumpSpans` and pure rollups by phase/turn/session; TTFT vs stream shares.
+- **Attribution report** — exclusive wall-time shares (inference / tools / permission / subagent / other), open-turn stall dumps, CLI `bun scripts/perf-report.ts`, operator guide in `docs/perftrace-attribution-guide.md`.
+- **Opt-in OTEL export** — settings/env surface (`OTEL_EXPORTER_OTLP_*`, `~/.corbits/settings.json` `otel` block) plus OTLP HTTP JSON sink. Fail-closed config; dump-safe header redaction. Targets Phoenix, PostHog OTEL, or any OTLP collector — separate from PostHog product analytics.
+- **Latency eval harness** — assert phase presence and relative magnitudes in tests (`assert-spans`, multi-tool fixture).
+- **Reasoning effort by agent role** — orchestrator vs task-leaf defaults so high-effort leaves stop multiplying wall time.
+- **Session state under `~/.corbits/projects`** — project key from git toplevel (worktrees share); dual-read migrate from in-repo `.agent-state`; path-restriction exception for the global state root.
+- **Post-upgrade release notes** — on a fresh interactive start after upgrade, show bounded Keep-a-Changelog sections in the session banner; stamp `lastChangelogVersion` in global settings; first install is quiet; `/changelog` and `/changelog full` for on-demand history. Ships `CHANGELOG.md` next to release binaries.
+- **Streaming stall / loop detection** — trailing-window repetition detection; preserve partial streamed output in exec and TUI; partial-capture lifecycle owned by the cycle recorder.
+- **Nested UI polish** — quieter chrome, context meter, task/shell rows, observe-leave behavior.
+- **Approval queue re-eval** — when a grant widens, re-check the pending queue; stored approvals evaluated through `@intx/authz`.
+- **Task re-dispatch cap** — parents stop re-dispatching identical thrashing / budget-exhausted briefs.
 
 ### Fixed
 
-- Hard-deny shell authz through `env -S` / split-string payloads (including empty payload and end-of-options forms). (#278)
-- Streaming markdown tables stay on one column-width set (no mid-stream realign / raw-pipe degradation). (#277)
-- Shell approval modal scroll, expand, and agent-label display; shared scroll-window math. (#279 train / related)
+- Hard-deny shell authz through `env -S` / split-string payloads (including empty payload and end-of-options forms).
+- Streaming markdown tables stay on one column-width set (no mid-stream realign / raw-pipe degradation).
+- Shell approval modal scroll, expand, and agent-label display; shared scroll-window math.
 - Worktree preserve: do not drop stash when unknown or detached HEAD advanced; count gitignored-but-present files as content worth keeping. (related main commits)
 - Judge shell auto-allow and restriction against the process cwd; queued-grant coverage uses the session path restriction.
 
 ### Changed
 
-- Package rename: root package is `@corbits/code` (was `corbits`). (#282)
-- Homebrew release tap points at `corbitsdev/homebrew-tap`. (#283)
-- TUI root and event log split into focused modules (assembly vs presentation). (#285, #286)
+- Package rename: root package is `@corbits/code` (was `corbits`).
+- Homebrew release tap points at `corbitsdev/homebrew-tap`.
+- TUI root and event log split into focused modules (assembly vs presentation).
 - Sub-agent tool description no longer claims an incorrect working-tree isolation model.
 
 ### Docs / tooling
 
 - `docs/PERFTRACE.md` — local sink, OTEL config, collector examples, relationship to product telemetry.
-- Codex request parity checklist (spike, no production behavior change). (CL-5168, #304)
-- Codex SSE golden fixture pack + parse tests. (CL-5166, #301)
+- Codex request parity checklist (spike, no production behavior change).
+- Codex SSE golden fixture pack + parse tests.
 
 ## [0.2.86] - 2026-07-30
 
@@ -594,17 +585,17 @@ Patch release: agents use the core tools. Every behavior change validated by a b
 
 ### New Features
 
-- Built-in `web_fetch` (native fetch, markdown output, SSRF guards) and `web_search` (keyless hosted providers) replace the plugin-only web tools ([CL-4838]).
+- Built-in `web_fetch` (native fetch, markdown output, SSRF guards) and `web_search` (keyless hosted providers) replace the plugin-only web tools ().
 - Per-project `settings.env` supplies shell environment as configuration instead of commands.
-- Model-family policy drives the directors: main sessions get a wrap-up nudge and a loud auto-pause on runaway tool-only loops; silent sub-agents get a continuation nudge then a clean stop; grok thresholds tightened ([CL-4839]).
-- A shared prompt discipline block steers every model to dedicated tools, single-purpose commands, and finishing behavior ([CL-4837]).
-- The capability eval is now a behavior gate: bait cases, behavior metrics, repeat runs, provider pinning with loud mismatch failure, and honest baseline comparison ([CL-4836]).
+- Model-family policy drives the directors: main sessions get a wrap-up nudge and a loud auto-pause on runaway tool-only loops; silent sub-agents get a continuation nudge then a clean stop; grok thresholds tightened ().
+- A shared prompt discipline block steers every model to dedicated tools, single-purpose commands, and finishing behavior ().
+- The capability eval is now a behavior gate: bait cases, behavior metrics, repeat runs, provider pinning with loud mismatch failure, and honest baseline comparison ().
 
 ### Security
 
-- Command substitution inside double quotes stays visible to grant replay ([CL-4825]).
-- Persisted grants no longer key on model-authored comment lines ([CL-4827]).
-- Chains of five or more segments are approved once only; env assignments (including `env -S` smuggling, scanned deny-first) and upload-shaped network commands now ask ([CL-4833]).
+- Command substitution inside double quotes stays visible to grant replay ().
+- Persisted grants no longer key on model-authored comment lines ().
+- Chains of five or more segments are approved once only; env assignments (including `env -S` smuggling, scanned deny-first) and upload-shaped network commands now ask ().
 
 ### Fixed
 
@@ -616,22 +607,22 @@ Patch release: shell permission hardening, sub-agent dispatch controls, and a li
 
 ### Security
 
-- Command substitution (`` `...` ``, `$(...)`) no longer auto-allows, and substituted paths stay visible to the restricted-target check ([#268](https://github.com/corbitsdev/corbits-code/pull/268)).
-- Authz-hard-blocked commands deny at the gate instead of showing an Accept button ([#272](https://github.com/corbitsdev/corbits-code/pull/272)).
-- Restricted targets are re-checked when replaying a stored grant ([#271](https://github.com/corbitsdev/corbits-code/pull/271)).
-- Glob metacharacters are escaped in persisted exact-command grants ([#269](https://github.com/corbitsdev/corbits-code/pull/269)).
-- Relative `pluginPaths` entries are dropped at trust migration instead of resolving against the launch directory ([#267](https://github.com/corbitsdev/corbits-code/pull/267)).
+- Command substitution (`` `...` ``, `$(...)`) no longer auto-allows, and substituted paths stay visible to the restricted-target check.
+- Authz-hard-blocked commands deny at the gate instead of showing an Accept button.
+- Restricted targets are re-checked when replaying a stored grant.
+- Glob metacharacters are escaped in persisted exact-command grants.
+- Relative `pluginPaths` entries are dropped at trust migration instead of resolving against the launch directory.
 
 ### New Features
 
-- Task tiers resolve OAuth providers from the live catalog ([#262](https://github.com/corbitsdev/corbits-code/pull/262)).
-- Typed task spawn contract: intent, success criteria, do-not list, report focus ([#264](https://github.com/corbitsdev/corbits-code/pull/264)), with intent-driven soft defaults for tools, tier, and turn budget ([#265](https://github.com/corbitsdev/corbits-code/pull/265)).
-- Sub-agent thrash detection with re-read caps and a one-shot wrap-up nudge near the turn budget ([#263](https://github.com/corbitsdev/corbits-code/pull/263)); Grok leaf agents get a finish-bias prompt residual ([#266](https://github.com/corbitsdev/corbits-code/pull/266)).
+- Task tiers resolve OAuth providers from the live catalog.
+- Typed task spawn contract: intent, success criteria, do-not list, report focus, with intent-driven soft defaults for tools, tier, and turn budget.
+- Sub-agent thrash detection with re-read caps and a one-shot wrap-up nudge near the turn budget; Grok leaf agents get a finish-bias prompt residual.
 
 ### Fixed
 
-- A stale approval-prompt resume no longer unfreezes a newer tool-budget pause ([#270](https://github.com/corbitsdev/corbits-code/pull/270)).
-- The TUI test suite runs again (1105 tests were dark from a Bun isolate regression) ([#273](https://github.com/corbitsdev/corbits-code/pull/273)).
+- A stale approval-prompt resume no longer unfreezes a newer tool-budget pause.
+- The TUI test suite runs again (1105 tests were dark from a Bun isolate regression).
 
 ## [0.2.84] - 2026-07-29
 
@@ -639,13 +630,13 @@ Patch release: permission-approval hardening and plugin trust fixes.
 
 ### Fixed
 
-- Tool timeout freezes while a permission prompt is open; toggle via Settings → Tools ([#261](https://github.com/corbitsdev/corbits-code/pull/261)).
-- Path-added plugin trust is global, revocable from `/plugins`, and survives directory changes ([#257](https://github.com/corbitsdev/corbits-code/pull/257)).
-- Install docs and package metadata point at corbits-code and the `dist/corbits` binary ([#259](https://github.com/corbitsdev/corbits-code/pull/259)).
+- Tool timeout freezes while a permission prompt is open; toggle via Settings → Tools.
+- Path-added plugin trust is global, revocable from `/plugins`, and survives directory changes.
+- Install docs and package metadata point at corbits-code and the `dist/corbits` binary.
 
 ### Changed
 
-- Chained shell commands prompt once for the whole chain; multi-segment grants are exact-match only and the modal strips spoofing characters ([#258](https://github.com/corbitsdev/corbits-code/pull/258)).
+- Chained shell commands prompt once for the whole chain; multi-segment grants are exact-match only and the modal strips spoofing characters.
 
 ## [0.2.83] - 2026-07-27
 
@@ -653,7 +644,7 @@ Patch release: reverts the inline transcript renderer.
 
 ### Fixed
 
-- **Alternate-screen transcript restored** — the inline renderer emitted committed history into the terminal's native scrollback, so a running session could be scrolled out of, and a live tail shorter than the viewport left a large blank region between the transcript and the prompt. Reverts the differential-inline cutover ([#250](https://github.com/corbitsdev/corbits-code/pull/250)), bringing back the full-screen alternate buffer, mouse-wheel scrolling, and the app-owned viewport.
+- **Alternate-screen transcript restored** — the inline renderer emitted committed history into the terminal's native scrollback, so a running session could be scrolled out of, and a live tail shorter than the viewport left a large blank region between the transcript and the prompt. Reverts the differential-inline cutover, bringing back the full-screen alternate buffer, mouse-wheel scrolling, and the app-owned viewport.
 
 ## [0.2.82] - 2026-07-26
 
@@ -661,43 +652,43 @@ Patch release: safety, subagent performance, TUI polish, persistence correctness
 
 ### New Features
 
-- **`corbits exec` + local capability eval harness** — non-interactive product path and fixture-based capability suite for regression gates ([#223](https://github.com/corbitsdev/corbits-code/pull/223)).
-- **FIFO operator approval queue** — plan, permission, and operator modals no longer race; one gate at a time ([#236](https://github.com/corbitsdev/corbits-code/pull/236)).
-- **Release packaging** — `scripts/release.sh` builds macOS/Linux binaries, checksums, debs, GitHub release assets, and Homebrew tap formula ([#244](https://github.com/corbitsdev/corbits-code/pull/244)).
-- **Diff polish** — background washes on edit hunks and `+N/-M` stats on collapsed rows ([#248](https://github.com/corbitsdev/corbits-code/pull/248)).
-- **Theme-routed chat chrome** — input and slash menu colors go through the theme ([#242](https://github.com/corbitsdev/corbits-code/pull/242)).
+- **`corbits exec` + local capability eval harness** — non-interactive product path and fixture-based capability suite for regression gates.
+- **FIFO operator approval queue** — plan, permission, and operator modals no longer race; one gate at a time.
+- **Release packaging** — `scripts/release.sh` builds macOS/Linux binaries, checksums, debs, GitHub release assets, and Homebrew tap formula.
+- **Diff polish** — background washes on edit hunks and `+N/-M` stats on collapsed rows.
+- **Theme-routed chat chrome** — input and slash menu colors go through the theme.
 
 ### Safety
 
-- Scrub and truncate MCP tool results; strip terminal control sequences from tool output ([#234](https://github.com/corbitsdev/corbits-code/pull/234)).
-- Secret denylist covers cloud and keychain credential shapes ([#249](https://github.com/corbitsdev/corbits-code/pull/249)).
-- Fail-closed shell pre-approval: no multi-segment grants ([#220](https://github.com/corbitsdev/corbits-code/pull/220)).
-- Auto-mode shell asks when the command targets paths outside the workspace ([#221](https://github.com/corbitsdev/corbits-code/pull/221)).
-- Shell guard allows piped search without unblocking open-ended tree walks ([#218](https://github.com/corbitsdev/corbits-code/pull/218)).
-- Reject `tool-output://` URIs before they reach ripgrep or the filesystem ([#230](https://github.com/corbitsdev/corbits-code/pull/230)).
-- Constrain `@`-mention file resolution to the workspace root ([#239](https://github.com/corbitsdev/corbits-code/pull/239)).
-- Allow sibling worktree paths past pre-realpath path confinement ([#245](https://github.com/corbitsdev/corbits-code/pull/245)).
+- Scrub and truncate MCP tool results; strip terminal control sequences from tool output.
+- Secret denylist covers cloud and keychain credential shapes.
+- Fail-closed shell pre-approval: no multi-segment grants.
+- Auto-mode shell asks when the command targets paths outside the workspace.
+- Shell guard allows piped search without unblocking open-ended tree walks.
+- Reject `tool-output://` URIs before they reach ripgrep or the filesystem.
+- Constrain `@`-mention file resolution to the workspace root.
+- Allow sibling worktree paths past pre-realpath path confinement.
 
 ### Tools
 
-- `edit_file` line-range edits always run post-write verification ([#224](https://github.com/corbitsdev/corbits-code/pull/224)).
-- Reject conflicting `edit_file` modes (substring vs line-range exclusive) ([#219](https://github.com/corbitsdev/corbits-code/pull/219)).
-- Partial `grep` results on ripgrep size cap or timeout ([#231](https://github.com/corbitsdev/corbits-code/pull/231)).
-- Cap long error output and show a pass/fail glyph on shell failures ([#228](https://github.com/corbitsdev/corbits-code/pull/228)).
-- Coalesce stray redirect fragments back into their owning shell command ([#229](https://github.com/corbitsdev/corbits-code/pull/229) / related).
+- `edit_file` line-range edits always run post-write verification.
+- Reject conflicting `edit_file` modes (substring vs line-range exclusive).
+- Partial `grep` results on ripgrep size cap or timeout.
+- Cap long error output and show a pass/fail glyph on shell failures.
+- Coalesce stray redirect fragments back into their owning shell command.
 
 ### Subagents & performance
 
-- Cache subagent session snapshots by revision instead of cloning on every notify ([#233](https://github.com/corbitsdev/corbits-code/pull/233)).
-- Dedup tool names on the `tool_call.start` path in the session store ([#243](https://github.com/corbitsdev/corbits-code/pull/243)).
-- Skip retaining full turn history when no lifecycle hooks are configured ([#246](https://github.com/corbitsdev/corbits-code/pull/246)).
-- Gate stream drain intervals to streaming and flush on stop ([#235](https://github.com/corbitsdev/corbits-code/pull/235)).
+- Cache subagent session snapshots by revision instead of cloning on every notify.
+- Dedup tool names on the `tool_call.start` path in the session store.
+- Skip retaining full turn history when no lifecycle hooks are configured.
+- Gate stream drain intervals to streaming and flush on stop.
 
 ### Correctness
 
-- Validate persistence boundaries with arktype and unify goal-status enums ([#226](https://github.com/corbitsdev/corbits-code/pull/226)).
-- Record real cache-write token counts instead of hardcoding zero ([#237](https://github.com/corbitsdev/corbits-code/pull/237)).
-- Fall back to 256-color values on non-truecolor terminals ([#240](https://github.com/corbitsdev/corbits-code/pull/240)).
+- Validate persistence boundaries with arktype and unify goal-status enums.
+- Record real cache-write token counts instead of hardcoding zero.
+- Fall back to 256-color values on non-truecolor terminals.
 
 ## [0.2.81] - 2026-07-25
 
@@ -711,7 +702,7 @@ Patch release: safety, subagent performance, TUI polish, persistence correctness
 
 ### New Features
 
-- Inject full agent profile bodies into `search_agents` (CL-4325).
+- Inject full agent profile bodies into `search_agents`.
 - Sub-agents can re-read parent `tool-output://` blobs.
 - Cancel salvage and optional `task` tier override.
 - Claude marketplace plugin discovery when opted in.
