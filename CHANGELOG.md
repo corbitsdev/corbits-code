@@ -20,6 +20,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the key, so personal and team keys can coexist (`openai/default`,
   `anthropic/work`, …). Reusing an existing name replaces that instance after
   an explicit confirm. Custom endpoints stay free-form and single-entry.
+- **API-key connect keeps the project selection.** Connecting an API-key or
+  Custom provider now writes the same project-local provider/model selection
+  OAuth already wrote, so a restart in that repo resolves to the account just
+  connected. Secrets stay in global credential storage only.
 
 ### TUI
 
