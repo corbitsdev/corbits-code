@@ -69,6 +69,35 @@ export function buildSubAgentProvider(config: SubAgentProviderConfig): SubAgentP
   };
 }
 
+export type SubAgentSourcesConfig = SubAgentProviderConfig & {
+  providers: readonly ProviderCatalogEntry[];
+  settings?: Settings;
+};
+
+export type LiveSubAgentSources = {
+  provider: () => SubAgentProvider;
+  catalog: () => readonly ProviderCatalogEntry[];
+  settings: () => Settings | undefined;
+};
+
+/**
+ * The single owner of every session fact a sub-agent spawn reads. A runner's
+ * session config is reassigned by each switch path (model picker, /agent,
+ * post-connect refresh, favorite toggle), so all three derive from a config
+ * getter per spawn. Snapshot copies kept in sync by hand went stale whenever
+ * a new switch path forgot to update them, which is what stranded workers on
+ * a provider the operator had already switched away from.
+ */
+export function createLiveSubAgentSources(
+  getConfig: () => SubAgentSourcesConfig,
+): LiveSubAgentSources {
+  return {
+    provider: () => buildSubAgentProvider(getConfig()),
+    catalog: () => getConfig().providers,
+    settings: () => getConfig().settings,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 2. Permission approvals + persist callback
 // ---------------------------------------------------------------------------
