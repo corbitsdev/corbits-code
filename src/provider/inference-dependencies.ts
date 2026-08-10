@@ -5,7 +5,10 @@ import * as codexResponses from "./codex-responses-adapter.js";
 import * as grokResponses from "./grok-responses-adapter.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses-adapter.js";
-import { CODEX_RESPONSES_PROVIDER } from "./codex-responses-adapter.js";
+import {
+  CODEX_RESPONSES_PROVIDER,
+  withCodexContentTypeRepair,
+} from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses-adapter.js";
@@ -58,7 +61,12 @@ export function createInferenceDependencies(): Promise<Dependencies> {
   if (cached === undefined) {
     cached = loadAdapterRegistry(manifest, {
       import: (specifier) => Promise.resolve(localModules[specifier]),
-    }).then(createDependencies);
+    })
+      .then(createDependencies)
+      .then((deps) => ({
+        ...deps,
+        fetch: withCodexContentTypeRepair(deps.fetch),
+      }));
   }
   return cached;
 }
