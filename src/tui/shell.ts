@@ -1193,6 +1193,13 @@ function floatOverlayHost(
   if (!floating) {
     host.position = "relative"
     host.zIndex = 0
+    // A previous landing float left absolute insets behind. Under relative
+    // positioning those same values act as offsets from the in-flow slot, so
+    // a stale top pushes the band that many rows below the prompt — clear
+    // them so the band sits where the flow put it.
+    host.top = 0
+    host.left = 0
+    host.width = "100%"
     return
   }
   host.position = "absolute"
