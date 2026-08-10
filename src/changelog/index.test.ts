@@ -12,6 +12,7 @@ import {
   parseChangelogText,
   parseVersionString,
   resolveChangelogPath,
+  stampVersionAfterStartup,
 } from "./index.js";
 
 const SAMPLE = `# Changelog
@@ -96,7 +97,7 @@ describe("decideStartupChangelog", () => {
     expect(d.kind).toBe("first_install");
   });
 
-  test("upgrade shows notes and stamps package version", () => {
+  test("upgrade yields notes with stampVersion for when shown", () => {
     const d = decideStartupChangelog({
       entries,
       lastChangelogVersion: "0.2.85",
@@ -119,6 +120,43 @@ describe("decideStartupChangelog", () => {
       packageVersion: "0.2.86",
     });
     expect(d).toEqual({ kind: "current" });
+  });
+});
+
+describe("stampVersionAfterStartup", () => {
+  const entries = parseChangelogText(SAMPLE);
+
+  test("first_install always stamps (quiet, no history dump)", () => {
+    const d = decideStartupChangelog({
+      entries,
+      lastChangelogVersion: undefined,
+      packageVersion: "0.2.86",
+    });
+    expect(stampVersionAfterStartup(d, false)).toBe("0.2.86");
+    expect(stampVersionAfterStartup(d, true)).toBe("0.2.86");
+  });
+
+  test("upgrade stamps only when notes were shown (CL-5475)", () => {
+    const d = decideStartupChangelog({
+      entries,
+      lastChangelogVersion: "0.2.85",
+      packageVersion: "0.2.86",
+    });
+    expect(d.kind).toBe("upgrade");
+    // Dead surface / OpenTUI gap: do not consume notes without display.
+    expect(stampVersionAfterStartup(d, false)).toBeNull();
+    // When a surface restores and actually shows markdown, stamp.
+    expect(stampVersionAfterStartup(d, true)).toBe("0.2.86");
+  });
+
+  test("current never stamps", () => {
+    const d = decideStartupChangelog({
+      entries,
+      lastChangelogVersion: "0.2.86",
+      packageVersion: "0.2.86",
+    });
+    expect(stampVersionAfterStartup(d, false)).toBeNull();
+    expect(stampVersionAfterStartup(d, true)).toBeNull();
   });
 });
 
