@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Sub-agents
+
+- **Workers follow a mid-session model switch.** Sub-agents spawned after you
+  switched models kept running against the provider the session started on, so
+  switching away from an exhausted or disconnected account left every new
+  worker failing until a restart. Provider, model catalog, and settings are now
+  read live at spawn time, so tier settings written mid-session are visible too.
+
 ### Providers
 
 - **Named API-key instances.** First-class API-key providers (OpenAI key,
