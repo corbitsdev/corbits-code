@@ -535,19 +535,24 @@ a stop does not reliably produce an idle event to drain against later.
 
 The main session shell owns the mouse. With DEC mouse reporting on (the
 default), the wheel scrolls the transcript, clicking a collapsed tool row or
-diff arrow expands it in place, and dragging inside the transcript scrolls it
-— none of that needs a modifier key. The cost of holding the mouse this way
-is that native terminal drag-select is unavailable while reporting is on:
-the terminal hands drag events to the app instead of running its own
-selection. Two chords cover that gap without needing the mouse released
-first:
+diff arrow expands it in place, and dragging across selectable text starts an
+OpenTUI selection that **auto-copies to the system clipboard on mouse-up**.
+Dragging on non-selectable chrome still scrolls. The cost of holding the
+mouse this way is that *native* terminal drag-select is unavailable while
+reporting is on: the terminal hands drag events to the app instead of
+running its own selection. Two chords cover remaining copy needs:
 
+- **Drag-select (mouse captured)** uses OpenTUI's selection event
+  (`CliRenderEvents.SELECTION` → `copyFinishedSelection` in
+  `selection-copy.ts`). On mouse-up, non-empty selected text is written
+  through the system clipboard port and the highlight clears with a status
+  flash. Empty clicks do not copy.
 - **Alt+M** toggles DEC mouse reporting off and back on
   (`toggleMouseCapture`, `shell.ts`). Off, the terminal's own drag-select
   and copy work exactly as in any other terminal program; the status flash
   names the trade both ways ("Mouse released · drag to select and copy as
-  usual · Alt+M to click rows" / "Mouse captured · click to expand, drag to
-  scroll · Alt+M to select text again").
+  usual · Alt+M to click rows" / "Mouse captured · drag text to copy ·
+  click to expand · Alt+M for native select").
 - **Alt+C** copies a message, tool output, or diff without touching the
   mouse at all: it opens a copy-selection surface over the transcript
   (`enterCopyMode`) that resolves through the system clipboard port
@@ -621,7 +626,11 @@ terminal. It cannot observe:
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.
 - **Terminal-owned text selection.** Native drag-select only exists once DEC
   mouse reporting is off and a real terminal emulator is running; there is
-  no terminal emulator in the test harness to select text in.
+  no terminal emulator in the test harness to select text in. OpenTUI
+  selection auto-copy is unit-tested (`selection-copy.test.ts`) and wired
+  through a synthetic `SELECTION` event (`copy-wire.test.ts`); a real
+  mouse-up path still needs a manual terminal check.
+
 
 Concretely, whole defect classes — a DEC mouse-reporting toggle that silently
 no-ops, an Alt+key chord a given terminal never actually delivers, a

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { CliRenderEvents } from "@opentui/core"
 import { createHarness, type Harness } from "./harness"
 import {
   appendStreamRow,
@@ -47,6 +48,44 @@ describe("Alt+C reaches the injected clipboard", () => {
   })
 })
 
+describe("drag-select auto-copy", () => {
+  test("SELECTION event writes finished text and flashes", () => {
+    const clipboard = createRecordingClipboard()
+    const shell = createAppShell(harness.renderer, { clipboard })
+    harness.renderer.emit(CliRenderEvents.SELECTION, {
+      isDragging: false,
+      getSelectedText: () => "dragged snippet",
+    })
+    expect(clipboard.writes).toEqual(["dragged snippet"])
+    expect(shell.statusFlash).toContain("Copied 15 chars")
+    expect(shell.statusFlash).toContain("dragged snippet")
+    shell.dispose()
+  })
+
+  test("SELECTION while dragging is a no-op", () => {
+    const clipboard = createRecordingClipboard()
+    const shell = createAppShell(harness.renderer, { clipboard })
+    harness.renderer.emit(CliRenderEvents.SELECTION, {
+      isDragging: true,
+      getSelectedText: () => "partial",
+    })
+    expect(clipboard.writes).toEqual([])
+    expect(shell.statusFlash).toBeNull()
+    shell.dispose()
+  })
+
+  test("empty SELECTION is a no-op", () => {
+    const clipboard = createRecordingClipboard()
+    const shell = createAppShell(harness.renderer, { clipboard })
+    harness.renderer.emit(CliRenderEvents.SELECTION, {
+      isDragging: false,
+      getSelectedText: () => "",
+    })
+    expect(clipboard.writes).toEqual([])
+    shell.dispose()
+  })
+})
+
 describe("Alt+M mouse capture", () => {
   test("toggles the host port and reports the new state", () => {
     let enabled = false
@@ -60,6 +99,7 @@ describe("Alt+M mouse capture", () => {
     })
     expect(toggleMouseCapture(shell)).toBe(true)
     expect(enabled).toBe(true)
+    expect(shell.statusFlash).toContain("drag text to copy")
     expect(toggleMouseCapture(shell)).toBe(false)
     expect(enabled).toBe(false)
     shell.dispose()

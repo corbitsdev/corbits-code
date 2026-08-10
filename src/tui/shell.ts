@@ -23,6 +23,7 @@ import {
   type CliRenderer,
   type KeyEvent,
   type MouseEvent,
+  type Selection,
   type TextChunk,
 } from "@opentui/core"
 
@@ -151,6 +152,7 @@ import {
   type ClipboardPort,
   type CopyTarget,
 } from "./copy-path.js"
+import { copyFinishedSelection } from "./selection-copy.js"
 import {
   badgeCount,
   cancelLast,
@@ -473,7 +475,7 @@ function dispatchOverlayAccept(
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
-  "root" | "width" | "height" | "keyInput" | "on" | "off" | "isDestroyed"
+  "root" | "width" | "height" | "keyInput" | "on" | "off" | "isDestroyed" | "clearSelection"
 >
 
 export type AppShellOptions = {
@@ -522,21 +524,24 @@ export type AppShellOptions = {
    */
   readonly telemetryNotice?: string
   /**
-   * Clipboard port for Alt+C. Defaults to an in-memory recorder so tests and
-   * demos never shell out; the product host injects the system clipboard.
+   * Clipboard port for Alt+C and drag-select auto-copy. Defaults to an
+   * in-memory recorder so tests and demos never shell out; the product host
+   * injects the system clipboard.
    */
   readonly clipboard?: ClipboardPort
   /**
    * Mouse-reporting switch behind Alt+M. Absent means the shell has no
    * renderer-level control (tests, demos) and reports the toggle unavailable.
+   * While reporting is on, OpenTUI owns drag-select and auto-copies on
+   * mouse-up; Alt+M hands the mouse back for native terminal selection.
    */
   readonly mouseCapture?: MouseCapturePort
 }
 
 /**
  * Renderer-level DEC mouse reporting control. While reporting is on the
- * terminal hands drags to us instead of selecting text, so the user needs a
- * way to hand it back.
+ * terminal hands drags to OpenTUI (drag-to-copy on mouse-up); Alt+M hands
+ * reporting back so the terminal can run its own selection again.
  */
 export type MouseCapturePort = {
   readonly get: () => boolean
@@ -4512,7 +4517,7 @@ export function toggleMouseCapture(shell: AppShell): boolean | null {
   setStatusFlash(
     shell,
     next
-      ? "Mouse captured · click to expand, drag to scroll · Alt+M to select text again"
+      ? "Mouse captured · drag text to copy · click to expand · Alt+M for native select"
       : "Mouse released · drag to select and copy as usual · Alt+M to click rows",
   )
   return next
@@ -5762,6 +5767,23 @@ export function createAppShell(
   renderer.on(CliRenderEvents.FRAME, onFrame)
   renderer.on(CliRenderEvents.RESIZE, onResize)
 
+  // Declared before shell so dispose can off() the same function reference;
+  // body closes over shell after createAppShell finishes assigning it.
+  const onSelection = (selection: Selection): void => {
+    if (disposed) return
+    copyFinishedSelection(
+      {
+        clipboard: shell.clipboard,
+        flash: (text) => setStatusFlash(shell, text),
+        clearSelection: () => {
+          renderer.clearSelection()
+        },
+      },
+      selection,
+    )
+  }
+  renderer.on(CliRenderEvents.SELECTION, onSelection)
+
   const shell: AppShell = {
     renderer,
     root,
@@ -5827,6 +5849,7 @@ export function createAppShell(
       }
       renderer.off(CliRenderEvents.FRAME, onFrame)
       renderer.off(CliRenderEvents.RESIZE, onResize)
+      renderer.off(CliRenderEvents.SELECTION, onSelection)
       internals.get(shell)?.landingIdleTimerCancel?.()
       flashTimers.get(shell)?.()
       flashTimers.delete(shell)

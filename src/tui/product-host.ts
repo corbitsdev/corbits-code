@@ -220,8 +220,9 @@ export type ProductHostConfig = {
   /**
    * Take DEC mouse reporting. Default true: wheel/trackpad scroll only
    * reaches OpenTUI when the terminal is told to report it, otherwise the
-   * terminal's own alternate-scroll mode resends it as arrow keys. Alt+M
-   * hands the mouse back to the terminal for native drag-select.
+   * terminal's own alternate-scroll mode resends it as arrow keys. With
+   * reporting on, drag-select is OpenTUI-owned and auto-copies on mouse-up;
+   * Alt+M hands the mouse back for native terminal selection.
    */
   readonly useMouse?: boolean
 }
@@ -317,8 +318,9 @@ export async function mountProductHost(
         // never reaches OpenTUI — the terminal's own alternate-scroll mode
         // swallows it and resends it as arrow keys, which the prompt then
         // reads as history navigation instead of the transcript scrolling.
-        // Cost accepted: this suppresses the terminal's native drag-select
-        // in the main shell. Alt+M hands the mouse back when that is wanted.
+        // Cost accepted: this suppresses the terminal's *native* drag-select
+        // in the main shell. OpenTUI selection still works and auto-copies
+        // on mouse-up; Alt+M hands the mouse back when native select is wanted.
         // enableMouseMovement stays off (no ?1003): only clicks and wheel
         // are needed.
         useMouse: config.useMouse ?? true,

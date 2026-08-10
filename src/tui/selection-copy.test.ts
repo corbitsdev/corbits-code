@@ -1,0 +1,92 @@
+import { describe, expect, test } from "bun:test"
+import { createRecordingClipboard } from "./copy-path.js"
+import {
+  copyFinishedSelection,
+  type SelectionCopyHost,
+} from "./selection-copy.js"
+
+function host(): SelectionCopyHost & {
+  readonly clipboard: ReturnType<typeof createRecordingClipboard>
+  flashes: string[]
+  cleared: number
+} {
+  const clipboard = createRecordingClipboard()
+  const flashes: string[] = []
+  let cleared = 0
+  return {
+    clipboard,
+    flashes,
+    get cleared() {
+      return cleared
+    },
+    flash: (text: string) => {
+      flashes.push(text)
+    },
+    clearSelection: () => {
+      cleared += 1
+    },
+  }
+}
+
+describe("copyFinishedSelection", () => {
+  test("writes selected text, flashes, and clears the highlight", () => {
+    const h = host()
+    const ok = copyFinishedSelection(h, {
+      isDragging: false,
+      getSelectedText: () => "hello world",
+    })
+    expect(ok).toBe(true)
+    expect(h.clipboard.writes).toEqual(["hello world"])
+    expect(h.flashes[0]).toContain("Copied 11 chars")
+    expect(h.flashes[0]).toContain("hello world")
+    expect(h.cleared).toBe(1)
+  })
+
+  test("skips while still dragging", () => {
+    const h = host()
+    const ok = copyFinishedSelection(h, {
+      isDragging: true,
+      getSelectedText: () => "partial",
+    })
+    expect(ok).toBe(false)
+    expect(h.clipboard.writes).toEqual([])
+    expect(h.flashes).toEqual([])
+    expect(h.cleared).toBe(0)
+  })
+
+  test("skips empty selection", () => {
+    const h = host()
+    const ok = copyFinishedSelection(h, {
+      isDragging: false,
+      getSelectedText: () => "",
+    })
+    expect(ok).toBe(false)
+    expect(h.clipboard.writes).toEqual([])
+    expect(h.cleared).toBe(0)
+  })
+
+  test("truncates long flash previews", () => {
+    const h = host()
+    const long = "x".repeat(80)
+    copyFinishedSelection(h, {
+      isDragging: false,
+      getSelectedText: () => long,
+    })
+    expect(h.clipboard.writes).toEqual([long])
+    expect(h.flashes[0]).toContain("…")
+    expect(h.flashes[0]!.length).toBeLessThan(long.length + 40)
+  })
+
+  test("collapses multi-line selections in the flash preview", () => {
+    const h = host()
+    const ok = copyFinishedSelection(h, {
+      isDragging: false,
+      getSelectedText: () => "ok\ngo",
+    })
+    expect(ok).toBe(true)
+    expect(h.clipboard.writes).toEqual(["ok\ngo"])
+    expect(h.flashes[0]).toContain("ok go")
+    expect(h.flashes[0]).not.toContain("\n")
+  })
+})
+
