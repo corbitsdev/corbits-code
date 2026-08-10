@@ -38,7 +38,7 @@ After pulling new changes, re-run `bun run build:bin` to refresh the binary.
 
 Before your first commit: `git config core.hooksPath .githooks` and `./bin/check-env`.
 
-Every change must pass `bun run typecheck`, `bun run build`, and `bun test`, and behavior changes come with tests. Conventions live in `AGENTS.md` (functional TypeScript, no classes, arktype at boundaries, plain-English commit messages); the system design is documented in `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION.md`.
+Every change must pass `bun run typecheck`, `bun run build`, and `bun run test`, and behavior changes come with tests. Coding conventions live in `AGENTS.md` (functional TypeScript, no classes, arktype at boundaries); commit, PR, and Linear/GitHub linking rules live in `CONTRIBUTING.md`. System design is documented in `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION.md`.
 
 ## Stack
 
