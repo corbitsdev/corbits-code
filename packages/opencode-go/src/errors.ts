@@ -193,7 +193,7 @@ function userMessageFor(
   if (kind === "unauthorized") {
     return original.length > 0
       ? original
-      : "OpenCode Go authentication failed. Reconnect from /model (c or Ctrl+A).";
+      : "OpenCode Go authentication failed. Reconnect from /model (Alt+A).";
   }
   return original.length > 0 ? original : "OpenCode Go request failed.";
 }
