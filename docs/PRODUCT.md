@@ -2,7 +2,12 @@
 
 ## What It Is
 
+Corbits is a local coding harness: it runs multi-agent fleets that implement,
+verify, and land software — with progress and cost always visible to the
+operator.
+
 A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — driven by a deterministic event loop rather than a chat transcript. The agent is backed by an OpenAI-compatible LLM and built on Interchange primitives. It runs as a full-screen terminal UI by default, or as a non-TUI `exec` path for scripts and CI.
+
 
 ## Why It Exists
 
