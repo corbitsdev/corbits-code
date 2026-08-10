@@ -19,10 +19,13 @@ import {
   stepHeadline,
   stepReady,
   stepsFor,
+  suggestOAuthProfileSlug,
   summaryRows,
   TYPE_MODEL_ID,
   unconnectedProviderChoices,
+  validateOAuthProfileSlug,
   type OAuthLoginStarter,
+  type OAuthProfileLister,
   type ProviderFormValues,
   type ProviderSetupSubmit,
   type SubmitOpts,
@@ -33,6 +36,7 @@ const EMPTY: ProviderFormValues = {
   baseURL: "",
   apiKey: "",
   model: "",
+  oauthProfile: "",
 }
 
 describe("provider setup pure helpers", () => {
@@ -75,13 +79,15 @@ describe("provider setup pure helpers", () => {
     expect(secretFromMaskedEdit(secret, "")).toBe("")
   })
 
-  test("a picked provider takes three steps, custom takes five", () => {
+  test("a picked provider takes three steps, custom takes five, oauth takes four", () => {
     const openai = providerChoiceById("openai")
     expect(openai?.baseURL).toBe("https://api.openai.com/v1")
     expect(stepsFor(openai ?? null)).toEqual(["provider", "apiKey", "model"])
-    // A subscription provider swaps the paste for a sign-in, same three steps.
+    // A subscription provider swaps the paste for a name-then-sign-in pair,
+    // so it lands one step longer than a preset.
     expect(stepsFor(providerChoiceById("codex") ?? null)).toEqual([
       "provider",
+      "name",
       "login",
       "model",
     ])
@@ -92,6 +98,26 @@ describe("provider setup pure helpers", () => {
       "apiKey",
       "model",
     ])
+  })
+
+  test("an OAuth account slug is lowercased and constrained to a settings-key-safe charset", () => {
+    expect(validateOAuthProfileSlug("Personal")).toEqual({ ok: true, slug: "personal" })
+    expect(validateOAuthProfileSlug("  work  ")).toEqual({ ok: true, slug: "work" })
+    expect(validateOAuthProfileSlug("")).toEqual({ ok: false, error: "name cannot be empty" })
+    expect(validateOAuthProfileSlug("   ")).toEqual({ ok: false, error: "name cannot be empty" })
+    expect(validateOAuthProfileSlug("codex/personal").ok).toBe(false)
+    expect(validateOAuthProfileSlug("my account").ok).toBe(false)
+    expect(validateOAuthProfileSlug("-personal").ok).toBe(false)
+    expect(validateOAuthProfileSlug("personal-").ok).toBe(false)
+    expect(validateOAuthProfileSlug("a".repeat(64)).ok).toBe(true)
+    expect(validateOAuthProfileSlug("a".repeat(65)).ok).toBe(false)
+  })
+
+  test("a suggested OAuth slug auto-suffixes on collision", () => {
+    expect(suggestOAuthProfileSlug([])).toBe("default")
+    expect(suggestOAuthProfileSlug(["personal"])).toBe("default")
+    expect(suggestOAuthProfileSlug(["default"])).toBe("default-2")
+    expect(suggestOAuthProfileSlug(["default", "default-2"])).toBe("default-3")
   })
 
   test("the pick-list carries known providers and ends with custom", () => {
@@ -147,6 +173,14 @@ describe("provider setup pure helpers", () => {
     expect(stepHeadline(["provider", "apiKey", "model"], 2)).toBe(
       "step 3 of 3 · model",
     )
+  })
+
+  test("the OAuth name step is headlined and summarized as an account name", () => {
+    const codex = providerChoiceById("codex") ?? null
+    const steps = stepsFor(codex)
+    expect(stepHeadline(steps, 1, codex)).toBe("step 2 of 4 · account name")
+    const rows = summaryRows(steps, 2, { ...EMPTY, oauthProfile: "work" }, codex)
+    expect(rows[1]).toMatchObject({ label: "account name", value: "work" })
   })
 
   test("summary rows mark done, current, and pending steps", () => {
@@ -250,12 +284,15 @@ async function flush(harness: Harness): Promise<void> {
 
 /**
  * Mount with an injected login driver. No test may open a browser or bind a
- * port, so the real PKCE/loopback path is never reached from here.
+ * port, so the real PKCE/loopback path is never reached from here. Also
+ * injects a profile lister so no test touches the real auth-store files;
+ * it defaults to reporting no existing profiles.
  */
 async function mountLogin(opts: {
   start: OAuthLoginStarter
   onSubmit?: ProviderSetupSubmit
   loginTimeoutMs?: number
+  listOAuthProfiles?: OAuthProfileLister
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
   const harness = await createHarness({ width: 80, height: 30 })
   const done = runProviderSetup({
@@ -263,12 +300,42 @@ async function mountLogin(opts: {
     showTelemetryNotice: false,
     createRenderer: async () => harness.renderer,
     startLogin: opts.start,
+    listOAuthProfiles: opts.listOAuthProfiles ?? (async () => []),
     ...(opts.loginTimeoutMs !== undefined
       ? { loginTimeoutMs: opts.loginTimeoutMs }
       : {}),
   })
   await harness.renderOnce()
   return { done, harness }
+}
+
+/**
+ * Wait for a prefetched suggestion to land in the OAuth name field, then
+ * clear it. The input has no select-all-on-focus behavior, so typing over a
+ * prefilled suggestion would append rather than replace it; 80 backspaces is
+ * comfortably more than the field's 64-character cap, and backspacing an
+ * already-empty field is a no-op.
+ */
+async function clearOAuthNameField(harness: Harness): Promise<void> {
+  await flush(harness)
+  for (let i = 0; i < 80; i++) harness.pressKey("Backspace")
+}
+
+/**
+ * Accept the OAuth name step: type `name` when given (after clearing
+ * whatever suggestion was prefilled), otherwise accept the suggestion as is.
+ * The flush after Enter lets the submit-time collision re-check resolve
+ * before the caller inspects the result.
+ */
+async function nameOAuthAccount(harness: Harness, name?: string): Promise<void> {
+  if (name === undefined) {
+    await flush(harness)
+  } else {
+    await clearOAuthNameField(harness)
+    type(harness, name)
+  }
+  harness.pressKey("Enter")
+  await flush(harness)
 }
 
 describe("runProviderSetup renderer ownership", () => {
@@ -307,16 +374,17 @@ describe("runProviderSetup sign-in", () => {
       },
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
-    await flush(harness)
+    expect(harness.captureCharFrame()).toContain("step 2 of 4")
+    await nameOAuthAccount(harness)
     const waiting = harness.captureCharFrame()
-    expect(waiting).toContain("step 2 of 3")
+    expect(waiting).toContain("step 3 of 4")
     expect(waiting).toContain("sign in")
     expect(waiting).toContain("auth.example.com/authorize")
     expect(waiting).toContain("waiting for browser sign-in")
 
     complete({ profile: "default" })
     await flush(harness)
-    expect(harness.captureCharFrame()).toContain("step 3 of 3")
+    expect(harness.captureCharFrame()).toContain("step 4 of 4")
 
     harness.pressKey("Enter")
     await harness.renderOnce()
@@ -329,6 +397,140 @@ describe("runProviderSetup sign-in", () => {
       profile: "default",
       providerName: "codex/default",
     })
+  })
+
+  test("the entered account name reaches startLogin as the profile slug", async () => {
+    const seenProfiles: string[] = []
+    const { done, harness } = await mountLogin({
+      start: async ({ profile }) => {
+        seenProfiles.push(profile)
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    await nameOAuthAccount(harness, "personal-account")
+    expect(seenProfiles).toEqual(["personal-account"])
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+  })
+
+  test("a suggested name auto-suffixes on collision with existing profiles", async () => {
+    const seenProfiles: string[] = []
+    const { done, harness } = await mountLogin({
+      listOAuthProfiles: async () => ["default"],
+      start: async ({ profile }) => {
+        seenProfiles.push(profile)
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    await flush(harness)
+    // The suggestion is visible before it is accepted, not just inferred
+    // from what startLogin later receives.
+    expect(harness.captureCharFrame()).toContain("default-2")
+    harness.pressKey("Enter")
+    await flush(harness)
+    expect(seenProfiles).toEqual(["default-2"])
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+  })
+
+  test("reusing a connected account's name asks to confirm before re-authorizing it", async () => {
+    const seenProfiles: string[] = []
+    const { done, harness } = await mountLogin({
+      listOAuthProfiles: async () => ["personal"],
+      start: async ({ profile }) => {
+        seenProfiles.push(profile)
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    await clearOAuthNameField(harness)
+    type(harness, "personal")
+    harness.pressKey("Enter")
+    await flush(harness)
+    // Still on the name step: the collision must be acknowledged, not just
+    // captioned, before the browser opens.
+    const confirming = harness.captureCharFrame()
+    expect(confirming).toContain("step 2 of 4")
+    expect(confirming).toContain("already connected")
+    expect(confirming).toContain("re-authorize")
+    expect(seenProfiles).toEqual([])
+
+    harness.pressKey("Enter")
+    await flush(harness)
+    expect(seenProfiles).toEqual(["personal"])
+    expect(harness.captureCharFrame()).toContain("step 3 of 4")
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+  })
+
+  test("editing the name after a collision confirm re-derives the check instead of reusing it", async () => {
+    let starts = 0
+    const { done, harness } = await mountLogin({
+      listOAuthProfiles: async () => ["personal"],
+      start: async () => {
+        starts += 1
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    await clearOAuthNameField(harness)
+    type(harness, "personal")
+    harness.pressKey("Enter")
+    await flush(harness)
+    expect(harness.captureCharFrame()).toContain("already connected")
+
+    // Editing the name invalidates the pending confirm — the next Enter must
+    // recheck rather than silently proceeding as if "personal2" were the
+    // account already confirmed.
+    type(harness, "2")
+    harness.pressKey("Enter")
+    await flush(harness)
+    expect(starts).toBe(1)
+    expect(harness.captureCharFrame()).toContain("step 3 of 4")
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+  })
+
+  test("an invalid account name is rejected with a visible error and does not sign in", async () => {
+    let starts = 0
+    const { done, harness } = await mountLogin({
+      start: async () => {
+        starts += 1
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed: new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    type(harness, "My Account!")
+    harness.pressKey("Enter")
+    await flush(harness)
+    const frame = harness.captureCharFrame()
+    expect(frame).toContain("step 2 of 4")
+    expect(frame).toContain("lowercase letters, numbers")
+    expect(starts).toBe(0)
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
   })
 
   test("a denied sign-in says so and Enter retries it", async () => {
@@ -347,7 +549,7 @@ describe("runProviderSetup sign-in", () => {
       },
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
-    await flush(harness)
+    await nameOAuthAccount(harness)
     const failed = harness.captureCharFrame()
     expect(failed).toContain("access denied by the user")
     expect(failed).toContain("enter to try signing in again")
@@ -373,6 +575,7 @@ describe("runProviderSetup sign-in", () => {
       }),
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
+    await nameOAuthAccount(harness)
     await new Promise((r) => setTimeout(r, 30))
     await harness.renderOnce()
     const frame = harness.captureCharFrame()
@@ -383,7 +586,7 @@ describe("runProviderSetup sign-in", () => {
     expect(await done).toBe(false)
   })
 
-  test("Escape abandons a sign-in and returns to the provider list", async () => {
+  test("Escape abandons a sign-in and returns to the name step for editing", async () => {
     let cancelled = 0
     let aborted = false
     const { done, harness } = await mountLogin({
@@ -401,14 +604,45 @@ describe("runProviderSetup sign-in", () => {
       },
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
-    await flush(harness)
+    await nameOAuthAccount(harness)
     await pressEscape(harness)
     const frame = harness.captureCharFrame()
-    expect(frame).toContain("step 1 of 3")
+    expect(frame).toContain("step 2 of 4")
     expect(frame).toContain(LOGIN_CANCELLED_MESSAGE)
     expect(frame).toContain("pick a provider to start over")
     expect(cancelled).toBeGreaterThan(0)
     expect(aborted).toBe(true)
+    harness.pressKey("Ctrl+C")
+    expect(await done).toBe(false)
+  })
+
+  test("a failed sign-in can be retried under a different name after going back", async () => {
+    const seenProfiles: string[] = []
+    const { done, harness } = await mountLogin({
+      start: async ({ profile }) => {
+        seenProfiles.push(profile)
+        return {
+          authorizeUrl: AUTHORIZE_URL,
+          completed:
+            seenProfiles.length === 1
+              ? Promise.reject(new Error("access denied by the user"))
+              : new Promise<{ profile: string }>(() => {}),
+          cancel: () => {},
+        }
+      },
+    })
+    await pickRow(harness, PROVIDER_IDS, "codex")
+    await nameOAuthAccount(harness, "first-try")
+    expect(harness.captureCharFrame()).toContain("access denied by the user")
+
+    await pressEscape(harness)
+    const backAtName = harness.captureCharFrame()
+    expect(backAtName).toContain("step 2 of 4")
+    expect(backAtName).toContain("first-try")
+
+    await nameOAuthAccount(harness, "second-try")
+    expect(harness.captureCharFrame()).toContain("waiting for browser sign-in")
+    expect(seenProfiles).toEqual(["first-try", "second-try"])
     harness.pressKey("Ctrl+C")
     expect(await done).toBe(false)
   })
@@ -425,11 +659,11 @@ describe("runProviderSetup sign-in", () => {
       }),
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
-    await flush(harness)
+    await nameOAuthAccount(harness)
     await pressEscape(harness)
     complete({ profile: "default" })
     await flush(harness)
-    expect(harness.captureCharFrame()).toContain("step 1 of 3")
+    expect(harness.captureCharFrame()).toContain("step 2 of 4")
     harness.pressKey("Ctrl+C")
     expect(await done).toBe(false)
   })
@@ -472,6 +706,7 @@ describe("runProviderSetup", () => {
       baseURL: "https://api.openai.com/v1",
       apiKey: "sk-key",
       model: openai?.defaultModel ?? "",
+      oauthProfile: "",
     })
     expect(opts[0]?.preset?.id).toBe("openai")
     expect(opts[0]?.preset?.models.length).toBeGreaterThan(1)
@@ -502,6 +737,7 @@ describe("runProviderSetup", () => {
       baseURL: "https://api.example.com",
       apiKey: "sk-key",
       model: "fp-small",
+      oauthProfile: "",
     })
     expect(opts[0]?.preset).toBeUndefined()
   })
@@ -657,7 +893,7 @@ describe("runProviderSetup", () => {
       }),
     })
     await pickRow(harness, PROVIDER_IDS, "codex")
-    await harness.renderOnce()
+    await nameOAuthAccount(harness)
     harness.pressKey("Ctrl+C")
     expect(await done).toBe(false)
     expect(cancelled).toBeGreaterThan(0)

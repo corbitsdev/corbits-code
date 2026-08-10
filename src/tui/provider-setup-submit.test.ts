@@ -30,6 +30,7 @@ describe("buildProviderSubmitHandler", () => {
         baseURL: "https://api.openai.com/v1",
         apiKey: "",
         model: "gpt-5",
+        oauthProfile: "",
       };
       const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
 
@@ -49,6 +50,7 @@ describe("buildProviderSubmitHandler", () => {
         baseURL: "http://localhost:11434/v1",
         apiKey: "",
         model: "llama3",
+        oauthProfile: "",
       };
 
       // skipValidation avoids the live connection probe in this unit test.
@@ -67,6 +69,7 @@ describe("buildProviderSubmitHandler", () => {
         baseURL: "https://api.openai.com/v1",
         apiKey: "sk-test-fake",
         model: "gpt-5",
+        oauthProfile: "",
       };
       const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
 

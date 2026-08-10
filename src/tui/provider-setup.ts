@@ -60,7 +60,23 @@ const PROVIDER_FIELD_HINTS: Record<ProviderField, string> = {
   model: "gpt-4o",
 }
 
-export type ProviderFormValues = Record<ProviderField, string>
+/** Placeholder for the OAuth account-name step, which edits `oauthProfile`. */
+const OAUTH_PROFILE_HINT = "default, personal, work, …"
+
+export type ProviderFormValues = {
+  name: string
+  baseURL: string
+  apiKey: string
+  model: string
+  /**
+   * Pre-login account slug for the OAuth path (e.g. "personal"). Kept apart
+   * from `name`, which for OAuth is only written once login succeeds and
+   * then carries the compound catalog name ("codex/personal") — reusing it
+   * for the slug would make the field mean two different things depending
+   * on where the operator is in the flow.
+   */
+  oauthProfile: string
+}
 
 /** One screen of the flow. `provider` and `model` can be pick-lists. */
 export type SetupStep =
@@ -74,8 +90,17 @@ export type SetupStep =
 /** Known-provider path: pick, paste key, pick model. */
 export const PRESET_STEPS: readonly SetupStep[] = ["provider", "apiKey", "model"]
 
-/** Subscription path: pick, sign in through the browser, pick model. */
-export const OAUTH_STEPS: readonly SetupStep[] = ["provider", "login", "model"]
+/**
+ * Subscription path: pick, name the account (a suggested slug is prefilled;
+ * reusing an existing name asks for confirmation before re-authorizing it),
+ * sign in through the browser, pick a model.
+ */
+export const OAUTH_STEPS: readonly SetupStep[] = [
+  "provider",
+  "name",
+  "login",
+  "model",
+]
 
 /** Unknown endpoint: the full manual form, still preceded by the pick-list. */
 export const CUSTOM_STEPS: readonly SetupStep[] = [
@@ -102,6 +127,12 @@ const STEP_PROMPTS: Record<SetupStep, string> = {
   apiKey: "paste the api key — leave blank for a keyless local endpoint",
   model: "pick the model to start with",
   login: "authorize in the browser — this window waits for you",
+}
+
+/** Instruction for the "name" step on the OAuth path, which names an account
+ * rather than a whole provider — reusing an existing name re-authorizes it. */
+function oauthNamePrompt(kind: OAuthKind): string {
+  return `name this account — stored as ${kind}/<name>, and used again if you reconnect it`
 }
 
 // "testing" covers the connection-check call against the entered credentials;
@@ -141,9 +172,6 @@ export type ProviderChoice = {
 
 export type OAuthKind = FirstClassOAuthProvider
 
-/** Profile name a first run authorizes under. `/model` can add more later. */
-export const DEFAULT_OAUTH_PROFILE = "default"
-
 /**
  * What a signed-in subscription provider resolves to. The endpoint and model
  * list are the same constants the auth stack projects into the catalog, so a
@@ -175,6 +203,66 @@ const OAUTH_SURFACES: Record<
 /** Settings/catalog provider name a profile of `kind` is stored under. */
 export function oauthProviderName(kind: OAuthKind, profile: string): string {
   return OAUTH_SURFACES[kind].providerName(profile)
+}
+
+/** Longest slug the name step accepts, after normalization. */
+const OAUTH_PROFILE_MAX_LENGTH = 64
+
+const OAUTH_PROFILE_CHARS = /^[a-z0-9._-]+$/
+const OAUTH_PROFILE_EDGE_SEPARATOR = /^[._-]|[._-]$/
+
+export type OAuthProfileValidation =
+  | { readonly ok: true; readonly slug: string }
+  | { readonly ok: false; readonly error: string }
+
+/**
+ * Validate and lowercase-normalize an operator-entered account slug. This is
+ * the constraint owner for the slug shape — the auth store and the catalog
+ * projection (`oauthProviderName`) trust whatever they are handed, since a
+ * "/" here would silently join into the compound catalog name they build.
+ */
+export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
+  const slug = raw.trim().toLowerCase()
+  if (slug.length === 0) return { ok: false, error: "name cannot be empty" }
+  if (slug.length > OAUTH_PROFILE_MAX_LENGTH) {
+    return { ok: false, error: `name must be ${String(OAUTH_PROFILE_MAX_LENGTH)} characters or fewer` }
+  }
+  if (!OAUTH_PROFILE_CHARS.test(slug)) {
+    return { ok: false, error: "use only lowercase letters, numbers, and . _ -" }
+  }
+  if (OAUTH_PROFILE_EDGE_SEPARATOR.test(slug)) {
+    return { ok: false, error: "name cannot start or end with . _ or -" }
+  }
+  return { ok: true, slug }
+}
+
+/**
+ * A slug that does not collide with `existing`, so a first sign-in can
+ * default to something usable without asking the operator to invent a name.
+ * "default" first, then "default-2", "default-3", … on collision.
+ */
+export function suggestOAuthProfileSlug(existing: readonly string[]): string {
+  const taken = new Set(existing)
+  if (!taken.has("default")) return "default"
+  let n = 2
+  while (taken.has(`default-${String(n)}`)) n += 1
+  return `default-${String(n)}`
+}
+
+/** Fetches the names of already-authorized profiles for a provider kind. */
+export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>
+
+/**
+ * Real lister, imported lazily per kind so mounting the surface never touches
+ * the auth-store files in a test that injects its own lister.
+ */
+const defaultProfileLister: OAuthProfileLister = async (kind) => {
+  if (kind === "codex") {
+    const { listCodexProfiles } = await import("../auth/codex/store.js")
+    return (await listCodexProfiles()).map((p) => p.name)
+  }
+  const { listXaiProfiles } = await import("../auth/xai/store.js")
+  return (await listXaiProfiles()).map((p) => p.name)
 }
 
 function oauthChoice(
@@ -393,14 +481,22 @@ export function secretFromMaskedEdit(secret: string, displayed: string): string 
   return [...secret].slice(0, keptLength).join("") + typed.join("")
 }
 
+// The "name" step names a whole provider on the custom path but a single
+// account on the OAuth path; the shared label would mislabel the latter.
+function stepLabel(step: SetupStep, choice: ProviderChoice | null): string {
+  if (step === "name" && choice?.oauth != null) return "account name"
+  return STEP_LABELS[step]
+}
+
 /** `step 2 of 3 · api key` — always says where the operator is and what is left. */
 export function stepHeadline(
   steps: readonly SetupStep[],
   index: number,
+  choice: ProviderChoice | null = null,
 ): string {
   const step = steps[Math.min(Math.max(index, 0), steps.length - 1)]
   if (step === undefined) return ""
-  return `step ${index + 1} of ${steps.length} · ${STEP_LABELS[step]}`
+  return `step ${index + 1} of ${steps.length} · ${stepLabel(step, choice)}`
 }
 
 export type SummaryRow = {
@@ -419,7 +515,7 @@ export function summaryRows(
   return steps.map((step, i) => {
     const state = i < index ? "done" : i === index ? "current" : "pending"
     return {
-      label: STEP_LABELS[step],
+      label: stepLabel(step, choice),
       value: state === "done" ? settledValue(step, values, choice) : "—",
       state,
     }
@@ -436,7 +532,7 @@ function settledValue(
   if (step === "apiKey") {
     return values.apiKey.length > 0 ? maskSecret(values.apiKey) : "keyless"
   }
-  if (step === "name") return values.name
+  if (step === "name") return choice?.oauth != null ? values.oauthProfile : values.name
   if (step === "baseURL") return values.baseURL
   return values.model
 }
@@ -571,6 +667,8 @@ export type ProviderSetupConfig = {
   readonly createRenderer?: () => Promise<CliRenderer>
   /** Login driver override so tests need neither a browser nor a port. */
   readonly startLogin?: OAuthLoginStarter
+  /** Profile lister override so tests need no auth-store files on disk. */
+  readonly listOAuthProfiles?: OAuthProfileLister
   /** Sign-in deadline override, in milliseconds. */
   readonly loginTimeoutMs?: number
   /**
@@ -626,6 +724,7 @@ export async function runProviderSetup(
     baseURL: "",
     apiKey: "",
     model: "",
+    oauthProfile: "",
   }
   let choice: ProviderChoice | null = null
   let stepIndex = 0
@@ -638,6 +737,7 @@ export async function runProviderSetup(
   let rampTimer: ReturnType<typeof setInterval> | null = null
 
   const startLogin = config.startLogin ?? defaultLoginStarter
+  const listOAuthProfiles = config.listOAuthProfiles ?? defaultProfileLister
   const loginTimeoutMs = config.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
   let loginStatus: "idle" | "pending" | "failed" | "done" = "idle"
   let loginURL: string | null = null
@@ -652,6 +752,19 @@ export async function runProviderSetup(
   // Bumped on every start and every abandon, so a late resolution from a
   // cancelled or superseded attempt can never move the screen.
   let loginAttempt = 0
+
+  // The OAuth "name" step's own state: an inline error from the last
+  // validation, and a pending re-authorize confirmation for a name that
+  // collided with an existing profile. `confirmedSlug` is the exact slug the
+  // confirmation applies to, so an edit to the field (which invalidates it)
+  // is detected by comparison rather than a separate dirty flag.
+  let oauthProfileError: string | null = null
+  let oauthProfileConfirmPending = false
+  let confirmedSlug: string | null = null
+  // Bumped whenever the name step is (re-)entered, so a profile-list fetch
+  // left over from a step the operator has since navigated away from can
+  // never write into the wrong step's state.
+  let oauthNameAttempt = 0
 
   if (config.initialProviderId !== undefined) {
     const preselected = choices.find((c) => c.id === config.initialProviderId)
@@ -694,6 +807,11 @@ export async function runProviderSetup(
     if (step === "provider") return true
     return step === "model" && choice !== null && !choice.custom && !typedModel
   }
+  // The "name" step means two different things depending on the path: a
+  // free-text provider name (custom) or an OAuth account slug with its own
+  // suggestion/collision machinery. Only the latter needs this branch.
+  const isOAuthNameStep = (): boolean =>
+    currentStep() === "name" && choice !== null && choice.oauth !== null
 
   const root = new BoxRenderable(renderer, {
     id: "provider-setup",
@@ -948,6 +1066,27 @@ export async function runProviderSetup(
   }
 
   const paintStatus = (): void => {
+    if (!submitting && isOAuthNameStep()) {
+      if (oauthProfileError !== null) {
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 })
+        statusLine.content = rampLine(ramp, oauthProfileError)
+        statusLine.fg = ramp.fg
+        guidance.content = "fix the name and press enter"
+        guidance.fg = UI.textDim
+        return
+      }
+      if (oauthProfileConfirmPending) {
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 })
+        statusLine.content = rampLine(
+          ramp,
+          `"${confirmedSlug ?? values.oauthProfile}" is already connected`,
+        )
+        statusLine.fg = ramp.fg
+        guidance.content = "enter again to re-authorize this account · esc to cancel"
+        guidance.fg = UI.textDim
+        return
+      }
+    }
     if (!submitting && isLoginStep()) {
       if (loginStatus === "failed") {
         const ramp = rampFor({ phase: "blocked", nowMs: 0 })
@@ -961,7 +1100,7 @@ export async function runProviderSetup(
         const ramp = rampFor({ phase: "done", nowMs: 0 })
         statusLine.content = rampLine(
           ramp,
-          `signed in as ${loginResult?.providerName ?? DEFAULT_OAUTH_PROFILE}`,
+          `signed in as ${loginResult?.providerName ?? "the account"}`,
         )
         statusLine.fg = ramp.fg
         guidance.content = "enter to pick a model"
@@ -1025,8 +1164,11 @@ export async function runProviderSetup(
 
   const paint = (): void => {
     const active = currentStep()
-    step.content = stepHeadline(steps(), stepIndex)
-    instruction.content = STEP_PROMPTS[active]
+    step.content = stepHeadline(steps(), stepIndex, choice)
+    instruction.content =
+      isOAuthNameStep() && choice?.oauth != null
+        ? oauthNamePrompt(choice.oauth)
+        : STEP_PROMPTS[active]
     paintSummary()
     paintList()
     paintLogin()
@@ -1047,12 +1189,45 @@ export async function runProviderSetup(
       if (isLoginStep() && loginStatus === "idle") beginLogin()
       return
     }
+    if (isOAuthNameStep()) {
+      enterOAuthNameStep()
+      return
+    }
     const field = active as ProviderField
     input.placeholder = PROVIDER_FIELD_HINTS[field]
     input.value = field === "apiKey" ? maskEcho(values.apiKey) : values[field]
     // Paint first: focus is refused while the input is still hidden.
     paint()
     input.focus()
+  }
+
+  /**
+   * Enter the OAuth "name" step: reset its per-visit state, show whatever
+   * slug is already typed, then fetch this provider's profiles fresh (never
+   * cached across visits — another sign-in could have landed between two
+   * visits to this step) to prefill a suggested, non-colliding slug when the
+   * field is still blank.
+   */
+  const enterOAuthNameStep = (): void => {
+    oauthProfileError = null
+    oauthProfileConfirmPending = false
+    input.placeholder = OAUTH_PROFILE_HINT
+    input.value = values.oauthProfile
+    paint()
+    input.focus()
+    const kind = choice?.oauth ?? null
+    if (kind === null) return
+    const attempt = (oauthNameAttempt += 1)
+    listOAuthProfiles(kind)
+      .catch((): readonly string[] => [])
+      .then((names) => {
+        if (settled || attempt !== oauthNameAttempt) return
+        if (values.oauthProfile.trim().length === 0) {
+          values.oauthProfile = suggestOAuthProfileSlug(names)
+          input.value = values.oauthProfile
+          paint()
+        }
+      })
   }
 
   let settled = false
@@ -1174,7 +1349,7 @@ export async function runProviderSetup(
     rampTimer = setInterval(paintStatus, RAMP_TICK_MS)
     paint()
 
-    startLogin({ kind, profile: DEFAULT_OAUTH_PROFILE, signal: abort.signal }).then(
+    startLogin({ kind, profile: values.oauthProfile, signal: abort.signal }).then(
       (handle) => {
         if (attempt !== loginAttempt) {
           handle.cancel()
@@ -1264,10 +1439,21 @@ export async function runProviderSetup(
     if (picked === undefined) return
     choice = picked
     typedModel = false
+    oauthProfileError = null
+    oauthProfileConfirmPending = false
+    confirmedSlug = null
     if (picked.custom) {
       values.name = ""
       values.baseURL = ""
       values.model = ""
+    } else if (picked.oauth !== null) {
+      // Left blank until login succeeds — see the `oauthProfile` doc comment
+      // on `ProviderFormValues` for why the pre-login slug is a field of
+      // its own rather than a stand-in value here.
+      values.name = ""
+      values.baseURL = picked.baseURL
+      values.model = picked.defaultModel
+      values.oauthProfile = ""
     } else {
       values.name = picked.id
       values.baseURL = picked.baseURL
@@ -1340,6 +1526,10 @@ export async function runProviderSetup(
       if (loginStatus !== "pending") beginLogin()
       return
     }
+    if (isOAuthNameStep()) {
+      advanceOAuthNameStep()
+      return
+    }
     const field = currentStep() as ProviderField
     if (!stepReady(field, values[field])) return
 
@@ -1353,6 +1543,57 @@ export async function runProviderSetup(
     submit(false)
   }
 
+  /**
+   * Validate the entered slug, then re-derive the collision check against a
+   * fresh profile fetch rather than trusting the snapshot taken when the
+   * step was entered — a profile authorized elsewhere in the meantime must
+   * still be caught. A collision needs one more Enter to confirm before the
+   * step advances, worded as a re-authorization rather than a bare retry.
+   */
+  const advanceOAuthNameStep = (): void => {
+    const kind = choice?.oauth ?? null
+    if (kind === null) return
+    const validated = validateOAuthProfileSlug(values.oauthProfile)
+    if (!validated.ok) {
+      oauthProfileError = validated.error
+      oauthProfileConfirmPending = false
+      confirmedSlug = null
+      paint()
+      return
+    }
+    const slug = validated.slug
+    // Already confirmed this exact slug on the previous Enter — proceed
+    // without another round-trip. Any edit since then cleared the flag (see
+    // onInput), so this only fires on a genuine second, unmodified Enter.
+    if (oauthProfileConfirmPending && confirmedSlug === slug) {
+      enterLoginStepWithSlug(slug)
+      return
+    }
+    const attempt = (oauthNameAttempt += 1)
+    listOAuthProfiles(kind)
+      .catch((): readonly string[] => [])
+      .then((names) => {
+        if (settled || attempt !== oauthNameAttempt) return
+        if (names.includes(slug)) {
+          oauthProfileError = null
+          oauthProfileConfirmPending = true
+          confirmedSlug = slug
+          paint()
+          return
+        }
+        enterLoginStepWithSlug(slug)
+      })
+  }
+
+  const enterLoginStepWithSlug = (slug: string): void => {
+    values.oauthProfile = slug
+    oauthProfileError = null
+    oauthProfileConfirmPending = false
+    confirmedSlug = null
+    stepIndex += 1
+    showStep()
+  }
+
   const back = (): void => {
     if (stepIndex === 0) return
     stepIndex -= 1
@@ -1364,6 +1605,18 @@ export async function runProviderSetup(
 
   function onInput(next: string): void {
     if (submitting || isListStep()) return
+    if (isOAuthNameStep()) {
+      values.oauthProfile = next
+      // An edit invalidates whatever the last submit attempt found — the
+      // confirm applies to one exact slug, and any inline error is stale
+      // the moment the text it described changes.
+      const hadFeedback = oauthProfileError !== null || oauthProfileConfirmPending
+      oauthProfileError = null
+      oauthProfileConfirmPending = false
+      confirmedSlug = null
+      if (hadFeedback) paint()
+      return
+    }
     const field = currentStep() as ProviderField
     if (field === "apiKey") {
       values.apiKey = secretFromMaskedEdit(values.apiKey, next)
@@ -1402,8 +1655,17 @@ export async function runProviderSetup(
     }
     if (key.name === "escape") {
       key.preventDefault()
-      if (isLoginStep()) cancelLogin()
-      else back()
+      if (isLoginStep()) {
+        cancelLogin()
+      } else if (isOAuthNameStep() && oauthProfileConfirmPending) {
+        // Cancel the re-authorize confirm without leaving the step — the
+        // operator is about to edit the name, not abandon the provider.
+        oauthProfileConfirmPending = false
+        confirmedSlug = null
+        paint()
+      } else {
+        back()
+      }
       return
     }
     if (isLoginStep()) {
