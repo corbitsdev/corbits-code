@@ -42,7 +42,7 @@ import {
   type LocalSettings,
   type PluginConfig,
 } from "../config/settings.js";
-import { connectedAccountCount, providerChoices, unconnectedProviderChoices } from "./provider-setup.js";
+import { connectedAccountCount, providerChoices } from "./provider-setup.js";
 import { connectProviderInline } from "./provider-connect.js";
 import { modelOptionId } from "./model-catalog.js";
 import type { SessionModeScope } from "./command-surfaces.js";
@@ -2042,21 +2042,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // Mount OpenTUI before the initial task is sent so gate and stream listeners
   // are registered first. Ctrl+C stays with the shell (interrupt the run);
   // OpenTUI owns the alternate screen and mouse reporting itself.
-  // Providers the picker offers as "connect →" rows: known choices minus
-  // whatever is already in the live catalog. Recomputed after a live connect
-  // so a newly authorized provider drops out of this list immediately.
-  const computeUnconnectedProviders = (providers: Config["providers"]) =>
-    unconnectedProviderChoices(providers).map((choice) => ({
-      name: choice.id,
-      label: choice.label,
-      modelCount: choice.models.length,
-      authKind: choice.oauth !== null ? ("oauth" as const) : ("key" as const),
-    }));
-
   // Alt+A add-provider selector rows: every first-class provider kind, no
-  // already-connected filtering (unlike the flat list's connect rows above),
-  // so a second OAuth account is reachable once the first is already
-  // connected. Read fresh on each open against the live catalog.
+  // already-connected filtering, so a second OAuth account is reachable once
+  // the first is already connected. Read fresh on each open against the live
+  // catalog.
   const computeAddProviderChoices = () =>
     providerChoices()
       .filter((choice) => !choice.custom)
@@ -2108,7 +2097,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     providers: config.providers,
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
-    unconnectedProviders: computeUnconnectedProviders(config.providers),
     addProviderChoices: computeAddProviderChoices,
     onConnectProvider: (providerName) => {
       void (async () => {
@@ -2145,7 +2133,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           listRecentModels(config.settings ?? { providers: {} }),
           listFavoriteModels(config.settings ?? { providers: {} }),
           providers,
-          computeUnconnectedProviders(providers),
         );
         // Reopen positioned at the account just connected — the picker's
         // default open (top of list) would otherwise leave the operator to

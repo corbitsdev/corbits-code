@@ -381,21 +381,6 @@ export function connectedAccountCount(
   ).length
 }
 
-/** Whether `choice` already has a connected provider in `providers`. */
-export function isChoiceConnected(
-  choice: ProviderChoice,
-  providers: readonly { readonly name: string }[],
-): boolean {
-  return connectedAccountCount(choice, providers) > 0
-}
-
-/** Known choices with no connected provider yet — the picker's "connect →" rows. */
-export function unconnectedProviderChoices(
-  providers: readonly { readonly name: string }[],
-  choices: readonly ProviderChoice[] = providerChoices(),
-): readonly ProviderChoice[] {
-  return choices.filter((choice) => !choice.custom && !isChoiceConnected(choice, providers))
-}
 
 /** Pick-list rows for the provider step. */
 export function providerChoiceRows(
@@ -681,8 +666,8 @@ export type ProviderSetupConfig = {
   readonly loginTimeoutMs?: number
   /**
    * Skip the provider pick-list and start directly on that provider's
-   * apiKey/login step — the inline "connect →" path from the model picker
-   * already knows which provider it wants.
+   * apiKey/login step — the inline connect path from the model picker's
+   * add-provider selector already knows which provider it wants.
    */
   readonly initialProviderId?: string
 }

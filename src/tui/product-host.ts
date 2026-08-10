@@ -88,13 +88,13 @@ export type ProductHostDeliver = (
 
 /**
  * `section` tags catalog rows for grouping/ordering in `buildModelsFirstCatalog`
- * (recent and favorites first, then provider models, then unconnected connect
- * rows). The live picker is flat + type-to-filter — it does not nest by section.
+ * (recent and favorites first, then provider models). The live picker is flat
+ * + type-to-filter — it does not nest by section.
  */
 export type ProductHostModelOption = {
   readonly id: string
   readonly label: string
-  readonly section?: "recent" | "favorites" | "provider" | "unconnected"
+  readonly section?: "recent" | "favorites" | "provider"
 }
 
 /** A first-class provider kind offered by the Alt+A add-provider selector. */
@@ -132,12 +132,12 @@ export type ProductHostConfig = {
   /** Description-zone source for the model picker, keyed by row id. */
   readonly describeModel?: (itemId: string) => ItemDescription | null
   /**
-   * Selecting a "connect →" row (id `connect:<provider>`) calls this instead
-   * of `onModelSelect`. Caller runs the connect flow and, on success, updates
-   * `models`/`describeModel` via `setModels` and reopens the picker.
+   * Picking a provider in the Alt+A add-provider selector calls this. Caller
+   * runs the connect flow and, on success, updates `models`/`describeModel`
+   * via `setModels` and reopens the picker.
    */
   readonly onConnectProvider?: (providerName: string) => void
-  /** Alt+F on a focused model row; connect rows are skipped by the caller. Bare `f` is claimed by type-to-filter. */
+  /** Alt+F on a focused model row. Bare `f` is claimed by type-to-filter. */
   readonly onFavoriteToggle?: (itemId: string) => void
   /**
    * Every first-class provider kind, read fresh on each Alt+A open so a
@@ -582,11 +582,6 @@ export async function mountProductHost(
           // not the unfiltered catalog, so it would pick the wrong model.
           const id = sel.id
           if (id === undefined || id.length === 0) return
-          const providerName = id.startsWith("connect:") ? id.slice("connect:".length) : null
-          if (providerName !== null) {
-            onConnect?.(providerName)
-            return
-          }
           onSelect(id)
         },
         describe: (itemId) => currentDescribeModel?.(itemId) ?? null,
@@ -602,7 +597,7 @@ export async function mountProductHost(
                 }
                 if (name === "f" && onFavoriteToggle !== undefined) {
                   // Empty id is the "(no matches)" filter sentinel — not a model.
-                  if (itemId.length === 0 || itemId.startsWith("connect:")) return false
+                  if (itemId.length === 0) return false
                   onFavoriteToggle(itemId)
                   return true
                 }

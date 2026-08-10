@@ -25,7 +25,6 @@ import {
   type ModelCatalogOption,
   type ModelCatalogProvidersInput,
   type ModelCatalogRef,
-  type ModelCatalogUnconnectedProvider,
 } from "./model-catalog.js"
 import type { ItemDescription } from "./shell.js"
 import {
@@ -79,8 +78,6 @@ export type RunnerHostDeps = {
   readonly recentModels?: readonly ModelCatalogRef[]
   /** Favorited provider+model pairs (settings.favoriteModels). */
   readonly favoriteModels?: readonly ModelCatalogRef[]
-  /** Known providers with no stored credentials yet — rendered as "connect →" rows. */
-  readonly unconnectedProviders?: readonly ModelCatalogUnconnectedProvider[]
   /**
    * Provider+model the session is actually running, read live on every
    * picker open. Marks that row "(current)" — independent of recents, which
@@ -88,7 +85,7 @@ export type RunnerHostDeps = {
    */
   readonly activeModel?: () => ModelCatalogRef | undefined
   readonly onModelSelect: (id: string) => void
-  /** Selecting a "connect →" row; runner owns the actual connect flow. */
+  /** Picking a row in the Alt+A add-provider selector; runner owns the connect flow. */
   readonly onConnectProvider?: (providerName: string) => void
   /** `f` on a focused model row; runner owns the favorite persist + refresh. */
   readonly onFavoriteToggle?: (id: string) => void
@@ -156,15 +153,14 @@ export type RunnerHost = ProductHost & {
    * push it into the already-open host — the picker's Recent/Favorites
    * sections would otherwise never reflect a same-session selection.
    *
-   * `providers`/`unconnected` default to the values last passed here (or the
-   * mount-time deps) — pass fresh ones after a live provider connect so a
-   * newly authorized provider's models appear without a restart.
+   * `providers` defaults to the value last passed here (or the mount-time
+   * deps) — pass a fresh one after a live provider connect so a newly
+   * authorized provider's models appear without a restart.
    */
   readonly refreshModels: (
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
     providers?: ModelCatalogProvidersInput,
-    unconnected?: readonly ModelCatalogUnconnectedProvider[],
   ) => void
   /** Re-reads `showPromptCost` and cost/context state, repainting the border immediately. */
   readonly refreshCostContext: () => void
@@ -242,18 +238,13 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   // Mutable so a live provider connect (see refreshModels below) can replace
   // the catalog source without remounting the host.
   let liveProviders = deps.providers
-  let liveUnconnected = deps.unconnectedProviders ?? []
   let catalog: readonly ModelCatalogOption[] = buildModelsFirstCatalog({
     providers: liveProviders,
     recent: deps.recentModels ?? [],
     favorites: deps.favoriteModels ?? [],
-    unconnected: liveUnconnected,
   })
   const describeModel = (itemId: string): ItemDescription | null =>
-    describeModelCatalogOption(
-      catalog.find((o) => o.id === itemId) ?? { id: itemId, label: itemId },
-      { unconnected: liveUnconnected },
-    )
+    describeModelCatalogOption(catalog.find((o) => o.id === itemId) ?? { id: itemId, label: itemId })
   const readModelLabel = deps.modelLabel
   const onModelSelect = (id: string): void => {
     deps.onModelSelect(id)
@@ -364,15 +355,12 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
     providers?: ModelCatalogProvidersInput,
-    unconnected?: readonly ModelCatalogUnconnectedProvider[],
   ): void => {
     if (providers !== undefined) liveProviders = providers
-    if (unconnected !== undefined) liveUnconnected = unconnected
     catalog = buildModelsFirstCatalog({
       providers: liveProviders,
       recent: recentModels,
       favorites: favoriteModels,
-      unconnected: liveUnconnected,
     })
     host.setModels?.(catalog, describeModel)
   }
