@@ -42,8 +42,9 @@ import {
   type LocalSettings,
   type PluginConfig,
 } from "../config/settings.js";
-import { unconnectedProviderChoices } from "./provider-setup.js";
+import { connectedAccountCount, providerChoices, unconnectedProviderChoices } from "./provider-setup.js";
 import { connectProviderInline } from "./provider-connect.js";
+import { modelOptionId } from "./model-catalog.js";
 import type { SessionModeScope } from "./command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
@@ -2052,6 +2053,20 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       authKind: choice.oauth !== null ? ("oauth" as const) : ("key" as const),
     }));
 
+  // Alt+A add-provider selector rows: every first-class provider kind, no
+  // already-connected filtering (unlike the flat list's connect rows above),
+  // so a second OAuth account is reachable once the first is already
+  // connected. Read fresh on each open against the live catalog.
+  const computeAddProviderChoices = () =>
+    providerChoices()
+      .filter((choice) => !choice.custom)
+      .map((choice) => ({
+        id: choice.id,
+        label: choice.label,
+        hint: choice.hint,
+        accountCount: connectedAccountCount(choice, config.providers),
+      }));
+
   const host = await mountRunnerHost({
     // An unnamed session shows nothing rather than a placeholder.
     title: runTaskTitle,
@@ -2094,6 +2109,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     recentModels: listRecentModels(config.settings ?? { providers: {} }),
     favoriteModels: listFavoriteModels(config.settings ?? { providers: {} }),
     unconnectedProviders: computeUnconnectedProviders(config.providers),
+    addProviderChoices: computeAddProviderChoices,
     onConnectProvider: (providerName) => {
       void (async () => {
         let result: Awaited<ReturnType<typeof connectProviderInline>>;
@@ -2131,7 +2147,14 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           providers,
           computeUnconnectedProviders(providers),
         );
-        systemNotice(`Connected ${result.providerName ?? providerName}. Open /model to pick a model.`);
+        // Reopen positioned at the account just connected — the picker's
+        // default open (top of list) would otherwise leave the operator to
+        // hunt for the row they just authorized.
+        const connectedName = result.providerName ?? providerName;
+        host.openModels?.(
+          result.model !== undefined ? modelOptionId(connectedName, result.model) : undefined,
+        );
+        systemNotice(`Connected ${connectedName}. Open /model to pick a model.`);
       })().catch((err: unknown) => {
         tuiLogger.debug("provider connect failed: {error}", {
           error: err instanceof Error ? err.message : String(err),

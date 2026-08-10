@@ -4,9 +4,10 @@
  */
 import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
+import type { KeyEvent } from "@opentui/core"
 import type { PermissionRequest } from "../permission/types.js"
 import { createHarness } from "./harness.js"
-import { acceptOverlaySelection, moveOverlaySelection } from "./shell.js"
+import { acceptOverlaySelection, closeInsetOverlay, moveOverlaySelection, runOverlayAction } from "./shell.js"
 import {
   mountProductHost,
   operatorResultFromSelection,
@@ -580,6 +581,131 @@ describe("flat type-to-filter model picker", () => {
       harness.pressKey("f", { meta: true })
       await harness.renderOnce()
       expect(favorites).toEqual([])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  const altA = { name: "a", ctrl: false, meta: false, option: true } as KeyEvent
+
+  test("the model picker footer advertises Alt+A", async () => {
+    const { harness, host } = await mountPicker({
+      // The hint requires the full wiring — choices AND the connect handler —
+      // because that is exactly when the key actually works.
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(harness.captureCharFrame()).toContain("Alt+A")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Alt+A opens the add-provider selector listing every provider kind and its account count", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [
+        { id: "codex", label: "Codex", hint: "ChatGPT subscription", accountCount: 2 },
+        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+      ],
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(runOverlayAction(host.shell, altA)).toBe(true)
+      await harness.renderOnce()
+      expect(host.shell.overlayKind).toBe("add_provider")
+      expect(host.shell.overlayItems).toEqual([
+        "Codex — 2 accounts",
+        "OpenAI — 0 accounts",
+      ])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Esc from the add-provider selector returns to the model list", async () => {
+    const { harness, host } = await mountPicker({
+      onConnectProvider: () => {},
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 1 }],
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      const modelItems = host.shell.overlayItems
+      runOverlayAction(host.shell, altA)
+      await harness.renderOnce()
+      expect(host.shell.overlayKind).toBe("add_provider")
+      closeInsetOverlay(host.shell)
+      await harness.renderOnce()
+      expect(host.shell.overlayKind).toBe("model_picker")
+      expect(host.shell.overlayItems).toEqual(modelItems)
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Enter on an add-provider row runs the connect flow for that provider", async () => {
+    const connected: string[] = []
+    const { harness, host } = await mountPicker({
+      onConnectProvider: (name) => connected.push(name),
+      addProviderChoices: () => [{ id: "codex", label: "Codex", hint: "", accountCount: 0 }],
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      runOverlayAction(host.shell, altA)
+      await harness.renderOnce()
+      acceptOverlaySelection(host.shell)
+      expect(connected).toEqual(["codex"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("without addProviderChoices, Alt+A is not claimed", async () => {
+    const { harness, host } = await mountPicker()
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(runOverlayAction(host.shell, altA)).toBe(false)
+      expect(host.shell.overlayKind).toBe("model_picker")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("without addProviderChoices, the footer never advertises Alt+A", async () => {
+    // The hint and the key claim must move together: a host that omits
+    // addProviderChoices gets neither, so the footer never names a dead key.
+    const { harness, host } = await mountPicker()
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(harness.captureCharFrame()).not.toContain("Alt+A")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("openModels(focusId) preselects the given row instead of the top of the list", async () => {
+    const { harness, host } = await mountPicker()
+    try {
+      host.openModels?.("codex/abk-labs:gpt-5.6-sol")
+      await harness.renderOnce()
+      const idx = host.shell.overlayItems.findIndex((label) => label.includes("gpt-5.6-sol"))
+      expect(idx).toBeGreaterThanOrEqual(0)
+      expect(host.shell.overlayList?.activeIndex).toBe(idx)
     } finally {
       host.dispose()
       harness.destroy()

@@ -106,12 +106,14 @@ describe("overlay host never shares cells with the prompt border", () => {
             kind: "model_picker",
             title: "model",
             items: ITEMS,
+            // Mirror production /model, which always wires Alt+A.
+            addProviderHint: true,
           }),
         size,
       )
 
       const expected = [
-        " model · Esc cancel · Enter choose",
+        " model · Esc cancel · Enter choose · Alt+A add provider",
         ` > ${ITEMS[0]}`,
         ...ITEMS.slice(1).map((i) => `   ${i}`),
       ]

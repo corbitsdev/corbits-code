@@ -16,7 +16,7 @@ import {
   type TaskProgressSession,
   type TurnMonitorOptions,
 } from "./runtime-bridge.js"
-import { openModelPickerOverlay } from "./overlays.js"
+import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js"
 import { wireGates } from "./gate-wire.js"
 import { createSystemClipboard } from "./system-clipboard.js"
 import {
@@ -40,6 +40,7 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
+  closeInsetOverlay,
   createAppShell,
   paintChrome,
   setChromeZones,
@@ -96,6 +97,15 @@ export type ProductHostModelOption = {
   readonly section?: "recent" | "favorites" | "provider" | "unconnected"
 }
 
+/** A first-class provider kind offered by the Alt+A add-provider selector. */
+export type ProductHostAddProviderChoice = {
+  readonly id: string
+  readonly label: string
+  readonly hint: string
+  /** Live count of connected accounts for this provider kind (0 or more). */
+  readonly accountCount: number
+}
+
 export type ProductHostConfig = {
   readonly title: string
   /** Working directory carried by the prompt box's bottom border. */
@@ -129,6 +139,12 @@ export type ProductHostConfig = {
   readonly onConnectProvider?: (providerName: string) => void
   /** Alt+F on a focused model row; connect rows are skipped by the caller. Bare `f` is claimed by type-to-filter. */
   readonly onFavoriteToggle?: (itemId: string) => void
+  /**
+   * Every first-class provider kind, read fresh on each Alt+A open so a
+   * just-connected account's count is current. Omitted hosts get no Alt+A
+   * hint and no add-provider selector.
+   */
+  readonly addProviderChoices?: () => readonly ProductHostAddProviderChoice[]
   /** Command palette catalog (registry-backed). */
   readonly commands?: readonly PaletteCommand[]
   readonly onCommand?: (name: string) => void
@@ -179,8 +195,12 @@ export type ProductHost = {
    * No-op (returns false) when observe is not active.
    */
   readonly pushObserveRow: (row: StreamRow) => boolean
-  /** Opens the model/provider picker; absent when no models were supplied. */
-  readonly openModels?: () => void
+  /**
+   * Opens the model/provider picker; absent when no models were supplied.
+   * `focusId` selects an initial row (e.g. a just-connected account's
+   * default model) instead of the top of the list.
+   */
+  readonly openModels?: (focusId?: string) => void
   /** Swap the picker's rows/descriptions in place (e.g. after a provider connects). */
   readonly setModels?: (
     models: readonly ProductHostModelOption[],
@@ -500,20 +520,62 @@ export async function mountProductHost(
 
   let currentModels = config.models ?? []
   let currentDescribeModel = config.describeModel
-  let openModels: (() => void) | undefined
+  let openModels: ((focusId?: string) => void) | undefined
   if (config.onModelSelect) {
     const onSelect = config.onModelSelect
     const onConnect = config.onConnectProvider
     const onFavoriteToggle = config.onFavoriteToggle
+    const addProviderChoices = config.addProviderChoices
 
-    openModels = (): void => {
+    // Alt+A from the model picker: close it and open a fresh selector over
+    // every first-class provider kind, no already-connected filtering. This
+    // gets its own PrimaryOverlayKind opened through the same close-then-open
+    // path openModels itself uses, rather than the palette's priorOverlay
+    // stack — that stack exists so the palette can float over a permission or
+    // operator question without dropping the awaited promise underneath it,
+    // which does not apply here.
+    const openAddProvider =
+      addProviderChoices !== undefined && onConnect !== undefined
+        ? (): void => {
+            const rows = addProviderChoices()
+            closeInsetOverlay(shell)
+            openAddProviderOverlay(shell, {
+              items: rows.map(
+                (r) => `${r.label} — ${r.accountCount} account${r.accountCount === 1 ? "" : "s"}`,
+              ),
+              itemIds: rows.map((r) => r.id),
+              onAccept: (sel) => {
+                const id = sel.id
+                if (id === undefined || id.length === 0) return
+                onConnect(id)
+              },
+              describe: (itemId) => {
+                const row = rows.find((r) => r.id === itemId)
+                if (row === undefined) return null
+                return {
+                  what: row.hint.length > 0 ? row.hint : "Opens the connect flow for this provider.",
+                  impact: `${row.accountCount} account${row.accountCount === 1 ? "" : "s"} connected today.`,
+                  tone: "plain",
+                }
+              },
+              // Esc returns to the model list through the same entry point
+              // Alt+A itself, /model, and a completed connect all use.
+              onCancel: () => openModels?.(),
+            })
+          }
+        : undefined
+
+    openModels = (focusId?: string): void => {
       const activeId = config.activeModelId?.()
       const items = annotateCurrent(currentModels, activeId)
+      const focusIndex = focusId !== undefined ? items.findIndex((m) => m.id === focusId) : -1
       openModelPickerOverlay(shell, {
         items: items.map((m) => m.label),
         itemIds: items.map((m) => m.id),
         // Flat list: type to narrow rather than drill into a provider pane.
         typeToFilter: true,
+        addProviderHint: openAddProvider !== undefined,
+        ...(focusIndex >= 0 ? { activeIndex: focusIndex } : {}),
         onAccept: (sel) => {
           // Prefer the stable id from the (possibly filtered) row. Do not fall
           // back to `items[sel.index]` — that index is into the filtered list,
@@ -528,16 +590,23 @@ export async function mountProductHost(
           onSelect(id)
         },
         describe: (itemId) => currentDescribeModel?.(itemId) ?? null,
-        ...(onFavoriteToggle !== undefined
+        ...(onFavoriteToggle !== undefined || openAddProvider !== undefined
           ? {
               onAction: (itemId, key) => {
-                // Alt+F, never bare f — type-to-filter claims printable keys.
+                if (key.ctrl || !(key.meta || key.option)) return false
                 const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
-                if (name !== "f" || key.ctrl || !(key.meta || key.option)) return false
-                // Empty id is the "(no matches)" filter sentinel — not a model.
-                if (itemId.length === 0 || itemId.startsWith("connect:")) return false
-                onFavoriteToggle(itemId)
-                return true
+                // Alt+A / Alt+F, never bare — type-to-filter claims printable keys.
+                if (name === "a" && openAddProvider !== undefined) {
+                  openAddProvider()
+                  return true
+                }
+                if (name === "f" && onFavoriteToggle !== undefined) {
+                  // Empty id is the "(no matches)" filter sentinel — not a model.
+                  if (itemId.length === 0 || itemId.startsWith("connect:")) return false
+                  onFavoriteToggle(itemId)
+                  return true
+                }
+                return false
               },
             }
           : {}),

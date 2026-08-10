@@ -28,7 +28,11 @@ import {
   type ModelCatalogUnconnectedProvider,
 } from "./model-catalog.js"
 import type { ItemDescription } from "./shell.js"
-import { mountProductHost, type ProductHost } from "./product-host.js"
+import {
+  mountProductHost,
+  type ProductHost,
+  type ProductHostAddProviderChoice,
+} from "./product-host.js"
 import { onTurnBoundary } from "../agent/reactor-events.js"
 import {
   clearShellExitHandler,
@@ -88,6 +92,11 @@ export type RunnerHostDeps = {
   readonly onConnectProvider?: (providerName: string) => void
   /** `f` on a focused model row; runner owns the favorite persist + refresh. */
   readonly onFavoriteToggle?: (id: string) => void
+  /**
+   * Alt+A from the model picker: every first-class provider kind, read fresh
+   * on each open so a just-connected account's count is current.
+   */
+  readonly addProviderChoices?: () => readonly ProductHostAddProviderChoice[]
   /** Working directory carried by the prompt box's bottom border. */
   readonly cwd?: string
   /** Branch lookup override for tests; defaults to a real `git rev-parse`. */
@@ -266,6 +275,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       : {}),
     ...(deps.onFavoriteToggle !== undefined
       ? { onFavoriteToggle: deps.onFavoriteToggle }
+      : {}),
+    ...(deps.addProviderChoices !== undefined
+      ? { addProviderChoices: deps.addProviderChoices }
       : {}),
     models: catalog,
     activeModelId: () => {
