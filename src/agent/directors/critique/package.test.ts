@@ -21,6 +21,18 @@ describe("critiquePackage", () => {
     expect(critiquePackage.systemPrompt).toMatch(/permanent tests/i);
   });
 
+  test("systemPrompt is correctness-only / anti-over-engineering", () => {
+    expect(critiquePackage.systemPrompt).toMatch(/correctness-only/i);
+    expect(critiquePackage.systemPrompt).toMatch(/anti-over-engineering/i);
+    expect(critiquePackage.systemPrompt).toMatch(
+      /correctness or the stated requirements\/success_criteria/i,
+    );
+    expect(critiquePackage.systemPrompt).toMatch(/style nits/i);
+    expect(critiquePackage.systemPrompt).toMatch(/file-for-later/i);
+    expect(critiquePackage.systemPrompt).toMatch(/Do not drive over-engineering/i);
+    expect(critiquePackage.systemPrompt).toMatch(/impossible cases/i);
+  });
+
   test("spawn.maySpawn is false", () => {
     expect(critiquePackage.spawn.maySpawn).toBe(false);
   });

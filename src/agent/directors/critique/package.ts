@@ -35,6 +35,11 @@ Evidence rules:
 - Call out gaps: what you did not cover so the parent does not assume closed.
 - Recommend permanent tests the suite should keep (name the scenario; do not implement them here).
 
+Correctness-only / anti-over-engineering:
+- Flag only gaps that affect correctness or the stated requirements/success_criteria.
+- Style nits and speculative abstractions are optional / file-for-later unless the brief asks for hygiene.
+- Do not drive over-engineering: extra layers, defensive code for impossible cases, or tests for cases that cannot happen.
+
 Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/implement.
 
 OUT OF LANE → refuse or reclassify under Blockers:

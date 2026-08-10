@@ -71,6 +71,16 @@ test("leaf harness facts advertise product write tools", () => {
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
 });
 
+test("leaf harness facts state turn budget and wrap-up report behavior", () => {
+  const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
+  expect(facts).toContain("Turn budget is real");
+  expect(facts).toContain("wrap-up nudge");
+  expect(facts).toContain("Summary/Findings/Blockers/Paths");
+  expect(facts).toContain("Do not thrash re-reads");
+  // Primary harness facts omit leaf turn-budget language.
+  expect(buildHarnessFacts()).not.toContain("Turn budget is real");
+});
+
 test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
   const guidelines = buildGuidelines();
   expect(guidelines).toContain("Response style:");
@@ -89,6 +99,15 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("do_not");
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
+});
+
+test("primary guidelines advise against early-stop from compaction token fear", () => {
+  const guidelines = buildGuidelines();
+  expect(guidelines).toContain("compacted automatically");
+  expect(guidelines).toContain("do not stop tasks early due to token fear");
+  expect(guidelines).toContain("manage_tasks and leaf reports");
+  // Leaf guidelines omit primary orchestration compaction guidance.
+  expect(buildGuidelines({ subAgent: true })).not.toContain("token fear");
 });
 
 test("chat system prompt satisfies system prompt quality markers", () => {

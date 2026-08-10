@@ -74,6 +74,7 @@ export function buildHarnessFacts(
     ...(subAgent
       ? [
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
+          "- Turn budget is real; near the end a wrap-up nudge may fire — stop tooling and write the structured report (Summary/Findings/Blockers/Paths). Do not thrash re-reads as the budget ends.",
         ]
       : ["- Dependency installs, paths outside the workspace, and session-state writes need operator approval."]),
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
@@ -148,6 +149,7 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
           "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
+          "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and leaf reports.",
         ]),
   ].join("\n");
 }

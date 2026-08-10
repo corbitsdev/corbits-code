@@ -83,4 +83,31 @@ describe("skywalkerPackage", () => {
   test("nudge maxTurns", () => {
     expect(skywalkerPackage.nudge?.maxTurns).toBe(100);
   });
+
+  test("systemPrompt has effort scaling / fan-out ladder", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Effort scaling");
+    expect(p).toContain("fan-out");
+    expect(p).toContain("0–1 leaf");
+    expect(p).toContain("2–4 leaves");
+    expect(p).toContain("split ownership by path/package");
+  });
+
+  test("systemPrompt requires brief completeness for multi-leaf", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Brief completeness");
+    expect(p).toContain("success_criteria");
+    expect(p).toContain("do_not");
+    expect(p).toContain("report_focus");
+    expect(p).toContain("multi-leaf");
+  });
+
+  test("systemPrompt has critique-after-implement verify path", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Verify after ship");
+    expect(p).toContain("multi-file implement");
+    expect(p).toContain("critique");
+    expect(p).toContain("greybeard");
+    expect(p).toContain("correctness/brief gaps");
+  });
 });

@@ -41,4 +41,25 @@ describe("implementPackage", () => {
   test("optionalSkills order is style, philosophy, typescript", () => {
     expect(implementPackage.optionalSkills).toEqual(["style", "philosophy", "typescript"]);
   });
+
+  test("systemPrompt has DONE GATE for success_criteria", () => {
+    const prompt = implementPackage.systemPrompt;
+    expect(prompt).toContain("DONE GATE");
+    expect(prompt).toContain("success_criteria");
+    expect(prompt).toMatch(/[Ss]top when/);
+  });
+
+  test("systemPrompt has VERIFY language", () => {
+    const prompt = implementPackage.systemPrompt;
+    expect(prompt).toContain("VERIFY");
+    expect(prompt).toMatch(/typecheck|tests/);
+    expect(prompt).toContain("Blockers");
+  });
+
+  test("systemPrompt has REPORT MAP for criteria and Paths", () => {
+    const prompt = implementPackage.systemPrompt;
+    expect(prompt).toContain("REPORT MAP");
+    expect(prompt).toMatch(/success_criteria.*pass|fail|blocked/s);
+    expect(prompt).toMatch(/Paths must list files touched/);
+  });
 });
