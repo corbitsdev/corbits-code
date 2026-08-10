@@ -1,8 +1,8 @@
 /**
  * OpenTUI app shell — sticky transcript, prompt chrome, inset overlay.
  *
- * Wave 3 product skin on the Wave 2 platform. Functional wrappers around
- * @opentui/core class renderables. Not wired to production CLI; Ink remains production.
+ * Functional wrappers around @opentui/core class renderables. This is the
+ * production interactive CLI surface (Ink is no longer the live path).
  */
 
 import { homedir } from "node:os"

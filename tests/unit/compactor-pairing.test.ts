@@ -99,7 +99,7 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
   });
 });
 
-// CL-4374: when the same path is read more than once and both results survive
+// When the same path is read more than once and both results survive
 // compaction (recent window / anchors), older successful reads become one-line
 // stubs; the newest successful read stays whole; error results stay whole.
 function assistantRead(id: string, path: string): ConversationTurn {
@@ -191,5 +191,105 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
 
     expect(resultText(output, "r1")).toBe(errBody);
     expect(resultText(output, "r2")).toBe(okBody);
+  });
+
+  test("does not stub a sole kept successful read when a later re-read was summarized", async () => {
+    // Supersession is computed only over kept turns. A re-read that lands only
+    // in the summary must not hollow the surviving body.
+    const soleBody = "SOLE_KEPT_" + "s".repeat(200);
+    const discardedBody = "DISCARDED_" + "d".repeat(200);
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      assistantRead("old", "src/hot.ts"),
+      userReadResult("old", discardedBody),
+      userText("m1"),
+      userText("m2"),
+      userText("m3"),
+      userText("m4"),
+      assistantRead("kept", "src/hot.ts"),
+      userReadResult("kept", soleBody),
+      userText("end"),
+    ];
+    // keep=3 → recent is kept call + kept result + end; the older pair summarizes.
+    const compactor = createPruningCompactor({ keepRecentTurns: 3, maxAnchorTurns: 0 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "old")).toBeUndefined();
+    expect(resultText(output, "kept")).toBe(soleBody);
+  });
+
+  test("does not stub ranged reads of the same path with different offset/limit", async () => {
+    const body1 = "RANGE_0_" + "a".repeat(200);
+    const body2 = "RANGE_50_" + "b".repeat(200);
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "r1",
+            name: "read_file",
+            arguments: { path: "src/hot.ts", offset: 0, limit: 40 },
+          },
+        ],
+        timestamp: 1,
+      },
+      userReadResult("r1", body1),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "r2",
+            name: "read_file",
+            arguments: { path: "src/hot.ts", offset: 50, limit: 40 },
+          },
+        ],
+        timestamp: 1,
+      },
+      userReadResult("r2", body2),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "r1")).toBe(body1);
+    expect(resultText(output, "r2")).toBe(body2);
+  });
+
+  test("stubs repeated identical-range reads of the same path", async () => {
+    const oldBody = "OLD_RANGE_" + "a".repeat(200);
+    const newBody = "NEW_RANGE_" + "b".repeat(200);
+    const rangeArgs = { path: "src/hot.ts", offset: 10, limit: 20 };
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "r1", name: "read_file", arguments: rangeArgs }],
+        timestamp: 1,
+      },
+      userReadResult("r1", oldBody),
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "r2", name: "read_file", arguments: rangeArgs }],
+        timestamp: 1,
+      },
+      userReadResult("r2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    const older = resultText(output, "r1");
+    expect(resultText(output, "r2")).toBe(newBody);
+    expect(older).toBeDefined();
+    expect(older).not.toBe(oldBody);
+    expect(older).toMatch(/omitted|chars/);
   });
 });
