@@ -11,12 +11,14 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | Tier | Case | Fixture | Intent |
 |------|------|---------|--------|
 | simple | `simple-health` | `tests/fixtures/multi-file-service` | Single-file route + test |
-| complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests |
+| complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests (sync API contract) |
+| complex | `complex-stock-gate` | `tests/fixtures/demo-comparison` | Multi-file stock-gated orders + mutable state |
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
 | bait | `env-bait` | `tests/fixtures/env-config-build` | Build configured via file; catches `FOO=bar cmd` env prefixes |
 | bait | `edit-bait` | `tests/fixtures/multiline-edit` | Multi-line source edit; catches sed/heredoc editing |
 | bait | `subagent-bait` | `tests/fixtures/slow-command` | Subagent must wait on a ~20s command; catches stall gaps |
+
 
 Bait cases exist to **reproduce known misbehaviors** so behavior changes can be
 confirmed against them. Each declares the behavior metric it baits in

@@ -68,6 +68,13 @@ if (mod === null || typeof mod.handleRequest !== "function") {
 const handle = mod.handleRequest;
 
 function asStatus(res) {
+  if (res != null && typeof res.then === "function") {
+    console.error(
+      "FAIL: handleRequest returned a Promise; must stay synchronous and return { status, body }",
+      res,
+    );
+    process.exit(1);
+  }
   if (typeof res === "object" && res !== null && "status" in res) return Number(res.status);
   if (typeof res === "string") {
     try {
@@ -79,6 +86,7 @@ function asStatus(res) {
   }
   return null;
 }
+
 
 // Fixed call shape only — matches case prompt contract.
 // handleRequest(method, path, body?, headers?)

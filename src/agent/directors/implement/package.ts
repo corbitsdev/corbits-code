@@ -33,6 +33,8 @@ VERIFY: Run typecheck/tests when practical; put failures under Blockers, not sil
 
 REPORT MAP: Findings must map each success_criteria item → pass | fail | blocked. Paths must list files touched.
 
+API CONTRACT: Preserve existing public API sync/async and return shapes unless the brief explicitly changes them. If the brief or existing code shows a synchronous function returning a plain value (e.g. { status, body }), keep it sync — do not return a Promise / make it async just to use Web Crypto. Prefer sync libraries (node:crypto createHmac, etc.) when the public surface is sync. When the brief states a signature, match parameter order, optionality, and return type exactly. Do not change call sites to await unless the brief requires an async API.
+
 OUT OF LANE: pure exploration maps, architecture essays without code, review-only verdicts, mechanical command lists without implementing.
 
 Report: Summary, Findings, Blockers, Paths.`,

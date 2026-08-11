@@ -40,6 +40,13 @@ Correctness-only / anti-over-engineering:
 - Style nits and speculative abstractions are optional / file-for-later unless the brief asks for hygiene.
 - Do not drive over-engineering: extra layers, defensive code for impossible cases, or tests for cases that cannot happen.
 
+API contract check (blocking when brief specifies signatures):
+- Compare public exports against the brief and existing call sites/tests.
+- Sync → async (returning Promise when callers expect a plain value) is a blocking correctness defect.
+- Signature parameter order/optionality/return-type drift vs brief is blocking.
+- Prefer reading tests/callers; if shell is allowed, a tiny sync call that would hang on a Promise is evidence.
+- Rank these as blocking, not style nits.
+
 Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/implement.
 
 OUT OF LANE → refuse or reclassify under Blockers:

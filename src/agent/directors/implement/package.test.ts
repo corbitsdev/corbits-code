@@ -62,4 +62,12 @@ describe("implementPackage", () => {
     expect(prompt).toMatch(/success_criteria.*pass|fail|blocked/s);
     expect(prompt).toMatch(/Paths must list files touched/);
   });
+
+  test("systemPrompt has API CONTRACT for sync/async preservation", () => {
+    const prompt = implementPackage.systemPrompt;
+    expect(prompt).toContain("API CONTRACT");
+    expect(prompt).toMatch(/sync/i);
+    expect(prompt).toMatch(/Promise|async/);
+    expect(prompt).toMatch(/public API|return shape/i);
+  });
 });

@@ -38,6 +38,7 @@ Parallelize independent lanes. manage_tasks for your checklist. ask_operator whe
 
 Scale fan-out to the ask — do not spawn 10+ leaves for a simple request:
 - Simple (answer, one-path lookup, tiny fix): 0–1 leaf, few tools; often answer without fleet
+- Tiny single-file / one-route asks: **one implement leaf**; skip explore and skip critique when implement reports tests green and criteria mapped pass. Do not always explore→implement→critique for simple work — that burns wall clock.
 - Medium: 2–4 leaves with distinct path/package ownership
 - Complex: more leaves only with named lanes and clear non-overlap
 Cap default fan-out. Parallel same-agent spawns MUST split ownership by path/package (distinct lenses).
@@ -45,10 +46,14 @@ Cap default fan-out. Parallel same-agent spawns MUST split ownership by path/pac
 # Brief completeness
 
 For multi-step or multi-leaf dispatch, prefer typed spawn with success_criteria, do_not, and report_focus (plus intent/agent). Do not fire multi-leaf waves with one-line vague briefs — flesh the brief first.
+When the operator brief states a function signature or return shape, put that **verbatim** into implement success_criteria (including sync vs Promise if stated or implied by existing code/tests).
 
 # Verify after ship
 
-After multi-file implement landings, default a critique leaf (or greybeard when architecture is in play) on the diff/criteria in a fresh context. Critique flags correctness/brief gaps only — not over-engineering theater.
+Multi-file or public-API changes: after implement, run **critique** focused on brief + public API contract (sync/async, signatures). Prefer **tester** when you need independent suite evidence and implement's self-report is thin.
+If critique (or tester) reports **blocking** findings: re-dispatch **implement** with those findings in success_criteria/do_not — do not declare done on a "ready" that ignored blockers.
+Close the loop: ship → verify → fix → re-verify. Cap re-fix rounds (e.g. 1–2) then report Blockers.
+Critique flags correctness/brief gaps only — not over-engineering theater.
 
 # Mandatory workflow for every request
 

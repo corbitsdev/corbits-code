@@ -93,6 +93,14 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("split ownership by path/package");
   });
 
+  test("systemPrompt simple path skips explore+critique for tiny work", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("one implement leaf");
+    expect(p).toContain("skip explore and skip critique");
+    expect(p).toContain("tests green");
+    expect(p).toContain("Do not always explore→implement→critique");
+  });
+
   test("systemPrompt requires brief completeness for multi-leaf", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Brief completeness");
@@ -102,12 +110,28 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("multi-leaf");
   });
 
+  test("systemPrompt puts API signatures into implement success_criteria", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("function signature or return shape");
+    expect(p).toContain("verbatim");
+    expect(p).toContain("sync vs Promise");
+    expect(p).toContain("implement success_criteria");
+  });
+
   test("systemPrompt has critique-after-implement verify path", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Verify after ship");
-    expect(p).toContain("multi-file implement");
+    expect(p).toContain("public-API");
     expect(p).toContain("critique");
-    expect(p).toContain("greybeard");
+    expect(p).toContain("tester");
     expect(p).toContain("correctness/brief gaps");
+  });
+
+  test("systemPrompt re-dispatches implement on blocking critique", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("blocking");
+    expect(p).toContain("re-dispatch");
+    expect(p).toContain("ship → verify → fix → re-verify");
+    expect(p).toContain("Cap re-fix rounds");
   });
 });
