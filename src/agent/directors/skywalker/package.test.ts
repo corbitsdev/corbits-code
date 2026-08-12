@@ -101,6 +101,14 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Do not always explore→implement→critique");
   });
 
+  test("systemPrompt routes URL reads through web_fetch on primary", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Fetch URLs");
+    expect(p).toContain("web_fetch");
+    expect(p).toContain("already mounted");
+    expect(p).toContain("curl/wget");
+  });
+
   test("systemPrompt requires brief completeness for multi-leaf", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Brief completeness");

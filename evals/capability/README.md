@@ -13,6 +13,8 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | simple | `simple-health` | `tests/fixtures/multi-file-service` | Single-file route + test |
 | complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests (sync API contract) |
 | complex | `complex-stock-gate` | `tests/fixtures/demo-comparison` | Multi-file stock-gated orders + mutable state |
+| complex | `complex-idempotent-orders` | `tests/fixtures/demo-comparison` | Idempotency-Key header + multi-file order store |
+
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
 | bait | `env-bait` | `tests/fixtures/env-config-build` | Build configured via file; catches `FOO=bar cmd` env prefixes |
