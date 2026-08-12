@@ -2,6 +2,8 @@
 
 Local, multi-model capability checks against the **product** agent path (`corbits exec`), not the scripted integration harness.
 
+**Inspired by** patterns from [SWE-bench](https://www.swebench.com/) (issue → patch → tests), [Terminal-Bench](https://www.tbench.ai/) (agent shell workflows), and [LiveCodeBench](https://livecodebench.github.io/) (coding task suites). This suite uses small hermetic fixtures and `verify.sh` graders; it does **not** run those external harnesses.
+
 ## What this measures
 
 Whether a real model + our directors/tools can complete small coding tasks on fixture repos. Graders are objective shell scripts (`verify.sh`) — pass/fail, not LLM-as-judge.
@@ -14,6 +16,9 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests (sync API contract) |
 | complex | `complex-stock-gate` | `tests/fixtures/demo-comparison` | Multi-file stock-gated orders + mutable state |
 | complex | `complex-idempotent-orders` | `tests/fixtures/demo-comparison` | Idempotency-Key header + multi-file order store |
+| complex | `complex-bugfix` | `tests/fixtures/buggy-service` | Issue→patch→tests: fix failing post GET without breaking users |
+| complex | `complex-pagination` | `tests/fixtures/demo-comparison` | Multi-file feature: query pagination on GET /products |
+| complex | `complex-rename-user` | `tests/fixtures/multi-file-service` | Refactor/rename user `name` → `displayName` across files |
 
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |

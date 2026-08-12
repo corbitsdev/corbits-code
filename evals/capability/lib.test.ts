@@ -15,6 +15,7 @@ import {
   defaultVariantId,
   emptyTokenUsage,
   evaluateSoftBudget,
+  checkBehaviorRequirements,
   computeCellAggregates,
   baitReproduces,
   httpFixtureEnv,
@@ -169,6 +170,105 @@ describe("parseCaseJson", () => {
         "/c",
       ),
     ).toThrow(/tier/);
+  });
+
+  test("parses requireBehaviors", () => {
+    const c = parseCaseJson(
+      {
+        id: "web-bait",
+        tier: "bait",
+        title: "Web bait",
+        fixture: "tests/fixtures/web-note",
+        prompt: "fetch",
+        requireBehaviors: [{ metric: "webFetchToolCallCount", min: 1 }],
+      },
+      "/cases/web-bait",
+    );
+    expect(c.requireBehaviors).toEqual([{ metric: "webFetchToolCallCount", min: 1 }]);
+  });
+
+  test("rejects unknown requireBehaviors metric", () => {
+    expect(() =>
+      parseCaseJson(
+        {
+          id: "x",
+          tier: "simple",
+          title: "t",
+          fixture: "f",
+          prompt: "p",
+          requireBehaviors: [{ metric: "notAMetric", min: 1 }],
+        },
+        "/c",
+      ),
+    ).toThrow(/requireBehaviors\[0\]\.metric/);
+  });
+
+  test("rejects requireBehaviors without min or max", () => {
+    expect(() =>
+      parseCaseJson(
+        {
+          id: "x",
+          tier: "simple",
+          title: "t",
+          fixture: "f",
+          prompt: "p",
+          requireBehaviors: [{ metric: "webFetchToolCallCount" }],
+        },
+        "/c",
+      ),
+    ).toThrow(/at least one of min or max/);
+  });
+
+  test("rejects requireBehaviors when min > max", () => {
+    expect(() =>
+      parseCaseJson(
+        {
+          id: "x",
+          tier: "simple",
+          title: "t",
+          fixture: "f",
+          prompt: "p",
+          requireBehaviors: [{ metric: "webFetchToolCallCount", min: 5, max: 1 }],
+        },
+        "/c",
+      ),
+    ).toThrow(/min \(5\) must be <= max \(1\)/);
+  });
+});
+
+describe("checkBehaviorRequirements", () => {
+  test("passes when reqs empty", () => {
+    expect(checkBehaviorRequirements(null, [])).toEqual({ ok: true, failures: [] });
+  });
+
+  test("fails when capture missing and reqs non-empty", () => {
+    const r = checkBehaviorRequirements(null, [{ metric: "webFetchToolCallCount", min: 1 }]);
+    expect(r.ok).toBe(false);
+    expect(r.failures[0]).toMatch(/capture missing/);
+  });
+
+  test("fails when metric below min", () => {
+    const r = checkBehaviorRequirements(sampleBehaviors({ webFetchToolCallCount: 0 }), [
+      { metric: "webFetchToolCallCount", min: 1 },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.failures).toEqual(["webFetchToolCallCount=0 below min 1"]);
+  });
+
+  test("fails when metric above max", () => {
+    const r = checkBehaviorRequirements(sampleBehaviors({ networkCommandCount: 3 }), [
+      { metric: "networkCommandCount", max: 0 },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.failures).toEqual(["networkCommandCount=3 above max 0"]);
+  });
+
+  test("passes when within bounds", () => {
+    const r = checkBehaviorRequirements(sampleBehaviors({ webFetchToolCallCount: 2 }), [
+      { metric: "webFetchToolCallCount", min: 1, max: 5 },
+    ]);
+    expect(r.ok).toBe(true);
+    expect(r.failures).toEqual([]);
   });
 });
 

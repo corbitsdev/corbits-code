@@ -52,6 +52,14 @@ mid-session switches.
   (404/409/201 + stock decrement) on the demo-comparison fixture; sync API grader.
 - **Capability eval: `complex-idempotent-orders`.** Header-driven Idempotency-Key
   on POST /orders (201/200/409) with multi-file order store; sync API grader.
+- **Capability eval: `complex-bugfix`.** SWE-bench-style issue→patch→tests on the
+  new `tests/fixtures/buggy-service` fixture (intentional post GET bug; users green).
+- **Capability eval: `complex-pagination`.** Query `limit`/`offset` on GET /products
+  (demo-comparison); sync Response grader + slice semantics.
+- **Capability eval: `complex-rename-user`.** Cross-file rename of user `name` →
+  `displayName` on multi-file-service; runtime + source checks.
+- **Fixture: `tests/fixtures/buggy-service`.** multi-file-service clone with a
+  deliberate post-route defect for bugfix capability evals.
 - **Director API-contract loop (launch tuning iter1).** Implement preserves sync
   public surfaces; critique ranks sync→async signature drift as blocking;
   Skywalker puts stated signatures into success_criteria, skips explore/critique

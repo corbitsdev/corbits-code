@@ -29,6 +29,7 @@ import {
   expandMatrix,
   makeResultKey,
   evaluateSoftBudget,
+  checkBehaviorRequirements,
   httpFixtureEnv,
   withEnv,
   detectProviderFallback,
@@ -87,7 +88,7 @@ function printUsage(): void {
   --baseline <path>     Compare to prior results JSON
   --ask-permissions     Do not pass --dangerously-skip-permissions
   --max-turns <n>       Soft turn budget (case fails if turnsUsed exceeds; not a hard kill)
-  --agent-timeout-ms <n> Wall-clock limit for runExec (default 600000)
+  --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
   --dry-run             List cases × variants only
@@ -104,7 +105,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     repeats: 1,
     dryRun: false,
     allowProviderFallback: false,
-    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 600_000),
+    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 1_200_000),
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
   };
   for (let i = 0; i < argv.length; i++) {
@@ -254,10 +255,45 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+/** Skill names referenced by global plugins; stubs avoid missing-skill noise in hermetic evals. */
+const EVAL_SKILL_STUBS = [
+  "style",
+  "philosophy",
+  "brand-identity",
+  "dispatch",
+  "interview",
+  "typescript",
+] as const;
+
+/**
+ * Seed minimal skill stubs under `.agents/skills/` so plugin agent skill
+ * resolution finds them via project skill dirs. Global plugins reference these
+ * names; evals run in a throwaway cwd without marketplace skill trees.
+ */
+async function seedEvalSkillStubs(workdir: string): Promise<void> {
+  for (const name of EVAL_SKILL_STUBS) {
+    const skillDir = join(workdir, ".agents", "skills", name);
+    await mkdir(skillDir, { recursive: true });
+    const body = [
+      "---",
+      `name: ${name}`,
+      `description: Eval stub for ${name} skill.`,
+      "---",
+      "",
+      `Eval stub skill: ${name}.`,
+      "",
+    ].join("\n");
+    await writeFile(join(skillDir, "SKILL.md"), body, "utf8");
+  }
+}
+
 async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; capturePath: string }> {
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
   await cp(fixtureAbs, work, { recursive: true });
+  // Global plugins reference style/philosophy/etc.; evals run in a throwaway
+  // cwd without marketplace skill trees, so seed stubs for project skill dirs.
+  await seedEvalSkillStubs(work);
   // Sibling of the workdir so the agent and verify.sh never see the capture.
   const capturePath = `${work}-run-summary.json`;
   await installRunCaptureHook(work, capturePath);
@@ -535,6 +571,16 @@ async function runCase(
       );
     }
 
+    const requireBehaviorCheck =
+      caseDef.requireBehaviors !== undefined && caseDef.requireBehaviors.length > 0
+        ? checkBehaviorRequirements(behaviors, caseDef.requireBehaviors)
+        : { ok: true, failures: [] as string[] };
+    if (!requireBehaviorCheck.ok) {
+      for (const failure of requireBehaviorCheck.failures) {
+        console.log(`requireBehaviors: ${failure}`);
+      }
+    }
+
     const verifyEnv: Record<string, string> = httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
     const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
     if (verify.output.trim().length > 0) {
@@ -545,8 +591,12 @@ async function runCase(
     // Soft maxTurns: fail when exceeded; fail closed when turns weren't reported.
     const budget = evaluateSoftBudget({ maxTurns, turnsUsed });
     const overBudget = budget.overBudget;
-    const passed =
-      agentExitCode === 0 && verify.exitCode === 0 && overBudget !== true;
+    // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
+    let passed =
+      agentExitCode === 0
+      && verify.exitCode === 0
+      && overBudget !== true
+      && requireBehaviorCheck.ok;
     const preview =
       execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
 
@@ -554,6 +604,8 @@ async function runCase(
     if (!passed) {
       if (budget.budgetError !== null) {
         error = budget.budgetError;
+      } else if (!requireBehaviorCheck.ok) {
+        error = requireBehaviorCheck.failures.join("; ");
       } else if (verify.timedOut) {
         error = `verify timed out after ${opts.verifyTimeoutMs}ms`;
       } else if (execResult.error !== undefined) {
@@ -563,6 +615,13 @@ async function runCase(
       } else {
         error = `agent exit ${agentExitCode}`;
       }
+    }
+
+    // Surface require-behavior failures in the text preview so JSON shows why.
+    let textPreview = preview;
+    if (!requireBehaviorCheck.ok) {
+      const reqNote = `requireBehaviors: ${requireBehaviorCheck.failures.join("; ")}`;
+      textPreview = textPreview.length > 0 ? `${reqNote}\n${textPreview}` : reqNote;
     }
 
     return {
@@ -591,7 +650,7 @@ async function runCase(
       repeat,
       behaviors,
       providerFallback,
-      textPreview: preview,
+      textPreview,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
