@@ -8,9 +8,8 @@ import {
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 
 // Tool names referenced in the discipline block must exist in the actual
-// registration source, not be assumed. web_fetch/web_search are registered in
-// src/agent/tools.ts via createWebFetchTool()/createWebSearchTool(), whose
-// `name` fields live in src/tools/web-fetch.ts and src/tools/web-search.ts.
+// registration source, not be assumed. web_fetch/web_search are catalog tools
+// (always advertised) and also registered via createWebFetchTool/createWebSearchTool.
 const REGISTERED_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
@@ -18,8 +17,6 @@ const REGISTERED_TOOL_NAMES = new Set([
   "write_file",
   "edit_file",
   "delete_file",
-  "web_fetch",
-  "web_search",
 ]);
 
 const REFERENCED_TOOL_NAMES = [

@@ -22,7 +22,12 @@ const NO_AVAILABILITY: ToolAvailability = {
 
 const defs: ToolDefinition[] = [
   { name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {}, required: [] } },
-  { name: "web_search", description: "search the web for pages", inputSchema: { type: "object", properties: {}, required: [] } },
+  // Unadvertised built-in stand-in for ranking tests (web_search is now catalog).
+  {
+    name: "present",
+    description: "search and render layout primitives for pages",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
   { name: "lsp", description: "resolve symbols, find references", inputSchema: { type: "object", properties: {}, required: [] } },
   {
     name: "mcp__linear__create_issue",
@@ -42,8 +47,8 @@ const index = createToolIndex(() => defs);
 
 describe("createToolIndex", () => {
   test("ranks a name-token match above a description-only match", () => {
-    const results = index.search("search");
-    expect(results[0]).toBe("web_search");
+    const results = index.search("present");
+    expect(results[0]).toBe("present");
   });
 
   test("finds an MCP tool by raw substring even when not a whole token", () => {
@@ -51,7 +56,7 @@ describe("createToolIndex", () => {
   });
 
   test("matches by capability words in the description", () => {
-    expect(index.search("pages")).toContain("web_search");
+    expect(index.search("pages")).toContain("present");
   });
 
   test("never returns lsp — it is a core tool", () => {
@@ -84,6 +89,14 @@ describe("createToolIndex", () => {
       expect(CATALOG_TOOL_NAMES).not.toContain(name);
     }
     expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual(["write_file", "edit_file", "delete_file"]);
+  });
+
+  test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {
+    expect(CATALOG_TOOL_NAMES).toContain("web_fetch");
+    expect(CATALOG_TOOL_NAMES).toContain("web_search");
+    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(advertised).toContain("web_fetch");
+    expect(advertised).toContain("web_search");
   });
 
   test("lsp is advertised only when a language server was detected at startup", () => {
@@ -123,10 +136,10 @@ describe("createToolSearchTool", () => {
       lookup: (name) => defs.find((d) => d.name === name),
       promote: (names) => promoted.push(...names),
     });
-    const out = await call(tool, { query: "search the web" });
-    expect(promoted).toContain("web_search");
-    expect(out).toContain("web_search");
-    expect(out).toContain("search the web");
+    const out = await call(tool, { query: "render layout" });
+    expect(promoted).toContain("present");
+    expect(out).toContain("present");
+    expect(out).toContain("layout");
   });
 
   test("surfaces a matched tool's input schema so the model can shape arguments", async () => {

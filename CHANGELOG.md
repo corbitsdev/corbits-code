@@ -46,6 +46,14 @@ mid-session switches.
   mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
   settings files still loads without error and is ignored (CL-5814).
 
+### Fixed
+
+- **`web_fetch` / `web_search` always advertised.** They were registered but only
+  discoverable via `tool_search`, so strict providers (and thrashy models) never
+  saw them on the wire despite Skywalker saying they were mounted. Both are now
+  in `CATALOG_TOOL_NAMES`. Capability `web-bait` hard-requires
+  `webFetchToolCallCount >= 1` via `requireBehaviors`.
+
 ### Added
 
 - **Capability eval: `complex-stock-gate`.** Multi-file stock-gated `POST /orders`
