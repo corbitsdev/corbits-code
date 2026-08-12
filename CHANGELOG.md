@@ -50,11 +50,15 @@ mid-session switches.
 
 - **Capability eval: `complex-stock-gate`.** Multi-file stock-gated `POST /orders`
   (404/409/201 + stock decrement) on the demo-comparison fixture; sync API grader.
+- **Capability eval: `complex-idempotent-orders`.** Header-driven Idempotency-Key
+  on POST /orders (201/200/409) with multi-file order store; sync API grader.
 - **Director API-contract loop (launch tuning iter1).** Implement preserves sync
   public surfaces; critique ranks sync→async signature drift as blocking;
   Skywalker puts stated signatures into success_criteria, skips explore/critique
-  on tiny green ships, and re-dispatches implement on blocking critique findings.
-  complex-jwt case prompt states the sync Response contract.
+  on tiny green ships, re-dispatches implement on blocking critique findings,
+  and routes URL reads through mounted `web_fetch` (no shell thrash). complex-jwt
+  case prompt states the sync Response contract.
+
 
 - **Closed director fleet (CL-5818 Level 6 wiring).** Sixteen director packages
   under `src/agent/directors/<id>/` (prompts, tool envelopes, spawn rights, nudge
