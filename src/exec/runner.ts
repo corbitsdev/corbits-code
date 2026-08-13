@@ -36,7 +36,6 @@ import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
-  createActivatedToolTracker,
   type ToolAvailability,
 } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
@@ -408,13 +407,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
 
     const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
-    const activatedToolNames = createActivatedToolTracker();
-    // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
+    // Fixed wire prefix only (Search & Execute). Full registry is free-name
+    // dispatchable; tool_search never grows this array.
     const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-      normalizeToolDefinitionsForProvider(
-        advertisedTools(all, activatedToolNames.list(), advertisedBuiltInPrefix),
-        { providerName: config.providerName, model: config.model },
-      );
+      normalizeToolDefinitionsForProvider(advertisedTools(all, advertisedBuiltInPrefix), {
+        providerName: config.providerName,
+        model: config.model,
+      });
 
     const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
 
@@ -423,12 +422,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
       configSchema: type({}),
       factory: (_cfg, _env, agentCtx) => {
         const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
-          onActivateTools: (names) => {
-            if (!activatedToolNames.activate(names)) return;
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
-            );
-          },
           inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
           totalTimeoutMs: config.totalTimeoutMs,
           // Exec mode has no live task panel or task stdout output today (unlike

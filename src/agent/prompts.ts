@@ -2,6 +2,7 @@ import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import type { SessionMode } from "../config/session-mode.js";
 import {
+  advertisedToolNamesForSessionMode,
   coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   type ToolAvailability,
@@ -82,7 +83,7 @@ export function buildHarnessFacts(
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools
       ? [
-          "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
+          "- Tools listed below are the fixed wire set (always callable). Hundreds more plugin/MCP tools may be registered for free-name dispatch: use tool_search to discover them, then call by exact name — search does not load or promote tools onto the wire.",
           ...(sessionMode === "orchestrator"
             ? [
                 "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
@@ -112,12 +113,13 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- No emojis in code or docs unless the user uses them.",
     "",
     "Tool choice:",
-    "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
+    "- read_file for file contents; grep or search_files to locate code (bounded tools — shell find/rg/grep -r are blocked).",
     "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs.",
-    "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
+    "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, recursive grep -r, cat, or messaging the user.",
+    "- web_fetch / web_search for URLs and web queries — never curl/wget or a hand-rolled search.",
     ...(subAgent
       ? []
-      : ["- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill."]),
+      : ["- tool_search only for plugin/MCP tools not listed under Tools; use_skill before work covered by a listed skill."]),
     "",
     subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
     ...(subAgent
@@ -210,7 +212,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
   present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
-  tool_search: "load more tools by capability when you need them",
+  tool_search: "discover plugin/MCP tools not listed under Tools (not for file/shell/web/search work already listed)",
   use_skill: "load a listed skill's full instructions before doing work it covers",
 };
 
@@ -307,7 +309,10 @@ export function buildChatSystemPrompt(
 ): string {
   const sections = [
     baseSection(baseOverride, sessionMode),
-    buildAvailableTools(coreToolNamesForSessionMode(sessionMode, toolAvailability)),
+    // List every tool on the wire (core + catalog, including web_fetch/web_search),
+    // not just CORE. Models that only see core names re-discover catalog tools via
+    // tool_search and thrash instead of calling what is already declared.
+    buildAvailableTools(advertisedToolNamesForSessionMode(sessionMode, toolAvailability)),
   ];
   if (skills.length > 0) sections.push(buildSkillsSection(skills));
   sections.push(contextSection(env));

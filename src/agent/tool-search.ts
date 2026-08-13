@@ -6,53 +6,54 @@ import { type } from "arktype";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 
-// Tools whose full schema is always advertised to the model. Everything else is
-// registered and dispatchable but discovered on demand via tool_search, keeping
-// the per-turn context small. Shared by the system prompt and the advertised-set
-// gate so the two never drift.
+// Fixed wire tools (full schemas every turn). Everything else is registered for
+// free-name dispatch and discovered via tool_search — the wire never grows mid-
+// session (Search & Execute / provider tools-array cache).
 //
-// `present` is deliberately absent: most sessions never render a view, and at
-// 2,793 chars it is the second-largest schema on the wire. It stays fully
-// dispatchable — the model finds it via tool_search when a session actually
-// needs it.
+// Design (minimal fixed wire + no thrash):
+//   CORE    — file/shell loop (read/write/edit/shell) + product loop (ask/tasks/search/skills)
+//             + orchestrator spawn tools. Never put "nice to have" here.
+//   CATALOG — only capabilities whose shell substitutes are *hard-blocked* by the
+//             harness (bounded code search, SSRF-safe web). If the prompt or authz
+//             requires a tool, it must sit on the wire — deferred + "use X" is what
+//             made Grok 4.6 thrash on tool_search.
+//
+// Behind search (dispatchable by exact name): list_dir, lsp, present, MCP/plugins.
 export const CORE_TOOL_NAMES: readonly string[] = [
+  // File + shell loop
   "read_file",
   "edit_file",
-  "lsp",
+  "write_file",
   "run_shell",
+  // Product loop
   "ask_operator",
   "manage_tasks",
   "tool_search",
   "use_skill",
+  // Multi-agent (orchestrator-only filter below)
   "search_agents",
-  // Multi-agent dispatch is a first-class loop capability — always advertised so
-  // the model can call task immediately after search_agents without a tool_search
-  // round-trip. Catalog-only placement left the model discovering profiles then
-  // failing on an unloaded task tool.
   "task",
 ];
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
 
-// Session-start facts that gate a core tool's advertisement. Each must be
-// knowable once, before the first inference call, and must never change for
-// the life of the session — the tools array is a provider cache prefix (see
-// ADVERTISED_TOOL_NAMES below), so a value that could flip mid-session would
-// force a re-prefill worse than the schema bytes it saves.
+// Session-start facts that gate advertisement. Each must be knowable once before
+// the first inference and stable for the session — the tools array is a provider
+// cache prefix, so a flip mid-session re-prefills the whole request.
+//
+// `languageServerAvailable` is retained for callers that still detect LSP at
+// boot; it no longer gates the wire (lsp is free-name / tool_search only).
 export type ToolAvailability = {
-  // Whether a language server was resolvable for this project at startup —
-  // not whether one currently responds.
   languageServerAvailable: boolean;
 };
 
 export function coreToolNamesForSessionMode(
   mode: SessionMode,
-  availability: ToolAvailability,
+  _availability: ToolAvailability,
 ): readonly string[] {
   const orchestratorEnabled = sessionModeEnablesSubAgents(mode);
   return CORE_TOOL_NAMES.filter((name) => {
     if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name)) return false;
-    if (name === "lsp") return availability.languageServerAvailable;
     return true;
   });
 }
@@ -64,14 +65,15 @@ export function advertisedToolNamesForSessionMode(
   return [...coreToolNamesForSessionMode(mode, availability), ...CATALOG_TOOL_NAMES];
 }
 
-// Built-in file/search tools advertised alongside the core set. They carry full
-// schemas on the wire so the model can call them directly; MCP tools are not
-// listed at all — they are discovered blind via tool_search.
+// Only tools that replace a *blocked* shell path. Do not grow this with
+// convenience tools (list_dir, lsp, present) — those thrash when models
+// tool_search for them after the prompt names them, and stay fine as free-name
+// when the model actually needs them.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
-  "write_file",
-  "search_files",
   "grep",
-  "list_dir",
+  "search_files",
+  "web_fetch",
+  "web_search",
 ];
 
 // The maximal set of built-in tools — every gate open — in a deterministic
@@ -89,26 +91,18 @@ export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CATALOG_TOOL_NAMES,
 ];
 
-// Project the live tool registry onto the advertised set: the fixed built-in
-// prefix (its order never changes — this is what keeps the provider cache
-// prefix stable) followed by session-activated tools (MCP or otherwise) in
-// first-activation order. The wire array is byte-stable turn to turn until a
-// discovery appends a new name, at which point it grows once and then holds
-// steady again. `activated` is expected to already be deduped/ordered (see
-// `createActivatedToolTracker`), but names are deduped again here defensively
-// so a caller passing raw matches still can't reorder or duplicate an entry.
+// Project the live tool registry onto the fixed advertised wire set. Membership
+// and order come only from `builtInPrefix` — never from mid-session discovery.
+// That keeps the provider tools-array prefix cache stable for the whole session
+// (Search & Execute / free-name dispatch: catalog tools are callable by exact
+// name through the registry without appearing here).
 export function advertisedTools(
   all: readonly ToolDefinition[],
-  activated: readonly string[] = [],
   builtInPrefix: readonly string[] = ADVERTISED_TOOL_NAMES,
 ): ToolDefinition[] {
   const byName = new Map(all.map((def) => [def.name, def]));
   const seen = new Set<string>();
-  const orderedNames = [
-    ...builtInPrefix,
-    ...activated.filter((name) => !builtInPrefix.includes(name)),
-  ];
-  return orderedNames.flatMap((name) => {
+  return builtInPrefix.flatMap((name) => {
     if (seen.has(name)) return [];
     seen.add(name);
     const def = byName.get(name);
@@ -116,39 +110,14 @@ export function advertisedTools(
   });
 }
 
-// Tracks which non-built-in tool names the session has activated (via
-// tool_search matches, or a director-side trigger like the lsp hint), in
-// first-activation order. Backed by a Set, so re-activating an already-active
-// name is a no-op — it neither reorders nor duplicates the entry.
-export type ActivatedToolTracker = {
-  // Adds any new names and returns whether the set actually changed.
-  activate(names: readonly string[]): boolean;
-  list(): string[];
-};
-
-export function createActivatedToolTracker(): ActivatedToolTracker {
-  const activeNames = new Set<string>();
-  return {
-    activate(names: readonly string[]): boolean {
-      let changed = false;
-      for (const name of names) {
-        if (!activeNames.has(name)) {
-          activeNames.add(name);
-          changed = true;
-        }
-      }
-      return changed;
-    },
-    list(): string[] {
-      return [...activeNames];
-    },
-  };
-}
-
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — file search, web access, and any connected integrations — are dispatchable but not advertised in the tools list. Call this with a short description of what you need (e.g. 'create a file', 'search the web', 'find files', 'issue tracker') to get the matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
+    "Discover plugin/MCP tools that are not listed under Tools (issue trackers, etc.). " +
+    "Returns exact names and compact input schemas. Call matches by exact name — they are " +
+    "already dispatchable; search does not load or promote them onto the wire. Do not use " +
+    "tool_search for file/shell/web/search work already listed under Tools, do not re-run " +
+    "for the same need, and do not narrate a call in prose instead of invoking the tool.",
   inputSchema: {
     type: "object",
     properties: {
@@ -167,9 +136,20 @@ function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 }
 
+// Prefer Exa over first-party web tools when scores are close, then first-party
+// over other MCP integrations, so a web query surfaces the hosted Exa path
+// ahead of web_fetch / web_search and a long tail of unrelated mcp__* hits.
+function preferenceBoost(name: string): number {
+  if (name.startsWith("mcp__exa__")) return 0.6;
+  if (name.startsWith("mcp__")) return 0;
+  return 0.3;
+}
+
 // A dependency-free lexical ranker over each tool's name + description. Exact name
 // token hits weigh most, then description token hits, then raw-substring matches
 // (so "linear" finds mcp__linear__* even though it is not a whole token there).
+// Default limit is small on purpose: long result cards invite models to re-search
+// and thrash instead of calling the top match.
 export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
@@ -185,19 +165,27 @@ export function createToolIndex(
       else if ((def.description ?? "").toLowerCase().includes(token)) total += 0.25;
     }
     if (def.name.toLowerCase().includes(rawQuery)) total += 1;
-    return total;
+    // Preference only breaks ties among real matches — never invents a hit.
+    if (total <= 0) return 0;
+    return total + preferenceBoost(def.name);
   };
 
   return {
-    search(query: string, limit = 8): string[] {
+    search(query: string, limit = 3): string[] {
       const rawQuery = query.toLowerCase().trim();
       const queryTokens = tokenize(query);
       if (queryTokens.length === 0) return [];
-      return getDefs()
+      const ranked = getDefs()
         .filter((def) => !advertisedNames.includes(def.name))
         .map((def) => ({ name: def.name, score: score(def, queryTokens, rawQuery) }))
         .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
+        .sort((a, b) => b.score - a.score);
+      if (ranked.length === 0) return [];
+      // Drop weak tail entries more than 2 points below the top score so a strong
+      // name hit does not drag along near-zero description matches.
+      const floor = ranked[0]!.score - 2;
+      return ranked
+        .filter((entry) => entry.score >= floor)
         .slice(0, limit)
         .map((entry) => entry.name);
     },
@@ -207,18 +195,13 @@ export function createToolIndex(
 export type ToolSearchDeps = {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Make the matched tools' names part of the advertised wire set on the next
-  // inference. Every registered tool is already dispatchable via `run`, so this
-  // only affects what the model can see without an intervening tool_search.
-  promote: (names: string[]) => void;
 };
 
 const ToolSearchArgs = type({ query: "string" });
 
 // Render one discovered tool as name, description, and pretty-printed input
-// schema. The schema is the load-bearing addition: MCP and other unadvertised
-// tools never appear in the wire tools array, so this is the model's only view
-// of their parameter names, types, and required fields.
+// schema. Unadvertised tools never appear in the wire tools array, so this card
+// (plus free-name dispatch) is how the model learns parameters and then executes.
 function renderToolCard(def: ToolDefinition | undefined, name: string): string {
   if (def === undefined) return `- ${name}`;
   const header = `- ${def.name}: ${def.description ?? ""}`;
@@ -247,15 +230,14 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      // Matches are promoted into the advertised set so the next inference
-      // declares them on the wire — required for strict providers (e.g. the grok
-      // Responses API) where a model cannot call a tool that was never declared.
-      // The tool result below still carries name, description, AND input schema
-      // so the model can shape arguments this same turn, before the promoted
-      // definition round-trips through the next infer call.
-      deps.promote(names);
+      // Search only. Execute is a free-name tool call against the registry —
+      // never grow the wire tools array (provider cache prefix must stay fixed).
+      // Cards carry schema so the model can shape arguments from history alone.
       const blocks = names.map((name) => renderToolCard(deps.lookup(name), name));
-      return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
+      return (
+        `Matched tools (already dispatchable — call by exact name now; do not re-search):\n\n` +
+        `${blocks.join("\n\n")}`
+      );
     },
   });
 }

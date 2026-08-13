@@ -25,8 +25,12 @@ does not require project trust. Local settings **replace** global MCP entirely
 when present (they do not merge).
 
 Tools from connected servers are not advertised to the model up front; they are
-registered for dispatch and surfaced on demand through dynamic tool discovery
-(`tool_search`).
+registered for free-name dispatch and surfaced on demand through dynamic tool
+discovery (`tool_search`). Search returns schema cards into the conversation
+history; the model then calls matched tools by exact name. The wire tools array
+stays a fixed product prefix for the whole session (file/shell loop, product
+loop tools, plus only harness-blocked substitutes: bounded `grep`/`search_files`
+and `web_*`) so the provider tools cache stays hot — MCP never joins that prefix.
 
 ## Server Kinds
 

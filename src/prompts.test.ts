@@ -57,7 +57,8 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).not.toMatch(/Use grep, search_files, and list_dir\.$/m);
   expect(facts).toContain("operator approval");
   expect(facts).toContain("tool_search");
-  expect(facts).toContain("plugins or integrations");
+  expect(facts).toContain("free-name dispatch");
+  expect(facts).toContain("fixed wire set");
   expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".corbits/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");

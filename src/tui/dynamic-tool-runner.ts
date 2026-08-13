@@ -12,8 +12,10 @@ import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 // createToolRunner freezes its name map at build time, which cannot accommodate
 // MCP servers that connect after the TUI has already started. This runner keeps
 // a mutable map and exposes `addTools` so late-connected servers' tools become
-// dispatchable in the running session. `definitions` is a live getter, and the
-// director advertises the current set on each inference (see updateToolDefinitions).
+// free-name dispatchable in the running session (Search & Execute: the model
+// discovers them via tool_search and calls by exact name; the wire tools array
+// stays the fixed built-in prefix). `definitions` is a live getter for ranking
+// and schema cards; the director only advertises the fixed prefix each turn.
 //
 // `watchdogConfig` is read on every run so Settings toggles (timeouts,
 // waitForApproval) take effect on the next tool call without rebuilding tools.

@@ -154,14 +154,12 @@ export type MCPConnectCallbacks = {
 
 export type AgentToolset = {
   // The mutable runner the agent dispatches through. Seeded with posix/web/LSP
-  // tools; MCP tools are added as servers connect.
+  // tools; MCP tools are added as servers connect. Full registry is free-name
+  // dispatchable; only the fixed advertised prefix is sent on the wire.
   dynamicRunner: DynamicToolRunner;
   // Connect configured MCP servers in the background. Resolves once every server
   // has either connected or failed; authorization waits are bounded by `signal`.
   connectMCP: (callbacks: MCPConnectCallbacks, signal?: AbortSignal) => Promise<void>;
-  // Wire the callback the `tool_search` tool invokes to make matched tools
-  // advertised. Set by the runner once the director + reload loop exist.
-  setToolPromoter: (promote: (names: string[]) => void) => void;
   dispose: () => Promise<void>;
 };
 
@@ -325,16 +323,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   ];
 
-  // tool_search ranks over the live runner (set just below) and promotes matches
-  // through a holder the runner wires up once its advertise/reload loop exists.
-  const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
+  // tool_search ranks over the live runner (set just below). Matches stay off
+  // the wire; free-name dispatch runs them from the registry.
   let runnerRef: DynamicToolRunner | undefined;
   const toolIndex = createToolIndex(() => runnerRef?.currentDefinitions() ?? [], advertisedBuiltIns);
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
       lookup: (name) => runnerRef?.currentDefinitions().find((d) => d.name === name),
-      promote: (names) => promoter.promote(names),
     }),
   );
 
@@ -400,9 +396,6 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   return {
     dynamicRunner,
     connectMCP,
-    setToolPromoter: (promote) => {
-      promoter.promote = promote;
-    },
     dispose: async () => {
       for (const client of connectedClients) {
         permissionGate.unregisterMcpServer(client.serverName);

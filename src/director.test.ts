@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector } from "./agent/director.js";
 import { createAgentToolset } from "./agent/tools.js";
-import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
+import { advertisedTools } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "./session/compactor.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
@@ -539,12 +539,10 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("advance_workflow");
   });
 
-  // End-to-end: tool_search matches an MCP tool, the runner's promote wiring
-  // (mirrored here via createActivatedToolTracker + updateToolDefinitions) grows
-  // the wire set once with the tool's full definition, and it then holds steady.
-  // On a strict provider, a model can only call a tool
-  // that was actually declared on the wire, so promotion must land here.
-  test("a tool_search match is on the wire on the next turn, then the array holds stable", async () => {
+  // tool_search returns cards for matches but does not grow the advertised wire
+  // set — the provider cache prefix stays fixed for the session. Matches remain
+  // dispatchable via the registry by exact name without a wire append.
+  test("a tool_search match stays off the wire; the advertised array holds stable", async () => {
     const linearTool = {
       name: "mcp__linear__list_issues",
       description: "list issues",
@@ -559,43 +557,36 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       { kind: "string", definition: linearTool, handler: async () => "ok" },
     ]);
 
-    const activated = createActivatedToolTracker();
-    const computeAdvertised = (all: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>) =>
-      advertisedTools(all, activated.list());
+    // Mirror production: advertised set is built-ins only; tool_search no longer
+    // activates matches onto the wire.
     const director = createChatDirector(
       "base-prompt",
-      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+      advertisedTools(toolset.dynamicRunner.currentDefinitions()),
       { onTasksChange: () => {} },
     );
 
-    // Before discovery: the MCP tool is registered (dispatchable) but not wired.
     const before = await firstInferTools(director, makeMessageReceivedEvent("hello"));
     const beforeNames = (before as Array<{ name: string }>).map((t) => t.name);
     expect(beforeNames).not.toContain("mcp__linear__list_issues");
     const beforeJson = JSON.stringify(before);
 
-    // Simulate the runner's promoteTools: tool_search matched this tool, so it
-    // is activated and the director's tool set is updated for the next infer.
-    activated.activate(["mcp__linear__list_issues"]);
-    director.updateToolDefinitions(computeAdvertised(toolset.dynamicRunner.currentDefinitions()));
+    // After a tool_search-style discovery turn, the wire array must be unchanged.
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "ts", name: "tool_search", args: { query: "list issues" } }]),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
+    await director.decide(makeToolDoneEvent("ts"), mockState, capabilitiesWithInferArgs);
 
     const after = await firstInferTools(director, makeMessageReceivedEvent("continue"));
-    const afterTools = after as Array<{ name: string }>;
-    const afterNames = afterTools.map((t) => t.name);
-    expect(afterNames).toContain("mcp__linear__list_issues");
-    // advance_workflow rides along separately (see withCurrentTools), appended
-    // after computeAdvertised's result every turn — strip it before comparing
-    // the fixed built-in prefix, which must survive untouched ahead of the
-    // newly appended MCP tool.
-    const beforePrefix = beforeNames.filter((n) => n !== "advance_workflow");
-    const afterPrefix = afterNames.filter((n) => n !== "advance_workflow" && n !== "mcp__linear__list_issues");
-    expect(afterPrefix).toEqual(beforePrefix);
-    expect(afterNames.indexOf("mcp__linear__list_issues")).toBe(beforePrefix.length);
+    const afterNames = (after as Array<{ name: string }>).map((t) => t.name);
+    expect(afterNames).not.toContain("mcp__linear__list_issues");
+    expect(JSON.stringify(after)).toBe(beforeJson);
 
-    // A further turn with no new discovery stays byte-identical to `after`.
-    const stable = await firstInferTools(director, makeMessageReceivedEvent("keep going"));
-    expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
-    expect(JSON.stringify(after)).not.toBe(beforeJson);
+    // Registry still has the tool for dispatch even though it is not advertised.
+    expect(
+      toolset.dynamicRunner.currentDefinitions().some((d) => d.name === "mcp__linear__list_issues"),
+    ).toBe(true);
 
     await toolset.dispose();
   });

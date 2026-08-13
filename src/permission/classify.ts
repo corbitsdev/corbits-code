@@ -13,7 +13,8 @@ import type { RootsProvider } from "./worktree-roots.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
-// it is activated dynamically mid-session (see director.ts onActivateTools) —
+// it is discovered dynamically mid-session (see tool_search free-name dispatch) —
+
 // hover/definition/reference lookups are as inert as a grep. `manage_tasks` is
 // included for a related but distinct reason: its handler (src/agent/tools.ts)
 // has no side effect of its own — the task list is mutated earlier, by the
