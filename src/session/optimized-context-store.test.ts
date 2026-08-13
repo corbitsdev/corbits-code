@@ -240,6 +240,39 @@ describe("loadRecentTurns", () => {
     const loaded = await loadRecentTurns(dir, 5);
     expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
+
+  // Mid-file null holes (writer bug fixed under CL-5934) are not a torn final
+  // line — resume hydrate must skip them and still paint the surrounding turns.
+  test("skips mid-file null-byte holes and returns usable turns", async () => {
+    const dir = tempDir();
+    const goodA = JSON.stringify(turn("a"));
+    const goodB = JSON.stringify(turn("b"));
+    fs.writeFileSync(path.join(dir, TURNS_FILE), `${goodA}\n${"\0".repeat(64)}\n${goodB}\n`);
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 1)), jsonl([turn("c")]));
+
+    const loaded = await loadRecentTurns(dir, 10);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c"]);
+  });
+
+  test("skips a non-tail malformed line in a sealed older segment", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      `${JSON.stringify(turn("b"))}\nnot-json-at-all\n${JSON.stringify(turn("c"))}\n`,
+    );
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 2)), jsonl([turn("d")]));
+
+    const loaded = await loadRecentTurns(dir, 10);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  test("names the failing segment when every line is unrecoverable", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), "\0\0\0\nnot-json\n");
+
+    await expect(loadRecentTurns(dir, 5)).rejects.toThrow(/turns\.jsonl/);
+  });
 });
 
 describe("createOptimizedContextStore checkpoint", () => {

@@ -64,17 +64,50 @@ function sanitizeCallId(callId: string): string {
   return callId.replace(UNSAFE_FILENAME_CHARS, "_");
 }
 
+type ParseSegmentTurnsOpts = {
+  /** Drop a torn final line on the active (last) segment rather than aborting. */
+  tolerateTornTail?: boolean;
+  /**
+   * Display-only recovery: skip lines that fail JSON parse or schema validation
+   * instead of aborting the whole segment. Used by `loadRecentTurns` so resume
+   * hydrate can paint surrounding history past mid-file null holes / garbage.
+   * Reactor `ContextStore.load()` must not set this — it still hard-fails.
+   */
+  skipMalformedLines?: boolean;
+  /** Included in thrown error messages so operators can name the failing file. */
+  segmentName?: string;
+};
+
+type ParseSegmentTurnsResult = {
+  turns: ConversationTurn[];
+  skippedMalformed: number;
+};
+
+function segmentErrorLabel(segmentName: string | undefined): string {
+  return segmentName === undefined ? "turns segment" : `turns segment ${segmentName}`;
+}
+
 /**
  * Parse conversation turns out of one JSONL segment. A crash can tear the final
  * line of the active (last) segment mid-write; when `tolerateTornTail` is set a
  * final line that fails to parse is dropped rather than aborting the resume.
+ * When `skipMalformedLines` is set, non-tail (and non-torn) failures are skipped
+ * so display-only readers can recover usable history around mid-file corruption.
  */
-function parseSegmentTurns(text: string, tolerateTornTail: boolean): ConversationTurn[] {
-  if (text.length === 0) return [];
+function parseSegmentTurns(
+  text: string,
+  opts: ParseSegmentTurnsOpts = {},
+): ParseSegmentTurnsResult {
+  const tolerateTornTail = opts.tolerateTornTail === true;
+  const skipMalformedLines = opts.skipMalformedLines === true;
+  const label = segmentErrorLabel(opts.segmentName);
+
+  if (text.length === 0) return { turns: [], skippedMalformed: 0 };
   const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
 
   const turns: ConversationTurn[] = [];
+  let skippedMalformed = 0;
   for (let i = 0; i < lines.length; i++) {
     const isLast = i === lines.length - 1;
     let raw: unknown;
@@ -82,15 +115,32 @@ function parseSegmentTurns(text: string, tolerateTornTail: boolean): Conversatio
       raw = JSON.parse(lines[i]!);
     } catch (cause) {
       if (tolerateTornTail && isLast) break;
-      throw new Error("turns segment has malformed JSON", { cause });
+      if (skipMalformedLines) {
+        skippedMalformed += 1;
+        log.warn("skipped malformed JSON in {segment} at line {line}", {
+          segment: opts.segmentName ?? "(unnamed)",
+          line: i + 1,
+        });
+        continue;
+      }
+      throw new Error(`${label} has malformed JSON`, { cause });
     }
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
-      throw new Error(`turns segment has unexpected structure: ${result.summary}`);
+      if (skipMalformedLines) {
+        skippedMalformed += 1;
+        log.warn("skipped unexpected structure in {segment} at line {line}: {summary}", {
+          segment: opts.segmentName ?? "(unnamed)",
+          line: i + 1,
+          summary: result.summary,
+        });
+        continue;
+      }
+      throw new Error(`${label} has unexpected structure: ${result.summary}`);
     }
     turns.push(result);
   }
-  return turns;
+  return { turns, skippedMalformed };
 }
 
 // Mirrors assertWellFormedToolSequence without throwing. Used to choose the
@@ -176,10 +226,29 @@ export async function loadRecentTurns(
 
   const collectedNewestFirst: ConversationTurn[][] = [];
   let total = 0;
+  // First segment that contributed only unrecoverable garbage (no good lines).
+  // Used only when the whole window yields zero turns — partial recovery wins.
+  let firstUnrecoverableSegment: string | undefined;
+
   for (let i = segments.length - 1; i >= 0; i--) {
-    const text = await fs.promises.readFile(path.join(dir, segments[i]!), "utf-8");
+    const segmentName = segments[i]!;
+    let text: string;
+    try {
+      text = await fs.promises.readFile(path.join(dir, segmentName), "utf-8");
+    } catch (cause) {
+      throw new Error(`turns segment ${segmentName} could not be read`, { cause });
+    }
     // Only the active (last) segment can be mid-write; sealed ones are complete.
-    const turns = parseSegmentTurns(text, i === segments.length - 1);
+    // Display-only path: skip mid-file null holes / malformed lines so resume
+    // hydrate paints usable history instead of aborting on one bad line.
+    const { turns, skippedMalformed } = parseSegmentTurns(text, {
+      tolerateTornTail: i === segments.length - 1,
+      skipMalformedLines: true,
+      segmentName,
+    });
+    if (skippedMalformed > 0 && turns.length === 0) {
+      firstUnrecoverableSegment ??= segmentName;
+    }
     collectedNewestFirst.push(turns);
     total += turns.length;
     if (total >= minTurns) break;
@@ -187,6 +256,9 @@ export async function loadRecentTurns(
 
   const turns: ConversationTurn[] = [];
   for (let i = collectedNewestFirst.length - 1; i >= 0; i--) turns.push(...collectedNewestFirst[i]!);
+  if (turns.length === 0 && firstUnrecoverableSegment !== undefined) {
+    throw new Error(`turns segment ${firstUnrecoverableSegment} has malformed JSON`);
+  }
   return turns;
 }
 
@@ -310,8 +382,9 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
   ): Promise<ConversationTurn[]> {
     if (extraTexts.length === 0) return baseTurns;
 
-    const parsedExtras = extraTexts.map((text, index) =>
-      parseSegmentTurns(text, index === extraTexts.length - 1),
+    const parsedExtras = extraTexts.map(
+      (text, index) =>
+        parseSegmentTurns(text, { tolerateTornTail: index === extraTexts.length - 1 }).turns,
     );
     const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
 
@@ -353,7 +426,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
         const text = await runGit(dir, ["show", `${hash}:${name}`]);
-        parsedExtras.push(parseSegmentTurns(text, false));
+        parsedExtras.push(parseSegmentTurns(text, { tolerateTornTail: false }).turns);
       }
       const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
       if (keepExtras === 0) return baseTurns;
