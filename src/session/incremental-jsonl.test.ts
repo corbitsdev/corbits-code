@@ -237,6 +237,34 @@ describe("createSegmentedJSONLWriter", () => {
   });
 });
 
+describe("createSegmentedJSONLWriter stale keepBytes", () => {
+  test("does not pad null bytes when on-disk file shrank below keepBytes", async () => {
+    const dir = tempDir();
+    const write = createSegmentedJSONLWriter(dir, BASE);
+
+    const a = { id: 1, text: "first-record" };
+    const b = { id: 2, text: "second-record" };
+    const c = { id: 3, text: "third-record" };
+    await write([a, b, c]);
+
+    const full = path.join(dir, BASE);
+    // Simulate external shrink/compaction that left the in-memory offsets stale:
+    // file is shorter than the writer's remembered keepBytes for a shared prefix.
+    const keptOnDisk = fullSnapshot([a]);
+    fs.writeFileSync(full, keptOnDisk);
+    expect(fs.statSync(full).size).toBeLessThan(Buffer.byteLength(fullSnapshot([a, b, c])));
+
+    // Shared prefix [a, b] would compute keepBytes past the shrunken file size.
+    // Writer must rebuild rather than truncate-extend with null padding.
+    const d = { id: 4, text: "after-shrink" };
+    await write([a, b, d]);
+
+    const onDisk = fs.readFileSync(full);
+    expect(onDisk.includes(0)).toBe(false);
+    expect(await combined(dir)).toBe(fullSnapshot([a, b, d]));
+  });
+});
+
 describe("segment readers", () => {
   test("readExtraSegmentTexts returns tail segments in order", async () => {
     const dir = tempDir();

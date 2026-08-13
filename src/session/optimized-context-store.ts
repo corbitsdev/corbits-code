@@ -68,29 +68,84 @@ function sanitizeCallId(callId: string): string {
  * Parse conversation turns out of one JSONL segment. A crash can tear the final
  * line of the active (last) segment mid-write; when `tolerateTornTail` is set a
  * final line that fails to parse is dropped rather than aborting the resume.
+ *
+ * Null bytes (truncate-past-EOF padding from a stale keepBytes write) are stripped
+ * so a poisoned segment can still yield its usable turns on resume. Errors name
+ * `fileName` when provided so diagnostics point at the on-disk file, not a bare
+ * Bun JSON token.
  */
-function parseSegmentTurns(text: string, tolerateTornTail: boolean): ConversationTurn[] {
+function parseSegmentTurns(
+  text: string,
+  tolerateTornTail: boolean,
+  fileName = "turns segment",
+): ConversationTurn[] {
   if (text.length === 0) return [];
-  const lines = text.split("\n");
+  // POSIX truncate past EOF pads with `\0`. Strip them so the rest of the JSONL
+  // remains parseable instead of dying on Unrecognized token '\u0000'.
+  const cleaned = text.includes("\0") ? text.replaceAll("\0", "") : text;
+  if (cleaned.length === 0) return [];
+  const lines = cleaned.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
 
   const turns: ConversationTurn[] = [];
   for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line.length === 0) continue;
     const isLast = i === lines.length - 1;
     let raw: unknown;
     try {
-      raw = JSON.parse(lines[i]!);
+      raw = JSON.parse(line);
     } catch (cause) {
       if (tolerateTornTail && isLast) break;
-      throw new Error("turns segment has malformed JSON", { cause });
+      throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, { cause });
     }
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
-      throw new Error(`turns segment has unexpected structure: ${result.summary}`);
+      throw new Error(`${fileName} has unexpected structure at line ${i + 1}: ${result.summary}`);
     }
     turns.push(result);
   }
   return turns;
+}
+
+const EMPTY_TOKEN_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+} as const;
+
+function emptyMetadata(): {
+  pendingOperations: never[];
+  tokenUsage: typeof EMPTY_TOKEN_USAGE;
+  connectorState: null;
+} {
+  return {
+    pendingOperations: [],
+    tokenUsage: { ...EMPTY_TOKEN_USAGE },
+    connectorState: null,
+  };
+}
+
+/**
+ * Soft-default metadata when the recovery path cannot use the base store.
+ * Corrupt or missing metadata.json must not abort resume of usable turns.
+ */
+async function loadMetadataSoft(dir: string): Promise<ReturnType<typeof emptyMetadata>> {
+  const metadataPath = path.join(dir, METADATA_FILE);
+  try {
+    if (!(await pathExists(metadataPath))) return emptyMetadata();
+    const text = await fs.promises.readFile(metadataPath, "utf-8");
+    JSON.parse(text);
+    // Schema lives in the base store; recovery only needs a safe shell.
+    return emptyMetadata();
+  } catch (cause) {
+    log.warn("metadata.json unreadable during resilient load; using empty defaults", {
+      cause: cause instanceof Error ? cause.message : String(cause),
+    });
+    return emptyMetadata();
+  }
 }
 
 // Mirrors assertWellFormedToolSequence without throwing. Used to choose the
@@ -333,12 +388,49 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     // the complete turn history is the actual live conversation state, not an
     // optional convenience — callers that only need a recent tail (e.g. TUI
     // resume hydration) should use `loadRecentTurns` instead.
+    //
+    // When the base isogit store hard-fails (e.g. null-padded turns.jsonl from
+    // a stale truncate), recover usable turns via resilient segment parse and
+    // soft-default metadata so resume does not die on a bare Bun JSON token.
     async load(signal) {
-      const baseResult = await base.load(signal);
-      const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-      if (extraTexts.length === 0) return baseResult;
-      const turns = await loadTurnsWithoutMalformedToolSequence(baseResult.turns, extraTexts);
-      return { ...baseResult, turns };
+      try {
+        const baseResult = await base.load(signal);
+        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
+        if (extraTexts.length === 0) return baseResult;
+        const turns = await loadTurnsWithoutMalformedToolSequence(baseResult.turns, extraTexts);
+        return { ...baseResult, turns };
+      } catch (cause) {
+        log.warn(
+          "base context store load failed; recovering turns from disk segments",
+          { cause: cause instanceof Error ? cause.message : String(cause) },
+        );
+        let baseTurns: ConversationTurn[];
+        try {
+          // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
+          const basePath = path.join(dir, TURNS_FILE);
+          if (await pathExists(basePath)) {
+            const text = await fs.promises.readFile(basePath, "utf-8");
+            baseTurns = parseSegmentTurns(text, false, TURNS_FILE);
+          } else {
+            baseTurns = [];
+          }
+        } catch (parseCause) {
+          // Unrecoverable: rethrow with the file name in the message.
+          throw new Error(
+            `failed to load ${TURNS_FILE}: ${
+              parseCause instanceof Error ? parseCause.message : String(parseCause)
+            }`,
+            { cause: parseCause },
+          );
+        }
+        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
+        const turns =
+          extraTexts.length === 0
+            ? baseTurns
+            : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
+        const metadata = await loadMetadataSoft(dir);
+        return { turns, ...metadata };
+      }
     },
     setConnectorState: (state) => base.setConnectorState(state),
     branch: (name, signal) => base.branch(name, signal),
