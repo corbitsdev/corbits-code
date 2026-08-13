@@ -35,6 +35,7 @@
     "test": "bun test ./src ./tests ./evals",
     "start": "bun run build && bun ./dist/index.js",
     "eval:capability": "bun scripts/eval-capability.ts",
+    "eval:public-swe-one": "bun scripts/eval-public-swe-one.ts",
     "tui:smoke": "bun ./src/tui/smoke.ts"
   },
   "workspaces": [

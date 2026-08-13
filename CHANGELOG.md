@@ -56,6 +56,11 @@ mid-session switches.
 
 ### Added
 
+- **Public SWE-bench one-shot smoke.** `bun run eval:public-swe-one` runs Corbits
+  product exec on a single SWE-bench Lite instance (default
+  `psf__requests-3362`), pinned to prepaid `xai/thegreataxios` + `grok-4.5`, and
+  writes `preds.jsonl` under `evals/public/results/`. Official Docker
+  resolved/not-resolved grading stays optional/manual.
 - **Capability eval: `complex-stock-gate`.** Multi-file stock-gated `POST /orders`
   (404/409/201 + stock decrement) on the demo-comparison fixture; sync API grader.
 - **Capability eval: `complex-idempotent-orders`.** Header-driven Idempotency-Key
