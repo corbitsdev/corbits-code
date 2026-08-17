@@ -211,12 +211,31 @@ export function createSegmentedJSONLWriter(
       const full = path.join(dir, name);
       const truncateInPlace = isFirst && state !== null && entry.keepBytes > 0;
       if (truncateInPlace) {
-        const handle = await fs.promises.open(full, "r+");
+        // Stale keepBytes (e.g. after external shrink/compaction) can exceed the
+        // on-disk size. POSIX truncate-past-EOF pads with null bytes, which
+        // poisons the JSONL and breaks resume with `\u0000` parse errors.
+        // Never extend via truncate — rewrite the full segment instead.
+        let existingSize = 0;
         try {
-          await handle.truncate(entry.keepBytes);
-          if (entry.text.length > 0) await handle.write(entry.text, entry.keepBytes);
-        } finally {
-          await handle.close();
+          existingSize = (await fs.promises.stat(full)).size;
+        } catch {
+          existingSize = 0;
+        }
+        if (entry.keepBytes > existingSize) {
+          // Offsets are wrong relative to disk. Rebuild the kept prefix from
+          // the in-memory records that belong in this segment, then append
+          // the planned text (the post-prefix lines for this segment).
+          const keptRecords = records.slice(firstSegStartRecord, prefix);
+          const fullText = keptRecords.map((r) => lineFor(r)).join("") + entry.text;
+          await fs.promises.writeFile(full, fullText);
+        } else {
+          const handle = await fs.promises.open(full, "r+");
+          try {
+            await handle.truncate(entry.keepBytes);
+            if (entry.text.length > 0) await handle.write(entry.text, entry.keepBytes);
+          } finally {
+            await handle.close();
+          }
         }
       } else {
         await fs.promises.writeFile(full, entry.text);

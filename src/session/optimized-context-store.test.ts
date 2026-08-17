@@ -61,6 +61,104 @@ describe("createOptimizedContextStore load", () => {
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
 
+  test("recovers usable turns when turns.jsonl has a mid-file null-byte hole", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    const head = jsonl([turn("a"), turn("b")]);
+    const tail = jsonl([turn("c")]);
+    // Simulate truncate-past-EOF null padding between valid JSONL records.
+    const poisoned = Buffer.concat([
+      Buffer.from(head, "utf8"),
+      Buffer.alloc(64, 0),
+      Buffer.from(tail, "utf8"),
+    ]);
+    fs.writeFileSync(path.join(dir, TURNS_FILE), poisoned);
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+  });
+
+  test("preserves pendingOperations when turns are poisoned but metadata is valid", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    const head = jsonl([turn("a"), turn("b")]);
+    const tail = jsonl([turn("c")]);
+    const poisoned = Buffer.concat([
+      Buffer.from(head, "utf8"),
+      Buffer.alloc(64, 0),
+      Buffer.from(tail, "utf8"),
+    ]);
+    fs.writeFileSync(path.join(dir, TURNS_FILE), poisoned);
+
+    // Valid non-empty metadata must survive recovery so rehydrateGates can re-arm.
+    const pendingOp = {
+      correlationId: "corr-1",
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: "gate-1",
+    };
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({
+        pendingOperations: [pendingOp],
+        tokenUsage: { input: 10, output: 20, cacheRead: 1, cacheWrite: 2, thinking: 3 },
+        connectorState: null,
+      }),
+    );
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(loaded.pendingOperations).toEqual([pendingOp]);
+    expect(loaded.tokenUsage).toEqual({
+      input: 10,
+      output: 20,
+      cacheRead: 1,
+      cacheWrite: 2,
+      thinking: 3,
+    });
+    expect(loaded.connectorState).toBeNull();
+  });
+
+  test("soft-defaults metadata when metadata.json is corrupt but turns load", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("kept")]));
+    // Corrupt metadata alone must not abort resume when turns are fine.
+    // Base load parses turns first then metadata — if metadata throws, recovery
+    // path soft-defaults and still returns turns.
+    fs.writeFileSync(path.join(dir, "metadata.json"), "{not-json\x00");
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(1);
+    expect((loaded.turns[0]!.content[0] as { text: string }).text).toBe("kept");
+    expect(loaded.pendingOperations).toEqual([]);
+    expect(loaded.connectorState).toBeNull();
+  });
+
+  test("unrecoverable turns.jsonl names the file in the error", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    // Mid-file garbage that is not null padding and not a torn tail — unrecoverable.
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + "THIS IS NOT JSON\n" + jsonl([turn("b")]),
+    );
+
+    await expect(store.load()).rejects.toThrow(/turns\.jsonl/);
+  });
+
   // Compacted head rewrites segment 0 while a prior multi-segment history's
   // tails stay on disk. Concatenating them reintroduces tool_call ids that the
   // compact head already kept — drop the orphan tails so the session can resume.
