@@ -478,6 +478,9 @@ function mapEvent(
                 ? { statusCode: err.statusCode }
                 : {}),
               ...(err.raw !== undefined ? { raw: err.raw } : {}),
+              ...(typeof err.providerId === "string"
+                ? { providerId: err.providerId }
+                : {}),
             })
           : rawMessage
       // Hand the armed boundary to the next event rather than disarming: the

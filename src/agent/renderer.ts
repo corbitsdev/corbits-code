@@ -2,6 +2,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import type { PricingCache } from "../cost/pricing-fetcher.js";
+import { inferenceErrorMessage } from "../inference-error-message.js";
 
 export type Renderer = {
   render(event: ReactorEmittedEvent): void;
@@ -192,8 +193,23 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
       }
 
       case "inference.error": {
-        const err = e.data?.error as Record<string, unknown>;
-        writeErrorBlock(String(err?.message ?? e.data?.error ?? "inference error"));
+        const err = e.data?.error as Record<string, unknown> | undefined;
+        const rawMessage = String(err?.message ?? e.data?.error ?? "inference error");
+        const message =
+          typeof err?.category === "string"
+            ? inferenceErrorMessage({
+                category: err.category,
+                message: rawMessage,
+                ...(typeof err.statusCode === "number"
+                  ? { statusCode: err.statusCode }
+                  : {}),
+                ...(err.raw !== undefined ? { raw: err.raw } : {}),
+                ...(typeof err.providerId === "string"
+                  ? { providerId: err.providerId }
+                  : {}),
+              })
+            : rawMessage;
+        writeErrorBlock(message);
         break;
       }
 
