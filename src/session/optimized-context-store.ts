@@ -2,7 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
 import { createIsogitStore } from "@intx/storage-isogit";
-import { ContentBlock, type ConversationTurn } from "@intx/types/runtime";
+import {
+  ContentBlock,
+  type ConnectorThreadState,
+  type ConversationTurn,
+  type PendingOperation,
+  type TokenUsage,
+} from "@intx/types/runtime";
 import { getLogger } from "@intx/log";
 import {
   createSegmentedJSONLWriter,
@@ -116,11 +122,13 @@ const EMPTY_TOKEN_USAGE = {
   thinking: 0,
 } as const;
 
-function emptyMetadata(): {
-  pendingOperations: never[];
-  tokenUsage: typeof EMPTY_TOKEN_USAGE;
-  connectorState: null;
-} {
+type SessionMetadata = {
+  pendingOperations: PendingOperation[];
+  tokenUsage: TokenUsage;
+  connectorState: ConnectorThreadState | null;
+};
+
+function emptyMetadata(): SessionMetadata {
   return {
     pendingOperations: [],
     tokenUsage: { ...EMPTY_TOKEN_USAGE },
@@ -129,17 +137,15 @@ function emptyMetadata(): {
 }
 
 /**
- * Soft-default metadata when the recovery path cannot use the base store.
- * Corrupt or missing metadata.json must not abort resume of usable turns.
+ * Prefer real metadata via the base store schema on recovery. Soft-default only
+ * when metadata.json is missing, corrupt, or otherwise unreadable so poisoned
+ * turns still resume without wiping pendingOperations / tokenUsage / connectorState.
  */
-async function loadMetadataSoft(dir: string): Promise<ReturnType<typeof emptyMetadata>> {
-  const metadataPath = path.join(dir, METADATA_FILE);
+async function loadMetadataSoft(
+  loadMetadata: () => Promise<SessionMetadata>,
+): Promise<SessionMetadata> {
   try {
-    if (!(await pathExists(metadataPath))) return emptyMetadata();
-    const text = await fs.promises.readFile(metadataPath, "utf-8");
-    JSON.parse(text);
-    // Schema lives in the base store; recovery only needs a safe shell.
-    return emptyMetadata();
+    return await loadMetadata();
   } catch (cause) {
     log.warn("metadata.json unreadable during resilient load; using empty defaults", {
       cause: cause instanceof Error ? cause.message : String(cause),
@@ -391,7 +397,8 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     //
     // When the base isogit store hard-fails (e.g. null-padded turns.jsonl from
     // a stale truncate), recover usable turns via resilient segment parse and
-    // soft-default metadata so resume does not die on a bare Bun JSON token.
+    // re-read metadata via the base schema (soft-empty only if that fails too)
+    // so resume does not die on a bare Bun JSON token or wipe pending ops.
     async load(signal) {
       try {
         const baseResult = await base.load(signal);
@@ -428,7 +435,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
           extraTexts.length === 0
             ? baseTurns
             : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
-        const metadata = await loadMetadataSoft(dir);
+        const metadata = await loadMetadataSoft(() => base.loadMetadata());
         return { turns, ...metadata };
       }
     },

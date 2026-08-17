@@ -83,6 +83,52 @@ describe("createOptimizedContextStore load", () => {
     ]);
   });
 
+  test("preserves pendingOperations when turns are poisoned but metadata is valid", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    const head = jsonl([turn("a"), turn("b")]);
+    const tail = jsonl([turn("c")]);
+    const poisoned = Buffer.concat([
+      Buffer.from(head, "utf8"),
+      Buffer.alloc(64, 0),
+      Buffer.from(tail, "utf8"),
+    ]);
+    fs.writeFileSync(path.join(dir, TURNS_FILE), poisoned);
+
+    // Valid non-empty metadata must survive recovery so rehydrateGates can re-arm.
+    const pendingOp = {
+      correlationId: "corr-1",
+      kind: "approval" as const,
+      registeredAt: 1_700_000_000_000,
+      gateId: "gate-1",
+    };
+    fs.writeFileSync(
+      path.join(dir, "metadata.json"),
+      JSON.stringify({
+        pendingOperations: [pendingOp],
+        tokenUsage: { input: 10, output: 20, cacheRead: 1, cacheWrite: 2, thinking: 3 },
+        connectorState: null,
+      }),
+    );
+
+    const loaded = await store.load();
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    expect(loaded.pendingOperations).toEqual([pendingOp]);
+    expect(loaded.tokenUsage).toEqual({
+      input: 10,
+      output: 20,
+      cacheRead: 1,
+      cacheWrite: 2,
+      thinking: 3,
+    });
+    expect(loaded.connectorState).toBeNull();
+  });
+
   test("soft-defaults metadata when metadata.json is corrupt but turns load", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
