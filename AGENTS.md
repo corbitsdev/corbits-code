@@ -49,9 +49,13 @@ Run the full suite before declaring any task complete. Do not substitute individ
 scans `vendor/`, adding hundreds of unrelated results and making pass/fail
 counts meaningless to compare across branches — always use `bun run test`.
 
-## Commits
+## Commits, pull requests, and issue tracking
 
-Follow the `style` skill's message format: plain-English summary, no `feat:`/`fix:` prefixes, no filename in the summary. Separate refactors from feature additions. Commit with the user's local git identity.
+**MUST follow `CONTRIBUTING.md`.** That file is the source of truth for commit
+titles and bodies, PR titles and bodies, and Linear/GitHub linking. Do not use
+Conventional Commits prefixes (`feat:`, `fix:`, `docs:`, `ci:`, …), ticket IDs
+in commit subjects, or free-form PR body sections. Rewrite before push if a
+message violates those rules. Commit with the operator's local git identity.
 
 ## Pushing
 
