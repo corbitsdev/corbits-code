@@ -85,6 +85,7 @@ describe("isKimiLeafProvider", () => {
 describe("detectModelFamily", () => {
   test("detects grok, kimi, and default", () => {
     expect(detectModelFamily({ providerName: "xai/default", model: "grok-4.5" })).toBe("grok");
+    expect(detectModelFamily({ providerName: "xai/default", model: "grok-4.6" })).toBe("grok");
     expect(detectModelFamily({ providerName: "moonshot", model: "kimi-k2" })).toBe("kimi");
     expect(detectModelFamily({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe("default");
   });

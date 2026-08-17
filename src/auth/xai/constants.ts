@@ -19,11 +19,13 @@ export const XAI_SCOPES = ["openid", "profile", "email", "offline_access", "grok
 // API key). They authenticate against the CLI chat proxy, which exposes the
 // OpenAI-compatible /v1/chat/completions surface.
 export const XAI_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
-// The grok CLI (which our OAuth scope mirrors) exposes only two models: Grok 4.5
-// (Grok Build's default coding model) and Composer 2.5 Fast. Mirror `grok models`
-// exactly — other model ids are rejected for grok-cli OAuth credentials.
+// Grok-cli OAuth credentials only accept model ids the CLI chat proxy serves.
+// Keep the catalog aligned with Grok Build / xAI listings; default stays the
+// last CLI-advertised coding model until the proxy is confirmed to accept a
+// newer flagship as the session default.
 export const XAI_DEFAULT_MODELS = [
   "grok-4.5",
+  "grok-4.6",
   "grok-composer-2.5-fast",
 ] as const;
 
