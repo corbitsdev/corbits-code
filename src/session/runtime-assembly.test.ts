@@ -7,10 +7,16 @@ import * as permissionStore from "../permission/store.js";
 import {
   buildSubAgentProvider,
   createApprovalPersist,
+  createLiveSubAgentSources,
   createSessionPruningCompactor,
   loadSeededApprovals,
   skillDirsFromEnabledPlugins,
 } from "./runtime-assembly.js";
+import type {
+  SubAgentProviderConfig,
+  SubAgentSourcesConfig,
+} from "./runtime-assembly.js";
+import type { Settings } from "../config/settings.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";
 
@@ -48,6 +54,71 @@ describe("buildSubAgentProvider", () => {
       reasoningEffort: "high",
       bifrostVirtualKey: true,
     });
+  });
+});
+
+describe("createLiveSubAgentSources", () => {
+  // One live-config owner for every fact a spawn reads. These were three
+  // separately-seeded snapshots that each switch path had to remember to
+  // refresh; a mid-session model switch refreshed none of them, so workers
+  // kept running against the provider the operator had switched away from.
+  const entry = (name: string): SubAgentSourcesConfig["providers"][number] => ({
+    name,
+    baseURL: "https://api.openai.com/v1",
+    models: ["gpt-5"],
+  });
+  const providerSettings = (name: string): Settings => ({
+    providers: { [name]: { baseURL: "https://api.openai.com/v1", models: ["gpt-5"] } },
+  });
+  const initial = (): SubAgentSourcesConfig => ({
+    providerName: "openai",
+    baseURL: "https://api.openai.com/v1",
+    model: "gpt-5",
+    providers: [entry("openai"), entry("anthropic")],
+    settings: providerSettings("openai"),
+  });
+
+  test("a spawn after a mid-session model switch sees the new provider", () => {
+    let config = initial();
+    const live = createLiveSubAgentSources(() => config);
+
+    expect(live.provider().providerName).toBe("openai");
+
+    // Mirrors the switch handler's `config = { ...config, providerName, model }`.
+    config = { ...config, providerName: "anthropic", model: "claude-opus" };
+
+    expect(live.provider().providerName).toBe("anthropic");
+    expect(live.provider().model).toBe("claude-opus");
+  });
+
+  test("a spawn after a mid-session connect sees the new catalog and settings", () => {
+    let config = initial();
+    const live = createLiveSubAgentSources(() => config);
+
+    expect(live.catalog().map((p) => p.name)).toEqual(["openai", "anthropic"]);
+
+    config = {
+      ...config,
+      providers: [entry("openai"), entry("codex/work")],
+      settings: providerSettings("codex/work"),
+    };
+
+    expect(live.catalog().map((p) => p.name)).toEqual(["openai", "codex/work"]);
+    expect(Object.keys(live.settings()?.providers ?? {})).toEqual(["codex/work"]);
+  });
+
+  test("settings written mid-session are visible when the session started without any", () => {
+    // The old wiring attached a settings getter only when settings existed at
+    // startup, so settings written later in the session stayed invisible.
+    const { settings: _seeded, ...withoutSettings } = initial();
+    let config: SubAgentSourcesConfig = withoutSettings;
+    const live = createLiveSubAgentSources(() => config);
+
+    expect(live.settings()).toBeUndefined();
+
+    config = { ...config, settings: providerSettings("openai") };
+
+    expect(live.settings()).toBeDefined();
   });
 });
 

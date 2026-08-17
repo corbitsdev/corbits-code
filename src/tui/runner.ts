@@ -140,7 +140,6 @@ import {
   FLEET_STALL_POLL_MS,
   observeFleet,
   taskToolDefinition,
-  type SubAgentProvider,
 } from "../subagent/index.js";
 import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
@@ -205,8 +204,8 @@ import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-
 import { WorkflowController } from "./workflow-controller.js";
 import {
   buildSessionSourcesFromConfig,
-  buildSubAgentProvider,
   createApprovalPersist,
+  createLiveSubAgentSources,
   createSessionPruningCompactor,
   discoverSessionPlugins,
   loadSeededApprovals,
@@ -804,19 +803,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const permissionsAdmin = createPermissionsAdmin(permissionGate, config.cwd);
 
   // Track the active subagent provider so a live /agent switch (provider, model,
-  // or reasoning effort) reaches subagents spawned afterward. Seeded from config
-  // and updated by the App through onSubAgentProviderChange.
-  const liveSubAgentProvider: { current: SubAgentProvider } = {
-    current: buildSubAgentProvider(config),
-  };
-  // Live catalog + runtime settings so task(tier=…) sees mid-session OAuth
-  // login and tier edits (config.providers / config.settings are load-time only).
-  const liveSubAgentCatalog: { current: typeof config.providers } = {
-    current: config.providers,
-  };
-  const liveSubAgentSettings: { current: typeof config.settings } = {
-    current: config.settings,
-  };
+  // or reasoning effort) reaches subagents spawned afterward. Derives from the
+  // live `config` binding on every spawn, so every switch path that reassigns
+  // `config` (model picker, /agent, post-connect refresh) is picked up without
+  // a separate cache to keep in sync.
+  const liveSubAgent = createLiveSubAgentSources(() => config);
 
   // Dedicated child-session records for enter-session inspection. Child events
   // land here only — never in the parent chat transcript.
@@ -1238,7 +1229,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       return result.kind === "option" && result.index === 0;
     },
     subAgent: {
-      provider: () => liveSubAgentProvider.current,
+      provider: liveSubAgent.provider,
       sessions: subAgentSessions,
       getWorkdirBase: () => sessionDir(config.cwd, sessionId),
       // Progress only — not the full event stream. Forwarding every sub-agent
@@ -1248,10 +1239,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       onProgress: (info) => {
         emitter.emit("subagent.progress", info);
       },
-      ...(liveSubAgentSettings.current !== undefined
-        ? { settings: () => liveSubAgentSettings.current! }
-        : {}),
-      catalog: () => liveSubAgentCatalog.current,
+      settings: liveSubAgent.settings,
+      catalog: liveSubAgent.catalog,
       profiles: () => liveAgentProfiles,
     },
   });
@@ -2133,8 +2122,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         };
         const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
         config = { ...config, providers, ...(onDisk !== null ? { settings: onDisk } : {}) };
-        liveSubAgentCatalog.current = providers;
-        liveSubAgentSettings.current = config.settings;
         host.refreshModels(
           listRecentModels(config.settings ?? { providers: {} }),
           listFavoriteModels(config.settings ?? { providers: {} }),
