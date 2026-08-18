@@ -11,7 +11,25 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.98] - 2026-08-17
+
+Corrupt resume state no longer kills sessions, Codex quota errors name the
+reset window, and provider/model selection is more reliable across restarts and
+mid-session switches.
+
+### Session
+
+- **Poisoned resumes recover.** Resume loads no longer die on null-padded
+  `turns.jsonl` data after a stale compaction window. Usable turns are recovered,
+  valid metadata is preserved, and pending gates re-arm instead of leaving the
+  session wedged.
+
+### Codex
+
+- **Quota errors explain the reset.** Codex `usage_limit_reached` responses are
+  parsed as quota exhaustion, show the plan/profile when available, include the
+  reset ETA, and point `/model` at another subscription instead of looping on a
+  doomed retry.
 
 ### Sub-agents
 
@@ -24,14 +42,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Providers
 
 - **Named API-key instances.** First-class API-key providers (OpenAI key,
-  Anthropic, Google, OpenCode Zen/Go, Z.AI, …) ask for an instance name before
+  Anthropic, Google, OpenCode Zen/Go, Z.AI, ...) ask for an instance name before
   the key, so personal and team keys can coexist (`openai/default`,
-  `anthropic/work`, …). Reusing an existing name replaces that instance after
+  `anthropic/work`, ...). Reusing an existing name replaces that instance after
   an explicit confirm. Custom endpoints stay free-form and single-entry.
 - **API-key connect keeps the project selection.** Connecting an API-key or
   Custom provider now writes the same project-local provider/model selection
   OAuth already wrote, so a restart in that repo resolves to the account just
   connected. Secrets stay in global credential storage only.
+- **Grok 4.6 is selectable.** xAI OAuth accounts now list `grok-4.6` alongside
+  Grok 4.5 and Composer 2.5 Fast.
 
 ### TUI
 
@@ -42,9 +62,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Docs
 
+- **Contribution rules are codified.** The pull request template and agent docs
+  now spell out the expected commit, review, and Linear-linking discipline.
 - **Models-only connect prose.** PRODUCT, IMPLEMENTATION, and operator-facing
   error strings document `/model` as models-only with **Alt+A** to add a
-  provider. Stale bare-`c` / Ctrl+A / in-list “connect →” instructions are gone.
+  provider. Stale bare-`c` / Ctrl+A / in-list "connect ->" instructions are gone.
 
 ## [0.2.97] - 2026-08-10
 
