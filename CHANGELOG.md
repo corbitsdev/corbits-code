@@ -53,6 +53,13 @@ mid-session switches.
 
 ### Fixed
 
+- **Skywalker dig fleets cascading into stalled Task floods.** "Why stalled /
+  why no thinking / spawn looks broken" asks were reclassified as orchestration
+  and fanned into parallel explore waves; Grok leaves then sat quiet mid-think
+  or looped, which looked like spawn failure and invited another dig wave.
+  Skywalker now hard-caps concurrent leaves at 4, classifies digs/screenshots/
+  why-how as COMMUNICATION (answer or one explore leaf), and forbids re-fan-out
+  diagnostic waves when leaves stall or salvage.
 - **Grok sub-agent stall false positives.** Live fleets on grok-4.6 show routine
   60–120s gaps between tool cycles while the model thinks. UI stall paint was
   30s and Grok's salvage kill was 90s, so healthy thinking looked hung and got

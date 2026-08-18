@@ -78,6 +78,7 @@ describe("skywalkerPackage", () => {
     );
     expect(skywalkerPackage.outOfLane).toContain("product edits");
     expect(skywalkerPackage.outOfLane).toContain("general catch-all leaf");
+    expect(skywalkerPackage.outOfLane).toContain("diagnostic fleets for why/how/stall questions");
   });
 
   test("nudge maxTurns", () => {
@@ -91,6 +92,16 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("0–1 leaf");
     expect(p).toContain("2–4 leaves");
     expect(p).toContain("split ownership by path/package");
+    expect(p).toContain("at most 4 concurrent leaves");
+  });
+
+  test("systemPrompt anti-cascade keeps digs out of fleets", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Anti-cascade");
+    expect(p).toContain("COMMUNICATION first");
+    expect(p).toContain("Never spawn parallel");
+    expect(p).toContain("one explore leaf");
+    expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
   });
 
   test("systemPrompt simple path skips explore+critique for tiny work", () => {
