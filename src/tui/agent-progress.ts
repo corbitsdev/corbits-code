@@ -57,7 +57,8 @@ export type AgentProgress = {
 };
 
 /** Silence after which a running worker reads as hung rather than thinking. */
-export const DEFAULT_STALL_MS = 30_000;
+export const DEFAULT_STALL_MS = 120_000;
+
 
 /**
  * Second, far longer bound: how long one tool call may stay outstanding before

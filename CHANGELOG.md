@@ -53,6 +53,11 @@ mid-session switches.
 
 ### Fixed
 
+- **Grok sub-agent stall false positives.** Live fleets on grok-4.6 show routine
+  60–120s gaps between tool cycles while the model thinks. UI stall paint was
+  30s and Grok's salvage kill was 90s, so healthy thinking looked hung and got
+  nudged/stopped mid-inference. `DEFAULT_STALL_MS` is 120s; Grok shares the
+  default 5-minute `subAgentStallTimeoutMs`.
 - **Live fleet status is `● Task` transcript rows again.** The FLEET board /
   dual-rail agents chrome restated the same workers above chat and made
   progress hard to read. `task` calls paint live rows (clock + current tool)

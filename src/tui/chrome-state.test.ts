@@ -207,8 +207,8 @@ describe("formatAgentsPanel", () => {
           currentToolStartedAt: null,
           description: "quiet worker",
           status: "running",
-          startedAt: NOW - 60_000,
-          lastActivityAt: NOW - 40_000,
+          startedAt: NOW - 180_000,
+          lastActivityAt: NOW - 130_000,
         },
       ],
       undefined,
@@ -216,7 +216,7 @@ describe("formatAgentsPanel", () => {
     )
     expect(rows?.[1]).toEqual({
       label: "! a  quiet worker",
-      tail: " · 1:00",
+      tail: " · 3:00",
       stalled: true,
       kind: "lane",
     })
@@ -229,7 +229,7 @@ describe("formatAgentsPanel", () => {
     const rows = formatAgentsPanel(
       [
         { agentId: "fine", description: "busy", status: "running", currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW },
-        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 90_000, lastActivityAt: NOW - 60_000 },
+        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 180_000, lastActivityAt: NOW - 130_000 },
       ],
       undefined,
       NOW,
@@ -430,9 +430,11 @@ describe("lane state survives the mapping hops", () => {
     status: "running" as const,
     currentToolName: "run_shell",
     currentToolPreview: null as string | null,
-    currentToolStartedAt: NOW - 90_000,
-    startedAt: NOW - 100_000,
-    lastActivityAt: NOW - 90_000,
+    // Past DEFAULT_STALL_MS (120s) so laneState reaches the in_tool branch,
+    // still under IN_TOOL_STALL_MS (10 min).
+    currentToolStartedAt: NOW - 180_000,
+    startedAt: NOW - 200_000,
+    lastActivityAt: NOW - 180_000,
   }
 
   test("the panel and the transcript row agree that the lane is in a tool", () => {
@@ -449,10 +451,10 @@ describe("lane state survives the mapping hops", () => {
     expect(rows?.[1]?.kind).toBe("lane")
     expect(rows?.[1]?.stalled).toBe(false)
     expect(rows?.[1]?.label.startsWith("● ")).toBe(true)
-    expect(rows?.[1]?.tail).toContain("run_shell 1:30")
+    expect(rows?.[1]?.tail).toContain("run_shell 3:00")
     expect(rows?.[1]?.tail).not.toContain("stalled")
 
-    expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 1:30")
+    expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 3:00")
   })
 
   test("a shell preview replaces the tool name on both panel and trailer (CL-5765)", () => {
@@ -472,7 +474,12 @@ describe("lane state survives the mapping hops", () => {
   })
 
   test("a genuinely silent lane still reads stalled through the same hops", () => {
-    const silent = { ...inTool, currentToolName: null, currentToolStartedAt: null }
+    const silent = {
+      ...inTool,
+      currentToolName: null,
+      currentToolStartedAt: null,
+      lastActivityAt: NOW - 130_000,
+    }
     expect(laneState(silent, NOW)).toBe("stalled")
 
     const rows = formatAgentsPanel(
@@ -495,7 +502,7 @@ describe("lane state survives the mapping hops", () => {
       new Map([["sleep 150", "grep"]]),
     )
     expect(annotated.agents?.[0]?.currentToolName).toBe("run_shell")
-    expect(annotated.agents?.[0]?.currentToolStartedAt).toBe(NOW - 90_000)
+    expect(annotated.agents?.[0]?.currentToolStartedAt).toBe(NOW - 180_000)
   })
 
   test("the tool annotation never fills a gap when no call is outstanding", () => {
@@ -519,6 +526,7 @@ describe("lane state survives the mapping hops", () => {
       currentToolName: null,
       currentToolPreview: null,
       currentToolStartedAt: null,
+      lastActivityAt: NOW - 130_000,
     }
     const rows = formatAgentsPanel(
       chromeFromSession({ agents: [silent] }).agents,

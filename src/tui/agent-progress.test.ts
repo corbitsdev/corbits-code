@@ -79,11 +79,11 @@ describe("agentProgress", () => {
   test("silence with no tool outstanding is a stall, and the clock shown is the silence", () => {
     const progress = agentProgress(
       { ...base, currentToolName: null, lastActivityAt: 0 },
-      31_000,
-      30_000,
+      121_000,
+      120_000,
     )
     expect(progress).toEqual({
-      stat: "0:31",
+      stat: "2:01",
       state: "stalled",
       working: false,
       stalled: true,
@@ -101,16 +101,16 @@ describe("agentProgress", () => {
         currentToolStartedAt: 1_000,
         lastActivityAt: 1_000,
       },
-      91_000,
-      30_000,
+      181_000,
+      120_000,
     )
     expect(progress?.state).toBe("in_tool")
     expect(progress?.stalled).toBe(false)
-    expect(progress?.stat).toBe("1:31 · run_shell 1:30")
+    expect(progress?.stat).toBe("3:01 · run_shell 3:00")
   })
 
   test("recent activity keeps a long-running session marked working", () => {
-    const progress = agentProgress({ ...base, lastActivityAt: 100_000 }, 100_500, 30_000)
+    const progress = agentProgress({ ...base, lastActivityAt: 100_000 }, 100_500, 120_000)
     expect(progress?.working).toBe(true)
     expect(progress?.stalled).toBe(false)
   })

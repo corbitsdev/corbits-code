@@ -55,17 +55,19 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // previously motivated a tightened nudge/pause pair here (6/10). That pair
 // was miscalibrated: it fired on a session that was making real progress
 // through Linear lookups and code reads (CL-5611), well inside the healthy
-// range other families tolerate. Grok keeps its own nudge copy and shorter
-// sub-agent stall timeout — both still warranted — but shares the default
-// tool-only-streak nudge threshold (the hard-pause thrash check is not
-// family-tuned at all; it runs the same period detection for every family)
-// rather than treating "no narration" as a family-specific failure mode.
+// range other families tolerate. Grok keeps its own nudge copy — still
+// warranted — but shares the default sub-agent stall timeout: live
+// workbench fleets on grok-4.6 show routine 60–120s gaps between tool
+// cycles while the model thinks, so the old 90s kill was false-positive
+// salvage mid-inference. The hard-pause thrash check is not family-tuned;
+// it runs the same period detection for every family.
 const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: DEFAULT_POLICY.toolOnlyTurnNudgeAt,
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
-  subAgentStallTimeoutMs: 90_000,
+  subAgentStallTimeoutMs: DEFAULT_POLICY.subAgentStallTimeoutMs,
   applyGrokFinishBias: true,
 };
+
 
 // Kimi (Moonshot) detection ships now so callers can branch on family, but
 // thresholds are provisional: we have no eval characterization yet for how
