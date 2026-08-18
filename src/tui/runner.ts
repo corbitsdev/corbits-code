@@ -160,6 +160,7 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
+import { createRuntimeShutdown } from "./runtime-shutdown.js";
 import {
   applyFocus,
   attachClipboardImage,
@@ -2343,7 +2344,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   });
 
-  disposeHost = host.dispose;
+  const shutdownRuntime = createRuntimeShutdown({
+    disposeHost: host.dispose,
+    cancelWorkers: () => {
+      subAgentSessions.cancelAll("Session closed");
+    },
+    closeAgent: () => currentAgent.close(),
+  });
+  disposeHost = () => {
+    void shutdownRuntime();
+  };
   setActiveDisposeHost(disposeHost);
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
@@ -2506,6 +2516,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   await host.waitUntilExit();
+  // Stop inference and every worker before persistence, hooks, or telemetry can
+  // delay process exit. Closing the terminal is a process-lifetime boundary.
+  await shutdownRuntime();
   clearInterval(fleetStallPoll);
   if (fleetSettle !== null) clearTimeout(fleetSettle);
   unsubscribeFleetReport();
@@ -2572,11 +2585,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   await getTelemetry().flush();
 
   await sessionOps.awaitTail();
-  try {
-    await currentAgent.close();
-  } catch {
-    // ignore
-  }
   try {
     await streamPromise;
   } catch {

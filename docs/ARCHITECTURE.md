@@ -388,12 +388,12 @@ OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been del
 
 - **Shell** (`shell.ts`) — Owns the transcript window, header, status line, prompt, overlay/palette stack, and layout/relayout (`applyLayout`, `relayout`). Transcript rows are appended via `appendStreamRow`/`appendObserveStreamRow`; focus moves between prompt and transcript via `applyFocus`/`toggleShellFocus`.
 - **Product host** (`product-host.ts`) — Creates the `CliRenderer`, wires the event emitter bridge, model/command catalogs, and chrome pushes.
-- **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and session teardown (quitting is Ctrl+C twice, owned by the shell).
+- **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and session teardown (quitting is one Ctrl+C, owned by the shell).
 - **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) uses `runListModal` (`src/tui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui/command-surfaces.ts`).
 - **Auto mode** — Toggled by CLI flags only (`--auto` / `--no-auto`); there is currently no in-session key bound to it.
 - `@file` mention resolution and image paste are not wired on the OpenTUI send path.
 
-Known keybindings: `Ctrl+C` interrupts the in-flight run, and quits on a second press inside a two-second window.
+Known keybindings: `Ctrl+C` exits this CLI process and stops its in-flight run and workers.
 
 ### Skills (`src/extensions/skills.ts`)
 

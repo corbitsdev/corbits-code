@@ -328,10 +328,8 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     ...(deps.fetchBranch !== undefined ? { fetchBranch: deps.fetchBranch } : {}),
   })
 
-  // Quitting is Ctrl+C twice, the binding this interface has always used. The
-  // host claims no key of its own: a second exit chord split the one thing
-  // every operator already knows across two keys, and Ctrl+D stays the
-  // prompt's delete-character-under-cursor.
+  // The shell owns Ctrl+C exit. The host claims no second exit chord, and
+  // Ctrl+D stays the prompt's delete-character-under-cursor.
 
   const dispose = (): void => {
     stopBranchWatch()

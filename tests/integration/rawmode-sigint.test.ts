@@ -4,9 +4,8 @@ import { describe, expect, test } from "bun:test";
 // stdin.setRawMode(true) clears ISIG on this platform, so a real Ctrl+C
 // keypress never reaches process.on("SIGINT") during an interactive TUI
 // session -- only out-of-band kill(2) signals do. If a future Bun upgrade
-// changes that, the in-session double-tap-to-quit gesture (shell.ts,
-// CTRL_C_EXIT_WINDOW_MS) would silently start racing a process-level exit
-// on the very first Ctrl+C. This test pins the assumption against a real
+// changes that, the in-session exit path would race the process-level exit.
+// This test pins the assumption against a real
 // forked pty rather than trusting it to hold forever.
 describe("integration — raw-mode stdin and SIGINT", () => {
   test("Ctrl+C is delivered as a stdin byte, not as SIGINT, while raw mode is active", async () => {

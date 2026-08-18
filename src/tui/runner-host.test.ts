@@ -471,7 +471,7 @@ describe("mountRunnerHost quit key", () => {
     }
   })
 
-  // Quitting is Ctrl+C twice. The host claims no key of its own, so an empty
+  // Quitting is Ctrl+C. The host claims no key of its own, so an empty
   // prompt is not a special case: Ctrl+D stays the prompt's own binding.
   test("Ctrl+D at an empty prompt does not quit", async () => {
     const harness = await createHarness({ width: 80, height: 24 })

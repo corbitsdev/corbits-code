@@ -212,7 +212,7 @@ import {
 const shellExitHandlers = new WeakMap<AppShell, () => void>()
 
 /**
- * Register the host's quit path (the same one Ctrl+C twice runs) so a bare `exit` /
+ * Register the host's quit path (the same one Ctrl+C runs) so a bare `exit` /
  * `quit` typed at the prompt tears down through finalize instead of a second,
  * cleanup-skipping exit route.
  */
@@ -3964,7 +3964,7 @@ export function handleOverlayAnswerKey(
  * toggling opener.
  *
  * Only pickers appear here. An opener that performs an action (Ctrl+P attaches
- * an image, Ctrl+C interrupts, the expand key expands a row) has nothing to
+ * an image, Ctrl+C exits, the expand key expands a row) has nothing to
  * toggle, and a decision surface — a permission or operator question — is
  * deliberately absent: re-pressing whatever chord happened to be underneath it
  * must not count as an answer. Those leave via a choice or Esc.
@@ -5169,44 +5169,12 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   return true
 }
 
-/** Window in which a second Ctrl+C is read as "yes, quit". */
-export const CTRL_C_EXIT_WINDOW_MS = 2000
-
-const ctrlCArmedAt = new WeakMap<AppShell, number>()
-
 /**
- * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
- * The double press replaces the old Ink y/n exit confirm — same intent (an
- * explicit second confirmation), no modal. Quitting routes through the
- * registered exit handler so host finalize still runs.
+ * Ctrl+C ends this CLI process. The exit handler wakes the runner's normal
+ * finalize path, which owns persistence and runtime teardown.
  */
-export function handleCtrlC(
-  shell: AppShell,
-  now = Date.now(),
-  options?: FlashOptions,
-): void {
-  const armedAt = ctrlCArmedAt.get(shell)
-  if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
-    ctrlCArmedAt.delete(shell)
-    const onExit = shellExitHandlers.get(shell)
-    if (onExit !== undefined) {
-      onExit()
-      return
-    }
-  }
-  ctrlCArmedAt.set(shell, now)
-
-  if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
-    interruptShell(shell)
-  } else if (shell.prompt.value.length > 0) {
-    shell.prompt.value = ""
-  }
-  // The notice is exactly as true as the arming window is open, so it expires
-  // with it rather than waiting for some later flash to overwrite it.
-  setStatusFlash(shell, "press ctrl+c again to exit", {
-    ttlMs: CTRL_C_EXIT_WINDOW_MS,
-    ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
-  })
+export function handleCtrlC(shell: AppShell): void {
+  shellExitHandlers.get(shell)?.()
 }
 
 /**

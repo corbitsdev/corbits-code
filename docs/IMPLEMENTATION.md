@@ -303,7 +303,8 @@ Printed by `corbits --help` / `-h` from `CLI_HELP_TEXT` in `src/config/index.ts`
 |---|---|---|
 | _(no verb)_ | — | Interactive session; optional trailing task text |
 | `exec` / `run` | — | Run a prompt (non-interactive / one-shot) |
-| `resume` / `continue` | — | Reopen the latest session for this folder (project-keyed; worktrees of the same git root share sessions) |
+| `resume` / `continue` | — | Open the session picker for this folder (project-keyed; worktrees of the same git root share sessions) |
+| `--resume` | — | Open the interactive session picker |
 | `resume <session-id>` | — | Reopen a specific session |
 | `resume --pick` / `--list` | — | Interactive session picker |
 | `--cwd <dir>` | `process.cwd()` | Working directory |

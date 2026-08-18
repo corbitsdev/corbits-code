@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded, resolveLatestSession } from "../session/index.js";
+import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
 import { loadState } from "../session/state.js";
 
 
@@ -307,11 +307,10 @@ export type Config = {
   /** When true, the TUI does not auto-send `task` on mount (resumed session). */
   skipInitialTask?: boolean;
   /**
-   * How this process was asked to resume. `"last"` continues the latest session
-   * for the project key without a picker; `"id"` continues an explicit session
+   * How this process was asked to resume. `"id"` continues an explicit session
    * id; `"pick"` opens the interactive picker. Omitted for a fresh session.
    */
-  resumeMode?: "last" | "id" | "pick";
+  resumeMode?: "id" | "pick";
 
   // Deprecated workflow profile metadata; workflows are manual-only slash commands.
   workflow?: string;
@@ -360,10 +359,11 @@ export const CLI_HELP_TEXT = `corbits — coding agent CLI
 Usage:
   corbits [flags] [task...]
   corbits exec|run [flags] <prompt>
-  corbits resume|continue [session-id|--pick] [flags]
+  corbits resume|continue [session-id] [flags]
 
 Continue verbs (project-keyed; worktrees of the same git root share sessions):
-  resume / continue           reopen the latest session for this folder
+  resume / continue           interactive session picker
+  --resume                    interactive session picker
   resume <session-id>         reopen a specific session
   resume --pick / --list      interactive session picker
 
@@ -373,6 +373,7 @@ Flags:
   --provider <name>           configured provider name
   --model <id>                model for the active provider
   --profile <name>            settings profile
+  --resume                    interactive session picker
   --force                     override an existing run state
   --dangerously-skip-permissions
   --auto / --no-auto          auto mode on/off
@@ -426,7 +427,7 @@ export async function loadConfig(
   // `corbits resume` / `continue` reopen a prior session for this project key
   // (shared across worktrees of the same git root — see docs/IMPLEMENTATION.md).
   let command: "tui" | "exec" = "tui";
-  let resumeMode: "last" | "id" | "pick" | undefined;
+  let resumeMode: "id" | "pick" | undefined;
   let resumeSessionId: string | undefined;
   const leading = args[0];
   if (leading === "exec" || leading === "run") {
@@ -435,7 +436,7 @@ export async function loadConfig(
   } else if (leading === "resume" || leading === "continue") {
     command = "tui";
     args.shift();
-    // Default: last session. Explicit id, or --pick for the interactive list.
+    // Bare resume opens the list. A session id is the only direct-resume path.
     // Invalid non-flag positionals error instead of falling through to last
     // (a free-form token would otherwise become task while skipInitialTask is set).
     const next = args.slice()[0];
@@ -445,14 +446,14 @@ export async function loadConfig(
     } else if (next !== undefined && !next.startsWith("--")) {
       if (!isSessionId(next)) {
         throw new Error(
-          `'${next}' is not a session id. Use a UUID session id, \`corbits resume\` for the latest, or \`corbits resume --pick\` to choose.`,
+          `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
         );
       }
       resumeMode = "id";
       resumeSessionId = next;
       args.shift();
     } else {
-      resumeMode = "last";
+      resumeMode = "pick";
     }
   }
 
@@ -527,6 +528,16 @@ export async function loadConfig(
     }
     if (arg === "--no-workflow") {
       noWorkflow = true;
+      continue;
+    }
+    if (arg === "--resume") {
+      if (command === "exec") {
+        throw new Error("--resume is only available in interactive mode");
+      }
+      if (resumeMode === "id") {
+        throw new Error("cannot combine a session id with --resume");
+      }
+      resumeMode = "pick";
       continue;
     }
     if ((arg === "--pick" || arg === "--list") && resumeMode !== undefined) {
@@ -654,23 +665,12 @@ export async function loadConfig(
     const state = await loadState(cwd, id, options.home);
     if (state === null) {
       throw new Error(
-        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (shared across worktrees of the same git root). Use \`corbits resume --pick\` to list, or \`corbits resume\` for the latest.`,
+        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (shared across worktrees of the same git root). Use \`corbits resume\` to choose one.`,
       );
     }
     sessionId = id;
     skipInitialTask = true;
     if (task.length === 0) resumeTask = state.task;
-  } else if (resumeMode === "last") {
-    const latest = await resolveLatestSession(cwd, options.home);
-    if (latest === null) {
-      throw new Error(
-        "No previous session for this project. Start a new one with `corbits`, or pass `corbits resume --pick` once you have sessions under ~/.corbits/projects/.",
-      );
-    }
-    sessionId = latest.sessionId;
-    skipInitialTask = true;
-    const state = await loadState(cwd, sessionId, options.home);
-    if (task.length === 0 && state !== null) resumeTask = state.task;
   }
 
   return {
@@ -871,4 +871,3 @@ export function providerCatalogToSettings(
     providers,
   };
 }
-

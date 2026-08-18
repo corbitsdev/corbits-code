@@ -215,17 +215,19 @@ describe("loadConfig", () => {
     }
   });
 
-  test("resume last fails when this project has no sessions", async () => {
+  test("bare resume opens the picker without requiring prior sessions", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      await expect(
-        loadConfig(["resume", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-          home,
-        }),
-      ).rejects.toThrow(/No previous session/);
+      const config = await loadConfig(["resume", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(config);
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
+      expect(config.skipInitialTask).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
@@ -266,34 +268,73 @@ describe("loadConfig", () => {
     }
   });
 
-  test("resume last follows the latest symlink for this project", async () => {
+  test("--resume opens the picker", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "done",
-          turnsUsed: 1,
-          task: "keep going",
-          startedAt: Date.now() - 500,
-          finishedAt: Date.now(),
-        },
-        home,
-      );
-      const config = await loadConfig(["resume", "--cwd", cwd], {
+      const config = await loadConfig(["--resume", "--cwd", cwd], {
         globalSettingsPath: globalPath,
         home,
       });
       assertConfigured(config);
-      expect(config.resumeMode).toBe("last");
-      expect(config.sessionId).toBe(sessionId);
+      expect(config.resumeMode).toBe("pick");
+      expect(config.resumePicker).toBe(true);
       expect(config.skipInitialTask).toBe(true);
-      expect(config.task).toBe("keep going");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("plain corbits always creates fresh state even when a previous session exists", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const subdir = join(cwd, "nested");
+      await mkdir(subdir);
+      const previousId = generateSessionId();
+      await initSessionDir(cwd, previousId, home);
+      await saveState(
+        cwd,
+        previousId,
+        {
+          status: "running",
+          turnsUsed: 10,
+          task: "old conversation",
+          startedAt: Date.now() - 500,
+        },
+        home,
+      );
+
+      const first = await loadConfig(["--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      const second = await loadConfig(["--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      const nested = await loadConfig(["--cwd", subdir], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(first);
+      assertConfigured(second);
+      assertConfigured(nested);
+      expect(first.resumeMode).toBeUndefined();
+      expect(second.resumeMode).toBeUndefined();
+      expect(nested.resumeMode).toBeUndefined();
+      expect(first.sessionId).not.toBe(previousId);
+      expect(second.sessionId).not.toBe(previousId);
+      expect(nested.sessionId).not.toBe(previousId);
+      expect(first.sessionId).not.toBe(second.sessionId);
+      expect(nested.sessionId).not.toBe(first.sessionId);
+      expect(nested.sessionId).not.toBe(second.sessionId);
+      expect(first.task).toBe("");
+      expect(second.task).toBe("");
+      expect(nested.task).toBe("");
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });

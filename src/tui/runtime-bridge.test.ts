@@ -6,7 +6,12 @@ import {
   mapReactorLike,
   type TaskProgressSession,
 } from "./runtime-bridge"
-import { appendStreamRow, createAppShell, streamRowCount } from "./shell"
+import {
+  appendStreamRow,
+  createAppShell,
+  setShellExitHandler,
+  streamRowCount,
+} from "./shell"
 import { withTestRenderer } from "./harness"
 import { badgeCount } from "./session-queue"
 
@@ -142,7 +147,7 @@ describe("attachSessionBridge", () => {
     )
   })
 
-  test("Ctrl+C hits port.interrupt and keeps pending for the next turn", async () => {
+  test("Ctrl+C exits without handing pending messages to the active run", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -153,21 +158,20 @@ describe("attachSessionBridge", () => {
         const port = createRecordingPort()
         const bridge = attachSessionBridge(shell, port)
         try {
+          let exits = 0
+          setShellExitHandler(shell, () => {
+            exits += 1
+          })
           bridge.submit("a", "queue")
           bridge.submit("b", "steer")
           expect(badgeCount(shell.session)).toBe(2)
           port.clear()
           h.pressKey("c", { ctrl: true })
           await h.renderOnce()
-          expect(port.calls.some((c) => c.op === "interrupt")).toBe(true)
-          expect(shell.session.interruptFlash).toBe(true)
-          expect(shell.session.run).toBe("idle")
-          // Handed over, not thrown away — and handed over here rather than
-          // left waiting on an idle event the stop may never produce.
-          expect(
-            port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
-          ).toEqual(["b", "a"])
-          expect(badgeCount(shell.session)).toBe(0)
+          expect(exits).toBe(1)
+          expect(port.calls).toEqual([])
+          expect(shell.session.run).toBe("busy")
+          expect(badgeCount(shell.session)).toBe(2)
         } finally {
           bridge.dispose()
           shell.dispose()

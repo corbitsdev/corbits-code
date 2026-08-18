@@ -265,8 +265,7 @@ export async function mountProductHost(
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
-        // Leaves Ctrl+C entirely to shell.ts's own double-tap-to-quit
-        // gesture (CTRL_C_EXIT_WINDOW_MS). index.ts's SIGINT handler also
+        // Leaves Ctrl+C entirely to shell.ts's own exit path. index.ts's SIGINT handler also
         // depends on this staying false: Ctrl+C only reaches it as a real
         // OS signal when nothing already consumed it as a keypress.
         exitOnCtrlC: false,

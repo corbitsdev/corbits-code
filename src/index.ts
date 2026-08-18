@@ -248,9 +248,8 @@ const SIGNAL_EXIT_NUMBER: Record<"SIGINT" | "SIGTERM" | "SIGHUP", number> = {
 // Bun's tty raw mode (which the TUI runs under for its whole session) clears
 // ISIG, so a real terminal's Ctrl+C never reaches this handler while a
 // session is interactive — confirmed empirically (see the raw-mode SIGINT
-// regression test) rather than assumed. The in-session double-tap-to-quit
-// gesture (shell.ts, CTRL_C_EXIT_WINDOW_MS) is therefore untouched by this
-// handler; it owns Ctrl+C exclusively for the interactive case. This handler
+// regression test) rather than assumed. The in-session exit path in shell.ts
+// therefore owns Ctrl+C exclusively for the interactive case. This handler
 // exists for the signal actually reaching the process: external
 // orchestration (kill, systemd, docker stop), or a terminal that never
 // entered raw mode at all (exec mode has no TUI host and no raw stdin, so

@@ -77,7 +77,9 @@ Local multi-model capability checks use this path (`bun run eval:capability`); s
 $ corbits resume
 ```
 
-Continues from the last saved state in the working directory.
+Opens a picker of saved conversations for the working directory. Plain
+`corbits` always starts a fresh conversation; `corbits resume <session-id>`
+is the direct, explicit resume path.
 
 ## Safety Model
 
