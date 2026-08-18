@@ -460,12 +460,19 @@ The prompt repaints on every keystroke (`onFrame` in `shell.ts` calls
 not on a debounce) — anything added to the prompt's paint path must stay
 cheap, because it runs at typing speed.
 
-Ctrl+C exits the current CLI process and stops its primary agent and active
-sub-agents (`handleCtrlC`, `shell.ts`; `createRuntimeShutdown`,
-`runtime-shutdown.ts`). It does not clear a draft or act as an in-session
-interrupt. Alt+Enter remains the explicit stop-and-reinject gesture for
-replacing an in-flight run without leaving the CLI. See "Queue-and-steer vs.
-stop-and-reinject" above for the two mid-run message gestures.
+Ctrl+C interrupts a busy run (or clears a non-empty idle prompt); a second
+Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
+replaced an Ink-era yes/no exit-confirm modal with the same intent (an
+explicit second confirmation) without adding a modal (`handleCtrlC`,
+`shell.ts`). See "Queue-and-steer vs. stop-and-reinject" above for the two
+mid-run gestures and what interrupting does to sub-agent lanes. The interrupt
+keeps whatever is sitting in the queue rather than discarding it — the
+operator typed those messages meaning them delivered, not meaning "cancel
+this run and also throw away what I typed"; the transcript row says so
+(`"N pending kept"`). Kept items are handed over at the
+interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
+`port.interrupt()`), serialized behind the agent rebuild the stop starts —
+a stop does not reliably produce an idle event to drain against later.
 
 ## Overflows, scrolling, and key macros
 

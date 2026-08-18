@@ -1,5 +1,5 @@
 /**
- * Integration: `/` command popup and Ctrl+C exit, both driven
+ * Integration: `/` command popup and the double Ctrl+C exit, both driven
  * through the wired key path on a headless shell.
  */
 import { describe, expect, test } from "bun:test"
@@ -7,10 +7,14 @@ import { describe, expect, test } from "bun:test"
 import { withTestRenderer } from "./harness"
 import type { PaletteCommand } from "./command-catalog"
 import {
+  CTRL_C_EXIT_WINDOW_MS,
   createAppShell,
+  handleCtrlC,
   isSlashPopupOpen,
+  noticeText,
   setShellExitHandler,
   setShellRunState,
+  setStatusFlash,
   type AppShell,
 } from "./shell"
 
@@ -151,7 +155,7 @@ describe("slash command popup", () => {
 })
 
 describe("Ctrl+C exit", () => {
-  test("one press exits a busy run via the handler", async () => {
+  test("first press interrupts a busy run, second exits via the handler", async () => {
     await withShell(async ({ shell, press }) => {
       setShellRunState(shell, "busy")
       let exits = 0
@@ -159,21 +163,59 @@ describe("Ctrl+C exit", () => {
         exits += 1
       })
       press("Ctrl+C")
+      expect(exits).toBe(0)
+      expect(shell.session.run).not.toBe("busy")
+      press("Ctrl+C")
       expect(exits).toBe(1)
-      expect(shell.session.run).toBe("busy")
     })
   })
 
-  test("one press exits an idle run with a non-empty prompt", async () => {
-    await withShell(async ({ shell, press }) => {
-      shell.prompt.value = "unsent text"
+  test("the exit notice clears itself when the arming window lapses", async () => {
+    await withShell(async ({ shell }) => {
+      const lapse: (() => void)[] = []
+      handleCtrlC(shell, 0, {
+        schedule: (fn, ms) => {
+          expect(ms).toBe(CTRL_C_EXIT_WINDOW_MS)
+          lapse.push(fn)
+          return () => {}
+        },
+      })
+      expect(shell.statusFlash).toBe("press ctrl+c again to exit")
+      expect(noticeText(shell)).toContain("press ctrl+c again to exit")
+
+      lapse[0]?.()
+      expect(shell.statusFlash).toBeNull()
+      // The row has nothing left to say, so it is given back to the transcript.
+      expect(noticeText(shell)).toBe("")
+    })
+  })
+
+  test("a lapsed window never clears a flash set after it", async () => {
+    await withShell(async ({ shell }) => {
+      const lapse: (() => void)[] = []
+      handleCtrlC(shell, 0, {
+        schedule: (fn) => {
+          lapse.push(fn)
+          return () => {}
+        },
+      })
+      setStatusFlash(shell, "copied 3 lines")
+      lapse[0]?.()
+      expect(shell.statusFlash).toBe("copied 3 lines")
+    })
+  })
+
+  test("a press outside the window re-arms instead of exiting", async () => {
+    await withShell(async ({ shell }) => {
       let exits = 0
       setShellExitHandler(shell, () => {
         exits += 1
       })
-      press("Ctrl+C")
+      handleCtrlC(shell, 0)
+      handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 1)
+      expect(exits).toBe(0)
+      handleCtrlC(shell, CTRL_C_EXIT_WINDOW_MS + 2)
       expect(exits).toBe(1)
-      expect(shell.prompt.value).toBe("unsent text")
     })
   })
 })

@@ -496,8 +496,10 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       })
       setShellRunState(shell, "busy")
       press(h, chords[0])
+      expect(interrupted).toBe(1)
+      expect(exited).toBe(0)
+      press(h, chords[0])
       expect(exited).toBe(1)
-      expect(interrupted).toBe(0)
       setShellRunState(shell, "idle")
 
       // Bridge-less local interrupt: what an operator sees when a message
@@ -558,7 +560,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     group: "host",
     // Probed on a mounted host rather than a bare shell: the row claims a
     // prompt default, which is only true while the host claims no key of its
-    // own. Quitting is Ctrl+C and nothing else.
+    // own. Quitting is Ctrl+C twice and nothing else.
     probe: async ({ h, shell, chords, hasExited }) => {
       if (hasExited === undefined) throw new Error("Ctrl+D must be probed on a mounted host")
       shellFocusPrompt(shell)

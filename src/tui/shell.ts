@@ -73,7 +73,7 @@ import type { RampPhase, StallAge } from "./ramp.js"
 import type { ActivityState } from "./session-chrome.js"
 import {
   BORDER,
-  MCP_ATTENTION_LABEL,
+  composeAttentionLabel,
   composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
@@ -212,7 +212,7 @@ import {
 const shellExitHandlers = new WeakMap<AppShell, () => void>()
 
 /**
- * Register the host's quit path (the same one Ctrl+C runs) so a bare `exit` /
+ * Register the host's quit path (the same one Ctrl+C twice runs) so a bare `exit` /
  * `quit` typed at the prompt tears down through finalize instead of a second,
  * cleanup-skipping exit route.
  */
@@ -663,6 +663,12 @@ export type AppShell = {
   /** MCP servers awaiting authorization; the top rule carries `mcp !`. */
   mcpNeedsAuth: readonly string[]
   /**
+   * Plugin load left standing warnings (skill misses, failed tool starts, …).
+   * The top rule carries `plugin !` (or `mcp ! · plugin !` with MCP). Cleared
+   * only when the warning set is empty — not merely dismissed.
+   */
+  pluginNeedsAttention: boolean
+  /**
    * Clock, motion and content state for the bottom-left status slot. The bridge
    * pushes all of it off its existing monitor tick (`setLockupFrame`); the
    * shell never reads a clock of its own, so a shell without a bridge simply
@@ -860,6 +866,13 @@ export function setMcpNeedsAuth(shell: AppShell, names: readonly string[]): void
     return
   }
   shell.mcpNeedsAuth = next
+  paintChrome(shell)
+}
+
+/** Whether plugin load warnings still need attention. Repaints on change. */
+export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
+  if (shell.pluginNeedsAttention === needs) return
+  shell.pluginNeedsAttention = needs
   paintChrome(shell)
 }
 
@@ -1581,10 +1594,14 @@ function lockupFrameInput(shell: AppShell): LockupInput {
  */
 export function paintPromptBorder(shell: AppShell): void {
   const width = shell.layout.contentWidth
+  const attention = composeAttentionLabel({
+    mcp: shell.mcpNeedsAuth.length > 0,
+    plugin: shell.pluginNeedsAttention,
+  })
   const top = composeRule({
     width,
     corners: [BORDER.topLeft, BORDER.topRight],
-    ...(shell.mcpNeedsAuth.length > 0 ? { attention: MCP_ATTENTION_LABEL } : {}),
+    ...(attention !== undefined ? { attention } : {}),
     ...(shell.modelLabel !== null ? { label: shell.modelLabel } : {}),
   })
   shell.promptTopRule.content = new StyledText(ruleChunks(shell, top))
@@ -3964,7 +3981,7 @@ export function handleOverlayAnswerKey(
  * toggling opener.
  *
  * Only pickers appear here. An opener that performs an action (Ctrl+P attaches
- * an image, Ctrl+C exits, the expand key expands a row) has nothing to
+ * an image, Ctrl+C interrupts, the expand key expands a row) has nothing to
  * toggle, and a decision surface — a permission or operator question — is
  * deliberately absent: re-pressing whatever chord happened to be underneath it
  * must not count as an answer. Those leave via a choice or Esc.
@@ -5169,12 +5186,44 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   return true
 }
 
+/** Window in which a second Ctrl+C is read as "yes, quit". */
+export const CTRL_C_EXIT_WINDOW_MS = 2000
+
+const ctrlCArmedAt = new WeakMap<AppShell, number>()
+
 /**
- * Ctrl+C ends this CLI process. The exit handler wakes the runner's normal
- * finalize path, which owns persistence and runtime teardown.
+ * Ctrl+C: interrupt / clear, and quit on a second press inside the window.
+ * The double press replaces the old Ink y/n exit confirm — same intent (an
+ * explicit second confirmation), no modal. Quitting routes through the
+ * registered exit handler so host finalize still runs.
  */
-export function handleCtrlC(shell: AppShell): void {
-  shellExitHandlers.get(shell)?.()
+export function handleCtrlC(
+  shell: AppShell,
+  now = Date.now(),
+  options?: FlashOptions,
+): void {
+  const armedAt = ctrlCArmedAt.get(shell)
+  if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
+    ctrlCArmedAt.delete(shell)
+    const onExit = shellExitHandlers.get(shell)
+    if (onExit !== undefined) {
+      onExit()
+      return
+    }
+  }
+  ctrlCArmedAt.set(shell, now)
+
+  if (shell.session.run === "busy" || badgeCount(shell.session) > 0) {
+    interruptShell(shell)
+  } else if (shell.prompt.value.length > 0) {
+    shell.prompt.value = ""
+  }
+  // The notice is exactly as true as the arming window is open, so it expires
+  // with it rather than waiting for some later flash to overwrite it.
+  setStatusFlash(shell, "press ctrl+c again to exit", {
+    ttlMs: CTRL_C_EXIT_WINDOW_MS,
+    ...(options?.schedule !== undefined ? { schedule: options.schedule } : {}),
+  })
 }
 
 /**
@@ -6020,6 +6069,7 @@ export function createAppShell(
     copyTargets: null,
     statusFlash: null,
     mcpNeedsAuth: [],
+    pluginNeedsAttention: false,
     lockupNowMs: 0,
     lockupAnimating: false,
     lockupPhase: null,
