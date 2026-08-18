@@ -208,7 +208,7 @@ describe("formatAgentsPanel", () => {
           description: "quiet worker",
           status: "running",
           startedAt: NOW - 180_000,
-          lastActivityAt: NOW - 130_000,
+          lastActivityAt: NOW - 310_000,
         },
       ],
       undefined,
@@ -229,7 +229,7 @@ describe("formatAgentsPanel", () => {
     const rows = formatAgentsPanel(
       [
         { agentId: "fine", description: "busy", status: "running", currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW },
-        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 180_000, lastActivityAt: NOW - 130_000 },
+        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 180_000, lastActivityAt: NOW - 310_000 },
       ],
       undefined,
       NOW,
@@ -315,8 +315,8 @@ describe("formatAgentsPanel", () => {
       currentToolStartedAt: null,
       description: "gone silent",
       status: "running" as const,
-      startedAt: NOW - 300_000,
-      lastActivityAt: NOW - 250_000,
+      startedAt: NOW - 360_000,
+      lastActivityAt: NOW - 310_000,
     }
     const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 4)
     // header + 2 lanes + more (bodyBudget 3, one spent on more → 2 lanes shown)
@@ -430,11 +430,11 @@ describe("lane state survives the mapping hops", () => {
     status: "running" as const,
     currentToolName: "run_shell",
     currentToolPreview: null as string | null,
-    // Past DEFAULT_STALL_MS (120s) so laneState reaches the in_tool branch,
-    // still under IN_TOOL_STALL_MS (10 min).
+    // Past DEFAULT_STALL_MS (300s) so laneState reaches the in_tool branch,
+    // still under IN_TOOL_STALL_MS (10 min). Tool clock stays at 3:00.
     currentToolStartedAt: NOW - 180_000,
     startedAt: NOW - 200_000,
-    lastActivityAt: NOW - 180_000,
+    lastActivityAt: NOW - 310_000,
   }
 
   test("the panel and the transcript row agree that the lane is in a tool", () => {
@@ -478,7 +478,7 @@ describe("lane state survives the mapping hops", () => {
       ...inTool,
       currentToolName: null,
       currentToolStartedAt: null,
-      lastActivityAt: NOW - 130_000,
+      lastActivityAt: NOW - 310_000,
     }
     expect(laneState(silent, NOW)).toBe("stalled")
 
@@ -526,7 +526,7 @@ describe("lane state survives the mapping hops", () => {
       currentToolName: null,
       currentToolPreview: null,
       currentToolStartedAt: null,
-      lastActivityAt: NOW - 130_000,
+      lastActivityAt: NOW - 310_000,
     }
     const rows = formatAgentsPanel(
       chromeFromSession({ agents: [silent] }).agents,

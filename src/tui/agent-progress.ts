@@ -56,8 +56,16 @@ export type AgentProgress = {
   readonly stalled: boolean;
 };
 
-/** Silence after which a running worker reads as hung rather than thinking. */
-export const DEFAULT_STALL_MS = 120_000;
+/**
+ * Silence after which a running worker reads as hung rather than thinking.
+ *
+ * Grok on the Responses path routinely sits 60–120s (sometimes longer) between
+ * tool cycles with only sparse reasoning-summary deltas — billing thinking
+ * tokens the whole time. A 2-minute bar painted those healthy gaps as stalled
+ * Task rows and drove dig/cascade thrash. Align with the 5-minute sub-agent
+ * stall nudge so UI and salvage agree on what "quiet too long" means.
+ */
+export const DEFAULT_STALL_MS = 300_000;
 
 
 /**

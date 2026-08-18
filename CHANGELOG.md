@@ -65,11 +65,11 @@ mid-session switches.
   why-how as COMMUNICATION (answer or one explore leaf), and forbids re-fan-out
   diagnostic waves when leaves stall or salvage.
 - **Grok sub-agent stall false positives.** Live fleets on grok-4.6 show routine
-  60–120s gaps between tool cycles while the model thinks. UI stall paint was
-  30s and Grok's salvage kill was 90s, so healthy thinking looked hung and got
-  nudged/stopped mid-inference. `DEFAULT_STALL_MS` is 120s; Grok shares the
-  default 5-minute `subAgentStallTimeoutMs`. Parent stall notice is 180s.
-  The grok-responses path asks for `reasoning.summary: "detailed"` so summary
+  60–180s gaps between tool cycles while the model thinks. UI stall paint and
+  Grok's salvage kill were far shorter, so healthy thinking looked hung and got
+  nudged/stopped mid-inference. `DEFAULT_STALL_MS` and parent `STALL_NOTICE_MS`
+  are both 300s (aligned with the 5-minute `subAgentStallTimeoutMs`). The
+  grok-responses path asks for `reasoning.summary: "detailed"` so summary
   deltas keep the activity clock moving (auto summaries were tiny vs billed
   thinking tokens).
 - **Live fleet status is `● Task` transcript rows again.** The FLEET board /

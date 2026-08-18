@@ -57,8 +57,8 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // through Linear lookups and code reads (CL-5611), well inside the healthy
 // range other families tolerate. Grok keeps its own nudge copy — still
 // warranted — but shares the default sub-agent stall timeout: live
-// workbench fleets on grok-4.6 show routine 60–120s gaps between tool
-// cycles while the model thinks, so the old 90s kill was false-positive
+// workbench fleets on grok-4.6 show routine 60–180s gaps between tool
+// cycles while the model thinks, so a sub-2-minute kill was false-positive
 // salvage mid-inference. The hard-pause thrash check is not family-tuned;
 // it runs the same period detection for every family.
 const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
