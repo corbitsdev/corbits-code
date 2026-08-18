@@ -4,7 +4,6 @@
 import { resolveContentWidth, resolveSideMargin } from "./margins.js";
 import {
   COLLAPSE_ORDER,
-  DUAL_MIN_COLUMNS,
   FLEET_BOARD_CAP_FRACTION,
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_MAX_FRACTION,
@@ -14,10 +13,6 @@ import {
   PROMPT_BASE_ROWS,
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_ROWS,
-  RAIL_GUTTER,
-  RAIL_WIDTH_FRACTION,
-  RAIL_WIDTH_MAX,
-  RAIL_WIDTH_MIN,
   ZONE_REGISTRY,
   type ZoneId,
 } from "./zones.js";
@@ -87,8 +82,8 @@ export type Rect = {
   readonly height: number;
 };
 
-/** Vertical stack (narrow / no agents) vs chat+rail dual column. */
-export type LayoutMode = "stack" | "dual";
+/** Full-width y-stack only. Kept for API stability with shell callers. */
+export type LayoutMode = "stack";
 
 export type GeometryLayout = {
   readonly terminal: TerminalSize;
@@ -108,16 +103,13 @@ export type GeometryLayout = {
   readonly sideMargin: number;
   /** Zone width after both gutters. */
   readonly contentWidth: number;
-  /**
-   * `"dual"` when the terminal is wide enough and the agents zone is on —
-   * chat left, fleet rail right. Otherwise `"stack"` (full-width y-stack).
-   */
+  /** Always `"stack"` — dual-column rail was removed. */
   readonly layoutMode: LayoutMode;
-  /** Transcript / chat column width. Equals contentWidth in stack mode. */
+  /** Transcript / chat column width. Equals contentWidth. */
   readonly chatWidth: number;
-  /** Fleet rail width. 0 in stack mode. */
+  /** Always 0 — no fleet rail. */
   readonly railWidth: number;
-  /** Columns between chat and rail. 1 in dual, 0 in stack. */
+  /** Always 0 — no fleet rail gutter. */
   readonly railGutter: number;
 };
 
@@ -190,47 +182,14 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
   return heights;
 }
 
-/**
- * Vertical chrome budget: every non-residual zone. In dual layout the agents
- * zone sits beside the transcript and does not consume vertical residual.
- */
-function sumChrome(heights: MutableHeights, layoutMode: LayoutMode): number {
+/** Vertical chrome budget: every non-residual zone. */
+function sumChrome(heights: MutableHeights): number {
   let total = 0;
   for (const id of PAINT_ORDER) {
     if (id === "transcript" || id === "overlay_host") continue;
-    if (layoutMode === "dual" && id === "agents") continue;
     total += heights[id];
   }
   return total;
-}
-
-/** Dual when wide enough and the agents zone has rows to paint. */
-function resolveLayoutMode(
-  columns: number,
-  agentsRows: number,
-): LayoutMode {
-  return columns >= DUAL_MIN_COLUMNS && agentsRows > 0 ? "dual" : "stack";
-}
-
-/**
- * Split content width into chat + gutter + rail for dual, or full-width chat
- * for stack. Rail is ~RAIL_WIDTH_FRACTION of content, clamped to [min, max].
- */
-function resolveColumnWidths(
-  contentWidth: number,
-  layoutMode: LayoutMode,
-): { chatWidth: number; railWidth: number; railGutter: number } {
-  if (layoutMode !== "dual") {
-    return { chatWidth: contentWidth, railWidth: 0, railGutter: 0 };
-  }
-  const railWidth = clamp(
-    Math.round(contentWidth * RAIL_WIDTH_FRACTION),
-    RAIL_WIDTH_MIN,
-    RAIL_WIDTH_MAX,
-  );
-  const railGutter = RAIL_GUTTER;
-  const chatWidth = Math.max(1, contentWidth - railWidth - railGutter);
-  return { chatWidth, railWidth, railGutter };
 }
 
 function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {
@@ -272,16 +231,12 @@ function desiredOverlayHeight(
 /**
  * One collapse step: reduce the next collapsible zone.
  * Returns the zone id that was reduced, or null if nothing left to cut.
- * In dual layout the agents rail does not free vertical residual, so it is
- * skipped (its height is capped to transcript residual after collapse).
  */
 function collapseOnce(
   heights: MutableHeights,
   collapsed: ZoneId[],
-  layoutMode: LayoutMode,
 ): ZoneId | null {
   for (const id of COLLAPSE_ORDER) {
-    if (layoutMode === "dual" && id === "agents") continue;
     const h = heights[id];
     if (h <= 0) continue;
 
@@ -353,49 +308,29 @@ function collapseOnce(
 function assignRects(
   heights: MutableHeights,
   terminal: TerminalSize,
-  layoutMode: LayoutMode,
-  chatWidth: number,
-  railWidth: number,
-  railGutter: number,
 ): Partial<Record<ZoneId, Rect>> {
   const regions: Partial<Record<ZoneId, Rect>> = {};
   const x = resolveSideMargin(terminal.columns);
   const contentWidth = resolveContentWidth(terminal.columns);
   let y = 0;
   for (const id of PAINT_ORDER) {
-    // Dual: agents is placed beside the transcript after the vertical pass.
-    if (layoutMode === "dual" && id === "agents") continue;
     const height = heights[id];
     if (height <= 0) continue;
-    const width =
-      layoutMode === "dual" && id === "transcript" ? chatWidth : contentWidth;
     regions[id] = {
       x,
       y,
-      width,
+      width: contentWidth,
       height,
     };
     y += height;
   }
-
-  // Dual rail: same y as transcript, to its right past the gutter.
-  if (layoutMode === "dual" && heights.agents > 0) {
-    const transcript = regions.transcript;
-    const agentsY = transcript?.y ?? 0;
-    regions.agents = {
-      x: x + chatWidth + railGutter,
-      y: agentsY,
-      width: railWidth,
-      height: heights.agents,
-    };
-  }
-
   return regions;
 }
 
 /**
  * Resolve shell region rects from terminal size, optional chrome, and overlay mode.
  * Pure: no I/O. Extra terminal rows accrue to the transcript residual.
+ * Layout is always a full-width y-stack (`layoutMode: "stack"`).
  */
 export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const terminal = {
@@ -411,6 +346,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const collapsed: ZoneId[] = [];
   const contentWidth = resolveContentWidth(terminal.columns);
   const sideMargin = resolveSideMargin(terminal.columns);
+  const layoutMode: LayoutMode = "stack";
 
   // Full-shell modal: hide transcript and bottom chrome; overlay owns residual.
   if (mode === "full_shell") {
@@ -424,18 +360,9 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     heights.progress_divider = 0;
     heights.notice = 0;
     heights.prompt = 0;
-    const layoutMode: LayoutMode = "stack";
-    const chrome = sumChrome(heights, layoutMode);
+    const chrome = sumChrome(heights);
     heights.overlay_host = Math.max(0, terminal.rows - chrome);
-    const columns = resolveColumnWidths(contentWidth, layoutMode);
-    const regions = assignRects(
-      heights,
-      terminal,
-      layoutMode,
-      columns.chatWidth,
-      columns.railWidth,
-      columns.railGutter,
-    );
+    const regions = assignRects(heights, terminal);
     return {
       terminal,
       transcriptHeight: 0,
@@ -449,17 +376,11 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       sideMargin,
       contentWidth,
       layoutMode,
-      chatWidth: columns.chatWidth,
-      railWidth: columns.railWidth,
-      railGutter: columns.railGutter,
+      chatWidth: contentWidth,
+      railWidth: 0,
+      railGutter: 0,
     };
   }
-
-  // Dual eligibility is fixed from the desired agents budget + width so
-  // collapse / residual accounting stay consistent for the whole resolve.
-  // Final layoutMode re-checks agents height after residual cap.
-  const dualEligible = resolveLayoutMode(terminal.columns, heights.agents) === "dual";
-  const layoutModeForChrome: LayoutMode = dualEligible ? "dual" : "stack";
 
   // Cap prompt growth against floor before overlay allocation.
   const promptCap = Math.max(
@@ -482,7 +403,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   // of dropping every optional zone.
   const maxIters = 128;
   for (let i = 0; i < maxIters; i++) {
-    const chrome = sumChrome(heights, layoutModeForChrome);
+    const chrome = sumChrome(heights);
     const overlay = desiredOverlayHeight(
       { ...input, terminal },
       mode,
@@ -496,7 +417,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       break;
     }
     // Need more space: collapse one zone, then retry.
-    const cut = collapseOnce(heights, collapsed, layoutModeForChrome);
+    const cut = collapseOnce(heights, collapsed);
     if (cut === null) {
       // Nothing left — relax the transcript floor rather than leave the
       // overlay under its own render minimum; accept best effort past that.
@@ -508,16 +429,14 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       );
       heights.transcript = Math.max(
         0,
-        terminal.rows - sumChrome(heights, layoutModeForChrome) - heights.overlay_host,
+        terminal.rows - sumChrome(heights) - heights.overlay_host,
       );
       break;
     }
   }
 
   // Final consistency: residual must sum exactly to terminal.rows.
-  // Dual: agents is outside the vertical chrome budget, so transcript keeps
-  // the full residual that stack would give without an agents strip.
-  const chromeHeight = sumChrome(heights, layoutModeForChrome);
+  const chromeHeight = sumChrome(heights);
   const overlayHeight = heights.overlay_host;
   heights.transcript = Math.max(0, terminal.rows - chromeHeight - overlayHeight);
 
@@ -527,22 +446,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     heights.transcript += terminal.rows - assigned;
   }
 
-  // Dual rail height: paint/clamp budget is min(requested, transcript residual).
-  // Stack already fraction-capped agents in desiredHeights / collapse.
-  if (dualEligible && heights.agents > 0) {
-    heights.agents = Math.min(heights.agents, heights.transcript);
-  }
-
-  const layoutMode = resolveLayoutMode(terminal.columns, heights.agents);
-  const columns = resolveColumnWidths(contentWidth, layoutMode);
-  const regions = assignRects(
-    heights,
-    terminal,
-    layoutMode,
-    columns.chatWidth,
-    columns.railWidth,
-    columns.railGutter,
-  );
+  const regions = assignRects(heights, terminal);
 
   return {
     terminal,
@@ -557,8 +461,8 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     sideMargin,
     contentWidth,
     layoutMode,
-    chatWidth: columns.chatWidth,
-    railWidth: columns.railWidth,
-    railGutter: columns.railGutter,
+    chatWidth: contentWidth,
+    railWidth: 0,
+    railGutter: 0,
   };
 }

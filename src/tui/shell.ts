@@ -1712,8 +1712,6 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.taskBox.visible = taskH > 0
 
   const agentsH = Math.max(0, h.agents)
-  const dualRail = layout.layoutMode === "dual" && agentsH > 0
-  // Height/position for dual finalized after pad + transcript body are known.
   shell.agentsBox.visible = agentsH > 0
 
   // Both pads are taken out of the transcript residual, never out of chrome,
@@ -1762,26 +1760,15 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.transcript.visible = transcriptBody > 0
   syncTranscriptSpacer(shell)
 
-  // Fleet rail: absolute beside the transcript in dual mode; full-width strip
-  // in the flex stack otherwise. Absolute escapes root padding (floatOverlayHost).
-  if (dualRail) {
-    const railH = Math.max(1, Math.min(agentsH, transcriptBody > 0 ? transcriptBody : agentsH))
-    shell.agentsBox.position = "absolute"
-    shell.agentsBox.left = layout.sideMargin + layout.chatWidth + layout.railGutter
-    shell.agentsBox.width = layout.railWidth
-    shell.agentsBox.top = padH
-    shell.agentsBox.height = railH
-    shell.agentsBox.zIndex = 1
-    shell.transcript.width = layout.chatWidth
-  } else {
-    shell.agentsBox.position = "relative"
-    shell.agentsBox.left = 0
-    shell.agentsBox.top = 0
-    shell.agentsBox.width = "100%"
-    shell.agentsBox.height = agentsH > 0 ? agentsH : 1
-    shell.agentsBox.zIndex = 0
-    shell.transcript.width = "100%"
-  }
+  // Agents strip: full-width flex stack under the transcript when present.
+  // Live chrome keeps the zone empty (● Task transcript rows instead).
+  shell.agentsBox.position = "relative"
+  shell.agentsBox.left = 0
+  shell.agentsBox.top = 0
+  shell.agentsBox.width = "100%"
+  shell.agentsBox.height = agentsH > 0 ? agentsH : 1
+  shell.agentsBox.zIndex = 0
+  shell.transcript.width = "100%"
 
   const noticeH = Math.max(0, h.notice)
   shell.notice.height = noticeH > 0 ? noticeH : 1
@@ -1806,10 +1793,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // the foot and covering it would hide the thing the operator types into.
   // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
   // same as before; it is transient chrome between task and prompt).
-  // Dual: agents is absolute beside the transcript, so it does not add to the
-  // vertical stack before the prompt.
-  const stackAgentsH = dualRail ? 0 : agentsH
-  const promptTop = padH + transcriptBody + stackAgentsH + taskH
+  const promptTop = padH + transcriptBody + agentsH + taskH
   const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
   shell.overlayHost.height = hostH > 0 ? hostH : 1
@@ -1835,16 +1819,13 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
     repaintTranscriptWindow(shell)
   }
 
-  // Dual/stack flip or rail resize changes the column budget the board fits to.
-  // Content may be unchanged, so setChromeZones would skip the rebuild — do it
-  // here when the layout mode or rail width moved.
+  // Width change changes the column budget the board fits to. Content may be
+  // unchanged, so setChromeZones would skip the rebuild — do it here.
   if (widthChanged && bag !== undefined && bag.chrome.agents.length > 0) {
-    const agentsWidth =
-      dualRail && layout.railWidth > 0 ? layout.railWidth : layout.contentWidth
     renderAgentsRows(
       shell,
       clampBoardRows(bag.chrome.agents, agentsH),
-      agentsWidth,
+      layout.contentWidth,
     )
   }
 
@@ -4600,17 +4581,12 @@ export function setChromeZones(
 
   // Painted after the resolver has spoken, and only ever as many rows as it
   // granted: a board that paints past its box lands on top of the transcript
-  // and tears down the renderables underneath it. Dual mode fits rows to the
-  // rail width; stack uses full content width.
+  // and tears down the renderables underneath it. Full content width (stack).
   if (agentsChanged || !budgetUnchanged) {
-    const agentsWidth =
-      shell.layout.layoutMode === "dual" && shell.layout.railWidth > 0
-        ? shell.layout.railWidth
-        : shell.layout.contentWidth
     renderAgentsRows(
       shell,
       clampBoardRows(bag.chrome.agents, shell.layout.heights.agents),
-      agentsWidth,
+      shell.layout.contentWidth,
     )
   }
   if (budgetUnchanged) paintChrome(shell)

@@ -38,17 +38,16 @@ row at a time down to its 3-row base — never the transcript
 
 Horizontally, every surface sits inside one shared gutter
 (`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
-as a single column of content rather than stacked panes. Dual-column
-geometry (`layoutMode: "dual"`, `DUAL_MIN_COLUMNS` 100) still exists in
-`resolveGeometry` for a right-rail agents board, but the live agents
-zone stays empty — fleet status paints as `● Task …` transcript rows
-instead (see Agents below) — so dual never engages and layout stays
-`"stack"`. The side gutter is one column per side
-at every width that can afford it, and zero below `MARGIN_MIN_COLUMNS`
-(40), where every column belongs to content. There is no middle tier: one
-column is already enough to keep content off the frame edge, which is the
-gutter's entire job, and anything wider only read as excess air on a wide
-pane. The gutter costs no rows.
+as a single column of content rather than stacked panes.
+`resolveGeometry` always returns `layoutMode: "stack"` — full-width
+y-stack, no dual-column rail. The live agents zone stays empty; fleet
+status paints as `● Task …` transcript rows instead (see Agents below).
+The side gutter is one column per side at every width that can afford it,
+and zero below `MARGIN_MIN_COLUMNS` (40), where every column belongs to
+content. There is no middle tier: one column is already enough to keep
+content off the frame edge, which is the gutter's entire job, and
+anything wider only read as excess air on a wide pane. The gutter costs
+no rows.
 
 Vertically, the same file keeps content off the top and bottom edges with one
 blank row each: `TOP_PAD_ROWS` above the first transcript row, and
@@ -202,8 +201,8 @@ operator-preferred Amp/Codex-style lines:
 `runtime-bridge` paints each `task` call as a stream row and rewrites it in
 place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
 stall marker). There is no standing FLEET board and no dual-rail agents chrome:
-`formatChromeZones` always returns `agents: null`. Dual geometry remains in
-`resolveGeometry` but never engages without agents rows.
+`formatChromeZones` always returns `agents: null`, and geometry is stack-only
+(`layoutMode: "stack"`, `railWidth: 0`).
 
 ### Unprompted fleet reports
 

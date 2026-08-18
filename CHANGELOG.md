@@ -45,6 +45,11 @@ mid-session switches.
   orchestrator-capable (`task` / `search_agents` always available). The first-run
   mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
   settings files still loads without error and is ignored (CL-5814).
+- **Dual-column fleet rail removed.** TUI geometry is stack-only forever
+  (`layoutMode: "stack"`, `railWidth: 0`). `DUAL_MIN_COLUMNS` / `RAIL_WIDTH_*`
+  constants and dual absolute-positioning of the agents box are gone. Live
+  fleet status remains `● Task` transcript rows; the agents chrome zone stays
+  empty.
 
 ### Fixed
 

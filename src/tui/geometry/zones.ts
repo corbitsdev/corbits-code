@@ -42,31 +42,10 @@ export type ZoneDeclaration = {
 export const AGENTS_PANEL_MAX_VISIBLE = 13;
 
 /**
- * Terminal columns at or above which the agents zone may sit as a right rail
- * beside the transcript instead of stacking under it. Below this width the
- * shell always y-stacks (narrow single-column fallback).
- */
-export const DUAL_MIN_COLUMNS = 100;
-
-/** Target share of content width claimed by the fleet rail in dual layout. */
-export const RAIL_WIDTH_FRACTION = 0.38;
-
-/** Hard floor on rail width in dual layout (columns). */
-export const RAIL_WIDTH_MIN = 28;
-
-/** Hard ceiling on rail width in dual layout (columns). */
-export const RAIL_WIDTH_MAX = 48;
-
-/** Columns of gutter between chat column and rail in dual layout. */
-export const RAIL_GUTTER = 1;
-
-/**
  * Share of the terminal the fleet board may take before it starts hiding
  * lanes. The board is sized to its content, so a single lane costs two rows
  * and a dozen costs thirteen; this only bounds the large fan-out, and the
- * transcript keeps everything the board does not ask for. In dual layout the
- * board shares the transcript's vertical residual, so this fraction is the
- * stack-mode bound only.
+ * transcript keeps everything the board does not ask for.
  */
 export const FLEET_BOARD_CAP_FRACTION = 0.62;
 
@@ -126,9 +105,9 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     idleDefault: 0,
     alwaysOn: false,
   },
-  // Live agents / fleet rail. Stack mode: bounded strip under the transcript
-  // (max = visible lanes + trailing "+N more" + header slack). Dual mode: same
-  // height budget sits beside the transcript and does not consume vertical chrome.
+  // Live agents strip under the transcript when present (max = visible lanes +
+  // trailing "+N more" + header slack). Live chrome keeps this zone empty —
+  // fleet status paints as ● Task transcript rows instead.
   agents: {
     id: "agents",
     min: 0,

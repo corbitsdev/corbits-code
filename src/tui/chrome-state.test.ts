@@ -114,7 +114,7 @@ describe("formatChromeZones", () => {
       NOW,
     )
     // Agents zone is always null from formatChromeZones; observe is not a
-    // chrome-zone surface here (dual-rail never engages).
+    // chrome-zone surface here (agents zone stays empty; stack-only layout).
     expect(out.agents).toBeNull()
     expect(out.task).toBeNull()
   })
