@@ -57,7 +57,10 @@ mid-session switches.
   60–120s gaps between tool cycles while the model thinks. UI stall paint was
   30s and Grok's salvage kill was 90s, so healthy thinking looked hung and got
   nudged/stopped mid-inference. `DEFAULT_STALL_MS` is 120s; Grok shares the
-  default 5-minute `subAgentStallTimeoutMs`.
+  default 5-minute `subAgentStallTimeoutMs`. Parent stall notice is 180s.
+  The grok-responses path asks for `reasoning.summary: "detailed"` so summary
+  deltas keep the activity clock moving (auto summaries were tiny vs billed
+  thinking tokens).
 - **Live fleet status is `● Task` transcript rows again.** The FLEET board /
   dual-rail agents chrome restated the same workers above chat and made
   progress hard to read. `task` calls paint live rows (clock + current tool)
@@ -141,6 +144,10 @@ mid-session switches.
   first-class kinds, so free-form OpenAI-compatible endpoints are reachable from
   the model picker without dropping into onboarding. Custom still uses the full
   manual form (name, base URL, key, model).
+- **MCP auth is `mcp !` on the prompt box.** A server waiting on authorization
+  no longer takes a notice-row sentence (`mcp granola needs auth (/mcp)`). The
+  top rule carries a compact `mcp !` immediately left of the model label;
+  `/mcp` still names the servers.
 
 ### Docs
 

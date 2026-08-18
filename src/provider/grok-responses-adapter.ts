@@ -158,7 +158,10 @@ function buildRequest(
     store: false,
     stream: true,
     include: ["reasoning.encrypted_content"],
-    reasoning: { summary: "auto" },
+    // "detailed" streams denser summary deltas than "auto". Grok bills full
+    // thinking tokens but only returns summarized text; sparse auto summaries
+    // left the stall/activity clocks quiet for 60–120s mid-think.
+    reasoning: { summary: "detailed" },
   };
   if (tools !== undefined) {
     body["tools"] = tools;

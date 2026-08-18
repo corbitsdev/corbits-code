@@ -51,4 +51,28 @@ describe("createGrokResponsesAdapter", () => {
 
     expect(body.input[0]?.content).toBe("hello");
   });
+
+  test("requests detailed reasoning summaries so thinking activity streams", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        timestamp: 0,
+        content: [{ type: "text", text: "hello" }],
+      },
+    ];
+
+    const request = adapter.buildRequest(turns, "grok-4.6", {});
+    const body = JSON.parse(request.body) as {
+      reasoning?: { summary?: string };
+      include?: string[];
+      store?: boolean;
+      stream?: boolean;
+    };
+
+    expect(body.stream).toBe(true);
+    expect(body.store).toBe(false);
+    expect(body.include).toEqual(["reasoning.encrypted_content"]);
+    expect(body.reasoning).toEqual({ summary: "detailed" });
+  });
 });
