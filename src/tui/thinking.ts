@@ -1,19 +1,14 @@
 /**
- * Reasoning chrome: the one line a chain of thought occupies while it streams,
- * and what that same line keeps once it is done.
+ * Reasoning chrome: a short wrapped preview while thought streams, and a
+ * one-line opener once it settles (full text behind expand).
  *
- * Reasoning is not the answer, so it never gets to own the screen. While it
- * arrives it rides a single row whose window follows the newest text; once the
- * turn moves on that same row stops moving and simply stays, with the full text
- * one keypress away. The row goes quiet rather than transforming: nothing the
- * operator was reading is substituted out from under them.
+ * Reasoning is not the answer, so it never owns the screen. Live text used to
+ * ride a single sideways-scrolling row; that was unreadable. Now the newest
+ * revealed prose wraps into a few inset lines. Once the turn moves on the row
+ * collapses to its opening clause — same expand path as before.
  */
 
-import {
-  sliceTailToWidth,
-  sliceToWidth,
-  stringWidth,
-} from "./view/height.js"
+import { sliceToWidth, stringWidth, wrapLines } from "./view/height.js"
 
 /** What a settled reasoning row remembers about the thinking it finished. */
 export type Thought = {
@@ -22,9 +17,8 @@ export type Thought = {
 }
 
 /**
- * Whitespace-flattened reasoning text, matching what `thinkingScrollLine`
- * windows onto. Exposed so callers computing a reveal position (chars
- * available to reveal) count in the same units as the paint function.
+ * Whitespace-flattened reasoning text. Reveal position counts in these units
+ * so paint and the reveal clock agree.
  */
 export function flattenReasoningText(text: string): string {
   return text.replace(/\s+/g, " ").trimStart()
@@ -37,6 +31,9 @@ export function flattenReasoningText(text: string): string {
  * above ~40 it is back to unreadable. 28 landed as fast-but-legible.
  */
 export const REVEAL_CHARS_PER_SEC = 28
+
+/** How many wrapped lines a live reasoning preview may claim. */
+export const LIVE_THINKING_MAX_LINES = 3
 
 /**
  * Advance a reveal position toward the text that has actually arrived, capped
@@ -57,24 +54,30 @@ export function advanceRevealChars(
 }
 
 /**
- * Live reasoning as one row: whitespace flattened, windowed onto the newest
- * *revealed* text. `revealChars` is the bounded-rate reveal position computed
- * by `advanceRevealChars`; omitting it (settled rows, tests, fixtures) shows
- * the text in full, which is the old always-tail behaviour.
+ * Live reasoning as a short wrapped paragraph of the newest *revealed* text.
+ * `revealChars` is the bounded-rate reveal position from `advanceRevealChars`;
+ * omitting it shows whatever has arrived so far (tests/fixtures).
  */
-export function thinkingScrollLine(
+export function thinkingLivePreviewLines(
   text: string,
   width: number,
   revealChars?: number,
-): string {
-  const flat = flattenReasoningText(text)
+  maxLines: number = LIVE_THINKING_MAX_LINES,
+): string[] {
   const columns = Math.max(1, Math.floor(width))
+  const linesCap = Math.max(1, Math.floor(maxLines))
+  const flat = flattenReasoningText(text)
   const revealed =
     revealChars === undefined
-      ? flat.length
-      : Math.max(0, Math.min(flat.length, Math.floor(revealChars)))
-  const visible = flat.slice(0, revealed)
-  return sliceTailToWidth(visible, columns)
+      ? flat
+      : flat.slice(0, Math.max(0, Math.min(flat.length, Math.floor(revealChars))))
+  if (revealed.length === 0) return [""]
+  // Prefer the newest prose when the wrap would exceed the cap.
+  const budget = linesCap * columns
+  const window =
+    revealed.length > budget ? revealed.slice(revealed.length - budget).trimStart() : revealed
+  const wrapped = wrapLines(window, columns)
+  return wrapped.slice(-linesCap)
 }
 
 /** Marker that a settled reasoning line is holding back the rest of the text. */

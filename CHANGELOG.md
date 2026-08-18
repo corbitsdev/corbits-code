@@ -53,6 +53,10 @@ mid-session switches.
 
 ### Fixed
 
+- **Parent live reasoning no longer sideways-scrolls.** Streaming thinking used
+  a one-line marquee onto the newest tokens. It now paints a short wrapped
+  preview (up to three inset lines of the newest revealed prose); expand still
+  opens the full block. Sub-agent Task-row thinking is unchanged.
 - **Skywalker dig fleets cascading into stalled Task floods.** "Why stalled /
   why no thinking / spawn looks broken" asks were reclassified as orchestration
   and fanned into parallel explore waves; Grok leaves then sat quiet mid-think

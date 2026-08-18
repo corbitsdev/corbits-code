@@ -9,7 +9,7 @@ import { stringWidth, wrapLines } from "./view/height.js"
 import type { DiffView } from "./diff.js"
 import type { McpStructuredView } from "./mcp-view.js"
 import {
-  thinkingScrollLine,
+  thinkingLivePreviewLines,
   thinkingSettledLine,
   type Thought,
 } from "./thinking.js"
@@ -405,10 +405,9 @@ function elapsedLabel(ms: number): string {
 }
 
 /**
- * Reasoning body. The same line serves the whole life of the row: while text
- * arrives it is windowed onto the newest of it, and once the turn moves on it
- * stops moving and keeps the opening of what it was thinking about. Nothing is
- * substituted — the row goes quiet, and the rest is behind the expand key.
+ * Reasoning body. While text arrives it wraps into a short inset paragraph of
+ * the newest revealed prose (no sideways scroll). Once the turn moves on it
+ * collapses to the opening clause; the rest is behind the expand key.
  *
  * A row with no settled thought (a hydrated transcript, a fixture) has no
  * summary to collapse to and keeps the plain block.
@@ -417,7 +416,9 @@ function reasoningLines(row: StreamRow, layout: RowLayout): string[] {
   const lead = " ".repeat(THINKING_INDENT)
   const columns = Math.max(1, layout.width - THINKING_INDENT)
   if (row.streaming === true) {
-    return [`${lead}${thinkingScrollLine(row.text, columns, row.revealChars)}`]
+    return thinkingLivePreviewLines(row.text, columns, row.revealChars).map(
+      (line) => `${lead}${line}`,
+    )
   }
   if (row.thought === undefined) return thinkingLines(row.text, layout)
   const expanded = row.expanded === true

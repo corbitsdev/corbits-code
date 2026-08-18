@@ -305,8 +305,9 @@ type OpenStreamRow = {
   readonly startedAt: number
   text: string
   /**
-   * Bounded-rate reveal position for a "thinking" row's scroll line. Unused
-   * for "assistant" rows, which paint their full markdown body as it grows.
+   * Bounded-rate reveal position for a "thinking" row's wrapped preview.
+   * Unused for "assistant" rows, which paint their full markdown body as it
+   * grows.
    */
   revealChars: number
   /** Clock `revealChars` was last advanced from. */
