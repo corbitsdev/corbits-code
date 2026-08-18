@@ -38,7 +38,7 @@ describe("formatChromeZones", () => {
     expect(out.agents).toBeNull()
   })
 
-  test("full state: fleet board wins — checklist suppressed while lanes run", () => {
+  test("running agents: agents zone stays null; checklist suppressed", () => {
     const state: ChromeLiveState = {
       task: [
         { title: "chrome live helper", status: "doing" },
@@ -64,20 +64,38 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    // One live surface (CL-5846): fleet board owns chrome while lanes run.
+    // Transcript Task rows own live lane status — no FLEET board / agents zone.
+    // Checklist is suppressed while any lane is running.
     expect(out.task).toBeNull()
-    expect(out.agents).toEqual([
-      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
+    expect(out.agents).toBeNull()
+  })
+
+  test("idle with checklist still formats tasks when no lane is running", () => {
+    const out = formatChromeZones(
       {
-        label: "● explore  map setChromeZones callers",
-        tail: " · 0:05 · grep",
-        stalled: false,
-        kind: "lane",
+        task: [
+          { title: "chrome live helper", status: "doing" },
+          { title: "wire chrome zone", status: "todo" },
+        ],
+        agents: [
+          {
+            agentId: "general",
+            currentToolStartedAt: null,
+            description: "write tests",
+            status: "done",
+          },
+        ],
       },
+      NOW,
+    )
+    expect(out.agents).toBeNull()
+    expect(out.task).toEqual([
+      { label: "chrome live helper", status: "doing" },
+      { label: "wire chrome zone", status: "todo" },
     ])
   })
 
-  test("observe overrides the agents panel", () => {
+  test("observe does not force an agents panel via formatChromeZones", () => {
     const out = formatChromeZones(
       {
         agents: [
@@ -95,13 +113,10 @@ describe("formatChromeZones", () => {
       },
       NOW,
     )
-    expect(out.agents).toEqual([
-      {
-        label: "observe: explore — map callers of openListOverlay",
-        tail: "",
-        stalled: false,
-      },
-    ])
+    // Agents zone is always null from formatChromeZones; observe is not a
+    // chrome-zone surface here (dual-rail never engages).
+    expect(out.agents).toBeNull()
+    expect(out.task).toBeNull()
   })
 })
 
@@ -349,17 +364,9 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    // Fleet board owns chrome while lanes run; checklist is suppressed (CL-5846).
+    // Running lanes suppress checklist; agents zone stays null (no FLEET board).
     expect(zones.task).toBeNull()
-    expect(zones.agents).toEqual([
-      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
-      {
-        label: "● explore  map callers",
-        tail: " · 0:05 · grep",
-        stalled: false,
-        kind: "lane",
-      },
-    ])
+    expect(zones.agents).toBeNull()
   })
 
   test("falls back agent id; empty bags hide", () => {
@@ -378,7 +385,7 @@ describe("chromeFromSession", () => {
     expect(state.agents?.[0]?.agentId).toBe("sess-1")
   })
 
-  test("observe passes through", () => {
+  test("observe passes through on the session snapshot; chrome zones stay agents-null", () => {
     const state = chromeFromSession({
       observe: { agentId: "explore", description: "watch" },
     })
@@ -386,9 +393,7 @@ describe("chromeFromSession", () => {
       agentId: "explore",
       description: "watch",
     })
-    expect(formatChromeZones(state, NOW).agents).toEqual([
-      { label: "observe: explore — watch", tail: "", stalled: false },
-    ])
+    expect(formatChromeZones(state, NOW).agents).toBeNull()
   })
 })
 

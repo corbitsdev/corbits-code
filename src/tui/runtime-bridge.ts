@@ -72,13 +72,13 @@ import {
 import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
 import {
+  agentProgress,
   fleetProgress,
   type AgentProgressSession,
 } from "./agent-progress.js"
 
-/** Tool name a sub-agent dispatch call carries (fleet board owns live state). */
+/** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const TASK_TOOL_NAME = "task"
-
 
 /**
  * Tool name the task checklist is written through. Its calls paint no
@@ -87,17 +87,6 @@ const TASK_TOOL_NAME = "task"
  * panel that updates in place, and again as scrollback that never does.
  */
 const MANAGE_TASKS_TOOL_NAME = "manage_tasks"
-
-/**
- * Tools whose live work is already owned by standing chrome (fleet board /
- * task panel). Call + result paint no transcript rows — the board is the
- * live surface; re-announcing the same dispatch as a `● Task` line is noise
- * (CL-5846 first cut).
- */
-const PANEL_OWNED_TOOL_NAMES: ReadonlySet<string> = new Set([
-  MANAGE_TASKS_TOOL_NAME,
-  TASK_TOOL_NAME,
-])
 
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
 export type TaskProgressSession = AgentProgressSession & { readonly id: string }
@@ -369,14 +358,21 @@ type BridgeBag = {
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number
   /**
+   * callIds of outstanding `task` calls — a subset of `toolRows`' keys. Kept
+   * separate so `syncAgentProgress` never has to walk every in-flight tool to
+   * find the handful that are sub-agent dispatches.
+   */
+  taskCallIds: Set<string>
+  /**
    * Last sub-agent session list the host synced. Retained rather than consumed
    * and dropped because the status ticker recomputes fleet state at paint time
    * on the animation tick, not only when a worker happens to emit an event.
    */
   agentSessions: readonly TaskProgressSession[]
   /**
-   * callIds whose call painted no row because the work belongs to a panel.
-   * Tracked so the matching result is dropped rather than landing unpaired.
+   * callIds whose call painted no row because the work belongs to a panel
+   * (`manage_tasks`). Tracked so the matching result is dropped rather than
+   * landing unpaired.
    */
   panelOnlyCallIds: Set<string>
   /**
@@ -548,10 +544,10 @@ function applyToolCall(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_call" }>,
 ): void {
-  if (PANEL_OWNED_TOOL_NAMES.has(event.name)) {
+  if (event.name === MANAGE_TASKS_TOOL_NAME) {
     // Remembered so the matching result is dropped too — suppressing only the
-    // call would leave its result to land as an unpaired row. Live Task state
-    // lives on the fleet board; manage_tasks lives on the task panel.
+    // call would leave its result to land as an unpaired row. Checklist lives
+    // on the task panel; Task dispatches paint live transcript rows instead.
     if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId)
     return
   }
@@ -568,6 +564,9 @@ function applyToolCall(
     appendStreamRow(shell, row)
   }
   if (event.callId !== undefined) bag.toolRows.set(event.callId, index)
+  if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
+    bag.taskCallIds.add(event.callId)
+  }
   bag.lastToolRow = index
 }
 
@@ -591,6 +590,7 @@ function applyToolResult(
     event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId)
+    bag.taskCallIds.delete(event.callId)
   }
   const index = tracked ?? bag.lastToolRow
   const call = streamRowAt(shell, index)
@@ -599,6 +599,44 @@ function applyToolResult(
     return
   }
   replaceStreamRowAt(shell, index, mergeToolRows(call, result))
+}
+
+/**
+ * Refresh every outstanding `task` call's row with its worker's live progress —
+ * elapsed time, current tool, and whether it has gone quiet. Rewrites each row
+ * in place through `replaceStreamRowAt`; a session that finished, or is missing
+ * from `sessions`, leaves its row untouched rather than reverting to a bare
+ * pending mark.
+ */
+function syncAgentProgress(
+  shell: AppShell,
+  bag: BridgeBag,
+  sessions: readonly TaskProgressSession[],
+  nowMs: number,
+): void {
+  if (bag.taskCallIds.size === 0) return
+  for (const callId of bag.taskCallIds) {
+    const index = bag.toolRows.get(callId)
+    if (index === undefined) {
+      bag.taskCallIds.delete(callId)
+      continue
+    }
+    const row = streamRowAt(shell, index)
+    if (row === undefined || row.pending !== true) {
+      bag.taskCallIds.delete(callId)
+      continue
+    }
+    const session = sessions.find((s) => s.id === callId)
+    if (session === undefined) continue
+    const progress = agentProgress(session, nowMs)
+    if (progress === null) continue
+    if (row.stat === progress.stat && row.agentWorking === progress.working) continue
+    replaceStreamRowAt(shell, index, {
+      ...row,
+      stat: progress.stat,
+      agentWorking: progress.working,
+    })
+  }
 }
 
 /**
@@ -614,6 +652,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
       bag.toolRows.delete(callId)
+      bag.taskCallIds.delete(callId)
     }
   }
   if (bag.lastToolRow >= boundary) bag.lastToolRow = -1
@@ -735,6 +774,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     lastToolRow: -1,
+    taskCallIds: new Set(),
     agentSessions: [],
     panelOnlyCallIds: new Set(),
     attemptRow: null,
@@ -1126,10 +1166,8 @@ export function attachSessionBridge(
     },
     syncAgentProgress: (sessions) => {
       if (bag.disposed) return
-      // Live task state is owned by the fleet board, which recomputes from this
-      // session list at paint time. Task calls paint no transcript rows (they
-      // are panel-owned), so there is no per-call row to refresh here.
       bag.agentSessions = sessions
+      syncAgentProgress(shell, bag, sessions, now())
     },
     dispose: () => {
       bag.disposed = true

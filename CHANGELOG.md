@@ -48,6 +48,11 @@ mid-session switches.
 
 ### Fixed
 
+- **Live fleet status is `● Task` transcript rows again.** The FLEET board /
+  dual-rail agents chrome restated the same workers above chat and made
+  progress hard to read. `task` calls paint live rows (clock + current tool)
+  via `syncAgentProgress`; `formatChromeZones` keeps the agents zone empty and
+  suppresses the manage_tasks checklist while any lane is running.
 - **`web_fetch` / `web_search` always advertised.** They were registered but only
   discoverable via `tool_search`, so strict providers (and thrashy models) never
   saw them on the wire despite Skywalker saying they were mounted. Both are now

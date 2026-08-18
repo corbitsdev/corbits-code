@@ -38,20 +38,12 @@ row at a time down to its 3-row base — never the transcript
 
 Horizontally, every surface sits inside one shared gutter
 (`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
-as a single column of content rather than stacked panes — **except** the
-fleet rail. When the terminal is at least `DUAL_MIN_COLUMNS` (100) wide
-and the agents zone has rows, `resolveGeometry` switches to `layoutMode:
-"dual"`: the transcript (chat) keeps the left column and the agents board
-sits as a right rail of width clamped between `RAIL_WIDTH_MIN` (28) and
-`RAIL_WIDTH_MAX` (48), targeting `RAIL_WIDTH_FRACTION` (0.38) of content
-width with a one-column `RAIL_GUTTER` between them. Dual mode excludes
-agents from the vertical chrome sum so the transcript residual is not
-shrunk by the board — the rail shares the transcript's vertical residual
-instead. Below the dual threshold, or with zero running agents, layout
-stays `"stack"` (full-width y-stack, agents under the transcript, above
-the task list and prompt). The shell paints dual by absolutely positioning
-`agentsBox` beside the transcript (`applyLayout` in `src/tui/shell.ts`);
-stack keeps it in the flex column. The side gutter is one column per side
+as a single column of content rather than stacked panes. Dual-column
+geometry (`layoutMode: "dual"`, `DUAL_MIN_COLUMNS` 100) still exists in
+`resolveGeometry` for a right-rail agents board, but the live agents
+zone stays empty — fleet status paints as `● Task …` transcript rows
+instead (see Agents below) — so dual never engages and layout stays
+`"stack"`. The side gutter is one column per side
 at every width that can afford it, and zero below `MARGIN_MIN_COLUMNS`
 (40), where every column belongs to content. There is no middle tier: one
 column is already enough to keep content off the frame edge, which is the
@@ -148,25 +140,26 @@ removed line), not a decision marker, and no decision-marker shares that row.
 
 The `task` chrome zone renders a standing panel in the bottom chrome above the
 prompt, one row per open task the task tool has written (`manage_tasks`) —
-distinct from the `agents` panel. A task is a unit of work with a status; an
-agent is an executor with its own context and transcript. They are never
-merged into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
-`formatAgentsPanel` are separate formatters feeding separate zones with
-separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
+distinct from live sub-agent progress. A task is a unit of work with a status;
+an agent is an executor with its own context and transcript. They are never
+merged into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) feeds the
+checklist zone; live workers paint as `● Task …` transcript rows (see below).
 
-**One live surface at a time (CL-5846).** While any fleet lane is painted on
-the agents board, `formatChromeZones` suppresses the task checklist — the same
-work must not stand in two chrome lists. When the board is empty, the checklist
-returns for open work. A list that is only done/cancelled collapses to null
-(no permanent wall of `[x]` rows); while open work remains, recently-done rows
-trail so the operator can see items flip complete without a second status log.
+**One live surface at a time.** While any sub-agent session is `running`,
+`formatChromeZones` suppresses the task checklist and keeps the agents zone
+empty — the same work must not stand as a FLEET board *and* a checklist *and*
+live Task rows. When no lane is running, the checklist returns for open work
+(if the operator has opted in with Alt+T). A list that is only done/cancelled
+collapses to null (no permanent wall of `[x]` rows); while open work remains,
+recently-done rows trail so the operator can see items flip complete without a
+second status log.
 
 Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
 `[-]` cancelled) ahead of the title. Open work is listed first. The panel is
-bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
-longer list degrades to a trailing `+N more` row rather than growing the zone
-without limit, and it shrinks one row at a time under space pressure
-(`COLLAPSE_ORDER` in `geometry/zones.ts`) rather than vanishing in one step.
+bounded to `TASKS_PANEL_MAX_VISIBLE` rows: a longer list degrades to a trailing
+`+N more` row rather than growing the zone without limit, and it shrinks one
+row at a time under space pressure (`COLLAPSE_ORDER` in `geometry/zones.ts`)
+rather than vanishing in one step.
 
 Two independent mechanisms keep the task panel from ever costing the prompt
 box a row on a short terminal, and they guarantee different things.
@@ -188,154 +181,50 @@ shell in memory only, nothing written to storage — while the live task list
 keeps updating underneath it. Un-hiding shows the current list, not a stale
 snapshot from before the hide. Hidden or empty, the zone costs zero rows. The
 default is opt-in because the checklist's chrome owns too much of the screen to
-force into view; the operator toggles it on when they want it, and the fleet
-board's CL-5846 one-live-surface rules still apply once it is shown.
+force into view; the operator toggles it on when they want it, and live Task
+rows still win while a fleet is running.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-The `agents` chrome zone is the **fleet board**: a standing picture of live
-workers. On a dual-width terminal it paints as the right rail beside chat;
-on a narrow terminal it stacks under the transcript and above the task list
-and prompt. `formatAgentsPanel` (`src/tui/chrome-state.ts`) always leads
-with a one-line `FLEET` header (`N lanes · N working` / trouble counts
-first), then one single-line row per currently-running sub-agent. The
-marker is `●` for a live lane and `!` for one that has gone quiet, painted
-in bronze (`UI.inFlight`) for live work and red (`UI.action`) for a stalled
-one — the marker already names the state, the hue only carries the urgency.
-Past the marker each row reads `agentId  description` with a right-aligned
-tail `· <clock> · <tool-or-preview>`: the clock/tool/stall computation is
-shared with the transcript task trailer (`agentProgress` in
-`src/tui/agent-progress.ts`). The panel does not compute progress a second
-way. Only a fan-out past `AGENTS_PANEL_MAX_VISIBLE` adds a trailing
-`+N more` row (or a header `+N hidden` under a tight height), painted in
-dim because it is chrome about the strip, not a lane in it.
+hydrate. `manage_tasks` calls paint no transcript rows — the checklist is the
+only surface for that list.
 
-Tool names on the board come from the **subagent store**
-(`currentToolName` + `currentToolStartedAt`), not from the
-`subagent.progress` event channel. Progress pings carry a name with no
-clock and can fire on completion, so painting from them produced false
-stalls; the host paints zones straight from store-backed chrome state.
-fleet header row: each row is one lane, led by a health marker that is what
-makes the strip read as a strip of workers rather than a list of titles
-(`formatAgentsPanel` in `src/tui/chrome-state.ts`). The marker is `●` for a
-live lane and `!` for one that has gone quiet, painted in bronze
-(`UI.inFlight`) for live work and red (`UI.action`) for a stalled one — the
-marker already names the state, the hue only carries the urgency. Past the
-marker each row reads `agentId: description · <clock> · <tool>`: a clock
-tail from the same `agentProgress()` clock/tool/stall computation used to
-trail a task row in the transcript (`src/tui/agent-progress.ts`), with no
-state word prefix — the marker already carries it. The panel does not
-compute progress a second way. Only a fan-out past `AGENTS_PANEL_MAX_VISIBLE`
-adds a trailing `+N more` row, painted in dim because it is chrome about the
-strip, not a lane in it.
+## Live sub-agent rows (Task tool)
 
-`laneState()` is the single definition of what a lane is doing, and every
-surface consumes it rather than comparing timestamps itself. It returns one of
-three states:
+Live workers paint as pending `task` tool rows in the transcript — the
+operator-preferred Amp/Codex-style lines:
 
-| Lane state | Means | Row reads |
-|---|---|---|
-| `working` | activity within `DEFAULT_STALL_MS` | `· 2:34 · grep` |
-| `in_tool` | silent, but a tool call is outstanding and under `IN_TOOL_STALL_MS` | `· 2:34 · run_shell 1:30` |
-| `stalled` | silent with nothing outstanding to explain it | `· 2:34 · quiet 0:45 · stalled` |
+```
+● Task Design Lab interview 1:07 · AskUserQuestion
+● Task UI variations 0:59 · write_file
+```
 
-`in_tool` is what makes the surface honest. A worker inside one long tool call
-emits no events for the entire execution, so silence alone cannot separate a
-wedged reactor from a ten-minute test run — and it did not: a fleet whose lanes
-were all running shell commands flipped to `stalled` in lockstep while every
-one of them was working. `currentToolStartedAt` on the sub-agent session store
-(`src/subagent/session-store.ts`) is the fact that separates them; only the
-store sets it, because only the store observes a call ending.
-
-The store keys outstanding calls by call id (`outstandingTools`) and reports
-the oldest live one — the call that explains the longest silence. It cannot
-collapse to a single scalar: the reactor runs parallel calls concurrently, so a
-fast grep finishing beside a ten-minute shell command would retire the shell
-command's clock and reproduce the original defect on one lane. A result whose
-call id was never seen to start retires nothing.
-
-`currentToolStartedAt` is a **required** field on every type between the store
-and a surface. There are four hand-written mapping hops on the live path, and
-a hop that drops it silently reclassifies a busy lane as stalled — which is how
-this shipped broken once, caught only by running a real fleet. Required makes
-that a compile error rather than a misclassification; `chrome-state.test.ts`
-also asserts the panel and the transcript row agree on a live example.
-
-`in_tool` is bounded, not terminal. A call outstanding longer than
-`IN_TOOL_STALL_MS` (10 minutes) escalates to `stalled` regardless, so a wedged
-build, a shell blocked on stdin, or a deadlocked child eventually surfaces
-instead of reading as busy forever. **Within that window those failures are
-genuinely invisible to the stall signal** — the honest trade for not crying
-stall over every real test suite. The per-row tool clock climbing is the signal
-a human can read in the meantime, which is why the row shows it. The same bound
-backstops calls that never report a result at all: the reactor's
-approval-suspend path emits no completion, so a before-tool extension returning
-suspend would otherwise leave a call outstanding permanently. Nothing registers
-such an extension today.
-
-The number beside a lane's state always explains that state. A healthy lane
-shows its lifetime; a lane stuck in one tool also shows how long that tool has
-run; a stalled lane also shows how long it has been silent. Reading a lifetime
-clock next to the word `stalled` was the original defect — the number the
-operator watched climbing was unrelated to the word beside it.
-
-The panel is bounded to `AGENTS_PANEL_MAX_VISIBLE` rows
-(`src/tui/geometry/zones.ts`); a larger fan-out degrades to a trailing
-`+N more` row rather than growing the zone — and therefore the chrome
-budget — without limit. Its height is requested from the geometry resolver
-like every other zone, never guessed: the caller passes the exact row count it
-is about to render (`ZoneVisibility.agents: boolean | number`), and the
-resolver clamps it to the zone's registered max. Agents that have reached a
-terminal state (done/failed/cancelled) do not occupy a row; zero running
-agents is zero rows and zero chrome. `observe` mode overrides the panel with a
-single `observe: <agentId> — <description>` line instead of per-agent rows.
-
-Which agents survive a fan-out past `AGENTS_PANEL_MAX_VISIBLE`, and the order
-those survivors render in, are two different questions with two different
-answers (`formatAgentsPanel` in `chrome-state.ts`). Selection — which N
-agents are shown before the rest fold into `+N more` — keys on staleness
-(`lastActivityAt`), so the agent most likely to be stalled is guaranteed a
-row rather than the caller's feed order (which sorts running sessions
-newest-first) silently hiding it. Presentation — the order the surviving
-rows paint in — keys on `startedAt` instead: `lastActivityAt` changes on
-every tool event, so sorting the visible rows by it would reshuffle the
-panel on every repaint. `startedAt` is stable for the life of a running
-agent, with `agentId` as a tiebreak for a simultaneous fan-out.
-
-Under space pressure, the zone shrinks one row at a time toward 1 rather
-than collapsing straight to 0 (`COLLAPSE_ORDER` treats it like `progress`,
-not like the single-row `task` strip) — a 1-row panel still carries
-the stalest agent plus its `+N more` trailer, so it stays meaningful all
-the way down. Only once every other collapsible zone ahead of it in
-`COLLAPSE_ORDER` and the panel itself are exhausted does it reach 0, the
-same last-resort floor every other optional zone shares.
+`runtime-bridge` paints each `task` call as a stream row and rewrites it in
+place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
+stall marker). There is no standing FLEET board and no dual-rail agents chrome:
+`formatChromeZones` always returns `agents: null`. Dual geometry remains in
+`resolveGeometry` but never engages without agents rows.
 
 ### Unprompted fleet reports
 
-The agents panel is the standing picture of live work. Parent prose owns
-success narratives. Transcript fleet notices exist only for attention the
-strip cannot keep (CL-5846): a lane **failed** or **went quiet** while other
-work is still running, and **one** dry-fleet line when the last lane
-finishes (`N done · nothing running`). Per-lane `done — summary` walls and
-live `dispatched` re-announcements are never printed — they restated the
-strip and the parent and turned the transcript into a second status log.
-A stall reads `desc went quiet (clock)`.
+Parent prose owns success narratives. Transcript fleet notices exist only for
+attention live Task rows cannot keep: a lane **failed** while other work is
+still running, and **one** dry-fleet line when the last lane finishes
+(`N done · nothing running`). Per-lane `done — summary` walls and live
+`dispatched` re-announcements are never printed.
 
 `src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
-store the panel reads and the same `agentProgress()` stall definition so the
-two surfaces never disagree about whether a lane is stalled. Store changes
-drive it; a `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel dispatch
-settle into one observation. Quiet detection uses `FLEET_STALL_POLL_MS` (5s).
-Past `COALESCE_ABOVE` (3) attention events in one observation, lines collapse
-into a single tally. Errors clip to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
+store and the same `agentProgress()` stall definition. Store changes drive it;
+a `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel dispatch settle into
+one observation. Quiet detection uses `FLEET_STALL_POLL_MS` (5s). Past
+`COALESCE_ABOVE` (3) attention events in one observation, lines collapse into
+a single tally. Errors clip to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
 "one update is one row" rule. `fleetDigest()` is the on-demand counterpart
 for `/status` or an operator question mid-run.
 
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
-picker, settings, help, the `/` command list, …) shares one overlay host and
-one height path — there is no second modal stack with independent row
 accounting (`src/tui/geometry/resolve.ts`,
 `src/tui/shell.ts:openListOverlay`). Opening a second surface either
 replaces the one that was open or stacks over it; either way Escape always

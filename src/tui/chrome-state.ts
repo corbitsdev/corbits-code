@@ -132,17 +132,24 @@ export type FormattedChromeZones = {
  * Empty / partial / inactive inputs yield null for the corresponding zone
  * so geometry collapses that strip (idleDefault 0).
  *
- * When a live fleet board is up, the manage_tasks checklist is suppressed —
- * two standing lists of the same work is the visual mess CL-5846 removes.
- * Checklist returns once no lane is running.
+ * Live sub-agent work paints as `● Task …` transcript rows (runtime-bridge),
+ * not as a standing FLEET board or dual-rail agents zone — those restated the
+ * same lanes above the chat and made progress harder to read. The agents zone
+ * stays empty so dual layout never engages. The manage_tasks checklist is
+ * also suppressed while any lane is running; it returns once the fleet is dry.
  */
 export function formatChromeZones(
   state: ChromeLiveState,
   nowMs: number = Date.now(),
 ): FormattedChromeZones {
-  const agents = formatAgentsPanel(state.agents, state.observe, nowMs)
-  // One live work surface: fleet board while lanes run; checklist otherwise.
-  const task = agents !== null ? null : formatTasksPanel(state.task)
+  void nowMs
+  const hasLiveAgents =
+    state.agents !== null &&
+    state.agents !== undefined &&
+    state.agents.some((s) => s.status === "running")
+  // Fleet board chrome is off: transcript Task rows own live lane status.
+  const agents = null
+  const task = hasLiveAgents ? null : formatTasksPanel(state.task)
   return { task, agents }
 }
 
