@@ -9,6 +9,11 @@
  * is at its default the row composes to the empty string and the shell hides
  * it, giving the row back to the transcript.
  *
+ * MCP authorization is not a notice-row concern. A server waiting on auth is
+ * a standing condition with a home on the prompt box (`mcp !` left of the
+ * model label) and a surface in /mcp; it does not earn a transcript-adjacent
+ * row of its own.
+ *
  * A live turn contributes nothing here. The prompt border already carries the
  * running state — the bottom-left slot swaps the wordmark for the live phase,
  * and the meter beside it moves — so a ramp on this row was a second animation
@@ -27,29 +32,8 @@ export type NoticeState = {
   /** Transient feedback (copy result, attach failure, exit arming). */
   readonly flash: string | null
   readonly attachments: number
-  /** Names of MCP servers still unauthorized; their tools stay unavailable. */
-  readonly mcpNeedsAuth: readonly string[]
 }
 
-/** How many server names the segment spells out before it counts instead. */
-const MCP_NAMES_SHOWN = 2
-
-/**
- * Name the unauthorized servers rather than counting them: a bare count sends
- * the operator to /mcp to find out which one it meant, and reads as a claim
- * about whichever server they see there first.
- */
-function mcpAuthNames(names: readonly string[]): string {
-  const sorted = [...names].sort()
-  if (sorted.length <= MCP_NAMES_SHOWN) return `mcp ${sorted.join(", ")}`
-  const shown = sorted.slice(0, MCP_NAMES_SHOWN).join(", ")
-  return `mcp ${shown} +${sorted.length - MCP_NAMES_SHOWN}`
-}
-
-/**
- * Compose the transient row. An empty result means the row has nothing to say
- * and the shell drops it.
- */
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = []
   if (state.queue > 0) segments.push(`queue ${state.queue}`)
@@ -60,9 +44,6 @@ export function composeNoticeLine(state: NoticeState): string {
     segments.push(
       `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,
     )
-  }
-  if (state.mcpNeedsAuth.length > 0) {
-    segments.push(`${mcpAuthNames(state.mcpNeedsAuth)} needs auth (/mcp)`)
   }
   const flash = state.flash?.trim() ?? ""
   if (flash.length > 0) segments.push(flash)

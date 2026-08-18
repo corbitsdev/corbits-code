@@ -99,7 +99,7 @@ describe("hook channel", () => {
 })
 
 describe("mcp.status channel", () => {
-  test("a server awaiting authorization takes a notice segment, not a transcript row", async () => {
+  test("a server awaiting authorization takes a prompt-box mark, not a transcript row", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
       emitter.emit("mcp.status", {
@@ -108,7 +108,8 @@ describe("mcp.status channel", () => {
         url: "https://mcp.test/auth",
       })
       const painted = await frame()
-      expect(painted).toContain("mcp linear needs auth (/mcp)")
+      expect(painted).toContain("mcp !")
+      expect(painted).not.toContain("needs auth")
       expect(painted).not.toContain("https://mcp.test/auth")
       expect(host.shell.streamLog).toEqual([])
     } finally {
@@ -116,15 +117,15 @@ describe("mcp.status channel", () => {
     }
   })
 
-  test("connected clears the standing auth segment from state and the painted frame", async () => {
+  test("connected clears the standing auth mark from state and the painted frame", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
       emitter.emit("mcp.status", { name: "linear", state: "needs-auth", url: "https://x/a" })
-      expect(await frame()).toContain("needs auth")
+      expect(await frame()).toContain("mcp !")
       emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] })
       const painted = await frame()
       expect(host.shell.mcpNeedsAuth).toEqual([])
-      expect(painted).not.toContain("needs auth")
+      expect(painted).not.toContain("mcp !")
     } finally {
       cleanup()
     }

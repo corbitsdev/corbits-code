@@ -66,7 +66,9 @@ assistant/tool rows are unchanged.
 
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule as
-`profile · model · effort` (empty segments omitted); the brand
+`profile · model · effort` (empty segments omitted), and a
+compact `mcp !` sits immediately left of it when any MCP server still needs
+authorization (`/mcp` is the surface that names them); the brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui/shell.ts`). Both rules cost zero transcript rows because they

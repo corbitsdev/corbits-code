@@ -8,26 +8,10 @@ const state = (over: Partial<NoticeState> = {}): NoticeState => ({
   pinned: false,
   flash: null,
   attachments: 0,
-  mcpNeedsAuth: [],
   ...over,
 })
 
 describe("composeNoticeLine", () => {
-  test("the standing mcp segment names the servers it means", () => {
-    expect(composeNoticeLine(state({ mcpNeedsAuth: ["granola"] }))).toBe(
-      "mcp granola needs auth (/mcp)",
-    )
-    expect(composeNoticeLine(state({ mcpNeedsAuth: ["linear", "granola"] }))).toBe(
-      "mcp granola, linear needs auth (/mcp)",
-    )
-  })
-
-  test("past two servers the segment counts the rest rather than growing", () => {
-    expect(
-      composeNoticeLine(state({ mcpNeedsAuth: ["d", "a", "c", "b"] })),
-    ).toBe("mcp a, b +2 needs auth (/mcp)")
-  })
-
   test("an idle shell has nothing to say and takes no row", () => {
     expect(composeNoticeLine(state())).toBe("")
   })

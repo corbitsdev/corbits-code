@@ -138,6 +138,37 @@ describe("composeRule", () => {
     expect(isPlainRule(plain)).toBe(true)
   })
 
+  test("attention sits immediately left of the label", () => {
+    const parts = composeRule({
+      width: 40,
+      corners: TOP,
+      attention: "mcp !",
+      label: "xai · grok",
+    })
+    expect(ruleText(parts)).toBe("╭───────────────── mcp ! ─ xai · grok ─╮")
+    expect(ruleWidth(parts)).toBe(40)
+    expect(parts.some((p) => p.role === "attention")).toBe(true)
+    expect(parts.some((p) => p.role === "label")).toBe(true)
+  })
+
+  test("attention alone still seats when there is no model label", () => {
+    const parts = composeRule({ width: 20, corners: TOP, attention: "mcp !" })
+    expect(ruleText(parts)).toBe("╭────────── mcp ! ─╮")
+    expect(parts.some((p) => p.role === "attention")).toBe(true)
+  })
+
+  test("a rule too narrow for both keeps the label and drops attention", () => {
+    const parts = composeRule({
+      width: 22,
+      corners: TOP,
+      attention: "mcp !",
+      label: "xai · grok-4.6",
+    })
+    expect(parts.some((p) => p.role === "attention")).toBe(false)
+    expect(ruleText(parts)).toContain("xai · grok-4.6")
+    expect(ruleWidth(parts)).toBe(22)
+  })
+
   test("the rule stays exactly the requested width with a meter present, at every size", () => {
     for (const width of [120, 80, 60, 48, 40, 20, 10, 3]) {
       const parts = composeRule({

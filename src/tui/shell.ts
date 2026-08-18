@@ -73,6 +73,7 @@ import type { RampPhase, StallAge } from "./ramp.js"
 import type { ActivityState } from "./session-chrome.js"
 import {
   BORDER,
+  MCP_ATTENTION_LABEL,
   composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
@@ -659,7 +660,7 @@ export type AppShell = {
    * set to null; never appended to the stream log.
    */
   statusFlash: string | null
-  /** MCP servers awaiting authorization; the notice row names them. */
+  /** MCP servers awaiting authorization; the top rule carries `mcp !`. */
   mcpNeedsAuth: readonly string[]
   /**
    * Clock, motion and content state for the bottom-left status slot. The bridge
@@ -846,7 +847,6 @@ export function noticeText(shell: AppShell): string {
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,
-    mcpNeedsAuth: shell.mcpNeedsAuth,
   })
 }
 
@@ -1532,6 +1532,10 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
       chunks.push(...meterChunks(shell, part.text))
       continue
     }
+    if (part.role === "attention") {
+      chunks.push(fgChunk(UI.action)(part.text))
+      continue
+    }
     chunks.push(
       fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
     )
@@ -1580,6 +1584,7 @@ export function paintPromptBorder(shell: AppShell): void {
   const top = composeRule({
     width,
     corners: [BORDER.topLeft, BORDER.topRight],
+    ...(shell.mcpNeedsAuth.length > 0 ? { attention: MCP_ATTENTION_LABEL } : {}),
     ...(shell.modelLabel !== null ? { label: shell.modelLabel } : {}),
   })
   shell.promptTopRule.content = new StyledText(ruleChunks(shell, top))
