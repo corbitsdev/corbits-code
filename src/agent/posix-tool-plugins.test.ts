@@ -135,6 +135,43 @@ describe("buildCorePosixToolPlugins", () => {
     }
   });
 
+  test("setSkipPermissions mid-session unlocks outside paths without rebuilding plugins", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-yolo-toggle-in-"));
+    const outside = await mkdtemp(join(tmpdir(), "ic-posix-yolo-toggle-out-"));
+    try {
+      const target = join(outside, "other.txt");
+      await writeFile(target, "from-other-repo", "utf8");
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: false,
+        auto: true,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+      const blocked = await runner.run(
+        { id: "bound-1", name: "read_file", arguments: { path: target } },
+        new AbortController().signal,
+      );
+      expect(blocked.isError).toBe(true);
+      expect(String(blocked.content)).toMatch(/escapes working directory/);
+
+      gate.setSkipPermissions(true);
+      const allowed = await runner.run(
+        { id: "out-1", name: "read_file", arguments: { path: target } },
+        new AbortController().signal,
+      );
+      expect(allowed.isError).not.toBe(true);
+      expect(String(allowed.content)).toContain("from-other-repo");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test("reads bounded tool-output spills when session blob reader is wired", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-tool-output-"));
     try {

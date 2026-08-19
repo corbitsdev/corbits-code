@@ -340,6 +340,28 @@ describe("shellGuardPlugin", () => {
     expect(toolContentTrimmed(stillRoot)).toBe(realpathSync(root));
   });
 
+  test("allowOutsideCwd getter allows retaining cwd outside the session workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-yolo-"));
+    let allow = false;
+    const handler = shellGuardPlugin(root, undefined, undefined, {
+      allowOutsideCwd: () => allow,
+    }).middleware!(fallback);
+    const blocked = await handler(
+      { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
+      neverAbort(),
+    );
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toMatch(/outside the session workspace/);
+
+    allow = true;
+    const allowed = await handler(
+      { id: "e2", name: "run_shell", arguments: { command: "cd .. && pwd" } },
+      neverAbort(),
+    );
+    expect(allowed.isError).not.toBe(true);
+    expect(toolContentTrimmed(allowed)).toBe(realpathSync(join(root, "..")));
+  });
+
   test("retains cwd from cd even when the command exits non-zero", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-cd-fail-"));
     const nested = join(root, "nested");

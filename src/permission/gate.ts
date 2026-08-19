@@ -256,11 +256,17 @@ export type PermissionGate = {
   // Turn auto mode on or off for the rest of the session. Live callers (slash
   // commands, settings) wire the toggle here so a switch takes effect on the
   // next tool call. There is currently no in-session key chord for this.
+  // `/yolo` toggles skip-permissions (getSkipPermissions / setSkipPermissions),
+  // not auto mode.
   setAuto: (value: boolean) => void;
-  // Whether --dangerously-skip-permissions is active for this session. Immutable
-  // after gate construction; pre-gate sandboxes (path-escape, shell cwd bounds)
-  // consult this so outside-workspace access is not hard-denied under yolo mode.
+  // Whether --dangerously-skip-permissions / yolo mode is active for this session.
+  // Pre-gate sandboxes (path-escape, shell cwd bounds) consult this so
+  // outside-workspace access is not hard-denied under yolo mode.
   getSkipPermissions: () => boolean;
+  // Turn skip-permissions on or off for the rest of the session. `/yolo` in the
+  // TUI wires the toggle here so a switch takes effect on the next tool call —
+  // including pre-gate sandboxes that read getSkipPermissions live.
+  setSkipPermissions: (value: boolean) => void;
   // Grant a session-only approval outside the normal ask flow, e.g. when the
   // operator already approved a literal command through ask_operator — so the
   // matching run_shell call that follows does not prompt a second time. The
@@ -273,7 +279,7 @@ export type PermissionGate = {
 };
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
-  const { requestApproval, persist, interactive, skipPermissions, providerName, model, cwd } = options;
+  const { requestApproval, persist, interactive, providerName, model, cwd } = options;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
@@ -287,6 +293,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
   // workspace" for a path share one authority.
   const grantWorkspace = (): GrantWorkspace => ({ resolvedCwd, roots: rootsProvider() });
   let auto = options.auto;
+  let skipPermissions = options.skipPermissions;
   // Own a private copy so evaluating a grant never mutates the caller's array.
   const approvals: Approval[] = [...options.approvals];
   const activeProviderModel =
@@ -616,6 +623,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       auto = value;
     },
     getSkipPermissions: () => skipPermissions,
+    setSkipPermissions: (value: boolean) => {
+      skipPermissions = value;
+    },
     preApprove,
     registerMcpClient,
     unregisterMcpServer,

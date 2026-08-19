@@ -62,7 +62,7 @@ $ corbits exec "Add JWT auth to the API"
 $ corbits run "Add JWT auth to the API"
 ```
 
-Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the OpenTUI shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). `ask_operator` reads a single line from stdin when available.
+Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the OpenTUI shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). In the TUI, `/yolo` is the mid-session twin of that flag. `ask_operator` reads a single line from stdin when available.
 
 Local multi-model capability checks use this path (`bun run eval:capability`); see `evals/capability/README.md`.
 
@@ -77,7 +77,7 @@ Continues from the last saved state in the working directory.
 ## Safety Model
 
 - **Tiered permission gate** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) run freely. Every consequential tool (`write_file`, `edit_file`, `run_shell`, …) is gated. The operator can Allow Once or Allow Always (scoped to a file, a directory, or a command shape); "Allow Always" choices persist per working directory so repeat actions don't interrupt flow.
-- **Secret guard** — Path-keyed tools (`read_file`, `write_file`, …) hard-deny sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar), even with approval or `--dangerously-skip-permissions`. Template files like `.env.example` are exempt. Shell commands that *reference* those paths (e.g. `bun --env-file=.env.staging run …`, `cat .env`) require explicit operator approval and never auto-run in auto mode; once approved, they proceed. Tool-result scrubbing still redacts credential-shaped output that reaches the transcript.
+- **Secret guard** — Path-keyed tools (`read_file`, `write_file`, …) hard-deny sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar), even with approval, `--dangerously-skip-permissions`, or `/yolo`. Template files like `.env.example` are exempt. Shell commands that *reference* those paths (e.g. `bun --env-file=.env.staging run …`, `cat .env`) require explicit operator approval and never auto-run in auto mode; once approved, they proceed. Tool-result scrubbing still redacts credential-shaped output that reaches the transcript.
 - **Catastrophic-command deny** — Destructive shell patterns that target system roots (`rm -rf /`, home, `/etc`, …), plus `mkfs`, `dd`, `sudo`, fork bombs, `curl | bash`, force-push, … are blocked before they run. Recursive delete of ordinary workspace paths is not hard-denied but requires operator approval (never auto in auto mode).
 - **Constrained auto mode** — Default is on (`auto = true`). Pass `--no-auto` to start in ask mode, or `--auto` to force it on; there is currently no in-session key to toggle it. Auto mode auto-approves workspace file writes/edits/deletes and unconstrained shell without per-action prompts, but it is not a free-for-all:
   - **Denied** (must use `write_file` / `edit_file`): shell file mutations via output redirection, `tee`, `sed -i` / `perl -i`, interpreter inline programs or heredocs.
@@ -85,12 +85,12 @@ Continues from the last saved state in the working directory.
   - **Wrapper peel**: `bash`/`sh`/`zsh -c`, `xargs`, and transparent prefixes (`env`, `nice`, `timeout`, …) are expanded so the same deny/ask rules see the inner payload.
   - Paths outside the workspace and writes under the session state root still ask; mutating MCP and unknown tools still prompt.
 
-- **Path sandboxing** — Tool path arguments are resolved against the working directory; paths that escape it are blocked.
+- **Path sandboxing** — Tool path arguments are resolved against the working directory; paths that escape it are blocked unless `--dangerously-skip-permissions` / `/yolo` is on (secret-guard and authz hard denies still apply).
 - **Write verification** — After every write/edit the file is re-read and compared to confirm the change actually landed.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (models-only picker for connected accounts; **Alt+A** adds a provider), `/settings`, `/permissions`, `/plugins`, `/clear`, `/new`, and `/mcp`, plus a `/<name>` command per available workflow. Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (models-only picker for connected accounts; **Alt+A** adds a provider), `/settings`, `/permissions`, `/plugins`, `/clear`, `/new`, `/mcp`, and `/yolo` (mid-session twin of `--dangerously-skip-permissions`; `/yolo [on|off|toggle]`, bare `/yolo` toggles), plus a `/<name>` command per available workflow. Plugins can register additional commands.
 
 Providers are **models-first**: there is no standalone `/login` command. `/model` opens a **models-only list** (Recent, Favorites, then connected provider/model rows) — type-to-filter owns printable keys, so Connect is never a bare letter. **Alt+A** opens a dedicated add-provider selector over every first-class kind (OpenAI dual-path ChatGPT OAuth or API key, xAI, OpenCode Zen, Anthropic, Google, OpenCode Go, Z.AI Coding Plan, Custom), each annotated with its live account count and never filtered out for “already connected.” **Alt+F** toggles favorite on the highlighted model. Advanced provider drill-down (edit/delete/tiers) stays on the advanced surface, not a bare printable key while the model list is filtering. OAuth providers open their existing browser login with a named account step so multiple accounts per kind coexist (`codex/work`, …). API-key providers use the same named-instance step before the key (auth-only form: instance name + key + fixed catalog base URL), so personal and team keys land as distinct catalog rows (`openai/default`, `anthropic/work`, …); reusing a name re-keys that instance after confirm. Custom remains a free-form single endpoint (full manual form). Successful connect refreshes the catalog and reopens the model list focused on the new account’s default model. OpenCode Go routes each model by its protocol metadata (chat completions, OpenAI responses, or Anthropic messages) and can show subscription usage in the status bar when active (rolling 5h / weekly / monthly windows when the usage API responds; omitted on auth or network failure). When Go returns a quota or rate-limit error — including some HTTP 400 responses that carry limit payloads — Corbits classifies them so quota aborts cleanly and short provider rate limits remain retryable. On a free-tier or subscription quota hit, wait for the window to reset or use OpenCode Zen free models.
 
@@ -115,7 +115,7 @@ The exact turn thresholds are model-family-dependent (tighter for models with ob
 
 **What the user sees:** In a non-interactive `corbits exec` run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
 
-**Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, or re-run with `--dangerously-skip-permissions`.
+**Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, re-run with `--dangerously-skip-permissions`, or use `/yolo` mid-session in the TUI.
 
 ### Resume after interruption
 

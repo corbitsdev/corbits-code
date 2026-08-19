@@ -26,16 +26,23 @@ export const listDirDefinition: ToolDefinition = {
 const MAX_ENTRIES = 200;
 
 export type ListDirectoryOptions = {
-  // When true (--dangerously-skip-permissions), list paths outside the workspace.
-  allowOutside?: boolean;
+  // When true (--dangerously-skip-permissions / yolo), list paths outside the
+  // workspace. A getter is resolved per call so `/yolo` mid-session takes
+  // effect without rebuilding the tool.
+  allowOutside?: boolean | (() => boolean);
 };
+
+function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+  if (typeof value === "function") return value();
+  return value === true;
+}
 
 export async function listDirectory(
   cwd: string,
   path: string,
   options: ListDirectoryOptions = {},
 ): Promise<string> {
-  const allowOutside = options.allowOutside === true;
+  const allowOutside = resolveAllowOutside(options.allowOutside);
   const rel = path.length > 0 ? path : ".";
   const abs = resolve(cwd, rel);
   if (!allowOutside && abs !== cwd && !abs.startsWith(cwd + sep)) {

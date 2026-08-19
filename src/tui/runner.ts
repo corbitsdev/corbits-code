@@ -1850,6 +1850,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   const commandContext: CommandContext = {
     signalClear: newSession,
+    getSkipPermissions: () => permissionGate.getSkipPermissions(),
+    setSkipPermissions: (value: boolean) => {
+      permissionGate.setSkipPermissions(value);
+    },
     getCostSummary: (): CostSummary => {
       const usage = runSink.getTokenUsage();
       const lastTurnUsage = runSink.getLastTurnUsage();

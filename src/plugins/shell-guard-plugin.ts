@@ -337,16 +337,27 @@ function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
  * 10s wall-clock budget to grep/search_files when the agent does not abort
  * earlier. Does not modify interchange — short-circuits before the base tool.
  */
+export type ShellGuardPluginOptions = {
+  // When true (yolo / --dangerously-skip-permissions), shell may retain a cwd
+  // outside the session root. A getter is resolved per call so `/yolo`
+  // mid-session takes effect without rebuilding the plugin stack.
+  allowOutsideCwd?: boolean | (() => boolean);
+};
+
+function resolveAllowOutsideCwd(value: boolean | (() => boolean) | undefined): boolean {
+  if (typeof value === "function") return value();
+  return value === true;
+}
+
 export function shellGuardPlugin(
   cwd: string,
   timeoutConfig?: ShellTimeoutConfig,
   env?: Record<string, string>,
-  options: { allowOutsideCwd?: boolean } = {},
+  options: ShellGuardPluginOptions = {},
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
   const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
-  const allowOutsideCwd = options.allowOutsideCwd === true;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
@@ -376,6 +387,7 @@ export function shellGuardPlugin(
             typeof call.arguments.cwd === "string" && call.arguments.cwd.length > 0
               ? call.arguments.cwd
               : undefined;
+          const allowOutsideCwd = resolveAllowOutsideCwd(options.allowOutsideCwd);
           let executionCwd = retainedShellCwd;
           if (perCallCwdRaw !== undefined) {
             try {

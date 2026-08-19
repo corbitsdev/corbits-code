@@ -1103,6 +1103,33 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(1);
   });
 
+  test("setSkipPermissions toggles skip live", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => { asked++; return { allow: false }; },
+      interactive: true,
+      skipPermissions: false,
+      auto: false,
+    });
+    expect(gate.getSkipPermissions()).toBe(false);
+    const denied = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(denied.allowed).toBe(false);
+    expect(asked).toBe(1);
+
+    gate.setSkipPermissions(true);
+    expect(gate.getSkipPermissions()).toBe(true);
+    const allowed = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(allowed.allowed).toBe(true);
+    expect(asked).toBe(1);
+
+    gate.setSkipPermissions(false);
+    expect(gate.getSkipPermissions()).toBe(false);
+    const deniedAgain = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    expect(deniedAgain.allowed).toBe(false);
+    expect(asked).toBe(2);
+  });
+
   test("auto mode allows shell commands without prompting (authz plugin blocks dangerous ones upstream)", async () => {
     let asked = 0;
     const gate = createPermissionGate({

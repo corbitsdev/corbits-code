@@ -66,9 +66,11 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     shellEnv,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
-  // cwd are not hard-denied after the gate already auto-allows. Secret-guard and
-  // authz still hard-deny regardless.
-  const allowOutside = permissionGate.getSkipPermissions();
+  // cwd are not hard-denied after the gate already auto-allows. Pass a live
+  // getter so `/yolo` mid-session unlocks (or re-enforces) bounds without
+  // rebuilding the plugin stack. Secret-guard and authz still hard-deny
+  // regardless.
+  const allowOutside = (): boolean => permissionGate.getSkipPermissions();
   return [
     resultTruncationPlugin(),
     toolResultSecretScrubPlugin(),

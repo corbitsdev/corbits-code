@@ -63,4 +63,18 @@ describe("listDirectory", () => {
     const out = await listDirectory(dir, "escape", { allowOutside: true });
     expect(out.split("\n")).toContain("secret.txt");
   });
+
+  test("allowOutside getter is resolved per call", async () => {
+    const dir = await fixture();
+    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-getter-"));
+    await writeFile(join(outside, "other.txt"), "");
+    let allow = false;
+    const blocked = await listDirectory(dir, outside, { allowOutside: () => allow });
+    expect(blocked).toContain("outside the workspace");
+
+    allow = true;
+    const out = await listDirectory(dir, outside, { allowOutside: () => allow });
+    expect(out.split("\n")).toContain("other.txt");
+    expect(out).not.toContain("outside the workspace");
+  });
 });
