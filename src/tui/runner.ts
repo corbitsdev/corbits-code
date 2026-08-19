@@ -48,11 +48,12 @@ import { modelOptionId } from "./model-catalog.js";
 import type { SessionModeScope } from "./command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
-import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import { cycleReasoningEffort } from "../provider/reasoning-effort.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
@@ -164,11 +165,14 @@ import { mountRunnerHost } from "./runner-host.js";
 import {
   applyFocus,
   attachClipboardImage,
+  setEffortCycleHandler,
   setMentionSuggestionSource,
+  setPromptModelLabel,
   setPromptRecognitionSource,
   setSentMessageHistory,
   setShellInputSuspended,
   setShellRunState,
+  setStatusFlash,
   surfaceSystemNotice,
 } from "./shell.js";
 import {
@@ -2408,6 +2412,29 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     skillNames: skills.map((skill) => skill.name),
     agentNames: liveAgentProfiles.map((profile) => profile.id),
   }));
+
+  // Shift+Tab: cycle reasoning effort for the live model and rebuild sources so
+  // the next inference turn picks up the new providerOptions.reasoning_effort.
+  setEffortCycleHandler(host.shell, () => {
+    const next = cycleReasoningEffort(
+      config.model,
+      config.reasoningEffort,
+      isCodexProviderName(config.providerName),
+    );
+    if (next === undefined) {
+      setStatusFlash(host.shell, "this model has no reasoning effort levels");
+      return;
+    }
+    config = { ...config, reasoningEffort: next };
+    const bundle = buildSessionSources();
+    agentProxy.setSources(bundle.sources, bundle.defaultSource);
+    setPromptModelLabel(host.shell, {
+      profile: config.providerName,
+      model: config.model,
+      effort: next,
+    });
+    setStatusFlash(host.shell, `reasoning effort: ${next}`);
+  });
 
   // Recall spans the whole session, including what was sent before a resume.
   void loadSentMessages(config.cwd, sessionId)

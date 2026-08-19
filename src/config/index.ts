@@ -468,7 +468,8 @@ export async function loadConfig(
   // writes/edits and unconstrained shell) run without prompting, while shell
   // file-mutation stays denied and installs / recursive rm / worktree /
   // sensitive-path / opaque-wrapper shell still ask. Pass --no-auto to revert
-  // to ask-on-every-write, or toggle live in the TUI with SHIFT+TAB.
+  // to ask-on-every-write. There is currently no in-session key to toggle auto;
+  // Shift+Tab in the TUI cycles reasoning effort instead.
   let auto = true;
   let configPath: string | undefined;
   let provider: string | undefined;

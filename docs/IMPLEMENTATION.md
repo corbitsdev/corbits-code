@@ -154,6 +154,10 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 
 Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
+### Reasoning Effort
+
+**Shift+Tab** in the TUI cycles reasoning effort for the live model (`cycleReasoningEffort` in `src/provider/reasoning-effort.ts`); the runner rebuilds inference sources and the prompt-border `profile · model · effort` label so the next turn picks it up. Plain Tab still toggles focus.
+
 ### Interrupt and Queue Steering
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true:

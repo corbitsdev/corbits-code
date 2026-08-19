@@ -5,6 +5,7 @@ import {
   isReasoningEffort,
   supportedEfforts,
   validateEffort,
+  cycleReasoningEffort,
   setModelReasoningCapabilities,
   modelReasoningCapability,
   clampEffort,
@@ -95,6 +96,27 @@ describe("validateEffort", () => {
   test("rejects xhigh on unknown models", () => {
     expect(validateEffort("unknown", "xhigh").ok).toBe(false);
     expect(validateEffort("unknown", "minimal").ok).toBe(false);
+  });
+});
+
+describe("cycleReasoningEffort", () => {
+  afterEach(() => setModelReasoningCapabilities({}));
+
+  test("walks the gpt-5 ladder and wraps", () => {
+    expect(cycleReasoningEffort("gpt-5", undefined)).toBe("minimal");
+    expect(cycleReasoningEffort("gpt-5", "minimal")).toBe("low");
+    expect(cycleReasoningEffort("gpt-5", "low")).toBe("medium");
+    expect(cycleReasoningEffort("gpt-5", "medium")).toBe("high");
+    expect(cycleReasoningEffort("gpt-5", "high")).toBe("minimal");
+  });
+
+  test("starts at the first supported level when current is unsupported", () => {
+    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe("minimal");
+  });
+
+  test("returns undefined for a non-reasoning model", () => {
+    setModelReasoningCapabilities({ "chat-only-model": false });
+    expect(cycleReasoningEffort("chat-only-model", "medium")).toBeUndefined();
   });
 });
 

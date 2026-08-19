@@ -48,7 +48,7 @@ The evidence is in how the product fails today: the personas already produce exc
 $ corbits "Add JWT auth to the API"
 ```
 
-A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns.
+A full-screen terminal interface: a pinned header (session title and workflow progress), a scrollable event log, modals for permission prompts and operator questions, and a chat input for follow-up turns. Press **Shift+Tab** to cycle reasoning effort for the current model; the prompt border shows the active level. Plain **Tab** still toggles focus between the prompt and the transcript.
 
 **Behavior spec** (OpenTUI is the shipping shell): `docs/TUI.md` — layout,
 chrome budget, overlays, selectors, the `/` command list, prompt box, and

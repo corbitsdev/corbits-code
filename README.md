@@ -77,7 +77,7 @@ The chat director adds context management on top of the reactor:
 
 ## Permissions and auto mode
 
-Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/edits/deletes and unconstrained shell commands run without per-action prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode, or press **SHIFT+TAB** in the TUI to toggle at any time. Enabling auto prints a one-line reminder of the envelope below.
+Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/edits/deletes and unconstrained shell commands run without per-action prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode (there is currently no in-session key to toggle auto). Press **Shift+Tab** in the TUI to cycle reasoning effort for the current model. Enabling auto prints a one-line reminder of the envelope below.
 
 ### What auto allows
 

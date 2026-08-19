@@ -61,7 +61,8 @@ the pad is part of the bubble itself, not an extra turn-boundary gap, and
 assistant/tool rows are unchanged.
 
 The prompt box's border carries the metadata that would otherwise cost a
-titlebar row: the model label sits right-aligned in the top rule; the brand
+titlebar row: the model label sits right-aligned in the top rule as
+`profile · model · effort` (empty segments omitted); the brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui/shell.ts`). Both rules cost zero transcript rows because they
@@ -601,6 +602,10 @@ holding the current scroll lease responds to them.
 
 `Ctrl+G` (the Emacs/readline "abort" chord) cancels the most recently queued
 mid-run message. `Tab` toggles focus between the prompt and the transcript.
+`Shift+Tab` cycles reasoning effort for the current model (wrapping the
+supported ladder) and flashes the new level; the prompt-border effort
+segment updates immediately. A model with no effort levels flashes instead
+of mutating the session. Unshifted `Tab` still toggles focus.
 `e` (with Alt/Option) expands a collapsed row — a collapsed permission
 payload while an overlay owns focus, or a collapsed transcript row (tool
 output, a long diff) while the transcript does — one expand idiom shared

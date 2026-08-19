@@ -96,6 +96,25 @@ export function validateEffort(
   };
 }
 
+/**
+ * Next effort on the model's supported ladder (wraps around). Returns undefined
+ * when the model supports no reasoning effort — callers flash a status and leave
+ * the session config alone.
+ */
+export function cycleReasoningEffort(
+  model: string,
+  current: ReasoningEffort | undefined,
+  isCodex = false,
+): ReasoningEffort | undefined {
+  const supported = supportedEfforts(model, undefined, isCodex);
+  if (supported.length === 0) return undefined;
+  if (current === undefined || !supported.includes(current)) {
+    return supported[0];
+  }
+  const idx = supported.indexOf(current);
+  return supported[(idx + 1) % supported.length];
+}
+
 // ---------------------------------------------------------------------------
 // Role-based product defaults (CL-5162)
 //
