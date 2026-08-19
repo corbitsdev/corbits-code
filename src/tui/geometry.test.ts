@@ -560,4 +560,3 @@ describe("resolveGeometry — stack-only layout", () => {
     expect(layout.regions.agents).toBeUndefined();
   });
 });
-

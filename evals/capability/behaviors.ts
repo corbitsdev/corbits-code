@@ -225,7 +225,10 @@ export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetr
     }
     for (const call of turn.toolCalls) {
       toolCallsByName[call.name] = (toolCallsByName[call.name] ?? 0) + 1;
-      const signature = `${call.name}\0${normalizeToolArguments(call.arguments)}`;
+      const signature = JSON.stringify([
+        call.name,
+        normalizeToolArguments(call.arguments),
+      ]);
       if (seenCalls.has(signature)) repeatedSearchCount++;
       else seenCalls.add(signature);
 
