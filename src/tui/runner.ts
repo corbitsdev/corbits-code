@@ -1682,9 +1682,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   };
 
-  // A hard stop: closing the agent is the only thing that aborts the reactor
-  // mid-inference (the send signal only rejects the send promise). Close it,
-  // drain the old stream, and rebuild a fresh agent so the next send works.
+  // Hard stop only (Ctrl+C / doInterrupt). Soft steer (Enter mid-run enqueue)
+  // and follow-up (queued drain / deliver) must never call this — those paths
+  // leave in-flight workers running. Closing the agent is the only thing that
+  // aborts the reactor mid-inference (the send signal only rejects the send
+  // promise); that close cascades: operationController.abort → task-tool parent
+  // signal → child abort. Do not add cancelAll here — fleet cancelAll is
+  // reserved for /clear (newSession) and shutdown.
+  // Close it, drain the old stream, and rebuild a fresh agent so the next send
+  // works.
   const interrupt = (): void => {
     sendAborted = true;
     void enqueueOp(async () => {
