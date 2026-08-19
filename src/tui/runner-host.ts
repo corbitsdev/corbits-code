@@ -41,7 +41,7 @@ import {
   setShellExitHandler,
   surfaceSystemNotice,
 } from "./shell.js"
-import type { CostSummary } from "../cost/cost-summary.js"
+import type { CostSummary } from "../adapters/cost/cost-summary.js"
 import { watchGitBranch, type FetchBranch } from "./workspace-watch.js"
 import type { PromptActionBarModelLabelInput } from "./components/prompt-action-bar-label.js"
 import type { ObserveSession } from "./residuals.js"

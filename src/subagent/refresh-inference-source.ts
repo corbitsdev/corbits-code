@@ -1,7 +1,7 @@
 import type { InferenceSource } from "@intx/types/runtime";
 
-import { getValidCodexToken } from "../auth/codex/session.js";
-import { getValidXaiToken } from "../auth/xai/session.js";
+import { getValidCodexToken } from "../adapters/auth/codex/session.js";
+import { getValidXaiToken } from "../adapters/auth/xai/session.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";

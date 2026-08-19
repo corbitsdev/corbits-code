@@ -16,7 +16,7 @@ import {
   type ShellTimeoutConfig,
 } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
-import type { Telemetry } from "../telemetry/index.js";
+import type { Telemetry } from "../adapters/telemetry/index.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";

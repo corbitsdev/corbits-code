@@ -10,7 +10,7 @@ import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEv
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
-} from "./inference-abort.js";
+} from "./adapters/inference-abort.js";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
 

@@ -20,10 +20,10 @@ import {
   classifyAgentName,
   classifyErrorClass,
   classifyPermissionKind,
-} from "../../src/telemetry/classify.js";
+} from "../../src/adapters/telemetry/classify.js";
 
-import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
-import { captureSlashCommand } from "../../src/telemetry/product-events.js";
+import { createTelemetry, type Telemetry } from "../../src/adapters/telemetry/index.js";
+import { captureSlashCommand } from "../../src/adapters/telemetry/product-events.js";
 import {
   captureAuthFailure,
   classifyAgentSendFailure,

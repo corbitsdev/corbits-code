@@ -8,13 +8,13 @@ import {
   userInboundMessage,
 } from "./runner.js";
 import type { PendingImageAttachment } from "./image-attachments.js";
-import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import { TELEMETRY_NOTICE } from "../adapters/telemetry/index.js";
 import {
   armFeedbackCapture,
   cancelFeedbackCapture,
   isFeedbackCapturePending,
   resetFeedbackStateForTests,
-} from "../telemetry/feedback.js";
+} from "../adapters/telemetry/feedback.js";
 
 afterEach(() => {
   resetFeedbackStateForTests();

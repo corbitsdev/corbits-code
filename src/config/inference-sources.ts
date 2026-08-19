@@ -10,7 +10,7 @@ import {
   type ProviderCatalogEntry,
 } from "./index.js";
 import type { Settings } from "./settings.js";
-import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { ReasoningEffort } from "../adapters/provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { resolveDefaultModel } from "./providers.js";

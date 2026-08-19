@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 import { expect, test } from "bun:test";
 
-import { fetchPricing, loadPricing, parseModelsDevPricing, parseModelsDevContextWindows, readPricingCache, writePricingCache } from "../../src/cost/pricing-fetcher.js";
+import { fetchPricing, loadPricing, parseModelsDevPricing, parseModelsDevContextWindows, readPricingCache, writePricingCache } from "../../src/adapters/cost/pricing-fetcher.js";
 
 test("parseModelsDevContextWindows reads limit.context per model", () => {
   const windows = parseModelsDevContextWindows({

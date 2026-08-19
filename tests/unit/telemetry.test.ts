@@ -7,7 +7,7 @@ import {
   getSessionId,
   resolveTelemetryEnabled,
   telemetryDisabledByEnv,
-} from "../../src/telemetry/index.js";
+} from "../../src/adapters/telemetry/index.js";
 import { ensureTelemetrySettings } from "../../src/config/settings.js";
 import type { Settings } from "../../src/config/settings.js";
 

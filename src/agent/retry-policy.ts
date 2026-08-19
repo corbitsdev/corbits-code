@@ -1,6 +1,6 @@
 import { createDefaultRetryPolicy } from "@intx/inference";
 import type { RetryDecision, RetryPolicy, RetrySituation } from "@intx/types/runtime";
-import { normalizeInferenceErrorForRetry } from "../inference-gateway-error.js";
+import { normalizeInferenceErrorForRetry } from "../adapters/inference-gateway-error.js";
 
 // Providers that enforce long-window quotas (e.g. monthly limits) set
 // Retry-After to days or weeks. The default policy trusts that value and

@@ -28,11 +28,11 @@ import {
 } from "../config/settings.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
-import { getValidCodexToken } from "../auth/codex/session.js";
-import { getValidXaiToken } from "../auth/xai/session.js";
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
+import { createInferenceDependencies } from "../adapters/provider/inference-dependencies.js";
+import { getValidCodexToken } from "../adapters/auth/codex/session.js";
+import { getValidXaiToken } from "../adapters/auth/xai/session.js";
+import { seedPricingMetadataFromCache } from "../adapters/cost/pricing-metadata.js";
+import { defaultPricingCachePath } from "../adapters/cost/pricing-fetcher.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -54,7 +54,7 @@ import type {
   PermissionRequest,
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
-import { liveTelemetry } from "../telemetry/singleton.js";
+import { liveTelemetry } from "../adapters/telemetry/singleton.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
   expandExistingPluginMembers,

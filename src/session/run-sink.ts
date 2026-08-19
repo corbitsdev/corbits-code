@@ -1,7 +1,7 @@
 import type { EventEmitter } from "node:events";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { TokenUsage } from "@intx/types/runtime";
-import { createPerfReactorObserver } from "../perf/reactor-spans.js";
+import { createPerfReactorObserver } from "../adapters/perf/reactor-spans.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   createTurnContextCollector,

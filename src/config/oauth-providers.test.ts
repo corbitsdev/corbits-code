@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import type { CodexProfile } from "../auth/codex/store.js";
-import type { XaiProfile } from "../auth/xai/store.js";
+import type { CodexProfile } from "../adapters/auth/codex/store.js";
+import type { XaiProfile } from "../adapters/auth/xai/store.js";
 import {
   codexProfileFromProviderName,
   codexProfilesToCatalogEntries,

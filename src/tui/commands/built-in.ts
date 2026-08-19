@@ -1,11 +1,11 @@
 import { registerCommand } from "./registry.js";
-import { formatCostCommandOutput } from "../../cost/cost-summary.js";
+import { formatCostCommandOutput } from "../../adapters/cost/cost-summary.js";
 import {
   formatStartupChangelog,
   parseChangelog,
   resolveChangelogPath,
-} from "../../changelog/index.js";
-import { FEEDBACK_PROMPT, isFeedbackConfigured } from "../../telemetry/feedback.js";
+} from "../../adapters/changelog/index.js";
+import { FEEDBACK_PROMPT, isFeedbackConfigured } from "../../adapters/telemetry/feedback.js";
 
 /**
  * Register every built-in slash command.

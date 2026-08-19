@@ -13,7 +13,7 @@ import type { ProviderCatalogEntry } from "../config/index.js";
 import type { Settings } from "../config/settings.js";
 import type { ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
-import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { ReasoningEffort } from "../adapters/provider/reasoning-effort.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import type { TaskIntent } from "./report.js";
 

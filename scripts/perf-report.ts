@@ -19,8 +19,8 @@ import {
   attributionFromSpans,
   formatAttributionReport,
   type AttributionReport,
-} from "../src/perf/attribution-report.js";
-import { multiToolTurnFixture } from "../src/perf/fixtures/multi-tool-turn.js";
+} from "../src/adapters/perf/attribution-report.js";
+import { multiToolTurnFixture } from "../src/adapters/perf/fixtures/multi-tool-turn.js";
 
 function printUsage(): void {
   console.error(`Usage:

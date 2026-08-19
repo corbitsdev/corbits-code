@@ -1,8 +1,8 @@
 import { test, expect } from "bun:test";
-import { createTelemetryToggleHandler, type TelemetryToggleDeps } from "../../src/telemetry/toggle.js";
-import { createTelemetry, getSessionId } from "../../src/telemetry/index.js";
+import { createTelemetryToggleHandler, type TelemetryToggleDeps } from "../../src/adapters/telemetry/toggle.js";
+import { createTelemetry, getSessionId } from "../../src/adapters/telemetry/index.js";
 import type { Settings } from "../../src/config/settings.js";
-import type { Telemetry } from "../../src/telemetry/index.js";
+import type { Telemetry } from "../../src/adapters/telemetry/index.js";
 
 function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
   deps: TelemetryToggleDeps;

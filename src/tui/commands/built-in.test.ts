@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 import { registerBuiltInCommands } from "./built-in.js";
-import { buildCostSummary } from "../../cost/cost-summary.js";
+import { buildCostSummary } from "../../adapters/cost/cost-summary.js";
 
 registerBuiltInCommands();
 

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { SETTINGS_DIR_NAME } from "../branding.js";
-import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../adapters/provider/reasoning-effort.js";
 import { isSessionMode, type SessionMode } from "./session-mode.js";
 import { resolveDefaultModel } from "./providers.js";
 import {

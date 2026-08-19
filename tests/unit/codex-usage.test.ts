@@ -3,7 +3,7 @@ import {
   formatCodexUsage,
   formatCodexUsageCompact,
   type CodexUsage,
-} from "../../src/auth/codex/usage.js";
+} from "../../src/adapters/auth/codex/usage.js";
 
 describe("formatCodexUsage", () => {
   test("renders both windows with percent and reset, no dollar figures", () => {

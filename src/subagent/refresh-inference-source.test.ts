@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import * as codexSession from "../auth/codex/session.js";
-import * as xaiSession from "../auth/xai/session.js";
+import * as codexSession from "../adapters/auth/codex/session.js";
+import * as xaiSession from "../adapters/auth/xai/session.js";
 
 import type { InferenceSource } from "@intx/types/runtime";
 

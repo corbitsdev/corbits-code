@@ -6,8 +6,8 @@ import {
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
   CODEX_RESPONSES_PROVIDER,
-} from "../../src/provider/codex-responses-adapter.js";
-import { GROK_RESPONSES_PROVIDER } from "../../src/provider/grok-responses-adapter.js";
+} from "../../src/adapters/provider/codex-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER } from "../../src/adapters/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 

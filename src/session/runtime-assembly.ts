@@ -37,10 +37,10 @@ import {
   saveProviderModelApproval,
 } from "../permission/store.js";
 import type { Approval, GrantScope } from "../permission/types.js";
-import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import type { ReasoningEffort } from "../adapters/provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
-import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../adapters/telemetry/index.js";
 
 // ---------------------------------------------------------------------------
 // 1. Sub-agent provider literal

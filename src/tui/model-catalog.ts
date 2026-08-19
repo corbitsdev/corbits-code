@@ -9,11 +9,11 @@
  * Identity is `provider:model` (matches runner active-model string).
  */
 
-import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../provider/billing-product.js"
-import { getActivePricingCache } from "../cost/cost-visibility.js"
-import { lookupModelPricing, type PricingCache } from "../cost/pricing-fetcher.js"
-import { contextWindowFor, hasContextWindowFor } from "../provider/context-window.js"
-import { modelReasoningCapability } from "../provider/reasoning-effort.js"
+import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../adapters/provider/billing-product.js"
+import { getActivePricingCache } from "../adapters/cost/cost-visibility.js"
+import { lookupModelPricing, type PricingCache } from "../adapters/cost/pricing-fetcher.js"
+import { contextWindowFor, hasContextWindowFor } from "../adapters/provider/context-window.js"
+import { modelReasoningCapability } from "../adapters/provider/reasoning-effort.js"
 import type { ItemDescription } from "./shell.js"
 
 export type ModelCatalogSection = "recent" | "favorites" | "provider"

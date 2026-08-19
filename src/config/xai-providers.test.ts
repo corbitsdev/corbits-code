@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
-import type { XaiProfile } from "../auth/xai/store.js";
+import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../adapters/auth/xai/constants.js";
+import type { XaiProfile } from "../adapters/auth/xai/store.js";
 import { providerCatalogToSettings } from "./index.js";
 import {
   isXaiProviderName,

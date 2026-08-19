@@ -7,7 +7,7 @@ import {
   COMPACTION_WINDOW_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
-} from "../../src/provider/context-window.js";
+} from "../../src/adapters/provider/context-window.js";
 
 function usage(overrides: Partial<TokenUsage>): TokenUsage {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0, ...overrides };

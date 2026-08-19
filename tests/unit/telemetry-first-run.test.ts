@@ -3,8 +3,8 @@ import {
   activateHeldTelemetry,
   telemetryFirstRunPending,
   type FirstRunDeps,
-} from "../../src/telemetry/first-run.js";
-import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
+} from "../../src/adapters/telemetry/first-run.js";
+import { createTelemetry, type Telemetry } from "../../src/adapters/telemetry/index.js";
 import type { Settings } from "../../src/config/settings.js";
 
 function settingsWith(overrides: Settings["telemetry"] = {}): Settings {

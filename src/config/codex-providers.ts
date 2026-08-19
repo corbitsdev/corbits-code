@@ -1,5 +1,5 @@
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
-import type { CodexProfile } from "../auth/codex/store.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../adapters/auth/codex/constants.js";
+import type { CodexProfile } from "../adapters/auth/codex/store.js";
 import { createOAuthProviderProjection } from "./oauth-providers.js";
 
 export const CODEX_PROVIDER_PREFIX = "codex/";

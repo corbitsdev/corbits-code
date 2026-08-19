@@ -19,7 +19,7 @@ import { onTurnBoundary } from "./reactor-events.js";
 import { type } from "arktype";
 import { applyManageTasks, hasActiveTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 import { createCorbitsRetryPolicy } from "./retry-policy.js";
-import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
+import { isInternalRecoveryAbortRaw } from "../adapters/inference-abort.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
 import {

@@ -1,4 +1,4 @@
-import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER } from "../adapters/provider/grok-responses-adapter.js";
 import { isXaiProviderName } from "../config/xai-providers.js";
 
 /**

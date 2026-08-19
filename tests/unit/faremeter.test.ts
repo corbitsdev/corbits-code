@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { createFaremeter, formatCost } from "../../src/cost/faremeter.js";
+import { createFaremeter, formatCost } from "../../src/adapters/cost/faremeter.js";
 
 test("createFaremeter starts at zero", () => {
   const faremeter = createFaremeter();

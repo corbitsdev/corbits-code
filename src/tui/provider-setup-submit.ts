@@ -4,7 +4,7 @@ import {
   saveLocalSettings,
   type Settings,
 } from "../config/settings.js";
-import { validateProviderConnection } from "../provider/validate-connection.js";
+import { validateProviderConnection } from "../adapters/provider/validate-connection.js";
 import type { ProviderSetupSubmit } from "./provider-setup.js";
 
 /**

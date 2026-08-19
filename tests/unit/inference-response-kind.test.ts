@@ -18,12 +18,12 @@ import type {
   InferenceEvent,
   InferenceSource,
 } from "@intx/types/runtime";
-import { createInferenceDependencies } from "../../src/provider/inference-dependencies.js";
+import { createInferenceDependencies } from "../../src/adapters/provider/inference-dependencies.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   withCodexContentTypeRepair,
-} from "../../src/provider/codex-responses-adapter.js";
-import { CODEX_RESPONSES_PATH } from "../../src/auth/codex/constants.js";
+} from "../../src/adapters/provider/codex-responses-adapter.js";
+import { CODEX_RESPONSES_PATH } from "../../src/adapters/auth/codex/constants.js";
 
 const CODEX_URL = `https://chatgpt.com/backend-api${CODEX_RESPONSES_PATH}`;
 
@@ -194,7 +194,7 @@ describe("withCodexContentTypeRepair boundaries", () => {
     ) as typeof globalThis.fetch;
     try {
       const specifier =
-        "../../src/provider/inference-dependencies.js" + "?wiring-regression";
+        "../../src/adapters/provider/inference-dependencies.js" + "?wiring-regression";
       const mod = (await import(specifier)) as {
         createInferenceDependencies: () => Promise<Dependencies>;
       };

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { getLogger } from "@intx/log"
 
-import { installFileLogSink } from "../logging/sink.js"
+import { installFileLogSink } from "../adapters/logging/sink.js"
 import { createAppShell } from "./shell.js"
 import { withTestRenderer } from "./harness.js"
 

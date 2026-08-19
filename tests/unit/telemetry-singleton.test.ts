@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { getTelemetry, setTelemetry } from "../../src/telemetry/singleton.js";
-import { NOOP_TELEMETRY } from "../../src/telemetry/index.js";
+import { getTelemetry, setTelemetry } from "../../src/adapters/telemetry/singleton.js";
+import { NOOP_TELEMETRY } from "../../src/adapters/telemetry/index.js";
 
 test("getTelemetry defaults to a disabled no-op that never throws", () => {
   const telemetry = getTelemetry();

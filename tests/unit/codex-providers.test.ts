@@ -6,8 +6,8 @@ import {
   isCodexProviderName,
 } from "../../src/config/codex-providers.js";
 import { providerCatalogToSettings, type ProviderCatalogEntry } from "../../src/config/index.js";
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../../src/auth/codex/constants.js";
-import type { CodexProfile } from "../../src/auth/codex/store.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../../src/adapters/auth/codex/constants.js";
+import type { CodexProfile } from "../../src/adapters/auth/codex/store.js";
 
 describe("codex provider naming", () => {
   test("round-trips profile name through the codex/ prefix", () => {

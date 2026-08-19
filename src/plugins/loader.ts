@@ -7,7 +7,7 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import { parsePluginManifest, type PluginManifest } from "./manifest.js";
-import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../adapters/telemetry/index.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import {
   resolvePluginWarningHandler,

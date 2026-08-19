@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { CodexAuthError } from "../auth/codex/session.js";
-import { XaiAuthError } from "../auth/xai/session.js";
+import { CodexAuthError } from "../adapters/auth/codex/session.js";
+import { XaiAuthError } from "../adapters/auth/xai/session.js";
 import {
   classifySubAgentInferenceAuthFailure,
   formatSubAgentTaskAuthFailureMessage,

@@ -2,7 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   createGrokResponsesAdapter,
   GROK_USER_ID_OPTION,
-} from "../../src/provider/grok-responses-adapter.js";
+} from "../../src/adapters/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CodexAuthError } from "../auth/codex/session.js";
+import { CodexAuthError } from "../adapters/auth/codex/session.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {

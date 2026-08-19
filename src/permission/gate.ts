@@ -26,10 +26,10 @@ import {
   type McpToolPermissionRegistry,
 } from "../mcp/tool-permissions.js";
 import type { MCPClient } from "../mcp/client.js";
-import { end, start } from "../perf/index.js";
-import { currentTurnId } from "../perf/reactor-spans.js";
-import { classifyPermissionKind } from "../telemetry/classify.js";
-import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { end, start } from "../adapters/perf/index.js";
+import { currentTurnId } from "../adapters/perf/reactor-spans.js";
+import { classifyPermissionKind } from "../adapters/telemetry/classify.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../adapters/telemetry/index.js";
 
 // Closes out an operator prompt: ends the wait span and records the outcome.
 // buildRequests yields at most one request per tool call, and the two prompt

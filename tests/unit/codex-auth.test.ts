@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { generatePkce, generateState } from "../../src/auth/codex/pkce.js";
-import { accountIdFromIdToken, buildAuthorizeUrl, tokensFromResponse } from "../../src/auth/codex/oauth.js";
+import { generatePkce, generateState } from "../../src/adapters/auth/codex/pkce.js";
+import { accountIdFromIdToken, buildAuthorizeUrl, tokensFromResponse } from "../../src/adapters/auth/codex/oauth.js";
 import {
   listCodexProfiles,
   loadCodexProfile,
@@ -12,8 +12,8 @@ import {
   saveCodexProfile,
   updateCodexTokens,
   type CodexProfile,
-} from "../../src/auth/codex/store.js";
-import { CODEX_CLIENT_ID, CODEX_REDIRECT_URI } from "../../src/auth/codex/constants.js";
+} from "../../src/adapters/auth/codex/store.js";
+import { CODEX_CLIENT_ID, CODEX_REDIRECT_URI } from "../../src/adapters/auth/codex/constants.js";
 
 function base64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

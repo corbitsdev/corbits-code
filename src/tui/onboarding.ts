@@ -2,7 +2,7 @@ import { runTUI } from "./runner.js";
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
 import { loadConfig, type UnconfiguredConfig } from "../config/index.js";
 import { globalSettingsPath, loadSettings, localSettingsPath } from "../config/settings.js";
-import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
+import { activateHeldTelemetry, telemetryFirstRunPending } from "../adapters/telemetry/first-run.js";
 import { runProviderSetup } from "./provider-setup.js";
 
 export async function runOnboarding(config: UnconfiguredConfig): Promise<number> {

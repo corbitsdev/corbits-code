@@ -11,7 +11,7 @@ import {
   createCodexResponsesAdapter,
   isResponsesStreamTerminal,
   tagSignature,
-} from "../../src/provider/codex-responses-adapter.js";
+} from "../../src/adapters/provider/codex-responses-adapter.js";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
 import { ProtocolMismatchError } from "@intx/inference";
 

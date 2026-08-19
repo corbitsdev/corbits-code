@@ -9,7 +9,7 @@ import {
   splitPendingControlTail,
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js"
-import { inferenceErrorMessage } from "../inference-error-message.js"
+import { inferenceErrorMessage } from "../adapters/inference-error-message.js"
 import type { RunState } from "./session-queue.js"
 
 /** Canonical inbound events the bridge understands (fixtures + mapped reactor). */

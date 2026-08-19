@@ -26,12 +26,12 @@ import {
   type FirstClassOAuthProvider,
   type FirstClassProviderDef,
 } from "../../packages/first-class-providers/src/index.js"
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js"
-import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js"
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../adapters/auth/codex/constants.js"
+import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../adapters/auth/xai/constants.js"
 import { PRODUCT_NAME } from "../branding.js"
 import { codexProviderName } from "../config/codex-providers.js"
 import { xaiProviderName } from "../config/xai-providers.js"
-import { TELEMETRY_NOTICE } from "../telemetry/index.js"
+import { TELEMETRY_NOTICE } from "../adapters/telemetry/index.js"
 import { wrapLines } from "./view/height.js"
 import { resolveSideMargin } from "./geometry/margins.js"
 import {
@@ -262,10 +262,10 @@ export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>
  */
 const defaultProfileLister: OAuthProfileLister = async (kind) => {
   if (kind === "codex") {
-    const { listCodexProfiles } = await import("../auth/codex/store.js")
+    const { listCodexProfiles } = await import("../adapters/auth/codex/store.js")
     return (await listCodexProfiles()).map((p) => p.name)
   }
-  const { listXaiProfiles } = await import("../auth/xai/store.js")
+  const { listXaiProfiles } = await import("../adapters/auth/xai/store.js")
   return (await listXaiProfiles()).map((p) => p.name)
 }
 
@@ -708,10 +708,10 @@ const defaultLoginStarter: OAuthLoginStarter = async ({
   signal,
 }) => {
   if (kind === "codex") {
-    const { startCodexLogin } = await import("../auth/codex/login.js")
+    const { startCodexLogin } = await import("../adapters/auth/codex/login.js")
     return startCodexLogin({ profile, signal })
   }
-  const { startXaiLogin } = await import("../auth/xai/login.js")
+  const { startXaiLogin } = await import("../adapters/auth/xai/login.js")
   return startXaiLogin({ profile, signal })
 }
 

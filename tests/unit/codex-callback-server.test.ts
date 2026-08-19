@@ -1,6 +1,6 @@
 import { test, expect, describe, afterEach } from "bun:test";
-import { startCodexCallbackServer } from "../../src/auth/codex/callback-server.js";
-import { CODEX_CALLBACK_PORT, CODEX_CALLBACK_PATH } from "../../src/auth/codex/constants.js";
+import { startCodexCallbackServer } from "../../src/adapters/auth/codex/callback-server.js";
+import { CODEX_CALLBACK_PORT, CODEX_CALLBACK_PATH } from "../../src/adapters/auth/codex/constants.js";
 
 // These tests bind the fixed Codex callback port (1455). Each closes its server
 // in afterEach so the port is free for the next case.

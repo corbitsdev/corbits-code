@@ -3,7 +3,7 @@ import {
   formatXaiUsage,
   formatXaiUsageCompact,
   type XaiUsage,
-} from "../../src/auth/xai/usage.js";
+} from "../../src/adapters/auth/xai/usage.js";
 
 describe("formatXaiUsage", () => {
   test("renders tier and credit percent, no dollar figures", () => {

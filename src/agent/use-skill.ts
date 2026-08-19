@@ -4,7 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { resolveSkillBody } from "../extensions/skills.js";
-import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../adapters/telemetry/index.js";
 
 // Lazy skill loading: the available skills are listed by name + description in
 // the system prompt, but their full instructions are pulled into context only

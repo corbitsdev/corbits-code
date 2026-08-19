@@ -14,7 +14,7 @@
 
 import { stringWidth } from "./view/height.js"
 import { renderRamp } from "./ramp.js"
-import { formatContextPercentLabel } from "../cost/cost-summary.js"
+import { formatContextPercentLabel } from "../adapters/cost/cost-summary.js"
 
 /** Rounded box drawing, all single-cell. */
 export const BORDER = {

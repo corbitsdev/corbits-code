@@ -2,8 +2,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isCodexTokenExpired, getValidCodexToken, CodexAuthError } from "../../src/auth/codex/session.js";
-import { loadCodexProfile, saveCodexProfile } from "../../src/auth/codex/store.js";
+import { isCodexTokenExpired, getValidCodexToken, CodexAuthError } from "../../src/adapters/auth/codex/session.js";
+import { loadCodexProfile, saveCodexProfile } from "../../src/adapters/auth/codex/store.js";
 
 describe("isCodexTokenExpired", () => {
   test("not expired well before expiry", () => {

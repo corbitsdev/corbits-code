@@ -5,11 +5,11 @@ import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded, resolveLa
 import { loadState } from "../session/state.js";
 
 
-import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
-import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
-import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
-import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
+import { validateEffort, type ReasoningEffort } from "../adapters/provider/reasoning-effort.js";
+import { bootstrapPricingMetadata } from "../adapters/cost/pricing-metadata.js";
+import { defaultPricingCachePath, type PricingFetcherOptions } from "../adapters/cost/pricing-fetcher.js";
+import { listCodexProfiles, type CodexProfile } from "../adapters/auth/codex/store.js";
+import { listXaiProfiles, type XaiProfile } from "../adapters/auth/xai/store.js";
 import {
   codexProfilesToCatalogEntries,
   codexProvidersAsSettings,
@@ -23,17 +23,17 @@ import {
 import { fetchBifrostModels } from "./bifrost.js";
 
 export { fetchBifrostModels };
-import { CODEX_BASE_URL } from "../auth/codex/constants.js";
-import { XAI_BASE_URL } from "../auth/xai/constants.js";
+import { CODEX_BASE_URL } from "../adapters/auth/codex/constants.js";
+import { XAI_BASE_URL } from "../adapters/auth/xai/constants.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
-} from "../provider/codex-responses-adapter.js";
-import { GROK_RESPONSES_PROVIDER, GROK_USER_ID_OPTION } from "../provider/grok-responses-adapter.js";
-import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
-import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses-adapter.js";
-import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
+} from "../adapters/provider/codex-responses-adapter.js";
+import { GROK_RESPONSES_PROVIDER, GROK_USER_ID_OPTION } from "../adapters/provider/grok-responses-adapter.js";
+import { BIFROST_PROVIDER } from "../adapters/provider/bifrost-adapter.js";
+import { OPENAI_RESPONSES_PROVIDER } from "../adapters/provider/openai-responses-adapter.js";
+import { xaiUserIdFromAccessToken } from "../adapters/auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
   isOpenCodeGoProvider,

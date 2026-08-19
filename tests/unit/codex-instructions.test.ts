@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
-import { isValidCodexPrompt, codexInstructions } from "../../src/auth/codex/instructions.js";
-import { GPT_5_CODEX_PROMPT } from "../../src/auth/codex/prompts/gpt-5-codex.js";
+import { isValidCodexPrompt, codexInstructions } from "../../src/adapters/auth/codex/instructions.js";
+import { GPT_5_CODEX_PROMPT } from "../../src/adapters/auth/codex/prompts/gpt-5-codex.js";
 
 describe("isValidCodexPrompt", () => {
   test("accepts the bundled prompt", () => {

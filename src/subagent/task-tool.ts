@@ -24,7 +24,7 @@ import {
   resolveEffortForRole,
   validateEffort,
   type ReasoningEffort,
-} from "../provider/reasoning-effort.js";
+} from "../adapters/provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import {
@@ -41,10 +41,10 @@ import {
 import { isSubAgentCancelError } from "./dispose.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { generateSessionId } from "../session/index.js";
-import { end, start } from "../perf/index.js";
-import { currentTurnId } from "../perf/reactor-spans.js";
-import { classifyAgentName } from "../telemetry/classify.js";
-import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { end, start } from "../adapters/perf/index.js";
+import { currentTurnId } from "../adapters/perf/reactor-spans.js";
+import { classifyAgentName } from "../adapters/telemetry/classify.js";
+import { NOOP_TELEMETRY, type Telemetry } from "../adapters/telemetry/index.js";
 import { join } from "node:path";
 import type {
   NestedDispatchDeps,

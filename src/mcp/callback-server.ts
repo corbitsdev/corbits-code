@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { callbackPageHtml } from "../auth/callback-page.js";
+import { callbackPageHtml } from "../adapters/auth/callback-page.js";
 
 export type CallbackServer = {
   // The redirect_uri to register with the authorization server.

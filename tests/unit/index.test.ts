@@ -6,7 +6,7 @@ import type { Config } from "../../src/config/index.js";
 import {
   resetPricingMetadataRefreshForTests,
   schedulePricingMetadataRefresh,
-} from "../../src/cost/pricing-metadata.js";
+} from "../../src/adapters/cost/pricing-metadata.js";
 import { mainWithRunners } from "../../src/index.js";
 
 const envVars = {

@@ -1,4 +1,4 @@
-import type { CostSummary } from "../../cost/cost-summary.js";
+import type { CostSummary } from "../../adapters/cost/cost-summary.js";
 
 export type CommandContext = {
   signalClear: () => void;

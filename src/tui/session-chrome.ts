@@ -5,7 +5,7 @@
  * duplicating the state machine that produces it.
  */
 
-import type { Telemetry } from "../telemetry/index.js"
+import type { Telemetry } from "../adapters/telemetry/index.js"
 import type { FleetProgress } from "./agent-progress.js"
 import type { RampPhase } from "./ramp.js"
 

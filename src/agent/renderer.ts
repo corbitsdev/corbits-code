@@ -1,8 +1,8 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { createFaremeter, formatCost } from "../cost/faremeter.js";
-import type { PricingCache } from "../cost/pricing-fetcher.js";
-import { inferenceErrorMessage } from "../inference-error-message.js";
+import { createFaremeter, formatCost } from "../adapters/cost/faremeter.js";
+import type { PricingCache } from "../adapters/cost/pricing-fetcher.js";
+import { inferenceErrorMessage } from "../adapters/inference-error-message.js";
 
 export type Renderer = {
   render(event: ReactorEmittedEvent): void;

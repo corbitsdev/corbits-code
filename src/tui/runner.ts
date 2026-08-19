@@ -52,11 +52,11 @@ import { codexProfileFromProviderName, isCodexProviderName } from "../config/cod
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
-import { cycleReasoningEffort } from "../provider/reasoning-effort.js";
-import { getValidCodexToken } from "../auth/codex/session.js";
-import { getValidXaiToken } from "../auth/xai/session.js";
-import { refreshCodexInstructions } from "../auth/codex/instructions.js";
+import { createInferenceDependencies } from "../adapters/provider/inference-dependencies.js";
+import { cycleReasoningEffort } from "../adapters/provider/reasoning-effort.js";
+import { getValidCodexToken } from "../adapters/auth/codex/session.js";
+import { getValidXaiToken } from "../adapters/auth/xai/session.js";
+import { refreshCodexInstructions } from "../adapters/auth/codex/instructions.js";
 import {
   expandExistingPluginMembers,
   expandPluginPath,
@@ -95,7 +95,7 @@ import {
 } from "./commands/registry.js";
 import { registerBuiltInCommands } from "./commands/built-in.js";
 import type { PluginModule } from "../plugins/loader.js";
-import { createTurnObserver } from "../telemetry/ai-observability.js";
+import { createTurnObserver } from "../adapters/telemetry/ai-observability.js";
 import {
   armFeedbackCapture,
   cancelFeedbackCapture,
@@ -104,25 +104,25 @@ import {
   getLastTurnTraceId,
   isFeedbackCapturePending,
   takeFeedbackCapture,
-} from "../telemetry/feedback.js";
-import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
-import { TELEMETRY_NOTICE } from "../telemetry/index.js";
-import { captureSlashCommand } from "../telemetry/product-events.js";
-import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
-import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
+} from "../adapters/telemetry/feedback.js";
+import { activateHeldTelemetry, telemetryFirstRunPending } from "../adapters/telemetry/first-run.js";
+import { TELEMETRY_NOTICE } from "../adapters/telemetry/index.js";
+import { captureSlashCommand } from "../adapters/telemetry/product-events.js";
+import { getTelemetry, liveTelemetry, setTelemetry } from "../adapters/telemetry/singleton.js";
+import { createTelemetryToggleHandler } from "../adapters/telemetry/toggle.js";
 
 import {
   loadStartupChangelogMarkdown,
   stampVersionAfterStartup,
-} from "../changelog/index.js";
-import { scheduleUpgradeNotice } from "../upgrade/index.js";
+} from "../adapters/changelog/index.js";
+import { scheduleUpgradeNotice } from "../adapters/upgrade/index.js";
 import pkg from "../../package.json" with { type: "json" };
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
-import { getActivePricingCache } from "../cost/cost-visibility.js";
-import { createFaremeter, formatCost } from "../cost/faremeter.js";
-import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
-import { contextTokensFromUsage } from "../provider/context-window.js";
+import { seedPricingMetadataFromCache } from "../adapters/cost/pricing-metadata.js";
+import { defaultPricingCachePath } from "../adapters/cost/pricing-fetcher.js";
+import { getActivePricingCache } from "../adapters/cost/cost-visibility.js";
+import { createFaremeter, formatCost } from "../adapters/cost/faremeter.js";
+import { buildCostSummary, type CostSummary } from "../adapters/cost/cost-summary.js";
+import { contextTokensFromUsage } from "../adapters/provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
   advertisedTools,
@@ -202,7 +202,7 @@ import { resolveSessionLabel, truncateSessionLabel } from "../session/session-la
 import { finalizeRunState, loadState, saveState, type ConnectedMcpServer, type RunState } from "../session/state.js";
 import { setActiveRun, clearActiveRun, type RunStateHandle } from "../session/active-run.js";
 import { setActiveDisposeHost, clearActiveDisposeHost } from "../session/active-host.js";
-import { openInBrowser } from "../auth/oauth/browser.js";
+import { openInBrowser } from "../adapters/auth/oauth/browser.js";
 import { pickSession } from "./pick-session.js";
 import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "./turns-to-blocks.js";
 import { WorkflowController } from "./workflow-controller.js";

@@ -4,7 +4,7 @@ import {
   INFERENCE_ABORT_USER_STOP,
   isInternalRecoveryAbortRaw,
   isNonTerminalInferenceError,
-} from "../../src/inference-abort.js";
+} from "../../src/adapters/inference-abort.js";
 
 test("isInternalRecoveryAbortRaw matches internal-recovery origin", () => {
   expect(isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_INTERNAL_RECOVERY })).toBe(true);

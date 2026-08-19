@@ -7,7 +7,7 @@ import type {
   TokenUsage,
 } from "@intx/types/runtime";
 import { createCompactionGovernor } from "./compaction.js";
-import { compactionThresholdFor } from "../provider/context-window.js";
+import { compactionThresholdFor } from "../adapters/provider/context-window.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 
 const capabilities = {

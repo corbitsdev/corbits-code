@@ -10,7 +10,7 @@ const realNodeOs = { ...nodeOs };
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
-import { resetPricingMetadataRefreshForTests } from "../../src/cost/pricing-metadata.js";
+import { resetPricingMetadataRefreshForTests } from "../../src/adapters/cost/pricing-metadata.js";
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected

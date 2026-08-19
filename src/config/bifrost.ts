@@ -1,4 +1,4 @@
-import { requestModelsEndpoint } from "../provider/models-endpoint.js";
+import { requestModelsEndpoint } from "../adapters/provider/models-endpoint.js";
 
 /**
  * Fetch the model list from a Bifrost gateway for the given virtual key.

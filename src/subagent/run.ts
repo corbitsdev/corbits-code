@@ -4,7 +4,7 @@
 
 import { mkdir } from "node:fs/promises";
 
-import { liveTelemetry } from "../telemetry/singleton.js";
+import { liveTelemetry } from "../adapters/telemetry/singleton.js";
 import { join } from "node:path";
 
 import {
@@ -25,11 +25,11 @@ import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import type { BlobReader, InboundMessage } from "@intx/types/runtime";
 
-import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
+import { seedPricingMetadataFromCache } from "../adapters/cost/pricing-metadata.js";
+import { defaultPricingCachePath } from "../adapters/cost/pricing-fetcher.js";
 import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
-import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import { createInferenceDependencies } from "../adapters/provider/inference-dependencies.js";
 import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";

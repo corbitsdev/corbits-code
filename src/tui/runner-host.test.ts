@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import type { KeyEvent } from "@opentui/core"
 
-import type { CostSummary } from "../cost/cost-summary.js"
+import type { CostSummary } from "../adapters/cost/cost-summary.js"
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
 import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction } from "./shell.js"

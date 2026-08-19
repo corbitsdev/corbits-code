@@ -5,7 +5,7 @@ import type {
   ReactorInboundEvent,
   ToolDefinition,
 } from "@intx/types/runtime";
-import { compactionThresholdFor, contextTokensFromUsage } from "../provider/context-window.js";
+import { compactionThresholdFor, contextTokensFromUsage } from "../adapters/provider/context-window.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 import { onTurnBoundary } from "./reactor-events.js";
