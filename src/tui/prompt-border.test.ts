@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test"
 import {
   BORDER,
   CONTEXT_PRESSURE_THRESHOLD,
+  MCP_ATTENTION_LABEL,
+  PLUGIN_ATTENTION_LABEL,
   abbreviateHome,
+  composeAttentionLabel,
   composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
@@ -149,6 +152,28 @@ describe("composeRule", () => {
     expect(ruleWidth(parts)).toBe(40)
     expect(parts.some((p) => p.role === "attention")).toBe(true)
     expect(parts.some((p) => p.role === "label")).toBe(true)
+  })
+
+  test("combined mcp and plugin attention seats as one run", () => {
+    const attention = composeAttentionLabel({ mcp: true, plugin: true })
+    expect(attention).toBe("mcp ! · plugin !")
+    const parts = composeRule({
+      width: 48,
+      corners: TOP,
+      attention: attention!,
+      label: "xai · grok",
+    })
+    expect(ruleText(parts)).toContain("mcp ! · plugin !")
+    expect(parts.filter((p) => p.role === "attention")).toHaveLength(1)
+  })
+
+  test("composeAttentionLabel covers each attention combination", () => {
+    expect(composeAttentionLabel({})).toBeUndefined()
+    expect(composeAttentionLabel({ mcp: true })).toBe(MCP_ATTENTION_LABEL)
+    expect(composeAttentionLabel({ plugin: true })).toBe(PLUGIN_ATTENTION_LABEL)
+    expect(composeAttentionLabel({ mcp: true, plugin: true })).toBe(
+      "mcp ! · plugin !",
+    )
   })
 
   test("attention alone still seats when there is no model label", () => {

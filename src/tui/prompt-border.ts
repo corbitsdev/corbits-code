@@ -89,6 +89,23 @@ type RightBlock = {
 /** Compact standing mark when any MCP server still needs authorization. */
 export const MCP_ATTENTION_LABEL = "mcp !"
 
+/** Compact standing mark when plugin load left standing warnings (see `/plugins`). */
+export const PLUGIN_ATTENTION_LABEL = "plugin !"
+
+/**
+ * Build the single attention slot. MCP and plugin marks share one run so the
+ * border never grows a second attention cell — operator-chosen combined form.
+ */
+export function composeAttentionLabel(opts: {
+  readonly mcp?: boolean
+  readonly plugin?: boolean
+}): string | undefined {
+  const parts: string[] = []
+  if (opts.mcp === true) parts.push(MCP_ATTENTION_LABEL)
+  if (opts.plugin === true) parts.push(PLUGIN_ATTENTION_LABEL)
+  return parts.length > 0 ? parts.join(" · ") : undefined
+}
+
 /** The meter, attention mark, and label — in that order, joined by a fixed dash run. */
 function buildRightBlock(
   meterCell: string,

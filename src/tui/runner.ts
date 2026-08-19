@@ -67,6 +67,7 @@ import {
   createPluginLoadDiagnostics,
   emitPluginWarningLog,
   formatPluginWarningsSummary,
+  warningsForPluginEntry,
 } from "../plugins/diagnostics.js";
 import {
   isPluginTrusted,
@@ -166,6 +167,7 @@ import {
   attachClipboardImage,
   setEffortCycleHandler,
   setMentionSuggestionSource,
+  setPluginNeedsAttention,
   setPromptModelLabel,
   setPromptRecognitionSource,
   setSentMessageHistory,
@@ -551,16 +553,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     telemetry: liveTelemetry,
   });
   emitPluginWarningLog(pluginLoadDiag);
-  // Fire-and-forget startup diagnostics (this + tool-plugin resolution below)
-  // have no result channel back to an operator action, unlike verify/add-path/
-  // trust-grant. A log-only summary is invisible — nobody watches
-  // ~/.corbits/logs/corbits.log — so these are queued and handed to
-  // the shell one at a time once it mounts.
-  const startupPluginNotices: string[] = [];
-  const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
-  if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
+  // Fire-and-forget startup diagnostics (this + tool-plugin / profile resolution
+  // below) have no result channel back to an operator action. Log-only is fine
+  // for the structured logger; the standing `plugin !` mark and `/plugins`
+  // surface carry the same warnings to the operator instead of a startup
+  // system notice.
+  const standingPluginWarnings: string[] = [...pluginLoadDiag.warnings];
+  // Host mounts later; attention is painted once the shell exists.
+  let paintPluginAttention: ((needs: boolean) => void) | null = null;
+  const notePluginWarnings = (warnings: readonly string[]): void => {
+    if (warnings.length === 0) return;
+    standingPluginWarnings.push(...warnings);
+    paintPluginAttention?.(standingPluginWarnings.length > 0);
+  };
   // Saved through onboarding's "save anyway" bypass without a passing
   // connection test — warn now instead of a bare adapter error on first send.
+  const startupPluginNotices: string[] = [];
   if (config.verified === false) {
     startupPluginNotices.push(
       `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,
@@ -835,8 +843,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   ]);
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
   emitPluginWarningLog(toolPluginDiag);
-  const toolPluginNotice = formatPluginWarningsSummary(toolPluginDiag.warnings);
-  if (toolPluginNotice !== undefined) startupPluginNotices.push(toolPluginNotice);
+  standingPluginWarnings.push(...toolPluginDiag.warnings);
 
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
@@ -930,6 +937,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             diagnostics: trustDiag,
           });
           trustGrantMessage = formatPluginWarningsSummary(trustDiag.warnings);
+          notePluginWarnings(trustDiag.warnings);
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -982,6 +990,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // logging them: "loaded — N profiles" must not read identically whether
         // or not a profile's skill ref actually resolved.
         const warnings = formatPluginWarningsSummary(verifyDiag.warnings);
+        notePluginWarnings(verifyDiag.warnings);
         const base = `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`;
         return { ok: true, message: warnings === undefined ? base : `${base} (${warnings})` };
       }
@@ -1072,6 +1081,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
       const warnings = formatPluginWarningsSummary(addDiag.warnings);
+      notePluginWarnings(addDiag.warnings);
       return {
         ok: true,
         message:
@@ -1119,10 +1129,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     { diagnostics: profileDiag },
   );
   emitPluginWarningLog(profileDiag);
-  // Same fire-and-forget reasoning as the discovery/tool-plugin notices above:
-  // this runs before `host` exists, so it is queued rather than dropped.
-  const profileNotice = formatPluginWarningsSummary(profileDiag.warnings);
-  if (profileNotice !== undefined) startupPluginNotices.push(profileNotice);
+  standingPluginWarnings.push(...profileDiag.warnings);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
@@ -2243,6 +2250,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           const cfg = pluginsAdmin.getConfig();
           return pluginsAdmin.list().map((p) => {
             const mod = livePluginModules.find((m) => m.manifest?.id === p.id);
+            const attributed = warningsForPluginEntry(standingPluginWarnings, {
+              id: p.id,
+              ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
+            });
             return {
               id: p.id,
               name: p.name,
@@ -2257,6 +2268,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               ...(p.needsTrust === true && mod?.pluginPath !== undefined
                 ? { originPath: mod.pluginPath }
                 : {}),
+              ...(attributed.length > 0 ? { warnings: attributed } : {}),
             };
           });
         },
@@ -2273,6 +2285,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         webProviders: () => webPluginCandidates.map((c) => ({ id: c.id, name: c.name })),
         currentWebProvider: () => pluginsAdmin.getWebOverride(),
         setWebProvider: (id) => pluginsAdmin.setWebOverride(id),
+        loadWarnings: () => standingPluginWarnings,
       },
       mcp: {
         list: () =>
@@ -2507,14 +2520,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     });
 
-  // Surface fire-and-forget startup plugin diagnostics now that there is a
-  // shell to say them to (queued above, before `host` existed).
+  // Surface fire-and-forget startup notices now that there is a shell (queued
+  // above, before `host` existed). Plugin load warnings are NOT notices — they
+  // drive `plugin !` and `/plugins` instead.
   for (const notice of startupPluginNotices)
     surfaceSystemNotice(host.shell, notice);
+  paintPluginAttention = (needs) => setPluginNeedsAttention(host.shell, needs);
+  paintPluginAttention(standingPluginWarnings.length > 0);
 
   // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
   // surfaceSystemNotice keeps the landing hero up and flushes into the transcript
-  // once a session row ends the landing (same path as plugin/MCP startup chatter).
+  // once a session row ends the landing (same path as MCP startup chatter).
   scheduleUpgradeNotice({
     notify: (text) => surfaceSystemNotice(host.shell, text),
     options: {

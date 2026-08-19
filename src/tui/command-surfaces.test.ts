@@ -84,6 +84,21 @@ describe("surface labels", () => {
     ).toBe("exa — enabled")
   })
 
+  test("plugin label surfaces standing load warnings", () => {
+    expect(
+      pluginRowLabel({
+        id: "agents",
+        name: "agents",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        warnings: [
+          'agent a: skill "style" referenced but not found in skill search path',
+        ],
+      }),
+    ).toBe("agents — enabled — has warnings")
+  })
+
 })
 
 /** Build a settings deps bag over a mutable snapshot, recording every write. */
@@ -396,6 +411,37 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
 }
 
 describe("plugins surface admin actions", () => {
+  test("load warnings appear as a summary row under /plugins", async () => {
+    await withShell(async (shell) => {
+      const warnings = [
+        'agent a: skill "style" referenced but not found in skill search path',
+        'agent a: skill "philosophy" referenced but not found in skill search path',
+      ]
+      const { deps } = pluginActionDeps({
+        id: "agents",
+        name: "agents",
+        kind: "agent",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        warnings,
+        agentProfiles: [{ id: "a" }],
+      })
+      // pluginActionDeps builds PluginsSurfaceDeps without loadWarnings; splice it in.
+      const plugins = deps.plugins!
+      const withWarnings: CommandSurfaceDeps = {
+        ...deps,
+        plugins: {
+          ...plugins,
+          loadWarnings: () => warnings,
+        },
+      }
+      openCommandSurface(shell, "plugins", withWarnings)
+      expect(shell.overlayItems.some((l) => l.includes("2 skills missing"))).toBe(true)
+      expect(shell.overlayItems.some((l) => l.includes("has warnings"))).toBe(true)
+    })
+  })
+
   test("c opens credentials, typing a 40+ char key and s saves it in full", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps()

@@ -8,6 +8,8 @@ import {
   emitPluginWarningSummary,
   formatPluginWarningsSummary,
   pluginWarningSink,
+  pluginWarningSubjectId,
+  warningsForPluginEntry,
 } from "./diagnostics.js";
 import { loadPluginEntry } from "./loader.js";
 
@@ -76,6 +78,40 @@ describe("formatPluginWarningsSummary", () => {
     ]);
     expect(summary).toContain("1 skill missing (style)");
     expect(summary).toContain("1 other warning");
+  });
+});
+
+describe("pluginWarningSubjectId / warningsForPluginEntry", () => {
+  test("extracts agent and tool-plugin subject ids", () => {
+    expect(
+      pluginWarningSubjectId(
+        'agent a: skill "style" referenced but not found in skill search path',
+      ),
+    ).toBe("a");
+    expect(
+      pluginWarningSubjectId('tool-plugin: failed to start "exa": boom'),
+    ).toBe("exa");
+    expect(pluginWarningSubjectId("other problem")).toBeUndefined();
+  });
+
+  test("attributes skill-miss warnings via plugin id or agent profile id", () => {
+    const warnings = [
+      'agent a: skill "style" referenced but not found in skill search path',
+      'agent b: skill "philosophy" referenced but not found in skill search path',
+      'tool-plugin: failed to start "exa": boom',
+    ];
+    expect(
+      warningsForPluginEntry(warnings, {
+        id: "pack",
+        agentProfiles: [{ id: "a" }],
+      }),
+    ).toEqual([
+      'agent a: skill "style" referenced but not found in skill search path',
+    ]);
+    expect(warningsForPluginEntry(warnings, { id: "exa" })).toEqual([
+      'tool-plugin: failed to start "exa": boom',
+    ]);
+    expect(warningsForPluginEntry(warnings, { id: "other" })).toEqual([]);
   });
 });
 

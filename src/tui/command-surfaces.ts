@@ -10,6 +10,7 @@
 
 import type { KeyEvent } from "@opentui/core"
 
+import { formatPluginWarningsSummary } from "../plugins/diagnostics.js"
 import { maskEcho, maskSecret } from "./provider-setup.js"
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js"
 import {
@@ -54,6 +55,11 @@ export type PluginEntry = {
   readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[]
   /** Absolute path an untrusted path-origin plugin was discovered at. */
   readonly originPath?: string
+  /**
+   * Standing load warnings attributable to this plugin (skill misses named by
+   * agent id, failed tool starts, …). Surfaced in the row hint and description.
+   */
+  readonly warnings?: readonly string[]
 }
 
 /** Result of a verify/addPath admin action, reported via `deps.notify`. */
@@ -98,6 +104,12 @@ export type PluginsSurfaceDeps = {
   readonly webProviders: () => readonly WebProviderChoice[]
   readonly currentWebProvider: () => string | undefined
   readonly setWebProvider: (id: string | undefined) => Promise<void> | void
+  /**
+   * Standing session-level load warnings (or the full set when attribution is
+   * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
+   * runner, not this surface.
+   */
+  readonly loadWarnings?: () => readonly string[]
 }
 
 /** Discovered lifecycle hook, live enablement, and enough to describe what it runs. */
@@ -176,6 +188,8 @@ export type CommandSurfaceKind =
 
 const CLOSE_ID = "__close__"
 const BACK_ID = "__back__"
+/** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
+const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__"
 
 export function grantRowLabel(entry: GrantEntry): string {
   const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : ""
@@ -186,12 +200,18 @@ function pluginMissingCredential(entry: PluginEntry): boolean {
   return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0)
 }
 
+function pluginHasWarnings(entry: PluginEntry): boolean {
+  return (entry.warnings?.length ?? 0) > 0
+}
+
 export function pluginRowLabel(entry: PluginEntry): string {
   const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled"
   const blocker =
     entry.needsTrust !== true && !entry.enabled && pluginMissingCredential(entry)
       ? "needs api key"
-      : entry.kind
+      : pluginHasWarnings(entry)
+        ? "has warnings"
+        : entry.kind
   return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`
 }
 
@@ -207,6 +227,11 @@ function pluginDescription(entry: PluginEntry): ItemDescription {
   }
   if (!entry.enabled && pluginMissingCredential(entry)) {
     return { what, impact: "Needs an API key before it can be enabled — press Alt+C." }
+  }
+  if (pluginHasWarnings(entry) && entry.warnings !== undefined) {
+    const summary =
+      formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ")
+    return { what, impact: summary, tone: "consequence" }
   }
   return { what }
 }
@@ -749,6 +774,14 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     id: e.id,
     label: pluginRowLabel(e),
   }))
+  const loadWarnings = plugins.loadWarnings?.() ?? []
+  const loadSummary = formatPluginWarningsSummary(loadWarnings)
+  if (loadSummary !== undefined) {
+    rows.unshift({
+      id: PLUGIN_LOAD_WARNINGS_ID,
+      label: loadSummary.replace(/^plugins:\s*/, ""),
+    })
+  }
   if (rows.length === 0) {
     rows.push({ id: CLOSE_ID, label: "No plugins discovered" })
   }
@@ -760,12 +793,19 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     frameId: "overlay-plugins",
     ...payload(rows),
     describe: (id) => {
+      if (id === PLUGIN_LOAD_WARNINGS_ID) {
+        return {
+          what: loadSummary ?? "Plugin load warnings.",
+          impact: "Standing diagnostics from plugin discovery and load. Fix the named skills or plugins, then relaunch.",
+          tone: "consequence",
+        }
+      }
       const target = byId.get(id)
       return target === undefined ? null : pluginDescription(target)
     },
     onAccept: (selection) => {
       const id = selectedId(selection, rows)
-      if (id === undefined || id === CLOSE_ID) return
+      if (id === undefined || id === CLOSE_ID || id === PLUGIN_LOAD_WARNINGS_ID) return
       const target = byId.get(id)
       if (target === undefined) return
       if (target.needsTrust === true) {
@@ -788,6 +828,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       // branch returns before that handler is reached (see shell.ts's
       // top-level onKey), so exactly one of the two can ever fire.
       if (key.ctrl || !(key.meta || key.option)) return false
+      if (id === PLUGIN_LOAD_WARNINGS_ID) return false
       const target = byId.get(id)
       if (target === undefined) return false
       const name = typeof key.name === "string" ? key.name.toLowerCase() : ""

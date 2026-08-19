@@ -185,8 +185,8 @@ Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/pr
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true:
 
-- **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
-- **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
+- **Enter** soft-steers — enqueues kind `"steer"` and delivers at the next tool.boundary (does not interrupt).
+- **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only when the run goes idle. **Ctrl+C** stops the run.
 
 `src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
@@ -369,7 +369,7 @@ the directors guard on; the full set of reactor and stream event types is
 treat that as canonical rather than this section or any other doc's partial
 list.
 
-Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.
+Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. Mid-run gestures: Enter soft-steers (drain at tool.boundary), Alt+Enter queues a follow-up (drain on idle), Ctrl+C stops.
 
 ### Lifecycle Hooks
 

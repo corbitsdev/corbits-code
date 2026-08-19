@@ -9,6 +9,7 @@ import {
   setPromptModelLabel,
   setPromptWorkspace,
   setMcpNeedsAuth,
+  setPluginNeedsAttention,
   setShellBridgeHooks,
   setShellExitHandler,
   setStatusFlash,
@@ -154,6 +155,37 @@ describe("mcp attention rides the top border", () => {
       setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" })
       setMcpNeedsAuth(shell, ["granola"])
       setMcpNeedsAuth(shell, [])
+      expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+ xai · grok 4.6 ─╮$/u)
+    })
+  })
+})
+
+describe("plugin attention rides the top border", () => {
+  test("plugin ! sits immediately left of the model label", async () => {
+    await withShell((shell) => {
+      setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" })
+      setPluginNeedsAttention(shell, true)
+      const top = ruleOf(shell.promptTopRule)
+      expect(top).toMatch(/^╭─+ plugin ! ─ xai · grok 4.6 ─╮$/u)
+      expect(noticeText(shell)).toBe("")
+    })
+  })
+
+  test("mcp and plugin combine into one attention run", async () => {
+    await withShell((shell) => {
+      setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" })
+      setMcpNeedsAuth(shell, ["granola"])
+      setPluginNeedsAttention(shell, true)
+      const top = ruleOf(shell.promptTopRule)
+      expect(top).toMatch(/^╭─+ mcp ! · plugin ! ─ xai · grok 4.6 ─╮$/u)
+    })
+  })
+
+  test("clearing plugin attention drops the mark", async () => {
+    await withShell((shell) => {
+      setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" })
+      setPluginNeedsAttention(shell, true)
+      setPluginNeedsAttention(shell, false)
       expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+ xai · grok 4.6 ─╮$/u)
     })
   })
