@@ -11,6 +11,18 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### TUI
+
+- **Settled permission and operator prompts no longer recap into the chat.**
+  The overlay is the question; answering it used to leave a grey
+  `permission` / `operator` card restating the same command and the chosen
+  option. After a decision those recap rows are gone — the tool row that
+  follows is the outcome. Expanding a collapsed payload while the overlay is
+  still open still writes the full payload into the transcript, because that
+  text would otherwise be unreachable before approval.
+
 ## [0.2.98] - 2026-08-17
 
 Corrupt resume state no longer kills sessions, Codex quota errors name the

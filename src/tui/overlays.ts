@@ -92,11 +92,10 @@ export type OpenPermissionsOpts = {
   /** Per-open Esc/dismiss; host binds resolve(ApprovalOutcome) so Esc denies instead of hanging. */
   readonly onCancel?: () => void
   /**
-   * Suppress the generic accept/answer echo for this open. Callers that
-   * record their own authoritative decision row (e.g. gate-wire's
-   * recordDecision) pass `false` so the generic echo does not duplicate it;
-   * callers with no such recorder (e.g. the standalone demo) get the default
-   * echo so their choice still leaves a trace.
+   * Suppress the generic accept/answer echo for this open. Decision gates
+   * pass `false` so a settled permission does not replay into the
+   * transcript; callers with no such policy (e.g. the standalone demo)
+   * get the default echo so their choice still leaves a trace.
    */
   readonly echoChoice?: boolean
 }
@@ -135,10 +134,9 @@ export type OpenOperatorOpts = {
   /** Per-open Esc/dismiss; host binds resolve(cancel) so Esc cancels instead of hanging. */
   readonly onCancel?: () => void
   /**
-   * Suppress the generic accept/answer echo for this open. Callers that
-   * record their own authoritative decision row (e.g. gate-wire's
-   * recordOperatorDecision) pass `false` so the generic echo does not
-   * duplicate it; callers with no such recorder (e.g. the standalone demo)
+   * Suppress the generic accept/answer echo for this open. Decision gates
+   * pass `false` so a settled operator question does not replay into the
+   * transcript; callers with no such policy (e.g. the standalone demo)
    * get the default echo so their choice still leaves a trace.
    */
   readonly echoChoice?: boolean

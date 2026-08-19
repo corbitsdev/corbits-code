@@ -6,7 +6,7 @@
 
 import type { EventEmitter } from "node:events"
 import type { OperatorResult } from "../agent/tools.js"
-import { formatCommandForApproval, middleEllipsis } from "./command-display.js"
+import { formatCommandForApproval } from "./command-display.js"
 import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js"
 import type {
   ApprovalOutcome,
@@ -197,82 +197,6 @@ export function operatorCustomResult(text: string): OperatorResult {
   return { kind: "custom", text }
 }
 
-/** Label of the choice a selection lands on, or null when it maps to nothing. */
-function chosenLabel(
-  choices: PermissionGateChoices,
-  selection: GateSelection,
-): string | null {
-  if (selection.id !== undefined) {
-    const byId = choices.itemIds.indexOf(selection.id)
-    if (byId >= 0) return choices.items[byId] ?? null
-  }
-  return choices.items[selection.index] ?? null
-}
-
-/**
- * Write the ask and the answer to the transcript, once the operator has
- * decided. Deferred rather than emitted at gate time: while the overlay is up
- * it is already showing this text directly below the row, and printing it
- * twice reads as two separate requests. Scrollback still ends up complete.
- */
-function recordDecision(
-  shell: AppShell,
-  request: PermissionRequest,
-  choices: PermissionGateChoices,
-  selection: GateSelection,
-): void {
-  // Collapsing runs first, so this cap rarely bites; when it does,
-  // middleEllipsis keeps the tail of the chain visible instead of clipping the
-  // last segments away entirely.
-  const body = middleEllipsis(permissionBodyFromRequest(request), 500)
-  const label = chosenLabel(choices, selection)
-  const text = label === null ? body : `${body}\n→ ${label}`
-  if (text.length === 0) return
-  appendStreamRow(shell, { role: "system", text, meta: "permission" })
-}
-
-/**
- * Write a row for a request settled with no accept/cancel/autoDeny call site
- * of its own to hang a record onto: reconcile() (a newly-minted grant
- * covering this queued request) and drain() (session teardown denying
- * whatever is still queued) both settle the queue entry directly. Every
- * other terminal path (accept, Esc, timeout, abort) already writes its own
- * row at its own call site. Without this, the operator's only trace of the
- * highest-consequence event in the queue — a request that ran, or was
- * dropped, without ever being shown — is the transient grant-recorded flash
- * (nothing at all for teardown), gone once it scrolls off.
- */
-function recordSilentSettle(
-  shell: AppShell,
-  request: PermissionRequest,
-  outcome: ApprovalOutcome,
-): void {
-  const body = middleEllipsis(permissionBodyFromRequest(request), 500)
-  const label = outcome.allow
-    ? "Auto-approved (already granted)"
-    : "Denied (session ended)"
-  appendStreamRow(shell, {
-    role: "system",
-    text: `${body}\n→ ${label}`,
-    meta: "permission",
-  })
-}
-
-/**
- * Write the operator's question and answer to the transcript, once decided.
- * Mirrors recordDecision: the overlay already shows this text while it is
- * open, so an immediate echo would print every operator question twice.
- */
-function recordOperatorDecision(
-  shell: AppShell,
-  question: string,
-  label: string,
-): void {
-  const body = middleEllipsis(question, 500)
-  const text = `${body}\n→ ${label}`
-  appendStreamRow(shell, { role: "system", text, meta: "operator" })
-}
-
 /**
  * Blocked-ness is domain state, not a paint detail: the turn watchdog and the
  * painter both need to know a gate is outstanding, whether or not it has
@@ -402,31 +326,16 @@ export function wireGates(
     // re-invokes the overlay's own onCancel (see shell.ts's
     // closeInsetOverlay, which fires onCancel after notifying close
     // listeners) — settle's return value is how a call site tells that
-    // reentrant call apart from the original one, so recordDecision below
-    // fires exactly once per gate instead of once per reentry.
+    // reentrant call apart from the original one.
     const settle = (outcome: ApprovalOutcome): boolean =>
       permissionQueue.settle(id, outcome)
-    // Set immediately before every call to settle() from a known call site
-    // (accept, Esc, autoDeny), each of which writes its own row right after.
-    // reconcile() and drain() (src/permission/queue.ts) both settle an entry
-    // directly, with no call site of their own — the resolve callback below
-    // falls back to recordSilentSettle whenever this is still false, so a
-    // request that ran, or was dropped, without ever being shown still
-    // leaves a trace.
-    let recorded = false
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers()
-      // Captured before closeInsetOverlay below, which — when this entry is
-      // the one on screen — reentrantly invokes this same overlay's onCancel
-      // (see the comment on `settle` above) and would otherwise set
-      // `recorded` out from under this check before it runs.
-      const needsSilentSettleRecord = !recorded
       if (openedGeneration === undefined) {
         unqueue(open)
       } else if (openedGeneration === overlayGeneration) {
         closeInsetOverlay(shell)
       }
-      if (needsSilentSettleRecord) recordSilentSettle(shell, ev.request, outcome)
       resolve(outcome)
     })
 
@@ -459,9 +368,8 @@ export function wireGates(
         items: choices.items,
         itemIds: choices.itemIds,
         body: collapsedBody,
-        // recordDecision below is the authoritative transcript row for every
-        // terminal path — the overlay's own accept/answer echo would
-        // duplicate it.
+        // The overlay is the question. A settled gate must not replay the
+        // ask — or the overlay's generic accept echo — into the transcript.
         echoChoice: false,
         ...(collapsedAnything ? { onToggleExpand } : {}),
         onAccept: (sel: OverlaySelection) => {
@@ -469,19 +377,17 @@ export function wireGates(
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
           }
-          recorded = true
-          if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
-            recordDecision(shell, ev.request, choices, gateSelection)
-          }
+          settle(approvalOutcomeFromSelection(choices, gateSelection))
         },
         // Esc must settle the awaited promise (as a deny), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
         onCancel: () => {
-          const gateSelection = { index: 0, id: PERMISSION_DENY_ID }
-          recorded = true
-          if (settle(approvalOutcomeFromSelection(choices, gateSelection))) {
-            recordDecision(shell, ev.request, choices, gateSelection)
-          }
+          settle(
+            approvalOutcomeFromSelection(choices, {
+              index: 0,
+              id: PERMISSION_DENY_ID,
+            }),
+          )
         },
       })
     }
@@ -505,13 +411,7 @@ export function wireGates(
       ev.signal?.removeEventListener("abort", onAbort)
     }
     const autoDeny = (message: string): void => {
-      recorded = true
-      if (settle({ allow: false, message })) {
-        recordDecision(shell, ev.request, choices, {
-          index: 0,
-          id: PERMISSION_DENY_ID,
-        })
-      }
+      settle({ allow: false, message })
     }
     function onAbort(): void {
       autoDeny("tool no longer running; permission request denied")
@@ -556,23 +456,21 @@ export function wireGates(
       openedGeneration = overlayGeneration
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
-          autoCancel(ev.timeoutMessage ?? "Cancelled (timed out)")
+          autoCancel()
         }, ev.timeoutMs)
       }
       openOperatorOverlay(shell, {
         body: ev.question,
         choices: choices.items,
         itemIds: choices.itemIds,
-        // recordOperatorDecision below is the authoritative transcript row
-        // for every terminal path — the overlay's own accept/answer echo
-        // would duplicate it.
+        // The overlay is the question. A settled gate must not replay the
+        // ask — or the overlay's generic accept echo — into the transcript.
         echoChoice: false,
         onAccept: (sel: OverlaySelection) => {
           if (settled) return
           settled = true
           clearTimers()
           operatorTeardowns.delete(teardown)
-          recordOperatorDecision(shell, ev.question, sel.label)
           resolve(
             operatorResultFromSelection(ev.options, {
               index: sel.index,
@@ -587,7 +485,6 @@ export function wireGates(
           settled = true
           clearTimers()
           operatorTeardowns.delete(teardown)
-          recordOperatorDecision(shell, ev.question, text)
           resolve(operatorCustomResult(text))
         },
         // Esc must settle the awaited promise (as a cancel), not abandon it —
@@ -601,13 +498,12 @@ export function wireGates(
           settled = true
           clearTimers()
           operatorTeardowns.delete(teardown)
-          recordOperatorDecision(shell, ev.question, "Cancelled")
           resolve(operatorCancelResult())
         },
       })
     }
 
-    const settleOnce = (label: string, result: OperatorResult): void => {
+    const settleOnce = (result: OperatorResult): void => {
       if (settled) return
       settled = true
       clearTimers()
@@ -617,20 +513,19 @@ export function wireGates(
       } else if (openedGeneration === overlayGeneration) {
         closeInsetOverlay(shell)
       }
-      recordOperatorDecision(shell, ev.question, label)
       resolve(result)
     }
-    const autoCancel = (label: string): void => {
-      settleOnce(label, operatorCancelResult())
+    const autoCancel = (): void => {
+      settleOnce(operatorCancelResult())
     }
     const teardown = (): void => {
-      autoCancel("Cancelled (session ended)")
+      autoCancel()
     }
     function onAbort(): void {
-      autoCancel("Cancelled (tool no longer running)")
+      autoCancel()
     }
     if (ev.signal?.aborted === true) {
-      autoCancel("Cancelled (tool no longer running)")
+      autoCancel()
       return
     }
     ev.signal?.addEventListener("abort", onAbort, { once: true })

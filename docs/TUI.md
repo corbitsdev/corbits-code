@@ -139,28 +139,20 @@ removed line), not a decision marker, and no decision-marker shares that row.
 
 ## The live task list panel
 
-The `task` chrome zone renders a standing panel in the bottom chrome above the
-prompt, one row per open task the task tool has written (`manage_tasks`) —
-distinct from live sub-agent progress. A task is a unit of work with a status;
-an agent is an executor with its own context and transcript. They are never
-merged into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) feeds the
-checklist zone; live workers paint as `● Task …` transcript rows (see below).
+**Parked pending rebuild.** `formatChromeZones` (`src/tui/chrome-state.ts`)
+always returns `{ task: null, agents: null }` — neither the checklist strip nor
+the agents/fleet board auto-paints. Live work stays on transcript `● Task …`
+rows (see below). `formatTasksPanel` / `formatAgentsPanel` remain for a future
+rebuild; demos and shell tests may still feed preformatted rows via
+`setChromeZones` directly, and Alt+T (`toggleTasksPanel`) still toggles the
+shell's hidden flag for those manual paints.
 
-**One live surface at a time.** While any sub-agent session is `running`,
-`formatChromeZones` suppresses the task checklist and keeps the agents zone
-empty — the same work must not stand as a FLEET board *and* a checklist *and*
-live Task rows. When no lane is running, the checklist returns for open work
-(if the operator has opted in with Alt+T). A list that is only done/cancelled
-collapses to null (no permanent wall of `[x]` rows); while open work remains,
-recently-done rows trail so the operator can see items flip complete without a
-second status log.
-
-Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
-`[-]` cancelled) ahead of the title. Open work is listed first. The panel is
-bounded to `TASKS_PANEL_MAX_VISIBLE` rows: a longer list degrades to a trailing
-`+N more` row rather than growing the zone without limit, and it shrinks one
-row at a time under space pressure (`COLLAPSE_ORDER` in `geometry/zones.ts`)
-rather than vanishing in one step.
+A task is a unit of work with a status; an agent is an executor with its own
+context and transcript. They are never merged into one panel. When the
+checklist strip is rebuilt, each row will show a bracket status marker (`[ ]`
+todo, `[~]` doing, `[x]` done, `[-]` cancelled) ahead of the title, bounded to
+`TASKS_PANEL_MAX_VISIBLE` with a trailing `+N more` under overflow, and
+shrinking via `COLLAPSE_ORDER` in `geometry/zones.ts`.
 
 Two independent mechanisms keep the task panel from ever costing the prompt
 box a row on a short terminal, and they guarantee different things.
@@ -175,20 +167,17 @@ mechanism substitutes for the other: the cap bounds the prompt's own growth
 on any terminal, tall or short; the collapse order bounds what other zones
 are allowed to take from it once the transcript floor is at risk.
 
-The panel is **hidden by default** (CL-5847): a fresh shell does not paint the
-checklist even when `manage_tasks` has open work. `toggleTasksPanel` (bound to
-Alt+T) opts in for the shell's lifetime — it flips a hidden flag held on the
-shell in memory only, nothing written to storage — while the live task list
-keeps updating underneath it. Un-hiding shows the current list, not a stale
-snapshot from before the hide. Hidden or empty, the zone costs zero rows. The
-default is opt-in because the checklist's chrome owns too much of the screen to
-force into view; the operator toggles it on when they want it, and live Task
-rows still win while a fleet is running.
+The panel stays **hidden by default** (CL-5847): a fresh shell does not paint
+the checklist. `toggleTasksPanel` (bound to Alt+T) opts in for the shell's
+lifetime — it flips a hidden flag held on the shell in memory only — so demos
+and tests that call `setChromeZones` with task rows can still show them.
+Because `formatChromeZones` parks auto-paint, Alt+T alone does not surface a
+live `manage_tasks` list today.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-hydrate. `manage_tasks` calls paint no transcript rows — the checklist is the
-only surface for that list.
+hydrate. `manage_tasks` calls paint no transcript rows; with chrome strips
+parked, that list has no standing chrome surface until rebuild.
 
 ## Live sub-agent rows (Task tool)
 
@@ -203,8 +192,10 @@ operator-preferred Amp/Codex-style lines:
 `runtime-bridge` paints each `task` call as a stream row and rewrites it in
 place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
 stall marker). There is no standing FLEET board and no dual-rail agents chrome:
-`formatChromeZones` always returns `agents: null`, and geometry is stack-only
-(`layoutMode: "stack"`, `railWidth: 0`).
+`formatChromeZones` always returns both zones null (`task` and `agents`), and
+geometry is stack-only (`layoutMode: "stack"`, `railWidth: 0`). Checklist and
+agents strips are parked pending rebuild; Alt+T / direct `setChromeZones` may
+still paint for demos and tests.
 
 ### Unprompted fleet reports
 
@@ -251,6 +242,16 @@ unresolved gate "hangs the run until the process is killed"). This exists
 because an earlier version could abandon the awaited promise on Escape and
 leave the session parked with no recovery path short of killing the process;
 Escape must always settle the promise it is dismissing.
+
+Once a permission or operator prompt is answered — or cancelled, timed out,
+or auto-settled by a grant / abort / teardown — it leaves the screen and
+does **not** replay the request, the command, or the chosen option into the
+transcript. The overlay is the question; the tool row that follows is the
+outcome. Grey `permission` / `operator` recap cards restated the same ask
+after it was already decided. Expanding a collapsed payload while the
+overlay is open still writes the full payload into the scrollable
+transcript, because that text would otherwise be unreachable before
+approval.
 
 The decision surfaces (permission approval, operator question) are the one
 framed content in the shell, and they are shaped rather than merely listed

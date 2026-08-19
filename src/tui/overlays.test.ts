@@ -479,7 +479,7 @@ describe("accept echo reads the chosen value structurally", () => {
   })
 })
 
-describe("echoChoice defaults to on for callers with no recorder of their own", () => {
+describe("echoChoice defaults to on for callers with no gate policy", () => {
   test("openPermissionsOverlay with no echoChoice opt still echoes on accept", async () => {
     await withTestRenderer(
       async (h) => {
