@@ -42,7 +42,7 @@ describe("grok-responses buildRequest", () => {
     expect(body["stream"]).toBe(true);
     expect(body["store"]).toBe(false);
     expect(body["include"]).toEqual(["reasoning.encrypted_content"]);
-    expect(body["reasoning"]).toEqual({ summary: "auto" });
+    expect(body["reasoning"]).toEqual({ summary: "detailed" });
     // No `instructions` field — the system prompt rides as a system input message.
     expect(body["instructions"]).toBeUndefined();
     const input = body["input"] as Array<Record<string, unknown>>;

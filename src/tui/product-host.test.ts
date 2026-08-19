@@ -302,7 +302,7 @@ describe("mountProductHost", () => {
     expect(host.shell.streamLog).toEqual([])
   })
 
-  test("the agents panel's elapsed clock advances on the sticky poll tick, without another chrome push", async () => {
+  test("setChrome with running agents does not paint an agents panel clock", async () => {
     const now = Date.now()
     const { host, renderOnce, captureCharFrame } = await mountHeadless({
       chrome: {
@@ -320,14 +320,15 @@ describe("mountProductHost", () => {
     })
     try {
       await renderOnce()
-      expect(captureCharFrame()).toContain("0:59")
+      // Fleet board chrome is off — sticky poll must not resurrect an agents
+      // panel clock from injected chrome state.
+      expect(captureCharFrame()).not.toContain("0:59")
+      expect(captureCharFrame()).not.toContain("map callers")
 
-      // No further chrome push or event — only wall-clock time passing.
-      // Only the 200ms sticky poll can be responsible for the clock moving.
       await new Promise((r) => setTimeout(r, 1_100))
       await renderOnce()
-      expect(captureCharFrame()).not.toContain("0:59")
-      expect(captureCharFrame()).toMatch(/1:0\d/)
+      expect(captureCharFrame()).not.toMatch(/1:0\d/)
+      expect(captureCharFrame()).not.toContain("map callers")
     } finally {
       host.dispose()
     }

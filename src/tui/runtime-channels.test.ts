@@ -197,8 +197,8 @@ describe("permission.grant channel", () => {
   })
 })
 
-describe("agents chrome (store-driven tool state)", () => {
-  test("the live tool name reaches the agents chrome zone", async () => {
+describe("agents chrome (zone off — transcript Task rows own live lanes)", () => {
+  test("setChrome with running agents does not paint an agents zone", async () => {
     const { host, frame, cleanup } = await mountHeadless({
       chrome: {
         agents: [
@@ -213,20 +213,19 @@ describe("agents chrome (store-driven tool state)", () => {
       },
     })
     try {
-      // The board right-aligns each lane's tail into a column, so the tool
-      // name is on the row but no longer adjacent to the description.
+      // Fleet board chrome is off: live lane status rides transcript Task rows,
+      // not a dedicated agents zone. Injecting agents into chrome must not paint
+      // them into the frame or the transcript.
       const painted = await frame()
-      expect(painted).toContain("map callers")
-      expect(painted).toContain("grep")
-      // Progress is chrome, never a transcript row: one line per worker tool
-      // call would bury the turn it is a detail of.
+      expect(painted).not.toContain("map callers")
+      expect(painted).not.toContain("grep")
       expect(host.shell.streamLog).toEqual([])
     } finally {
       cleanup()
     }
   })
 
-  test("a later chrome push keeps the live tool name", async () => {
+  test("a later chrome push still leaves the agents zone empty", async () => {
     const { host, frame, cleanup } = await mountHeadless()
     try {
       host.setChrome({
@@ -241,8 +240,8 @@ describe("agents chrome (store-driven tool state)", () => {
         ],
       })
       const painted = await frame()
-      expect(painted).toContain("map callers")
-      expect(painted).toContain("grep")
+      expect(painted).not.toContain("map callers")
+      expect(painted).not.toContain("grep")
     } finally {
       cleanup()
     }
