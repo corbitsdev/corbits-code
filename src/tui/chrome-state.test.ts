@@ -30,15 +30,15 @@ describe("formatChromeZones", () => {
     })
   })
 
-  test("partial: task rows only", () => {
+  test("partial: task rows do not auto-paint (zones parked)", () => {
     const out = formatChromeZones({
       task: [{ title: "cutover readiness", status: "doing" }],
     })
-    expect(out.task).toEqual([{ label: "cutover readiness", status: "doing" }])
+    expect(out.task).toBeNull()
     expect(out.agents).toBeNull()
   })
 
-  test("running agents: agents zone stays null; checklist suppressed", () => {
+  test("running agents: both zones stay null", () => {
     const state: ChromeLiveState = {
       task: [
         { title: "chrome live helper", status: "doing" },
@@ -64,13 +64,12 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    // Transcript Task rows own live lane status — no FLEET board / agents zone.
-    // Checklist is suppressed while any lane is running.
+    // Both strips parked — live work stays on transcript ● Task rows.
     expect(out.task).toBeNull()
     expect(out.agents).toBeNull()
   })
 
-  test("idle with checklist still formats tasks when no lane is running", () => {
+  test("idle with open checklist still returns null (zones parked)", () => {
     const out = formatChromeZones(
       {
         task: [
@@ -89,10 +88,7 @@ describe("formatChromeZones", () => {
       NOW,
     )
     expect(out.agents).toBeNull()
-    expect(out.task).toEqual([
-      { label: "chrome live helper", status: "doing" },
-      { label: "wire chrome zone", status: "todo" },
-    ])
+    expect(out.task).toBeNull()
   })
 
   test("observe does not force an agents panel via formatChromeZones", () => {
@@ -113,8 +109,7 @@ describe("formatChromeZones", () => {
       },
       NOW,
     )
-    // Agents zone is always null from formatChromeZones; observe is not a
-    // chrome-zone surface here (agents zone stays empty; stack-only layout).
+    // Both zones always null from formatChromeZones (parked pending rebuild).
     expect(out.agents).toBeNull()
     expect(out.task).toBeNull()
   })
@@ -364,7 +359,7 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    // Running lanes suppress checklist; agents zone stays null (no FLEET board).
+    // Both chrome strips parked pending rebuild.
     expect(zones.task).toBeNull()
     expect(zones.agents).toBeNull()
   })

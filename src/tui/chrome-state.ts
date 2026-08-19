@@ -1,9 +1,16 @@
 /**
  * Live chrome zone formatter for setChromeZones.
  *
- * Pure: structured session state → one-line task / agents strings.
- * Heights stay with geometry (zones max 1 row each); this module never
- * invents row budgets.
+ * Pure: structured session state → task / agents zone rows.
+ * Heights stay with geometry; this module never invents row budgets.
+ *
+ * ## Parked auto-paint
+ *
+ * `formatChromeZones` currently always returns `{ task: null, agents: null }`
+ * — both chrome strips are parked pending rebuild. Live work stays on
+ * transcript `● Task …` rows. `formatTasksPanel` / `formatAgentsPanel` remain
+ * for demos, tests, and a future rebuild; manual `setChromeZones` can still
+ * feed preformatted rows.
  *
  * ## Product host push contract
  *
@@ -19,7 +26,8 @@
  *
  * Always pass the full snapshot so absent zones clear (`null` hides the zone).
  * Partial object fields mean “no data” → that zone line is null, not left
- * stale. Observe mode can override the agents line via `state.observe`.
+ * stale. Observe mode can override the agents line via `state.observe` when
+ * agents chrome is rebuilt.
  */
 
 import {
@@ -129,28 +137,20 @@ export type FormattedChromeZones = {
 /**
  * Format structured live state into chrome zone rows for setChromeZones.
  *
- * Empty / partial / inactive inputs yield null for the corresponding zone
- * so geometry collapses that strip (idleDefault 0).
- *
- * Live sub-agent work paints as `● Task …` transcript rows (runtime-bridge),
- * not as a standing FLEET board or dual-rail agents zone — those restated the
- * same lanes above the chat and made progress harder to read. The agents zone
- * stays empty so dual layout never engages. The manage_tasks checklist is
- * also suppressed while any lane is running; it returns once the fleet is dry.
+ * Both chrome strips (task checklist + agents/fleet board) are parked pending
+ * rebuild: this always returns `{ task: null, agents: null }` so nothing
+ * auto-paints in those zones. Live work stays on transcript `● Task …` rows
+ * (runtime-bridge). `formatTasksPanel` / `formatAgentsPanel` stay intact for
+ * demos, tests, and a future rebuild; manual `setChromeZones` / Alt+T can still
+ * feed preformatted rows into the shell.
  */
 export function formatChromeZones(
   state: ChromeLiveState,
   nowMs: number = Date.now(),
 ): FormattedChromeZones {
+  void state
   void nowMs
-  const hasLiveAgents =
-    state.agents !== null &&
-    state.agents !== undefined &&
-    state.agents.some((s) => s.status === "running")
-  // Fleet board chrome is off: transcript Task rows own live lane status.
-  const agents = null
-  const task = hasLiveAgents ? null : formatTasksPanel(state.task)
-  return { task, agents }
+  return { task: null, agents: null }
 }
 
 /**

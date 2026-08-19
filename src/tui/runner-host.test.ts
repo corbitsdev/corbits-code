@@ -6,7 +6,7 @@ import type { KeyEvent } from "@opentui/core"
 import type { CostSummary } from "../cost/cost-summary.js"
 import type { SubAgentSession } from "../subagent/session-store.js"
 import { createHarness } from "./harness.js"
-import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction, toggleTasksPanel } from "./shell.js"
+import { acceptOverlaySelection, closeInsetOverlay, runOverlayAction } from "./shell.js"
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -129,19 +129,11 @@ describe("observeSessionFromSubAgents", () => {
 })
 
 describe("mountRunnerHost chrome wiring", () => {
-  // CL-5731: the task-change callback was built (director writes tasks,
-  // getTasks()/onTasksChange exist) but had no live consumer — the chrome
-  // push mechanism type-checked fine with `subscribeChrome` omitted, so a
-  // director's task update never reached the shell. `subscribeChrome` is now
-  // a required dep (not optional) so that regression cannot type-check
-  // again, but the type alone does not prove the wiring actually runs: this
-  // test drives a real notify() call through mountRunnerHost end to end and
-  // asserts the task panel painted from it, the way the real runner's
-  // `emitter.emit("tasks", ...)` -> `subscribeChrome` -> `pushChrome` chain
-  // does. If `subscribeChrome`'s notify callback were ever dropped again
-  // (e.g. `deps.subscribeChrome?.(pushChrome)` silently no-op on undefined),
-  // this test fails because the second push never reaches the panel.
-  test("a live chrome push (subscribeChrome notify) repaints the task panel", async () => {
+  // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
+  // now parks both chrome strips (always null), so a tasks push must not
+  // paint the checklist — this test asserts the notify path still runs and
+  // leaves the task panel empty (rebuild later; live work is ● Task rows).
+  test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     let liveTasks: readonly { title: string; status: "todo" | "doing" | "done" | "cancelled" }[] = []
     let notify: (() => void) | undefined
@@ -168,20 +160,17 @@ describe("mountRunnerHost chrome wiring", () => {
       expect(host.shell.taskBox.visible).toBe(false)
       expect(notify).toBeDefined()
 
-      // Mirrors createChatDirector's onTasksChange firing after a
-      // manage_tasks tool call: the live source changes, then the runner
-      // notifies the host — it does not push the new snapshot itself.
+      // Mirrors createChatDirector's onTasksChange: live source changes, then
+      // the runner notifies the host. formatChromeZones parks the checklist.
       liveTasks = [{ title: "wire task panel", status: "doing" }]
       notify?.()
 
-      // CL-5847: the panel is hidden by default, so the live push lands in
-      // tasksRaw underneath without showing. It stays hidden until opt-in.
       expect(host.shell.taskBox.visible).toBe(false)
-      toggleTasksPanel(host.shell)
-      expect(host.shell.taskBox.visible).toBe(true)
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
-      expect(frame).toContain("wire task panel")
+      expect(frame).not.toContain("wire task panel")
+      // Notify callback stayed registered — subscribe path ran without error.
+      expect(notify).toBeDefined()
     } finally {
       host.dispose()
       harness.destroy()
