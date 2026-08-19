@@ -81,6 +81,7 @@ function sampleBehaviors(over: Partial<BehaviorMetrics> = {}): BehaviorMetrics {
     maxChainSegmentsPerCommand: 0,
     networkCommandCount: 0,
     webFetchToolCallCount: 0,
+    taskToolCallCount: 0,
     editViaShellCount: 0,
     repeatedSearchCount: 0,
     longestToolOnlyStreak: 0,

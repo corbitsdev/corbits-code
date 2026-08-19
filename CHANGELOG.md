@@ -33,6 +33,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   still open still writes the full payload into the transcript, because that
   text would otherwise be unreachable before approval.
 
+### Evals
+
+- **Capability eval records `task` tool calls.** `taskToolCallCount` is derived
+  from the turn stream (informational). Older result files without the field
+  default from `toolCallsByName.task` so the frozen baseline still parses.
+
 ## [0.2.98] - 2026-08-17
 
 Corrupt resume state no longer kills sessions, Codex quota errors name the

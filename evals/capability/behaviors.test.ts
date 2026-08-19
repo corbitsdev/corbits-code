@@ -155,6 +155,35 @@ describe("deriveBehaviorMetrics", () => {
     expect(metrics.webFetchToolCallCount).toBe(0);
   });
 
+  test("counts task tool calls separately", () => {
+    const metrics = deriveBehaviorMetrics(
+      summary([
+        turn({
+          toolCalls: [{ name: "task", arguments: { intent: "implement", prompt: "add /readyz" } }],
+        }),
+        turn({ toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }] }),
+      ]),
+    );
+    expect(metrics.taskToolCallCount).toBe(1);
+    expect(metrics.webFetchToolCallCount).toBe(1);
+  });
+
+  test("task count is 0 when the tool is never called", () => {
+    const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
+    expect(metrics.taskToolCallCount).toBe(0);
+  });
+
+  test("does not collide distinct name+argument fingerprints", () => {
+    // Concatenating name + JSON args would make tool1/23 and tool12/3 identical.
+    const metrics = deriveBehaviorMetrics(
+      summary([
+        turn({ toolCalls: [{ name: "tool1", arguments: 23 }] }),
+        turn({ toolCalls: [{ name: "tool12", arguments: 3 }] }),
+      ]),
+    );
+    expect(metrics.repeatedSearchCount).toBe(0);
+  });
+
   test("counts shell edits via sed -i and heredoc", () => {
     const metrics = deriveBehaviorMetrics(
       summary([shellTurn("sed -i '' 's/-/=/g' src/banner.ts && cat > note.md << EOF")]),
@@ -206,6 +235,8 @@ describe("deriveBehaviorMetrics", () => {
   test("empty run yields zeroed metrics", () => {
     const metrics = deriveBehaviorMetrics(summary([]));
     expect(metrics.shellCommandCount).toBe(0);
+    expect(metrics.webFetchToolCallCount).toBe(0);
+    expect(metrics.taskToolCallCount).toBe(0);
     expect(metrics.longestToolOnlyStreak).toBe(0);
     expect(metrics.toolCallsByName).toEqual({});
   });
@@ -239,5 +270,19 @@ describe("parseBehaviorMetrics", () => {
   test("returns null for absent or malformed input", () => {
     expect(parseBehaviorMetrics(undefined)).toBeNull();
     expect(parseBehaviorMetrics({ shellCommandCount: "many" })).toBeNull();
+  });
+
+  test("defaults missing taskToolCallCount from the per-name map", () => {
+    const metrics = deriveBehaviorMetrics(
+      summary([turn({ toolCalls: [{ name: "task", arguments: {} }] })]),
+    );
+    const { taskToolCallCount: _dropped, ...legacy } = metrics;
+    expect(parseBehaviorMetrics(legacy)?.taskToolCallCount).toBe(1);
+  });
+
+  test("defaults missing taskToolCallCount to 0 when task was never called", () => {
+    const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
+    const { taskToolCallCount: _dropped, ...legacy } = metrics;
+    expect(parseBehaviorMetrics(legacy)?.taskToolCallCount).toBe(0);
   });
 });

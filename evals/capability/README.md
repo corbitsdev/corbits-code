@@ -26,7 +26,6 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | bait | `edit-bait` | `tests/fixtures/multiline-edit` | Multi-line source edit; catches sed/heredoc editing |
 | bait | `subagent-bait` | `tests/fixtures/slow-command` | Subagent must wait on a ~20s command; catches stall gaps |
 
-
 Bait cases exist to **reproduce known misbehaviors** so behavior changes can be
 confirmed against them. Each declares the behavior metric it baits in
 `case.json` (`bait: { metric, threshold }`): the case misbehaves when the
@@ -81,6 +80,7 @@ shell parser.
 | `maxChainSegmentsPerCommand` | largest chain in one command | lower is better |
 | `networkCommandCount` | segments invoking curl/wget/nc/... | lower is better |
 | `webFetchToolCallCount` | `web_fetch` tool calls (0 when the tool is absent or unused) | informational |
+| `taskToolCallCount` | `task` tool calls (0 when the tool is absent or unused) | informational |
 | `editViaShellCount` | sed/perl/awk `-i` edits or heredoc writes | lower is better |
 | `repeatedSearchCount` | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better |
 | `longestToolOnlyStreak` | longest run of assistant turns with tool calls and no text | lower is better |
@@ -242,6 +242,7 @@ verify.sh   # objective grader (exit 0 = pass)
         "maxChainSegmentsPerCommand": 2,
         "networkCommandCount": 0,
         "webFetchToolCallCount": 0,
+        "taskToolCallCount": 0,
         "editViaShellCount": 0,
         "repeatedSearchCount": 0,
         "longestToolOnlyStreak": 2,
