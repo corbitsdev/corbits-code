@@ -91,6 +91,11 @@ describe("/yolo command", () => {
       text: "Yolo mode off — permission gate restored.",
     });
     expect(skip).toBe(false);
+    expect(getCommand("yolo")!.handler("toggle", ctx)).toEqual({
+      type: "message",
+      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+    });
+    expect(skip).toBe(true);
   });
 
   it("turns skip-permissions on and off explicitly", () => {
@@ -122,7 +127,7 @@ describe("/yolo command", () => {
     };
     expect(getCommand("yolo")!.handler("maybe", ctx)).toEqual({
       type: "message",
-      text: "Usage: /yolo [on|off]",
+      text: "Usage: /yolo [on|off|toggle]",
     });
   });
 

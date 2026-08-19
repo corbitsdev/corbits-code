@@ -193,10 +193,11 @@ export function registerBuiltInCommands(): void {
   registerCommand({
     name: "yolo",
     description: "Toggle skip-permissions for this session (gate bypass; secret-guard and authz remain)",
-    argumentHint: "[on|off]",
+    argumentHint: "[on|off|toggle]",
     subcommands: [
       { name: "on", description: "Enable skip-permissions" },
       { name: "off", description: "Disable skip-permissions" },
+      { name: "toggle", description: "Toggle skip-permissions" },
     ],
     handler: (args, ctx) => {
       if (ctx.getSkipPermissions === undefined || ctx.setSkipPermissions === undefined) {
@@ -208,10 +209,10 @@ export function registerBuiltInCommands(): void {
         next = true;
       } else if (arg === "off") {
         next = false;
-      } else if (arg.length === 0) {
+      } else if (arg.length === 0 || arg === "toggle") {
         next = !ctx.getSkipPermissions();
       } else {
-        return { type: "message", text: "Usage: /yolo [on|off]" };
+        return { type: "message", text: "Usage: /yolo [on|off|toggle]" };
       }
       ctx.setSkipPermissions(next);
       if (next) {
