@@ -37,6 +37,7 @@ import {
   setSentMessageHistory,
   setShellBridgeHooks,
   setShellExitHandler,
+  setEffortCycleHandler,
   clearShellBridgeHooks,
   setShellRunState,
   shellFocusPrompt,
@@ -98,7 +99,7 @@ function chordsOf(keys: string): readonly (string | null)[] {
     const bytes = chordBytes(token.trim())
     // A token nothing can encode and that is not the known kitty-only chord is
     // a typo in the catalog, not an untestable chord.
-    if (bytes === null && token.trim() !== "Ctrl+Enter") {
+    if (bytes === null && token.trim() !== "Ctrl+Enter" && token.trim() !== "Shift+Tab") {
       throw new Error(`catalog row "${keys}" has unreadable chord "${token.trim()}"`)
     }
     return bytes
@@ -369,6 +370,22 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(focusOwner(shell.focus)).toBe("transcript")
       press(h, chords[0])
       expect(focusOwner(shell.focus)).toBe("prompt")
+    },
+  },
+  "Shift+Tab": {
+    group: "surfaces",
+    probe: ({ h, shell }) => {
+      let cycles = 0
+      setEffortCycleHandler(shell, () => {
+        cycles++
+      })
+      shellFocusPrompt(shell)
+      const before = focusOwner(shell.focus)
+      // Classic terminals often emit CSI Z for Shift+Tab; the harness can also
+      // inject name:"tab" with shift:true, which is what the shell handler reads.
+      h.pressKey("Tab", { shift: true })
+      expect(cycles).toBe(1)
+      expect(focusOwner(shell.focus)).toBe(before)
     },
   },
   Esc: {

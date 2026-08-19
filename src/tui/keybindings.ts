@@ -30,6 +30,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   { keys: "Alt+T", description: "show or hide the task list above the prompt" },
   { keys: "Alt+O", description: "observe a live subagent session; a system row says so when there is none" },
   { keys: "Tab", description: "move focus between the prompt and the transcript" },
+  { keys: "Shift+Tab", description: "cycle reasoning effort for the current model" },
   { keys: "Esc", description: "close the open overlay, or leave subagent observe" },
   { keys: "Ctrl+B / Ctrl+F", description: "move the cursor back / forward one character" },
   { keys: "Ctrl+D", description: "delete the character under the cursor" },

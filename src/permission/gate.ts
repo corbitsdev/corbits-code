@@ -253,8 +253,9 @@ export type PermissionGate = {
   // Whether auto mode is currently on. Auto mode auto-approves non-destructive
   // consequential actions (file writes/edits, unconstrained shell) without prompting.
   getAuto: () => boolean;
-  // Turn auto mode on or off for the rest of the session. SHIFT+TAB in the TUI
-  // wires the toggle here so a switch takes effect on the next tool call.
+  // Turn auto mode on or off for the rest of the session. Live callers (slash
+  // commands, settings) wire the toggle here so a switch takes effect on the
+  // next tool call. There is currently no in-session key chord for this.
   setAuto: (value: boolean) => void;
   // Whether --dangerously-skip-permissions is active for this session. Immutable
   // after gate construction; pre-gate sandboxes (path-escape, shell cwd bounds)

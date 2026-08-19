@@ -223,6 +223,17 @@ export function clearShellExitHandler(shell: AppShell): void {
   shellExitHandlers.delete(shell)
 }
 
+const effortCycleHandlers = new WeakMap<AppShell, () => void>()
+
+/** Shift+Tab host callback: cycle reasoning effort for the live session. */
+export function setEffortCycleHandler(shell: AppShell, onCycle: () => void): void {
+  effortCycleHandlers.set(shell, onCycle)
+}
+
+export function clearEffortCycleHandler(shell: AppShell): void {
+  effortCycleHandlers.delete(shell)
+}
+
 /** Optional Wave-4 bridge hooks (runtime-bridge attaches exclusively). */
 export type ShellBridgeHooks = {
   onSubmit: (
@@ -3874,6 +3885,7 @@ export function handleOverlayAnswerKey(
 
   if (
     key.name === "tab" &&
+    !key.shift &&
     !key.ctrl &&
     !key.meta &&
     !key.option &&
@@ -5093,7 +5105,7 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
 
   const active = shell.paletteCommands[shell.overlayList.activeIndex]
 
-  if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
+  if (key.name === "tab" && !key.shift && !key.ctrl && !key.meta && !key.option) {
     if (active) setPromptText(shell, `/${active.id} `)
     closeSlashPopup(shell)
     return true
@@ -5820,7 +5832,18 @@ export function createAppShell(
       shell.sentHistory = sentHistoryOnEdit(shell.sentHistory)
     }
 
-    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option) {
+    if (
+      ((key.name === "tab" && key.shift) || key.name === "backtab") &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option
+    ) {
+      key.preventDefault()
+      effortCycleHandlers.get(shell)?.()
+      return
+    }
+
+    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option && !key.shift) {
       key.preventDefault()
       toggleShellFocus(shell)
       return
