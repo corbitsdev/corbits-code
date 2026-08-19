@@ -145,6 +145,9 @@ export type MCPServerState =
   | { name: string; state: "failed"; error: string };
 
 export type MCPConnectCallbacks = {
+  // Headless hosts must not advertise an auth callback they cannot complete.
+  // Its presence is how the MCP client decides an OAuth flow is interactive.
+  interactiveAuth: boolean;
   // Fired whenever a server's connection state changes.
   onStatus: (state: MCPServerState) => void;
   // Fired after a server connects and its tools are registered, with the new
@@ -360,7 +363,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         callbacks.onStatus({ name: config.name, state: "connecting" });
         const result = await connectMCPServer(config, {
           stderr: "ignore",
-          onAuthURL: (name, url) => callbacks.onStatus({ name, state: "needs-auth", url }),
+          ...(callbacks.interactiveAuth
+            ? { onAuthURL: (name: string, url: string) => callbacks.onStatus({ name, state: "needs-auth", url }) }
+            : {}),
           // Mid-session re-auth fires needs-auth again without a later connected
           // event. Re-emit connected only when tools are already registered so
           // first-connect still waits for the real post-connect status.

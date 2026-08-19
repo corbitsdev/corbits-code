@@ -2469,6 +2469,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   void toolset
     .connectMCP(
       {
+        interactiveAuth: true,
         onStatus: (status) => {
           mcpStates.set(status.name, status);
           emitter.emit("mcp.status", status);

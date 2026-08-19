@@ -591,6 +591,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     if (agentToolset.connectMCP !== undefined) {
       await agentToolset
         .connectMCP({
+          interactiveAuth: false,
           onStatus: (status) => {
             if (status.state === "connected") {
               connectedMcp = [
