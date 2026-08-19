@@ -19,6 +19,8 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | complex | `complex-bugfix` | `tests/fixtures/buggy-service` | Issue→patch→tests: fix failing post GET without breaking users |
 | complex | `complex-pagination` | `tests/fixtures/demo-comparison` | Multi-file feature: query pagination on GET /products |
 | complex | `complex-rename-user` | `tests/fixtures/multi-file-service` | Refactor/rename user `name` → `displayName` across files |
+| complex | `complex-dispatch-spawn` | `tests/fixtures/multi-file-service` | Dispatch GET /readyz via `task`; grader checks the route, not that the primary skipped DIY |
+| complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read` | Read many fixture files then write the planted token; does not assert compaction fired |
 
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
@@ -178,6 +180,7 @@ verify.sh   # objective grader (exit 0 = pass)
 - `verify` — grader filename (default `verify.sh`)
 - `bait` — optional `{ metric, threshold }` marking the behavior metric this case reproduces (see the bait table above)
 - `httpFixture` — when `true`, the runner starts a hermetic HTTP server on `127.0.0.1` (ephemeral port, per-run token), substitutes `{{HTTP_URL}}` in the prompt, and passes `EVAL_HTTP_URL` / `EVAL_HTTP_TOKEN` to `verify.sh`. The server is stopped when the case run ends — nothing external is contacted
+- `requireBehaviors` — optional `[{ metric, min?, max? }]`. After the run, each listed metric must fall in range or the case fails. Missing capture with a non-empty list fails closed
 
 ## Results JSON (v3)
 

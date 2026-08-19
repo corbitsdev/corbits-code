@@ -38,6 +38,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - **Capability eval records `task` tool calls.** `taskToolCallCount` is derived
   from the turn stream (informational). Older result files without the field
   default from `toolCallsByName.task` so the frozen baseline still parses.
+- **Capability eval smoke cases for dispatch and recall.** `complex-dispatch-spawn`
+  requires at least one `task()` plus a working GET /readyz.
+  `complex-recall-after-bulk-read` plants a token, asks the agent to read the
+  fixture, then write it back. Informational only — not in the frozen
+  baseline-0286 gate until a deliberate refreeze. Neither case proves
+  compaction fired or that the primary skipped implementing the route.
 
 ## [0.2.98] - 2026-08-17
 
