@@ -8,7 +8,6 @@ import { liveTelemetry } from "../telemetry/singleton.js";
 import { join } from "node:path";
 
 import {
-  createAgent,
   defineAgent,
   defineTool,
   createDirectorRegistry,
@@ -19,6 +18,7 @@ import {
 import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
+import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
@@ -260,7 +260,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-  let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let agent: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
   // Declared before try (same reasoning as closeOnAbort above): assigned once
@@ -380,8 +380,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-
-  let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
   const requestContinuation = (): void => {
     try {
       agentHandle?.deliver(buildCompactionContinuationMessage());
@@ -483,7 +482,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   const inferenceDeps = await createInferenceDependencies();
   const subagentSource =
     bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
-  agent = await createAgent(def, {
+  agent = await createAgentWithLiveToolDispatch(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
     storage,

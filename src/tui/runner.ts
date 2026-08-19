@@ -2,7 +2,6 @@ import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import {
-  createAgent,
   defineAgent,
   defineTool,
   createDirectorRegistry,
@@ -154,6 +153,7 @@ import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin
 import type { GrantScope } from "../permission/types.js";
 
 import { createAgentToolset, type MCPServerState, type OperatorResult } from "../agent/tools.js";
+import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
@@ -1417,7 +1417,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const storage = await createOptimizedContextStore(workdir);
     const sources = liveSources.length > 0 ? liveSources : [liveSource];
     const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
-    return createAgent(def, {
+    return createAgentWithLiveToolDispatch(def, {
       sources,
       defaultSource,
       storage,
@@ -2474,10 +2474,12 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Connect MCP servers after the TUI is up so the UI is usable immediately and
   // any OAuth authorization is surfaced as a copyable link rather than a browser
-  // pop. Newly discovered tools are advertised to the live director right away;
-  // once connection resolves, the agent is reloaded (when idle) so the tools are
-  // also dispatchable. Aborted on exit so an unfinished auth wait does not keep
-  // the process alive.
+  // pop. Each connected server's tools land on the live runner and are
+  // dispatchable the same turn (createAgentWithLiveToolDispatch). They stay
+  // unadvertised until tool_search promotes them. When every server has
+  // settled, reload-if-idle so construction-time maps match, then resume any
+  // persisted workflow. Aborted on exit so an unfinished auth wait does not
+  // keep the process alive.
   const mcpConnectController = new AbortController();
   void toolset
     .connectMCP(

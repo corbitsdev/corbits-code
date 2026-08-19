@@ -25,7 +25,8 @@ does not require project trust. Local settings **replace** global MCP entirely
 when present (they do not merge).
 
 Tools from connected servers are not advertised to the model up front; they are
-registered for dispatch and surfaced on demand through dynamic tool discovery
+registered for dispatch as soon as the server connects (including later in the
+same turn) and surfaced on demand through dynamic tool discovery
 (`tool_search`).
 
 ## Server Kinds

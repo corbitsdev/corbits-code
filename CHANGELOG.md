@@ -13,6 +13,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### MCP
+
+- **Late-connected MCP tools are callable the same turn they appear in `tool_search`.**
+  `@intx/agent` snapshots dispatch names at `createAgent`, and the post-connect
+  reload that used to rebuild that snapshot waited for every server — including
+  one stuck on OAuth. Cataloged `mcp__*` tools then returned `unknown tool`.
+  Construction now dispatches misses through the live runner, so Linear/Exa
+  (and any other server that finished) work even while another server still
+  needs auth.
+
 ### TUI
 
 - **Settled permission and operator prompts no longer recap into the chat.**
