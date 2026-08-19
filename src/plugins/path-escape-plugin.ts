@@ -9,15 +9,21 @@ export type PathEscapeOptions = {
   // When true (yolo / --dangerously-skip-permissions), paths outside the
   // workspace still resolve to absolute form and pass through. Secret-guard and
   // authz remain the hard-deny layers; the permission gate already auto-allows.
-  allowOutside?: boolean;
+  // A getter is resolved per call so `/yolo` mid-session takes effect without
+  // rebuilding the plugin stack.
+  allowOutside?: boolean | (() => boolean);
 };
+
+function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+  if (typeof value === "function") return value();
+  return value === true;
+}
 
 export function pathEscapePlugin(
   cwd: string,
   rootsProvider: RootsProvider = () => [],
   options: PathEscapeOptions = {},
 ): ToolPlugin {
-  const allowOutside = options.allowOutside === true;
   return {
     middleware: (next) => async (call, signal) => {
       if ("_raw" in call.arguments) {
@@ -29,7 +35,12 @@ export function pathEscapePlugin(
       }
       let escaped: Record<string, unknown>;
       try {
-        escaped = escapeArgs(call.arguments, cwd, rootsProvider, allowOutside);
+        escaped = escapeArgs(
+          call.arguments,
+          cwd,
+          rootsProvider,
+          resolveAllowOutside(options.allowOutside),
+        );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return { callId: call.id, content: message, isError: true };

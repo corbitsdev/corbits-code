@@ -109,6 +109,26 @@ describe("deleteFilePlugin", () => {
     await rm(outside, { recursive: true, force: true });
   });
 
+  test("allowOutside getter is resolved per call", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "corbits-delete-yolo-getter-"));
+    const path = join(outside, "gone.txt");
+    await writeFile(path, "gone");
+    let allow = false;
+    const tool = deleteFilePlugin(cwd, { allowOutside: () => allow }).tools?.[0];
+    if (tool === undefined) throw new Error("delete_file tool was not registered");
+
+    const blocked = await tool.handler(call(path), new AbortController().signal);
+    expect(blocked.isError).toBe(true);
+    expect(String(blocked.content)).toContain("resolves outside the working directory");
+    expect(await exists(path)).toBe(true);
+
+    allow = true;
+    const result = await tool.handler(call(path), new AbortController().signal);
+    expect(result).toEqual({ callId: "delete-call", content: `Deleted file: ${path}` });
+    expect(await exists(path)).toBe(false);
+    await rm(outside, { recursive: true, force: true });
+  });
+
   test("permission denial prevents deletion", async () => {
     const path = join(cwd, "keep.txt");
     await writeFile(path, "keep");

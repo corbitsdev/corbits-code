@@ -150,4 +150,29 @@ describe("pathEscapePlugin", () => {
     const args = JSON.parse(String(result.content)) as { path: string };
     expect(args.path).toBe("/project/src/index.ts");
   });
+
+  test("allowOutside getter is resolved per call", async () => {
+    let allow = false;
+    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: () => allow });
+    const next = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: JSON.stringify(call.arguments),
+    });
+    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const blocked = await handler(
+      makeCall("read_file", { path: "../other-repo/README.md" }),
+      new AbortController().signal,
+    );
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toMatch(/escapes working directory/);
+
+    allow = true;
+    const allowed = await handler(
+      makeCall("read_file", { path: "../other-repo/README.md" }),
+      new AbortController().signal,
+    );
+    expect(allowed.isError).not.toBe(true);
+    const args = JSON.parse(String(allowed.content)) as { path: string };
+    expect(args.path).toBe("/other-repo/README.md");
+  });
 });

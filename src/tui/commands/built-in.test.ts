@@ -67,6 +67,73 @@ describe("removed approval command", () => {
   });
 });
 
+describe("/yolo command", () => {
+  it("is registered", () => {
+    expect(getCommand("yolo")).toBeDefined();
+  });
+
+  it("toggles skip-permissions when invoked bare", () => {
+    let skip = false;
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      getSkipPermissions: () => skip,
+      setSkipPermissions: (value) => {
+        skip = value;
+      },
+    };
+    expect(getCommand("yolo")!.handler("", ctx)).toEqual({
+      type: "message",
+      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+    });
+    expect(skip).toBe(true);
+    expect(getCommand("yolo")!.handler("", ctx)).toEqual({
+      type: "message",
+      text: "Yolo mode off — permission gate restored.",
+    });
+    expect(skip).toBe(false);
+  });
+
+  it("turns skip-permissions on and off explicitly", () => {
+    let skip = false;
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      getSkipPermissions: () => skip,
+      setSkipPermissions: (value) => {
+        skip = value;
+      },
+    };
+    expect(getCommand("yolo")!.handler("on", ctx)).toEqual({
+      type: "message",
+      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+    });
+    expect(skip).toBe(true);
+    expect(getCommand("yolo")!.handler("off", ctx)).toEqual({
+      type: "message",
+      text: "Yolo mode off — permission gate restored.",
+    });
+    expect(skip).toBe(false);
+  });
+
+  it("rejects unknown arguments with usage", () => {
+    const ctx: CommandContext = {
+      signalClear: () => {},
+      getSkipPermissions: () => false,
+      setSkipPermissions: () => {},
+    };
+    expect(getCommand("yolo")!.handler("maybe", ctx)).toEqual({
+      type: "message",
+      text: "Usage: /yolo [on|off]",
+    });
+  });
+
+  it("says so when skip-permissions is not wired", () => {
+    expect(getCommand("yolo")!.handler("", makeCtx())).toEqual({
+      type: "message",
+      text: "Yolo mode is not available in this mode.",
+    });
+  });
+});
+
 describe("/model command", () => {
   it("is registered", () => {
     expect(getCommand("model")).toBeDefined();

@@ -188,4 +188,40 @@ export function registerBuiltInCommands(): void {
     },
   });
 
+  // Mid-session twin of --dangerously-skip-permissions. Does not bypass
+  // secret-guard path denies or authorization hard blocks.
+  registerCommand({
+    name: "yolo",
+    description: "Toggle skip-permissions for this session (gate bypass; secret-guard and authz remain)",
+    argumentHint: "[on|off]",
+    subcommands: [
+      { name: "on", description: "Enable skip-permissions" },
+      { name: "off", description: "Disable skip-permissions" },
+    ],
+    handler: (args, ctx) => {
+      if (ctx.getSkipPermissions === undefined || ctx.setSkipPermissions === undefined) {
+        return { type: "message", text: "Yolo mode is not available in this mode." };
+      }
+      const arg = args.trim().toLowerCase();
+      let next: boolean;
+      if (arg === "on") {
+        next = true;
+      } else if (arg === "off") {
+        next = false;
+      } else if (arg.length === 0) {
+        next = !ctx.getSkipPermissions();
+      } else {
+        return { type: "message", text: "Usage: /yolo [on|off]" };
+      }
+      ctx.setSkipPermissions(next);
+      if (next) {
+        return {
+          type: "message",
+          text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+        };
+      }
+      return { type: "message", text: "Yolo mode off — permission gate restored." };
+    },
+  });
+
 }

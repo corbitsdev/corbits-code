@@ -23,6 +23,10 @@ export type CommandContext = {
    * the feedback body instead of a model prompt.
    */
   beginFeedbackCapture?: () => void;
+  /** Whether skip-permissions (yolo) is active for this session. */
+  getSkipPermissions?: () => boolean;
+  /** Toggle skip-permissions for the rest of the session (`/yolo`). */
+  setSkipPermissions?: (value: boolean) => void;
 };
 
 export type CommandResult =

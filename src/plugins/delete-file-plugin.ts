@@ -42,11 +42,22 @@ function isWithin(root: string, path: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
+export type DeleteFilePluginOptions = {
+  // When true (yolo / --dangerously-skip-permissions), delete outside the
+  // working directory. A getter is resolved per call so `/yolo` mid-session
+  // takes effect without rebuilding the plugin stack.
+  allowOutside?: boolean | (() => boolean);
+};
+
+function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+  if (typeof value === "function") return value();
+  return value === true;
+}
+
 export function deleteFilePlugin(
   cwd: string,
-  options: { allowOutside?: boolean } = {},
+  options: DeleteFilePluginOptions = {},
 ): ToolPlugin {
-  const allowOutside = options.allowOutside === true;
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
     handler: async (call: ToolCall): Promise<ToolResult> => {
@@ -55,6 +66,7 @@ export function deleteFilePlugin(
         return errorResult(call.id, "delete_file requires a non-empty path");
       }
 
+      const allowOutside = resolveAllowOutside(options.allowOutside);
       const target = resolve(cwd, args.path);
       try {
         const [physicalRoot, physicalParent] = await Promise.all([realpath(cwd), realpath(dirname(target))]);

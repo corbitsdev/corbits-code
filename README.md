@@ -101,7 +101,7 @@ Corbits Code defaults to **auto mode** (`auto = true`). Workspace file writes/ed
 
 Wrappers such as `bash -c '…'`, `sh`/`zsh -c`, `xargs`, and transparent prefixes (`env`, `nice`, `timeout`) are peeled so the same rules apply to the inner command. Unparseable wrappers fall through to ask rather than auto-allow.
 
-Catastrophic patterns (`rm -rf /`, `sudo`, `curl | bash`, force-push, open-ended `find`/`rg`/`grep -r`, …) are always denied by authorization, independent of auto mode. `--dangerously-skip-permissions` is a separate escape hatch that bypasses the permission gate (not secret-guard path denies or authz hard blocks).
+Catastrophic patterns (`rm -rf /`, `sudo`, `curl | bash`, force-push, open-ended `find`/`rg`/`grep -r`, …) are always denied by authorization, independent of auto mode. `--dangerously-skip-permissions` (and mid-session `/yolo` in the TUI) is a separate escape hatch that bypasses the permission gate (not secret-guard path denies or authz hard blocks).
 
 Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md` (permission gate and auto-shell policy).
 

@@ -214,7 +214,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ),
     })),
     createListDirTool(cwd, {
-      allowOutside: permissionGate.getSkipPermissions(),
+      allowOutside: () => permissionGate.getSkipPermissions(),
     }),
     createUseSkillTool(cwd, skillDirs, args.telemetry),
     createWebFetchTool(),
