@@ -671,11 +671,15 @@ export function paintStreamRow(
         ? "[cancelled] "
         : row.meta === "steer"
           ? "[will steer next] "
-          : row.meta === "steering"
-            ? "[steering] "
-            : row.meta === "reinject"
-              ? "[restarted here] "
-              : ""
+          : row.meta === "queue"
+            ? "[will follow up] "
+            : row.meta === "steering"
+              ? "[steering] "
+              : row.meta === "following-up"
+                ? "[following up] "
+                : row.meta === "reinject"
+                  ? "[restarted here] "
+                  : ""
     return { content: userBubbleLines(`${prefix}${row.text}`, layout.width).join("\n"), fg }
   }
   if (isThinkingRow(row)) {

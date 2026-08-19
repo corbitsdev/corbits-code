@@ -8,8 +8,8 @@
  *
  * - **Enter sends.** The textarea's default is Enter-inserts-newline, which
  *   would swallow the shell's primary action. The bindings below flip it: Enter
- *   submits and a newline needs an explicit chord. Alt+Enter (steer) is claimed
- *   by the shell's key listener before the widget ever sees it.
+ *   submits and a newline needs an explicit chord. Alt+Enter (follow-up) is
+ *   claimed by the shell's key listener before the widget ever sees it.
  * - **`value`.** `InputRenderable` exposes the buffer as `value`; the textarea
  *   calls it `plainText` and has no setter that also parks the caret. The whole
  *   shell — kill ring, history recall, the `/` and `@` popups, attachments —
@@ -33,7 +33,7 @@ export type PromptInput = TextareaRenderable & { value: string }
  * (`linefeed`) everywhere else — terminals that don't negotiate the kitty
  * keyboard protocol can't report Shift+Enter at all, so the fallback chords
  * are what make this work in practice. Alt+Enter is left alone; the shell
- * claims it for the steer action before the widget ever sees it.
+ * claims it for the follow-up action before the widget ever sees it.
  */
 // Modifier-qualified entries lead: a first-match table would otherwise resolve
 // Shift+Enter against the bare `return` submit binding and send the message.

@@ -464,17 +464,15 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       setShellRunState(shell, "idle")
       shell.prompt.value = "not yet"
       press(h, chords[0])
-      // The stated condition: idle, Alt+Enter does nothing — there's no run
-      // to stop and nothing to restart from a boundary that isn't coming.
+      // Idle Alt+Enter is a no-op — follow-up only makes sense mid-run.
       expect(sent).toEqual([])
       expect(shell.prompt.value).toBe("not yet")
 
-      // Busy: a distinct gesture from plain Enter (queue-and-steer at the
-      // next boundary) — this one is "reinject", resolved by the bridge to
-      // stop the run right now and restart from this message.
+      // Busy: follow-up (kind "queue"), not reinject. Delivered only when
+      // the run goes idle; never interrupts.
       setShellRunState(shell, "busy")
       press(h, chords[0])
-      expect(sent).toEqual([{ text: "not yet", kind: "reinject" }])
+      expect(sent).toEqual([{ text: "not yet", kind: "queue" }])
       expect(shell.prompt.value).toBe("")
       setShellRunState(shell, "idle")
     },

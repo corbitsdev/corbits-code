@@ -3,7 +3,8 @@ import { describe, expect, test } from "bun:test"
 import { composeNoticeLine, type NoticeState } from "./notice-line"
 
 const state = (over: Partial<NoticeState> = {}): NoticeState => ({
-  queue: 0,
+  steer: 0,
+  followUp: 0,
   interrupt: false,
   pinned: false,
   flash: null,
@@ -18,16 +19,20 @@ describe("composeNoticeLine", () => {
 
 
   test("default state segments stay off the row", () => {
-    const line = composeNoticeLine(state({ queue: 0, pinned: false }))
+    const line = composeNoticeLine(state({ steer: 0, followUp: 0, pinned: false }))
+    expect(line).not.toContain("steer")
+    expect(line).not.toContain("follow-up")
     expect(line).not.toContain("queue")
     expect(line).not.toContain("pinned")
   })
 
-  test("non-default state earns its place", () => {
+  test("steer and follow-up are distinct segments", () => {
     const line = composeNoticeLine(
-      state({ queue: 2, pinned: true, interrupt: true, attachments: 1 }),
+      state({ steer: 2, followUp: 1, pinned: true, interrupt: true, attachments: 1 }),
     )
-    expect(line).toContain("queue 2")
+    expect(line).toContain("steer 2")
+    expect(line).toContain("follow-up 1")
+    expect(line).not.toContain("queue 2")
     expect(line).toContain("pinned")
     expect(line).not.toContain("interrupt")
     expect(line).toContain("1 image")
@@ -41,11 +46,10 @@ describe("composeNoticeLine", () => {
 
   test("no keys strip survives anywhere in the composition", () => {
     const line = composeNoticeLine(
-      state({ queue: 1, interrupt: true }),
+      state({ followUp: 1, interrupt: true }),
     )
     expect(line).not.toContain("commands")
     expect(line).not.toContain("files")
     expect(line).not.toContain("^C")
   })
 })
-

@@ -6,6 +6,7 @@ import {
   mapReactorLike,
   type TaskProgressSession,
 } from "./runtime-bridge"
+import { DEFAULT_STALL_MS } from "./agent-progress"
 import { appendStreamRow, createAppShell, streamRowCount } from "./shell"
 import { withTestRenderer } from "./harness"
 import { badgeCount } from "./session-queue"
@@ -91,8 +92,7 @@ describe("attachSessionBridge", () => {
           await h.renderOnce()
           expect(port.calls.some((c) => c.op === "enqueue")).toBe(true)
           const enq = port.calls.find((c) => c.op === "enqueue")
-          // Plain Enter mid-run always steers now — "queue and wait quietly"
-          // isn't a separate gesture from "queue to steer" anymore.
+          // Plain Enter mid-run soft-steers (CL-6290). Follow-up is Alt+Enter.
           expect(enq).toEqual({
             op: "enqueue",
             text: "queued please",
@@ -101,7 +101,7 @@ describe("attachSessionBridge", () => {
           expect(badgeCount(shell.session)).toBe(1)
           expect(shell.pendingQueue).toBe(1)
           const frame = h.captureCharFrame()
-          expect(frame).toMatch(/queue\s+1|pending\s+1|·\s*1/)
+          expect(frame).toMatch(/steer\s+1/)
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -111,28 +111,34 @@ describe("attachSessionBridge", () => {
     )
   })
 
-  test("Alt+Enter mid-run hard-stops and reinjects, not a boundary wait", async () => {
+  test("Alt+Enter mid-run enqueues follow-up (queue), never interrupts", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
           terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
+          wireKeys: false,
           run: "busy",
         })
         const port = createRecordingPort()
         const bridge = attachSessionBridge(shell, port)
         try {
           // Direct bridge path (Alt+Enter chord is terminal-dependent in mock).
-          bridge.submit("stop now", "reinject")
+          bridge.submit("follow up later", "queue")
           await h.renderOnce()
-          // No enqueue at all — this never waits for a boundary. It
-          // interrupts the live run, then sends straight through.
-          expect(port.calls.some((c) => c.op === "enqueue")).toBe(false)
-          expect(port.calls.map((c) => c.op)).toEqual(["interrupt", "sendImmediate"])
-          const sent = port.calls.find((c) => c.op === "sendImmediate")
-          expect(sent).toEqual({ op: "sendImmediate", text: "stop now" })
+          expect(port.calls.some((c) => c.op === "interrupt")).toBe(false)
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false)
+          expect(port.calls.some((c) => c.op === "enqueue")).toBe(true)
+          const enq = port.calls.find((c) => c.op === "enqueue")
+          expect(enq).toEqual({
+            op: "enqueue",
+            text: "follow up later",
+            kind: "queue",
+          })
           expect(shell.session.run).toBe("busy")
-          expect(badgeCount(shell.session)).toBe(0)
+          expect(badgeCount(shell.session)).toBe(1)
+          const frame = h.captureCharFrame()
+          expect(frame).toMatch(/follow-up\s+1/)
+          expect(frame).toContain("will follow up")
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -236,7 +242,7 @@ describe("attachSessionBridge", () => {
     )
   })
 
-  test("queued item delivers at tool.boundary", async () => {
+  test("steer delivers at tool.boundary; follow-up does not", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -247,8 +253,9 @@ describe("attachSessionBridge", () => {
         const port = createRecordingPort()
         const bridge = attachSessionBridge(shell, port)
         try {
+          bridge.submit("steer now", "steer")
           bridge.submit("follow up", "queue")
-          expect(badgeCount(shell.session)).toBe(1)
+          expect(badgeCount(shell.session)).toBe(2)
           port.clear()
           bridge.handle({
             type: "tool.done",
@@ -261,18 +268,54 @@ describe("attachSessionBridge", () => {
               },
             },
           })
-          expect(badgeCount(shell.session)).toBe(0)
+          // Soft steer drained; follow-up still pending.
+          expect(badgeCount(shell.session)).toBe(1)
+          expect(shell.session.items[0]!.kind).toBe("queue")
           const deliver = port.calls.find((c) => c.op === "deliver")
           expect(deliver).toEqual({
             op: "deliver",
             item: expect.objectContaining({
-              text: "follow up",
-              kind: "queue",
+              text: "steer now",
+              kind: "steer",
             }),
           })
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("follow up")
+          expect(frame).toContain("steer now")
+          expect(frame).toMatch(/follow-up\s+1/)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("follow-up drains on idle, after any remaining steers", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.submit("follow up", "queue")
+          bridge.submit("late steer", "steer")
+          expect(badgeCount(shell.session)).toBe(2)
+          port.clear()
+          bridge.handle({ type: "run", state: "idle" })
+          expect(badgeCount(shell.session)).toBe(0)
+          expect(
+            port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : [])),
+          ).toEqual(["late steer", "follow up"])
+          await h.renderOnce()
+          const frame = h.captureCharFrame()
+          expect(frame).toContain("following up")
+          expect(frame).toContain("steering")
         } finally {
           bridge.dispose()
           shell.dispose()
@@ -771,7 +814,7 @@ describe("syncAgentProgress", () => {
           expect(row.agentWorking).toBe(true)
           expect(row.stat).toContain("grep")
 
-          nowMs = 72_000
+          nowMs = 42_000 + DEFAULT_STALL_MS
           bridge.syncAgentProgress([
             taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
           ])

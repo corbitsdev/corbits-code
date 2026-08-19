@@ -671,8 +671,29 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
-      // Distinct from the "steer" tag on the still-pending row above — this
-      // one is being handed to the run right now, not waiting for one.
+      // Distinct from the still-pending "steer"/"queue" tag — this row is
+      // being handed to the run right now. Follow-ups must not say steering.
+      meta: item.kind === "steer" ? "steering" : "following-up",
+    })
+    bag.pendingEchoes.push(item.text.trim())
+    bag.port.deliver(item)
+  }
+  paintChrome(shell)
+}
+
+/**
+ * Soft steer only (CL-6290): tool.boundary drains steers; follow-ups wait
+ * for idle / interrupt. Full drain uses drainOrder via drainOne without a
+ * kind filter.
+ */
+function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  for (;;) {
+    const { state, item } = drainOne(shell.session, "steer")
+    if (!item) break
+    shell.session = state
+    appendStreamRow(shell, {
+      role: "user",
+      text: userRowText(item.text, item.attachments ?? []),
       meta: "steering",
     })
     bag.pendingEchoes.push(item.text.trim())
@@ -718,13 +739,15 @@ function applyInbound(
     shell.session = setRunState(shell.session, event.state)
     paintChrome(shell)
     if (event.state === "idle") {
+      // Full drain: soft steers first, then follow-ups (drainOrder).
       drainAtBoundary(shell, bag)
     }
     return
   }
 
   if (event.type === "tool.boundary") {
-    drainAtBoundary(shell, bag)
+    // Soft steer only — follow-ups wait until the run goes idle.
+    drainSteersAtBoundary(shell, bag)
     return
   }
 
@@ -936,11 +959,10 @@ export function attachSessionBridge(
         applyInbound(shell, bag, mapped)
       }
       // inference.done with tool calls still outstanding doesn't settle the
-      // turn (see turn-state.ts) — the cycle continues, but a boundary still
-      // passed, so a queued message waiting on it should not wait for the
-      // turn's eventual end too.
+      // turn (see turn-state.ts) — the cycle continues, but a soft-steer
+      // boundary still passed. Follow-ups wait for idle.
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
-        drainAtBoundary(shell, bag)
+        drainSteersAtBoundary(shell, bag)
       }
       if (settled) settleRun()
       return
@@ -985,8 +1007,9 @@ export function attachSessionBridge(
     }
 
     if (kind === "reinject") {
-      // Not a boundary wait: stop the run right now, then fall straight into
-      // the immediate-send branch below with this message as the opener.
+      // No product chord wires reinject anymore (CL-6290: Alt+Enter is
+      // follow-up / kind "queue"). Kept for tests and any direct API callers:
+      // stop the run right now, then fall into the immediate-send branch.
       if (shell.session.run !== "busy") return
       closeOpenRow(shell, bag)
       bag.pendingEchoes.length = 0

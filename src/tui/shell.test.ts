@@ -299,7 +299,8 @@ describe("createAppShell", () => {
           setPendingQueue(shell, 3)
           expect(shell.pendingQueue).toBe(3)
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("queue 3")
+          // setPendingQueue pads with kind "queue" → follow-up badge.
+          expect(h.captureCharFrame()).toContain("follow-up 3")
         } finally {
           shell.dispose()
         }
@@ -398,7 +399,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("busy Enter enqueues; badge increments", async () => {
+  test("busy follow-up enqueue paints follow-up badge", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -413,7 +414,7 @@ describe("product skin: stream + queue + overlay", () => {
           expect(shell.session.items[0]!.kind).toBe("queue")
           expect(shell.prompt.value).toBe("")
           await h.renderOnce()
-          expect(h.captureCharFrame()).toContain("queue 1")
+          expect(h.captureCharFrame()).toContain("follow-up 1")
         } finally {
           shell.dispose()
         }
@@ -422,7 +423,7 @@ describe("product skin: stream + queue + overlay", () => {
     )
   })
 
-  test("busy Alt+Enter steers", async () => {
+  test("busy soft-steer paints steer badge", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -438,8 +439,9 @@ describe("product skin: stream + queue + overlay", () => {
           await h.renderOnce()
           await h.renderOnce()
           const frame = h.captureCharFrame()
-          expect(frame).toContain("steer")
-          expect(frame).toContain("queue 1")
+          expect(frame).toContain("will steer next")
+          expect(frame).toContain("steer 1")
+          expect(frame).not.toContain("follow-up")
         } finally {
           shell.dispose()
         }

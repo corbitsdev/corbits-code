@@ -163,7 +163,9 @@ import {
   enqueue,
   enqueueSteer,
   interrupt,
+  queueCount,
   setRunState,
+  steerCount,
   type RunState,
   type SessionQueueState,
 } from "./session-queue.js"
@@ -848,7 +850,8 @@ function syncPending(shell: AppShell): void {
 /** The transient row's text for the current state ("" when it has nothing to say). */
 export function noticeText(shell: AppShell): string {
   return composeNoticeLine({
-    queue: shell.pendingQueue,
+    steer: steerCount(shell.session),
+    followUp: queueCount(shell.session),
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
@@ -3231,13 +3234,16 @@ export function userRowText(
 }
 
 /**
- * Submit the prompt. Three kinds, three distinct gestures:
- *  - "queue": mid-run send — steers at the next turn boundary (badge).
- *  - "reinject": hard-stop the run right now and restart from this message,
- *    without waiting for a boundary. No-op when the run isn't busy, or the
- *    prompt is empty — there's nothing to stop or restart from.
- *  - Idle sends (either kind) go straight through immediately; "kind" only
- *    matters while a run is in flight.
+ * Submit the prompt. Product chords (CL-6290):
+ *  - "steer": mid-run Enter — soft steer at the next tool.boundary.
+ *  - "queue": mid-run Alt+Enter — follow-up; deliver only when the run goes
+ *    idle. Idle Alt+Enter is a no-op at the key handler (never reaches here
+ *    with kind "queue" while idle from the product chord).
+ *  - "reinject": hard-stop and restart from this message. No product chord
+ *    wires this anymore; kept for tests / direct API callers. No-op when the
+ *    run isn't busy, or the prompt is empty.
+ *  - Idle Enter (either queue or steer kind) goes straight through; "kind"
+ *    only matters while a run is in flight.
  */
 export function submitPrompt(
   shell: AppShell,
@@ -3255,7 +3261,10 @@ export function submitPrompt(
     }
     return
   }
+  // Reinject is unwired from product chords; still guard idle for API callers.
   if (kind === "reinject" && shell.session.run !== "busy") return
+  // Follow-up idle no-op lives on the Alt+Enter key handler (kind "queue" is
+  // also the default for submitPrompt and must still send when idle).
 
   // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being
   // sent to the model. Attachments mean the operator meant it as a message.
@@ -3280,6 +3289,7 @@ export function submitPrompt(
   }
 
   if (kind === "reinject") {
+    // Unwired from product chords (CL-6290); kept for tests / direct callers.
     shell.session = interrupt(shell.session)
     shell.prompt.value = ""
     clearPendingAttachments(shell)
@@ -5959,11 +5969,13 @@ export function createAppShell(
       (key.meta || key.option) &&
       !key.ctrl
     ) {
-      // Alt+Enter: stop-and-reinject — the one gesture that doesn't wait for
-      // a boundary. Plain Enter (below) already covers "queue to steer at
-      // the next boundary", so this chord's whole job is skipping the wait.
+      // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
+      // run goes idle. Does not interrupt or reinject. Idle / empty: no-op
+      // (nothing to wait for). Soft steer is plain Enter below; reinject is
+      // not wired to any product chord.
       key.preventDefault()
-      submitPrompt(shell, "reinject")
+      if (shell.session.run !== "busy") return
+      submitPrompt(shell, "queue")
       return
     }
   }
@@ -5971,9 +5983,8 @@ export function createAppShell(
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return
     if (internals.get(shell)?.inputSuspended === true) return
-    // Every mid-run send steers — there is no longer a plain "queue and wait
-    // quietly" gesture distinct from it (that's what collapsed into Alt+Enter
-    // stop-and-reinject instead). Idle sends ignore "kind" entirely.
+    // Mid-run Enter soft-steers (deliver at next tool.boundary). Alt+Enter
+    // is follow-up (quiet wait until idle). Idle sends ignore "kind".
     submitPrompt(shell, "steer")
   }
 

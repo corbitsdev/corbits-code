@@ -25,7 +25,10 @@
 const SEP = "    "
 
 export type NoticeState = {
-  readonly queue: number
+  /** Soft-steer pending (Enter mid-run → drain at tool.boundary). */
+  readonly steer: number
+  /** Follow-up pending (Alt+Enter mid-run → drain only when idle). */
+  readonly followUp: number
   readonly interrupt: boolean
   /** Transcript scrolled off the tail (non-default follow state). */
   readonly pinned: boolean
@@ -36,7 +39,8 @@ export type NoticeState = {
 
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = []
-  if (state.queue > 0) segments.push(`queue ${state.queue}`)
+  if (state.steer > 0) segments.push(`steer ${state.steer}`)
+  if (state.followUp > 0) segments.push(`follow-up ${state.followUp}`)
   if (state.pinned) segments.push("pinned")
   // "interrupt" is not a standing notice. Mid-run stop feedback is a system
   // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.
