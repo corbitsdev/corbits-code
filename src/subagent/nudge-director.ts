@@ -95,12 +95,21 @@ export class SubAgentDirector extends DefaultDirector {
     consecutiveIdentical: 0,
   };
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
-  // Set on a report-forced or re-read-nudge turn so the follow-up infer (after
-  // the pending tool calls from THIS turn have executed) carries the nudge.
-  // Cannot attach the nudge to this turn's own infer: the model just emitted
-  // tool_use blocks, and every provider requires tool_result before the next
-  // turn — a bare nudge here would send an invalid conversation.
+  // Armed for wrap-up (report-forced), failed-tool recovery, or re-read so the
+  // follow-up infer (after pending tool calls from THIS turn have executed)
+  // carries the nudge. Cannot attach the nudge to this turn's own infer: the
+  // model just emitted tool_use blocks, and every provider requires tool_result
+  // before the next turn — a bare nudge here would send an invalid conversation.
+  // Survives both proactive compact (interceptActions leaves pending armed) and
+  // overflow compact (interceptOverflow re-arms from lastConsumedNudgeText if
+  // the infer that consumed pending never completed).
   private pendingNudgeText: string | null = null;
+  // The text applyPendingNudge last attached to a returned infer. Overflow of
+  // that infer means the model never saw it, so interceptOverflow re-arms
+  // pending from this when pending is still null. Cleared on a successful
+  // turn boundary so a later overflow cannot resurrect a nudge the model
+  // already completed.
+  private lastConsumedNudgeText: string | null = null;
   // Soft re-read-nudge is one-shot per run; thrash hard-stop still fires later
   // if the leaf ignores it and keeps re-reading.
   private reReadNudgeFired = false;
@@ -153,7 +162,15 @@ export class SubAgentDirector extends DefaultDirector {
     const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);
     if (idleCompact !== null) return idleCompact;
     const recovery = this.compaction.interceptOverflow(event, capabilities);
-    if (recovery !== null) return recovery;
+    if (recovery !== null) {
+      // The infer that consumed pending never completed, so the model did not
+      // see the nudge. Re-arm it for resumeAfterCompact unless a newer wrap-up
+      // (or other pending) is already waiting.
+      if (this.pendingNudgeText === null && this.lastConsumedNudgeText !== null) {
+        this.pendingNudgeText = this.lastConsumedNudgeText;
+      }
+      return recovery;
+    }
 
     const stallOutcome = this.checkStallPing(event, capabilities);
     if (stallOutcome !== null) return stallOutcome;
@@ -163,6 +180,7 @@ export class SubAgentDirector extends DefaultDirector {
     // prefers provider usage when present.
     this.compaction.syncFromTurns(state.turns);
     if (onTurnBoundary(event)) {
+      this.lastConsumedNudgeText = null;
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
       this.compaction.noteInferenceDone(event, state.turns);
@@ -318,6 +336,7 @@ export class SubAgentDirector extends DefaultDirector {
     if (inferIndex === -1) return actions;
     const text = this.pendingNudgeText;
     this.pendingNudgeText = null;
+    this.lastConsumedNudgeText = text;
     const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
     const rewritten = [...actions];
     rewritten[inferIndex] = capabilities.infer(withEphemeralNudge(existing.options, text));

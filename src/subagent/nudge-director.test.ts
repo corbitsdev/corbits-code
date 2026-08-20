@@ -82,6 +82,14 @@ function inferAction(result: ReactorAction | ReactorAction[]): Extract<ReactorAc
   return infer;
 }
 
+function overflowError(message = "context window exceeded"): ReactorInboundEvent {
+  return {
+    type: "inference.error",
+    error: { category: "context_overflow", message },
+    partial: { text: "" },
+  } as unknown as ReactorInboundEvent;
+}
+
 function ephemeralTexts(infer: Extract<ReactorAction, { type: "infer" }>): string[] | undefined {
   const options = infer.options as
     | { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
@@ -230,5 +238,110 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(texts).toHaveLength(1);
     expect(texts?.[0]).toContain("A tool call failed");
     expect(texts?.[0]).not.toContain("re-reading the same paths");
+  });
+
+  test("overflow after consume restores recovery once on continuation infer", async () => {
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      30,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-then-overflow"]), state, caps);
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("failed-then-overflow", true), state, caps)),
+    );
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("A tool call failed");
+
+    const compact = actions(await director.decide(overflowError(), state, caps));
+    expect(compact.some((action) => action.type === "infer")).toBe(false);
+    expect(compact).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-overflow" },
+    ]);
+    expect(continuations).toBe(1);
+
+    const resumed = inferAction(await director.decide(messageReceived(""), state, caps));
+    const resumedTexts = ephemeralTexts(resumed);
+    expect(resumedTexts).toHaveLength(1);
+    expect(resumedTexts?.[0]).toContain("A tool call failed");
+
+    const later = inferAction(await director.decide(messageReceived(""), state, caps));
+    expect(ephemeralTexts(later)).toBeUndefined();
+  });
+
+  test("successful nudged infer then later overflow does not resurrect recovery", async () => {
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      30,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-then-done"]), state, caps);
+    const recovered = ephemeralTexts(
+      inferAction(await director.decide(toolDone("failed-then-done", true), state, caps)),
+    );
+    expect(recovered).toHaveLength(1);
+    expect(recovered?.[0]).toContain("A tool call failed");
+
+    await director.decide(inferenceDone(["later-success"]), state, caps);
+    const afterSuccess = inferAction(
+      await director.decide(toolDone("later-success"), state, caps),
+    );
+    expect(ephemeralTexts(afterSuccess)).toBeUndefined();
+
+    const compact = actions(await director.decide(overflowError(), state, caps));
+    expect(compact.some((action) => action.type === "infer")).toBe(false);
+    expect(compact).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-overflow" },
+    ]);
+    expect(continuations).toBe(1);
+
+    const resumed = inferAction(await director.decide(messageReceived(""), state, caps));
+    expect(ephemeralTexts(resumed)).toBeUndefined();
+  });
+
+  test("retains wrap-up through compaction and consumes it once on continuation infer", async () => {
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      3,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["near-budget-success"], 999_999), longState, caps);
+    const compact = actions(
+      await director.decide(toolDone("near-budget-success"), longState, caps),
+    );
+    expect(compact.some((action) => action.type === "infer")).toBe(false);
+    expect(compact).toEqual([
+      { type: "checkpoint", message: "tool-done" },
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ]);
+    expect(continuations).toBe(1);
+
+    const resumed = inferAction(await director.decide(messageReceived(""), longState, caps));
+    const resumedTexts = ephemeralTexts(resumed);
+    expect(resumedTexts).toHaveLength(1);
+    expect(resumedTexts?.[0]).toContain("close to your turn budget");
+    expect(resumedTexts?.[0]).toContain("write your final report now");
+    expect(resumedTexts?.[0]).not.toContain("A tool call failed");
+
+    const later = inferAction(await director.decide(messageReceived(""), longState, caps));
+    expect(ephemeralTexts(later)).toBeUndefined();
   });
 });
