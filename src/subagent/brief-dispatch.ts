@@ -18,6 +18,7 @@ import {
   isNeverActedSubAgentReport,
   isNeverEditedSubAgentReport,
   isNoProgressSubAgentReport,
+  isNoShipSubAgentReport,
   isRepetitionSubAgentReport,
   isThrashSubAgentReport,
   isTurnBudgetSubAgentReport,
@@ -26,6 +27,7 @@ import {
 /** Salvage classes that must not be re-dispatched with an identical brief. */
 export type HardBlockSalvage =
   | "thrash"
+  | "no-ship"
   | "no-progress"
   | "repetition"
   | "never-acted"
@@ -36,7 +38,8 @@ export type BriefSalvageKind =
   | "turn-budget"
   | "deadline"
   | "stalled"
-  | "cancelled";
+  | "cancelled"
+  | "incomplete-report";
 
 export type TaskBriefFingerprintInput = {
   prompt: string;
@@ -62,6 +65,7 @@ export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
 
 const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>([
   "thrash",
+  "no-ship",
   "no-progress",
   "repetition",
   "never-acted",
@@ -84,6 +88,12 @@ export function isCancelledSubAgentReport(report: string): boolean {
   return parsed.summary.toLowerCase().includes("cancelled");
 }
 
+/** True when the worker returned an incomplete-report salvage (narration, no envelope). */
+export function isIncompleteReportSubAgentReport(report: string): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary.toLowerCase().includes("narrated instead of writing a report envelope");
+}
+
 /**
  * Classify a sub-agent tool result body as a salvage kind the parent ledger cares
  * about. Returns null for normal completes (or unrecognized envelopes).
@@ -91,6 +101,7 @@ export function isCancelledSubAgentReport(report: string): boolean {
 export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
   // Order: more specific salvage phrases first.
   if (isThrashSubAgentReport(report)) return "thrash";
+  if (isNoShipSubAgentReport(report)) return "no-ship";
   if (isRepetitionSubAgentReport(report)) return "repetition";
   if (isNeverEditedSubAgentReport(report)) return "never-edited";
   if (isNeverActedSubAgentReport(report)) return "never-acted";
@@ -99,6 +110,7 @@ export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
   if (isDeadlineSubAgentReport(report)) return "deadline";
   if (isStalledSubAgentReport(report)) return "stalled";
   if (isCancelledSubAgentReport(report)) return "cancelled";
+  if (isIncompleteReportSubAgentReport(report)) return "incomplete-report";
   return null;
 }
 

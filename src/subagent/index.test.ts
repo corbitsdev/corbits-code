@@ -214,6 +214,69 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
+  const SUMMARY_ONLY_NARRATION = [
+    "## Summary",
+    "Checking whether Skywalker write-tool unmount is tested...",
+    "Checking those next.",
+  ].join("\n");
+
+  const FULL_REPORT_ENVELOPE = [
+    "## Summary",
+    "Reviewed gate.ts.",
+    "",
+    "## Findings",
+    "Auth lives in gate.ts.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/gate.ts",
+  ].join("\n");
+
+  test("evaluateSubAgentStop returns incomplete-report for Summary-only tool-less narration after tools", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: SUMMARY_ONLY_NARRATION,
+      }),
+    ).toBe("incomplete-report");
+  });
+
+  test("evaluateSubAgentStop returns incomplete-report-stop for Summary-only after the wrap-up nudge", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 3,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: SUMMARY_ONLY_NARRATION,
+        incompleteReportNudgeFired: true,
+      }),
+    ).toBe("incomplete-report-stop");
+  });
+
+  test("evaluateSubAgentStop returns complete for tool-less after tools with all four headings", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: FULL_REPORT_ENVELOPE,
+      }),
+    ).toBe("complete");
+  });
+
   test("evaluateSubAgentStop returns never-acted when the run never used tools", () => {
     expect(
       evaluateSubAgentStop({
@@ -245,6 +308,38 @@ describe("sub-agent stop helpers", () => {
         requireEdit: true,
       }),
     ).toBe("never-edited");
+  });
+
+  test("evaluateSubAgentStop does not hard-stop implement for many unique reads", () => {
+    let thrash = EMPTY_THRASH_STATE;
+    for (let i = 0; i < 200; i++) {
+      thrash = nextThrashState(thrash, [
+        { type: "tool_call", name: "read_file", arguments: { path: `src/f${i}.ts` } },
+      ]);
+    }
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 40,
+        maxTurns: 60,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        thrashState: thrash,
+        requireEdit: true,
+      }),
+    ).toBeNull();
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 40,
+        maxTurns: 60,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        thrashState: thrash,
+      }),
+    ).toBeNull();
   });
 
   test("evaluateSubAgentStop still completes implement when an edit path was recorded", () => {
@@ -1227,6 +1322,44 @@ describe("SubAgentDirector stall management", () => {
 });
 
 describe("createTaskTool", () => {
+  test("handler does not resolve until run() resolves; result includes the full report", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const report = "## Summary\nThe work is done.";
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      profiles: [{ id: "leaf" }],
+      run: async () => {
+        await gate;
+        return report;
+      },
+    });
+
+    const pending = callTask(tool, {
+      description: "Investigate",
+      prompt: "Do the work",
+      agent: "leaf",
+    });
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    release();
+    const result = await pending;
+    expect(settled).toBe(true);
+    expect(result).toContain('Sub-agent "');
+    expect(result).toContain(report);
+    expect(result).toContain("## Summary");
+  });
+
   test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
     let captured: RunSubAgentParams | undefined;
     const tool = createTaskTool({
@@ -1983,8 +2116,13 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(classifyBriefSalvage(forcedStopReport("repetition", "x"))).toBe("repetition");
     expect(classifyBriefSalvage(forcedStopReport("never-acted", "x"))).toBe("never-acted");
     expect(classifyBriefSalvage(forcedStopReport("never-edited", "x"))).toBe("never-edited");
+    expect(classifyBriefSalvage(forcedStopReport("no-ship", "x"))).toBe("no-ship");
     expect(classifyBriefSalvage(forcedStopReport("turn-budget", "x"))).toBe("turn-budget");
     expect(classifyBriefSalvage("## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n")).toBeNull();
+  });
+
+  test("classifyBriefSalvage maps incomplete-report salvage", () => {
+    expect(classifyBriefSalvage(forcedStopReport("incomplete-report", "x"))).toBe("incomplete-report");
   });
 
   test("turn-budget parent hint flips after re-dispatch threshold", () => {

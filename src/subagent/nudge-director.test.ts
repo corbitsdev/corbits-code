@@ -56,6 +56,20 @@ function inferenceDone(
   } as unknown as ReactorInboundEvent;
 }
 
+function inferenceDoneText(text: string): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: [{ type: "text", text }],
+    },
+    usage: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    source: { model: "test-model" },
+  } as unknown as ReactorInboundEvent;
+}
+
 function toolDone(callId: string, isError = false): ReactorInboundEvent {
   return {
     type: "tool.done",
@@ -343,5 +357,127 @@ describe("SubAgentDirector tool failure recovery", () => {
 
     const later = inferAction(await director.decide(messageReceived(""), longState, caps));
     expect(ephemeralTexts(later)).toBeUndefined();
+  });
+});
+
+const REPORT_ENVELOPE = [
+  "## Summary",
+  "Reviewed gate.ts.",
+  "",
+  "## Findings",
+  "Auth lives in gate.ts.",
+  "",
+  "## Blockers",
+  "None.",
+  "",
+  "## Paths",
+  "src/gate.ts",
+].join("\n");
+
+describe("SubAgentDirector incomplete-report wiring", () => {
+  test("tool-less narration after tools gets one wrap-up nudge, not a complete", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+
+    const result = actions(
+      await director.decide(inferenceDoneText("Still looking at the files..."), state, caps),
+    );
+    expect(result.some((action) => action.type === "reply")).toBe(false);
+    expect(result.some((action) => action.type === "done")).toBe(false);
+    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report-nudge" });
+    const texts = ephemeralTexts(inferAction(result));
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("## Summary");
+    expect(texts?.[0]).toContain("## Findings");
+    expect(texts?.[0]).toContain("## Blockers");
+    expect(texts?.[0]).toContain("## Paths");
+    expect(texts?.[0]).toContain("No more tools unless one lookup is required");
+  });
+
+  test("Summary-only mid-run narration gets a wrap-up nudge, not done", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+
+    const result = actions(
+      await director.decide(
+        inferenceDoneText(
+          [
+            "## Summary",
+            "Checking whether Skywalker write-tool unmount is tested...",
+            "Checking those next.",
+          ].join("\n"),
+        ),
+        state,
+        caps,
+      ),
+    );
+    expect(result.some((action) => action.type === "reply")).toBe(false);
+    expect(result.some((action) => action.type === "done")).toBe(false);
+    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report-nudge" });
+    const texts = ephemeralTexts(inferAction(result));
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("## Findings");
+    expect(texts?.[0]).toContain("## Blockers");
+    expect(texts?.[0]).toContain("## Paths");
+  });
+
+  test("second tool-less narration after the wrap-up nudge salvages incomplete-report", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDoneText("Still looking at the files..."), state, caps);
+
+    const result = actions(
+      await director.decide(inferenceDoneText("Still narrating, no envelope."), state, caps),
+    );
+    expect(result.some((action) => action.type === "infer")).toBe(false);
+    expect(result.some((action) => action.type === "done")).toBe(false);
+    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report" });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("narrated instead of writing a report envelope");
+    expect(reply.content).toContain("Still narrating, no envelope.");
+  });
+
+  test("tool-less turn with the four headings completes normally", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+
+    const result = actions(await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps));
+    expect(result.some((action) => action.type === "infer")).toBe(false);
+    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-complete" });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toBe(REPORT_ENVELOPE);
+    expect(reply.content).not.toContain("narrated instead of writing a report envelope");
+  });
+
+  test("zero-tool first turn still salvages never-acted", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    const result = actions(
+      await director.decide(inferenceDoneText("I'll write the red tests next"), state, caps),
+    );
+    expect(result.some((action) => action.type === "infer")).toBe(false);
+    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-never-acted" });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
+    expect(reply.content).toContain("without using any tools");
+    expect(reply.content).not.toContain("narrated instead of writing a report envelope");
   });
 });

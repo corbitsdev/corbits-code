@@ -34,6 +34,7 @@ export {
   buildDispatchBrief,
   demoteNestedReportHeadings,
   formatSubAgentReport,
+  hasReportEnvelope,
   parseSubAgentReport,
   subAgentToolName,
   type DispatchBrief,

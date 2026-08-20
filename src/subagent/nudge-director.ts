@@ -40,12 +40,17 @@ const TOOL_FAILURE_RECOVERY_NUDGE =
 const RE_READ_NUDGE_IMPLEMENT =
   "You are re-reading the same paths without finishing. Edit a file to make progress, or stop tooling and write your final report now.";
 
+
 /**
  * Explore / non-implement leaves: same soft re-read pressure, but do not force
  * edit behavior — expand findings, change approach, or report.
  */
 const RE_READ_NUDGE_EXPLORE =
   "You are re-reading the same paths. Expand Findings, change approach, or write your final report — do not keep re-reading the same files.";
+
+/** Tool-less mid-run narration after tools, without a report envelope. One-shot. */
+const INCOMPLETE_REPORT_NUDGE =
+  "Write your final report now using ## Summary, ## Findings, ## Blockers, and ## Paths. Do not narrate status. No more tools unless one lookup is required to cite a line.";
 
 function ephemeralNudgeTurn(text: string): ConversationTurn {
   return {
@@ -113,6 +118,9 @@ export class SubAgentDirector extends DefaultDirector {
   // Soft re-read-nudge is one-shot per run; thrash hard-stop still fires later
   // if the leaf ignores it and keeps re-reading.
   private reReadNudgeFired = false;
+  // Soft incomplete-report wrap-up is one-shot per run; a second tool-less
+  // narration without the envelope salvages as incomplete-report.
+  private incompleteReportNudgeFired = false;
 
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running
   // background command with nothing else to do) produces no inbound events
@@ -209,12 +217,33 @@ export class SubAgentDirector extends DefaultDirector {
         repeatLimit: this.repeatLimit,
         thrashState: this.thrashState,
         requireEdit: this.requireEdit,
+        lastAssistantText: this.lastAssistantText,
+        incompleteReportNudgeFired: this.incompleteReportNudgeFired,
       });
 
       if (stop === "complete") {
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(content)),
+        ];
+        this.compaction.noteIdleTurn(event, terminal);
+        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        if (compacted !== null) return compacted;
+        return terminal;
+      }
+      if (stop === "incomplete-report") {
+        // Tool-less turn after tools, no report envelope. Must not fall through
+        // to super.decide — DefaultDirector completes any tool-less turn.
+        this.incompleteReportNudgeFired = true;
+        return [
+          capabilities.checkpoint("subagent-incomplete-report-nudge"),
+          inferWithSubAgentNudge(capabilities, INCOMPLETE_REPORT_NUDGE),
+        ];
+      }
+      if (stop === "incomplete-report-stop") {
+        const terminal: ReactorAction[] = [
+          capabilities.checkpoint("subagent-incomplete-report"),
+          capabilities.reply(forcedStopReport("incomplete-report", this.lastAssistantText)),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
@@ -228,8 +257,8 @@ export class SubAgentDirector extends DefaultDirector {
         // this fires once, forceReportWithin turns before the cap.
         this.pendingNudgeText = REPORT_FORCED_WRAP_UP_NUDGE;
       } else if (stop === "re-read-nudge") {
-        // Soft mid-run redirect (CL-5813). One-shot; hard thrash still stops
-        // the leaf if re-read pressure keeps climbing after the nudge.
+        // Soft mid-run redirect. One-shot; hard thrash still stops the worker
+        // if the same path/grep keeps repeating after the nudge.
         if (!this.reReadNudgeFired) {
           this.reReadNudgeFired = true;
           this.pendingNudgeText = this.requireEdit
@@ -241,7 +270,8 @@ export class SubAgentDirector extends DefaultDirector {
         stop === "turn-budget" ||
         stop === "never-acted" ||
         stop === "never-edited" ||
-        stop === "thrash"
+        stop === "thrash" ||
+        stop === "no-ship"
       ) {
         const checkpoint =
           stop === "no-progress"
@@ -252,6 +282,8 @@ export class SubAgentDirector extends DefaultDirector {
                 ? "subagent-never-edited"
                 : stop === "thrash"
                   ? "subagent-thrash"
+                  : stop === "no-ship"
+                    ? "subagent-no-ship"
                   : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),

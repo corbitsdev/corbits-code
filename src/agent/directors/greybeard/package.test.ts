@@ -32,6 +32,12 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("plan");
   });
 
+  test("systemPrompt forbids parallel diagnostic fleets", () => {
+    expect(greybeardPackage.systemPrompt).toMatch(/do the review yourself/i);
+    expect(greybeardPackage.systemPrompt).toMatch(/spawn at most one intern/i);
+    expect(greybeardPackage.systemPrompt).toMatch(/never spawn a parallel diagnostic fleet/i);
+  });
+
   test("tools.allow is orchestrator surface without product writes", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
     expect(allow).toContain("task");
