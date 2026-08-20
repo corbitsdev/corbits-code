@@ -188,6 +188,160 @@ describe("palette filters as you type", () => {
   })
 })
 
+const DESCRIBED_CATALOG: readonly PaletteCommand[] = [
+  {
+    id: "help",
+    label: "/help",
+    description: "Show the keyboard shortcut and command overlay",
+  },
+  {
+    id: "model",
+    label: "/model",
+    description: "Switch the active model or provider",
+  },
+  {
+    id: "mcp",
+    label: "/mcp",
+    description: "Manage MCP servers",
+  },
+]
+
+const HELP_DESC = "Show the keyboard shortcut and command overlay"
+const MODEL_DESC = "Switch the active model or provider"
+
+function stripFrameLines(frame: string): string[] {
+  return frame
+    .split("\n")
+    .map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd())
+}
+
+/** Interior zone rows under the list rule, before the overlay's bottom border. */
+function zoneAfterList(
+  lines: readonly string[],
+  labels: readonly string[],
+): readonly string[] | undefined {
+  let last = -1
+  for (const [i, line] of lines.entries()) {
+    if (labels.some((label) => line.includes(label))) last = i
+  }
+  if (last < 0) return undefined
+  const below = lines.slice(last + 1)
+  const ruleAt = below.findIndex(
+    (r) => r.includes("─") && !/[┌┐└┘╭╮╰╯]/.test(r),
+  )
+  if (ruleAt < 0) return undefined
+  const afterRule = below.slice(ruleAt + 1)
+  const boxBottom = afterRule.findIndex((r) => /[└┘]/.test(r))
+  return boxBottom >= 0 ? afterRule.slice(0, boxBottom) : afterRule
+}
+
+function expectNameOnlyRows(
+  lines: readonly string[],
+  labels: readonly string[],
+): void {
+  for (const label of labels) {
+    const row = lines.find((r) => r.includes(label))
+    expect(row).toBeDefined()
+    expect(row!.trim()).toBe(label)
+  }
+}
+
+function expectDescriptionUnderListRule(
+  lines: readonly string[],
+  description: string,
+  labels: readonly string[],
+): void {
+  for (const label of labels) {
+    const row = lines.find((r) => r.includes(label))
+    expect(row).toBeDefined()
+    expect(row).not.toContain(description)
+  }
+  const zone = zoneAfterList(lines, labels)
+  expect(zone).toBeDefined()
+  expect(zone!.some((r) => r.includes(description))).toBe(true)
+}
+
+describe("command list description zone", () => {
+  test("paints the focused command's registry description, not on the row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell, { catalog: DESCRIBED_CATALOG })
+        await h.renderOnce()
+        const labels = DESCRIBED_CATALOG.map((c) => c.label)
+        const lines = stripFrameLines(h.captureCharFrame())
+        expectNameOnlyRows(lines, labels)
+        expectDescriptionUnderListRule(lines, HELP_DESC, labels)
+      },
+      { width: 100, height: 32 },
+    )
+  })
+
+  test("moving the overlay selection updates the zone to the newly focused command", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell, { catalog: DESCRIBED_CATALOG })
+        await h.renderOnce()
+        const labels = DESCRIBED_CATALOG.map((c) => c.label)
+        const before = stripFrameLines(h.captureCharFrame())
+        expectDescriptionUnderListRule(before, HELP_DESC, labels)
+        expect(before.join("\n")).not.toContain(MODEL_DESC)
+
+        moveOverlaySelection(shell, 1)
+        await h.renderOnce()
+        const after = stripFrameLines(h.captureCharFrame())
+        expectNameOnlyRows(after, labels)
+        expectDescriptionUnderListRule(after, MODEL_DESC, labels)
+        expect(after.join("\n")).not.toContain(HELP_DESC)
+      },
+      { width: 100, height: 32 },
+    )
+  })
+
+  test("an undescribed row leaves the zone blank without leftover neighbor copy", async () => {
+    const mixed: readonly PaletteCommand[] = [
+      { id: "help", label: "/help", description: HELP_DESC },
+      { id: "model", label: "/model" },
+    ]
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        })
+        openPalette(shell, { catalog: mixed })
+        await h.renderOnce()
+        const labels = mixed.map((c) => c.label)
+        const described = stripFrameLines(h.captureCharFrame())
+        expectNameOnlyRows(described, labels)
+        expectDescriptionUnderListRule(described, HELP_DESC, labels)
+        const reserved = shell.layout.heights.overlay_host
+
+        moveOverlaySelection(shell, 1)
+        await h.renderOnce()
+        const blank = stripFrameLines(h.captureCharFrame())
+        expectNameOnlyRows(blank, labels)
+        const zone = zoneAfterList(blank, labels)
+        expect(zone).toBeDefined()
+        expect(zone!.every((r) => r.trim() === "")).toBe(true)
+        expect(blank.join("\n")).not.toContain(HELP_DESC)
+        expect(shell.layout.heights.overlay_host).toBe(reserved)
+      },
+      { width: 100, height: 32 },
+    )
+  })
+})
+
 describe("command list width", () => {
   // Both boxes are children of the same padded root; a width computed a
   // second way for the floating list drifts from the prompt box's "100%".

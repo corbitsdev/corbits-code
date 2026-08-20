@@ -19,7 +19,12 @@ import {
 } from "./shell"
 
 const CATALOG: readonly PaletteCommand[] = [
-  { id: "model", label: "/model" },
+  {
+    id: "model",
+    label: "/model",
+    description: "Open model picker",
+    keywords: ["model", "Open model picker", "slash", "command"],
+  },
   { id: "mcp", label: "/mcp" },
   { id: "compact", label: "/compact" },
 ]
@@ -29,6 +34,7 @@ type Ctx = {
   readonly dispatched: string[]
   readonly press: (key: string) => void
   readonly render: () => Promise<void>
+  readonly frame: () => string
 }
 
 function withShell(fn: (ctx: Ctx) => Promise<void>): Promise<void> {
@@ -48,6 +54,7 @@ function withShell(fn: (ctx: Ctx) => Promise<void>): Promise<void> {
           dispatched,
           press: (key) => h.pressKey(key as Parameters<typeof h.pressKey>[0]),
           render: h.renderOnce,
+          frame: () => h.captureCharFrame(),
         })
       } finally {
         shell.dispose()
@@ -150,6 +157,32 @@ describe("slash command popup", () => {
       press("/")
       expect(isSlashPopupOpen(shell)).toBe(false)
       expect(shell.prompt.value).toBe("src/")
+    })
+  })
+
+  test("an unmatched name prefix closes the popup and keeps the typed text", async () => {
+    await withShell(async ({ shell, press, render, frame }) => {
+      press("/")
+      press("z")
+      await render()
+      expect(isSlashPopupOpen(shell)).toBe(false)
+      expect(shell.overlayList).toBeNull()
+      expect(shell.prompt.value).toBe("/z")
+      expect(shell.overlayItems).not.toContain("(no matches)")
+      expect(frame()).not.toContain("(no matches)")
+    })
+  })
+
+  test("description prose does not keep the slash list open", async () => {
+    await withShell(async ({ shell, press, render, frame }) => {
+      press("/")
+      press("p")
+      await render()
+      expect(isSlashPopupOpen(shell)).toBe(false)
+      expect(shell.overlayList).toBeNull()
+      expect(shell.prompt.value).toBe("/p")
+      expect(shell.overlayItems).not.toContain("(no matches)")
+      expect(frame()).not.toContain("(no matches)")
     })
   })
 })

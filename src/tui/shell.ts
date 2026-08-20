@@ -3791,6 +3791,12 @@ function repaintPalette(shell: AppShell): void {
     kind: "palette",
     title: state.title,
     items: labels,
+    itemIds: commands.map((c) => c.id),
+    describe: (id) => {
+      const cmd = commands.find((c) => c.id === id)
+      const what = cmd?.description?.trim()
+      return what ? { what } : null
+    },
     // Typed filter row only when the overlay owns keystrokes. The `/` popup
     // keeps its query in the prompt, so a body of `>` would be orphan chrome.
     ...(state.typeToFilter ? { body: `> ${state.query}` } : {}),

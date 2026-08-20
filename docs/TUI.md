@@ -282,16 +282,25 @@ are painted at the geometry resolver's shared `contentWidth`
 leading marker column and no per-row kind column; the selected row is marked
 by text color only (`paintPaletteList` in `shell.ts`: "the highlighted row
 already stands out by sitting under the cursor, so a leading `>` and a grey
-block would both be saying the same thing twice"). The list also paints with
-no title rule — the filter row (`> query`) directly under the box already
-shows what was typed, so a second header line would say nothing new
-(`repaintPalette`).
+block would both be saying the same thing twice"). Rows stay name-only
+(`/help`, `/model`); the focused command's registry description paints in the
+shared two-line description zone under the list (`openListOverlay({ describe })`,
+`paintDescriptionZone` in `shell.ts`). A missing or blank `description` still
+reserves the zone (rule plus two blank lines); it does not collapse. Built-ins
+have copy; this is the empty-description edge. The list also paints with no
+title rule — slash-popup query lives in the prompt, so an orphan `>` filter
+row under the box would be chrome that says nothing the prompt isn't already
+showing (`repaintPalette`).
 
 ## Slash commands and pickers
 
 `/` at an empty prompt opens the command list, narrowed by name prefix as
-more is typed; Tab completes the name so arguments can be typed, Enter runs
-it. Every entry is backed by the live command registry
+more is typed (`cmd.id` in `openSlashCommands`); Tab completes the name so
+arguments can be typed, Enter runs it. The query lives in the prompt — list
+chrome is in How selectors should work above. When the prefix matches
+nothing, the overlay closes and the prompt is left as typed: `/` then `z`
+with no `z…` command vanishes the list and leaves `/z`. Slash never paints
+a `(no matches)` row. Every entry is backed by the live command registry
 (`src/tui/command-catalog.ts:commandItemsFromRegistry`) — there is no
 separate palette overlay and no shell-owned action outside the registry. The
 overlay this reuses is still internally called `"palette"` (`shell.ts`'s
@@ -331,9 +340,9 @@ The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
 recent and favorite provider+model pairs sit at the top, then every
 `provider / model` leaf from the catalog. Typing narrows the list in place
-(printable keys claimed by the filter row, same pattern as the command
-palette); Enter selects. Escape closes the picker. The row matching the
-session's live active model gets a `(current)` suffix. Alt+F on a model row
+(printable keys claimed by the picker's own `>` filter row); Enter selects.
+Escape closes the picker. The row matching the session's live active model
+gets a `(current)` suffix. Alt+F on a model row
 still toggles favorite when a favorite hook is wired. While type-to-filter is
 active, bare `j`/`k` type into the filter rather than moving the highlight —
 use arrow keys (or the filtered list's navigation) to move.
