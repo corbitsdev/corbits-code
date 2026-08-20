@@ -32,6 +32,11 @@ import {
 } from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 import { isOperatorOriginated } from "./message-provenance.js";
+import {
+  classifyBriefSalvage,
+  isHardBlockSalvage,
+} from "../subagent/brief-dispatch.js";
+import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
 
@@ -425,6 +430,10 @@ class ChatDirectorImpl extends DefaultDirector {
   // unheeded for a further full interval with no user message). Drives the
   // pause message wording so the two are distinguishable.
   private toolOnlyPauseReason: "thrash" | "backstop" | null = null;
+  // One-shot nudge after a hard-block worker salvage. Not a look-count quota.
+  private salvageNudgeFired = false;
+  private pendingSalvageNudge: string | null = null;
+  private pendingTaskCallIds = new Set<string>();
 
   constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions) {
     super(systemPrompt, toolDefinitions, {});
@@ -547,6 +556,26 @@ class ChatDirectorImpl extends DefaultDirector {
     return rewritten;
   }
 
+  /**
+   * One-shot salvage nudge after a worker hard-block. Fingerprint thrash
+   * (applyToolOnlyLoopProtection) wins when both apply. Attaches to the infer
+   * after pending tools have executed.
+   */
+  private applySalvageNudge(
+    actions: ReactorAction[],
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] | null {
+    if (this.pendingSalvageNudge === null) return null;
+    const inferIndex = actions.findIndex((a) => a.type === "infer");
+    if (inferIndex === -1) return null;
+    const text = this.pendingSalvageNudge;
+    this.pendingSalvageNudge = null;
+    const rewritten = [...actions];
+    const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
+    rewritten[inferIndex] = inferWithNudge(capabilities, text, existing.options);
+    return rewritten;
+  }
+
   private withCurrentTools(
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
@@ -644,6 +673,9 @@ class ChatDirectorImpl extends DefaultDirector {
         this.turnsSinceUserMessage = 0;
         this.backstopNudgeFiredAtTurn = null;
         this.pendingBackstopNudge = false;
+        this.salvageNudgeFired = false;
+        this.pendingSalvageNudge = null;
+        this.pendingTaskCallIds.clear();
       }
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
@@ -719,6 +751,12 @@ class ChatDirectorImpl extends DefaultDirector {
       // reset the cycle-detection side because only text turns and fresh
       // messages do).
       this.turnsSinceUserMessage++;
+      const turnContent = event.turn.content as ReadonlyArray<{ type: string; name?: string; id?: string }>;
+      for (const block of turnContent) {
+        if (block.type === "tool_call" && block.name === "task" && typeof block.id === "string") {
+          this.pendingTaskCallIds.add(block.id);
+        }
+      }
       if (hasToolCalls && !hasText) {
         this.toolOnlyStreak++;
         const fingerprint = fingerprintToolCalls(event.turn.content);
@@ -804,6 +842,17 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
+    if (event.type === "tool.done" && this.pendingTaskCallIds.has(event.result.callId)) {
+      this.pendingTaskCallIds.delete(event.result.callId);
+      const body =
+        typeof event.result.content === "string" ? event.result.content : "";
+      const salvage = classifyBriefSalvage(body);
+      if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
+        this.salvageNudgeFired = true;
+        this.pendingSalvageNudge = PRIMARY_SALVAGE_NUDGE;
+      }
+    }
+
     if (event.type === "tool.done" && this.workflowCalls.has(event.result.callId)) {
       const call = this.workflowCalls.get(event.result.callId);
       this.workflowCalls.delete(event.result.callId);
@@ -870,6 +919,8 @@ class ChatDirectorImpl extends DefaultDirector {
     // wiring in src/subagent/index.ts).
     const toolOnlyRewrite = this.applyToolOnlyLoopProtection(baseActions, capabilities);
     if (toolOnlyRewrite !== null) return toolOnlyRewrite;
+    const lookRewrite = this.applySalvageNudge(baseActions, capabilities);
+    if (lookRewrite !== null) return lookRewrite;
 
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {

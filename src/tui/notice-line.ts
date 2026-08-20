@@ -24,11 +24,18 @@
 
 const SEP = "    "
 
+export const STEER_WAIT_NOTICE_MS = 3_000
+
 export type NoticeState = {
   /** Soft-steer pending (Enter mid-run → drain at tool.boundary). */
   readonly steer: number
   /** Follow-up pending (Alt+Enter mid-run → drain only when idle). */
   readonly followUp: number
+  /**
+   * Parent tool name to surface after `STEER_WAIT_NOTICE_MS`, or null.
+   * Gated by `resolveWaitingOn`; this field only controls wording.
+   */
+  readonly waitingOn: string | null
   readonly interrupt: boolean
   /** Transcript scrolled off the tail (non-default follow state). */
   readonly pinned: boolean
@@ -37,10 +44,26 @@ export type NoticeState = {
   readonly attachments: number
 }
 
+/**
+ * Name the in-flight parent tool once a steer has been waiting long enough.
+ * Silent below the delay, with no pending steer, or with no live parent tool.
+ */
+export function resolveWaitingOn(
+  steer: number,
+  inFlight: { name: string; startedAt: number } | null,
+  nowMs: number,
+): string | null {
+  if (steer <= 0 || inFlight === null) return null
+  if (nowMs - inFlight.startedAt < STEER_WAIT_NOTICE_MS) return null
+  const name = inFlight.name.trim()
+  return name.length > 0 ? name : null
+}
+
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = []
   if (state.steer > 0) segments.push(`steer ${state.steer}`)
   if (state.followUp > 0) segments.push(`follow-up ${state.followUp}`)
+  if (state.waitingOn) segments.push(`waiting on ${state.waitingOn}`)
   if (state.pinned) segments.push("pinned")
   // "interrupt" is not a standing notice. Mid-run stop feedback is a system
   // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.

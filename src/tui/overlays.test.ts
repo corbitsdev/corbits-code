@@ -316,7 +316,7 @@ describe("overlay accept callbacks", () => {
             onModel: (s) => accepted.push(s),
           })
           openModelPickerOverlay(shell, {
-            items: ["anthropic / sonnet", "openai / gpt-5"],
+            items: ["sonnet * [anthropic]", "gpt-5 * [openai]"],
             itemIds: ["anthropic:claude-sonnet-4", "openai:gpt-5"],
             activeIndex: 0,
           })
@@ -326,7 +326,7 @@ describe("overlay accept callbacks", () => {
             {
               kind: "model_picker",
               index: 1,
-              label: "openai / gpt-5",
+              label: "gpt-5 * [openai]",
               id: "openai:gpt-5",
             },
           ])

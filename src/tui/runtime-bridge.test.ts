@@ -7,7 +7,8 @@ import {
   type TaskProgressSession,
 } from "./runtime-bridge"
 import { DEFAULT_STALL_MS } from "./agent-progress"
-import { appendStreamRow, createAppShell, streamRowCount } from "./shell"
+import { appendStreamRow, createAppShell, paintChrome, streamRowCount } from "./shell"
+import { STEER_WAIT_NOTICE_MS } from "./notice-line"
 import { withTestRenderer } from "./harness"
 import { badgeCount } from "./session-queue"
 
@@ -283,6 +284,82 @@ describe("attachSessionBridge", () => {
           const frame = h.captureCharFrame()
           expect(frame).toContain("steer now")
           expect(frame).toMatch(/follow-up\s+1/)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("steer is not delivered while a parent tool is in flight", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port)
+        try {
+          bridge.handle({
+            type: "tool.start",
+            data: { call: { id: "c1", name: "run_shell" } },
+          })
+          bridge.submit("steer now", "steer")
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(false)
+          expect(badgeCount(shell.session)).toBe(1)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("notice names the in-flight command after STEER_WAIT_NOTICE_MS", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        let clock = 0
+        const port = createRecordingPort()
+        const bridge = attachSessionBridge(shell, port, {
+          now: () => clock,
+          schedule: () => () => {},
+        })
+        try {
+          bridge.handle({
+            type: "tool.start",
+            data: { call: { id: "c1", name: "run_shell" } },
+          })
+          bridge.submit("steer now", "steer")
+
+          clock = STEER_WAIT_NOTICE_MS - 1
+          shell.lockupNowMs = clock
+          paintChrome(shell)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).not.toContain("waiting on")
+
+          clock = STEER_WAIT_NOTICE_MS
+          shell.lockupNowMs = clock
+          paintChrome(shell)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("waiting on run_shell")
+
+          bridge.handle({ type: "tool.boundary" })
+          bridge.submit("follow up", "queue")
+          clock = 5000
+          shell.lockupNowMs = clock
+          paintChrome(shell)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).not.toContain("waiting on")
         } finally {
           bridge.dispose()
           shell.dispose()

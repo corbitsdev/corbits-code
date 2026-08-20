@@ -24,6 +24,9 @@ export type PluginManifest = {
   kind: PluginKind;
   description?: string;
   credentials?: PluginCredentialField[];
+  // First-party (origin:repo) plugins may opt in to on-by-default when settings
+  // have no entry. Marketplace/path/user plugins ignore this flag.
+  defaultEnabled?: boolean;
 };
 
 const PluginCredentialFieldSchema = type({
@@ -39,6 +42,7 @@ export const PluginManifestSchema = type({
   kind: "'web' | 'command' | 'tool' | 'agent' | 'workflow'",
   "description?": "string",
   "credentials?": PluginCredentialFieldSchema.array(),
+  "defaultEnabled?": "boolean",
 });
 
 export function parsePluginManifest(value: unknown): PluginManifest | null {

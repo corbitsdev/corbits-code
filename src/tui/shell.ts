@@ -62,7 +62,7 @@ import {
   type PromptInput,
 } from "./prompt-input.js"
 import { promptBoxRows } from "./prompt-rows.js"
-import { composeNoticeLine } from "./notice-line.js"
+import { composeNoticeLine, resolveWaitingOn } from "./notice-line.js"
 import {
   lockupCells,
   lockupText,
@@ -677,6 +677,11 @@ export type AppShell = {
    * paints the settled idle slot.
    */
   lockupNowMs: number
+  /**
+   * Parent tool currently in flight, for the steer `waiting on` notice.
+   * Null when no parent tools remain or the run is idle. Not TurnState.
+   */
+  inFlightTool: { name: string; startedAt: number } | null
   lockupAnimating: boolean
   /**
    * Live activity state the slot shows, or null for the idle wordmark.
@@ -852,6 +857,11 @@ export function noticeText(shell: AppShell): string {
   return composeNoticeLine({
     steer: steerCount(shell.session),
     followUp: queueCount(shell.session),
+    waitingOn: resolveWaitingOn(
+      steerCount(shell.session),
+      shell.inFlightTool,
+      shell.lockupNowMs,
+    ),
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
@@ -1347,11 +1357,26 @@ function overlayHints(shell: AppShell): readonly string[] {
   const hasChoices = shell.overlayItems.length > 0
   if (answer === null) {
     if (!hasChoices) return ["Esc dismiss"]
-    if (
-      shell.overlayKind === "model_picker" &&
-      internals.get(shell)?.overlayAddProviderHint === true
-    ) {
-      return MODEL_PICKER_HINTS
+    if (shell.overlayKind === "model_picker") {
+      const bag = internals.get(shell)
+      const addProvider = bag?.overlayAddProviderHint === true
+      const setDefault = bag?.overlaySetDefaultHint === true
+      if (addProvider && setDefault) {
+        return [
+          "Esc cancel · Enter choose · Alt+A add provider · Alt+D set default",
+          "Esc · Enter · Alt+A add · Alt+D default",
+          "Esc · Enter · Alt+A · Alt+D",
+          "Esc · Enter",
+        ]
+      }
+      if (addProvider) return MODEL_PICKER_HINTS
+      if (setDefault) {
+        return [
+          "Esc cancel · Enter choose · Alt+D set default",
+          "Esc · Enter · Alt+D default",
+          "Esc · Enter",
+        ]
+      }
     }
     return DEFAULT_OVERLAY_HINTS
   }
@@ -1946,6 +1971,7 @@ type PriorOverlaySnapshot = {
   readonly titleText: string
   readonly onCancel: (() => void) | null
   readonly addProviderHint: boolean
+  readonly setDefaultHint: boolean
 }
 
 type ShellInternals = {
@@ -1974,6 +2000,8 @@ type ShellInternals = {
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
   /** Whether the open primary advertises Alt+A in the footer hints. */
   overlayAddProviderHint: boolean
+  /** Whether the open primary advertises Alt+D in the footer hints. */
+  overlaySetDefaultHint: boolean
   /**
    * While true the shell ignores its own key/paste/submit handlers. Set for
    * the lifetime of a full-screen surface (inline provider connect) that
@@ -3531,6 +3559,11 @@ export type OpenListOverlayOpts = {
    * the hint can never name a key that is a dead end.
    */
   readonly addProviderHint?: boolean
+  /**
+   * Advertise the Alt+D set-default hint in the footer for this open. Set
+   * only when the caller actually wired an Alt+D handler via `onAction`.
+   */
+  readonly setDefaultHint?: boolean
 }
 
 /**
@@ -3570,6 +3603,7 @@ export function openListOverlay(
           titleText: bag.overlayTitleText,
           onCancel: bag.overlayOnCancel,
           addProviderHint: bag.overlayAddProviderHint,
+          setDefaultHint: bag.overlaySetDefaultHint,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3601,6 +3635,7 @@ export function openListOverlay(
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false
+      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false
       // Capture the full unfiltered set so typing can re-narrow in place.
       bag.listFilter =
         opts?.typeToFilter === true
@@ -3623,6 +3658,7 @@ export function openListOverlay(
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false
+      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false
       bag.listFilter = null
     }
     if (!isPalette) {
@@ -4073,6 +4109,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayDescribe = null
     bag.overlayOnAction = null
     bag.overlayAddProviderHint = false
+    bag.overlaySetDefaultHint = false
     bag.overlayAnswer = null
     bag.overlayOnCancel = null
   }
@@ -4107,6 +4144,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayTitleText = prior.titleText
     bag.overlayOnCancel = prior.onCancel
     bag.overlayAddProviderHint = prior.addProviderHint
+    bag.overlaySetDefaultHint = prior.setDefaultHint
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -6088,6 +6126,7 @@ export function createAppShell(
     mcpNeedsAuth: [],
     pluginNeedsAttention: false,
     lockupNowMs: 0,
+    inFlightTool: null,
     lockupAnimating: false,
     lockupPhase: null,
     lockupChangedMs: 0,
@@ -6141,6 +6180,7 @@ export function createAppShell(
     overlayDescribe: null,
     overlayOnAction: null,
     overlayAddProviderHint: false,
+    overlaySetDefaultHint: false,
     inputSuspended: false,
     overlayAnswer: null,
     overlayTitleText: "",

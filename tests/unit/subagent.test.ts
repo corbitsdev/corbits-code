@@ -141,13 +141,13 @@ test("handler reports runner failures without throwing", async () => {
   expect(result).toContain("provider exploded");
 });
 
-test("sub-agent prompt is autonomous and forbids recursion for leaf agents", () => {
+test("sub-agent prompt is autonomous and forbids recursion for workers", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("sub-agent");
   expect(prompt).toContain("permission policy as the parent session");
   expect(prompt).toContain("parent session's permission gate");
-  // Leaf agents must not be invited to spawn further agents.
-  expect(prompt).toContain("leaf sub-agent");
+  // Workers must not be invited to spawn further agents.
+  expect(prompt).toContain("You are a worker");
   expect(prompt).not.toContain("MAY call `task`");
 });
 
@@ -268,7 +268,7 @@ test("intent general is refused (no general director)", async () => {
   expect(ran).toBe(false);
 });
 
-test("bare task without agent or intent is refused (no general leaf)", async () => {
+test("bare task without agent or intent is refused (no catch-all worker)", async () => {
   let ran = false;
   const tool = createTaskTool({
     permissionGate: testPermissionGate,
@@ -320,7 +320,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
   expect(ran).toBe(true);
 });
 
-test("task refuses skywalker as a nested leaf", async () => {
+test("task refuses skywalker as a spawned worker", async () => {
   let ran = false;
   const tool = createTaskTool({
     permissionGate: testPermissionGate,

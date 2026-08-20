@@ -16,7 +16,7 @@ export const planPackage: DirectorPackage = {
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "plan",
-  systemPrompt: `You are PlanDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are PlanDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: author concrete engineering change plans. Do not implement product code. Do not act as architecture gate (that is Greybeard).
 

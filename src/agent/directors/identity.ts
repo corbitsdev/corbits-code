@@ -13,7 +13,7 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
       ? null
       : pkg.optionalSkills.length === 0
         ? "Optional skills: none by default."
-        : `Optional skills (names for awareness; guidance is baked into this prompt — use_skill is not mounted on leaves): ${pkg.optionalSkills.join(", ")}.`;
+        : `Optional skills (names for awareness; guidance is baked into this prompt — use_skill is not mounted on workers): ${pkg.optionalSkills.join(", ")}.`;
   const header = [
     `Identity: agent id \`${pkg.id}\` — spawn as task(agent="${pkg.id}").`,
     `Model role: ${pkg.modelRole}.`,
@@ -24,7 +24,7 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
 
 /**
  * Product default reasoning effort by package modelRole (CL-5816 slice).
- * Intern is the cheap leaf: same implement role, lower effort budget.
+ * Intern is the cheap worker: same implement role, lower effort budget.
  */
 export const MODEL_ROLE_DEFAULT_EFFORT = {
   orchestrator: "high",

@@ -210,6 +210,46 @@ describe("skillDirsFromEnabledPlugins", () => {
       }),
     ).toEqual(["/a"]);
   });
+
+  test("includes a repo defaultEnabled plugin with no settings entry", () => {
+    const modules = [
+      {
+        dir: "/skills",
+        origin: "repo",
+        manifest: { id: "corbits-skills", name: "skills", kind: "command", defaultEnabled: true },
+      },
+    ] as unknown as PluginModule[];
+    expect(skillDirsFromEnabledPlugins(modules, {})).toEqual(["/skills"]);
+  });
+
+  test("excludes a repo defaultEnabled plugin when enabled:false", () => {
+    const modules = [
+      {
+        dir: "/skills",
+        origin: "repo",
+        manifest: { id: "corbits-skills", name: "skills", kind: "command", defaultEnabled: true },
+      },
+    ] as unknown as PluginModule[];
+    expect(
+      skillDirsFromEnabledPlugins(modules, { "corbits-skills": { enabled: false } }),
+    ).toEqual([]);
+  });
+
+  test("ignores defaultEnabled on marketplace/path plugins", () => {
+    const modules = [
+      {
+        dir: "/user",
+        origin: "user",
+        manifest: { id: "mkt", name: "mkt", kind: "command", defaultEnabled: true },
+      },
+      {
+        dir: "/path",
+        origin: "path",
+        manifest: { id: "p", name: "p", kind: "command", defaultEnabled: true },
+      },
+    ] as unknown as PluginModule[];
+    expect(skillDirsFromEnabledPlugins(modules, {})).toEqual([]);
+  });
 });
 
 describe("createSessionPruningCompactor", () => {

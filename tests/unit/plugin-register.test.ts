@@ -4,13 +4,15 @@ import {
   isEnabledCommandPlugin,
   enablePluginConfig,
   isPluginEnabled,
+  isPluginModuleEnabled,
 } from "../../src/plugins/register.js";
 import type { PluginModule } from "../../src/plugins/loader.js";
 
-function cmdModule(id: string): PluginModule {
+function cmdModule(id: string, extra: Partial<PluginModule> = {}): PluginModule {
   return {
     manifest: { id, name: id, kind: "command" },
     commandPlugin: { commands: [{ name: id, description: "d", handler: () => ({ type: "noop" }) }] },
+    ...extra,
   };
 }
 
@@ -59,4 +61,66 @@ test("enablePluginConfig marks enabled and preserves credentials/consented", () 
     consented: true,
     credentials: { apiKey: "k" },
   });
+});
+
+test("isPluginEnabled stays strict: missing settings entry is disabled", () => {
+  expect(isPluginEnabled({}, "any")).toBe(false);
+  expect(isPluginEnabled({ any: {} }, "any")).toBe(false);
+  expect(isPluginEnabled({ any: { enabled: false } }, "any")).toBe(false);
+});
+
+test("isPluginModuleEnabled: explicit true/false win over defaultEnabled", () => {
+  const repoOn: PluginModule = {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command", defaultEnabled: true },
+  };
+  expect(isPluginModuleEnabled(repoOn, { skills: { enabled: true } })).toBe(true);
+  expect(isPluginModuleEnabled(repoOn, { skills: { enabled: false } })).toBe(false);
+
+  const repoOffFlag: PluginModule = {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command", defaultEnabled: false },
+  };
+  expect(isPluginModuleEnabled(repoOffFlag, { skills: { enabled: true } })).toBe(true);
+});
+
+test("isPluginModuleEnabled: missing settings + repo + defaultEnabled is on", () => {
+  const repoOn: PluginModule = {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command", defaultEnabled: true },
+  };
+  expect(isPluginModuleEnabled(repoOn, {})).toBe(true);
+  expect(isPluginModuleEnabled(repoOn, { skills: {} })).toBe(true);
+});
+
+test("isPluginModuleEnabled: missing settings + repo without flag is off", () => {
+  const repoNoFlag: PluginModule = {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command" },
+  };
+  expect(isPluginModuleEnabled(repoNoFlag, {})).toBe(false);
+  const repoFalse: PluginModule = {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command", defaultEnabled: false },
+  };
+  expect(isPluginModuleEnabled(repoFalse, {})).toBe(false);
+});
+
+test("isPluginModuleEnabled: marketplace/path/user defaultEnabled is ignored", () => {
+  const flagged = {
+    manifest: { id: "mkt", name: "mkt", kind: "command", defaultEnabled: true },
+  };
+  expect(isPluginModuleEnabled({ ...flagged, origin: "user" }, {})).toBe(false);
+  expect(isPluginModuleEnabled({ ...flagged, origin: "path" }, {})).toBe(false);
+  expect(isPluginModuleEnabled({ ...flagged, origin: "project" }, {})).toBe(false);
+  expect(isPluginModuleEnabled(flagged, {})).toBe(false);
+});
+
+test("isEnabledCommandPlugin routes through isPluginModuleEnabled", () => {
+  const repoCmd = cmdModule("skills", {
+    origin: "repo",
+    manifest: { id: "skills", name: "skills", kind: "command", defaultEnabled: true },
+  });
+  expect(isEnabledCommandPlugin(repoCmd, {})).toBe(true);
+  expect(isEnabledCommandPlugin(repoCmd, { skills: { enabled: false } })).toBe(false);
 });

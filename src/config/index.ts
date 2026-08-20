@@ -361,7 +361,7 @@ Usage:
   corbits exec|run [flags] <prompt>
   corbits resume|continue [session-id] [flags]
 
-Continue verbs (project-keyed; worktrees of the same git root share sessions):
+Continue verbs (project-keyed to this checkout's git toplevel):
   resume / continue           interactive session picker
   --resume                    interactive session picker
   resume <session-id>         reopen a specific session
@@ -425,7 +425,7 @@ export async function loadConfig(
 
   // Leading subcommand: `corbits exec "prompt"` (alias: `run`). Default is TUI.
   // `corbits resume` / `continue` reopen a prior session for this project key
-  // (shared across worktrees of the same git root — see docs/IMPLEMENTATION.md).
+  // (this checkout's git toplevel — see docs/IMPLEMENTATION.md).
   let command: "tui" | "exec" = "tui";
   let resumeMode: "id" | "pick" | undefined;
   let resumeSessionId: string | undefined;
@@ -651,7 +651,7 @@ export async function loadConfig(
   }
 
   // Resume resolution: project-key sessions live under ~/.corbits/projects/<key>/
-  // and are shared across worktrees of the same git root.
+  // keyed to this checkout's git toplevel (linked worktrees do not share lists).
   let sessionId = generateSessionId();
   let skipInitialTask = false;
   let resumePicker = false;
@@ -665,7 +665,7 @@ export async function loadConfig(
     const state = await loadState(cwd, id, options.home);
     if (state === null) {
       throw new Error(
-        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (shared across worktrees of the same git root). Use \`corbits resume\` to choose one.`,
+        `No session ${id} for this project. Sessions are stored under ~/.corbits/projects/<project-key>/ (this checkout's git toplevel). Use \`corbits resume\` to choose one.`,
       );
     }
     sessionId = id;

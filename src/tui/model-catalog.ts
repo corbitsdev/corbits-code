@@ -83,7 +83,7 @@ export function buildModelCatalog(
       seen.add(id)
       out.push({
         id,
-        label: `${providerLabel} / ${m}`,
+        label: formatModelPickerLabel(m, providerLabel),
       })
     }
   }
@@ -94,6 +94,11 @@ export function buildModelCatalog(
 /** Stable id for a provider+model pair (`provider:model`). */
 export function modelOptionId(provider: string, model: string): string {
   return `${provider}:${model}`
+}
+
+/** Picker row: `model * [providerLabel]`. */
+export function formatModelPickerLabel(model: string, providerLabel: string): string {
+  return `${model} * [${providerLabel}]`
 }
 
 function normalizeProviders(
@@ -180,7 +185,7 @@ export function buildModelsFirstCatalog(
     if (seen.has(id)) return false
     seen.add(id)
     const warning = isGoModelOnZenPath(model, provider) ? GO_ON_ZEN_WARNING : undefined
-    const label = `${providerLabelOf(provider)} / ${model}`
+    const label = formatModelPickerLabel(model, providerLabelOf(provider))
     out.push({
       id,
       label,

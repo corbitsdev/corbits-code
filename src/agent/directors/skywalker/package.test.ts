@@ -77,7 +77,10 @@ describe("skywalkerPackage", () => {
       "Orchestrate only — triage and dispatch; do not implement product code",
     );
     expect(skywalkerPackage.outOfLane).toContain("product edits");
-    expect(skywalkerPackage.outOfLane).toContain("general catch-all leaf");
+    expect(skywalkerPackage.outOfLane).toContain("catch-all worker");
+    expect(skywalkerPackage.outOfLane).toContain(
+      "searching the repo yourself after a worker stops without finishing",
+    );
     expect(skywalkerPackage.outOfLane).toContain("diagnostic fleets for why/how/stall questions");
   });
 
@@ -85,14 +88,22 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.nudge?.maxTurns).toBe(100);
   });
 
+  test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Parent tools");
+    expect(p).toContain("long-blocking");
+    expect(p).toContain("tool.boundary");
+    expect(p).toContain("Dispatch intern");
+  });
+
   test("systemPrompt has effort scaling / fan-out ladder", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Effort scaling");
     expect(p).toContain("fan-out");
-    expect(p).toContain("0–1 leaf");
-    expect(p).toContain("2–4 leaves");
+    expect(p).toContain("0–1 worker");
+    expect(p).toContain("2–4 workers");
     expect(p).toContain("split ownership by path/package");
-    expect(p).toContain("at most 4 concurrent leaves");
+    expect(p).toContain("at most 4 workers at once");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {
@@ -100,13 +111,14 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Anti-cascade");
     expect(p).toContain("COMMUNICATION first");
     expect(p).toContain("Never spawn parallel");
-    expect(p).toContain("one explore leaf");
+    expect(p).toContain("one explore worker");
+    expect(p).toContain("search the repo yourself after a worker stops");
     expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
   });
 
   test("systemPrompt simple path skips explore+critique for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("one implement leaf");
+    expect(p).toContain("one implement worker");
     expect(p).toContain("skip explore and skip critique");
     expect(p).toContain("tests green");
     expect(p).toContain("Do not always explore→implement→critique");
@@ -120,13 +132,18 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("curl/wget");
   });
 
-  test("systemPrompt requires brief completeness for multi-leaf", () => {
+  test("systemPrompt requires brief completeness for multi-worker dispatch", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Brief completeness");
     expect(p).toContain("success_criteria");
     expect(p).toContain("do_not");
     expect(p).toContain("report_focus");
-    expect(p).toContain("multi-leaf");
+    expect(p).toContain("multi-worker");
+  });
+
+  test("systemPrompt does not use leaf jargon", () => {
+    expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaf\b/i);
+    expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaves\b/i);
   });
 
   test("systemPrompt puts API signatures into implement success_criteria", () => {

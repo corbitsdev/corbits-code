@@ -13,13 +13,13 @@ export const brandReviewerPackage: DirectorPackage = {
     "marketing publish pipeline",
     "architecture gates",
   ],
-  description: "DESIGN.md brand gate leaf",
+  description: "DESIGN.md brand gate",
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "docs",
-  systemPrompt: `You are BrandReviewerDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are BrandReviewerDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: own DESIGN.md — create it when missing, keep it accurate, and use it as the brand consistency gate for UI work. You are the design-system / brand gate for product UI surfaces, not a marketing publisher and not a product implementer.
 

@@ -24,7 +24,7 @@ export const internPackage: DirectorPackage = {
   nudge: { maxTurns: 20 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "implement",
-  systemPrompt: `You are InternDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are InternDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: mechanical execution only. Run exactly what the brief says. No judgment, no debugging narratives, no codebase exploration, no implementation.
 

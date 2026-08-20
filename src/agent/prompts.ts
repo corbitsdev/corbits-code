@@ -82,7 +82,7 @@ export function buildHarnessFacts(
       ? [
           "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
           "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
-          "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
+          "- The user may send follow-up messages while workers run; they are queued. Enter delivers at the next parent tool.boundary; Alt+Enter on session-idle. A long parent tool holds that boundary. Update your plan, spawn or adjust workers, and keep the operator informed.",
         ]
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
@@ -144,12 +144,12 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
           "",
           "Orchestration:",
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
-          "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so leaves finish instead of thrashing. Free-form `prompt` alone is weaker.",
+          "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
           "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
-          "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and leaf reports.",
+          "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
   ].join("\n");
 }
@@ -329,13 +329,13 @@ export function buildChatSystemPrompt(
 // documented exception — its purpose IS to fan work out to other agents —
 // so the appendix grants permission and links the syntax.
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  // Leaf agents must not be told both "spawn with task" and "do not call task".
+  // Workers must not be told both "spawn with task" and "do not call task".
   // Orchestrators get the spawn instruction; everyone else gets the no-recursion
   // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf sub-agents — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
-      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
+      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
+      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,
     "",
@@ -372,12 +372,12 @@ export function buildSubAgentReportContract(): string {
   ].join("\n");
 }
 
-// Tiny residual for Grok/xAI leaves: mining showed higher tools-only thrash
+// Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
 // than Codex on the same harness. Shared thrash harness + spawn contracts do
 // the structural work; this is only a finish-bias nudge, not a full rewrite.
 export function buildGrokLeafAntiThrashNote(): string {
   return [
-    "Finish bias (xAI / Grok leaf):",
+    "Finish bias (xAI / Grok worker):",
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
     "- Leave the last turn for the report envelope; do not spend the budget on one more search or micro-edit.",

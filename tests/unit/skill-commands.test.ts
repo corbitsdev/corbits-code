@@ -63,6 +63,17 @@ describe("loadSkillCommands", () => {
     expect(cmds!.find((c) => c.name === "linear-create")).toBeDefined();
   });
 
+  test("omits a skill with user-invocable: false; sibling without the flag is still present", async () => {
+    const dir = await makePlugin({
+      "skills/internal-convention/SKILL.md":
+        "---\nname: internal-convention\ndescription: Internal only\nuser-invocable: false\n---\nDo not slash this.",
+      "skills/linear-create/SKILL.md":
+        "---\nname: linear-create\ndescription: Create Linear issues\n---\nCreate the artifacts.",
+    });
+    const cmds = await loadSkillCommands(dir);
+    expect(cmds!.map((c) => c.name).sort()).toEqual(["linear-create"]);
+  });
+
   test("copies argument-hint from skill frontmatter", async () => {
     const dir = await makePlugin({
       "skills/linear-create/SKILL.md":

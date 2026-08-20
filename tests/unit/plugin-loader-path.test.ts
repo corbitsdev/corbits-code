@@ -28,6 +28,17 @@ test("manifest requires a kind", () => {
   expect(parsePluginManifest({ id: "x", name: "X", kind: "bogus" })).toBeNull();
 });
 
+test("manifest parses optional defaultEnabled", () => {
+  expect(parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: true })).toEqual({
+    id: "x",
+    name: "X",
+    kind: "command",
+    defaultEnabled: true,
+  });
+  expect(parsePluginManifest({ id: "x", name: "X", kind: "command" })?.defaultEnabled).toBeUndefined();
+  expect(parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: "yes" })).toBeNull();
+});
+
 test("dedupePluginModules keeps the last module per id (path > user > repo)", () => {
   const repo: PluginModule = { manifest: { id: "dup", name: "Repo", kind: "command" }, commandPlugin: { commands: [] } };
   const user: PluginModule = { manifest: { id: "dup", name: "User", kind: "command" }, commandPlugin: { commands: [] } };

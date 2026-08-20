@@ -569,6 +569,7 @@ function applyToolCall(
     bag.taskCallIds.add(event.callId)
   }
   bag.lastToolRow = index
+  shell.inFlightTool = { name: event.name, startedAt: bag.now() }
 }
 
 /**
@@ -593,6 +594,7 @@ function applyToolResult(
     bag.toolRows.delete(event.callId)
     bag.taskCallIds.delete(event.callId)
   }
+  if (bag.toolRows.size === 0) shell.inFlightTool = null
   const index = tracked ?? bag.lastToolRow
   const call = streamRowAt(shell, index)
   if (call === undefined || call.pending !== true) {
@@ -735,7 +737,10 @@ function applyInbound(
   if (event.type === "user" && consumeEcho(bag, event.text)) return
 
   if (event.type === "run") {
-    if (event.state === "idle") bag.turnThinking = null
+    if (event.state === "idle") {
+      bag.turnThinking = null
+      shell.inFlightTool = null
+    }
     shell.session = setRunState(shell.session, event.state)
     paintChrome(shell)
     if (event.state === "idle") {

@@ -80,7 +80,7 @@ export const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
   inputSchema: {
     type: "object",
     properties: {
@@ -114,12 +114,12 @@ export const taskToolDefinition: ToolDefinition = {
         type: "array",
         items: { type: "string" },
         description:
-          "Optional concrete done checks. Preferred over free-form prompt alone as the leaf's completion gate.",
+          "Optional concrete done checks. Preferred over free-form prompt alone as the worker's completion gate.",
       },
       do_not: {
         type: "array",
         items: { type: "string" },
-        description: "Optional explicit out-of-scope or forbidden actions for the leaf.",
+        description: "Optional explicit out-of-scope or forbidden actions for the worker.",
       },
       report_focus: {
         type: "string",
@@ -128,7 +128,7 @@ export const taskToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description:
-          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, leaf medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
+          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, worker medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
       },
       maxTurns: {
         type: "number",
@@ -418,7 +418,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
         }
       } else if (intent !== undefined) {
-        // intent-only dispatch maps to closed directors (no general leaf).
+        // intent-only dispatch maps to closed directors (no catch-all worker).
         const resolved = resolveDirector({ intent });
         if (!resolved.ok) {
           return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
@@ -440,18 +440,18 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           }
         }
       } else {
-        // No general leaf: bare task (no agent, no intent) is refused. Reclassify.
+        // No catch-all worker: bare task (no agent, no intent) is refused. Reclassify.
         return taskToolResult(
           call.id,
           'Error: No director selected. Pass task(agent=…) for a named director, or task(intent=implement|explore|plan|review). Intent "general" is not a director.',
         );
       }
 
-      // Skywalker is the primary session identity, not a nested leaf.
+      // Skywalker is the primary session identity, not a spawned worker.
       if (agentId === "skywalker" || resolvedDirectorId === "skywalker") {
         return taskToolResult(
           call.id,
-          "Error: skywalker is the primary session identity, not a task leaf. Pass task(agent=…) for a specialist (implement, explore, plan, critique, …).",
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (implement, explore, plan, critique, …).",
         );
       }
 
@@ -470,7 +470,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         }
       }
 
-      // Role-based effort: pin > package modelRole default > orchestrator/leaf > parent.
+      // Role-based effort: pin > package modelRole default > orchestrator/worker > parent.
       // Leaves default to medium (intern: low) so a primary on high/sol does not
       // multiply the latency cliff across every spawned worker.
       {

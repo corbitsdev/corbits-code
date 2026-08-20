@@ -201,6 +201,23 @@ export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings
   };
 }
 
+export function setDefaultModel(settings: Settings, ref: ModelRef): Settings {
+  const next: ModelRef = { provider: ref.provider, model: ref.model };
+  const existing = settings.providers[next.provider];
+  return {
+    ...settings,
+    defaultProvider: next.provider,
+    ...(existing !== undefined
+      ? {
+          providers: {
+            ...settings.providers,
+            [next.provider]: { ...existing, defaultModel: next.model },
+          },
+        }
+      : {}),
+  };
+}
+
 export function listRecentModels(
   settings: Settings,
   max: number = DEFAULT_RECENT_MODELS_SHOWN,

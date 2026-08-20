@@ -24,16 +24,16 @@ import {
 const MODEL_LABEL = "xai/thegreataxios · grok-4.5"
 
 const ITEMS = [
-  "Z.AI / glm-5.2",
-  "Anthropic / opus-4.6",
-  "OpenAI / gpt-5.1",
-  "Google / gemini-3",
-  "Meta / llama-4",
-  "xAI / grok-4.5",
-  "Mistral / large-3",
-  "Cohere / command-a",
-  "DeepSeek / v3.2",
-  "Qwen / max",
+  "glm-5.2 * [Z.AI]",
+  "opus-4.6 * [Anthropic]",
+  "gpt-5.1 * [OpenAI]",
+  "gemini-3 * [Google]",
+  "llama-4 * [Meta]",
+  "grok-4.5 * [xAI]",
+  "large-3 * [Mistral]",
+  "command-a * [Cohere]",
+  "v3.2 * [DeepSeek]",
+  "max * [Qwen]",
 ] as const
 
 /** Frame rows between the overlay host's top and bottom border rules. */

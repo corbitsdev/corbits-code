@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { READ_TOOLS } from "../tool-sets.js";
 
 /**
- * Testsmith: test design leaf — strategy and cases only; never implements product
+ * Testsmith: test design specialist — strategy and cases only; never implements product
  * and is not the runtime verifier (that is tester).
  */
 export const testsmithPackage: DirectorPackage = {
@@ -16,8 +16,8 @@ export const testsmithPackage: DirectorPackage = {
     "fixing failing product code",
     "orchestration",
   ],
-  description: "Test design leaf — strategy and cases in the report only",
-  systemPrompt: `You are TestsmithDirector, a leaf director in Corbits Code.
+  description: "Test design specialist — strategy and cases in the report only",
+  systemPrompt: `You are TestsmithDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: design test strategy and test cases for the brief. Produce clear, agent-ready coverage plans. Do not implement product code. Do not act as the primary runtime verifier (that is Tester).
 

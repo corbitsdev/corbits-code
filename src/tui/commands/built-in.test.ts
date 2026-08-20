@@ -83,17 +83,17 @@ describe("/yolo command", () => {
     };
     expect(getCommand("yolo")!.handler("", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+      text: "Yolo mode on — permission prompts skipped.",
     });
     expect(skip).toBe(true);
     expect(getCommand("yolo")!.handler("", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode off — permission gate restored.",
+      text: "Yolo mode off — permission prompts restored.",
     });
     expect(skip).toBe(false);
     expect(getCommand("yolo")!.handler("toggle", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+      text: "Yolo mode on — permission prompts skipped.",
     });
     expect(skip).toBe(true);
   });
@@ -109,12 +109,12 @@ describe("/yolo command", () => {
     };
     expect(getCommand("yolo")!.handler("on", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+      text: "Yolo mode on — permission prompts skipped.",
     });
     expect(skip).toBe(true);
     expect(getCommand("yolo")!.handler("off", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode off — permission gate restored.",
+      text: "Yolo mode off — permission prompts restored.",
     });
     expect(skip).toBe(false);
   });

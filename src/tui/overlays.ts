@@ -56,16 +56,16 @@ export function makeOperatorQuestion(): {
 /** Fixture: model/provider picker list. */
 export function makeModelPickerItems(): readonly string[] {
   return [
-    "anthropic / claude-sonnet-4",
-    "anthropic / claude-opus-4",
-    "openai / gpt-5",
-    "openai / gpt-5-mini",
-    "google / gemini-2.5-pro",
-    "google / gemini-2.5-flash",
-    "xai / grok-3",
-    "local / ollama-llama3.3",
-    "codex / o3",
-    "codex / o4-mini",
+    "claude-sonnet-4 * [anthropic]",
+    "claude-opus-4 * [anthropic]",
+    "gpt-5 * [openai]",
+    "gpt-5-mini * [openai]",
+    "gemini-2.5-pro * [google]",
+    "gemini-2.5-flash * [google]",
+    "grok-3 * [xai]",
+    "ollama-llama3.3 * [local]",
+    "o3 * [codex]",
+    "o4-mini * [codex]",
   ]
 }
 
@@ -195,6 +195,8 @@ export type OpenModelPickerOpts = {
   readonly typeToFilter?: boolean
   /** Advertise Alt+A in the footer — only when the caller wired the handler. */
   readonly addProviderHint?: boolean
+  /** Advertise Alt+D in the footer — only when the caller wired the handler. */
+  readonly setDefaultHint?: boolean
 }
 
 export function openModelPickerOverlay(
@@ -217,6 +219,9 @@ export function openModelPickerOverlay(
       : {}),
     ...(opts?.addProviderHint !== undefined
       ? { addProviderHint: opts.addProviderHint }
+      : {}),
+    ...(opts?.setDefaultHint !== undefined
+      ? { setDefaultHint: opts.setDefaultHint }
       : {}),
   })
 }

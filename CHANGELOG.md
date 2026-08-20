@@ -25,6 +25,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### TUI
 
+- **Model picker rows are model-first.** Each leaf is `model * [provider]`;
+  `(current)` still marks the live session model. **Alt+D** persists the
+  focused pair as the default (global `defaultProvider` + provider
+  `defaultModel` + project-local selection) without switching the live
+  session or closing the picker.
+
 - **Settled permission and operator prompts no longer recap into the chat.**
   The overlay is the question; answering it used to leave a grey
   `permission` / `operator` card restating the same command and the chosen
@@ -44,6 +50,32 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   spawn catalog (`directorProfiles()`) lists the other 15 closed directors;
   the primary session is still Skywalker.
 
+### Sub-agents
+
+- **Tool-less mid-run narration is not a finished report.** A worker that
+  stops tooling with Summary-only (or other incomplete) prose is not
+  complete. The director injects one wrap-up nudge asking for the four
+  headings (Summary / Findings / Blockers / Paths), then salvages as
+  incomplete-report if the next tool-less turn is still missing the envelope.
+
+### Plugins
+
+- **First-party skills catalog is on out of the gate.** `corbits-skills`
+  ships action slashes `/implement`, `/plan`, `/refactor`, `/review` (was
+  `/code-review`), `/pull-request-review`, `/create-issue` (was
+  `/linear-create`), `/scribe`, `/interview`, `/ast-grep`. Dispatch,
+  git-rebase, linear-issue-workflow, style, philosophy, typescript, and
+  opsh stay `use_skill` only (`user-invocable: false`). Draper and emil
+  are not skills or slashes — closed directors via `task(agent=…)` only.
+  `/plan` is the eng change-plan recipe (`task(agent="plan")`; does not
+  implement or file tracker issues). `/create-issue` remains the tracker
+  command: Linear MCP when available; otherwise `ask_operator` for the
+  platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`
+  (GitHub via `gh issue create`). Each recipe tells Skywalker to spawn
+  closed directors — the operator types the slash; the primary does not
+  do the work. Turn the catalog off in `/plugins` if you want those
+  commands gone.
+
 ### Evals
 
 - **Capability eval records `task` tool calls.** `taskToolCallCount` is derived
@@ -55,6 +87,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   fixture, then write it back. Informational only — not in the frozen
   baseline-0286 gate until a deliberate refreeze. Neither case proves
   compaction fired or that the primary skipped implementing the route.
+
+### Session
+
+- **Resume is keyed to this checkout's git toplevel.** Linked worktrees no
+  longer share (or list) each other's sessions — `--git-common-dir` made
+  every worktree show every other worktree's history. Sessions previously
+  created from a worktree remain under the main checkout key; resume from
+  the main path to recover them.
 
 ## [0.2.98] - 2026-08-17
 

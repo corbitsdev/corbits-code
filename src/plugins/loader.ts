@@ -1,6 +1,8 @@
+import { existsSync, statSync } from "node:fs";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, parse, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, parse, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { WorkflowPlugin } from "../workflows/types.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
@@ -629,17 +631,61 @@ export async function loadPluginsFromPaths(
   return loaded.filter((m): m is PluginModule => m !== null);
 }
 
-// Discover built-in repo plugins from the plugins/ directory that lives
-// alongside this source file (two levels up: src/plugins/ -> plugins/).
-// Repo plugins resolve skills against the session cwd, not the repo root,
-// so project-local skills stay in scope when Corbits Code is invoked from a
-// different working directory. Product-shipped plugins are auto-trusted.
+// Discover built-in repo plugins shipped next to the product, never session
+// cwd/plugins (that would stamp a foreign tree origin:repo). Locator matches
+// resolveChangelogPath: first existing directory wins. Missing dir is a
+// silent empty list.
+function isExistingDirectory(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+export function resolveRepoPluginsDir(opts?: {
+  moduleUrl?: string;
+  execPath?: string;
+}): string | undefined {
+  const candidates: string[] = [];
+  const moduleUrl = opts?.moduleUrl ?? import.meta.url;
+  try {
+    const here = dirname(fileURLToPath(moduleUrl));
+    // Source tree only: src/plugins/loader.ts → ../../plugins. From dist/index.js
+    // that walk is parent-of-repo, a foreign tree we must never stamp origin:repo.
+    if (basename(here) === "plugins" && basename(dirname(here)) === "src") {
+      candidates.push(join(here, "..", "..", "plugins"));
+    }
+    // Bundled: dist/index.js → dist/plugins (copied at build).
+    candidates.push(join(here, "plugins"));
+  } catch {
+    // Invalid moduleUrl (tests may pass a non-file URL).
+  }
+  const execPath = opts?.execPath ?? process.execPath;
+  if (execPath.length > 0) {
+    // Compiled binary: plugins/ sits next to the executable.
+    candidates.push(join(dirname(execPath), "plugins"));
+  }
+  for (const dir of candidates) {
+    if (isExistingDirectory(dir)) return dir;
+  }
+  return undefined;
+}
+
 export async function discoverRepoPlugins(
   cwd: string,
-  opts: { diagnostics?: PluginLoadDiagnostics; telemetry?: Telemetry } = {},
+  opts: {
+    diagnostics?: PluginLoadDiagnostics;
+    telemetry?: Telemetry;
+    moduleUrl?: string;
+    execPath?: string;
+  } = {},
 ): Promise<PluginModule[]> {
-  const repoRoot = new URL("../../", import.meta.url).pathname;
-  const pluginsDir = join(repoRoot, "plugins");
+  const pluginsDir = resolveRepoPluginsDir({
+    moduleUrl: opts.moduleUrl ?? import.meta.url,
+    execPath: opts.execPath ?? process.execPath,
+  });
+  if (pluginsDir === undefined) return [];
   return scanPluginsDir(pluginsDir, cwd, "repo", undefined, opts.diagnostics, opts.telemetry);
 }
 

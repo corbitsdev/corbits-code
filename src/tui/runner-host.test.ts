@@ -245,7 +245,7 @@ describe("mountRunnerHost model picker", () => {
       host.refreshModels([{ provider: "xai", model: "grok-4" }], [])
       closeInsetOverlay(host.shell)
       expect(host.openSurface("models")).toBe(true)
-      expect(host.shell.overlayItems[0]).toBe("xai / grok-4 (current)")
+      expect(host.shell.overlayItems[0]).toBe("grok-4 * [xai] (current)")
     } finally {
       host.dispose()
       harness.destroy()
@@ -278,7 +278,7 @@ describe("mountRunnerHost model picker", () => {
         { xai: { models: ["grok-4"] }, openai: { models: ["gpt-5"] } },
       )
       expect(host.openSurface("models")).toBe(true)
-      // Flat list: the new provider appears as a leaf `provider / model` row,
+      // Flat list: the new provider appears as a leaf `model * [provider]` row,
       // not a nested group to drill into.
       expect(host.shell.overlayItems.some((label) => label.includes("openai"))).toBe(true)
       expect(host.shell.overlayItems.some((label) => label.includes("gpt-5"))).toBe(true)
@@ -313,6 +313,35 @@ describe("mountRunnerHost model picker", () => {
       const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Alt+D sets default on the focused row via onSetDefault", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const setDefault: string[] = []
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      onSetDefault: (id) => setDefault.push(id),
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.openSurface("models")).toBe(true)
+      const dKey = { name: "d", ctrl: false, meta: false, option: true } as KeyEvent
+      expect(runOverlayAction(host.shell, dKey)).toBe(true)
+      expect(setDefault).toEqual(["xai:grok-4"])
     } finally {
       host.dispose()
       harness.destroy()

@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
 
 import {
   generateSessionId,
@@ -34,7 +35,6 @@ test("initSessionDir writes under the global projects tree, not the repo", async
   const dir = await initSessionDir(cwd, sessionId, home);
   expect(dir).toBe(sessionDir(cwd, sessionId, home));
   expect(dir.startsWith(join(home, ".corbits", "projects"))).toBe(true);
-  expect(existsSync(join(dir, "context"))).toBe(true);
   expect(existsSync(join(cwd, ".agent-state", sessionId))).toBe(false);
 });
 
@@ -81,8 +81,7 @@ test("listSessions finds legacy sessions and migrates them", async () => {
   expect(existsSync(legacy)).toBe(false);
 });
 
-test("migrateLegacySessionIfNeeded finds legacy under git project root from a worktree cwd", async () => {
-  const { execFileSync } = await import("node:child_process");
+test("migrateLegacySessionIfNeeded does not migrate main-repo .agent-state from a worktree cwd", async () => {
   const main = join(cwd, "main");
   await mkdir(main, { recursive: true });
   execFileSync("git", ["init"], { cwd: main, stdio: "ignore" });
@@ -92,8 +91,8 @@ test("migrateLegacySessionIfNeeded finds legacy under git project root from a wo
   execFileSync("git", ["add", "README"], { cwd: main, stdio: "ignore" });
   execFileSync("git", ["commit", "-m", "init"], { cwd: main, stdio: "ignore" });
 
-  const sessionId = generateSessionId();
-  const legacyOnMain = join(main, ".agent-state", sessionId);
+  const mainSessionId = generateSessionId();
+  const legacyOnMain = join(main, ".agent-state", mainSessionId);
   await mkdir(join(legacyOnMain, "context"), { recursive: true });
   await writeFile(
     join(legacyOnMain, "run.json"),
@@ -111,12 +110,33 @@ test("migrateLegacySessionIfNeeded finds legacy under git project root from a wo
     stdio: "ignore",
   });
   try {
-    const dir = await migrateLegacySessionIfNeeded(wt, sessionId, home);
-    expect(dir).toBe(sessionDir(wt, sessionId, home));
-    expect(existsSync(dir)).toBe(true);
-    expect(existsSync(legacyOnMain)).toBe(false);
-    const raw = await readFile(join(dir, "run.json"), "utf8");
-    expect(JSON.parse(raw).task).toBe("main-legacy");
+    const fromWorktree = await migrateLegacySessionIfNeeded(wt, mainSessionId, home);
+    expect(fromWorktree).toBe(sessionDir(wt, mainSessionId, home));
+    expect(fromWorktree).not.toBe(sessionDir(main, mainSessionId, home));
+    expect(existsSync(legacyOnMain)).toBe(true);
+    expect(existsSync(fromWorktree)).toBe(false);
+
+    const wtSessionId = generateSessionId();
+    const legacyOnWt = join(wt, ".agent-state", wtSessionId);
+    await mkdir(join(legacyOnWt, "context"), { recursive: true });
+    await writeFile(
+      join(legacyOnWt, "run.json"),
+      JSON.stringify({
+        status: "running",
+        turnsUsed: 1,
+        task: "worktree-legacy",
+        startedAt: 1_700_000_000_000,
+      }),
+    );
+
+    const wtDir = await migrateLegacySessionIfNeeded(wt, wtSessionId, home);
+    expect(wtDir).toBe(sessionDir(wt, wtSessionId, home));
+    expect(wtDir).not.toBe(sessionDir(main, wtSessionId, home));
+    expect(existsSync(wtDir)).toBe(true);
+    expect(existsSync(legacyOnWt)).toBe(false);
+    const raw = await readFile(join(wtDir, "run.json"), "utf8");
+    expect(JSON.parse(raw).task).toBe("worktree-legacy");
+    expect(existsSync(legacyOnMain)).toBe(true);
   } finally {
     try {
       execFileSync("git", ["worktree", "remove", "--force", wt], {
@@ -128,4 +148,3 @@ test("migrateLegacySessionIfNeeded finds legacy under git project root from a wo
     }
   }
 });
-

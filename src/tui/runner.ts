@@ -35,6 +35,7 @@ import {
   toolWatchdogFromSettings,
   markLastChangelogVersion,
   toggleFavoriteModel,
+  setDefaultModel,
   type ModelRef,
   type ResolvedProvider,
   type Settings,
@@ -42,6 +43,7 @@ import {
   type PluginConfig,
 } from "../config/settings.js";
 import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
+import { persistConnectedSelection } from "./provider-setup-submit.js";
 import { connectProviderInline } from "./provider-connect.js";
 import { modelOptionId } from "./model-catalog.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
@@ -83,7 +85,7 @@ import {
   trustPathPlugins,
   type PathTrustStore,
 } from "../trust/path-trust.js";
-import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
+import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, isPluginModuleEnabled, enablePluginConfig } from "../plugins/register.js";
 import {
   getCommand,
   listCommands,
@@ -1139,7 +1141,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
   const activePlugins = executablePlugins()
-    .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+    .filter((m) => isPluginModuleEnabled(m, pluginConfig))
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
@@ -2190,6 +2192,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         host.refreshModels(listRecentModels(next), listFavoriteModels(next));
       })().catch((err: unknown) => {
         tuiLogger.debug("favorite toggle persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    },
+    onSetDefault: (id) => {
+      const sep = id.indexOf(":");
+      if (sep <= 0) return;
+      const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
+      void (async () => {
+        const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
+          providers: {},
+        };
+        const next = setDefaultModel(onDisk, ref);
+        await saveGlobalSettings(trueGlobalSettingsPath, next);
+        await persistConnectedSelection(localSettingsFile, ref.provider, ref.model);
+        config = { ...config, settings: next };
+        systemNotice(`Default set to ${ref.model} (${ref.provider})`);
+      })().catch((err: unknown) => {
+        tuiLogger.debug("set default persist failed: {error}", {
           error: err instanceof Error ? err.message : String(err),
         });
       });

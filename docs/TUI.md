@@ -339,10 +339,13 @@ known, accepted cost of the badge rather than an oversight — see
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
 recent and favorite provider+model pairs sit at the top, then every
-`provider / model` leaf from the catalog. Typing narrows the list in place
-(printable keys claimed by the picker's own `>` filter row); Enter selects.
-Escape closes the picker. The row matching the session's live active model
-gets a `(current)` suffix. Alt+F on a model row
+`model * [provider]` leaf from the catalog. Typing narrows the list in place
+(printable keys claimed by the picker's own `>` filter row); Enter selects
+for this session. Escape closes the picker. The row matching the session's
+live active model gets a `(current)` suffix. **Alt+D** persists the focused
+pair as the default (global `defaultProvider` + that provider's `defaultModel`
++ project-local selection) without switching the live session or closing the
+picker. Alt+F on a model row
 still toggles favorite when a favorite hook is wired. While type-to-filter is
 active, bare `j`/`k` type into the filter rather than moving the highlight —
 use arrow keys (or the filtered list's navigation) to move.
@@ -396,15 +399,23 @@ the chord to point an operator at when Shift+Enter doesn't respond.
 Two mid-run gestures, two delivery times (CL-6290):
 
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
-  next **tool.boundary**. The transcript row says `[will steer next]` while
-  pending and `[steering]` once delivered (`submitPrompt`,
-  `drainSteersAtBoundary` in `runtime-bridge.ts`).
+  next **parent** `tool.boundary` (the parent tool finishing, not a child). A
+  long parent `run_shell` or an awaiting `task()` is parent-busy and holds
+  steers. The transcript row says `[will steer next]` while pending and
+  `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
+  `runtime-bridge.ts`).
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
-  only when the run goes **idle**. Does not interrupt or reinject. The
-  transcript row says `[will follow up]` while pending and `[following up]`
-  once delivered. Idle, or with an empty prompt, Alt+Enter does nothing —
-  there is nothing to wait for. (Internal `"reinject"` remains in the submit
-  API for tests; no product chord wires it.)
+  only on **session-idle** (parent-idle and no live fleet lanes). Does not
+  interrupt or reinject. The transcript row says `[will follow up]` while
+  pending and `[following up]` once delivered. Idle, or with an empty prompt,
+  Alt+Enter does nothing — there is nothing to wait for. (Internal `"reinject"`
+  remains in the submit API for tests; no product chord wires it.)
+
+When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
+(3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).
+Follow-up-only does not; a sub-threshold in-flight tool does not. Delivery is
+unchanged. Idle-with-fleet is not shipped — Enter stays a queued steer until
+the parent tool finishes, not a new turn while workers run.
 
 Interrupting (Ctrl+C) never discards a queued or steered message. It used to
 — the transcript literally said `interrupt — discarded N pending`, and an

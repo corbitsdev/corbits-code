@@ -29,8 +29,8 @@
     "corbits": "./dist/corbits"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external '@opentui/core-*'",
-    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits",
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun --external '@opentui/core-*' && bun scripts/copy-repo-plugins.ts",
+    "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits && bun scripts/copy-repo-plugins.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests ./evals",
     "start": "bun run build && bun ./dist/index.js",

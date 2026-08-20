@@ -27,6 +27,7 @@ import {
   markLastChangelogVersion,
   pushRecentModel,
   toggleFavoriteModel,
+  setDefaultModel,
   listRecentModels,
   listFavoriteModels,
 } from "./config/settings.js";
@@ -1030,6 +1031,32 @@ describe("recent and favorite model helpers", () => {
     expect(listFavoriteModels(s)).toEqual([{ provider: "a", model: "m1" }]);
     s = toggleFavoriteModel(s, { provider: "a", model: "m1" });
     expect(listFavoriteModels(s)).toEqual([]);
+  });
+
+  test("setDefaultModel sets defaultProvider and that provider's defaultModel", () => {
+    const s: Settings = {
+      defaultProvider: "a",
+      providers: {
+        a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"], defaultModel: "a-model" },
+        b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model", "b-other"], defaultModel: "b-model" },
+      },
+      recentModels: [{ provider: "a", model: "a-model" }],
+      favoriteModels: [{ provider: "b", model: "b-model" }],
+    };
+    const next = setDefaultModel(s, { provider: "b", model: "b-other" });
+    expect(next.defaultProvider).toBe("b");
+    expect(next.providers.b?.defaultModel).toBe("b-other");
+    expect(next.providers.a).toEqual(s.providers.a);
+    expect(next.recentModels).toEqual(s.recentModels);
+    expect(next.favoriteModels).toEqual(s.favoriteModels);
+  });
+
+  test("setDefaultModel with a missing provider still sets defaultProvider and does not invent a providers key", () => {
+    const s: Settings = { providers: firepass.providers, defaultProvider: "firepass" };
+    const next = setDefaultModel(s, { provider: "missing", model: "m1" });
+    expect(next.defaultProvider).toBe("missing");
+    expect(next.providers).toEqual(s.providers);
+    expect(next.providers.missing).toBeUndefined();
   });
 
   test("listRecentModels respects max (default 5)", () => {

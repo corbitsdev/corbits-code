@@ -62,6 +62,8 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".corbits/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
+  expect(facts).toContain("parent tool.boundary");
+  expect(facts).toContain("session-idle");
   expect(facts).not.toContain("Tool results already render richly");
 });
 
@@ -105,7 +107,7 @@ test("primary guidelines advise against early-stop from compaction token fear", 
   const guidelines = buildGuidelines();
   expect(guidelines).toContain("compacted automatically");
   expect(guidelines).toContain("do not stop tasks early due to token fear");
-  expect(guidelines).toContain("manage_tasks and leaf reports");
+  expect(guidelines).toContain("manage_tasks and worker reports");
   // Leaf guidelines omit primary orchestration compaction guidance.
   expect(buildGuidelines({ subAgent: true })).not.toContain("token fear");
 });
@@ -287,8 +289,8 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
   const prompt = buildSubAgentSystemPrompt([role]);
   expect(prompt).toContain(role);
   expect(prompt).toContain("## Corbits Code notes");
-  // Leaf agents get the no-recursion rule, not the spawn syntax.
-  expect(prompt).toContain("leaf sub-agent");
+  // Workers get the no-recursion rule, not the spawn syntax.
+  expect(prompt).toContain("You are a worker");
   // Agent voice leads; translation notes are the last section.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Corbits Code notes"));
 });
@@ -299,7 +301,7 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
-  expect(prompt).toContain("leaf sub-agent");
+  expect(prompt).toContain("You are a worker");
 });
 
 // Orchestrator profiles (frontmatter `orchestrator: true`) are the documented
@@ -329,7 +331,7 @@ test("sub-agent prompt requires structured report envelope and stick-to-brief", 
 
 test("default sub-agent prompt omits Grok anti-thrash residual", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).not.toContain("Finish bias (xAI / Grok leaf)");
+  expect(prompt).not.toContain("Finish bias (xAI / Grok worker)");
 });
 
 test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => {
@@ -342,7 +344,7 @@ test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => 
   expect(prompt).toContain("re-open paths you already read");
   expect(prompt).toContain("Leave the last turn for the report envelope");
   // Appendix still last.
-  expect(prompt.indexOf("Finish bias (xAI / Grok leaf)")).toBeLessThan(
+  expect(prompt.indexOf("Finish bias (xAI / Grok worker)")).toBeLessThan(
     prompt.indexOf("## Corbits Code notes"),
   );
 });

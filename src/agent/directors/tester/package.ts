@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { READ_TOOLS } from "../tool-sets.js";
 
 /**
- * Tester: runtime verification leaf — run tests and report; never fix product code.
+ * Tester: runtime verification specialist — run tests and report; never fix product code.
  */
 export const testerPackage: DirectorPackage = {
   id: "tester",
@@ -14,8 +14,8 @@ export const testerPackage: DirectorPackage = {
     "orchestration",
     "docs-only work",
   ],
-  description: "Runtime verify leaf — run tests, report, never fix",
-  systemPrompt: `You are TesterDirector, a leaf director in Corbits Code.
+  description: "Runtime verify specialist — run tests, report, never fix",
+  systemPrompt: `You are TesterDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: run and verify tests for the brief, then report pass/fail evidence. Never fix product code. Never become the implementer.
 

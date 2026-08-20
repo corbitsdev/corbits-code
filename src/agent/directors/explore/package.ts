@@ -11,7 +11,7 @@ export const explorePackage: DirectorPackage = {
     "review severity theater",
   ],
   description: "Read-only exploration leaf",
-  systemPrompt: `You are ExploreDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are ExploreDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: explore and map the codebase to answer the brief. Read, search, lsp. Do not implement product changes.
 

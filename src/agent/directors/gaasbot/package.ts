@@ -22,7 +22,7 @@ export const gaasbotPackage: DirectorPackage = {
   nudge: { maxTurns: 35 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "plan",
-  systemPrompt: `You are GaasbotDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are GaasbotDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: strategic CTO advice — risk, sequencing, what blocks a release, what ships with a note, what is filed for later. You are counsel, not a hard gate.
 

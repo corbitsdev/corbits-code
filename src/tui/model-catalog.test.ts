@@ -14,9 +14,9 @@ describe("buildModelCatalog", () => {
       { name: "openai", models: ["gpt-4.1"] },
     ])
     expect(options).toEqual([
-      { id: "xai:grok-4", label: "xAI / grok-4" },
-      { id: "xai:grok-3", label: "xAI / grok-3" },
-      { id: "openai:gpt-4.1", label: "openai / gpt-4.1" },
+      { id: "xai:grok-4", label: "grok-4 * [xAI]" },
+      { id: "xai:grok-3", label: "grok-3 * [xAI]" },
+      { id: "openai:gpt-4.1", label: "gpt-4.1 * [openai]" },
     ])
   })
 
@@ -26,9 +26,9 @@ describe("buildModelCatalog", () => {
       zen: { models: ["claude-sonnet-4-5"], label: "Zen" },
     })
     expect(options).toEqual([
-      { id: "fp:fp-small", label: "fp / fp-small" },
-      { id: "fp:fp-large", label: "fp / fp-large" },
-      { id: "zen:claude-sonnet-4-5", label: "Zen / claude-sonnet-4-5" },
+      { id: "fp:fp-small", label: "fp-small * [fp]" },
+      { id: "fp:fp-large", label: "fp-large * [fp]" },
+      { id: "zen:claude-sonnet-4-5", label: "claude-sonnet-4-5 * [Zen]" },
     ])
   })
 
@@ -38,14 +38,14 @@ describe("buildModelCatalog", () => {
         { name: "empty", models: [] },
         { name: "blank", models: ["  ", "keep"] },
       ]),
-    ).toEqual([{ id: "blank:keep", label: "blank / keep" }])
+    ).toEqual([{ id: "blank:keep", label: "keep * [blank]" }])
   })
 
   test("dedupes by provider:model id", () => {
     const options = buildModelCatalog([
       { name: "xai", models: ["grok-4", "grok-4"] },
     ])
-    expect(options).toEqual([{ id: "xai:grok-4", label: "xai / grok-4" }])
+    expect(options).toEqual([{ id: "xai:grok-4", label: "grok-4 * [xai]" }])
   })
 
   test("empty input yields empty catalog", () => {
@@ -193,14 +193,14 @@ describe("buildModelsFirstCatalog", () => {
       recent: [],
       favorites: [],
     })
-    expect(list[0]?.label).toBe("custom / m1")
+    expect(list[0]?.label).toBe("m1 * [custom]")
   })
 })
 
 describe("describeModelCatalogOption", () => {
   test("surfaces the Go-on-Zen billing warning as a consequence-toned impact, not the label", () => {
     const description = describeModelCatalogOption(
-      { id: "zen:kimi-k2.7-code", label: "OpenCode Zen / kimi-k2.7-code", warning: "Go model on Zen path" },
+      { id: "zen:kimi-k2.7-code", label: "kimi-k2.7-code * [OpenCode Zen]", warning: "Go model on Zen path" },
       { pricing: null },
     )
     expect(description?.tone).toBe("consequence")
@@ -209,7 +209,7 @@ describe("describeModelCatalogOption", () => {
 
   test("reports pricing as unknown rather than inventing a number", () => {
     const description = describeModelCatalogOption(
-      { id: "xai:grok-4", label: "xAI / grok-4" },
+      { id: "xai:grok-4", label: "grok-4 * [xAI]" },
       { pricing: null },
     )
     expect(description?.impact).toMatch(/pricing unknown/i)

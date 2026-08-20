@@ -47,6 +47,22 @@ describe("command registry", () => {
     expect(idx1).toBeLessThan(idx2);
   });
 
+  it("skips a command whose name is already registered (first-wins)", () => {
+    registerCommand({
+      name: "first-wins-cmd",
+      description: "built-in",
+      handler: () => ({ type: "message", text: "built-in" }),
+    });
+    registerCommand({
+      name: "first-wins-cmd",
+      description: "plugin",
+      handler: () => ({ type: "message", text: "plugin" }),
+    });
+    const def = getCommand("first-wins-cmd");
+    expect(def?.description).toBe("built-in");
+    expect(def?.handler("", ctx)).toEqual({ type: "message", text: "built-in" });
+  });
+
   it("invokes handler with args and context", () => {
     let receivedArgs = "";
     let clearCalled = false;

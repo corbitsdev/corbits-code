@@ -3,7 +3,9 @@
 Status: **implemented** — the unified, manifest-driven system described below is
 in place. Plugins self-describe with a `manifest` (`kind: web | command | tool`),
 are auto-discovered (plus explicit `pluginPaths`), are wired in only when
-explicitly enabled, and are managed through the `/plugins` UI. The sections
+explicitly enabled (with one exception: a repo-origin plugin whose manifest
+sets `defaultEnabled: true` auto-enables when the settings key is missing),
+and are managed through the `/plugins` UI. The sections
 below double as the reference for the system and the record of why it is shaped
 this way. (The "Current state (the problem)" section is retained as the
 historical motivation.)
@@ -17,7 +19,7 @@ registered in global settings (`pluginPaths`), so consent is global once granted
 
 | Origin | Path | Auto-trusted? | Trust store |
 |---|---|---|---|
-| `repo` | Product-shipped `plugins/` next to the Corbits Code binary | Yes | — |
+| `repo` | Product-shipped `plugins/` next to the source root, `dist/plugins`, or `dirname(execPath)/plugins` — never session cwd | Yes | — |
 | `user` | `~/.corbits/plugins/` | Yes (user home) | — |
 | `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) | — |
 | `project` | `<cwd>/.corbits/plugins/` | **No** — per working directory | `~/.corbits/trust/<cwd-hash>.json` |
@@ -152,7 +154,7 @@ A module with no valid manifest is ignored (not silently half-loaded).
 
 ```
 discoverPlugins(cwd) =
-    repo plugins/         (built-in)
+    repo plugins/         (built-in: source root / dist/plugins / dirname(execPath)/plugins — never session cwd)
   + <cwd>/.corbits/plugins/
   + ~/.corbits/plugins/
   + settings.pluginPaths  (explicit file/dir paths, added via /plugins)
@@ -223,8 +225,11 @@ shape.
 ### Command plugins and enable gating
 
 - `command` plugins (`commandPlugin` export) register their slash commands only
-  when `settings.plugins[id].enabled` is true, via `registerCommandPlugins`
+  when the plugin is enabled, via `registerCommandPlugins`
   (`src/plugins/register.ts`); enabling one in `/plugins` wires it in live.
+  Enablement is `settings.plugins[id].enabled === true`, except the Decision 3
+  repo-origin `defaultEnabled` case below (the first-party `corbits-skills`
+  catalog auto-enables when the settings key is missing).
 - Commands may also be authored as data-only markdown (see below).
 - Legacy `settings.workflowPlugins` / `agentPlugins` specifier arrays and their
   loaders are removed; everything flows through discovery + `pluginPaths`.
@@ -297,17 +302,29 @@ shape.
   exist. So a marketplace plugin (e.g. `agents/plugins/gaas`) loads as-is via
   `/plugins` add-by-path: its `agents/*.md` wire as profiles and its
   `skills/*/SKILL.md` resolve through `use_skill` with no porting.
-- **Skill-commands.** Every skill in an enabled plugin is also surfaced as a
+- **Skill-commands.** Skills in an enabled plugin are also surfaced as a
   `/<skill-name> [args]` slash command that sends the skill body (plus args) to
-  the agent. `loadSkillCommands` (`src/plugins/skill-commands.ts`) synthesizes
-  them; they merge into the same `commandPlugin` as `commands/*.md`. Frontmatter
+  the agent, unless frontmatter sets `user-invocable: false`. `loadSkillCommands`
+  (`src/plugins/skill-commands.ts`) synthesizes them and skips that tag; they
+  merge into the same `commandPlugin` as `commands/*.md`. Untagged skills still
+  become slashes (marketplace backward compatibility). Frontmatter
   `argument-hint` is preserved so the TUI can show greyed arg guidance (e.g.
-  `/linear-create` → `[description] [--from-doc]`). This is an additional
+  `/create-issue` → `[description] [--from-doc]`). This is an additional
   surface: `discoverSkills` is unchanged, so the model can still auto-invoke any
-  skill via `use_skill` — the slash command is a direct user entry point on top.
-  (An earlier revision gated this on the `disable-model-invocation`/
-  `user-invocable` frontmatter tags; that gate was dropped so untagged skills
-  like `linear-create` are reachable too.)
+  skill via `use_skill` — including first-party recipes that are not operator
+  slashes (`dispatch`, `git-rebase`, `linear-issue-workflow`, `style`,
+  `philosophy`, `typescript`, `opsh`). The slash command is a direct user entry
+  point on top.
+- **First-party catalog.** `plugins/corbits-skills/` (id `corbits-skills`,
+  kind `command`, `defaultEnabled: true`) is the bundled skill catalog. Origin
+  `repo` is auto-trusted. Auto-enable applies only when `origin === "repo"` AND
+  `manifest.defaultEnabled` AND the settings key is missing; an explicit
+  `enabled: false` still disables. Marketplace `defaultEnabled` is ignored.
+  The id is not `gaas`, so a later marketplace plugin named gaas cannot replace
+  the module. Slash-command registration is first-wins (built-ins, then plugins
+  in discovery order: repo before user/project/path), so `/implement` stays
+  first-party when both the catalog and a marketplace plugin are enabled.
+  `discoverSkills` is already first-wins (plugin dirs before project).
 - **Mixed plugins wire both sides.** A plugin contributing agents AND commands
   (the common marketplace shape) infers `kind: "agent"` so profiles wire, and
   `isEnabledCommandPlugin` (`src/plugins/register.ts`) also wires commands for
@@ -352,10 +369,13 @@ loaded via `pluginPaths`.
    `settings.pluginPaths`.
 2. **`settings.web` stays** as the only kind-selector for now; generalize to
    `settings.active[kind]` only if another kind needs "exactly one active."
-3. **Always explicit enable.** Every discovered plugin (built-in or user-added)
-   starts disabled. Nothing is wired in until `settings.plugins[id].enabled` is
-   true — set in `/plugins`. (Note: this changes today's behavior where repo
-   command plugins auto-load; they must now be enabled.)
+3. **Explicit enable, with one repo-origin exception.** Every discovered plugin
+   starts disabled unless all of the following hold: `origin === "repo"`,
+   `manifest.defaultEnabled` is true, and `settings.plugins[id]` is missing.
+   Then it auto-enables. An explicit `enabled: false` still disables. Marketplace
+   (user / project / path / claude) `defaultEnabled` is ignored — those plugins
+   stay opt-in via `/plugins`. The first-party catalog `plugins/corbits-skills/`
+   (id `corbits-skills`) is the plugin this exception exists for.
 4. **Tool plugins require explicit consent.** Enabling a `kind: "tool"` plugin
    prompts a one-time confirmation in `/plugins` before its tools are wired in
    (they run in-process — the highest-trust surface). Consent is recorded in

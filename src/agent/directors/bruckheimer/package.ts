@@ -2,7 +2,7 @@ import type { DirectorPackage } from "../types.js";
 import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
- * Product discovery leaf (CL-5824).
+ * Product discovery specialist (CL-5824).
  */
 export const bruckheimerPackage: DirectorPackage = {
   id: "bruckheimer",
@@ -14,13 +14,13 @@ export const bruckheimerPackage: DirectorPackage = {
     "hard merge blockers as Greybeard",
     "running the fleet",
   ],
-  description: "Product discovery leaf — user/product shape docs, not code",
+  description: "Product discovery specialist — user/product shape docs, not code",
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "docs",
-  systemPrompt: `You are BruckheimerDirector, a leaf director in Corbits Code.
+  systemPrompt: `You are BruckheimerDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: product discovery documentation. Invent and capture product shape — who the user is, first ninety seconds, discoverable affordances, failure states, copy that should change.
 

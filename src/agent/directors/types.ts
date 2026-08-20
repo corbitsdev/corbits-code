@@ -48,7 +48,7 @@ export type NudgePolicy = {
 };
 
 export type ReportContract = {
-  /** Required top-level sections in the leaf report. */
+  /** Required top-level sections in the worker report. */
   readonly requiredSections: readonly string[];
 };
 
@@ -65,7 +65,7 @@ export type DirectorPackage = {
   readonly description: string;
   /** Opinionated core prompt (prompt-first). */
   readonly systemPrompt: string;
-  /** Optional skills the leaf may load dynamically (ordered). */
+  /** Optional skills the worker may load dynamically (ordered). */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   /**

@@ -137,6 +137,8 @@ export type ProductHostConfig = {
   readonly onConnectProvider?: (providerName: string) => void
   /** Alt+F on a focused model row. Bare `f` is claimed by type-to-filter. */
   readonly onFavoriteToggle?: (itemId: string) => void
+  /** Alt+D on a focused model row. Bare `d` is claimed by type-to-filter. */
+  readonly onSetDefault?: (itemId: string) => void
   /**
    * Every first-class provider kind, read fresh on each Alt+A open so a
    * just-connected account's count is current. Omitted hosts get no Alt+A
@@ -510,6 +512,7 @@ export async function mountProductHost(
     const onSelect = config.onModelSelect
     const onConnect = config.onConnectProvider
     const onFavoriteToggle = config.onFavoriteToggle
+    const onSetDefault = config.onSetDefault
     const addProviderChoices = config.addProviderChoices
 
     // Alt+A from the model picker: close it and open a fresh selector over
@@ -560,6 +563,7 @@ export async function mountProductHost(
         // Flat list: type to narrow rather than drill into a provider pane.
         typeToFilter: true,
         addProviderHint: openAddProvider !== undefined,
+        setDefaultHint: onSetDefault !== undefined,
         ...(focusIndex >= 0 ? { activeIndex: focusIndex } : {}),
         onAccept: (sel) => {
           // Prefer the stable id from the (possibly filtered) row. Do not fall
@@ -570,12 +574,14 @@ export async function mountProductHost(
           onSelect(id)
         },
         describe: (itemId) => currentDescribeModel?.(itemId) ?? null,
-        ...(onFavoriteToggle !== undefined || openAddProvider !== undefined
+        ...(onFavoriteToggle !== undefined ||
+        openAddProvider !== undefined ||
+        onSetDefault !== undefined
           ? {
               onAction: (itemId, key) => {
                 if (key.ctrl || !(key.meta || key.option)) return false
                 const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
-                // Alt+A / Alt+F, never bare — type-to-filter claims printable keys.
+                // Alt+A / Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
                 if (name === "a" && openAddProvider !== undefined) {
                   openAddProvider()
                   return true
@@ -584,6 +590,11 @@ export async function mountProductHost(
                   // Empty id is the "(no matches)" filter sentinel — not a model.
                   if (itemId.length === 0) return false
                   onFavoriteToggle(itemId)
+                  return true
+                }
+                if (name === "d" && onSetDefault !== undefined) {
+                  if (itemId.length === 0) return false
+                  onSetDefault(itemId)
                   return true
                 }
                 return false

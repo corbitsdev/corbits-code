@@ -385,7 +385,7 @@ describe("flat type-to-filter model picker", () => {
       expect(items.some((label) => label.includes("codex/abk-labs"))).toBe(true)
       expect(items.some((label) => label.includes("xai/thegreataxios"))).toBe(true)
       // No provider-group-only rows (those were `providerGroup:` ids with no model).
-      expect(items.every((label) => label.includes(" / ") || label.startsWith("("))).toBe(true)
+      expect(items.every((label) => label.includes(" * [") || label.startsWith("("))).toBe(true)
       // Filter row is present so the list can narrow without another pane.
       expect(frame).toContain(">")
     } finally {
@@ -456,7 +456,7 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.()
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
-      expect(frame).toContain("xai/thegreataxios / grok-4.5 (current)")
+      expect(frame).toContain("grok-4.5 * [xai/thegreataxios] (current)")
     } finally {
       host.dispose()
       harness.destroy()
@@ -488,8 +488,8 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.()
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
-      expect(frame).not.toContain("xai/thegreataxios / grok-4.5 (current)")
-      expect(frame).toContain("gpt-5.5 (current)")
+      expect(frame).not.toContain("grok-4.5 * [xai/thegreataxios] (current)")
+      expect(frame).toContain("gpt-5.5 * [codex/abk-labs] (current)")
     } finally {
       host.dispose()
       harness.destroy()
@@ -582,6 +582,73 @@ describe("flat type-to-filter model picker", () => {
       harness.pressKey("f", { meta: true })
       await harness.renderOnce()
       expect(favorites).toEqual([])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  const altD = { name: "d", ctrl: false, meta: false, option: true } as KeyEvent
+
+  test("Alt+D on a focused row calls onSetDefault and leaves the picker open", async () => {
+    const defaults: string[] = []
+    const { harness, host } = await mountPicker({
+      onSetDefault: (id) => defaults.push(id),
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(runOverlayAction(host.shell, altD)).toBe(true)
+      expect(defaults).toEqual(["codex/abk-labs:gpt-5.5"])
+      expect(host.shell.overlayKind).toBe("model_picker")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Alt+D on the no-matches sentinel does not set a default", async () => {
+    const defaults: string[] = []
+    const { harness, host } = await mountPicker({
+      onSetDefault: (id) => defaults.push(id),
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      for (const ch of "zzzz-no-such-model") {
+        harness.pressKey(ch)
+      }
+      await harness.renderOnce()
+      expect(host.shell.overlayItems).toEqual(["(no matches)"])
+      expect(runOverlayAction(host.shell, altD)).toBe(false)
+      expect(defaults).toEqual([])
+      expect(host.shell.overlayKind).toBe("model_picker")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("the model picker footer advertises Alt+D when onSetDefault is wired", async () => {
+    const { harness, host } = await mountPicker({
+      onSetDefault: () => {},
+    })
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(harness.captureCharFrame()).toContain("Alt+D")
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("the model picker footer does not advertise Alt+D when onSetDefault is omitted", async () => {
+    const { harness, host } = await mountPicker()
+    try {
+      host.openModels?.()
+      await harness.renderOnce()
+      expect(harness.captureCharFrame()).not.toContain("Alt+D")
     } finally {
       host.dispose()
       harness.destroy()

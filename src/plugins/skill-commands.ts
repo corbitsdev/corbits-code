@@ -7,12 +7,13 @@ import {
 } from "../tui/commands/registry.js";
 import { splitFrontmatter } from "./frontmatter.js";
 
-// Every skill in an enabled plugin is surfaced as a user slash command:
-// `/<skill-name> [args]` sends the skill body (plus args) to the agent. A skill
-// authored as `skills/<name>/SKILL.md` is normally model-invoked via the
-// `use_skill` tool; exposing it as a /command adds a direct user entry point
-// without removing the model-invoked path — `discoverSkills` is unchanged, so
-// the model can still auto-invoke any skill.
+// Slash is the operator action surface: `/<skill-name> [args]` sends the skill
+// body (plus args) to the agent. Convention/internal skills opt out with
+// `user-invocable: false` in frontmatter and are not emitted as slash commands.
+// Untagged skills still become slash commands (marketplace BC).
+// `disable-model-invocation` does not affect slash emission. A skill authored
+// as `skills/<name>/SKILL.md` is still model-invoked via the `use_skill` tool;
+// `discoverSkills` is unchanged, so the model can still auto-invoke any skill.
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -56,6 +57,9 @@ export async function loadSkillCommands(
       warn(`skipping skills/${entry.name}/SKILL.md: malformed frontmatter`);
       continue;
     }
+    // Opt-out of the slash surface. Untagged skills still emit a command
+    // (marketplace BC); `disable-model-invocation` does not affect this.
+    if (frontmatter["user-invocable"] === false) continue;
 
     const name =
       typeof frontmatter.name === "string" && frontmatter.name.trim().length > 0

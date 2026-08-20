@@ -173,7 +173,7 @@ describe("director registry", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
     expect(s.systemPrompt).toContain("NEVER implement");
     expect(s.systemPrompt).toContain("You are Skywalker");
-    expect(s.systemPrompt).toMatch(/No general leaf/i);
+    expect(s.systemPrompt).toMatch(/No catch-all worker/i);
     expect(s.tools?.allow).toContain("task");
     expect(s.tools?.allow).not.toContain("write_file");
     expect(s.spawn.allowlist).toHaveLength(15);
