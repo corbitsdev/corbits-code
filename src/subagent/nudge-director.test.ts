@@ -1,0 +1,133 @@
+import { describe, expect, test } from "bun:test";
+import type {
+  ReactorAction,
+  ReactorCapabilities,
+  ReactorInboundEvent,
+  ReactorState,
+} from "@intx/types/runtime";
+import { SubAgentDirector } from "./nudge-director.js";
+
+const state = { turns: [] } as unknown as ReactorState;
+
+function capabilities(): ReactorCapabilities {
+  return {
+    infer: (options) =>
+      ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+    executeTools: (calls, parallel, addToHistory) =>
+      ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+    suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
+    fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
+    emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+    reply: (content) => ({ type: "reply", content }) as ReactorAction,
+    checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
+    compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+    wait: () => ({ type: "wait" }) as ReactorAction,
+    done: () => ({ type: "done" }) as ReactorAction,
+  };
+}
+
+function inferenceDone(callIds: string[]): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: callIds.map((id) => ({
+        type: "tool_call",
+        id,
+        name: "read_file",
+        arguments: { path: `${id}.ts` },
+      })),
+    },
+    usage: { input: 0, output: 0 },
+    source: "test",
+  } as unknown as ReactorInboundEvent;
+}
+
+function toolDone(callId: string, isError = false): ReactorInboundEvent {
+  return {
+    type: "tool.done",
+    result: { callId, content: isError ? "failed" : "ok", isError },
+  } as unknown as ReactorInboundEvent;
+}
+
+function actions(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+  return Array.isArray(result) ? result : [result];
+}
+
+function inferAction(result: ReactorAction | ReactorAction[]): Extract<ReactorAction, { type: "infer" }> {
+  const infer = actions(result).find(
+    (action): action is Extract<ReactorAction, { type: "infer" }> => action.type === "infer",
+  );
+  if (infer === undefined) throw new Error("expected infer action");
+  return infer;
+}
+
+function ephemeralTexts(infer: Extract<ReactorAction, { type: "infer" }>): string[] | undefined {
+  const options = infer.options as
+    | { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
+    | undefined;
+  return options?.ephemeralTurns?.map((turn) => turn.content[0]?.text ?? "");
+}
+
+describe("SubAgentDirector tool failure recovery", () => {
+  test("failed tool result adds one actionable ephemeral recovery nudge", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-call"]), state, caps);
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("failed-call", true), state, caps)),
+    );
+
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("Do not repeat the same failed call unchanged");
+    expect(texts?.[0]).toContain("Inspect the error and current state");
+    expect(texts?.[0]).toContain("change the arguments or approach");
+    expect(texts?.[0]).toContain("report the blocker");
+  });
+
+  test("successful tool result has no ephemeral recovery turn", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["successful-call"]), state, caps);
+    const infer = inferAction(
+      await director.decide(toolDone("successful-call"), state, caps),
+    );
+
+    expect(ephemeralTexts(infer)).toBeUndefined();
+  });
+
+  test("waits for all pending results and carries one recovery nudge on the normal infer", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-first", "successful-last"]), state, caps);
+    const firstResult = actions(
+      await director.decide(toolDone("failed-first", true), state, caps),
+    );
+    expect(firstResult.some((action) => action.type === "infer")).toBe(false);
+
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("successful-last"), state, caps)),
+    );
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("A tool call failed");
+  });
+
+  test("a later successful cycle has no stale recovery nudge", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-cycle"]), state, caps);
+    await director.decide(toolDone("failed-cycle", true), state, caps);
+
+    await director.decide(inferenceDone(["later-success"]), state, caps);
+    const infer = inferAction(
+      await director.decide(toolDone("later-success"), state, caps),
+    );
+    expect(ephemeralTexts(infer)).toBeUndefined();
+  });
+});

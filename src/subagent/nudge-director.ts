@@ -33,6 +33,9 @@ import {
 const REPORT_FORCED_WRAP_UP_NUDGE =
   "You are close to your turn budget. Stop calling tools and write your final report now: summarize what you did, your findings, and any blockers.";
 
+const TOOL_FAILURE_RECOVERY_NUDGE =
+  "A tool call failed. Do not repeat the same failed call unchanged. Inspect the error and current state, then change the arguments or approach. If you cannot recover, report the blocker.";
+
 /** Implement leaves: soft re-read pressure should push toward edit or wrap-up. */
 const RE_READ_NUDGE_IMPLEMENT =
   "You are re-reading the same paths without finishing. Edit a file to make progress, or stop tooling and write your final report now.";
@@ -245,6 +248,9 @@ export class SubAgentDirector extends DefaultDirector {
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
+      if (event.result.isError === true) {
+        this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
+      }
     }
     const base = await super.decide(event, state, capabilities);
     const actions = this.applyPendingNudge(
@@ -297,9 +303,8 @@ export class SubAgentDirector extends DefaultDirector {
 
   /**
    * Rewrite the infer action in a fall-through actions batch to carry the
-   * armed nudge, once — this only ever matches the infer that follows a
-   * report-forced or re-read-nudge turn's tool results (super.decide only emits
-   * infer once pendingToolResults reaches zero).
+   * armed nudge, once — this matches the infer after report-forced,
+   * re-read-nudge, or failed-tool recovery once pending tool results reach zero.
    */
   private applyPendingNudge(
     actions: ReactorAction[],
