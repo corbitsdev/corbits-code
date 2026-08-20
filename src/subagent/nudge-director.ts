@@ -148,7 +148,7 @@ export class SubAgentDirector extends DefaultDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     if (this.compaction.resumeAfterCompact(event)) {
-      return capabilities.infer();
+      return this.applyPendingNudge([capabilities.infer()], capabilities);
     }
     const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);
     if (idleCompact !== null) return idleCompact;
@@ -248,16 +248,19 @@ export class SubAgentDirector extends DefaultDirector {
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
-      if (event.result.isError === true) {
+      if (
+        event.result.isError === true &&
+        this.pendingNudgeText !== REPORT_FORCED_WRAP_UP_NUDGE
+      ) {
+        // Recovery is more specific than re-read guidance, but mandatory wrap-up wins.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
       }
     }
     const base = await super.decide(event, state, capabilities);
-    const actions = this.applyPendingNudge(
-      Array.isArray(base) ? base : [base],
-      capabilities,
-    );
-    return this.compaction.interceptActions(event, actions, capabilities) ?? actions;
+    const baseActions = Array.isArray(base) ? base : [base];
+    const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
+    if (compacted !== null) return compacted;
+    return this.applyPendingNudge(baseActions, capabilities);
   }
 
   /**

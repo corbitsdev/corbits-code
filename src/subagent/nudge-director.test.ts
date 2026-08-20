@@ -5,9 +5,16 @@ import type {
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
+import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { SubAgentDirector } from "./nudge-director.js";
 
 const state = { turns: [] } as unknown as ReactorState;
+const longState = {
+  turns: Array.from(
+    { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
+    () => ({ role: "user", content: [], timestamp: 0 }),
+  ),
+} as unknown as ReactorState;
 
 function capabilities(): ReactorCapabilities {
   return {
@@ -26,7 +33,11 @@ function capabilities(): ReactorCapabilities {
   };
 }
 
-function inferenceDone(callIds: string[]): ReactorInboundEvent {
+function inferenceDone(
+  callIds: string[],
+  inputTokens = 0,
+  pathForId: (id: string) => string = (id) => `${id}.ts`,
+): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
@@ -37,11 +48,11 @@ function inferenceDone(callIds: string[]): ReactorInboundEvent {
         type: "tool_call",
         id,
         name: "read_file",
-        arguments: { path: `${id}.ts` },
+        arguments: { path: pathForId(id) },
       })),
     },
-    usage: { input: 0, output: 0 },
-    source: "test",
+    usage: { input: inputTokens, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    source: { model: "test-model" },
   } as unknown as ReactorInboundEvent;
 }
 
@@ -49,6 +60,13 @@ function toolDone(callId: string, isError = false): ReactorInboundEvent {
   return {
     type: "tool.done",
     result: { callId, content: isError ? "failed" : "ok", isError },
+  } as unknown as ReactorInboundEvent;
+}
+
+function messageReceived(content: string): ReactorInboundEvent {
+  return {
+    type: "message.received",
+    message: { role: "user", content },
   } as unknown as ReactorInboundEvent;
 }
 
@@ -129,5 +147,88 @@ describe("SubAgentDirector tool failure recovery", () => {
       await director.decide(toolDone("later-success"), state, caps),
     );
     expect(ephemeralTexts(infer)).toBeUndefined();
+  });
+
+  test("retains recovery through compaction and consumes it once on continuation infer", async () => {
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      30,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["failed-at-threshold"], 999_999), longState, caps);
+    const compact = actions(
+      await director.decide(toolDone("failed-at-threshold", true), longState, caps),
+    );
+    expect(compact.some((action) => action.type === "infer")).toBe(false);
+    expect(compact).toEqual([
+      { type: "checkpoint", message: "tool-done" },
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ]);
+    expect(continuations).toBe(1);
+
+    const resumed = inferAction(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    const resumedTexts = ephemeralTexts(resumed);
+    expect(resumedTexts).toHaveLength(1);
+    expect(resumedTexts?.[0]).toContain("A tool call failed");
+
+    const later = inferAction(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(ephemeralTexts(later)).toBeUndefined();
+  });
+
+  test("near-budget wrap-up nudge wins over failed-tool recovery", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["near-budget-failure"]), state, caps);
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("near-budget-failure", true), state, caps)),
+    );
+
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("close to your turn budget");
+    expect(texts?.[0]).toContain("write your final report now");
+    expect(texts?.[0]).not.toContain("A tool call failed");
+    expect(texts?.[0]).not.toContain("change the arguments or approach");
+  });
+
+  test("failed-tool recovery supersedes soft re-read guidance", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const callIds = [
+      "shared-1",
+      "shared-2",
+      "shared-3",
+      "unique-1",
+      "unique-2",
+      "unique-3",
+      "unique-4",
+      "failed-last",
+    ];
+
+    await director.decide(
+      inferenceDone(callIds, 0, (id) => id.startsWith("shared-") ? "shared.ts" : `${id}.ts`),
+      state,
+      caps,
+    );
+    for (const callId of callIds.slice(0, -1)) {
+      await director.decide(toolDone(callId), state, caps);
+    }
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("failed-last", true), state, caps)),
+    );
+
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("A tool call failed");
+    expect(texts?.[0]).not.toContain("re-reading the same paths");
   });
 });
