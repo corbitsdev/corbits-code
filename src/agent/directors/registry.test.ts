@@ -107,14 +107,7 @@ describe("director registry", () => {
     expect(grey.maxTurns).toBe(DIRECTOR_REGISTRY.greybeard.nudge?.maxTurns);
 
     const shakespeare = packageToProfile(DIRECTOR_REGISTRY.shakespeare);
-    expect(shakespeare.writePaths).toEqual([
-      "PRODUCT.md",
-      "ARCHITECTURE.md",
-      "IMPLEMENTATION.md",
-      "docs/PRODUCT.md",
-      "docs/ARCHITECTURE.md",
-      "docs/IMPLEMENTATION.md",
-    ]);
+    expect(shakespeare.writePaths).toBeUndefined();
     expect(shakespeare.capabilities?.mode).toBe("allow");
     expect(shakespeare.capabilities?.tools).toContain("write_file");
   });
@@ -155,20 +148,11 @@ describe("director registry", () => {
     }
   });
 
-  test("docs writePaths: shakespeare trio + brand DESIGN.md + bruckheimer PRODUCT", () => {
-    expect(DIRECTOR_REGISTRY.shakespeare.writePaths).toEqual([
-      "PRODUCT.md",
-      "ARCHITECTURE.md",
-      "IMPLEMENTATION.md",
-      "docs/PRODUCT.md",
-      "docs/ARCHITECTURE.md",
-      "docs/IMPLEMENTATION.md",
-    ]);
-    expect(DIRECTOR_REGISTRY["brand-reviewer"].writePaths).toEqual(["DESIGN.md"]);
-    expect(DIRECTOR_REGISTRY.bruckheimer.writePaths).toEqual([
-      "PRODUCT.md",
-      "docs/PRODUCT.md",
-    ]);
+  test("no shipped director in DIRECTOR_IDS has a non-empty writePaths", () => {
+    for (const id of DIRECTOR_IDS) {
+      const paths = DIRECTOR_REGISTRY[id].writePaths;
+      expect(paths === undefined || paths.length === 0).toBe(true);
+    }
   });
 
   test("implement mounts product writes; intern is shell-only; other leaves do not spawn", () => {

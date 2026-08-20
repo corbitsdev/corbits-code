@@ -3,7 +3,6 @@ import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
  * Product discovery leaf (CL-5824).
- * Write path lock is authz (writePaths), not prompt policy.
  */
 export const bruckheimerPackage: DirectorPackage = {
   id: "bruckheimer",
@@ -17,7 +16,6 @@ export const bruckheimerPackage: DirectorPackage = {
   ],
   description: "Product discovery leaf — user/product shape docs, not code",
   tools: { allow: DOCS_TOOLS },
-  writePaths: ["PRODUCT.md", "docs/PRODUCT.md"],
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
@@ -26,7 +24,7 @@ export const bruckheimerPackage: DirectorPackage = {
 
 PRIMARY INTENT: product discovery documentation. Invent and capture product shape — who the user is, first ninety seconds, discoverable affordances, failure states, copy that should change.
 
-Write tools are mounted; path locks are enforced by authz (PRODUCT.md and docs/PRODUCT.md). You are not an implementer. You are not the architecture gate (that is Greybeard). You do not ship features or product code.
+Write tools are mounted with no path lock. Stay on the product-discovery lane. You are not an implementer. You are not the architecture gate (that is Greybeard). You do not ship features or product code.
 
 Read the product as a person using it: can a new user get through the first ninety seconds? Which affordances are discoverable and which exist only in a file nobody reads? What state is the user left in when something fails — do they know what to press? Name specific strings and surfaces that should change.
 

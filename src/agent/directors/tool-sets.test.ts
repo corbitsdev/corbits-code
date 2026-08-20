@@ -6,7 +6,7 @@ import {
 } from "./tool-sets.js";
 
 describe("DOCS_TOOLS", () => {
-  test("excludes run_shell (writePaths gate only locks file writes)", () => {
+  test("excludes run_shell and delete_file as envelope policy", () => {
     expect(DOCS_TOOLS).not.toContain("run_shell");
     expect(DOCS_TOOLS).not.toContain("delete_file");
   });

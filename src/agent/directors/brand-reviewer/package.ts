@@ -3,7 +3,6 @@ import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
  * Brand Reviewer — owns DESIGN.md create/use + brand consistency gate for UI. CL-5829.
- * Write path lock is authz (writePaths), not prompt policy.
  */
 export const brandReviewerPackage: DirectorPackage = {
   id: "brand-reviewer",
@@ -16,7 +15,6 @@ export const brandReviewerPackage: DirectorPackage = {
   ],
   description: "DESIGN.md brand gate leaf",
   tools: { allow: DOCS_TOOLS },
-  writePaths: ["DESIGN.md"],
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
@@ -25,7 +23,7 @@ export const brandReviewerPackage: DirectorPackage = {
 
 PRIMARY INTENT: own DESIGN.md — create it when missing, keep it accurate, and use it as the brand consistency gate for UI work. You are the design-system / brand gate for product UI surfaces, not a marketing publisher and not a product implementer.
 
-Write tools are mounted; path locks are enforced by authz (DESIGN.md only). If a fix requires product code changes, report Findings + Blockers and name implement (or draper/emil for critique) — do not patch code yourself.
+Write tools are mounted with no path lock. Stay on the DESIGN.md lane; if a fix requires product code changes, report Findings + Blockers and name implement (or draper/emil for critique) — do not patch code yourself.
 
 # What DESIGN.md is for
 

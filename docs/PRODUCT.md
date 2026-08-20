@@ -142,7 +142,7 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 ## Multi-agent (sub-agents)
 
-The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, dispatch a **closed fleet of 16 directors**, track the fleet, and synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are not mounted on the primary session — implement/docs leaves own durable writes. Residual mutation surfaces remain: `run_shell` stays on the primary (gated; shell file-writes are denied), MCP tools loaded after the primary strip are not re-denied by name, and package `writePaths` only constrains path-keyed product tools (not shell). Yolo / skip-permissions still bypasses the write-path gate when enabled.
+The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, dispatch a **closed fleet of 16 directors**, track the fleet, and synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are not mounted on the primary session — implement/docs leaves own durable writes. Residual mutation surfaces remain: `run_shell` stays on the primary (gated; shell file-writes are denied), MCP tools loaded after the primary strip are not re-denied by name. Shipped directors have no package `writePaths`; the optional field still constrains path-keyed product tools (not shell) when a profile sets it. Yolo / skip-permissions still bypasses the write-path gate when enabled.
 
 | Lane | Directors |
 |---|---|

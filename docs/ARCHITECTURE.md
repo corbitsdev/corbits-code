@@ -263,7 +263,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 | Director | Owns |
 |---|---|
-| shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION write paths |
+| shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION lane |
 | testsmith | Test design only (what/how to test) |
 | tester | Runtime verification; never fix product code |
 
@@ -285,7 +285,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 | greybeard | intern, explore, critique only |
 | All other leaves | no `task` |
 
-**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Docs directors may write only under package `writePaths` (enforced by the permission gate, not prompt policy): shakespeare → PRODUCT/ARCHITECTURE/IMPLEMENTATION at repo root and under `docs/`; brand-reviewer → DESIGN.md; bruckheimer → PRODUCT.md + docs/PRODUCT.md.
+**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, brand-reviewer, bruckheimer) mount write tools with **no** package `writePaths`. Lane routing is spawn policy (shakespeare = P/A/I docs, brand-reviewer = DESIGN.md, bruckheimer = product discovery), not a file lock. Optional `writePaths` still exists; the permission gate enforces it when a profile sets it.
 
 **Typical chain:** bruckheimer → plan → greybeard → implement (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
 

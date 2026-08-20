@@ -35,10 +35,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Directors
 
-- **Docs leaves write only their lane.** Shakespeare can update PRODUCT,
-  ARCHITECTURE, and IMPLEMENTATION at repo root and under `docs/`.
-  Bruckheimer is limited to `PRODUCT.md` and `docs/PRODUCT.md` — not the rest
-  of `docs/`.
+- **Shipped directors have no writePaths lock.** Docs/design leaves
+  (shakespeare, brand-reviewer, bruckheimer) still mount write tools, but
+  package `writePaths` is omitted. Lane routing (P/A/I, DESIGN.md, product
+  discovery) is spawn policy, not a file lock. Optional `writePaths` remains
+  and the permission gate still enforces it when a profile sets it.
 - **Skywalker is not a task leaf.** `task(agent=skywalker)` is refused. The
   spawn catalog (`directorProfiles()`) lists the other 15 closed directors;
   the primary session is still Skywalker.

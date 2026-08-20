@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
-import { matchesWritePathAllowlist } from "../../../permission/write-path-policy.js";
 import { bruckheimerPackage } from "./package.js";
-
-const cwd = resolve("/tmp/bruckheimer-write-path-fixture");
 
 describe("bruckheimerPackage", () => {
   test("id matches directory", () => {
@@ -23,20 +19,11 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow includes write tools; writePaths lock discovery docs", () => {
+  test("tools.allow includes write tools; writePaths is omitted", () => {
     const allow = bruckheimerPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
-    expect(bruckheimerPackage.writePaths).toEqual(["PRODUCT.md", "docs/PRODUCT.md"]);
-  });
-
-  test("writePaths match product docs only, not architecture or TUI", () => {
-    const allow = bruckheimerPackage.writePaths ?? [];
-    expect(matchesWritePathAllowlist("PRODUCT.md", allow, cwd)).toBe(true);
-    expect(matchesWritePathAllowlist("docs/PRODUCT.md", allow, cwd)).toBe(true);
-    expect(matchesWritePathAllowlist("docs/ARCHITECTURE.md", allow, cwd)).toBe(false);
-    expect(matchesWritePathAllowlist("docs/IMPLEMENTATION.md", allow, cwd)).toBe(false);
-    expect(matchesWritePathAllowlist("docs/TUI.md", allow, cwd)).toBe(false);
+    expect(bruckheimerPackage.writePaths).toBeUndefined();
   });
 
   test("report requires envelope sections", () => {

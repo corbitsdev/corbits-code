@@ -25,10 +25,10 @@ export const IMPLEMENT_TOOLS = [
 ] as const;
 
 /**
- * Docs leaves that may write only under writePaths authz.
- * Read/search/lsp/web + file writes — no run_shell. The writePaths gate only
- * locks write_file/edit_file/delete_file, so a shell here would bypass it;
- * docs leaves that need a shell mount IMPLEMENT_TOOLS instead.
+ * Docs leaves: read/search/lsp/web + file writes — no run_shell, no delete_file.
+ * Envelope policy, not a writePaths lock: docs leaves omit shell so they cannot
+ * mutate via the terminal. Optional package writePaths, when a profile sets it,
+ * is still enforced by the permission gate on path-keyed write tools.
  *
  * Composed from READ_TOOLS minus run_shell so it tracks the read surface
  * automatically; only the write tools are added explicitly.
