@@ -64,7 +64,7 @@ export function buildHarnessFacts(
           "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
         ]
       : [
-          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT/docs) for durable edits.",
+          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT.md) for durable edits.",
           "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",

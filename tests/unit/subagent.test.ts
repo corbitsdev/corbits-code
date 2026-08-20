@@ -320,6 +320,29 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
   expect(ran).toBe(true);
 });
 
+test("task refuses skywalker as a nested leaf", async () => {
+  let ran = false;
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => {
+      ran = true;
+      return "should not run";
+    },
+  });
+  const result = await callHandler(tool, {
+    description: "orchestrate",
+    prompt: "fan out the fleet",
+    agent: "skywalker",
+  });
+  expect(result).toContain("Error:");
+  expect(result).toMatch(/primary session identity/i);
+  expect(result).not.toContain("allowlist");
+  expect(ran).toBe(false);
+});
+
 test("greybeard nestedDispatch carries spawn allowlist into nested task", async () => {
   let nestedAllow: readonly string[] | undefined;
   const tool = createTaskTool({

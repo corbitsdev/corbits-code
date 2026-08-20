@@ -57,7 +57,7 @@ Scan for thin sections, undefined references, missing failure modes/constraints,
 
 Confirm what changed and where. Summarize consistency/gap follow-ups.
 
-Write tools are mounted; path locks are enforced by authz (PRODUCT/ARCHITECTURE/IMPLEMENTATION only). Do not implement product source code, run the fleet, or act as tester/reviewer.
+Write tools are mounted; path locks are enforced by authz (PRODUCT/ARCHITECTURE/IMPLEMENTATION at repo root and under docs/). Do not implement product source code, run the fleet, or act as tester/reviewer.
 
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional.
 
@@ -76,7 +76,14 @@ export const shakespearePackage: DirectorPackage = {
   systemPrompt: SHAKESPEARE_SYSTEM_PROMPT,
   optionalSkills: ["style", "philosophy"],
   tools: { allow: DOCS_TOOLS },
-  writePaths: ["PRODUCT.md", "ARCHITECTURE.md", "IMPLEMENTATION.md"],
+  writePaths: [
+    "PRODUCT.md",
+    "ARCHITECTURE.md",
+    "IMPLEMENTATION.md",
+    "docs/PRODUCT.md",
+    "docs/ARCHITECTURE.md",
+    "docs/IMPLEMENTATION.md",
+  ],
   spawn: { maySpawn: false },
   nudge: { maxTurns: 50 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },

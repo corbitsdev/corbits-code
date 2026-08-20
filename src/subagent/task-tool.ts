@@ -447,6 +447,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         );
       }
 
+      // Skywalker is the primary session identity, not a nested leaf.
+      if (agentId === "skywalker" || resolvedDirectorId === "skywalker") {
+        return taskToolResult(
+          call.id,
+          "Error: skywalker is the primary session identity, not a task leaf. Pass task(agent=…) for a specialist (implement, explore, plan, critique, …).",
+        );
+      }
+
       // Parent director spawn matrix (e.g. greybeard → intern/explore/critique only).
       if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
         const childId =

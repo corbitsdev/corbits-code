@@ -229,7 +229,7 @@ Profiles with `orchestrator: true` may themselves call `task` (one hop only): ne
 
 #### Closed director fleet (`src/agent/directors/`)
 
-Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no general leaf: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only).
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no general leaf: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only). Skywalker is the primary session identity: `task(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
 
 **Primary**
 
@@ -285,7 +285,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 | greybeard | intern, explore, critique only |
 | All other leaves | no `task` |
 
-**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Docs directors may write only under package `writePaths` (enforced by the permission gate, not prompt policy): shakespeare → PRODUCT/ARCHITECTURE/IMPLEMENTATION; brand-reviewer → DESIGN.md; bruckheimer → PRODUCT.md + docs/*.
+**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Docs directors may write only under package `writePaths` (enforced by the permission gate, not prompt policy): shakespeare → PRODUCT/ARCHITECTURE/IMPLEMENTATION at repo root and under `docs/`; brand-reviewer → DESIGN.md; bruckheimer → PRODUCT.md + docs/PRODUCT.md.
 
 **Typical chain:** bruckheimer → plan → greybeard → implement (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
 

@@ -71,7 +71,7 @@ src/
     prompts.ts            System prompt builders; buildChatRole → Skywalker
     tools.ts              Agent tool registration helpers
     agent-search.ts       search_agents tool + profile lexical index
-    default-agents.ts     Built-in profiles = directorProfiles() closed fleet
+    default-agents.ts     Built-in profiles = directorProfiles() spawn catalog
     directors/            Closed director fleet packages + registry
       types.ts            DirectorId, DirectorPackage, TaskIntent, ModelRole
       registry.ts         DIRECTOR_REGISTRY, resolveDirector, packageToProfile
@@ -156,10 +156,10 @@ Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTR
 
 1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
-3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. Primary omits the list so plugin profiles stay reachable.
-4. `directorProfiles()` is the default profile catalog (`default-agents.ts`); plugin agent profiles still load and can override by id.
+3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a nested leaf). Primary omits the list so plugin profiles stay reachable.
+4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker; plugin agent profiles still load and can override by id.
 5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools are stripped from the primary toolset and from CORE/CATALOG ads (`PRIMARY_DENIED_PRODUCT_TOOLS`) — never-implement is structural for path tools. Residual: `run_shell` stays on primary; MCP tools loaded later are not re-stripped by that deny list; leaf `writePaths` only gate path-keyed product tools.
-6. Leaf `writePaths` (shakespeare docs trio, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT + docs/*) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
+6. Leaf `writePaths` (shakespeare docs trio at root and under `docs/`, brand-reviewer `DESIGN.md`, bruckheimer PRODUCT.md + docs/PRODUCT.md) are enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`).
 7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/leaf binary > parent inheritance. Optional skills are listed in the identity header for awareness; leaves do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
 
 Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other leaves no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and leaf prompt.

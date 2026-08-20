@@ -111,15 +111,19 @@ describe("director registry", () => {
       "PRODUCT.md",
       "ARCHITECTURE.md",
       "IMPLEMENTATION.md",
+      "docs/PRODUCT.md",
+      "docs/ARCHITECTURE.md",
+      "docs/IMPLEMENTATION.md",
     ]);
     expect(shakespeare.capabilities?.mode).toBe("allow");
     expect(shakespeare.capabilities?.tools).toContain("write_file");
   });
 
-  test("directorProfiles covers closed set", () => {
+  test("directorProfiles is the spawn catalog (closed set minus skywalker)", () => {
     const profiles = directorProfiles();
-    expect(profiles).toHaveLength(16);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(16);
+    expect(profiles).toHaveLength(15);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(15);
+    expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 
   // Phase 5 acceptance (CL-5818 / CL-5843): spawn matrix, review envelopes, primary stance.
@@ -156,9 +160,15 @@ describe("director registry", () => {
       "PRODUCT.md",
       "ARCHITECTURE.md",
       "IMPLEMENTATION.md",
+      "docs/PRODUCT.md",
+      "docs/ARCHITECTURE.md",
+      "docs/IMPLEMENTATION.md",
     ]);
     expect(DIRECTOR_REGISTRY["brand-reviewer"].writePaths).toEqual(["DESIGN.md"]);
-    expect(DIRECTOR_REGISTRY.bruckheimer.writePaths).toEqual(["PRODUCT.md", "docs/*"]);
+    expect(DIRECTOR_REGISTRY.bruckheimer.writePaths).toEqual([
+      "PRODUCT.md",
+      "docs/PRODUCT.md",
+    ]);
   });
 
   test("implement mounts product writes; intern is shell-only; other leaves do not spawn", () => {

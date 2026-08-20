@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
+import { matchesWritePathAllowlist } from "../../../permission/write-path-policy.js";
 import { shakespearePackage } from "./package.js";
+
+const cwd = resolve("/tmp/shakespeare-write-path-fixture");
 
 describe("shakespearePackage", () => {
   test("id matches directory / registry id", () => {
@@ -40,7 +44,19 @@ describe("shakespearePackage", () => {
       "PRODUCT.md",
       "ARCHITECTURE.md",
       "IMPLEMENTATION.md",
+      "docs/PRODUCT.md",
+      "docs/ARCHITECTURE.md",
+      "docs/IMPLEMENTATION.md",
     ]);
+  });
+
+  test("writePaths match the docs trio at root and under docs/, not TUI", () => {
+    const allow = shakespearePackage.writePaths ?? [];
+    expect(matchesWritePathAllowlist("docs/ARCHITECTURE.md", allow, cwd)).toBe(true);
+    expect(matchesWritePathAllowlist("docs/PRODUCT.md", allow, cwd)).toBe(true);
+    expect(matchesWritePathAllowlist("docs/IMPLEMENTATION.md", allow, cwd)).toBe(true);
+    expect(matchesWritePathAllowlist("ARCHITECTURE.md", allow, cwd)).toBe(true);
+    expect(matchesWritePathAllowlist("docs/TUI.md", allow, cwd)).toBe(false);
   });
 
   test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {

@@ -132,7 +132,9 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
   };
 }
 
-/** All closed directors as agent profiles (replaces hand-written default-agents stubs). */
+/** Spawnable director profiles (closed set minus primary skywalker). */
 export function directorProfiles(): AgentProfile[] {
-  return listDirectors().map(packageToProfile);
+  return listDirectors()
+    .filter((pkg) => pkg.id !== "skywalker")
+    .map(packageToProfile);
 }

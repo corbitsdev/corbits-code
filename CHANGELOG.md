@@ -33,6 +33,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   still open still writes the full payload into the transcript, because that
   text would otherwise be unreachable before approval.
 
+### Directors
+
+- **Docs leaves write only their lane.** Shakespeare can update PRODUCT,
+  ARCHITECTURE, and IMPLEMENTATION at repo root and under `docs/`.
+  Bruckheimer is limited to `PRODUCT.md` and `docs/PRODUCT.md` — not the rest
+  of `docs/`.
+- **Skywalker is not a task leaf.** `task(agent=skywalker)` is refused. The
+  spawn catalog (`directorProfiles()`) lists the other 15 closed directors;
+  the primary session is still Skywalker.
+
 ### Evals
 
 - **Capability eval records `task` tool calls.** `taskToolCallCount` is derived

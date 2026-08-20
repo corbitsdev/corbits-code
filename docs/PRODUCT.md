@@ -151,7 +151,7 @@ The primary session is always **orchestrator** (single-agent mode is gone). Its 
 | Design | draper, emil, brand-reviewer |
 | Docs / QA | shakespeare, testsmith, tester |
 
-There is **no general leaf**. `task` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critique); bare dispatch and `intent=general` are refused. Named `task(agent=…)` selects a director package without requiring a plugin profile. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explore/critique) may spawn; other leaves have no `task`. Primary omits an allowlist so plugin profiles remain reachable from the main session.
+There is **no general leaf**. `task` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critique); bare dispatch and `intent=general` are refused. Named `task(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a task leaf. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explore/critique) may spawn; other leaves have no `task`. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 
 Corbits Code fans work out to short-lived **sub-agents** — child agents with their own loop, tools, and checklist — while the primary session stays focused.
 
