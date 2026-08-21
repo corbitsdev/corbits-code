@@ -3,17 +3,17 @@
  * One-shot public SWE-bench smoke: Corbits as the agent on a single Lite instance.
  *
  * Intentionally narrow:
- *   - pins provider/model (default xai/thegreataxios + grok-4.5)
+ *   - provider/model come from required --provider / --model CLI flags
  *   - host-side agent run (product exec path), not a full SWE Docker fleet
  *   - captures a git patch + trajectory report for later official eval
  *
  * Usage:
- *   bun scripts/eval-public-swe-one.ts
- *   bun scripts/eval-public-swe-one.ts --instance psf__requests-3362
- *   bun scripts/eval-public-swe-one.ts --provider xai/thegreataxios --model grok-4.5
+ *   bun scripts/eval-public-swe-one.ts --provider <name> --model <id>
+ *   bun scripts/eval-public-swe-one.ts --instance psf__requests-3362 --provider <name> --model <id>
+ *   bun scripts/eval-public-swe-one.ts --dry-run
  *
  * Optional official grading (heavy; needs Docker resources):
- *   bun scripts/eval-public-swe-one.ts --instance … --evaluate
+ *   bun scripts/eval-public-swe-one.ts --instance … --provider <name> --model <id> --evaluate
  */
 
 import { mkdir, writeFile, readFile, mkdtemp, rm, cp } from "node:fs/promises";
@@ -25,8 +25,6 @@ import { loadConfig } from "../src/config/index.js";
 import { runExec } from "../src/exec/runner.js";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const DEFAULT_PROVIDER = "xai/thegreataxios";
-const DEFAULT_MODEL = "grok-4.5";
 const DEFAULT_INSTANCE = "psf__requests-3362";
 const DEFAULT_SUBSET = "princeton-nlp/SWE-bench_Lite";
 const DEFAULT_SPLIT = "test";
@@ -40,7 +38,6 @@ type CliOptions = {
   split: string;
   agentTimeoutMs: number;
   evaluate: boolean;
-  allowOtherProvider: boolean;
   dryRun: boolean;
   outDir: string;
   help: boolean;
@@ -59,35 +56,33 @@ type SweInstance = {
 };
 
 function printHelp(): void {
-  console.log(`Usage: bun scripts/eval-public-swe-one.ts [options]
+  console.log(`Usage: bun scripts/eval-public-swe-one.ts --provider <name> --model <id> [options]
 
 One public SWE-bench Lite instance via Corbits product exec.
 
 Options:
   --instance <id>     SWE-bench instance_id (default: ${DEFAULT_INSTANCE})
-  --provider <name>   Must be ${DEFAULT_PROVIDER} unless --allow-other-provider
-  --model <id>        Model id (default: ${DEFAULT_MODEL})
+  --provider <name>   Provider name (required except --help / --dry-run)
+  --model <id>        Model id (required except --help / --dry-run)
   --subset <hf>       HF dataset id (default: ${DEFAULT_SUBSET})
   --split <name>      Dataset split (default: ${DEFAULT_SPLIT})
   --timeout-ms <n>    Agent wall-clock timeout (default: ${DEFAULT_AGENT_TIMEOUT_MS})
   --out <dir>         Results directory (default: evals/public/results/<run-id>)
   --evaluate          After the agent, attempt official SWE-bench Docker eval (heavy)
-  --allow-other-provider  Permit a non-default provider (not recommended here)
   --dry-run           Load instance + print plan; do not clone or run the agent
   -h, --help          Show this help
 `);
 }
 
-function parseArgs(argv: string[]): CliOptions {
+export function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
-    provider: DEFAULT_PROVIDER,
-    model: DEFAULT_MODEL,
+    provider: "",
+    model: "",
     instanceId: DEFAULT_INSTANCE,
     subset: DEFAULT_SUBSET,
     split: DEFAULT_SPLIT,
     agentTimeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
     evaluate: false,
-    allowOtherProvider: false,
     dryRun: false,
     outDir: "",
     help: false,
@@ -131,14 +126,22 @@ function parseArgs(argv: string[]): CliOptions {
       case "--evaluate":
         opts.evaluate = true;
         break;
-      case "--allow-other-provider":
-        opts.allowOtherProvider = true;
-        break;
       case "--dry-run":
         opts.dryRun = true;
         break;
       default:
         throw new Error(`unknown arg: ${a}`);
+    }
+  }
+  if (!opts.help && !opts.dryRun) {
+    if (!opts.provider && !opts.model) {
+      throw new Error("missing required --provider and --model");
+    }
+    if (!opts.provider) {
+      throw new Error("missing required --provider");
+    }
+    if (!opts.model) {
+      throw new Error("missing required --model");
     }
   }
   return opts;
@@ -314,13 +317,6 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (!opts.allowOtherProvider && opts.provider !== DEFAULT_PROVIDER) {
-    throw new Error(
-      `provider must be ${DEFAULT_PROVIDER} for this prepaid smoke ` +
-        `(got ${opts.provider}). Pass --allow-other-provider to override.`,
-    );
-  }
-
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir =
     opts.outDir.length > 0
@@ -370,7 +366,9 @@ async function main(): Promise<void> {
 
     const config = await loadConfig(argv, { allowUnconfigured: false });
     if (!config.configured) {
-      throw new Error("Provider not configured — check xAI OAuth profile xai/thegreataxios");
+      throw new Error(
+        `Provider not configured for --provider ${opts.provider} --model ${opts.model}`,
+      );
     }
     const resolvedProvider = config.providerName;
     const resolvedModel = config.model;
@@ -476,7 +474,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(2);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(2);
+  });
+}

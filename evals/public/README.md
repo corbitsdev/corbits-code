@@ -6,9 +6,9 @@ This directory is for **small public-bench smokes** so we can see how Corbits
 stacks up against other coding harnesses (Claude Code, OpenHands, Aider, …)
 without vendoring a full leaderboard runner into product CI.
 
-## Constraints (this machine)
+## Constraints
 
-- Use prepaid **`xai/thegreataxios`** + **`grok-4.5`** unless explicitly overridden.
+- Provider and model are caller-supplied (`--provider` and `--model`).
 - Docker Desktop may be under-provisioned for full SWE-bench eval images
   (docs want ~120GB disk / 16GB RAM; arm64 is experimental).
 - Start with **one instance**, not Lite/Verified full.
@@ -21,11 +21,12 @@ bun scripts/eval-public-swe-one.ts --dry-run
 
 # Default instance: psf__requests-3362 (small repo, single failing test)
 bun scripts/eval-public-swe-one.ts \
-  --provider xai/thegreataxios \
+  --provider xai \
   --model grok-4.5
 
 # Pick any Lite instance_id
-bun scripts/eval-public-swe-one.ts --instance pallets__flask-4992
+bun scripts/eval-public-swe-one.ts --instance pallets__flask-4992 \
+  --provider <provider> --model <model>
 ```
 
 What it does:
@@ -47,7 +48,7 @@ What it does **not** do yet:
 
 Point the official SWE-bench / mini-SWE-agent eval harness at `preds.jsonl`.
 Until that runs, treat the smoke as: **did Corbits produce a non-empty patch on a
-real public issue under the prepaid xAI profile?**
+real public issue?**
 
 ## vs competitors
 
