@@ -10,12 +10,13 @@ General guidelines for writing clean, maintainable code.
 
 ## Git Repository Requirement
 
-Agents must only operate within git repositories. Before performing any work:
+Prefer a git repository so changes can be tracked, reviewed, and reverted.
 
-1. Verify the current working directory is inside a git repository
-2. If not in a git repository, refuse to proceed
+Edits, tests, and reports are allowed in a folder that is not a git repository. Do not refuse the task.
 
-Without a git repository, it's too hard to succeed with agents - changes can't be tracked, reviewed, or safely reverted.
+Do not `git init` unless the user asked you to create a repository.
+
+Commits, amends, rebases, and isolated worktree dispatch require an existing git repository. If the user asked to commit and there is no repository, say so and stop — do not invent a repository.
 
 ## Documentation
 

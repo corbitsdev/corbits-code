@@ -75,9 +75,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   closed directors — the operator types the slash; the primary does not
   do the work. Turn the catalog off in `/plugins` if you want those
   commands gone.
+- **Style skill no longer refuses non-git folders.** Edits, tests, and
+  reports are allowed without a repository. Do not `git init` unless
+  asked. Commits, amends, rebases, and isolated worktree dispatch still
+  require an existing repo.
 
 ### Evals
 
+- **Capability eval workdirs are git repos.** After copying the fixture
+  and seeding skill stubs, the runner initializes the tmp workdir (`git
+  init`, `git add -A`, one unsigned hermetic `eval fixture` commit) so isolated
+  workers have HEAD and git-aware skills have a baseline.
 - **Eval runners require an explicit model pair.** `eval:capability` and
   `eval:public-swe-one` take `--provider` / `--model` (capability also
   accepts `--matrix` with complete cells) so local `.corbits/settings.json`

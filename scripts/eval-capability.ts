@@ -312,6 +312,38 @@ async function seedEvalSkillStubs(workdir: string): Promise<void> {
   }
 }
 
+/**
+ * Initialize a git repo in an eval tmp workdir so isolated workers have HEAD
+ * and git-aware skills have a baseline. Identity is `git -c`, never env or
+ * global config. The fixture commit is unsigned (`--no-gpg-sign`,
+ * `-c commit.gpgsign=false`) and skips hooks (`--no-verify`) so operator
+ * `commit.gpgsign` / `core.hooksPath` cannot fail or sign with the operator
+ * key. Do not call this on source fixtures.
+ */
+export async function initEvalGitRepo(workdir: string): Promise<void> {
+  const identity = ["-c", "user.email=eval@local", "-c", "user.name=eval"] as const;
+  const git = async (args: readonly string[]): Promise<void> => {
+    const result = await runCommand("git", args, workdir, 30_000);
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr || result.stdout}`,
+      );
+    }
+  };
+  await git(["init"]);
+  await git([...identity, "add", "-A"]);
+  await git([
+    ...identity,
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--no-gpg-sign",
+    "--no-verify",
+    "-m",
+    "eval fixture",
+  ]);
+}
+
 async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; capturePath: string }> {
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
@@ -319,6 +351,7 @@ async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; cap
   // Global plugins reference style/philosophy/etc.; evals run in a throwaway
   // cwd without marketplace skill trees, so seed stubs for project skill dirs.
   await seedEvalSkillStubs(work);
+  await initEvalGitRepo(work);
   // Sibling of the workdir so the agent and verify.sh never see the capture.
   const capturePath = `${work}-run-summary.json`;
   await installRunCaptureHook(work, capturePath);

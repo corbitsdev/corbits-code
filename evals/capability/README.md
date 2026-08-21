@@ -8,6 +8,8 @@ Local, multi-model capability checks against the **product** agent path (`corbit
 
 Whether a real model + our directors/tools can complete small coding tasks on fixture repos. Graders are objective shell scripts (`verify.sh`) — pass/fail, not LLM-as-judge.
 
+Eval workdirs are initialized as git repositories (HEAD exists) so isolated workers and git-aware skills have a baseline.
+
 One run can **try different things**: multiple cases × multiple provider/model variants (matrix), with every product-path metric we can record written into the results JSON.
 
 | Tier | Case | Fixture | Intent |
