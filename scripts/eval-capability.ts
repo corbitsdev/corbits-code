@@ -69,6 +69,7 @@ type CliOptions = {
   /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
   repeats: number;
   dryRun: boolean;
+  help: boolean;
   /**
    * Allow a run/comparison to proceed when the resolved provider/model
    * differs from what was requested, instead of hard-failing.
@@ -77,12 +78,13 @@ type CliOptions = {
 };
 
 function printUsage(): void {
-  console.log(`Usage: bun scripts/eval-capability.ts [options]
+  console.log(`Usage: bun scripts/eval-capability.ts --provider <name> --model <id> [options]
+       bun scripts/eval-capability.ts --matrix <cells> [options]
 
   --case <id|all>       Case id (default: all)
-  --provider <name>     Provider override (single-variant run)
-  --model <id>          Model override (single-variant run)
-  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m,..."
+  --provider <name>     Provider name (required except --help, or --matrix with complete cells)
+  --model <id>          Model id (required except --help, or --matrix with complete cells)
+  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m,..."; each cell needs both sides
   --config <path>       Settings file override
   --out <path>          Write results JSON
   --baseline <path>     Compare to prior results JSON
@@ -91,19 +93,20 @@ function printUsage(): void {
   --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
-  --dry-run             List cases × variants only
+  --dry-run             List cases × variants only (still requires --provider/--model or --matrix)
   --allow-provider-fallback  Allow resolved provider/model to differ from
                              what was requested (default: hard-fail)
   -h, --help            Show help
 `);
 }
 
-function parseArgs(argv: readonly string[]): CliOptions {
+export function parseArgs(argv: readonly string[]): CliOptions {
   const opts: CliOptions = {
     caseSelector: "all",
     skipPermissions: true,
     repeats: 1,
     dryRun: false,
+    help: false,
     allowProviderFallback: false,
     agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 1_200_000),
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
@@ -118,8 +121,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     switch (a) {
       case "-h":
       case "--help":
-        printUsage();
-        process.exit(0);
+        opts.help = true;
         break;
       case "--case":
         opts.caseSelector = next();
@@ -183,7 +185,30 @@ function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error(`Unknown argument: ${a}`);
     }
   }
+  if (!opts.help) {
+    requireExplicitModelPair(opts);
+  }
   return opts;
+}
+
+function requireExplicitModelPair(opts: CliOptions): void {
+  const matrix = opts.matrix?.trim();
+  if (matrix !== undefined && matrix.length > 0) {
+    parseMatrix(matrix, {
+      provider: opts.provider,
+      model: opts.model,
+    });
+    return;
+  }
+  if (!opts.provider && !opts.model) {
+    throw new Error("missing required --provider and --model (or --matrix)");
+  }
+  if (!opts.provider) {
+    throw new Error("missing required --provider");
+  }
+  if (!opts.model) {
+    throw new Error("missing required --model");
+  }
 }
 
 function runCommand(
@@ -510,7 +535,9 @@ async function runCase(
 
     const config = await loadConfig(argv, { allowUnconfigured: false });
     if (!config.configured) {
-      throw new Error("Provider not configured for eval run");
+      throw new Error(
+        "Provider not configured. Pass --provider <name> --model <id> (or --matrix) matching a configured provider.",
+      );
     }
 
     const agentStarted = Date.now();
@@ -684,6 +711,10 @@ function formatMetricsLine(r: CaseResult): string {
 
 async function main(): Promise<number> {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) {
+    printUsage();
+    return 0;
+  }
   const all = await loadEvalCases(CASES_ROOT);
   const selected = filterCases(all, opts.caseSelector);
   const variants = parseMatrix(opts.matrix, {

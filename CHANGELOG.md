@@ -78,6 +78,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Evals
 
+- **Eval runners require an explicit model pair.** `eval:capability` and
+  `eval:public-swe-one` take `--provider` / `--model` (capability also
+  accepts `--matrix` with complete cells) so local `.corbits/settings.json`
+  is not the implicit target.
 - **Capability eval records `task` tool calls.** `taskToolCallCount` is derived
   from the turn stream (informational). Older result files without the field
   default from `toolCallsByName.task` so the frozen baseline still parses.

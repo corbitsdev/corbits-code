@@ -10,11 +10,16 @@ describe("parseArgs", () => {
     expect(opts.model).not.toBe("xai/thegreataxios");
   });
 
-  test("--dry-run does not require provider or model", () => {
-    const opts = parseArgs(["--dry-run"]);
+  test("--dry-run alone throws", () => {
+    expect(() => parseArgs(["--dry-run"])).toThrow(/--provider/);
+    expect(() => parseArgs(["--dry-run"])).toThrow(/--model/);
+  });
+
+  test("--dry-run with provider and model parses", () => {
+    const opts = parseArgs(["--dry-run", "--provider", "foo", "--model", "bar"]);
     expect(opts.dryRun).toBe(true);
-    expect(opts.provider).not.toBe("xai/thegreataxios");
-    expect(opts.model).not.toBe("xai/thegreataxios");
+    expect(opts.provider).toBe("foo");
+    expect(opts.model).toBe("bar");
   });
 
   test("agent run without --provider throws", () => {
@@ -38,10 +43,7 @@ describe("parseArgs", () => {
 
   test("parsed defaults never equal xai/thegreataxios", () => {
     const help = parseArgs(["--help"]);
-    const dry = parseArgs(["--dry-run"]);
     expect(help.provider).not.toBe("xai/thegreataxios");
     expect(help.model).not.toBe("xai/thegreataxios");
-    expect(dry.provider).not.toBe("xai/thegreataxios");
-    expect(dry.model).not.toBe("xai/thegreataxios");
   });
 });

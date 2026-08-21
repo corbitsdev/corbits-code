@@ -309,6 +309,16 @@ describe("parseMatrix", () => {
     expect(v[0]!.provider).toBe("xai");
     expect(v[0]!.model).toBe("thegreataxios/grok-4.5");
   });
+
+  test("rejects incomplete cells", () => {
+    expect(() => parseMatrix("xai:", {})).toThrow(/both provider and model/);
+    expect(() => parseMatrix(":grok-4.5", {})).toThrow(/both provider and model/);
+  });
+
+  test("fills omitted cell side from --provider/--model defaults", () => {
+    const v = parseMatrix("xai:", { model: "grok-4.5" });
+    expect(v[0]).toEqual({ id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" });
+  });
 });
 
 describe("expandMatrix", () => {

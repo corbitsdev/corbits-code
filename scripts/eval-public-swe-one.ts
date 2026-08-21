@@ -10,7 +10,7 @@
  * Usage:
  *   bun scripts/eval-public-swe-one.ts --provider <name> --model <id>
  *   bun scripts/eval-public-swe-one.ts --instance psf__requests-3362 --provider <name> --model <id>
- *   bun scripts/eval-public-swe-one.ts --dry-run
+ *   bun scripts/eval-public-swe-one.ts --dry-run --provider <name> --model <id>
  *
  * Optional official grading (heavy; needs Docker resources):
  *   bun scripts/eval-public-swe-one.ts --instance … --provider <name> --model <id> --evaluate
@@ -62,8 +62,8 @@ One public SWE-bench Lite instance via Corbits product exec.
 
 Options:
   --instance <id>     SWE-bench instance_id (default: ${DEFAULT_INSTANCE})
-  --provider <name>   Provider name (required except --help / --dry-run)
-  --model <id>        Model id (required except --help / --dry-run)
+  --provider <name>   Provider name (required except --help)
+  --model <id>        Model id (required except --help)
   --subset <hf>       HF dataset id (default: ${DEFAULT_SUBSET})
   --split <name>      Dataset split (default: ${DEFAULT_SPLIT})
   --timeout-ms <n>    Agent wall-clock timeout (default: ${DEFAULT_AGENT_TIMEOUT_MS})
@@ -133,7 +133,7 @@ export function parseArgs(argv: string[]): CliOptions {
         throw new Error(`unknown arg: ${a}`);
     }
   }
-  if (!opts.help && !opts.dryRun) {
+  if (!opts.help) {
     if (!opts.provider && !opts.model) {
       throw new Error("missing required --provider and --model");
     }

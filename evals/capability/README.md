@@ -91,35 +91,40 @@ shell parser.
 
 ## Prerequisites
 
-- Configured provider (same as interactive `corbits`)
+- A configured provider matching the CLI `--provider` / `--model` (or `--matrix` cells)
 - Network access for inference
 - Bun
 
 Evals default to `--dangerously-skip-permissions` so the agent can write without a human at the gate. Override with `--ask-permissions` if you want the non-interactive deny path.
 
+## Provider/model
+
+CLI `--provider <name>` and `--model <id>` are required for every run, including `--dry-run`. Alternatively, pass `--matrix` with complete `provider:model` cells. Local `.corbits/settings.json` is never the implicit eval target.
+
 ## Run
 
 ```bash
-# All cases with the configured default provider/model
-bun run eval:capability
+# All cases — explicit provider/model required
+bun run eval:capability -- --provider <name> --model <id>
 
 # One case, explicit model
-bun run eval:capability -- --case simple-health --provider xai/thegreataxios --model grok-4.5
+bun run eval:capability -- --case simple-health --provider xai --model grok-4.5
 
 # Multi-model matrix (cases × variants)
 bun run eval:capability -- \
-  --matrix "xai/thegreataxios:grok-4.5,openai:gpt-4.1" \
+  --matrix "xai:grok-4.5,openai:gpt-4.1" \
   --out evals/capability/results/matrix.json
 
 # Labeled variants
 bun run eval:capability -- --matrix "fast=xai:grok-4.5,strong=openai:gpt-4.1"
 
 # Baseline improve/regress (keys by variantId::caseId)
-bun run eval:capability -- --out evals/capability/results/run2.json \
+bun run eval:capability -- --provider <name> --model <id> \
+  --out evals/capability/results/run2.json \
   --baseline evals/capability/results/run1.json
 
 # Gate run: 5 repeats per cell against the frozen baseline
-bun run eval:capability -- --repeats 5 \
+bun run eval:capability -- --provider <name> --model <id> --repeats 5 \
   --out evals/capability/results/candidate.json \
   --baseline evals/capability/results/baseline-0286.json
 ```
@@ -129,8 +134,8 @@ bun run eval:capability -- --repeats 5 \
 Any change intended to shift agent behavior (prompts, directors, tools) is
 confirmed here, not by anecdote:
 
-1. Run the suite with `--repeats 5` (repeats smooth model variance; a single
-   run of a bait case proves nothing).
+1. Run the suite with `--provider` / `--model` (or `--matrix`) and `--repeats 5`
+   (repeats smooth model variance; a single run of a bait case proves nothing).
 2. Compare against the frozen baseline
    (`evals/capability/results/baseline-0286.json`) with `--baseline`.
 3. Read the verdicts: any pass-rate change per cell is significant; behavior
@@ -148,8 +153,8 @@ Flags:
 | Flag | Meaning |
 |------|---------|
 | `--case <id\|all>` | Case id or `all` (default) |
-| `--provider` / `--model` | Single-variant override via `loadConfig` |
-| `--matrix <cells>` | Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated) |
+| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings |
+| `--matrix <cells>` | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides |
 | `--config <path>` | Settings file override (CI injection) |
 | `--out <path>` | Write machine-readable results JSON |
 | `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
@@ -158,7 +163,7 @@ Flags:
 | `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `600000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
 | `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
 | `--repeats <n>` | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates |
-| `--dry-run` | Load cases × variants and print plan; no inference |
+| `--dry-run` | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix` |
 
 ## Case format
 

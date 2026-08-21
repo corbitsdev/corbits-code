@@ -17,7 +17,7 @@ without vendoring a full leaderboard runner into product CI.
 
 ```bash
 # Dry plan (loads HF row, prints prompt)
-bun scripts/eval-public-swe-one.ts --dry-run
+bun scripts/eval-public-swe-one.ts --dry-run --provider <name> --model <id>
 
 # Default instance: psf__requests-3362 (small repo, single failing test)
 bun scripts/eval-public-swe-one.ts \

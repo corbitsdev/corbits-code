@@ -527,6 +527,8 @@ export function defaultVariantId(provider?: string, model?: string): string {
  *   - `provider/model` (slash only when no colon)
  *   - `label=provider:model`
  * Empty / omitted → single default variant (caller provider/model flags).
+ * Each expanded cell must have both provider and model (after applying
+ * `--provider`/`--model` as cell defaults when a side is omitted).
  */
 export function parseMatrix(
   matrix: string | undefined,
@@ -549,10 +551,14 @@ export function parseMatrix(
   if (cells.length === 0) {
     throw new Error("--matrix has no variants");
   }
-  return cells.map((cell, index) => parseMatrixCell(cell, index));
+  return cells.map((cell, index) => parseMatrixCell(cell, index, fallback));
 }
 
-function parseMatrixCell(cell: string, index: number): EvalVariant {
+function parseMatrixCell(
+  cell: string,
+  index: number,
+  fallback: { provider?: string; model?: string },
+): EvalVariant {
   let label: string | undefined;
   let rest = cell;
   const eq = cell.indexOf("=");
@@ -575,15 +581,15 @@ function parseMatrixCell(cell: string, index: number): EvalVariant {
       `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
     );
   }
-  if (provider === undefined && model === undefined) {
-    throw new Error(`matrix cell ${index + 1} "${cell}" is empty`);
+  provider = provider ?? fallback.provider;
+  model = model ?? fallback.model;
+  if (provider === undefined || model === undefined) {
+    throw new Error(
+      `matrix cell ${index + 1} "${cell}" must specify both provider and model`,
+    );
   }
   const id = label ?? defaultVariantId(provider, model);
-  return {
-    id,
-    ...(provider !== undefined ? { provider } : {}),
-    ...(model !== undefined ? { model } : {}),
-  };
+  return { id, provider, model };
 }
 
 /** Cartesian product of cases × variants (cases outer for stable progress). */
