@@ -53,10 +53,11 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // chmod/chown against system binaries and config trees.
   /\bchmod\s+.*\/(etc|sys|proc|dev|bin|sbin|usr\/bin|usr\/sbin)/,
   /\bchown\s+.*\/(etc|sys|proc|dev|bin|sbin|usr\/bin|usr\/sbin)/,
-  // Fork bombs and busy-loops.
+  // Fork bombs and busy-loops. These inspect quoted interpreter payloads
+  // (`bash -c 'while :; do'`, `perl -e 'fork while fork'`), so they run on
+  // the original subject — command-position matchers neutralize separators
+  // inside quotes and would otherwise miss the `;` these patterns need.
   /:\(\)\s*\{\s*:\|:\&\s*\};/,
-  /bash\s+-c\s+.*while\s+:\s*;\s*do/,
-  /perl\s+-e\s+.*fork\s+while\s+fork/,
   // Piping a network download straight into a shell (through any wrappers).
   new RegExp(String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`),
   // Privilege escalation and shell replacement, only in command position.
@@ -71,6 +72,11 @@ const BLOCKED_PATTERNS: RegExp[] = [
   cmd("reboot"),
   cmd("poweroff"),
   /(?:^|[\n;&|(])\s*init\s+[06]\b/,
+];
+
+const BLOCKED_QUOTED_PAYLOAD_PATTERNS: RegExp[] = [
+  /bash\s+-c\s+.*while\s+:\s*;\s*do/,
+  /perl\s+-e\s+.*fork\s+while\s+fork/,
 ];
 
 // Open-ended tree walks via the shell OOM the host: `find | tail` still forces
@@ -871,13 +877,35 @@ function isCatastrophicRm(segment: string): boolean {
   return targets.length === 0 || targets.some(isDangerousTarget);
 }
 
+// Blank quoted interiors so CMD does not treat `;` inside `-m` text as a new command.
+function skipQuotedSpans(command: string): string {
+  let out = "";
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i]!;
+    if (quote !== undefined) {
+      if (ch === quote) {
+        quote = undefined;
+        out += ch;
+      } else {
+        out += ch === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    out += ch;
+  }
+  return out;
+}
+
 // Scan expanded subjects for blocked patterns / catastrophic rm. Callers may
 // pass a pre-normalized form so path-qualified binaries (`/usr/bin/sudo`) still
 // match command-position patterns.
 function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
-    if (BLOCKED_PATTERNS.some((pattern) => pattern.test(subject))) return true;
+    if (BLOCKED_PATTERNS.some((pattern) => pattern.test(skipQuotedSpans(subject)))) return true;
+    if (BLOCKED_QUOTED_PAYLOAD_PATTERNS.some((pattern) => pattern.test(subject))) return true;
     return subject.split(CHAIN).some(isCatastrophicRm);
   });
 }
