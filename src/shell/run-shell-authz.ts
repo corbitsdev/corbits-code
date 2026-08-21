@@ -881,15 +881,70 @@ function isCatastrophicRm(segment: string): boolean {
 function skipQuotedSpans(command: string): string {
   let out = "";
   let quote: '"' | "'" | undefined;
+  let substDepth = 0;
+  let inBacktick = false;
   for (let i = 0; i < command.length; i++) {
     const ch = command[i]!;
-    if (quote !== undefined) {
-      if (ch === quote) {
+    if (quote === "'") {
+      if (ch === "'") {
         quote = undefined;
         out += ch;
       } else {
         out += ch === "\n" ? "\n" : " ";
       }
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === "\\") {
+        const next = command[i + 1];
+        if (next !== undefined && next !== "\n") {
+          out += "  ";
+          i++;
+          continue;
+        }
+      }
+      if (ch === "`") {
+        inBacktick = true;
+        quote = undefined;
+        out += ch;
+        continue;
+      }
+      if (ch === "$" && command[i + 1] === "(") {
+        substDepth++;
+        quote = undefined;
+        out += "$(";
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        quote = undefined;
+        out += ch;
+      } else {
+        out += ch === "\n" ? "\n" : " ";
+      }
+      continue;
+    }
+    if (inBacktick && ch === "`") {
+      inBacktick = false;
+      quote = '"';
+      out += ch;
+      continue;
+    }
+    if (substDepth > 0 && ch === "$" && command[i + 1] === "(") {
+      substDepth++;
+      out += "$(";
+      i++;
+      continue;
+    }
+    if (substDepth > 0 && ch === "(") {
+      substDepth++;
+      out += ch;
+      continue;
+    }
+    if (substDepth > 0 && ch === ")") {
+      substDepth--;
+      out += ch;
+      if (substDepth === 0) quote = '"';
       continue;
     }
     if (ch === '"' || ch === "'") quote = ch;
