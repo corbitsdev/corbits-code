@@ -56,16 +56,16 @@ export function makeOperatorQuestion(): {
 /** Fixture: model/provider picker list. */
 export function makeModelPickerItems(): readonly string[] {
   return [
-    "anthropic / claude-sonnet-4",
-    "anthropic / claude-opus-4",
-    "openai / gpt-5",
-    "openai / gpt-5-mini",
-    "google / gemini-2.5-pro",
-    "google / gemini-2.5-flash",
-    "xai / grok-3",
-    "local / ollama-llama3.3",
-    "codex / o3",
-    "codex / o4-mini",
+    "claude-sonnet-4 * [anthropic]",
+    "claude-opus-4 * [anthropic]",
+    "gpt-5 * [openai]",
+    "gpt-5-mini * [openai]",
+    "gemini-2.5-pro * [google]",
+    "gemini-2.5-flash * [google]",
+    "grok-3 * [xai]",
+    "ollama-llama3.3 * [local]",
+    "o3 * [codex]",
+    "o4-mini * [codex]",
   ]
 }
 
@@ -92,11 +92,10 @@ export type OpenPermissionsOpts = {
   /** Per-open Esc/dismiss; host binds resolve(ApprovalOutcome) so Esc denies instead of hanging. */
   readonly onCancel?: () => void
   /**
-   * Suppress the generic accept/answer echo for this open. Callers that
-   * record their own authoritative decision row (e.g. gate-wire's
-   * recordDecision) pass `false` so the generic echo does not duplicate it;
-   * callers with no such recorder (e.g. the standalone demo) get the default
-   * echo so their choice still leaves a trace.
+   * Suppress the generic accept/answer echo for this open. Decision gates
+   * pass `false` so a settled permission does not replay into the
+   * transcript; callers with no such policy (e.g. the standalone demo)
+   * get the default echo so their choice still leaves a trace.
    */
   readonly echoChoice?: boolean
 }
@@ -135,10 +134,9 @@ export type OpenOperatorOpts = {
   /** Per-open Esc/dismiss; host binds resolve(cancel) so Esc cancels instead of hanging. */
   readonly onCancel?: () => void
   /**
-   * Suppress the generic accept/answer echo for this open. Callers that
-   * record their own authoritative decision row (e.g. gate-wire's
-   * recordOperatorDecision) pass `false` so the generic echo does not
-   * duplicate it; callers with no such recorder (e.g. the standalone demo)
+   * Suppress the generic accept/answer echo for this open. Decision gates
+   * pass `false` so a settled operator question does not replay into the
+   * transcript; callers with no such policy (e.g. the standalone demo)
    * get the default echo so their choice still leaves a trace.
    */
   readonly echoChoice?: boolean
@@ -197,6 +195,8 @@ export type OpenModelPickerOpts = {
   readonly typeToFilter?: boolean
   /** Advertise Alt+A in the footer — only when the caller wired the handler. */
   readonly addProviderHint?: boolean
+  /** Advertise Alt+D in the footer — only when the caller wired the handler. */
+  readonly setDefaultHint?: boolean
 }
 
 export function openModelPickerOverlay(
@@ -219,6 +219,9 @@ export function openModelPickerOverlay(
       : {}),
     ...(opts?.addProviderHint !== undefined
       ? { addProviderHint: opts.addProviderHint }
+      : {}),
+    ...(opts?.setDefaultHint !== undefined
+      ? { setDefaultHint: opts.setDefaultHint }
       : {}),
   })
 }

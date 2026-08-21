@@ -33,21 +33,22 @@ test("chat prompt orders base, then tools, then context", () => {
   expect(prompt.indexOf("Tools:")).toBeLessThan(prompt.indexOf("Active context:"));
 });
 
-test("agent identity is Corbits Code with mode-specific primary roles", () => {
-  const single = buildChatRole("single");
-  expect(single).toContain("Corbits Code");
-  expect(single).toContain("senior coding assistant");
-  expect(single).toContain("read, edit");
+test("agent identity is Skywalker orchestrator", () => {
   const orchestrator = buildChatRole("orchestrator");
+  expect(orchestrator).toContain("You are Skywalker");
   expect(orchestrator).toContain("Corbits Code");
-  expect(orchestrator).toContain("orchestrator");
-  expect(orchestrator).toContain("delegate");
-  expect(orchestrator).toContain("Match their tone");
+  expect(orchestrator).toContain("When asked your name, answer: Skywalker");
+  expect(orchestrator).toContain("PRIMARY INTENT");
+  expect(orchestrator).toContain("Delegate");
+  expect(orchestrator).toContain("Match operator tone");
+  // Mode arg is ignored — product is orchestrator-only (CL-5814).
+  expect(buildChatRole()).toContain("You are Skywalker");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
-  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("write_file, edit_file, delete_file");
+  expect(facts).toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
@@ -61,7 +62,25 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("slash-command steps");
   expect(facts).toContain(".corbits/MEMORY.md");
   expect(facts).toContain("Attached images are native multimodal input");
+  expect(facts).toContain("parent tool.boundary");
+  expect(facts).toContain("session-idle");
   expect(facts).not.toContain("Tool results already render richly");
+});
+
+test("leaf harness facts advertise product write tools", () => {
+  const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
+  expect(facts).toContain("write_file/edit_file");
+  expect(facts).not.toContain("not mounted on the primary Skywalker session");
+});
+
+test("leaf harness facts state turn budget and wrap-up report behavior", () => {
+  const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
+  expect(facts).toContain("Turn budget is real");
+  expect(facts).toContain("wrap-up nudge");
+  expect(facts).toContain("Summary/Findings/Blockers/Paths");
+  expect(facts).toContain("Do not thrash re-reads");
+  // Primary harness facts omit leaf turn-budget language.
+  expect(buildHarnessFacts()).not.toContain("Turn budget is real");
 });
 
 test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
@@ -82,8 +101,15 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("do_not");
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
-  const single = buildGuidelines({ sessionMode: "single" });
-  expect(single).not.toContain("success_criteria");
+});
+
+test("primary guidelines advise against early-stop from compaction token fear", () => {
+  const guidelines = buildGuidelines();
+  expect(guidelines).toContain("compacted automatically");
+  expect(guidelines).toContain("do not stop tasks early due to token fear");
+  expect(guidelines).toContain("manage_tasks and worker reports");
+  // Leaf guidelines omit primary orchestration compaction guidance.
+  expect(buildGuidelines({ subAgent: true })).not.toContain("token fear");
 });
 
 test("chat system prompt satisfies system prompt quality markers", () => {
@@ -93,21 +119,7 @@ test("chat system prompt satisfies system prompt quality markers", () => {
   }
 });
 
-test("single session mode satisfies system prompt quality markers", () => {
-  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-  for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
-    expect(prompt).toContain(marker);
-  }
-});
-
-test("single session mode omits task and search_agents from the tools list", () => {
-  const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-  expect(prompt).toContain("read_file");
-  expect(prompt).not.toContain("- task:");
-  expect(prompt).not.toContain("- search_agents:");
-});
-
-test("orchestrator session mode lists task and search_agents", () => {
+test("default session always lists task and search_agents", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
   expect(prompt).toContain("- task:");
   expect(prompt).toContain("- search_agents:");
@@ -147,12 +159,13 @@ test("a SYSTEM.md base override replaces the static base but keeps tools and con
   expect(prompt).toContain("Active context:");
 });
 
-test("SYSTEM.md override in single mode still appends single-agent harness rules", () => {
+test("SYSTEM.md override still appends orchestrator harness rules", () => {
   const override = "You are a custom agent that mentions delegating to workers.";
-  const prompt = buildChatSystemPrompt(undefined, undefined, override, [], "single");
+  const prompt = buildChatSystemPrompt(undefined, undefined, override, []);
   expect(prompt).toContain(override);
-  expect(prompt).toContain("single-agent mode");
-  expect(prompt).not.toContain("- task:");
+  expect(prompt).toContain("## Session mode");
+  expect(prompt).toContain("Orchestration:");
+  expect(prompt).toContain("- task:");
 });
 
 test("an empty base override falls back to the default base", () => {
@@ -186,6 +199,8 @@ test("when an env is supplied, the prompt ends with a live <env> block instead",
   const env = {
     cwd: "/repo/root",
     platform: "Darwin 25.4.0",
+    arch: "arm64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 5, 5),
     isGitRepo: true,
     gitBranch: "main",
@@ -197,6 +212,8 @@ test("when an env is supplied, the prompt ends with a live <env> block instead",
   expect(prompt).toContain("<env>");
   expect(prompt.trim()).toMatch(/<\/env>$/);
   expect(prompt).toContain("Working directory: /repo/root");
+  expect(prompt).toContain("Arch: arm64");
+  expect(prompt).toContain("Runtime: Bun 1.2.0");
   expect(prompt).toContain("Git: on main, 2 uncommitted change(s):");
   expect(prompt).toContain(" M src/a.ts");
   expect(prompt).not.toContain("Active context:");
@@ -206,16 +223,21 @@ test("buildEnvironmentContext reports a clean tree and a non-git directory", () 
   const clean = buildEnvironmentContext({
     cwd: "/r",
     platform: "Linux 6",
+    arch: "x64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 0, 1),
     isGitRepo: true,
     gitBranch: "dev",
     gitDirtyCount: 0,
   });
   expect(clean).toContain("Git: on dev, working tree clean");
+  expect(clean).toContain("Arch: x64");
 
   const noGit = buildEnvironmentContext({
     cwd: "/r",
     platform: "Linux 6",
+    arch: "x64",
+    runtime: "Bun 1.2.0",
     date: new Date(2026, 0, 1),
     isGitRepo: false,
   });
@@ -267,8 +289,8 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
   const prompt = buildSubAgentSystemPrompt([role]);
   expect(prompt).toContain(role);
   expect(prompt).toContain("## Corbits Code notes");
-  // Leaf agents get the no-recursion rule, not the spawn syntax.
-  expect(prompt).toContain("leaf sub-agent");
+  // Workers get the no-recursion rule, not the spawn syntax.
+  expect(prompt).toContain("You are a worker");
   // Agent voice leads; translation notes are the last section.
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Corbits Code notes"));
 });
@@ -279,7 +301,7 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
   expect(prompt).toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
-  expect(prompt).toContain("leaf sub-agent");
+  expect(prompt).toContain("You are a worker");
 });
 
 // Orchestrator profiles (frontmatter `orchestrator: true`) are the documented
@@ -309,7 +331,7 @@ test("sub-agent prompt requires structured report envelope and stick-to-brief", 
 
 test("default sub-agent prompt omits Grok anti-thrash residual", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).not.toContain("Finish bias (xAI / Grok leaf)");
+  expect(prompt).not.toContain("Finish bias (xAI / Grok worker)");
 });
 
 test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => {
@@ -322,7 +344,7 @@ test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => 
   expect(prompt).toContain("re-open paths you already read");
   expect(prompt).toContain("Leave the last turn for the report envelope");
   // Appendix still last.
-  expect(prompt.indexOf("Finish bias (xAI / Grok leaf)")).toBeLessThan(
+  expect(prompt.indexOf("Finish bias (xAI / Grok worker)")).toBeLessThan(
     prompt.indexOf("## Corbits Code notes"),
   );
 });

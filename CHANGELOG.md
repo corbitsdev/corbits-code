@@ -11,6 +11,105 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [0.2.99] - 2026-08-21
+
+Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.
+
+### MCP
+
+- **Late-connected MCP tools are callable the same turn they appear in `tool_search`.**
+  `@intx/agent` snapshots dispatch names at `createAgent`, and the post-connect
+  reload that used to rebuild that snapshot waited for every server — including
+  one stuck on OAuth. Cataloged `mcp__*` tools then returned `unknown tool`.
+  Construction now dispatches misses through the live runner, so Linear/Exa
+  (and any other server that finished) work even while another server still
+  needs auth.
+
+### TUI
+
+- **Model picker rows are model-first.** Each leaf is `model * [provider]`;
+  `(current)` still marks the live session model. **Alt+D** persists the
+  focused pair as the default (global `defaultProvider` + provider
+  `defaultModel` + project-local selection) without switching the live
+  session or closing the picker.
+
+- **Settled permission and operator prompts no longer recap into the chat.**
+  The overlay is the question; answering it used to leave a grey
+  `permission` / `operator` card restating the same command and the chosen
+  option. After a decision those recap rows are gone — the tool row that
+  follows is the outcome. Expanding a collapsed payload while the overlay is
+  still open still writes the full payload into the transcript, because that
+  text would otherwise be unreachable before approval.
+
+### Directors
+
+- **Shipped directors have no writePaths lock.** Docs/design leaves
+  (shakespeare, brand-reviewer, bruckheimer) still mount write tools, but
+  package `writePaths` is omitted. Lane routing (P/A/I, DESIGN.md, product
+  discovery) is spawn policy, not a file lock. Optional `writePaths` remains
+  and the permission gate still enforces it when a profile sets it.
+- **Skywalker is not a task leaf.** `task(agent=skywalker)` is refused. The
+  spawn catalog (`directorProfiles()`) lists the other 15 closed directors;
+  the primary session is still Skywalker.
+
+### Sub-agents
+
+- **Tool-less mid-run narration is not a finished report.** A worker that
+  stops tooling with Summary-only (or other incomplete) prose is not
+  complete. The director injects one wrap-up nudge asking for the four
+  headings (Summary / Findings / Blockers / Paths), then salvages as
+  incomplete-report if the next tool-less turn is still missing the envelope.
+
+### Plugins
+
+- **First-party skills catalog is on out of the gate.** `corbits-skills`
+  ships action slashes `/implement`, `/plan`, `/refactor`, `/review` (was
+  `/code-review`), `/pull-request-review`, `/create-issue` (was
+  `/linear-create`), `/scribe`, `/interview`, `/ast-grep`. Dispatch,
+  git-rebase, linear-issue-workflow, style, philosophy, typescript, and
+  opsh stay `use_skill` only (`user-invocable: false`). Draper and emil
+  are not skills or slashes — closed directors via `task(agent=…)` only.
+  `/plan` is the eng change-plan recipe (`task(agent="plan")`; does not
+  implement or file tracker issues). `/create-issue` remains the tracker
+  command: Linear MCP when available; otherwise `ask_operator` for the
+  platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`
+  (GitHub via `gh issue create`). Each recipe tells Skywalker to spawn
+  closed directors — the operator types the slash; the primary does not
+  do the work. Turn the catalog off in `/plugins` if you want those
+  commands gone.
+- **Style skill no longer refuses non-git folders.** Edits, tests, and
+  reports are allowed without a repository. Do not `git init` unless
+  asked. Commits, amends, rebases, and isolated worktree dispatch still
+  require an existing repo.
+
+### Evals
+
+- **Capability eval workdirs are git repos.** After copying the fixture
+  and seeding skill stubs, the runner initializes the tmp workdir (`git
+  init`, `git add -A`, one unsigned hermetic `eval fixture` commit) so isolated
+  workers have HEAD and git-aware skills have a baseline.
+- **Eval runners require an explicit model pair.** `eval:capability` and
+  `eval:public-swe-one` take `--provider` / `--model` (capability also
+  accepts `--matrix` with complete cells) so local `.corbits/settings.json`
+  is not the implicit target.
+- **Capability eval records `task` tool calls.** `taskToolCallCount` is derived
+  from the turn stream (informational). Older result files without the field
+  default from `toolCallsByName.task` so the frozen baseline still parses.
+- **Capability eval smoke cases for dispatch and recall.** `complex-dispatch-spawn`
+  requires at least one `task()` plus a working GET /readyz.
+  `complex-recall-after-bulk-read` plants a token, asks the agent to read the
+  fixture, then write it back. Informational only — not in the frozen
+  baseline-0286 gate until a deliberate refreeze. Neither case proves
+  compaction fired or that the primary skipped implementing the route.
+
+### Session
+
+- **Resume is keyed to this checkout's git toplevel.** Linked worktrees no
+  longer share (or list) each other's sessions — `--git-common-dir` made
+  every worktree show every other worktree's history. Sessions previously
+  created from a worktree remain under the main checkout key; resume from
+  the main path to recover them.
+
 ## [0.2.98] - 2026-08-17
 
 Corrupt resume state no longer kills sessions, Codex quota errors name the
@@ -39,6 +138,102 @@ mid-session switches.
   worker failing until a restart. Provider, model catalog, and settings are now
   read live at spawn time, so tier settings written mid-session are visible too.
 
+### Breaking
+
+- **Single-agent session mode is gone.** The primary session is always
+  orchestrator-capable (`task` / `search_agents` always available). The first-run
+  mode picker and Settings → Session rows are removed. Legacy `sessionMode` in
+  settings files still loads without error and is ignored (CL-5814).
+- **Dual-column fleet rail removed.** TUI geometry is stack-only forever
+  (`layoutMode: "stack"`, `railWidth: 0`). `DUAL_MIN_COLUMNS` / `RAIL_WIDTH_*`
+  constants and dual absolute-positioning of the agents box are gone. Live
+  fleet status remains `● Task` transcript rows; the agents chrome zone stays
+  empty.
+
+### Fixed
+
+- **Parent live reasoning no longer sideways-scrolls.** Streaming thinking used
+  a one-line marquee onto the newest tokens. It now paints a short wrapped
+  preview (up to three inset lines of the newest revealed prose); expand still
+  opens the full block. Sub-agent Task-row thinking is unchanged.
+- **Skywalker dig fleets cascading into stalled Task floods.** "Why stalled /
+  why no thinking / spawn looks broken" asks were reclassified as orchestration
+  and fanned into parallel explore waves; Grok leaves then sat quiet mid-think
+  or looped, which looked like spawn failure and invited another dig wave.
+  Skywalker now hard-caps concurrent leaves at 4, classifies digs/screenshots/
+  why-how as COMMUNICATION (answer or one explore leaf), and forbids re-fan-out
+  diagnostic waves when leaves stall or salvage.
+- **Grok sub-agent stall false positives.** Live fleets on grok-4.6 show routine
+  60–180s gaps between tool cycles while the model thinks. UI stall paint and
+  Grok's salvage kill were far shorter, so healthy thinking looked hung and got
+  nudged/stopped mid-inference. `DEFAULT_STALL_MS` and parent `STALL_NOTICE_MS`
+  are both 300s (aligned with the 5-minute `subAgentStallTimeoutMs`). The
+  grok-responses path asks for `reasoning.summary: "detailed"` so summary
+  deltas keep the activity clock moving (auto summaries were tiny vs billed
+  thinking tokens).
+- **Live fleet status is `● Task` transcript rows again.** The FLEET board /
+  dual-rail agents chrome restated the same workers above chat and made
+  progress hard to read. `task` calls paint live rows (clock + current tool)
+  via `syncAgentProgress`; `formatChromeZones` keeps the agents zone empty and
+  suppresses the manage_tasks checklist while any lane is running.
+- **`web_fetch` / `web_search` always advertised.** They were registered but only
+  discoverable via `tool_search`, so strict providers (and thrashy models) never
+  saw them on the wire despite Skywalker saying they were mounted. Both are now
+  in `CATALOG_TOOL_NAMES`. Capability `web-bait` hard-requires
+  `webFetchToolCallCount >= 1` via `requireBehaviors`.
+
+### Added
+
+- **Public SWE-bench one-shot smoke.** `bun run eval:public-swe-one` runs Corbits
+  product exec on a single SWE-bench Lite instance (default
+  `psf__requests-3362`), taking `--provider` and `--model` on the CLI, and
+  writes `preds.jsonl` under `evals/public/results/`. Official Docker
+  resolved/not-resolved grading stays optional/manual.
+- **Capability eval: `complex-stock-gate`.** Multi-file stock-gated `POST /orders`
+  (404/409/201 + stock decrement) on the demo-comparison fixture; sync API grader.
+- **Capability eval: `complex-idempotent-orders`.** Header-driven Idempotency-Key
+  on POST /orders (201/200/409) with multi-file order store; sync API grader.
+- **Capability eval: `complex-bugfix`.** SWE-bench-style issue→patch→tests on the
+  new `tests/fixtures/buggy-service` fixture (intentional post GET bug; users green).
+- **Capability eval: `complex-pagination`.** Query `limit`/`offset` on GET /products
+  (demo-comparison); sync Response grader + slice semantics.
+- **Capability eval: `complex-rename-user`.** Cross-file rename of user `name` →
+  `displayName` on multi-file-service; runtime + source checks.
+- **Fixture: `tests/fixtures/buggy-service`.** multi-file-service clone with a
+  deliberate post-route defect for bugfix capability evals.
+- **Director API-contract loop (launch tuning iter1).** Implement preserves sync
+  public surfaces; critique ranks sync→async signature drift as blocking;
+  Skywalker puts stated signatures into success_criteria, skips explore/critique
+  on tiny green ships, re-dispatches implement on blocking critique findings,
+  and routes URL reads through mounted `web_fetch` (no shell thrash). complex-jwt
+  case prompt states the sync Response contract.
+
+
+- **Closed director fleet (CL-5818 Level 6 wiring).** Sixteen director packages
+  under `src/agent/directors/<id>/` (prompts, tool envelopes, spawn rights, nudge
+  budgets, report contract) register in `DIRECTOR_REGISTRY`. `task(agent=…)`
+  resolves directors without requiring plugin profiles; `task(intent=…)` maps
+  implement/explore/plan/review→critique (`general` is refused). Default agent
+  profiles are the closed fleet via `directorProfiles()`.
+- **Primary is Skywalker by name.** System role answers "Skywalker"; agent id
+  `skywalker`. Product mutation tools are not mounted on the primary session
+  (structural never-implement), not only prompt policy.
+- **Director identity at spawn.** Every package system prompt is prefixed with
+  agent id, model role, and optional skills; profiles include `agent id:` in
+  description so search_agents / re-spawn are unambiguous.
+- **modelRole drives leaf effort.** Spawn effort cascade is pin → package
+  modelRole default (intern=low) → orchestrator/leaf → parent. Env block adds
+  arch + runtime alongside platform/date/git.
+- **No general leaf at the wire.** Bare `task` (no `agent`, no `intent`) and
+  `intent=general` fail closed; nested directors enforce `spawn.allowlist`
+  (greybeard → intern/explore/critique).
+- **Director write-path locks.** Docs/design packages may write only under
+  package `writePaths` (shakespeare: PRODUCT/ARCHITECTURE/IMPLEMENTATION;
+  brand-reviewer: DESIGN.md; bruckheimer: PRODUCT.md + docs/*), enforced in
+  the permission gate.
+- **PRODUCT / ARCHITECTURE / IMPLEMENTATION** document the closed director
+  fleet, spawn matrix, intent map, and tool envelopes.
+
 ### Providers
 
 - **Named API-key instances.** First-class API-key providers (OpenAI key,
@@ -59,6 +254,10 @@ mid-session switches.
   first-class kinds, so free-form OpenAI-compatible endpoints are reachable from
   the model picker without dropping into onboarding. Custom still uses the full
   manual form (name, base URL, key, model).
+- **MCP auth is `mcp !` on the prompt box.** A server waiting on authorization
+  no longer takes a notice-row sentence (`mcp granola needs auth (/mcp)`). The
+  top rule carries a compact `mcp !` immediately left of the model label;
+  `/mcp` still names the servers.
 
 ### Docs
 

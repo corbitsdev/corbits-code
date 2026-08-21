@@ -8,14 +8,15 @@ import {
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 
 // Tool names referenced in the discipline block must exist in the actual
-// registration source, not be assumed. web_fetch/web_search are registered in
-// src/agent/tools.ts via createWebFetchTool()/createWebSearchTool(), whose
-// `name` fields live in src/tools/web-fetch.ts and src/tools/web-search.ts.
+// registration source, not be assumed. web_fetch/web_search are catalog tools
+// (always advertised) and also registered via createWebFetchTool/createWebSearchTool.
 const REGISTERED_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
-  "web_fetch",
-  "web_search",
+  // Product mutation tools mount on workers, not primary CORE/CATALOG ads.
+  "write_file",
+  "edit_file",
+  "delete_file",
 ]);
 
 const REFERENCED_TOOL_NAMES = [
@@ -81,12 +82,7 @@ describe("shared discipline block appears exactly once per built prompt", () => 
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
-  it("appears exactly once in the single-session chat prompt", () => {
-    const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "single");
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
-  });
-
-  it("appears exactly once in a leaf sub-agent prompt (default family)", () => {
+  it("appears exactly once in a worker prompt (default family)", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: false,
@@ -94,7 +90,7 @@ describe("shared discipline block appears exactly once per built prompt", () => 
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
-  it("appears exactly once in a grok leaf sub-agent prompt", () => {
+  it("appears exactly once in a grok worker prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: true,
@@ -112,20 +108,20 @@ describe("shared discipline block appears exactly once per built prompt", () => 
 });
 
 describe("grok finish-bias residual gating (extends existing provider-family tests)", () => {
-  it("is present for a grok leaf", () => {
+  it("is present for a grok worker", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: true,
     });
-    expect(prompt).toContain("Finish bias (xAI / Grok leaf):");
+    expect(prompt).toContain("Finish bias (xAI / Grok worker):");
   });
 
-  it("is absent for a non-grok leaf", () => {
+  it("is absent for a non-grok worker", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: false,
     });
-    expect(prompt).not.toContain("Finish bias (xAI / Grok leaf):");
+    expect(prompt).not.toContain("Finish bias (xAI / Grok worker):");
   });
 
   it("is never applied to orchestrators, mirroring shouldApplyGrokAntiThrash", () => {
@@ -136,7 +132,7 @@ describe("grok finish-bias residual gating (extends existing provider-family tes
       orchestrator: true,
       grokAntiThrash: false,
     });
-    expect(prompt).not.toContain("Finish bias (xAI / Grok leaf):");
+    expect(prompt).not.toContain("Finish bias (xAI / Grok worker):");
   });
 
   it("reinforces tool routing (dedicated tools over shell) for grok, not just finish bias", () => {

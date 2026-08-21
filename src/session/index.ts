@@ -179,7 +179,7 @@ export async function resolveLatestSession(
     };
   } catch {
     // Fall back: legacy latest under cwd, then under the git project root
-    // (worktree cwd may not have its own .agent-state/latest).
+    // (nested cwd may not have its own .agent-state/latest).
     for (const legacyLink of legacyLatestCandidates(cwd)) {
       try {
         const sessionId = await readlink(legacyLink);

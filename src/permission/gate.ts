@@ -21,6 +21,11 @@ import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import {
+  matchesWritePathAllowlist,
+  writePathDeniedReason,
+} from "./write-path-policy.js";
+
+import {
   createMcpToolPermissionRegistry,
   registerMcpClientTools,
   type McpToolPermissionRegistry,
@@ -341,6 +346,28 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // match what the shell will open.
     const subAgentIdentity = getSubAgentIdentity();
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
+
+    // Director write-path authz (not prompt policy). Leaves with writePaths only
+    // mutate matching subjects. auto mode still enforces; yolo already returned.
+    if (
+      subAgentIdentity?.writePaths !== undefined &&
+      subAgentIdentity.writePaths.length > 0 &&
+      (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file")
+    ) {
+      const path =
+        typeof call.arguments === "object" &&
+        call.arguments !== null &&
+        typeof (call.arguments as { path?: unknown }).path === "string"
+          ? (call.arguments as { path: string }).path
+          : "";
+      if (!matchesWritePathAllowlist(path, subAgentIdentity.writePaths, effectiveCwd)) {
+        return {
+          allowed: false,
+          reason: writePathDeniedReason(path, subAgentIdentity.writePaths),
+        };
+      }
+    }
+
     const isRestrictedHere = bindRestrictedToProcessCwd(isRestricted, effectiveCwd);
     // A call targeting a restricted path (outside the workspace, or a write
     // under the session state root) drops from allow to ask, so it never auto-allows on

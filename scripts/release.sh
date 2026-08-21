@@ -173,6 +173,9 @@ build_deb() {  # build_deb BINARY DEB-ARCH OUTPUT.deb
   mkdir -p "$wd/data/usr/bin" "$wd/data/usr/share/doc/$FORMULA" "$wd/ctrl"
   install -m 0755 "$bin" "$wd/data/usr/bin/$FORMULA"
   for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$wd/data/usr/share/doc/$FORMULA/"; done
+  if [ -d "$ROOT/plugins" ]; then
+    cp -R "$ROOT/plugins" "$wd/data/usr/bin/plugins"
+  fi
   local kb; kb=$(( ( $(wc -c < "$bin") + 1023 ) / 1024 ))
   cat > "$wd/ctrl/control" <<EOF
 Package: $FORMULA
@@ -328,6 +331,10 @@ for entry in "${TARGETS[@]}"; do
     rm -rf "$STAGE/$pkg"; mkdir -p "$STAGE/$pkg"
     cp "$bin" "$STAGE/$pkg/$FORMULA"; chmod 755 "$STAGE/$pkg/$FORMULA"
     for f in "${DOC_FILES[@]}"; do cp "$ROOT/$f" "$STAGE/$pkg/"; done
+    # First-party plugins sit next to the binary (discoverRepoPlugins execPath).
+    if [ -d "$ROOT/plugins" ]; then
+      cp -R "$ROOT/plugins" "$STAGE/$pkg/plugins"
+    fi
     tar -C "$STAGE" -czf "$tarball" "$pkg"
     ( cd "$STAGE" && shasum -a 256 "$pkg.tar.gz" > "$pkg.tar.gz.sha256" )
     rm -rf "$STAGE/$pkg"
@@ -439,6 +446,10 @@ class $class < Formula
 
   def install
     bin.install "$BINARY"
+    if File.directory?("plugins")
+      (bin/"plugins").mkpath
+      cp_r "plugins/.", bin/"plugins"
+    end
   end
 
   test do

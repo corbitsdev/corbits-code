@@ -40,6 +40,7 @@ export {
   resolveGeometry,
   type GeometryInput,
   type GeometryLayout,
+  type LayoutMode,
   type OverlayInput,
   type OverlayMode,
   type Rect,

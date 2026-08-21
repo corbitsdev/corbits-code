@@ -312,11 +312,12 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     group: "surfaces",
     probe: ({ h, shell, chords }) => {
       setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
-      expect(shell.taskBox.visible).toBe(true)
-      press(h, chords[0])
+      // CL-5847: hidden by default — first press shows, second hides.
       expect(shell.taskBox.visible).toBe(false)
       press(h, chords[0])
       expect(shell.taskBox.visible).toBe(true)
+      press(h, chords[0])
+      expect(shell.taskBox.visible).toBe(false)
     },
   },
   "Alt+O": {
@@ -463,17 +464,15 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       setShellRunState(shell, "idle")
       shell.prompt.value = "not yet"
       press(h, chords[0])
-      // The stated condition: idle, Alt+Enter does nothing — there's no run
-      // to stop and nothing to restart from a boundary that isn't coming.
+      // Idle Alt+Enter is a no-op — follow-up only makes sense mid-run.
       expect(sent).toEqual([])
       expect(shell.prompt.value).toBe("not yet")
 
-      // Busy: a distinct gesture from plain Enter (queue-and-steer at the
-      // next boundary) — this one is "reinject", resolved by the bridge to
-      // stop the run right now and restart from this message.
+      // Busy: follow-up (kind "queue"), not reinject. Delivered only when
+      // the run goes idle; never interrupts.
       setShellRunState(shell, "busy")
       press(h, chords[0])
-      expect(sent).toEqual([{ text: "not yet", kind: "reinject" }])
+      expect(sent).toEqual([{ text: "not yet", kind: "queue" }])
       expect(shell.prompt.value).toBe("")
       setShellRunState(shell, "idle")
     },
@@ -513,7 +512,7 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       expect(shell.pendingQueue).toBe(1)
       expect(shell.session.items[0]!.text).toBe("keep me")
       const notice = shell.streamLog[shell.streamLog.length - 1]
-      expect(notice?.text).toBe("interrupt — 1 pending kept")
+      expect(notice?.text).toBe("1 pending kept")
       expect(notice?.text).not.toContain("discarded")
       // Other probes in this group share one shell — leave both the queue
       // and the transcript as this probe found them.
@@ -823,4 +822,3 @@ describe("help stays reachable as a command", () => {
     }
   })
 })
-

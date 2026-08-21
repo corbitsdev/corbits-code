@@ -64,6 +64,11 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // Forwarded from the outer TaskToolDeps so nested workers get the same
   // worktree-isolation behavior as their orchestrator.
   useWorktree?: boolean;
+  /**
+   * When set (e.g. greybeard → intern/explore/critique), nested `task` may only
+   * spawn these director/profile ids. Omitted = no allowlist filter (primary).
+   */
+  spawnAllowlist?: readonly string[];
 };
 
 /** Typed spawn intent — optional on `task`; omit Intent section when unset. */
@@ -93,6 +98,11 @@ export type RunSubAgentParams = {
   onProgress?: (info: { description: string; toolName: string }) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
+  /**
+   * Director authz write-path allowlist. Passed into sub-agent identity so the
+   * permission gate can deny out-of-lane writes (not prompt policy).
+   */
+  writePaths?: readonly string[];
   // When true, the assembled system prompt grants this sub-agent permission
   // to call `task` to spawn further agents (orchestrator exception to the
   // no-recursion rule). Set from AgentProfile.orchestrator at dispatch time.

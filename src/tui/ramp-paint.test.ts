@@ -9,11 +9,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { withTestRenderer } from "./harness"
-import {
-  RAMP_CYCLE_MS,
-  STALL_BLINK_BURST_MS,
-  STALL_BLINK_CYCLE_MS,
-} from "./ramp"
+import { RAMP_CYCLE_MS } from "./ramp"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge"
 import { createAppShell } from "./shell"
 import { UI } from "./theme"
@@ -231,7 +227,7 @@ describe("turn ramp paint", () => {
     )
   })
 
-  test("a stalled turn blinks a bang into the border, then settles to a static one", async () => {
+  test("silence past the stall notice still paints working, not a bang", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -249,26 +245,20 @@ describe("turn ramp paint", () => {
           await h.renderOnce()
           expect(slotGlyph(h.captureCharFrame())).toMatch(DENSITY)
 
+          // Past the notice threshold the watchdog may flash, but operator
+          // chrome keeps the working ramp — recovery is silent under the hood.
           advance(1_500)
           await h.renderOnce()
-          // Scoped to the slot: a bang anywhere else in the frame is not this.
-          const blinking = new Set<string>()
-          for (let i = 0; i < 4; i++) {
-            blinking.add(slotGlyph(h.captureCharFrame()))
-            advance(STALL_BLINK_CYCLE_MS / 2)
-            await h.renderOnce()
-          }
-          expect(blinking.has("!")).toBe(true)
-          expect(blinking.size).toBeGreaterThan(1)
+          expect(statusRow(h.captureCharFrame())).toContain("working")
+          expect(slotGlyph(h.captureCharFrame())).toMatch(DENSITY)
+          expect(slotGlyph(h.captureCharFrame())).not.toBe("!")
 
-          // Past the burst the alarm stops strobing but still reads as one.
-          advance(STALL_BLINK_BURST_MS * 2)
+          // The slot keeps moving: still a live working pulse, not a settled bang.
+          const first = slotGlyph(h.captureCharFrame())
+          advance(RAMP_CYCLE_MS / 4)
           await h.renderOnce()
-          const settled = statusRow(h.captureCharFrame())
-          expect(slotGlyph(settled)).toBe("!")
-          advance(STALL_BLINK_CYCLE_MS / 2)
-          await h.renderOnce()
-          expect(statusRow(h.captureCharFrame())).toBe(settled)
+          expect(slotGlyph(h.captureCharFrame())).not.toBe(first)
+          expect(slotGlyph(h.captureCharFrame())).toMatch(DENSITY)
         } finally {
           bridge.dispose()
         }

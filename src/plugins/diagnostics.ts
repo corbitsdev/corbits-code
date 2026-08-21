@@ -105,3 +105,34 @@ export function emitPluginWarningSummary(
 export function emitPluginWarningLog(diag: PluginLoadDiagnostics): void {
   emitPluginWarningSummary(diag, (line) => pluginDiagnosticsLogger.warn(line));
 }
+
+/**
+ * Extract a plugin or agent id a warning names, when present. Skill-miss lines
+ * lead with `agent <id>:`; tool-plugin start failures quote the candidate id.
+ */
+export function pluginWarningSubjectId(warning: string): string | undefined {
+  const agent = /^agent ([^:]+):/.exec(warning)?.[1];
+  if (agent !== undefined) return agent;
+  const tool = /tool-plugin: failed to start "([^"]+)"/.exec(warning)?.[1];
+  if (tool !== undefined) return tool;
+  return undefined;
+}
+
+/**
+ * Warnings attributable to one plugin: subject id matches the plugin id or any
+ * of its agent profile ids.
+ */
+export function warningsForPluginEntry(
+  warnings: readonly string[],
+  plugin: {
+    readonly id: string;
+    readonly agentProfiles?: readonly { readonly id: string }[];
+  },
+): string[] {
+  const ids = new Set<string>([plugin.id]);
+  for (const profile of plugin.agentProfiles ?? []) ids.add(profile.id);
+  return warnings.filter((w) => {
+    const subject = pluginWarningSubjectId(w);
+    return subject !== undefined && ids.has(subject);
+  });
+}

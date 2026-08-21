@@ -23,7 +23,7 @@ import { lockupWidth } from "./lockup.js"
 import type { RampPhase } from "./ramp.js"
 import { formatPaletteRows } from "./command-catalog.js"
 import { composeDecisionBody, decisionChoiceRows, wrapWords } from "./overlay-body.js"
-import { thinkingScrollLine, thinkingSettledLine } from "./thinking.js"
+import { thinkingLivePreviewLines, thinkingSettledLine } from "./thinking.js"
 
 const CJK = "検索結果を確認する"
 const AMBIGUOUS = "│╭—→…┆●▍"
@@ -159,8 +159,10 @@ describe("landing wrap", () => {
 })
 
 describe("thinking rows", () => {
-  test("the live window is a column window", () => {
-    expect(stringWidth(thinkingScrollLine(CJK, 8))).toBeLessThanOrEqual(8)
+  test("each live preview line fits its columns", () => {
+    for (const line of thinkingLivePreviewLines(CJK.repeat(4), 8)) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(8)
+    }
   })
 
   test("the settled line fits its columns including the ellipsis", () => {

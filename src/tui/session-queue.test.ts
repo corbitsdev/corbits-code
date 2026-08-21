@@ -6,10 +6,13 @@ import {
   createSessionQueue,
   drainOne,
   drainOrder,
+  drainSteersOnly,
   enqueue,
   enqueueSteer,
   interrupt,
+  queueCount,
   setRunState,
+  steerCount,
 } from "./session-queue"
 
 describe("session-queue", () => {
@@ -19,7 +22,7 @@ describe("session-queue", () => {
     expect(badgeCount(s0)).toBe(0)
   })
 
-  test("Enter path enqueues; badge increments", () => {
+  test("default enqueue is follow-up kind", () => {
     let s = createSessionQueue("busy")
     s = enqueue(s, "hello")
     s = enqueue(s, "world")
@@ -28,11 +31,13 @@ describe("session-queue", () => {
     expect(s.items[0]!.text).toBe("hello")
   })
 
-  test("Alt+Enter path steers; same badge pool", () => {
+  test("steer and follow-up counts are distinct", () => {
     let s = createSessionQueue("busy")
     s = enqueue(s, "later")
     s = enqueueSteer(s, "asap")
     expect(badgeCount(s)).toBe(2)
+    expect(steerCount(s)).toBe(1)
+    expect(queueCount(s)).toBe(1)
     expect(s.items[1]!.kind).toBe("steer")
   })
 
@@ -50,6 +55,29 @@ describe("session-queue", () => {
     expect(d2.item?.text).toBe("s2")
     const d3 = drainOne(d2.state)
     expect(d3.item?.text).toBe("q1")
+  })
+
+  test("drainOne(kind) is selective; drainSteersOnly leaves follow-ups", () => {
+    let s = createSessionQueue("busy")
+    s = enqueue(s, "q1")
+    s = enqueueSteer(s, "s1")
+    s = enqueue(s, "q2")
+    s = enqueueSteer(s, "s2")
+
+    const onlySteer = drainOne(s, "steer")
+    expect(onlySteer.item?.text).toBe("s1")
+    expect(queueCount(onlySteer.state)).toBe(2)
+    expect(steerCount(onlySteer.state)).toBe(1)
+
+    const steersGone = drainSteersOnly(onlySteer.state)
+    expect(steersGone.drained.map((i) => i.text)).toEqual(["s2"])
+    expect(steerCount(steersGone.state)).toBe(0)
+    expect(queueCount(steersGone.state)).toBe(2)
+    expect(drainOrder(steersGone.state).map((i) => i.text)).toEqual(["q1", "q2"])
+
+    const onlyQueue = drainOne(steersGone.state, "queue")
+    expect(onlyQueue.item?.text).toBe("q1")
+    expect(queueCount(onlyQueue.state)).toBe(1)
   })
 
   test("Ctrl+C interrupt keeps pending + sets flash + idle", () => {

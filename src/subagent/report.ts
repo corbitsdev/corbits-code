@@ -97,6 +97,14 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
   return parts.join("\n");
 }
 
+/** Headings `parseSubAgentReport` recognizes. Presence of all four is the completeness gate. */
+const REPORT_ENVELOPE_HEADINGS = ["Summary", "Findings", "Blockers", "Paths"] as const;
+
+/** True iff `text` has all four report headings (`^##\s+Name\s*$` per line, case-insensitive). */
+export function hasReportEnvelope(text: string): boolean {
+  return REPORT_ENVELOPE_HEADINGS.every((name) => new RegExp(`^##\\s+${name}\\s*$`, "im").test(text));
+}
+
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
 export function demoteNestedReportHeadings(text: string): string {
   // Match parseSubAgentReport: flexible whitespace + case-insensitive section names.

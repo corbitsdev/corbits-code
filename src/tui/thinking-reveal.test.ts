@@ -1,13 +1,13 @@
 /**
- * The reasoning scroll line reveals text at a bounded rate rather than
- * jumping straight to the newest token, so a fast model still reads at human
- * pace. Pure-function coverage lives here; `advanceOpenReveal`'s wiring
- * through the bridge is covered by the bridge/tick test below.
+ * Live reasoning reveals text at a bounded rate into a short wrapped preview,
+ * so a fast model still reads at human pace without sideways-scrolling one
+ * line. Pure-function coverage lives here; `advanceOpenReveal`'s wiring
+ * through the bridge is covered by the bridge/tick tests below.
  */
 
 import { describe, expect, test } from "bun:test"
 
-import { advanceRevealChars, thinkingScrollLine } from "./thinking"
+import { advanceRevealChars, thinkingLivePreviewLines } from "./thinking"
 import { withTestRenderer } from "./harness"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge"
 import { createAppShell } from "./shell"
@@ -60,26 +60,33 @@ describe("advanceRevealChars", () => {
   })
 })
 
-describe("thinkingScrollLine with a reveal position", () => {
+describe("thinkingLivePreviewLines with a reveal position", () => {
   const text = "the quick brown fox jumps over the lazy dog and keeps running"
 
-  test("shows nothing revealed as an empty line", () => {
-    expect(thinkingScrollLine(text, 20, 0)).toBe("")
+  test("shows nothing revealed as a single empty line", () => {
+    expect(thinkingLivePreviewLines(text, 20, 0)).toEqual([""])
   })
 
-  test("shows only the revealed prefix, windowed onto its own tail", () => {
-    // 20 chars revealed, 10-column window → last 10 of the first 20 chars.
-    expect(thinkingScrollLine(text, 10, 20)).toBe(text.slice(10, 20))
+  test("wraps only the revealed prefix", () => {
+    const lines = thinkingLivePreviewLines(text, 10, 20)
+    const painted = lines.join(" ")
+    expect(painted.length).toBeGreaterThan(0)
+    expect(lines.every((line) => line.length <= 10)).toBe(true)
+    // Soft-wrap may drop break spaces, but nothing past the reveal may appear.
+    expect(painted).not.toContain("jumps")
   })
 
   test("never shows text past the reveal position even though more has arrived", () => {
-    const line = thinkingScrollLine(text, 10, 15)
-    expect(line).not.toContain("fox")
-    expect(text.indexOf(line)).toBeLessThan(15)
+    const painted = thinkingLivePreviewLines(text, 10, 15).join(" ")
+    expect(painted).not.toContain("fox")
   })
 
-  test("omitting revealChars keeps the old always-tail behaviour", () => {
-    expect(thinkingScrollLine(text, 10)).toBe(text.slice(text.length - 10))
+  test("omitting revealChars wraps whatever has arrived, capped to max lines", () => {
+    const lines = thinkingLivePreviewLines(text, 10)
+    expect(lines.length).toBeLessThanOrEqual(3)
+    expect(lines.length).toBeGreaterThan(0)
+    expect(lines.every((line) => line.length <= 10)).toBe(true)
+    expect(lines.join(" ")).toContain("running")
   })
 
   test("sample frames across a few rates, printed for eyeballing", () => {
@@ -87,7 +94,7 @@ describe("thinkingScrollLine with a reveal position", () => {
     for (const rate of [15, 20, 28, 40, 60]) {
       const frames = [200, 500, 1000, 1500].map((ms) => {
         const chars = advanceRevealChars(0, sample.length, ms, rate)
-        return thinkingScrollLine(sample, 30, chars)
+        return thinkingLivePreviewLines(sample, 30, chars)
       })
       // eslint-disable-next-line no-console
       console.log(`rate=${rate}/s`, frames)

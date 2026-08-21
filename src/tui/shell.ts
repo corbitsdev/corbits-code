@@ -62,7 +62,7 @@ import {
   type PromptInput,
 } from "./prompt-input.js"
 import { promptBoxRows } from "./prompt-rows.js"
-import { composeNoticeLine } from "./notice-line.js"
+import { composeNoticeLine, resolveWaitingOn } from "./notice-line.js"
 import {
   lockupCells,
   lockupText,
@@ -73,6 +73,7 @@ import type { RampPhase, StallAge } from "./ramp.js"
 import type { ActivityState } from "./session-chrome.js"
 import {
   BORDER,
+  composeAttentionLabel,
   composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
@@ -162,7 +163,9 @@ import {
   enqueue,
   enqueueSteer,
   interrupt,
+  queueCount,
   setRunState,
+  steerCount,
   type RunState,
   type SessionQueueState,
 } from "./session-queue.js"
@@ -659,8 +662,14 @@ export type AppShell = {
    * set to null; never appended to the stream log.
    */
   statusFlash: string | null
-  /** MCP servers awaiting authorization; the notice row names them. */
+  /** MCP servers awaiting authorization; the top rule carries `mcp !`. */
   mcpNeedsAuth: readonly string[]
+  /**
+   * Plugin load left standing warnings (skill misses, failed tool starts, …).
+   * The top rule carries `plugin !` (or `mcp ! · plugin !` with MCP). Cleared
+   * only when the warning set is empty — not merely dismissed.
+   */
+  pluginNeedsAttention: boolean
   /**
    * Clock, motion and content state for the bottom-left status slot. The bridge
    * pushes all of it off its existing monitor tick (`setLockupFrame`); the
@@ -668,6 +677,11 @@ export type AppShell = {
    * paints the settled idle slot.
    */
   lockupNowMs: number
+  /**
+   * Parent tool currently in flight, for the steer `waiting on` notice.
+   * Null when no parent tools remain or the run is idle. Not TurnState.
+   */
+  inFlightTool: { name: string; startedAt: number } | null
   lockupAnimating: boolean
   /**
    * Live activity state the slot shows, or null for the idle wordmark.
@@ -841,12 +855,17 @@ function syncPending(shell: AppShell): void {
 /** The transient row's text for the current state ("" when it has nothing to say). */
 export function noticeText(shell: AppShell): string {
   return composeNoticeLine({
-    queue: shell.pendingQueue,
+    steer: steerCount(shell.session),
+    followUp: queueCount(shell.session),
+    waitingOn: resolveWaitingOn(
+      steerCount(shell.session),
+      shell.inFlightTool,
+      shell.lockupNowMs,
+    ),
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
     attachments: shell.pendingAttachments.length,
-    mcpNeedsAuth: shell.mcpNeedsAuth,
   })
 }
 
@@ -860,6 +879,13 @@ export function setMcpNeedsAuth(shell: AppShell, names: readonly string[]): void
     return
   }
   shell.mcpNeedsAuth = next
+  paintChrome(shell)
+}
+
+/** Whether plugin load warnings still need attention. Repaints on change. */
+export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
+  if (shell.pluginNeedsAttention === needs) return
+  shell.pluginNeedsAttention = needs
   paintChrome(shell)
 }
 
@@ -1331,11 +1357,26 @@ function overlayHints(shell: AppShell): readonly string[] {
   const hasChoices = shell.overlayItems.length > 0
   if (answer === null) {
     if (!hasChoices) return ["Esc dismiss"]
-    if (
-      shell.overlayKind === "model_picker" &&
-      internals.get(shell)?.overlayAddProviderHint === true
-    ) {
-      return MODEL_PICKER_HINTS
+    if (shell.overlayKind === "model_picker") {
+      const bag = internals.get(shell)
+      const addProvider = bag?.overlayAddProviderHint === true
+      const setDefault = bag?.overlaySetDefaultHint === true
+      if (addProvider && setDefault) {
+        return [
+          "Esc cancel · Enter choose · Alt+A add provider · Alt+D set default",
+          "Esc · Enter · Alt+A add · Alt+D default",
+          "Esc · Enter · Alt+A · Alt+D",
+          "Esc · Enter",
+        ]
+      }
+      if (addProvider) return MODEL_PICKER_HINTS
+      if (setDefault) {
+        return [
+          "Esc cancel · Enter choose · Alt+D set default",
+          "Esc · Enter · Alt+D default",
+          "Esc · Enter",
+        ]
+      }
     }
     return DEFAULT_OVERLAY_HINTS
   }
@@ -1532,6 +1573,10 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
       chunks.push(...meterChunks(shell, part.text))
       continue
     }
+    if (part.role === "attention") {
+      chunks.push(fgChunk(UI.action)(part.text))
+      continue
+    }
     chunks.push(
       fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
     )
@@ -1577,9 +1622,14 @@ function lockupFrameInput(shell: AppShell): LockupInput {
  */
 export function paintPromptBorder(shell: AppShell): void {
   const width = shell.layout.contentWidth
+  const attention = composeAttentionLabel({
+    mcp: shell.mcpNeedsAuth.length > 0,
+    plugin: shell.pluginNeedsAttention,
+  })
   const top = composeRule({
     width,
     corners: [BORDER.topLeft, BORDER.topRight],
+    ...(attention !== undefined ? { attention } : {}),
     ...(shell.modelLabel !== null ? { label: shell.modelLabel } : {}),
   })
   shell.promptTopRule.content = new StyledText(ruleChunks(shell, top))
@@ -1690,7 +1740,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows lay themselves out against the column budget (right-aligned bubbles,
   // pre-wrapped reasoning blocks), so a width change invalidates every painted
   // row rather than just reflowing it.
-  const widthChanged = shell.layout.contentWidth !== layout.contentWidth
+  const widthChanged =
+    shell.layout.contentWidth !== layout.contentWidth ||
+    shell.layout.chatWidth !== layout.chatWidth ||
+    shell.layout.layoutMode !== layout.layoutMode
   shell.layout = layout
   const h = layout.heights
 
@@ -1709,7 +1762,6 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.taskBox.visible = taskH > 0
 
   const agentsH = Math.max(0, h.agents)
-  shell.agentsBox.height = agentsH > 0 ? agentsH : 1
   shell.agentsBox.visible = agentsH > 0
 
   // Both pads are taken out of the transcript residual, never out of chrome,
@@ -1758,6 +1810,16 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.transcript.visible = transcriptBody > 0
   syncTranscriptSpacer(shell)
 
+  // Agents strip: full-width flex stack under the transcript when present.
+  // Live chrome keeps the zone empty (● Task transcript rows instead).
+  shell.agentsBox.position = "relative"
+  shell.agentsBox.left = 0
+  shell.agentsBox.top = 0
+  shell.agentsBox.width = "100%"
+  shell.agentsBox.height = agentsH > 0 ? agentsH : 1
+  shell.agentsBox.zIndex = 0
+  shell.transcript.width = "100%"
+
   const noticeH = Math.max(0, h.notice)
   shell.notice.height = noticeH > 0 ? noticeH : 1
   shell.notice.visible = noticeH > 0
@@ -1779,7 +1841,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows the flow spends before the prompt box — where a floated host's bottom
   // edge has to land, since the landing's box sits mid-screen rather than at
   // the foot and covering it would hide the thing the operator types into.
-  const promptTop = padH + taskH + agentsH + transcriptBody
+  // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
+  // same as before; it is transient chrome between task and prompt).
+  const promptTop = padH + transcriptBody + agentsH + taskH
   const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH))
   shell.overlayHost.height = hostH > 0 ? hostH : 1
@@ -1803,6 +1867,16 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // resize there must not rebuild them out from under it.
   if (widthChanged && shell.streamLog.length > 0 && !isLanding(shell)) {
     repaintTranscriptWindow(shell)
+  }
+
+  // Width change changes the column budget the board fits to. Content may be
+  // unchanged, so setChromeZones would skip the rebuild — do it here.
+  if (widthChanged && bag !== undefined && bag.chrome.agents.length > 0) {
+    renderAgentsRows(
+      shell,
+      clampBoardRows(bag.chrome.agents, agentsH),
+      layout.contentWidth,
+    )
   }
 
   paintChrome(shell)
@@ -1897,6 +1971,7 @@ type PriorOverlaySnapshot = {
   readonly titleText: string
   readonly onCancel: (() => void) | null
   readonly addProviderHint: boolean
+  readonly setDefaultHint: boolean
 }
 
 type ShellInternals = {
@@ -1925,6 +2000,8 @@ type ShellInternals = {
   overlayOnAction: ((itemId: string, key: KeyEvent) => boolean) | null
   /** Whether the open primary advertises Alt+A in the footer hints. */
   overlayAddProviderHint: boolean
+  /** Whether the open primary advertises Alt+D in the footer hints. */
+  overlaySetDefaultHint: boolean
   /**
    * While true the shell ignores its own key/paste/submit handlers. Set for
    * the lifetime of a full-screen surface (inline provider connect) that
@@ -3185,13 +3262,16 @@ export function userRowText(
 }
 
 /**
- * Submit the prompt. Three kinds, three distinct gestures:
- *  - "queue": mid-run send — steers at the next turn boundary (badge).
- *  - "reinject": hard-stop the run right now and restart from this message,
- *    without waiting for a boundary. No-op when the run isn't busy, or the
- *    prompt is empty — there's nothing to stop or restart from.
- *  - Idle sends (either kind) go straight through immediately; "kind" only
- *    matters while a run is in flight.
+ * Submit the prompt. Product chords (CL-6290):
+ *  - "steer": mid-run Enter — soft steer at the next tool.boundary.
+ *  - "queue": mid-run Alt+Enter — follow-up; deliver only when the run goes
+ *    idle. Idle Alt+Enter is a no-op at the key handler (never reaches here
+ *    with kind "queue" while idle from the product chord).
+ *  - "reinject": hard-stop and restart from this message. No product chord
+ *    wires this anymore; kept for tests / direct API callers. No-op when the
+ *    run isn't busy, or the prompt is empty.
+ *  - Idle Enter (either queue or steer kind) goes straight through; "kind"
+ *    only matters while a run is in flight.
  */
 export function submitPrompt(
   shell: AppShell,
@@ -3209,7 +3289,10 @@ export function submitPrompt(
     }
     return
   }
+  // Reinject is unwired from product chords; still guard idle for API callers.
   if (kind === "reinject" && shell.session.run !== "busy") return
+  // Follow-up idle no-op lives on the Alt+Enter key handler (kind "queue" is
+  // also the default for submitPrompt and must still send when idle).
 
   // Shell/REPL muscle memory: a bare `exit` or `quit` quits rather than being
   // sent to the model. Attachments mean the operator meant it as a message.
@@ -3234,6 +3317,7 @@ export function submitPrompt(
   }
 
   if (kind === "reinject") {
+    // Unwired from product chords (CL-6290); kept for tests / direct callers.
     shell.session = interrupt(shell.session)
     shell.prompt.value = ""
     clearPendingAttachments(shell)
@@ -3324,8 +3408,8 @@ export function applyShellInterrupt(shell: AppShell): void {
     role: "system",
     text:
       had > 0
-        ? `interrupt — ${had} pending kept`
-        : "interrupt",
+        ? `${had} pending kept`
+        : "stopped",
     meta: "stop",
   })
   paintChrome(shell)
@@ -3475,6 +3559,11 @@ export type OpenListOverlayOpts = {
    * the hint can never name a key that is a dead end.
    */
   readonly addProviderHint?: boolean
+  /**
+   * Advertise the Alt+D set-default hint in the footer for this open. Set
+   * only when the caller actually wired an Alt+D handler via `onAction`.
+   */
+  readonly setDefaultHint?: boolean
 }
 
 /**
@@ -3514,6 +3603,7 @@ export function openListOverlay(
           titleText: bag.overlayTitleText,
           onCancel: bag.overlayOnCancel,
           addProviderHint: bag.overlayAddProviderHint,
+          setDefaultHint: bag.overlaySetDefaultHint,
         }
       }
       // Leave prior overlay focus frame; palette will stack above it.
@@ -3545,6 +3635,7 @@ export function openListOverlay(
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false
+      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false
       // Capture the full unfiltered set so typing can re-narrow in place.
       bag.listFilter =
         opts?.typeToFilter === true
@@ -3567,6 +3658,7 @@ export function openListOverlay(
       bag.overlayOnAction = opts?.onAction ?? null
       bag.overlayOnCancel = opts?.onCancel ?? null
       bag.overlayAddProviderHint = opts?.addProviderHint ?? false
+      bag.overlaySetDefaultHint = opts?.setDefaultHint ?? false
       bag.listFilter = null
     }
     if (!isPalette) {
@@ -3735,6 +3827,12 @@ function repaintPalette(shell: AppShell): void {
     kind: "palette",
     title: state.title,
     items: labels,
+    itemIds: commands.map((c) => c.id),
+    describe: (id) => {
+      const cmd = commands.find((c) => c.id === id)
+      const what = cmd?.description?.trim()
+      return what ? { what } : null
+    },
     // Typed filter row only when the overlay owns keystrokes. The `/` popup
     // keeps its query in the prompt, so a body of `>` would be orphan chrome.
     ...(state.typeToFilter ? { body: `> ${state.query}` } : {}),
@@ -4011,6 +4109,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayDescribe = null
     bag.overlayOnAction = null
     bag.overlayAddProviderHint = false
+    bag.overlaySetDefaultHint = false
     bag.overlayAnswer = null
     bag.overlayOnCancel = null
   }
@@ -4045,6 +4144,7 @@ export function closeInsetOverlay(shell: AppShell): void {
     bag.overlayTitleText = prior.titleText
     bag.overlayOnCancel = prior.onCancel
     bag.overlayAddProviderHint = prior.addProviderHint
+    bag.overlaySetDefaultHint = prior.setDefaultHint
     // If focus was not stacked (edge case), re-open overlay frame.
     if (focusOwner(shell.focus) !== "overlay") {
       shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
@@ -4466,18 +4566,18 @@ function renderAgentsRows(
     destroySubtree(child)
   }
   for (const row of rows) {
-    // Green for working, not the task zone's bronze immediately above it —
-    // adjacent zones sharing a hue read as one undifferentiated block. The
-    // header and the hidden-count row are chrome about the board rather than
-    // lanes in it, so they sit back in dim and leave the colour to the work.
+    // Bronze for a live working lane (inFlight), red for a stalled one — the
+    // ●/! marker already names the state, the hue only carries the urgency.
+    // The "+N more" fold-away row is chrome about the strip, not a lane in it,
+    // so it sits back in dim and leaves the colour to the work.
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitAgentRow(row, maxWidth),
       fg:
-        row.kind === "header" || row.kind === "more"
+        row.kind === "more"
           ? UI.textDim
           : row.stalled
             ? UI.action
-            : UI.done,
+            : UI.inFlight,
     })
     shell.agentsBox.add(text)
   }
@@ -4557,7 +4657,7 @@ export function setChromeZones(
 
   // Painted after the resolver has spoken, and only ever as many rows as it
   // granted: a board that paints past its box lands on top of the transcript
-  // and tears down the renderables underneath it.
+  // and tears down the renderables underneath it. Full content width (stack).
   if (agentsChanged || !budgetUnchanged) {
     renderAgentsRows(
       shell,
@@ -5445,10 +5545,10 @@ export function createAppShell(
   promptBox.add(promptBottomRule)
 
   root.add(topPad)
-  root.add(taskBox)
-  root.add(agentsBox)
   root.add(transcript)
   root.add(overlayHost)
+  root.add(agentsBox)
+  root.add(taskBox)
   root.add(notice)
   root.add(promptBox)
   root.add(landingBelow)
@@ -5913,11 +6013,13 @@ export function createAppShell(
       (key.meta || key.option) &&
       !key.ctrl
     ) {
-      // Alt+Enter: stop-and-reinject — the one gesture that doesn't wait for
-      // a boundary. Plain Enter (below) already covers "queue to steer at
-      // the next boundary", so this chord's whole job is skipping the wait.
+      // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
+      // run goes idle. Does not interrupt or reinject. Idle / empty: no-op
+      // (nothing to wait for). Soft steer is plain Enter below; reinject is
+      // not wired to any product chord.
       key.preventDefault()
-      submitPrompt(shell, "reinject")
+      if (shell.session.run !== "busy") return
+      submitPrompt(shell, "queue")
       return
     }
   }
@@ -5925,9 +6027,8 @@ export function createAppShell(
   const onEnter = (): void => {
     if (disposed || shell.overlayList) return
     if (internals.get(shell)?.inputSuspended === true) return
-    // Every mid-run send steers — there is no longer a plain "queue and wait
-    // quietly" gesture distinct from it (that's what collapsed into Alt+Enter
-    // stop-and-reinject instead). Idle sends ignore "kind" entirely.
+    // Mid-run Enter soft-steers (deliver at next tool.boundary). Alt+Enter
+    // is follow-up (quiet wait until idle). Idle sends ignore "kind".
     submitPrompt(shell, "steer")
   }
 
@@ -6023,7 +6124,9 @@ export function createAppShell(
     copyTargets: null,
     statusFlash: null,
     mcpNeedsAuth: [],
+    pluginNeedsAttention: false,
     lockupNowMs: 0,
+    inFlightTool: null,
     lockupAnimating: false,
     lockupPhase: null,
     lockupChangedMs: 0,
@@ -6077,6 +6180,7 @@ export function createAppShell(
     overlayDescribe: null,
     overlayOnAction: null,
     overlayAddProviderHint: false,
+    overlaySetDefaultHint: false,
     inputSuspended: false,
     overlayAnswer: null,
     overlayTitleText: "",
@@ -6094,7 +6198,12 @@ export function createAppShell(
     landingNowMs: 0,
     landingIdleTimerCancel: null,
     chrome: { task: [], tasksRaw: [], agents: [] },
-    tasksPanelHidden: false,
+    // CL-5847: the manage_tasks checklist panel is hidden by default. The
+    // panel owns too much of the screen for the operator to want it forced
+    // into view on a fresh shell; Alt+T (toggleTasksPanel) opts in for the
+    // shell's lifetime. Live task data still lands in tasksRaw while hidden,
+    // so the first toggle shows current data rather than a stale snapshot.
+    tasksPanelHidden: true,
   })
   // The landing's snow needs a frame source that keeps running while the
   // turn monitor is deliberately quiet (idle, no session yet). A plain timer

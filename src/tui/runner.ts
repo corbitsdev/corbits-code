@@ -2,7 +2,6 @@ import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import {
-  createAgent,
   defineAgent,
   defineTool,
   createDirectorRegistry,
@@ -36,6 +35,7 @@ import {
   toolWatchdogFromSettings,
   markLastChangelogVersion,
   toggleFavoriteModel,
+  setDefaultModel,
   type ModelRef,
   type ResolvedProvider,
   type Settings,
@@ -43,9 +43,9 @@ import {
   type PluginConfig,
 } from "../config/settings.js";
 import { addProviderSelectorChoices, providerChoices } from "./provider-setup.js";
+import { persistConnectedSelection } from "./provider-setup-submit.js";
 import { connectProviderInline } from "./provider-connect.js";
 import { modelOptionId } from "./model-catalog.js";
-import type { SessionModeScope } from "./command-surfaces.js";
 import { resolveWaitForApproval, type ToolWatchdogConfig } from "./tool-execution-watchdog.js";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
@@ -68,6 +68,7 @@ import {
   createPluginLoadDiagnostics,
   emitPluginWarningLog,
   formatPluginWarningsSummary,
+  warningsForPluginEntry,
 } from "../plugins/diagnostics.js";
 import {
   isPluginTrusted,
@@ -84,7 +85,7 @@ import {
   trustPathPlugins,
   type PathTrustStore,
 } from "../trust/path-trust.js";
-import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, enablePluginConfig } from "../plugins/register.js";
+import { registerCommandPlugins, registerWorkflowPlugins, isEnabledCommandPlugin, isPluginModuleEnabled, enablePluginConfig } from "../plugins/register.js";
 import {
   getCommand,
   listCommands,
@@ -131,8 +132,7 @@ import {
 } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
-import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
-import { promptSessionModeIfUnset } from "./session-mode-prompt.js";
+import { type SessionMode } from "../config/session-mode.js";
 import {
   createFleetWatch,
   createSubAgentSessionStore,
@@ -155,6 +155,7 @@ import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin
 import type { GrantScope } from "../permission/types.js";
 
 import { createAgentToolset, type MCPServerState, type OperatorResult } from "../agent/tools.js";
+import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { collectWebPlugins, resolveWebProviderFromPlugins, webBrand } from "../web/plugin-provider.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
@@ -162,11 +163,13 @@ import { setActiveWebProviderBrand } from "./tool-formatter.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { mountRunnerHost } from "./runner-host.js";
+import { createRuntimeShutdown } from "./runtime-shutdown.js";
 import {
   applyFocus,
   attachClipboardImage,
   setEffortCycleHandler,
   setMentionSuggestionSource,
+  setPluginNeedsAttention,
   setPromptModelLabel,
   setPromptRecognitionSource,
   setSentMessageHistory,
@@ -552,16 +555,22 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     telemetry: liveTelemetry,
   });
   emitPluginWarningLog(pluginLoadDiag);
-  // Fire-and-forget startup diagnostics (this + tool-plugin resolution below)
-  // have no result channel back to an operator action, unlike verify/add-path/
-  // trust-grant. A log-only summary is invisible — nobody watches
-  // ~/.corbits/logs/corbits.log — so these are queued and handed to
-  // the shell one at a time once it mounts.
-  const startupPluginNotices: string[] = [];
-  const discoveryNotice = formatPluginWarningsSummary(pluginLoadDiag.warnings);
-  if (discoveryNotice !== undefined) startupPluginNotices.push(discoveryNotice);
+  // Fire-and-forget startup diagnostics (this + tool-plugin / profile resolution
+  // below) have no result channel back to an operator action. Log-only is fine
+  // for the structured logger; the standing `plugin !` mark and `/plugins`
+  // surface carry the same warnings to the operator instead of a startup
+  // system notice.
+  const standingPluginWarnings: string[] = [...pluginLoadDiag.warnings];
+  // Host mounts later; attention is painted once the shell exists.
+  let paintPluginAttention: ((needs: boolean) => void) | null = null;
+  const notePluginWarnings = (warnings: readonly string[]): void => {
+    if (warnings.length === 0) return;
+    standingPluginWarnings.push(...warnings);
+    paintPluginAttention?.(standingPluginWarnings.length > 0);
+  };
   // Saved through onboarding's "save anyway" bypass without a passing
   // connection test — warn now instead of a bare adapter error on first send.
+  const startupPluginNotices: string[] = [];
   if (config.verified === false) {
     startupPluginNotices.push(
       `We couldn't confirm your "${config.providerName}" key works. If your first message fails with an auth error, double-check the key.`,
@@ -836,8 +845,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   ]);
   if (activeWeb !== undefined) setActiveWebProviderBrand(webBrand(activeWeb.name));
   emitPluginWarningLog(toolPluginDiag);
-  const toolPluginNotice = formatPluginWarningsSummary(toolPluginDiag.warnings);
-  if (toolPluginNotice !== undefined) startupPluginNotices.push(toolPluginNotice);
+  standingPluginWarnings.push(...toolPluginDiag.warnings);
 
   // /plugins UI backend: discovered plugin descriptors plus live, persisted
   // config (enabled flag, credentials, web override, extra paths) written to the
@@ -931,6 +939,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             diagnostics: trustDiag,
           });
           trustGrantMessage = formatPluginWarningsSummary(trustDiag.warnings);
+          notePluginWarnings(trustDiag.warnings);
           if (full !== null) {
             livePluginModules = livePluginModules.map((m) =>
               m.manifest?.id === id ? full : m,
@@ -983,6 +992,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // logging them: "loaded — N profiles" must not read identically whether
         // or not a profile's skill ref actually resolved.
         const warnings = formatPluginWarningsSummary(verifyDiag.warnings);
+        notePluginWarnings(verifyDiag.warnings);
         const base = `loaded — ${profiles.length} profile${profiles.length === 1 ? "" : "s"}`;
         return { ok: true, message: warnings === undefined ? base : `${base} (${warnings})` };
       }
@@ -1073,6 +1083,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!livePluginPaths.includes(abs)) livePluginPaths.push(abs);
       await persistPluginSettings();
       const warnings = formatPluginWarningsSummary(addDiag.warnings);
+      notePluginWarnings(addDiag.warnings);
       return {
         ok: true,
         message:
@@ -1120,10 +1131,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     { diagnostics: profileDiag },
   );
   emitPluginWarningLog(profileDiag);
-  // Same fire-and-forget reasoning as the discovery/tool-plugin notices above:
-  // this runs before `host` exists, so it is queued rather than dropped.
-  const profileNotice = formatPluginWarningsSummary(profileDiag.warnings);
-  if (profileNotice !== undefined) startupPluginNotices.push(profileNotice);
+  standingPluginWarnings.push(...profileDiag.warnings);
   const initialProfiles = await loadAgentProfiles(profilesDir, pluginAgentProfiles);
   let liveAgentProfiles = initialProfiles;
 
@@ -1133,7 +1141,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
   const activePlugins = executablePlugins()
-    .filter((m) => m.manifest?.id !== undefined && pluginConfig[m.manifest.id]?.enabled === true)
+    .filter((m) => isPluginModuleEnabled(m, pluginConfig))
     .map((m) => m.manifest!.name ?? m.manifest!.id);
 
   const shellTimeout = shellTimeoutFromSettings(config.settings);
@@ -1142,27 +1150,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const liveToolWatchdog: ToolWatchdogConfig = {
     ...(toolWatchdogFromSettings(config.settings) ?? {}),
   };
-  const localSettingsForMode = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
-  // A local override wins on read; the settings surface's scope switch mirrors
-  // that back so the operator sees which file a change would land in.
-  let liveSessionModeScope: SessionModeScope = localSettingsForMode?.sessionMode !== undefined ? "local" : "global";
-  let liveSessionMode: SessionMode | undefined = resolveSessionMode(config.settings, localSettingsForMode);
-  if (liveSessionMode === undefined) {
-    const picked = await promptSessionModeIfUnset(config.globalSettingsPath);
-    liveSessionMode = picked ?? "orchestrator";
-    if (picked !== undefined) {
-      const refreshed = await loadSettings(config.globalSettingsPath).catch((err: unknown) => {
-        // loadSettings already maps ENOENT → null; a throw is a real I/O or
-        // schema failure. Keep the in-memory config rather than pretending
-        // settings are empty.
-        tuiLogger.warn("Failed to reload settings after session mode pick: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-        return null;
-      });
-      if (refreshed !== null) config = { ...config, settings: refreshed };
-    }
-  }
+  // CL-5814: orchestrator is the only product path — no first-run mode picker.
+  const liveSessionMode: SessionMode = "orchestrator";
+  // Local settings still supply shell env; sessionMode is ignored if present.
+  const localSettingsForEnv = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
   };
@@ -1181,7 +1172,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     skillDirs,
     telemetry: liveTelemetry,
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
-    ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
+    ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => currentAgent.blobReader,
     isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
@@ -1428,7 +1419,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     const storage = await createOptimizedContextStore(workdir);
     const sources = liveSources.length > 0 ? liveSources : [liveSource];
     const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
-    return createAgent(def, {
+    return createAgentWithLiveToolDispatch(def, {
       sources,
       defaultSource,
       storage,
@@ -1700,9 +1691,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   };
 
-  // A hard stop: closing the agent is the only thing that aborts the reactor
-  // mid-inference (the send signal only rejects the send promise). Close it,
-  // drain the old stream, and rebuild a fresh agent so the next send works.
+  // Hard stop only (Ctrl+C / doInterrupt). Soft steer (Enter mid-run enqueue)
+  // and follow-up (queued drain / deliver) must never call this — those paths
+  // leave in-flight workers running. Closing the agent is the only thing that
+  // aborts the reactor mid-inference (the send signal only rejects the send
+  // promise); that close cascades: operationController.abort → task-tool parent
+  // signal → child abort. Do not add cancelAll here — fleet cancelAll is
+  // reserved for /clear (newSession) and shutdown.
+  // Close it, drain the old stream, and rebuild a fresh agent so the next send
+  // works.
   const interrupt = (): void => {
     sendAborted = true;
     void enqueueOp(async () => {
@@ -2199,6 +2196,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
       });
     },
+    onSetDefault: (id) => {
+      const sep = id.indexOf(":");
+      if (sep <= 0) return;
+      const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
+      void (async () => {
+        const onDisk = (await loadGlobalSettingsWriteBase(trueGlobalSettingsPath)) ?? {
+          providers: {},
+        };
+        const next = setDefaultModel(onDisk, ref);
+        await saveGlobalSettings(trueGlobalSettingsPath, next);
+        await persistConnectedSelection(localSettingsFile, ref.provider, ref.model);
+        config = { ...config, settings: next };
+        systemNotice(`Default set to ${ref.model} (${ref.provider})`);
+      })().catch((err: unknown) => {
+        tuiLogger.debug("set default persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    },
     commands: listCommands().map((c) => ({ name: c.name, description: c.description })),
     onCommand: (name) => {
       const route = routeSubmission(name);
@@ -2255,6 +2271,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           const cfg = pluginsAdmin.getConfig();
           return pluginsAdmin.list().map((p) => {
             const mod = livePluginModules.find((m) => m.manifest?.id === p.id);
+            const attributed = warningsForPluginEntry(standingPluginWarnings, {
+              id: p.id,
+              ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
+            });
             return {
               id: p.id,
               name: p.name,
@@ -2269,6 +2289,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               ...(p.needsTrust === true && mod?.pluginPath !== undefined
                 ? { originPath: mod.pluginPath }
                 : {}),
+              ...(attributed.length > 0 ? { warnings: attributed } : {}),
             };
           });
         },
@@ -2285,6 +2306,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         webProviders: () => webPluginCandidates.map((c) => ({ id: c.id, name: c.name })),
         currentWebProvider: () => pluginsAdmin.getWebOverride(),
         setWebProvider: (id) => pluginsAdmin.setWebOverride(id),
+        loadWarnings: () => standingPluginWarnings,
       },
       mcp: {
         list: () =>
@@ -2312,8 +2334,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       settings: {
         read: () => ({
           compactionMode: liveCompactionMode,
-          sessionMode: liveSessionMode ?? "orchestrator",
-          sessionModeScope: liveSessionModeScope,
           waitForApproval: resolveWaitForApproval(liveToolWatchdog),
           telemetryEnabled: liveTelemetryIntent,
           showPromptCost: liveShowPromptCost,
@@ -2324,22 +2344,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             ...base,
             compactionMode: mode,
           }));
-        },
-        setSessionMode: (mode, scope) => {
-          liveSessionMode = mode;
-          liveSessionModeScope = scope;
-          if (scope === "local") {
-            void persistLocalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
-            return;
-          }
-          // A stale local override would keep outranking this write on the next
-          // resolve (resolveSessionMode prefers local), so switching back to
-          // "everywhere" clears it rather than leaving it to shadow the global value.
-          void persistLocalSettings("session mode", (base) => {
-            const { sessionMode: _drop, ...rest } = base;
-            return rest;
-          });
-          void persistGlobalSettings("session mode", (base) => ({ ...base, sessionMode: mode }));
         },
         setWaitForApproval: (value) => {
           liveToolWatchdog.waitForApproval = value;
@@ -2380,7 +2384,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     },
   });
 
-  disposeHost = host.dispose;
+  const shutdownRuntime = createRuntimeShutdown({
+    disposeHost: host.dispose,
+    cancelWorkers: () => {
+      subAgentSessions.cancelAll("Session closed");
+    },
+    closeAgent: () => currentAgent.close(),
+  });
+  disposeHost = () => {
+    void shutdownRuntime();
+  };
   setActiveDisposeHost(disposeHost);
 
   setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
@@ -2482,14 +2495,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
   // Connect MCP servers after the TUI is up so the UI is usable immediately and
   // any OAuth authorization is surfaced as a copyable link rather than a browser
-  // pop. Newly discovered tools are advertised to the live director right away;
-  // once connection resolves, the agent is reloaded (when idle) so the tools are
-  // also dispatchable. Aborted on exit so an unfinished auth wait does not keep
-  // the process alive.
+  // pop. Each connected server's tools land on the live runner and are
+  // dispatchable the same turn (createAgentWithLiveToolDispatch). They stay
+  // unadvertised until tool_search promotes them. When every server has
+  // settled, reload-if-idle so construction-time maps match, then resume any
+  // persisted workflow. Aborted on exit so an unfinished auth wait does not
+  // keep the process alive.
   const mcpConnectController = new AbortController();
   void toolset
     .connectMCP(
       {
+        interactiveAuth: true,
         onStatus: (status) => {
           mcpStates.set(status.name, status);
           emitter.emit("mcp.status", status);
@@ -2527,14 +2543,17 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       });
     });
 
-  // Surface fire-and-forget startup plugin diagnostics now that there is a
-  // shell to say them to (queued above, before `host` existed).
+  // Surface fire-and-forget startup notices now that there is a shell (queued
+  // above, before `host` existed). Plugin load warnings are NOT notices — they
+  // drive `plugin !` and `/plugins` instead.
   for (const notice of startupPluginNotices)
     surfaceSystemNotice(host.shell, notice);
+  paintPluginAttention = (needs) => setPluginNeedsAttention(host.shell, needs);
+  paintPluginAttention(standingPluginWarnings.length > 0);
 
   // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
   // surfaceSystemNotice keeps the landing hero up and flushes into the transcript
-  // once a session row ends the landing (same path as plugin/MCP startup chatter).
+  // once a session row ends the landing (same path as MCP startup chatter).
   scheduleUpgradeNotice({
     notify: (text) => surfaceSystemNotice(host.shell, text),
     options: {
@@ -2543,6 +2562,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   });
 
   await host.waitUntilExit();
+  // Stop inference and every worker before persistence, hooks, or telemetry can
+  // delay process exit. Closing the terminal is a process-lifetime boundary.
+  await shutdownRuntime();
   clearInterval(fleetStallPoll);
   if (fleetSettle !== null) clearTimeout(fleetSettle);
   unsubscribeFleetReport();
@@ -2609,11 +2631,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   await getTelemetry().flush();
 
   await sessionOps.awaitTail();
-  try {
-    await currentAgent.close();
-  } catch {
-    // ignore
-  }
   try {
     await streamPromise;
   } catch {

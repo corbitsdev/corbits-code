@@ -8,7 +8,6 @@ import { liveTelemetry } from "../telemetry/singleton.js";
 import { join } from "node:path";
 
 import {
-  createAgent,
   defineAgent,
   defineTool,
   createDirectorRegistry,
@@ -19,6 +18,7 @@ import {
 import type { AgentTool } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import { createOptimizedContextStore } from "../session/optimized-context-store.js";
+import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
@@ -260,7 +260,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-  let agent: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let agent: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
   // Declared before try (same reasoning as closeOnAbort above): assigned once
@@ -353,6 +353,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
         ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
         ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
+        ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
       }),
       ...(nd.profiles !== undefined
         ? [
@@ -379,8 +380,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     }),
   });
 
-
-  let agentHandle: Awaited<ReturnType<typeof createAgent>> | null = null;
+  let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
   const requestContinuation = (): void => {
     try {
       agentHandle?.deliver(buildCompactionContinuationMessage());
@@ -429,9 +429,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
   // Every tool call this sub-agent makes runs under its own identity in ALS
-  // (description + cwd), so the permission gate can attribute an approval
-  // prompt to the sub-agent that raised it (see identity-context.ts).
-  const subAgentIdentity = { description: params.description, cwd: params.cwd };
+  // (description + cwd + optional writePaths), so the permission gate can
+  // attribute approvals and enforce director path locks (see identity-context.ts).
+  const subAgentIdentity = {
+    description: params.description,
+    cwd: params.cwd,
+    ...(params.writePaths !== undefined && params.writePaths.length > 0
+      ? { writePaths: params.writePaths }
+      : {}),
+  };
   const toolsFactory = defineTool({
     id: `${ID_PREFIX}/subagent-tools`,
     // Without the watchdog config, child tool calls run under default budgets
@@ -476,7 +482,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   const inferenceDeps = await createInferenceDependencies();
   const subagentSource =
     bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
-  agent = await createAgent(def, {
+  agent = await createAgentWithLiveToolDispatch(def, {
     sources: bundle.sources,
     defaultSource: bundle.defaultSource,
     storage,

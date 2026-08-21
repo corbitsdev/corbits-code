@@ -2,15 +2,17 @@
 // Used by src/prompts.test.ts as a lightweight regression harness.
 
 export const CHAT_PROMPT_QUALITY_MARKERS = [
-  "Match their tone",
+  "Match operator tone",
+  "PRIMARY INTENT",
+  "You are Skywalker",
   "Response style:",
   "Tool choice:",
   "Ask vs proceed:",
   "Scope and conventions:",
-  "edit_file for targeted changes",
+  "Product write tools are not mounted on Skywalker",
   "ask_operator only when permission blocks you",
   "Touch only code required for the task",
   "load the style and philosophy skills",
   "grep or search_files",
-  "never echo, heredoc, sed, or rm in the shell",
+  "never shell-write (echo/heredoc/sed/rm)",
 ] as const;

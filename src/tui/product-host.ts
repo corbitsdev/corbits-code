@@ -20,7 +20,6 @@ import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js"
 import { wireGates } from "./gate-wire.js"
 import { createSystemClipboard } from "./system-clipboard.js"
 import {
-  annotateAgentTools,
   formatChromeZones,
   type ChromeLiveState,
 } from "./chrome-state.js"
@@ -31,7 +30,6 @@ import {
   lifecycleHookEvent,
   mcpNotice,
   mcpServerState,
-  subAgentProgress,
   RUNTIME_FLASH_MS,
   type RuntimeNotice,
 } from "./runtime-notices.js"
@@ -139,6 +137,8 @@ export type ProductHostConfig = {
   readonly onConnectProvider?: (providerName: string) => void
   /** Alt+F on a focused model row. Bare `f` is claimed by type-to-filter. */
   readonly onFavoriteToggle?: (itemId: string) => void
+  /** Alt+D on a focused model row. Bare `d` is claimed by type-to-filter. */
+  readonly onSetDefault?: (itemId: string) => void
   /**
    * Every first-class provider kind, read fresh on each Alt+A open so a
    * just-connected account's count is current. Omitted hosts get no Alt+A
@@ -342,19 +342,15 @@ export async function mountProductHost(
     setPaletteOnCommand(shell, config.onCommand)
   }
 
-  // Live chrome is pushed by the caller; subagent progress annotates the copy
-  // the host last received rather than racing the caller for the zone.
+  // Live chrome is pushed by the caller; the subagent store owns per-agent
+  // tool state (name + clock), so the host paints zones straight from it.
   let chromeState: ChromeLiveState | null = config.chrome ?? null
-  const subAgentTools = new Map<string, string>()
   const paintChromeZones = (): void => {
     if (chromeState === null) {
       setChromeZones(shell, { task: null, agents: null })
       return
     }
-    setChromeZones(
-      shell,
-      formatChromeZones(annotateAgentTools(chromeState, subAgentTools)),
-    )
+    setChromeZones(shell, formatChromeZones(chromeState))
   }
   if (chromeState !== null) paintChromeZones()
 
@@ -404,7 +400,6 @@ export async function mountProductHost(
     config.eventEmitter.off("hook", onHook)
     config.eventEmitter.off("mcp.status", onMcpStatus)
     config.eventEmitter.off("permission.grant", onPermissionGrant)
-    config.eventEmitter.off("subagent.progress", onSubAgentProgress)
     bridge.dispose()
     // Cancels any flash still counting down: its expiry repaints, and after
     // teardown that repaint reaches a destroyed text buffer.
@@ -471,14 +466,6 @@ export async function mountProductHost(
     if (approval !== null) show(grantNotice(approval))
   }
 
-  function onSubAgentProgress(info: unknown): void {
-    if (disposed) return
-    const progress = subAgentProgress(info)
-    if (progress === null) return
-    subAgentTools.set(progress.description, progress.toolName)
-    paintChromeZones()
-  }
-
   // The renderer already owns the alternate screen and raw mode by this point,
   // but `dispose` has not been handed to any caller yet — a throw here would
   // leave the terminal wedged with nobody able to restore it.
@@ -525,6 +512,7 @@ export async function mountProductHost(
     const onSelect = config.onModelSelect
     const onConnect = config.onConnectProvider
     const onFavoriteToggle = config.onFavoriteToggle
+    const onSetDefault = config.onSetDefault
     const addProviderChoices = config.addProviderChoices
 
     // Alt+A from the model picker: close it and open a fresh selector over
@@ -575,6 +563,7 @@ export async function mountProductHost(
         // Flat list: type to narrow rather than drill into a provider pane.
         typeToFilter: true,
         addProviderHint: openAddProvider !== undefined,
+        setDefaultHint: onSetDefault !== undefined,
         ...(focusIndex >= 0 ? { activeIndex: focusIndex } : {}),
         onAccept: (sel) => {
           // Prefer the stable id from the (possibly filtered) row. Do not fall
@@ -585,12 +574,14 @@ export async function mountProductHost(
           onSelect(id)
         },
         describe: (itemId) => currentDescribeModel?.(itemId) ?? null,
-        ...(onFavoriteToggle !== undefined || openAddProvider !== undefined
+        ...(onFavoriteToggle !== undefined ||
+        openAddProvider !== undefined ||
+        onSetDefault !== undefined
           ? {
               onAction: (itemId, key) => {
                 if (key.ctrl || !(key.meta || key.option)) return false
                 const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
-                // Alt+A / Alt+F, never bare — type-to-filter claims printable keys.
+                // Alt+A / Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
                 if (name === "a" && openAddProvider !== undefined) {
                   openAddProvider()
                   return true
@@ -599,6 +590,11 @@ export async function mountProductHost(
                   // Empty id is the "(no matches)" filter sentinel — not a model.
                   if (itemId.length === 0) return false
                   onFavoriteToggle(itemId)
+                  return true
+                }
+                if (name === "d" && onSetDefault !== undefined) {
+                  if (itemId.length === 0) return false
+                  onSetDefault(itemId)
                   return true
                 }
                 return false
@@ -623,7 +619,6 @@ export async function mountProductHost(
   config.eventEmitter.on("hook", onHook)
   config.eventEmitter.on("mcp.status", onMcpStatus)
   config.eventEmitter.on("permission.grant", onPermissionGrant)
-  config.eventEmitter.on("subagent.progress", onSubAgentProgress)
 
   return {
     shell,

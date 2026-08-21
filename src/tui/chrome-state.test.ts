@@ -30,15 +30,15 @@ describe("formatChromeZones", () => {
     })
   })
 
-  test("partial: task rows only", () => {
+  test("partial: task rows do not auto-paint (zones parked)", () => {
     const out = formatChromeZones({
       task: [{ title: "cutover readiness", status: "doing" }],
     })
-    expect(out.task).toEqual([{ label: "cutover readiness", status: "doing" }])
+    expect(out.task).toBeNull()
     expect(out.agents).toBeNull()
   })
 
-  test("full state formats both zones", () => {
+  test("running agents: both zones stay null", () => {
     const state: ChromeLiveState = {
       task: [
         { title: "chrome live helper", status: "doing" },
@@ -64,25 +64,34 @@ describe("formatChromeZones", () => {
       ],
     }
     const out = formatChromeZones(state, NOW)
-    expect(out.task).toEqual([
-      { label: "chrome live helper", status: "doing" },
-      { label: "wire chrome zone", status: "todo" },
-      { label: "wire agents zone", status: "todo" },
-    ])
-    // Hybrid: board FLEET header + kind; tail is `state · agentProgress.stat`
-    // (elapsed · tool), not the branch's tool-first wording.
-    expect(out.agents).toEqual([
-      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
-      {
-        label: "explore: map setChromeZones callers",
-        tail: " · working · 0:05 · grep",
-        stalled: false,
-        kind: "lane",
-      },
-    ])
+    // Both strips parked — live work stays on transcript ● Task rows.
+    expect(out.task).toBeNull()
+    expect(out.agents).toBeNull()
   })
 
-  test("observe overrides the agents panel", () => {
+  test("idle with open checklist still returns null (zones parked)", () => {
+    const out = formatChromeZones(
+      {
+        task: [
+          { title: "chrome live helper", status: "doing" },
+          { title: "wire chrome zone", status: "todo" },
+        ],
+        agents: [
+          {
+            agentId: "general",
+            currentToolStartedAt: null,
+            description: "write tests",
+            status: "done",
+          },
+        ],
+      },
+      NOW,
+    )
+    expect(out.agents).toBeNull()
+    expect(out.task).toBeNull()
+  })
+
+  test("observe does not force an agents panel via formatChromeZones", () => {
     const out = formatChromeZones(
       {
         agents: [
@@ -100,13 +109,9 @@ describe("formatChromeZones", () => {
       },
       NOW,
     )
-    expect(out.agents).toEqual([
-      {
-        label: "observe: explore — map callers of openListOverlay",
-        tail: "",
-        stalled: false,
-      },
-    ])
+    // Both zones always null from formatChromeZones (parked pending rebuild).
+    expect(out.agents).toBeNull()
+    expect(out.task).toBeNull()
   })
 })
 
@@ -116,7 +121,7 @@ describe("formatTasksPanel", () => {
     expect(formatTasksPanel(undefined)).toBeNull()
   })
 
-  test("each row carries its own status", () => {
+  test("open work first; done rows trail while live work remains", () => {
     expect(
       formatTasksPanel([
         { title: "first", status: "done" },
@@ -124,22 +129,19 @@ describe("formatTasksPanel", () => {
         { title: "third", status: "todo" },
       ]),
     ).toEqual([
-      { label: "first", status: "done" },
       { label: "second", status: "doing" },
       { label: "third", status: "todo" },
+      { label: "first", status: "done" },
     ])
   })
 
-  test("terminal (done/cancelled) rows still render — the panel is a live list, not just what remains", () => {
+  test("terminal-only (all done/cancelled) collapses — no permanent [x] wall", () => {
     expect(
       formatTasksPanel([
         { title: "a", status: "done" },
         { title: "b", status: "cancelled" },
       ]),
-    ).toEqual([
-      { label: "a", status: "done" },
-      { label: "b", status: "cancelled" },
-    ])
+    ).toBeNull()
   })
 
   test("empty array hides", () => {
@@ -174,8 +176,8 @@ describe("formatAgentsPanel", () => {
     )
     expect(rows).toEqual([
       { label: "FLEET  2 lanes · 2 working", tail: "", stalled: false, kind: "header" },
-      { label: "b: two", tail: " · working · 0:02", stalled: false, kind: "lane" },
-      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" },
+      { label: "● b  two", tail: " · 0:02", stalled: false, kind: "lane" },
+      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane" },
     ])
   })
 
@@ -192,7 +194,7 @@ describe("formatAgentsPanel", () => {
     ).toBeNull()
   })
 
-  test("a stalled lane names its state and reports how long it has been silent", () => {
+  test("a stalled lane uses ! marker and reports silence via the clock", () => {
     const rows = formatAgentsPanel(
       [
         {
@@ -200,35 +202,35 @@ describe("formatAgentsPanel", () => {
           currentToolStartedAt: null,
           description: "quiet worker",
           status: "running",
-          startedAt: NOW - 60_000,
-          lastActivityAt: NOW - 40_000,
+          startedAt: NOW - 180_000,
+          lastActivityAt: NOW - 310_000,
         },
       ],
       undefined,
       NOW,
     )
-    // Hybrid uses main's agentProgress wording (`quiet`, with lifetime in the
-    // stat) under the board's `stalled · …` prefix — not branch `silent`.
     expect(rows?.[1]).toEqual({
-      label: "a: quiet worker",
-      tail: " · stalled · 1:00 · quiet 0:40",
+      label: "! a  quiet worker",
+      tail: " · 3:00",
       stalled: true,
       kind: "lane",
     })
     expect(rows?.[0]?.label).toContain("1 stalled")
     expect(rows?.[0]?.kind).toBe("header")
+    expect(rows?.[0]?.stalled).toBe(true)
   })
 
   test("trouble sorts above routine progress", () => {
     const rows = formatAgentsPanel(
       [
         { agentId: "fine", description: "busy", status: "running", currentToolStartedAt: null, startedAt: NOW - 1_000, lastActivityAt: NOW },
-        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 90_000, lastActivityAt: NOW - 60_000 },
+        { agentId: "quiet", description: "silent", status: "running", currentToolStartedAt: null, startedAt: NOW - 180_000, lastActivityAt: NOW - 310_000 },
       ],
       undefined,
       NOW,
     )
-    expect(rows?.slice(1).map((r) => r.label.split(":")[0])).toEqual(["quiet", "fine"])
+    // Labels are `● id  desc` / `! id  desc` — second token is the agentId.
+    expect(rows?.slice(1).map((r) => r.label.split(/\s+/)[1])).toEqual(["quiet", "fine"])
   })
 
   test("bounds fan-out and says how many lanes it is hiding", () => {
@@ -286,10 +288,10 @@ describe("formatAgentsPanel", () => {
     const frame2 = frame1.map((a) => (a.agentId === "b" ? { ...a, lastActivityAt: NOW + 200 } : a))
     const rowsAfter = formatAgentsPanel(frame2, undefined, NOW + 200)
 
-    expect(rowsBefore?.map((r) => r.label.split(":")[0])).toEqual(
-      rowsAfter?.map((r) => r.label.split(":")[0]),
-    )
-    expect(rowsBefore?.slice(1).map((r) => r.label.split(":")[0])).toEqual(["a", "b", "c"])
+    const ids = (rows: ReturnType<typeof formatAgentsPanel>) =>
+      rows?.slice(1).map((r) => r.label.split(/\s+/)[1])
+    expect(ids(rowsBefore)).toEqual(ids(rowsAfter))
+    expect(ids(rowsBefore)).toEqual(["a", "b", "c"])
   })
 
   test("a stalled lane survives a truncated fan-out", () => {
@@ -308,15 +310,13 @@ describe("formatAgentsPanel", () => {
       currentToolStartedAt: null,
       description: "gone silent",
       status: "running" as const,
-      startedAt: NOW - 300_000,
-      lastActivityAt: NOW - 250_000,
+      startedAt: NOW - 360_000,
+      lastActivityAt: NOW - 310_000,
     }
     const rows = formatAgentsPanel([...newest, stalled], undefined, NOW, 4)
-    expect(rows?.some((r) => r.label.includes("quiet"))).toBe(true)
-    expect(rows?.some((r) => r.stalled)).toBe(true)
-    // And the ones it could not show are still accounted for.
-    expect(rows?.[0]?.label).toContain("6 lanes")
-    expect(rows?.[0]?.label).toContain("1 stalled")
+    // header + 2 lanes + more (bodyBudget 3, one spent on more → 2 lanes shown)
+    expect(rows?.[1]?.label.split(/\s+/)[1]).toBe("quiet")
+    expect(rows?.[1]?.stalled).toBe(true)
   })
 })
 
@@ -359,14 +359,9 @@ describe("chromeFromSession", () => {
     ])
 
     const zones = formatChromeZones(state, NOW)
-    expect(zones.task).toEqual([
-      { label: "wire catalogs", status: "doing" },
-      { label: "export index", status: "todo" },
-    ])
-    expect(zones.agents).toEqual([
-      { label: "FLEET  1 lane · 1 working", tail: "", stalled: false, kind: "header" },
-      { label: "explore: map callers", tail: " · working · 0:05 · grep", stalled: false, kind: "lane" },
-    ])
+    // Both chrome strips parked pending rebuild.
+    expect(zones.task).toBeNull()
+    expect(zones.agents).toBeNull()
   })
 
   test("falls back agent id; empty bags hide", () => {
@@ -385,7 +380,7 @@ describe("chromeFromSession", () => {
     expect(state.agents?.[0]?.agentId).toBe("sess-1")
   })
 
-  test("observe passes through", () => {
+  test("observe passes through on the session snapshot; chrome zones stay agents-null", () => {
     const state = chromeFromSession({
       observe: { agentId: "explore", description: "watch" },
     })
@@ -393,9 +388,7 @@ describe("chromeFromSession", () => {
       agentId: "explore",
       description: "watch",
     })
-    expect(formatChromeZones(state, NOW).agents).toEqual([
-      { label: "observe: explore — watch", tail: "", stalled: false },
-    ])
+    expect(formatChromeZones(state, NOW).agents).toBeNull()
   })
 })
 
@@ -408,17 +401,13 @@ describe("annotateAgentTools", () => {
     ],
   }
 
-  test("running agents pick up the live tool name", () => {
+  test("is an identity: a progress map never paints a tool without a store clock", () => {
+    // The store is the sole source of truth for what a worker is doing.
+    // A progress ping carries only a tool name with no clock, and is also
+    // emitted on tool completion, so it must never fill in a dead lane.
     const tools = new Map([["map callers", "grep"]])
-    const next = annotateAgentTools(state, tools)
-    expect(next.agents?.[0]?.currentToolName).toBe("grep")
-    expect(next.agents?.[1]?.currentToolName).toBeUndefined()
-  })
-
-  test("unknown descriptions and empty maps leave the state alone", () => {
+    expect(annotateAgentTools(state, tools)).toBe(state)
     expect(annotateAgentTools(state, new Map())).toBe(state)
-    const next = annotateAgentTools(state, new Map([["other work", "grep"]]))
-    expect(next.agents?.[0]?.currentToolName).toBeUndefined()
   })
 })
 
@@ -436,9 +425,11 @@ describe("lane state survives the mapping hops", () => {
     status: "running" as const,
     currentToolName: "run_shell",
     currentToolPreview: null as string | null,
-    currentToolStartedAt: NOW - 90_000,
-    startedAt: NOW - 100_000,
-    lastActivityAt: NOW - 90_000,
+    // Past DEFAULT_STALL_MS (300s) so laneState reaches the in_tool branch,
+    // still under IN_TOOL_STALL_MS (10 min). Tool clock stays at 3:00.
+    currentToolStartedAt: NOW - 180_000,
+    startedAt: NOW - 200_000,
+    lastActivityAt: NOW - 310_000,
   }
 
   test("the panel and the transcript row agree that the lane is in a tool", () => {
@@ -449,18 +440,16 @@ describe("lane state survives the mapping hops", () => {
       undefined,
       NOW,
     )
-    // Board: header first, then the lane. Operator copy uses "in tool", not
-    // the machine LaneState token.
+    // Board: header first, then the lane. Marker is ● (live); tail carries tool clock.
     expect(rows?.[0]?.kind).toBe("header")
     expect(rows?.[0]?.label).toContain("in tool")
     expect(rows?.[1]?.kind).toBe("lane")
     expect(rows?.[1]?.stalled).toBe(false)
-    expect(rows?.[1]?.tail).toContain("in tool")
-    expect(rows?.[1]?.tail).not.toContain("in_tool")
-    expect(rows?.[1]?.tail).toContain("run_shell 1:30")
+    expect(rows?.[1]?.label.startsWith("● ")).toBe(true)
+    expect(rows?.[1]?.tail).toContain("run_shell 3:00")
     expect(rows?.[1]?.tail).not.toContain("stalled")
 
-    expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 1:30")
+    expect(agentProgress(inTool, NOW)?.stat).toContain("run_shell 3:00")
   })
 
   test("a shell preview replaces the tool name on both panel and trailer (CL-5765)", () => {
@@ -480,7 +469,12 @@ describe("lane state survives the mapping hops", () => {
   })
 
   test("a genuinely silent lane still reads stalled through the same hops", () => {
-    const silent = { ...inTool, currentToolName: null, currentToolStartedAt: null }
+    const silent = {
+      ...inTool,
+      currentToolName: null,
+      currentToolStartedAt: null,
+      lastActivityAt: NOW - 310_000,
+    }
     expect(laneState(silent, NOW)).toBe("stalled")
 
     const rows = formatAgentsPanel(
@@ -492,27 +486,55 @@ describe("lane state survives the mapping hops", () => {
     expect(rows?.[0]?.label).toContain("1 stalled")
     expect(rows?.[1]?.stalled).toBe(true)
     expect(rows?.[1]?.kind).toBe("lane")
+    expect(rows?.[1]?.label.startsWith("! ")).toBe(true)
   })
 
-  // A progress ping renames the tool but carries no clock of its own, so it
-  // must not override a call the store is already timing.
+  // A progress ping renames the tool but carries no clock of its own and may
+  // arrive on tool completion — so it must not paint anything at all.
   test("the tool annotation never repaints a live call with another name", () => {
     const annotated = annotateAgentTools(
       { agents: [inTool] },
       new Map([["sleep 150", "grep"]]),
     )
     expect(annotated.agents?.[0]?.currentToolName).toBe("run_shell")
-    expect(annotated.agents?.[0]?.currentToolStartedAt).toBe(NOW - 90_000)
+    expect(annotated.agents?.[0]?.currentToolStartedAt).toBe(NOW - 180_000)
   })
 
-  test("the tool annotation still fills a gap when no call is outstanding", () => {
+  test("the tool annotation never fills a gap when no call is outstanding", () => {
+    // A lane with no outstanding call must stay null: the progress map is not
+    // a source of truth for what a worker is doing. Painting it here is what
+    // produced the false "quiet … · <tool>" stall on finished tools.
     const idle = { ...inTool, currentToolName: null, currentToolStartedAt: null }
     const annotated = annotateAgentTools(
       { agents: [idle] },
       new Map([["sleep 150", "grep"]]),
     )
-    expect(annotated.agents?.[0]?.currentToolName).toBe("grep")
+    expect(annotated.agents?.[0]?.currentToolName).toBeNull()
     expect(annotated.agents?.[0]?.currentToolStartedAt).toBeNull()
+  })
+
+  test("a stalled lane with a null tool clock is marked ! with no tool name", () => {
+    // Inference-wait silence: header counts stalled; lane uses ! marker;
+    // agentProgress never gap-fills a tool subject.
+    const silent = {
+      ...inTool,
+      currentToolName: null,
+      currentToolPreview: null,
+      currentToolStartedAt: null,
+      lastActivityAt: NOW - 310_000,
+    }
+    const rows = formatAgentsPanel(
+      chromeFromSession({ agents: [silent] }).agents,
+      undefined,
+      NOW,
+    )
+    expect(rows?.[0]?.label).toContain("1 stalled")
+    expect(rows?.[1]?.stalled).toBe(true)
+    expect(rows?.[1]?.label.startsWith("! ")).toBe(true)
+    expect(rows?.[1]?.tail).not.toContain("grep")
+    expect(agentProgress(silent, NOW)?.stat).not.toContain("quiet")
+    expect(agentProgress(silent, NOW)?.stat).not.toContain("grep")
+    expect(agentProgress(silent, NOW)?.stat).not.toContain("read_file")
   })
 })
 
@@ -522,10 +544,10 @@ describe("clampBoardRows", () => {
     // Honest disclosure is 4 prior + 2 newly dropped = 6, not 2.
     const formatted = [
       { label: "FLEET  8 lanes · 8 working", tail: "", stalled: false, kind: "header" as const },
-      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
-      { label: "b: two", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
-      { label: "c: three", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
-      { label: "d: four", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● b  two", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● c  three", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● d  four", tail: " · 0:01", stalled: false, kind: "lane" as const },
       { label: "+4 more lanes", tail: "", stalled: false, kind: "more" as const },
     ]
     const clamped = clampBoardRows(formatted, 4)
@@ -543,8 +565,8 @@ describe("clampBoardRows", () => {
   test("under a tight height the header carries the total hidden count", () => {
     const formatted = [
       { label: "FLEET  8 lanes · 8 working", tail: " · +4 hidden", stalled: false, kind: "header" as const },
-      { label: "a: one", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
-      { label: "b: two", tail: " · working · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● a  one", tail: " · 0:01", stalled: false, kind: "lane" as const },
+      { label: "● b  two", tail: " · 0:01", stalled: false, kind: "lane" as const },
     ]
     const clamped = clampBoardRows(formatted, 2)
     expect(clamped).toHaveLength(2)

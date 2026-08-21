@@ -68,9 +68,15 @@ src/
   index.ts                CLI entry: verbs, dispatch, help
   agent/
     director.ts           ChatDirector; director-layer tool defs
-    prompts.ts            System prompt builders (agent + chat)
+    prompts.ts            System prompt builders; buildChatRole → Skywalker
     tools.ts              Agent tool registration helpers
     agent-search.ts       search_agents tool + profile lexical index
+    default-agents.ts     Built-in profiles = directorProfiles() spawn catalog
+    directors/            Closed director fleet packages + registry
+      types.ts            DirectorId, DirectorPackage, TaskIntent, ModelRole
+      registry.ts         DIRECTOR_REGISTRY, resolveDirector, packageToProfile
+      tool-sets.ts        Shared allowlists (READ/IMPLEMENT/DOCS/REVIEW/…)
+      <id>/package.ts     Per-director prompt, envelope, spawn, report
     renderer.ts           Event-stream renderer (stderr + live cost; used by tests/utilities)
   session/
     index.ts              Session lifecycle (was session.ts)
@@ -82,7 +88,9 @@ src/
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
     index.ts              Sub-agent spawn + SubAgentDirector
+    task-tool.ts          task() — resolveDirector first; writePaths on child
     session-store.ts      Retained child session transcripts for observe UI
+    identity-context.ts   ALS: worker cwd + optional writePaths for gate
   config/
     index.ts              Config resolution (settings files + flags) (was config.ts)
     settings.ts           Settings schema, validators, loaders, resolveProvider
@@ -98,7 +106,8 @@ src/
     classify.ts           Tool tier + approval-request construction
     command.ts            Chained-command split + command scopes
     auto-shell-policy.ts  Auto-mode run_shell deny/ask rule table
-    gate.ts               Permission gate evaluation
+    gate.ts               Permission gate evaluation (+ director writePaths)
+    write-path-policy.ts  Basename/glob match for worker write allowlists
     matcher.ts            Approval glob matching
     store.ts              Per-directory approval persistence
     types.ts              Approval / scope / request / outcome types
@@ -119,7 +128,6 @@ src/
     runner.ts             Chat-mode agent setup; mounts the OpenTUI host
     onboarding.ts         First-run provider setup entry
     pick-session.ts       Resume picker (via runListModal)
-    session-mode-prompt.ts  Session-mode prompt (via runListModal)
     turns-to-blocks.ts    Stored turns → typed content blocks (resume hydration)
     tool-formatter.ts     Human-readable tool args/results
     markdown-parser.ts    Markdown rendering
@@ -142,6 +150,20 @@ docs/
   PLUGINS.md, TELEMETRY.md, PERFTRACE.md
 ```
 
+### Closed director fleet
+
+Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
+
+1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
+2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
+3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
+4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker; plugin agent profiles still load and can override by id.
+5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools are stripped from the primary toolset and from CORE/CATALOG ads (`PRIMARY_DENIED_PRODUCT_TOOLS`) — never-implement is structural for path tools. Residual: `run_shell` stays on primary; MCP tools loaded later are not re-stripped by that deny list; optional `writePaths` (when a profile sets it) only gate path-keyed product tools.
+6. Shipped directors omit `writePaths`. The optional field is still enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`) when a plugin/custom profile sets it.
+7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/worker binary > parent inheritance. Optional skills are listed in the identity header for awareness; workers do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
+
+Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other directors no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
+
 ### Auto Mode
 
 Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). It is toggled only via those CLI flags — there is currently no in-session key bound to it. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call. Skip-permissions (`--dangerously-skip-permissions`) has a mid-session TUI toggle: `/yolo [on|off|toggle]` (bare `/yolo` also toggles) wires `getSkipPermissions`/`setSkipPermissions` so the gate and pre-gate sandboxes honor the change on the next tool call without rebuilding plugins.
@@ -161,10 +183,12 @@ Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/pr
 
 ### Interrupt and Queue Steering
 
-`ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true:
+`ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true, drain timing is **parent-idle** vs **session-idle**:
 
-- **Enter** calls `onInterrupt`. `App.handleInterrupt` calls `requestStop()` synchronously — which calls `sendAbortRef.current.abort()` — before `resolveAtMentions` yields, ensuring the abort signal reaches the in-flight HTTP request before any async work begins.
-- **Alt+Enter** calls `onSubmit` immediately, pushing the message onto `pendingQueueRef` for drain at the next `connector.reply`.
+- **Enter** soft-steers — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `task()` is parent-busy and holds steers.
+- **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
+
+A live fleet with a blocked parent is neither parent-idle nor session-idle. Idle-with-fleet (parent idle after dispatch so Enter is a turn while workers run) is not shipped.
 
 `src/tui/stream-event-map.ts` maps reactor events onto the bridge's inbound events, and `src/tui/turn-state.ts` tracks the turn's status. `src/tui/turns-to-blocks.ts` hydrates a resumed session's stored turns into the same content blocks.
 
@@ -209,9 +233,9 @@ Provider and model configuration lives in JSON settings files. The global file h
   - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()` (defaults ~11 min / 30 min).
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
-  Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for leaf sub-agents (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Applies when `sessionMode` is **orchestrator**.
+  Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Always applies — the primary session is always orchestrator-capable (CL-5814).
 
-  Optional `sessionMode`: **`single`** (one primary agent, no `task` / `search_agents` on the wire) or **`orchestrator`** (default once chosen — delegates via `task` and advertises agent profiles). When unset on first TUI launch, Corbits Code prompts once; **Enter** saves the highlighted choice here. **Ctrl+C** on that prompt skips persistence and runs **orchestrator** for that session only. Per-repo override: `.corbits/settings.json` `{ "sessionMode": "single" | "orchestrator" }` (Settings → Session). Changes in Settings apply on the **next** session start. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) resolve `sessionMode` the same way from global + per-repo settings (default orchestrator when unset). Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
+  Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
 
 
 - Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
@@ -268,7 +292,7 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 
 Providers and credentials are read exclusively from settings files: the global `~/.corbits/settings.json` (definitions + credentials) and the per-repo `.corbits/settings.json` (selection only). There are no `OPENAI_COMPATIBLE_*` environment-variable overrides, and `index.ts` does not load `.env` files — a deliberately stale or exported key can no longer shadow the configured provider.
 
-**Models-first connect.** There is no standalone `/login` command. `/model` opens on a flat **models-only** list (Recent, Favorites, then connected provider/model rows) built by `buildModelsFirstList` (`src/tui/model-picker.ts`); type-to-filter owns printable keys. **Alt+A** opens Connect via `addProviderSelectorChoices` (`src/tui/provider-setup.ts`), which lists every first-class kind including Custom — never bare `c` / Ctrl+A, and never in-list “connect →” rows. First-class API-key rows use a named-instance + auth-only form (instance name, key; catalog base URL is display-only); Custom keeps the full manual form. **Alt+F** toggles favorites; recent/favorite pairs live in global settings (`recentModels` / `favoriteModels`). First-class providers ship from `packages/first-class-providers` (corbits-agnostic defs) and `packages/opencode-go` (Go catalog, auth validate, multi-protocol endpoints, usage). OAuth providers open the existing browser login modal with a named account step; API-key providers share the same multi-instance naming and pre-seed models on save so selection works without restart. Both OAuth and API-key (including Custom) connects share `persistConnectedSelection` in `provider-setup-submit.ts` so project-local provider/model selection is written alongside global credentials. OpenCode Go forces `OPENCODE_GO_BASE_URL` when `opencodeGo` is set so subscription traffic is not billed as Zen PAYG.
+**Models-first connect.** There is no standalone `/login` command. `/model` opens on a flat **models-only** list (Recent, Favorites, then connected provider/model rows) built by `buildModelsFirstList` (`src/tui/model-picker.ts`); type-to-filter owns printable keys. **Alt+A** opens Connect via `addProviderSelectorChoices` (`src/tui/provider-setup.ts`), which lists every first-class kind including Custom — never bare `c` / Ctrl+A, and never in-list “connect →” rows. First-class API-key rows use a named-instance + auth-only form (instance name, key; catalog base URL is display-only); Custom keeps the full manual form. **Alt+F** toggles favorites; recent/favorite pairs live in global settings (`recentModels` / `favoriteModels`). **Alt+D** sets the default via `setDefaultModel` (global `defaultProvider` + that provider's `defaultModel`) plus `persistConnectedSelection` without switching the live session. First-class providers ship from `packages/first-class-providers` (corbits-agnostic defs) and `packages/opencode-go` (Go catalog, auth validate, multi-protocol endpoints, usage). OAuth providers open the existing browser login modal with a named account step; API-key providers share the same multi-instance naming and pre-seed models on save so selection works without restart. Both OAuth and API-key (including Custom) connects share `persistConnectedSelection` in `provider-setup-submit.ts` so project-local provider/model selection is written alongside global credentials. OpenCode Go forces `OPENCODE_GO_BASE_URL` when `opencodeGo` is set so subscription traffic is not billed as Zen PAYG.
 
 **OpenCode Go multi-protocol.** Each Go model carries protocol metadata (`chat-completions`, `responses`, or `messages`). `buildGoSource` / `resolveGoEndpoint` pick the adapter and base URL per model (not a single provider-wide OpenAI route). When Go is the active provider, subscription usage is fetched for the status bar and omitted on auth/network failure.
 
@@ -281,7 +305,8 @@ Printed by `corbits --help` / `-h` from `CLI_HELP_TEXT` in `src/config/index.ts`
 |---|---|---|
 | _(no verb)_ | — | Interactive session; optional trailing task text |
 | `exec` / `run` | — | Run a prompt (non-interactive / one-shot) |
-| `resume` / `continue` | — | Reopen the latest session for this folder (project-keyed; worktrees of the same git root share sessions) |
+| `resume` / `continue` | — | Open the session picker for this folder (project-keyed to this checkout's git toplevel) |
+| `--resume` | — | Open the interactive session picker |
 | `resume <session-id>` | — | Reopen a specific session |
 | `resume --pick` / `--list` | — | Interactive session picker |
 | `--cwd <dir>` | `process.cwd()` | Working directory |
@@ -315,7 +340,7 @@ Session runtime state lives under the global projects tree (not in the repo):
 
 - `~/.corbits/projects/<project-key>/<session-id>/run.json` — `RunState`
 - `~/.corbits/projects/<project-key>/<session-id>/context/` — git-backed conversation context (`@intx/storage-isogit`)
-- Project key: slug + short hash of the shared git root (from `--git-common-dir`, so main + linked worktrees share one key; workspace realpath when not a git tree)
+- Project key: slug + short hash of this checkout's git toplevel (from `--show-toplevel`, so linked worktrees have distinct keys; workspace realpath when not a git tree)
 
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
@@ -346,7 +371,7 @@ the directors guard on; the full set of reactor and stream event types is
 treat that as canonical rather than this section or any other doc's partial
 list.
 
-Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. The prompt hint (`src/tui/stream.ts`, `PROMPT_HINT`) reads `Enter queue · Alt+Enter steer · Ctrl+C stop`.
+Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-queue.ts` (interaction contract §3): `enqueue` (kind `"queue"`) and `enqueueSteer` (kind `"steer"`) share one pending pool, drained steer-first, then queue, both FIFO within their class. Mid-run gestures: Enter soft-steers (drain at the next **parent** `tool.boundary` — the parent tool finishing, not a child; parent-busy holds steers), Alt+Enter queues a follow-up (drain on **session-idle**: parent-idle and no live fleet lanes), Ctrl+C stops. Idle-with-fleet is not shipped.
 
 ### Lifecycle Hooks
 
@@ -365,10 +390,10 @@ Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-
 
 See `docs/PLUGINS.md` for the full design. Summary:
 
-- Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | tool`. A workflow is just a slash command, so there is no separate workflow/agent kind.
+- Every installable plugin exports a `manifest` (`{ id, name, kind, description?, credentials? }`) with `kind` one of `web | command | workflow | tool | agent`.
 - Plugins are auto-discovered from `plugins/`, `<cwd>/.corbits/plugins/`, and `~/.corbits/plugins/`, plus any explicit file/dir paths in `settings.pluginPaths`. When `settings.discoverClaudePlugins` is true, plugins listed in `~/.claude/plugins/installed_plugins.json` are also loaded (install paths only; still require enable). The `/plugins` UI's "add by path" action (`a`) loads a plugin from anywhere on disk, validates its manifest, and persists the path. Discovery resolves relative imports to absolute first (`loadPluginEntry`). Project-local plugins require per-cwd trust (`~/.corbits/trust/<hash>.json`); path plugins use global path trust (`~/.corbits/trust/path-plugins.json`) so they keep working across project directories. Untrusted origins load metadata-only until granted.
 
-- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true. `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.ts` (via `tools.ts` helpers). `web` → `web_search`/`web_fetch` are now always-on core built-ins (`src/tools/web-search.ts`, `src/tools/web-fetch.ts`), not plugin-backed; a discovered `kind: "web"` plugin is retained for brand-display resolution only (`resolveWebProviderFromPlugins`/`webBrand` in `src/web/plugin-provider.ts`) and no longer supplies the tool implementation.
+- **Explicit enable:** nothing is wired in until `settings.plugins[id].enabled` is true, except the repo-origin `defaultEnabled` case: when `origin === "repo"` AND `manifest.defaultEnabled` is true AND `settings.plugins[id]` is missing, the plugin auto-enables (this is how first-party `corbits-skills` is on out of the gate). An explicit `enabled: false` still disables. Marketplace (user / project / path / claude) `defaultEnabled` is ignored — those plugins stay opt-in. `command` → `registerCommandPlugins` registers slash commands (live on enable); `tool` → `resolveToolPlugins` instantiates `createToolPlugin(credentials)` and appends the tools to the posix toolset assembled in `src/tui/runner.ts` (via `tools.ts` helpers). `web` → `web_search`/`web_fetch` are now always-on core built-ins (`src/tools/web-search.ts`, `src/tools/web-fetch.ts`), not plugin-backed; a discovered `kind: "web"` plugin is retained for brand-display resolution only (`resolveWebProviderFromPlugins`/`webBrand` in `src/web/plugin-provider.ts`) and no longer supplies the tool implementation.
 - **Tool consent:** a `tool` plugin runs in-process, so it is wired in only when enabled AND `consented`. The `/plugins` UI prompts a one-time y/n consent recorded in `settings.plugins[id].consented`.
 - Configure via `/plugins`, which writes `settings.plugins` (enabled / consented / credentials), `settings.web`, and `settings.pluginPaths` to the global settings file. Credentials live in the global file because it carries secrets — the project-local settings file rejects credential keys. When a web plugin is active its tool calls render under its brand (e.g. "Exa Search"). Example: `{ "web": "exa", "plugins": { "exa": { "enabled": true, "credentials": { "apiKey": "..." } } } }`.
 

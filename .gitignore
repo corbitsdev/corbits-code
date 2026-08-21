@@ -19,9 +19,10 @@ tmp/
 .tmp*
 worktree
 worktrees
-dispatch/
+/dispatch/
 evals/capability/results/*
 !evals/capability/results/baseline-0286.json
+evals/public/results/*
 local-harness-bench/
 subagents/
 

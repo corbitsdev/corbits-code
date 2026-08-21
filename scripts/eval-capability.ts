@@ -29,6 +29,7 @@ import {
   expandMatrix,
   makeResultKey,
   evaluateSoftBudget,
+  checkBehaviorRequirements,
   httpFixtureEnv,
   withEnv,
   detectProviderFallback,
@@ -68,6 +69,7 @@ type CliOptions = {
   /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
   repeats: number;
   dryRun: boolean;
+  help: boolean;
   /**
    * Allow a run/comparison to proceed when the resolved provider/model
    * differs from what was requested, instead of hard-failing.
@@ -76,35 +78,37 @@ type CliOptions = {
 };
 
 function printUsage(): void {
-  console.log(`Usage: bun scripts/eval-capability.ts [options]
+  console.log(`Usage: bun scripts/eval-capability.ts --provider <name> --model <id> [options]
+       bun scripts/eval-capability.ts --matrix <cells> [options]
 
   --case <id|all>       Case id (default: all)
-  --provider <name>     Provider override (single-variant run)
-  --model <id>          Model override (single-variant run)
-  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m,..."
+  --provider <name>     Provider name (required except --help, or --matrix with complete cells)
+  --model <id>          Model id (required except --help, or --matrix with complete cells)
+  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m,..."; each cell needs both sides
   --config <path>       Settings file override
   --out <path>          Write results JSON
   --baseline <path>     Compare to prior results JSON
   --ask-permissions     Do not pass --dangerously-skip-permissions
   --max-turns <n>       Soft turn budget (case fails if turnsUsed exceeds; not a hard kill)
-  --agent-timeout-ms <n> Wall-clock limit for runExec (default 600000)
+  --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
-  --dry-run             List cases × variants only
+  --dry-run             List cases × variants only (still requires --provider/--model or --matrix)
   --allow-provider-fallback  Allow resolved provider/model to differ from
                              what was requested (default: hard-fail)
   -h, --help            Show help
 `);
 }
 
-function parseArgs(argv: readonly string[]): CliOptions {
+export function parseArgs(argv: readonly string[]): CliOptions {
   const opts: CliOptions = {
     caseSelector: "all",
     skipPermissions: true,
     repeats: 1,
     dryRun: false,
+    help: false,
     allowProviderFallback: false,
-    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 600_000),
+    agentTimeoutMs: Number(process.env.CORBITS_EVAL_AGENT_TIMEOUT_MS ?? 1_200_000),
     verifyTimeoutMs: Number(process.env.CORBITS_EVAL_VERIFY_TIMEOUT_MS ?? 120_000),
   };
   for (let i = 0; i < argv.length; i++) {
@@ -117,8 +121,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
     switch (a) {
       case "-h":
       case "--help":
-        printUsage();
-        process.exit(0);
+        opts.help = true;
         break;
       case "--case":
         opts.caseSelector = next();
@@ -182,7 +185,30 @@ function parseArgs(argv: readonly string[]): CliOptions {
         throw new Error(`Unknown argument: ${a}`);
     }
   }
+  if (!opts.help) {
+    requireExplicitModelPair(opts);
+  }
   return opts;
+}
+
+function requireExplicitModelPair(opts: CliOptions): void {
+  const matrix = opts.matrix?.trim();
+  if (matrix !== undefined && matrix.length > 0) {
+    parseMatrix(matrix, {
+      provider: opts.provider,
+      model: opts.model,
+    });
+    return;
+  }
+  if (!opts.provider && !opts.model) {
+    throw new Error("missing required --provider and --model (or --matrix)");
+  }
+  if (!opts.provider) {
+    throw new Error("missing required --provider");
+  }
+  if (!opts.model) {
+    throw new Error("missing required --model");
+  }
 }
 
 function runCommand(
@@ -254,10 +280,78 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
+/** Skill names referenced by global plugins; stubs avoid missing-skill noise in hermetic evals. */
+const EVAL_SKILL_STUBS = [
+  "style",
+  "philosophy",
+  "brand-identity",
+  "dispatch",
+  "interview",
+  "typescript",
+] as const;
+
+/**
+ * Seed minimal skill stubs under `.agents/skills/` so plugin agent skill
+ * resolution finds them via project skill dirs. Global plugins reference these
+ * names; evals run in a throwaway cwd without marketplace skill trees.
+ */
+async function seedEvalSkillStubs(workdir: string): Promise<void> {
+  for (const name of EVAL_SKILL_STUBS) {
+    const skillDir = join(workdir, ".agents", "skills", name);
+    await mkdir(skillDir, { recursive: true });
+    const body = [
+      "---",
+      `name: ${name}`,
+      `description: Eval stub for ${name} skill.`,
+      "---",
+      "",
+      `Eval stub skill: ${name}.`,
+      "",
+    ].join("\n");
+    await writeFile(join(skillDir, "SKILL.md"), body, "utf8");
+  }
+}
+
+/**
+ * Initialize a git repo in an eval tmp workdir so isolated workers have HEAD
+ * and git-aware skills have a baseline. Identity is `git -c`, never env or
+ * global config. The fixture commit is unsigned (`--no-gpg-sign`,
+ * `-c commit.gpgsign=false`) and skips hooks (`--no-verify`) so operator
+ * `commit.gpgsign` / `core.hooksPath` cannot fail or sign with the operator
+ * key. Do not call this on source fixtures.
+ */
+export async function initEvalGitRepo(workdir: string): Promise<void> {
+  const identity = ["-c", "user.email=eval@local", "-c", "user.name=eval"] as const;
+  const git = async (args: readonly string[]): Promise<void> => {
+    const result = await runCommand("git", args, workdir, 30_000);
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr || result.stdout}`,
+      );
+    }
+  };
+  await git(["init"]);
+  await git([...identity, "add", "-A"]);
+  await git([
+    ...identity,
+    "-c",
+    "commit.gpgsign=false",
+    "commit",
+    "--no-gpg-sign",
+    "--no-verify",
+    "-m",
+    "eval fixture",
+  ]);
+}
+
 async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; capturePath: string }> {
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
   await cp(fixtureAbs, work, { recursive: true });
+  // Global plugins reference style/philosophy/etc.; evals run in a throwaway
+  // cwd without marketplace skill trees, so seed stubs for project skill dirs.
+  await seedEvalSkillStubs(work);
+  await initEvalGitRepo(work);
   // Sibling of the workdir so the agent and verify.sh never see the capture.
   const capturePath = `${work}-run-summary.json`;
   await installRunCaptureHook(work, capturePath);
@@ -474,7 +568,9 @@ async function runCase(
 
     const config = await loadConfig(argv, { allowUnconfigured: false });
     if (!config.configured) {
-      throw new Error("Provider not configured for eval run");
+      throw new Error(
+        "Provider not configured. Pass --provider <name> --model <id> (or --matrix) matching a configured provider.",
+      );
     }
 
     const agentStarted = Date.now();
@@ -535,6 +631,16 @@ async function runCase(
       );
     }
 
+    const requireBehaviorCheck =
+      caseDef.requireBehaviors !== undefined && caseDef.requireBehaviors.length > 0
+        ? checkBehaviorRequirements(behaviors, caseDef.requireBehaviors)
+        : { ok: true, failures: [] as string[] };
+    if (!requireBehaviorCheck.ok) {
+      for (const failure of requireBehaviorCheck.failures) {
+        console.log(`requireBehaviors: ${failure}`);
+      }
+    }
+
     const verifyEnv: Record<string, string> = httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
     const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
     if (verify.output.trim().length > 0) {
@@ -545,8 +651,12 @@ async function runCase(
     // Soft maxTurns: fail when exceeded; fail closed when turns weren't reported.
     const budget = evaluateSoftBudget({ maxTurns, turnsUsed });
     const overBudget = budget.overBudget;
-    const passed =
-      agentExitCode === 0 && verify.exitCode === 0 && overBudget !== true;
+    // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
+    let passed =
+      agentExitCode === 0
+      && verify.exitCode === 0
+      && overBudget !== true
+      && requireBehaviorCheck.ok;
     const preview =
       execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
 
@@ -554,6 +664,8 @@ async function runCase(
     if (!passed) {
       if (budget.budgetError !== null) {
         error = budget.budgetError;
+      } else if (!requireBehaviorCheck.ok) {
+        error = requireBehaviorCheck.failures.join("; ");
       } else if (verify.timedOut) {
         error = `verify timed out after ${opts.verifyTimeoutMs}ms`;
       } else if (execResult.error !== undefined) {
@@ -563,6 +675,13 @@ async function runCase(
       } else {
         error = `agent exit ${agentExitCode}`;
       }
+    }
+
+    // Surface require-behavior failures in the text preview so JSON shows why.
+    let textPreview = preview;
+    if (!requireBehaviorCheck.ok) {
+      const reqNote = `requireBehaviors: ${requireBehaviorCheck.failures.join("; ")}`;
+      textPreview = textPreview.length > 0 ? `${reqNote}\n${textPreview}` : reqNote;
     }
 
     return {
@@ -591,7 +710,7 @@ async function runCase(
       repeat,
       behaviors,
       providerFallback,
-      textPreview: preview,
+      textPreview,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -625,6 +744,10 @@ function formatMetricsLine(r: CaseResult): string {
 
 async function main(): Promise<number> {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.help) {
+    printUsage();
+    return 0;
+  }
   const all = await loadEvalCases(CASES_ROOT);
   const selected = filterCases(all, opts.caseSelector);
   const variants = parseMatrix(opts.matrix, {

@@ -23,9 +23,9 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 | Package | Vendor path | License | Synced from upstream commit | Retrieved | Local patches |
 |---|---|---|---|---|---|
-| `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | None — verbatim |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `cd7c5a37747dc39713d1efd24296ea861e6ac82a` | 2026-08-08 | None — verbatim |
+| `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | Yes — see `vendor/intx-inference/PATCHES.md` |
+| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | None — verbatim |
+| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | None — verbatim |
 
 The license column records what each package declares in its own
 `package.json`; the corresponding `LICENSE` file travels with every vendored

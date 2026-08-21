@@ -89,6 +89,8 @@ export type RunnerHostDeps = {
   readonly onConnectProvider?: (providerName: string) => void
   /** `f` on a focused model row; runner owns the favorite persist + refresh. */
   readonly onFavoriteToggle?: (id: string) => void
+  /** Alt+D on a focused model row; runner owns the default persist. */
+  readonly onSetDefault?: (id: string) => void
   /**
    * Alt+A from the model picker: every first-class provider kind, read fresh
    * on each open so a just-connected account's count is current.
@@ -266,6 +268,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       : {}),
     ...(deps.onFavoriteToggle !== undefined
       ? { onFavoriteToggle: deps.onFavoriteToggle }
+      : {}),
+    ...(deps.onSetDefault !== undefined
+      ? { onSetDefault: deps.onSetDefault }
       : {}),
     ...(deps.addProviderChoices !== undefined
       ? { addProviderChoices: deps.addProviderChoices }

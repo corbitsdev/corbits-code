@@ -21,7 +21,7 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream"
-import { thinkingScrollLine, thinkingSettledLine } from "./thinking"
+import { thinkingLivePreviewLines, thinkingSettledLine } from "./thinking"
 import { describeView, toolArgsView } from "./tool-args"
 
 const WIDE: RowLayout = { width: 96, multiAgent: false }
@@ -164,23 +164,32 @@ describe("tool arguments collapse to a human summary", () => {
   })
 })
 
-describe("reasoning collapses to one line", () => {
+describe("reasoning collapses to a short wrapped preview", () => {
   const text =
     "the token helper is referenced from four packages and two of them are vendored, so the rename has to land in one commit"
 
-  test("while thinking it is a single row windowed onto the newest text", () => {
+  test("while thinking it wraps a short preview instead of sideways-scrolling", () => {
     const painted = lines({ role: "system", meta: "thinking", text, streaming: true })
-    expect(painted.length).toBe(1)
+    expect(painted.length).toBeGreaterThanOrEqual(1)
+    expect(painted.length).toBeLessThanOrEqual(3)
     // Inset and dim is the whole of reasoning's chrome; it carries no rail.
-    expect(painted[0]).not.toContain("┆")
-    expect(painted[0]?.trimEnd().endsWith("one commit")).toBe(true)
-    expect((painted[0] as string).length).toBeLessThanOrEqual(WIDE.width)
+    expect(painted.every((line) => !line.includes("┆"))).toBe(true)
+    expect(painted.join("\n")).toContain("one commit")
+    for (const line of painted) {
+      expect(line.length).toBeLessThanOrEqual(WIDE.width)
+    }
   })
 
-  test("the window follows the tail rather than growing the row", () => {
-    expect(thinkingScrollLine("abc def", 20)).toBe("abc def")
-    expect(thinkingScrollLine("abcdefghij", 4)).toBe("ghij")
-    expect(thinkingScrollLine("line one\nline two", 40)).toBe("line one line two")
+  test("the live preview wraps newest text rather than windowing one row", () => {
+    expect(thinkingLivePreviewLines("abc def", 20)).toEqual(["abc def"])
+    expect(thinkingLivePreviewLines("abcdefghij", 4)).toEqual([
+      "abcd",
+      "efgh",
+      "ij",
+    ])
+    expect(thinkingLivePreviewLines("line one\nline two", 40)).toEqual([
+      "line one line two",
+    ])
   })
 
   test("once done it keeps its own text rather than swapping in a phrase", () => {
@@ -206,7 +215,7 @@ describe("reasoning collapses to one line", () => {
     expect(expanded[expanded.length - 1]?.trim()).toBe("╵ 12s")
   })
 
-  test("a long chain of thought is cut, never wrapped onto a second row", () => {
+  test("a long settled chain of thought is cut, never wrapped onto a second row", () => {
     expect(thinkingSettledLine("abc def", 20)).toBe("abc def")
     expect(thinkingSettledLine("abcdefghij", 6)).toBe("abcde…")
     expect(thinkingSettledLine("line one\nline two", 40)).toBe("line one line two")

@@ -7,6 +7,21 @@ export function isPluginEnabled(config: Record<string, PluginConfig>, id: string
   return config[id]?.enabled === true;
 }
 
+// Enablement for a loaded module: explicit settings win; otherwise only a
+// first-party repo plugin with manifest.defaultEnabled turns on. Marketplace
+// (user), path, and project plugins cannot self-enable via the flag.
+export function isPluginModuleEnabled(
+  mod: PluginModule,
+  config: Record<string, PluginConfig | undefined>,
+): boolean {
+  const id = mod.manifest?.id;
+  if (id === undefined) return false;
+  const enabled = config[id]?.enabled;
+  if (enabled === true) return true;
+  if (enabled === false) return false;
+  return mod.origin === "repo" && mod.manifest?.defaultEnabled === true;
+}
+
 // Mark a plugin enabled while preserving credentials/consented and other fields.
 // Path-add and similar consent actions must call this so restart re-wires slash
 // commands (isPluginEnabled is strict: missing entry === disabled).
@@ -26,7 +41,7 @@ export function isEnabledCommandPlugin(mod: PluginModule, config: Record<string,
   // commands wire as an added surface without changing the plugin's primary kind.
   return (
     (kind === "command" || kind === "workflow" || kind === "agent") &&
-    isPluginEnabled(config, mod.manifest!.id)
+    isPluginModuleEnabled(mod, config)
   );
 }
 
@@ -34,7 +49,7 @@ export function isEnabledWorkflowPlugin(mod: PluginModule, config: Record<string
   return (
     mod.manifest?.kind === "workflow" &&
     mod.workflowPlugin !== undefined &&
-    isPluginEnabled(config, mod.manifest.id)
+    isPluginModuleEnabled(mod, config)
   );
 }
 

@@ -295,6 +295,10 @@ describe("Wave 6: chrome zones", () => {
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
+          // CL-5847: the panel is hidden by default — toggle to show before
+          // asserting it paints.
+          toggleTasksPanel(shell)
+
           expect(shell.layout.heights.task).toBe(1)
           expect(shell.layout.heights.agents).toBe(1)
           expect(shell.taskBox.visible).toBe(true)
@@ -467,6 +471,9 @@ describe("CL-5731: task list panel", () => {
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
 
+          // CL-5847: hidden by default — opt in to see the checklist.
+          toggleTasksPanel(shell)
+
           expect(shell.layout.heights.task).toBe(3)
           expect(shell.taskBox.getChildren()).toHaveLength(3)
           // A distinct zone/box from the agents panel — not folded into it.
@@ -506,6 +513,38 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
+  test("stays hidden by default when the task list carries rows, until toggled (CL-5847)", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        })
+        try {
+          // A fresh shell with seeded tasks paints no task panel — the data
+          // is buffered underneath, waiting on Alt+T to opt in.
+          setChromeZones(shell, {
+            task: [{ label: "seeded but hidden", status: "todo" }],
+          })
+          expect(shell.layout.heights.task).toBe(0)
+          expect(shell.taskBox.visible).toBe(false)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).not.toContain("seeded but hidden")
+
+          // Toggling is the only way the panel surfaces.
+          toggleTasksPanel(shell)
+          expect(shell.taskBox.visible).toBe(true)
+          expect(shell.layout.heights.task).toBe(1)
+          await h.renderOnce()
+          expect(h.captureCharFrame()).toContain("seeded but hidden")
+        } finally {
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
   test("updates live as the task list changes, without touching the agents panel", async () => {
     await withTestRenderer(
       async (h) => {
@@ -518,16 +557,24 @@ describe("CL-5731: task list panel", () => {
             task: [{ label: "first task", status: "todo" }],
             agents: [{ label: "explore: map callers", tail: "", stalled: false }],
           })
-          const agentsRowsBefore = [...shell.agentsBox.getChildren()]
+          const agentsHeightBefore = shell.layout.heights.agents
 
           setChromeZones(shell, {
             task: [{ label: "first task", status: "done" }],
           })
 
+          // CL-5847: hidden by default — opt in to see the live update.
+          toggleTasksPanel(shell)
+
           await h.renderOnce()
           const frame = h.captureCharFrame()
           expect(frame).toContain("[x] first task")
-          expect([...shell.agentsBox.getChildren()]).toEqual(agentsRowsBefore)
+          // The agents board content survives the task panel rebuild: the
+          // row is still painted (do not deep-compare renderable nodes —
+          // OpenTUI renderables carry circular refs that hang toEqual).
+          expect(shell.agentsBox.getChildren()).toHaveLength(1)
+          expect(shell.layout.heights.agents).toBe(agentsHeightBefore)
+          expect(frame).toContain("explore: map callers")
         } finally {
           shell.dispose()
         }
@@ -536,7 +583,7 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
-  test("toggling hides the panel without losing the live task data, and un-hiding restores it", async () => {
+  test("default-hidden panel surfaces live task data on toggle without a stale snapshot", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -544,11 +591,19 @@ describe("CL-5731: task list panel", () => {
           wireKeys: false,
         })
         try {
+          // CL-5847: the panel is hidden by default, even after chrome
+          // carries task rows. The data still lands in tasksRaw underneath.
           setChromeZones(shell, {
             task: [{ label: "wire toggle", status: "doing" }],
           })
+          expect(shell.taskBox.visible).toBe(false)
+          expect(shell.layout.heights.task).toBe(0)
+
+          // First toggle shows the panel.
+          toggleTasksPanel(shell)
           expect(shell.taskBox.visible).toBe(true)
 
+          // Second toggle hides it again.
           toggleTasksPanel(shell)
           expect(shell.taskBox.visible).toBe(false)
           expect(shell.layout.heights.task).toBe(0)
@@ -588,11 +643,11 @@ describe("CL-5731: task list panel", () => {
           // Which panels are showing is a property of the current screen, not
           // an event in the conversation, so it costs no scrollback.
           expect(streamRowCount(shell)).toBe(before)
-          expect(shell.statusFlash).toContain("hidden")
+          expect(shell.statusFlash).toContain("shown")
 
           toggleTasksPanel(shell)
           expect(streamRowCount(shell)).toBe(before)
-          expect(shell.statusFlash).toContain("shown")
+          expect(shell.statusFlash).toContain("hidden")
         } finally {
           shell.dispose()
         }
@@ -601,7 +656,7 @@ describe("CL-5731: task list panel", () => {
     )
   })
 
-  test("the toggle persists across further chrome pushes for the life of the shell", async () => {
+  test("the default-hidden choice persists across further chrome pushes for the life of the shell", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -609,11 +664,12 @@ describe("CL-5731: task list panel", () => {
           wireKeys: false,
         })
         try {
+          // CL-5847: hidden by default — no toggle needed to keep it that way.
           setChromeZones(shell, { task: [{ label: "a", status: "todo" }] })
-          toggleTasksPanel(shell)
           expect(shell.taskBox.visible).toBe(false)
 
-          // Several unrelated live pushes later, the hidden choice still holds.
+          // Several unrelated live pushes later, the default-hidden choice
+          // still holds.
           setChromeZones(shell, { task: [{ label: "a", status: "doing" }] })
           setChromeZones(shell, { agents: [{ label: "x: y", tail: "", stalled: false }] })
           setChromeZones(shell, { task: [{ label: "a", status: "done" }] })

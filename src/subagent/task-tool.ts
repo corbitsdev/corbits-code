@@ -14,6 +14,16 @@ import type {
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
+import {
+  isDirectorId,
+  packageToCapabilities,
+  resolveDirector,
+} from "../agent/directors/registry.js";
+import {
+  defaultEffortForDirector,
+  formatDirectorSystemPrompt,
+} from "../agent/directors/identity.js";
+import type { DirectorPackage } from "../agent/directors/types.js";
 import type { Settings } from "../config/settings.js";
 import {
   resolveSubAgentMaxTurns,
@@ -70,7 +80,7 @@ export const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so leaves finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
+    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
   inputSchema: {
     type: "object",
     properties: {
@@ -104,12 +114,12 @@ export const taskToolDefinition: ToolDefinition = {
         type: "array",
         items: { type: "string" },
         description:
-          "Optional concrete done checks. Preferred over free-form prompt alone as the leaf's completion gate.",
+          "Optional concrete done checks. Preferred over free-form prompt alone as the worker's completion gate.",
       },
       do_not: {
         type: "array",
         items: { type: "string" },
-        description: "Optional explicit out-of-scope or forbidden actions for the leaf.",
+        description: "Optional explicit out-of-scope or forbidden actions for the worker.",
       },
       report_focus: {
         type: "string",
@@ -118,7 +128,7 @@ export const taskToolDefinition: ToolDefinition = {
       agent: {
         type: "string",
         description:
-          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, leaf medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
+          "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, worker medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
       },
       maxTurns: {
         type: "number",
@@ -161,11 +171,18 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   // sessions the Agents strip can indent under it.
   parentSessionId?: string;
   /**
+   * When set, only these agent/director ids may be spawned. Nested directors
+   * (greybeard) pass their package spawn.allowlist; primary omits this so
+   * plugin profiles remain reachable.
+   */
+  spawnAllowlist?: readonly string[];
+  /**
    * Optional wall-clock budget (ms) for each worker this tool spawns. Opt-in
    * only — there is no default leaf death clock. When set, clamped below the
    * outer tool-execution watchdog so a salvage report can return first.
    */
   deadlineMs?: number;
+
   /**
    * Opt-in: isolate each spawn in its own git worktree branched from the
    * dispatcher's HEAD instead of sharing deps.cwd. Fails closed (see
@@ -239,9 +256,15 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
+      let writePaths: readonly string[] | undefined;
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
+      let resolvedDirectorId: string | undefined;
+      let resolvedPackage: DirectorPackage | undefined;
+      /** Child-package spawn allowlist to forward into nested task (if this worker may spawn). */
+      let nestedSpawnAllowlist: readonly string[] | undefined;
       const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       // OAuth providers live in the live catalog, not settings.json. Overlay so
       // inference resolution can target Codex/xAI the same way the TUI does.
@@ -300,66 +323,165 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       };
 
       if (agentId !== undefined && agentId.length > 0) {
-        // Fail closed: an explicit agent= that cannot be resolved is an error,
-        // not a silent fall-through to a generic worker. Silent fall-through
-        // made typos and stale ids look like successful generic dispatches.
-        if (profiles === undefined) {
-          return taskToolResult(
-            call.id,
-            `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`,
-          );
-        }
-        const profile = profiles.find((p) => p.id === agentId);
-        if (profile === undefined) {
-          const known = profiles.map((p) => p.id).sort();
-          // Point at search_agents (which injects full system prompt bodies) rather
-          // than read_file on plugin roots — path-escape blocks those paths by design.
-          const hint =
-            known.length > 0
-              ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
-              : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
-          return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
-        }
-        if (profile.capabilities !== undefined) {
-          capabilities = profile.capabilities;
-        }
-        if (profile.maxTurns !== undefined) {
-          profileMaxTurns = profile.maxTurns;
-        }
-        if (profile.systemPromptRole !== undefined) {
-          systemPromptRole = profile.systemPromptRole;
-        }
-        // Nested workers (allowOrchestrator: false) cannot re-enter orchestration
-        // even if their profile is marked orchestrator — recursion bottoms out.
-        if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
-          orchestrator = true;
-        }
-        // Per-agent pinned inference (provider/model/effort), if declared.
-        // Resolution uses policy (mode: pin / agentModelFallback: none) so a
-        // forbidden fallback surfaces as a dispatch error rather than
-        // silently running on the parent's provider.
-        if (profile.inference !== undefined && settings !== undefined) {
-          const outcome = resolveInferenceWithPolicy(profile.inference, settings);
-          if (outcome.kind === "unavailable") {
+        // Closed director fleet (CL-5818): resolve package even when profiles
+        // are not loaded; profiles may still pin inference for the same id.
+        if (isDirectorId(agentId)) {
+          const resolved = resolveDirector({ agentId });
+          if (!resolved.ok) {
+            return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
+          }
+          const pkg = resolved.package;
+          resolvedPackage = pkg;
+          resolvedDirectorId = pkg.id;
+          systemPromptRole = formatDirectorSystemPrompt(pkg);
+          const caps = packageToCapabilities(pkg);
+          if (caps !== undefined) capabilities = caps;
+          if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
+            writePaths = pkg.writePaths;
+          }
+          if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
+          if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
+            orchestrator = true;
+            if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
+              nestedSpawnAllowlist = pkg.spawn.allowlist;
+            }
+          }
+          const profile = profiles?.find((p) => p.id === agentId);
+
+          if (profile?.inference !== undefined && settings !== undefined) {
+            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+            if (outcome.kind === "unavailable") {
+              return taskToolResult(
+                call.id,
+                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              );
+            }
+            if (outcome.kind === "resolved") {
+              const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+              if (err !== null) return taskToolResult(call.id, err);
+            }
+          }
+        } else {
+          // Fail closed: an explicit agent= that cannot be resolved is an error,
+          // not a silent fall-through to a generic worker. Silent fall-through
+          // made typos and stale ids look like successful generic dispatches.
+          if (profiles === undefined) {
             return taskToolResult(
               call.id,
-              `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              `Error: agent "${agentId}" requested but no agent profiles are loaded. Omit agent to use a generic sub-agent, or ensure profiles are available.`,
             );
           }
-          if (outcome.kind === "resolved") {
-            const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
-            if (err !== null) return taskToolResult(call.id, err);
+          const profile = profiles.find((p) => p.id === agentId);
+          if (profile === undefined) {
+            const known = profiles.map((p) => p.id).sort();
+            // Point at search_agents (which injects full system prompt bodies) rather
+            // than read_file on plugin roots — path-escape blocks those paths by design.
+            const hint =
+              known.length > 0
+                ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
+                : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
+            return taskToolResult(call.id, `Error: unknown agent profile "${agentId}".${hint}`);
           }
+          if (profile.capabilities !== undefined) {
+            capabilities = profile.capabilities;
+          }
+          if (profile.writePaths !== undefined && profile.writePaths.length > 0) {
+            writePaths = profile.writePaths;
+          }
+          if (profile.maxTurns !== undefined) {
+            profileMaxTurns = profile.maxTurns;
+          }
+          if (profile.systemPromptRole !== undefined) {
+            systemPromptRole = profile.systemPromptRole;
+          }
+          // Nested workers (allowOrchestrator: false) cannot re-enter orchestration
+          // even if their profile is marked orchestrator — recursion bottoms out.
+          if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
+            orchestrator = true;
+          }
+          // Per-agent pinned inference (provider/model/effort), if declared.
+          // Resolution uses policy (mode: pin / agentModelFallback: none) so a
+          // forbidden fallback surfaces as a dispatch error rather than
+          // silently running on the parent's provider.
+          if (profile.inference !== undefined && settings !== undefined) {
+            const outcome = resolveInferenceWithPolicy(profile.inference, settings);
+            if (outcome.kind === "unavailable") {
+              return taskToolResult(
+                call.id,
+                `Error: agent "${agentId}" unavailable: ${outcome.reason}. Set agentModelFallback: "active" (or change the spec mode to "prefer") to fall back to the active session.`,
+              );
+            }
+            if (outcome.kind === "resolved") {
+              const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+              if (err !== null) return taskToolResult(call.id, err);
+            }
+          }
+        }
+      } else if (intent !== undefined) {
+        // intent-only dispatch maps to closed directors (no catch-all worker).
+        const resolved = resolveDirector({ intent });
+        if (!resolved.ok) {
+          return taskToolResult(call.id, `Error: ${resolved.error} ${resolved.hint}`);
+        }
+        const pkg = resolved.package;
+        resolvedPackage = pkg;
+        resolvedDirectorId = pkg.id;
+        systemPromptRole = formatDirectorSystemPrompt(pkg);
+        const caps = packageToCapabilities(pkg);
+        if (caps !== undefined) capabilities = caps;
+        if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
+          writePaths = pkg.writePaths;
+        }
+        if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
+        if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
+          orchestrator = true;
+          if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
+            nestedSpawnAllowlist = pkg.spawn.allowlist;
+          }
+        }
+      } else {
+        // No catch-all worker: bare task (no agent, no intent) is refused. Reclassify.
+        return taskToolResult(
+          call.id,
+          'Error: No director selected. Pass task(agent=…) for a named director, or task(intent=implement|explore|plan|review). Intent "general" is not a director.',
+        );
+      }
+
+      // Skywalker is the primary session identity, not a spawned worker.
+      if (agentId === "skywalker" || resolvedDirectorId === "skywalker") {
+        return taskToolResult(
+          call.id,
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (implement, explore, plan, critique, …).",
+        );
+      }
+
+      // Parent director spawn matrix (e.g. greybeard → intern/explore/critique only).
+      if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
+        const childId =
+          agentId !== undefined && agentId.length > 0
+            ? agentId
+            : (resolvedDirectorId ?? "");
+        if (childId.length === 0 || !deps.spawnAllowlist.includes(childId)) {
+          const allowed = deps.spawnAllowlist.join(", ");
+          return taskToolResult(
+            call.id,
+            `Error: spawn of "${childId.length > 0 ? childId : "(unresolved)"}" is outside this director's allowlist. Allowed: ${allowed}.`,
+          );
         }
       }
 
-      // Role-based effort: pin > orchestrator/leaf default > parent inheritance.
-      // Leaves default to medium so a primary on high/sol does not multiply the
-      // latency cliff across every spawned worker (see resolveEffortForRole).
+      // Role-based effort: pin > package modelRole default > orchestrator/worker > parent.
+      // Leaves default to medium (intern: low) so a primary on high/sol does not
+      // multiply the latency cliff across every spawned worker.
       {
+        const roleDefault =
+          resolvedPackage !== undefined
+            ? defaultEffortForDirector(resolvedPackage)
+            : undefined;
         const effort = resolveEffortForRole({
           orchestrator,
           ...(effortPin !== undefined ? { pin: effortPin } : {}),
+          ...(roleDefault !== undefined ? { roleDefault } : {}),
           ...(parentEffort !== undefined ? { parentEffort } : {}),
           model: provider.model,
           isCodex: isCodexProviderName(provider.providerName),
@@ -411,8 +533,12 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       }
       const dispatchCount = admission.dispatchCount;
 
-      const agentLabel = agentId !== undefined && agentId.length > 0 ? agentId : "worker";
+      const agentLabel =
+        agentId !== undefined && agentId.length > 0
+          ? agentId
+          : (resolvedDirectorId ?? "worker");
       const session =
+
         deps.sessions !== undefined
           ? deps.sessions.start({
               id: call.id,
@@ -458,6 +584,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             ...(session !== undefined ? { parentSessionId: session.id } : {}),
             ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
+            ...(nestedSpawnAllowlist !== undefined
+              ? { spawnAllowlist: nestedSpawnAllowlist }
+              : {}),
           }
         : undefined;
       // Per-spawn controller so strip cancel and parent stop share one abort
@@ -557,6 +686,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
+            ...(writePaths !== undefined ? { writePaths } : {}),
             ...(orchestrator
               ? { orchestrator: true, nestedDispatch: nestedDispatch! }
               : {}),

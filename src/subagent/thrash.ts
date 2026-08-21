@@ -1,15 +1,12 @@
 /**
- * Pure progressive thrash detection for leaf sub-agents.
+ * Pure progressive thrash detection for dispatched workers.
  *
- * Tracks re-read pressure and near-budget tools-only spin without requiring
- * identical tool fingerprints. Wired into SubAgentDirector via evaluateSubAgentStop.
+ * Tracks re-read pressure (same path or same grep) and near-budget tools-only
+ * spin. No look-volume quota — unique reads are legal at any count.
+ * Wired into SubAgentDirector via evaluateSubAgentStop.
  *
- * Precedence when both thrash signals and existing stop helpers apply:
- * no-progress > thrash > turn-budget. Soft re-read-nudge and report-forced are
- * not competing stops — they fire as one-shot wrap-up / redirect nudges; the leaf
- * keeps running. report-forced is preferred over re-read-nudge when both apply
- * (near-budget wrap-up is more urgent than a mid-run redirect). Tool-less turns
- * stay owned by evaluateSubAgentStop (complete / never-acted / never-edited).
+ * Precedence: no-progress > thrash > turn-budget. Soft re-read-nudge and
+ * report-forced are one-shot wrap-up / redirect nudges, not stops.
  */
 
 /** Tunable thresholds for thrash / force-report detection. */
@@ -29,7 +26,7 @@ export type ThrashConfig = {
    */
   reReadMinTotalTools: number;
   /**
-   * When turnsCompleted equals maxTurns - forceReportWithin and the leaf is
+   * When turnsCompleted equals maxTurns - forceReportWithin and the worker is
    * still issuing tools, inject a one-shot wrap-up nudge.
    */
   forceReportWithin: number;
@@ -58,11 +55,14 @@ export const EMPTY_THRASH_STATE: ThrashState = {
 
 /**
  * Thrash-module stop reasons.
- * - "thrash" is a real stop
+ * - "thrash" is a real stop (same-path / same-grep re-read)
  * - "report-forced" is a near-budget wrap-up-nudge signal
- * - "re-read-nudge" is a mid-run soft re-read redirect (one-shot, not a stop)
+ * - "re-read-nudge" is a mid-run redirect (one-shot, not a stop)
  */
-export type ThrashStopReason = "thrash" | "report-forced" | "re-read-nudge";
+export type ThrashStopReason =
+  | "thrash"
+  | "report-forced"
+  | "re-read-nudge";
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
 export type ThrashToolCallBlock = {
@@ -72,6 +72,7 @@ export type ThrashToolCallBlock = {
 };
 
 const READ_TOOLS = new Set(["read_file"]);
+const SEARCH_TOOLS = new Set(["grep", "search_files"]);
 const EDIT_TOOLS = new Set(["edit_file", "write_file", "delete_file"]);
 
 function parseArgs(raw: unknown): Record<string, unknown> {
@@ -92,6 +93,17 @@ function parseArgs(raw: unknown): Record<string, unknown> {
 function pathFromArgs(args: Record<string, unknown>): string | null {
   const path = args.path;
   return typeof path === "string" && path.length > 0 ? path : null;
+}
+
+function searchKey(name: string, args: Record<string, unknown>): string {
+  const pattern =
+    typeof args.pattern === "string"
+      ? args.pattern
+      : typeof args.query === "string"
+        ? args.query
+        : "";
+  const path = typeof args.path === "string" ? args.path : "";
+  return `${name}::${pattern}::${path}`;
 }
 
 /**
@@ -137,13 +149,16 @@ export function nextThrashState(
     const name = typeof block.name === "string" ? block.name : "";
     const args = parseArgs(block.arguments);
     const path = pathFromArgs(args);
-    if (path === null) continue;
 
-    if (READ_TOOLS.has(name)) {
+    if (READ_TOOLS.has(name) && path !== null) {
       if (readCounts === null) readCounts = new Map(prev.readCounts);
       const key = readKey(path, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
-    } else if (EDIT_TOOLS.has(name)) {
+    } else if (SEARCH_TOOLS.has(name)) {
+      if (readCounts === null) readCounts = new Map(prev.readCounts);
+      const key = searchKey(name, args);
+      readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
+    } else if (EDIT_TOOLS.has(name) && path !== null) {
       if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
       editedPaths.add(path);
       if (readCounts === null) readCounts = new Map(prev.readCounts);
@@ -247,7 +262,7 @@ function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
  * nudge signals, not stops — the caller injects a nudge and keeps running.
  *
  * Only evaluates when hasToolCalls is true — tool-less endings are not thrash.
- * Prefers thrash > report-forced > re-read-nudge when multiple apply.
+ * Prefers thrash > report-forced > re-read-nudge.
  */
 export function evaluateThrashStop(input: {
   state: ThrashState;

@@ -305,8 +305,9 @@ type OpenStreamRow = {
   readonly startedAt: number
   text: string
   /**
-   * Bounded-rate reveal position for a "thinking" row's scroll line. Unused
-   * for "assistant" rows, which paint their full markdown body as it grows.
+   * Bounded-rate reveal position for a "thinking" row's wrapped preview.
+   * Unused for "assistant" rows, which paint their full markdown body as it
+   * grows.
    */
   revealChars: number
   /** Clock `revealChars` was last advanced from. */
@@ -370,8 +371,9 @@ type BridgeBag = {
    */
   agentSessions: readonly TaskProgressSession[]
   /**
-   * callIds whose call painted no row because the work belongs to a panel.
-   * Tracked so the matching result is dropped rather than landing unpaired.
+   * callIds whose call painted no row because the work belongs to a panel
+   * (`manage_tasks`). Tracked so the matching result is dropped rather than
+   * landing unpaired.
    */
   panelOnlyCallIds: Set<string>
   /**
@@ -545,7 +547,8 @@ function applyToolCall(
 ): void {
   if (event.name === MANAGE_TASKS_TOOL_NAME) {
     // Remembered so the matching result is dropped too — suppressing only the
-    // call would leave its result to land as an unpaired row.
+    // call would leave its result to land as an unpaired row. Checklist lives
+    // on the task panel; Task dispatches paint live transcript rows instead.
     if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId)
     return
   }
@@ -566,6 +569,7 @@ function applyToolCall(
     bag.taskCallIds.add(event.callId)
   }
   bag.lastToolRow = index
+  shell.inFlightTool = { name: event.name, startedAt: bag.now() }
 }
 
 /**
@@ -590,6 +594,7 @@ function applyToolResult(
     bag.toolRows.delete(event.callId)
     bag.taskCallIds.delete(event.callId)
   }
+  if (bag.toolRows.size === 0) shell.inFlightTool = null
   const index = tracked ?? bag.lastToolRow
   const call = streamRowAt(shell, index)
   if (call === undefined || call.pending !== true) {
@@ -602,13 +607,9 @@ function applyToolResult(
 /**
  * Refresh every outstanding `task` call's row with its worker's live progress —
  * elapsed time, current tool, and whether it has gone quiet. Rewrites each row
- * in place through `replaceStreamRowAt` (the same path a tool result resolves
- * through); a session that finished, or is missing from `sessions` (already
- * pruned, or never started), leaves its row untouched rather than reverting to
- * a bare pending mark.
- *
- * Bounded by outstanding task calls, not transcript length: an idle sub-agent
- * dispatch costs nothing here, and a live one costs exactly one row rewrite.
+ * in place through `replaceStreamRowAt`; a session that finished, or is missing
+ * from `sessions`, leaves its row untouched rather than reverting to a bare
+ * pending mark.
  */
 function syncAgentProgress(
   shell: AppShell,
@@ -672,8 +673,29 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
-      // Distinct from the "steer" tag on the still-pending row above — this
-      // one is being handed to the run right now, not waiting for one.
+      // Distinct from the still-pending "steer"/"queue" tag — this row is
+      // being handed to the run right now. Follow-ups must not say steering.
+      meta: item.kind === "steer" ? "steering" : "following-up",
+    })
+    bag.pendingEchoes.push(item.text.trim())
+    bag.port.deliver(item)
+  }
+  paintChrome(shell)
+}
+
+/**
+ * Soft steer only (CL-6290): tool.boundary drains steers; follow-ups wait
+ * for idle / interrupt. Full drain uses drainOrder via drainOne without a
+ * kind filter.
+ */
+function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
+  for (;;) {
+    const { state, item } = drainOne(shell.session, "steer")
+    if (!item) break
+    shell.session = state
+    appendStreamRow(shell, {
+      role: "user",
+      text: userRowText(item.text, item.attachments ?? []),
       meta: "steering",
     })
     bag.pendingEchoes.push(item.text.trim())
@@ -715,17 +737,22 @@ function applyInbound(
   if (event.type === "user" && consumeEcho(bag, event.text)) return
 
   if (event.type === "run") {
-    if (event.state === "idle") bag.turnThinking = null
+    if (event.state === "idle") {
+      bag.turnThinking = null
+      shell.inFlightTool = null
+    }
     shell.session = setRunState(shell.session, event.state)
     paintChrome(shell)
     if (event.state === "idle") {
+      // Full drain: soft steers first, then follow-ups (drainOrder).
       drainAtBoundary(shell, bag)
     }
     return
   }
 
   if (event.type === "tool.boundary") {
-    drainAtBoundary(shell, bag)
+    // Soft steer only — follow-ups wait until the run goes idle.
+    drainSteersAtBoundary(shell, bag)
     return
   }
 
@@ -937,11 +964,10 @@ export function attachSessionBridge(
         applyInbound(shell, bag, mapped)
       }
       // inference.done with tool calls still outstanding doesn't settle the
-      // turn (see turn-state.ts) — the cycle continues, but a boundary still
-      // passed, so a queued message waiting on it should not wait for the
-      // turn's eventual end too.
+      // turn (see turn-state.ts) — the cycle continues, but a soft-steer
+      // boundary still passed. Follow-ups wait for idle.
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
-        drainAtBoundary(shell, bag)
+        drainSteersAtBoundary(shell, bag)
       }
       if (settled) settleRun()
       return
@@ -986,8 +1012,9 @@ export function attachSessionBridge(
     }
 
     if (kind === "reinject") {
-      // Not a boundary wait: stop the run right now, then fall straight into
-      // the immediate-send branch below with this message as the opener.
+      // No product chord wires reinject anymore (CL-6290: Alt+Enter is
+      // follow-up / kind "queue"). Kept for tests and any direct API callers:
+      // stop the run right now, then fall into the immediate-send branch.
       if (shell.session.run !== "busy") return
       closeOpenRow(shell, bag)
       bag.pendingEchoes.length = 0

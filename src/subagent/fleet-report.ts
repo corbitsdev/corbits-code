@@ -1,12 +1,12 @@
 /**
  * What the orchestrator says to the operator about the fleet, unprompted.
  *
- * Every lane completion, stall and failure already passes through the parent
- * session, which then said nothing about any of it unless interrupted and
- * asked. This module turns that stream into the small number of lines that
- * change the operator's picture, and nothing else: a lane finished and what it
- * produced, a lane stalled or failed, work dispatched, and the moment the
- * fleet runs dry.
+ * Live lanes already paint on the activity strip. Parent prose already narrates
+ * phase plans. This module only emits transcript lines for attention the strip
+ * cannot keep: a lane failed or went quiet, and the single moment the fleet runs
+ * dry. Per-lane "done — summary" walls are intentionally never printed — they
+ * restate the strip and the parent and turn the transcript into a second
+ * status log (CL-5846).
  *
  * Pure and stateless per call — the caller keeps the returned watch and hands
  * it back on the next observation. No painting, no store access.
@@ -66,8 +66,6 @@ const OUTCOME_CHARS = 56;
  */
 const MAX_UPDATE_CHARS = 76;
 
-const PREFIX = "fleet";
-
 /**
  * A lane going quiet is the one change that produces no event, so it has to be
  * looked for. Coarse on purpose: the stall threshold is tens of seconds, and
@@ -100,11 +98,6 @@ function firstLine(text: string | undefined): string {
 function clip(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
-}
-
-function outcome(lane: FleetLane): string {
-  const summary = firstLine(lane.report);
-  return summary.length > 0 ? clip(summary, OUTCOME_CHARS) : "no summary reported";
 }
 
 function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
@@ -154,7 +147,7 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        changes.push({ kind: "done", line: `${lane.description} done — ${outcome(lane)}` });
+        changes.push({ kind: "done", line: `${lane.description} done` });
       } else if (lane.status === "failed") {
         changes.push({
           kind: "failed",
@@ -166,43 +159,40 @@ export function observeFleet(
       continue;
     }
 
-    if (lane.status === "running" && stalled && before.stallReported !== true) {
-      changes.push({
-        kind: "stalled",
-        line: `${lane.description} stalled — quiet for ${clockLabel(nowMs - lane.lastActivityAt)}`,
-      });
-    }
+    // A lane going quiet is no longer emitted to the transcript: the single
+    // agents-panel rollup row carries the quiet count instead, so a stalled
+    // fleet stops producing "went quiet" walls (CL-5846). stallReported is
+    // still tracked internally so the strip does not flap.
   }
 
   const watch: FleetWatch = { lanes: marks, running, seeded: true };
-  if (changes.length === 0) return { watch, updates: [] };
+  const wentDry = running === 0 && previous.running > 0;
 
-  // A dispatch carries the load it was decided against, so an operator who
-  // would have scheduled differently can say so while it still matters.
-  const lines =
-    changes.length > COALESCE_ABOVE
-      ? [tally(changes)]
-      : changes.map((c) =>
-          c.kind === "dispatched" ? `${c.line} (${running} running)` : c.line,
-        );
-
-  // The defect this report exists for: work finished, nothing left running,
-  // and no one said so. That transition is always worth its own line — unless
-  // the tally above already said the same thing, in which case a second line
-  // restating it verbatim (with "— nothing running" tacked on) is noise, not
-  // information.
-  if (running === 0 && previous.running > 0) {
-    const idle = `${idleSummary(lanes)} — nothing running`;
-    if (lines.length === 1 && lines[0] === idleSummary(lanes)) {
-      lines[0] = idle;
-    } else {
-      lines.push(idle);
-    }
+  // Board owns live lanes. Parent prose owns success narratives. Transcript
+  // only: fail/stall while work is still running, or one dry-fleet tally.
+  // Never per-lane "done — summary" walls (CL-5846).
+  if (wentDry) {
+    return {
+      watch,
+      updates: [
+        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
+      ],
+    };
   }
+
+  const attention = changes.filter((c) => c.kind === "failed" || c.kind === "stalled");
+  if (attention.length === 0) {
+    return { watch, updates: [] };
+  }
+
+  const lines: string[] =
+    attention.length > COALESCE_ABOVE
+      ? [tally(attention)]
+      : attention.map((c) => c.line);
 
   return {
     watch,
-    updates: lines.map((line) => clip(`${PREFIX} · ${line}`, MAX_UPDATE_CHARS)),
+    updates: lines.map((line) => clip(line, MAX_UPDATE_CHARS)),
   };
 }
 
@@ -210,14 +200,12 @@ function tally(changes: readonly Change[]): string {
   const count = (kind: Change["kind"]): number =>
     changes.filter((c) => c.kind === kind).length;
   const parts: string[] = [];
-  const dispatched = count("dispatched");
   const done = count("done");
   const failed = count("failed");
-  const stalled = count("stalled");
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
-  if (stalled > 0) parts.push(`${stalled} stalled`);
-  if (dispatched > 0) parts.push(`${dispatched} dispatched`);
+  // stalled changes are not operator-facing; tally fails/done only
+  void count("stalled");
   return parts.join(", ");
 }
 
@@ -238,7 +226,7 @@ export function fleetDigest(
   nowMs: number,
   stallMs: number = DEFAULT_STALL_MS,
 ): string {
-  if (lanes.length === 0) return `${PREFIX} · no lanes dispatched`;
+  if (lanes.length === 0) return "nothing running";
   const running = lanes.filter((l) => l.status === "running");
   const done = lanes.filter((l) => l.status === "done").length;
   const failed = lanes.filter((l) => l.status === "failed").length;
@@ -251,8 +239,9 @@ export function fleetDigest(
     const named = running
       .slice(0, DIGEST_NAMED_LANES)
       .map((lane) => {
-        const quiet = isStalled(lane, nowMs, stallMs) ? " stalled" : "";
-        return `${lane.description} ${clockLabel(nowMs - lane.startedAt)}${quiet}`;
+        void isStalled
+        void stallMs
+        return `${lane.description} ${clockLabel(nowMs - lane.startedAt)}`;
       })
       .join(", ");
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
@@ -263,5 +252,5 @@ export function fleetDigest(
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);
   if (cancelled > 0) parts.push(`${cancelled} cancelled`);
-  return `${PREFIX} · ${parts.join(" · ")}`;
+  return parts.join(" · ");
 }

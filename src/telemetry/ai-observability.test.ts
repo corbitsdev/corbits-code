@@ -40,7 +40,7 @@ function fakeTurnContext(overrides: Partial<TurnContext> = {}): TurnContext {
     {
       id: "call-2",
       name: SUBAGENT_TOOL_NAME,
-      arguments: { description: "explore", prompt: "find the leaked API key XYZ-SECRET-123" },
+      arguments: { description: "explore", prompt: "find the leaked API key XYZ-SECRET-123", intent: "explore" },
     },
   ];
   const toolResults: ToolResult[] = [

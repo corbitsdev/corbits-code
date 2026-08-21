@@ -79,11 +79,11 @@ describe("agentProgress", () => {
   test("silence with no tool outstanding is a stall, and the clock shown is the silence", () => {
     const progress = agentProgress(
       { ...base, currentToolName: null, lastActivityAt: 0 },
-      31_000,
-      30_000,
+      121_000,
+      120_000,
     )
     expect(progress).toEqual({
-      stat: "0:31 · quiet 0:31",
+      stat: "2:01",
       state: "stalled",
       working: false,
       stalled: true,
@@ -101,18 +101,32 @@ describe("agentProgress", () => {
         currentToolStartedAt: 1_000,
         lastActivityAt: 1_000,
       },
-      91_000,
-      30_000,
+      181_000,
+      120_000,
     )
     expect(progress?.state).toBe("in_tool")
     expect(progress?.stalled).toBe(false)
-    expect(progress?.stat).toBe("1:31 · run_shell 1:30")
+    expect(progress?.stat).toBe("3:01 · run_shell 3:00")
   })
 
   test("recent activity keeps a long-running session marked working", () => {
-    const progress = agentProgress({ ...base, lastActivityAt: 100_000 }, 100_500, 30_000)
+    const progress = agentProgress({ ...base, lastActivityAt: 100_000 }, 100_500, 120_000)
     expect(progress?.working).toBe(true)
     expect(progress?.stalled).toBe(false)
+  })
+
+  test("default stall window tolerates a multi-minute Grok think gap", () => {
+    // DEFAULT_STALL_MS is 300s — 180s of quiet with no tool outstanding must
+    // still read working, or Task rows false-stall on healthy Responses thinks.
+    const progress = agentProgress(
+      { ...base, currentToolName: null, lastActivityAt: 0 },
+      180_000,
+    )
+    expect(progress?.state).toBe("working")
+    expect(progress?.stalled).toBe(false)
+    expect(agentProgress({ ...base, currentToolName: null, lastActivityAt: 0 }, 301_000)?.stalled).toBe(
+      true,
+    )
   })
 })
 
@@ -179,9 +193,9 @@ describe("fleetLabel", () => {
     expect(fleetLabel({ running: 0, working: 0, inTool: 0, stalled: 0 })).toBeNull()
   })
 
-  test("names the stalled count when any lane is stuck", () => {
+  test("never names stalled count to the operator", () => {
     expect(fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 })).toBe(
-      "6 agents · 2 stalled",
+      "6 agents",
     )
   })
 

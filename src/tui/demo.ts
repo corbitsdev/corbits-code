@@ -5,7 +5,7 @@
  * Not the production CLI (`src/index.ts` → OpenTUI shell). Playground only.
  *
  * Keys:
- *   Enter=queue · Alt+Enter=steer · Ctrl+C=stop
+ *   Enter=steer · Alt+Enter=follow-up · Ctrl+C=stop
  *   Alt+C=copy
  *   p=permissions · o=operator · m=model
  *   s=settings · h=help · l=plugins · e=resume · n=mentions · v=observe
@@ -220,7 +220,7 @@ renderer.keyInput.on("keypress", (key: KeyEvent) => {
     setShellRunState(shell, "busy")
     appendStreamRow(shell, {
       role: "system",
-      text: "run → BUSY (queue/steer active)",
+      text: "run → BUSY (steer/follow-up active)",
     })
     return
   }

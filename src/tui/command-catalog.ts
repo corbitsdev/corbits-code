@@ -21,6 +21,8 @@ export type PaletteCommand = {
   readonly label: string
   /** Optional keywords for name-prefix / substring filter. */
   readonly keywords?: readonly string[]
+  /** Registry description for the overlay zone; rows stay name-only. */
+  readonly description?: string
 }
 
 /** Map registry command definitions to `/` list items. */
@@ -29,9 +31,11 @@ export function commandItemsFromRegistry(
 ): PaletteCommand[] {
   return commands.map((c) => ({
     id: c.name,
-    // Name-only rows keep the slash popup scannable; description stays in
-    // keywords so typed filter still finds prose matches.
+    // Name-only rows keep the slash popup scannable; description is a
+    // dedicated field for the overlay zone and stays in keywords so typed
+    // filter still finds prose matches.
     label: `/${c.name}`,
+    description: c.description,
     keywords: [c.name, c.description, "slash", "command"],
   }))
 }

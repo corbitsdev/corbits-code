@@ -69,6 +69,9 @@ const registry = new Map<string, CommandDefinition>();
 const hidden = new Set<string>();
 
 export function registerCommand(def: CommandDefinition): void {
+  // First-wins: built-ins register first, then repo plugins, then marketplace.
+  // A later plugin must not overwrite /implement (or any other claimed name).
+  if (registry.has(def.name)) return;
   registry.set(def.name, def);
 }
 

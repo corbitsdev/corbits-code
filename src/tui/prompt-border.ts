@@ -31,7 +31,7 @@ export const BORDER = {
  * `meter` is the cost/context run. The shell paints each role differently;
  * nothing else distinguishes them.
  */
-export type RuleRole = "rule" | "label" | "brand" | "meter"
+export type RuleRole = "rule" | "label" | "brand" | "meter" | "attention"
 
 export type RulePart = {
   readonly text: string
@@ -51,6 +51,12 @@ export type RuleInput = {
   readonly meter?: string
   /** `meter` with the cost suffix already stripped — tried once `meter` no longer fits. */
   readonly meterCompact?: string
+  /**
+   * Compact call-to-action immediately left of the label (e.g. `mcp !`).
+   * Dropped after the meter and before the label: it is a standing ask, not
+   * the operator's own workspace or model identity.
+   */
+  readonly attention?: string
   /** Right-aligned label. Dropped last: it is information, the mark is not. */
   readonly label?: string
 }
@@ -80,14 +86,43 @@ type RightBlock = {
   readonly cost: number
 }
 
-/** The meter and label, in that order, joined by a fixed dash run when both survive. */
-function buildRightBlock(meterCell: string, labelCell: string): RightBlock {
+/** Compact standing mark when any MCP server still needs authorization. */
+export const MCP_ATTENTION_LABEL = "mcp !"
+
+/** Compact standing mark when plugin load left standing warnings (see `/plugins`). */
+export const PLUGIN_ATTENTION_LABEL = "plugin !"
+
+/**
+ * Build the single attention slot. MCP and plugin marks share one run so the
+ * border never grows a second attention cell — operator-chosen combined form.
+ */
+export function composeAttentionLabel(opts: {
+  readonly mcp?: boolean
+  readonly plugin?: boolean
+}): string | undefined {
+  const parts: string[] = []
+  if (opts.mcp === true) parts.push(MCP_ATTENTION_LABEL)
+  if (opts.plugin === true) parts.push(PLUGIN_ATTENTION_LABEL)
+  return parts.length > 0 ? parts.join(" · ") : undefined
+}
+
+/** The meter, attention mark, and label — in that order, joined by a fixed dash run. */
+function buildRightBlock(
+  meterCell: string,
+  attentionCell: string,
+  labelCell: string,
+): RightBlock {
+  const cells: readonly { readonly text: string; readonly role: RuleRole }[] = [
+    { text: meterCell, role: "meter" },
+    { text: attentionCell, role: "attention" },
+    { text: labelCell, role: "label" },
+  ]
   const parts: RulePart[] = []
-  if (meterCell.length > 0) parts.push({ text: meterCell, role: "meter" })
-  if (meterCell.length > 0 && labelCell.length > 0) {
-    parts.push({ text: dashes(RULE_GAP), role: "rule" })
+  for (const cell of cells) {
+    if (cell.text.length === 0) continue
+    if (parts.length > 0) parts.push({ text: dashes(RULE_GAP), role: "rule" })
+    parts.push({ text: cell.text, role: cell.role })
   }
-  if (labelCell.length > 0) parts.push({ text: labelCell, role: "label" })
   return { parts, cost: widthOf(parts) }
 }
 
@@ -165,8 +200,8 @@ function plainRule(open: string, close: string, inner: number): RulePart[] {
  * Compose one border rule. Runs are dropped whole, never truncated mid-glyph:
  * a half-written label corrupts the frame, a missing one just reads as a
  * plain rule. Drop order, most to least expendable: brand, then the meter's
- * cost suffix, then the meter's context reading, then the label — the
- * operator's own workspace path survives everything else.
+ * cost suffix, then the meter's context reading, then the attention mark,
+ * then the label — the operator's own workspace path survives everything else.
  */
 export function composeRule(input: RuleInput): readonly RulePart[] {
   const width = Math.max(0, Math.floor(input.width))
@@ -182,16 +217,19 @@ export function composeRule(input: RuleInput): readonly RulePart[] {
   const labelCell = padCell(input.label?.trim() ?? "")
   const meterFullCell = padCell(input.meter?.trim() ?? "")
   const meterCompactCell = padCell(input.meterCompact?.trim() ?? "")
+  const attentionCell = padCell(input.attention?.trim() ?? "")
 
-  const withCost = buildRightBlock(meterFullCell, labelCell)
-  const withoutCost = buildRightBlock(meterCompactCell, labelCell)
-  const withoutContext = buildRightBlock("", labelCell)
+  const withCost = buildRightBlock(meterFullCell, attentionCell, labelCell)
+  const withoutCost = buildRightBlock(meterCompactCell, attentionCell, labelCell)
+  const withoutContext = buildRightBlock("", attentionCell, labelCell)
+  const withoutAttention = buildRightBlock("", "", labelCell)
 
   const stages: Array<() => RulePart[] | null> = [
     () => layoutWithBrand(open, close, inner, brandCell, brandCost, withCost),
     () => layoutRightOnly(open, close, inner, withCost),
     () => layoutRightOnly(open, close, inner, withoutCost),
     () => layoutRightOnly(open, close, inner, withoutContext),
+    () => layoutRightOnly(open, close, inner, withoutAttention),
     () => layoutBrandOnly(open, close, inner, brandCell, brandCost),
   ]
   for (const stage of stages) {

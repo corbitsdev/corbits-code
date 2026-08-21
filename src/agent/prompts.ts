@@ -6,6 +6,7 @@ import {
   CORE_TOOL_NAMES,
   type ToolAvailability,
 } from "./tool-search.js";
+import { createSkywalkerSystemPrompt } from "./directors/skywalker/package.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews). Real sessions always pass their detected
@@ -38,20 +39,10 @@ function formatDateDDMMYYYY(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export function buildChatRole(sessionMode: SessionMode = "orchestrator"): string {
-  if (sessionMode === "single") {
-    return [
-      `You are ${PRODUCT_NAME}, a senior coding assistant in a terminal harness.`,
-      "You work directly in this session: read, edit, run checks, and report back yourself.",
-      "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
-    ].join(" ");
-  }
-  return [
-    `You are ${PRODUCT_NAME}, an orchestrator in a terminal harness.`,
-    "The operator chats with you and may queue more work while workers run.",
-    "Your job is to triage, delegate implementation and exploration to sub-agents via `task`, track the fleet, and synthesize their reports — not to do large edits or deep repo walks yourself unless a quick unblock is faster than dispatching.",
-    "Match their tone and depth: be concise by default and add structure only when it aids scanning.",
-  ].join(" ");
+export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): string {
+  // Primary session identity is the closed Skywalker director package (CL-5817).
+  // Harness facts / guidelines still append after this role in baseSection.
+  return createSkywalkerSystemPrompt();
 }
 
 // Facts the model cannot derive from its training: what the permission layer
@@ -66,10 +57,16 @@ export function buildHarnessFacts(
 ): string {
   const dynamicTools = opts.dynamicTools ?? true;
   const subAgent = opts.subAgent ?? false;
-  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Harness facts:",
-    "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
+    ...(subAgent
+      ? [
+          "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
+        ]
+      : [
+          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT.md) for durable edits.",
+          "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools.",
+        ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
     "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
@@ -77,18 +74,15 @@ export function buildHarnessFacts(
     ...(subAgent
       ? [
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
+          "- Turn budget is real; near the end a wrap-up nudge may fire — stop tooling and write the structured report (Summary/Findings/Blockers/Paths). Do not thrash re-reads as the budget ends.",
         ]
       : ["- Dependency installs, paths outside the workspace, and session-state writes need operator approval."]),
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools
       ? [
           "- Only the core tools below are loaded. Use tool_search to load extra capabilities from plugins or integrations when needed.",
-          ...(sessionMode === "orchestrator"
-            ? [
-                "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
-                "- The user may send follow-up messages while workers run; treat them as additional queue items — update your plan, spawn or adjust workers, and keep the operator informed.",
-              ]
-            : ["- This session runs in single-agent mode: sub-agents are disabled; do all work yourself with the tools below."]),
+          "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
+          "- The user may send follow-up messages while workers run; they are queued. Enter delivers at the next parent tool.boundary; Alt+Enter on session-idle. A long parent tool holds that boundary. Update your plan, spawn or adjust workers, and keep the operator informed.",
         ]
       : ["- The tools below are your full toolset."]),
     "- Workflows run only from slash-command steps; never invent or auto-start one.",
@@ -101,7 +95,6 @@ export function buildHarnessFacts(
 
 export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: SessionMode } = {}): string {
   const subAgent = opts.subAgent ?? false;
-  const sessionMode = opts.sessionMode ?? "orchestrator";
   return [
     "Guidelines:",
     "",
@@ -112,8 +105,15 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- No emojis in code or docs unless the user uses them.",
     "",
     "Tool choice:",
+    ...(subAgent
+      ? []
+      : [
+          "- Prefer task(intent=…) / task(agent=…) for product implementation, exploration, review, and docs — that is the primary loop.",
+        ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
-    "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs.",
+    subAgent
+      ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
+      : "- Product write tools are not mounted on Skywalker. Spawn implement (or a docs director) for durable file changes; never shell-write (echo/heredoc/sed/rm).",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
@@ -138,18 +138,19 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- Follow AGENTS.md and /docs for architecture; load the style and philosophy skills when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
     "- Before finishing a code change, run relevant checks (typecheck, tests) when practical.",
-    ...(sessionMode === "orchestrator" && !subAgent
-      ? [
+    ...(subAgent
+      ? []
+      : [
           "",
           "Orchestration:",
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
-          "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so leaves finish instead of thrashing. Free-form `prompt` alone is weaker.",
+          "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
           "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
           "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
-        ]
-      : []),
+          "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
+        ]),
   ].join("\n");
 }
 
@@ -157,12 +158,16 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
 // appended exactly once per built prompt. Prohibition form throughout: these
 // are the failure modes observed across shipped agents (OpenCode, Codex CLI,
 // Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
-export function buildPromptDisciplineBlock(): string {
+export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): string {
+  const subAgent = opts.subAgent ?? false;
+  const toolsOverShell = subAgent
+    ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
+    : "- Never use run_shell to read, edit, or write files — use read_file for reads; durable product edits go through implement/docs directors (write tools are not mounted on Skywalker); cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",
     "Tools over shell:",
-    "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.",
+    toolsOverShell,
     "- Never use echo or shell output to talk to the user — that is what your reply is for.",
     "",
     "Environment:",
@@ -236,6 +241,8 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
     "<env>",
     `Working directory: ${env.cwd} — your shell already runs here; never run pwd, ls, or find just to orient.`,
     `Platform: ${env.platform}`,
+    `Arch: ${env.arch}`,
+    `Runtime: ${env.runtime}`,
     `Current Date: ${formatDateDDMMYYYY(env.date)} (prompt cache survives for <=24hr)`,
   ];
   if (!env.isGitRepo) {
@@ -262,16 +269,7 @@ function contextSection(env?: EnvironmentInfo): string {
 function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
-    // SYSTEM.md can describe orchestration; still enforce single-mode harness rules on the wire.
-    if (sessionMode === "single") {
-      return joinSections([
-        custom,
-        "## Session mode",
-        buildHarnessFacts({ sessionMode: "single" }),
-        buildGuidelines({ sessionMode: "single" }),
-        buildPromptDisciplineBlock(),
-      ]);
-    }
+    // SYSTEM.md can describe the role; orchestrator harness rules always apply on the wire.
     return joinSections([
       custom,
       "## Session mode",
@@ -331,13 +329,13 @@ export function buildChatSystemPrompt(
 // documented exception — its purpose IS to fan work out to other agents —
 // so the appendix grants permission and links the syntax.
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  // Leaf agents must not be told both "spawn with task" and "do not call task".
+  // Workers must not be told both "spawn with task" and "do not call task".
   // Orchestrators get the spawn instruction; everyone else gets the no-recursion
   // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to leaf sub-agents — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
-      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a leaf sub-agent: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
+      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
+      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,
     "",
@@ -374,12 +372,12 @@ export function buildSubAgentReportContract(): string {
   ].join("\n");
 }
 
-// Tiny residual for Grok/xAI leaves: mining showed higher tools-only thrash
+// Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
 // than Codex on the same harness. Shared thrash harness + spawn contracts do
 // the structural work; this is only a finish-bias nudge, not a full rewrite.
 export function buildGrokLeafAntiThrashNote(): string {
   return [
-    "Finish bias (xAI / Grok leaf):",
+    "Finish bias (xAI / Grok worker):",
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
     "- Leave the last turn for the report envelope; do not spend the budget on one more search or micro-edit.",
@@ -405,7 +403,7 @@ export function buildSubAgentSystemPrompt(
           `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
           buildHarnessFacts({ dynamicTools: false, subAgent: true }),
           buildGuidelines({ subAgent: true }),
-          buildPromptDisciplineBlock(),
+          buildPromptDisciplineBlock({ subAgent: true }),
           buildSubAgentReportContract(),
         ]);
   const toolListForPrompt =

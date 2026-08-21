@@ -188,11 +188,10 @@ export function registerBuiltInCommands(): void {
     },
   });
 
-  // Mid-session twin of --dangerously-skip-permissions. Does not bypass
-  // secret-guard path denies or authorization hard blocks.
+  // Mid-session twin of --dangerously-skip-permissions.
   registerCommand({
     name: "yolo",
-    description: "Toggle skip-permissions for this session (gate bypass; secret-guard and authz remain)",
+    description: "Skip permission prompts for this session",
     argumentHint: "[on|off|toggle]",
     subcommands: [
       { name: "on", description: "Enable skip-permissions" },
@@ -218,10 +217,10 @@ export function registerBuiltInCommands(): void {
       if (next) {
         return {
           type: "message",
-          text: "Yolo mode on — permission gate bypassed. Secret-guard and authz hard denies still apply.",
+          text: "Yolo mode on — permission prompts skipped.",
         };
       }
-      return { type: "message", text: "Yolo mode off — permission gate restored." };
+      return { type: "message", text: "Yolo mode off — permission prompts restored." };
     },
   });
 

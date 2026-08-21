@@ -106,7 +106,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 Two directors, selected by role:
 
 - **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, and multi-turn chat semantics. It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. Auto mode is toggled by CLI flags (`--auto` / `--no-auto`); there is currently no in-session key to toggle it (default on; constrained envelope — workspace writes and unconstrained shell auto-allow; installs, recursive rm, force/uncontained worktree changes, sensitive-path and opaque-wrapper shell still ask; contained non-force `git worktree add`/`remove`/`prune` and `list` auto-allow; shell file-mutation denied). It is not a separate edit/plan mode.
-- **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. A tool-less completion with **zero tool calls in the entire run** is returned as a **never-acted** salvage report (not a successful implement). When `task(intent="implement")` is set, a tool-using run that never wrote/edited/deleted a file is returned as **never-edited** instead of complete — so a pure-explore "plan" cannot look shipped to the parent (tracked via `thrashState.editedPaths` from `edit_file` / `write_file` / `delete_file`). Explore/read-only workers that used tools then replied with findings remain normal completes. Hard stops also fire after 2 consecutive identical tool-call fingerprints (**no-progress**), on progressive re-read pressure (**thrash** — the same path re-read past a limit amid enough tool volume, tracked by `src/subagent/thrash.ts`), or after the leaf turn budget (**turn-budget**, default 30, overridable via `task(maxTurns)`, agent profile `maxTurns`, or `settings.subagentMaxTurns`, capped at 100), each returning a structured salvage report (reason, partial findings, blockers) so a thrashing child cannot burn tokens indefinitely. Before hard thrash, a one-shot **re-read-nudge** fires when re-read pressure crosses a soft threshold (default 3 same-path reads with enough tool volume, still below the hard re-read limit of 4): the director injects an ephemeral redirect — implement leaves are asked to edit or wrap up; explore leaves are asked to expand findings / change approach / report, never forced into edit — then keeps running so hard thrash remains reachable if the leaf ignores it. A fourth hard stop, **repetition**, is detected outside the director entirely:
+- **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. A tool-less turn **after tools** completes only with the four-heading envelope (Summary, Findings, Blockers, Paths); a missing envelope nudges once then salvages as **incomplete-report**. A tool-less completion with **zero tool calls in the entire run** is returned as a **never-acted** salvage report (not a successful implement). When `task(intent="implement")` is set, a tool-using run that never wrote/edited/deleted a file is returned as **never-edited** instead of complete — so a pure-explore "plan" cannot look shipped to the parent (tracked via `thrashState.editedPaths` from `edit_file` / `write_file` / `delete_file`). Explore/read-only workers that used tools then replied with findings remain normal completes. Hard stops also fire after 2 consecutive identical tool-call fingerprints (**no-progress**), on progressive re-read pressure (**thrash** — the same path re-read past a limit amid enough tool volume, tracked by `src/subagent/thrash.ts`), or after the leaf turn budget (**turn-budget**, default 30, overridable via `task(maxTurns)`, agent profile `maxTurns`, or `settings.subagentMaxTurns`, capped at 100), each returning a structured salvage report (reason, partial findings, blockers) so a thrashing child cannot burn tokens indefinitely. Before hard thrash, a one-shot **re-read-nudge** fires when re-read pressure crosses a soft threshold (default 3 same-path reads with enough tool volume, still below the hard re-read limit of 4): the director injects an ephemeral redirect — implement leaves are asked to edit or wrap up; explore leaves are asked to expand findings / change approach / report, never forced into edit — then keeps running so hard thrash remains reachable if the leaf ignores it. A fourth hard stop, **repetition**, is detected outside the director entirely:
  `runSubAgent`'s stream sink watches the streamed text of the in-flight cycle for degenerate token loops (`src/subagent/repetition.ts`) — format chars (ZWSP, BOM, bidi marks, soft hyphen, …) stripped then whitespace-collapsed raw text, a smallest-period KMP check over the probe tail, default window >= 16 chars repeated >= 8 times, evaluated every 256 streamed chars — and on a hit aborts the run controller mid-cycle, returning a `repetition` salvage report that leads with the looped window and warns the parent against re-dispatching the identical brief. Because directors only see completed turns, this is the only stop that can catch a loop inside a single turn that never finishes. A one-shot **report-forced** signal fires a few turns before the cap while the leaf is still tooling — it is not a stop: the director injects a wrap-up nudge and lets the leaf finish on its own, so turn-budget stays reachable for a leaf still making progress. When both report-forced and re-read-nudge apply, report-forced wins (near-budget wrap-up is more urgent than a mid-run redirect). Operator/parent cancel after any progress likewise returns a **cancelled** salvage report (partial findings + tool activity) instead of a bare cancel string; cancel before progress still surfaces as cancelled-by-operator.
  Optional `task(tier=)` (`fast` | `standard` | `clever`) overrides profile inference, profile tier, and the parent provider for that spawn only, and fails closed when the tier is unconfigured. The parent `task` tool keeps a session-scoped brief-dispatch ledger (`src/subagent/brief-dispatch.ts`): fingerprints cover prompt + agent + intent + success_criteria + do_not (not maxTurns/description/tier). After thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is hard-blocked for the rest of the parent chat; change at least one fingerprint field to force a re-run. Turn-budget salvage still invites a higher maxTurns for a few same-brief retries without a successful complete, then flips the parent hint to stop and change approach (soft — further identical dispatches are still admitted). A successful complete resets the same-brief retry budget.
 
@@ -209,7 +209,7 @@ Workflows are named, ordered recipes the agent follows step by step — a thin l
 - `coordinator.ts` — bridges runtime and director: produces the `[WORKFLOW STEP i/total: label]` directive injected into each turn's system prompt, and advances the runtime when `advance_workflow` (or a `submit_output` tagged `{ step }`) completes. Shared by both directors.
 - The built-in recipes: the atomics `update-ticket`, `improve-docs`, `write-tests`, `triage-bug`, `code-review`, `scope-project`, and the `build-feature` composite that chains them.
 
-Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. a workflow plugin's command prefix such as `/mywf scope`). Slash commands may also be authored as data-only markdown (`commands/*.md`, no `index.ts`); see PLUGINS.md. The model never suggests or auto-starts workflows from ordinary chat. Optional documentation skills (e.g. from an enabled agent plugin or `.agents/skills/`) load on demand via `use_skill` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
+Invocation: workflows are **not** top-level slash commands. Recipe definitions load into the `WORKFLOWS` registry from **enabled workflow/command plugins** at startup; command surfaces on those plugins (e.g. a workflow plugin's command prefix such as `/mywf scope`). Slash commands may also be authored as data-only markdown (`commands/*.md`, no `index.ts`); see PLUGINS.md. The model never suggests or auto-starts workflows from ordinary chat. Skills (bundled `corbits-skills`, enabled plugins, or `.agents/skills/`) load on demand via `use_skill` or as `/<skill-name>` slash commands when `user-invocable` is not `false` (see Skills below). The TUI surfaces state via `src/tui/workflow-controller.ts` (lifecycle, capability overrides, resume) — the header shows step progress (`⟳ name · step/total label`).
 
 ### Sub-agents (`src/subagent/`, `src/agent/agent-search.ts`)
 
@@ -227,7 +227,69 @@ When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** 
 
 Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 
-**Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole`): spawn-time defaults are orchestrator → `high`, leaf → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
+#### Closed director fleet (`src/agent/directors/`)
+
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, optional `writePaths`, `modelRole`) registered in a **closed** set of 16 ids. There is no catch-all worker: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only). Skywalker is the primary session identity: `task(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
+
+**Primary**
+
+| Director | Owns | Does not own |
+|---|---|---|
+| skywalker | Orchestrate only — classify, dispatch, track fleet, synthesize | Product tree edits; being the implementer/reviewer by default |
+
+**Engineering directors**
+
+| Director | Owns | Does not own |
+|---|---|---|
+| implement | Ship product code | Pure docs, pure review |
+| explore | Map/read codebase | Product edits |
+| plan | Eng change plan (steps, paths, tests, risks) | Arch gate, product discovery, code |
+| intern | Mechanical commands only | Ambiguous or product-design work |
+| critique | Evidence-based code review | Fixing product code |
+| greybeard | Architecture/approach review of plans/docs; limited spawn | Authoring eng plans, implementing |
+| neckbeard | Adversarial hygiene / refactor stress | Real review substitute |
+| bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code |
+| gaasbot | Quick CTO opinion voice | Formal review gate, implement |
+
+**Design trio (dev perspective)**
+
+| Director | Owns |
+|---|---|
+| draper | Product visual / design-system critique |
+| emil | Design-engineering + software laws on product UI/code |
+| brand-reviewer | **DESIGN.md** create-if-missing + alignment gate |
+
+**Docs + QA**
+
+| Director | Owns |
+|---|---|
+| shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION lane |
+| testsmith | Test design only (what/how to test) |
+| tester | Runtime verification; never fix product code |
+
+**Intent → director** (`task(intent=…)` when `agent` is omitted)
+
+| Intent | Default director |
+|---|---|
+| implement | implement |
+| explore | explore |
+| plan | plan |
+| review | critique (override with `agent=…`) |
+| general | **none** — reclassify only |
+
+**Spawn matrix**
+
+| Who | Spawn rights |
+|---|---|
+| skywalker (primary session) | Full closed fleet |
+| greybeard | intern, explore, critique only |
+| All other directors | no `task` |
+
+**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, brand-reviewer, bruckheimer) mount write tools with **no** package `writePaths`. Lane routing is spawn policy (shakespeare = P/A/I docs, brand-reviewer = DESIGN.md, bruckheimer = product discovery), not a file lock. Optional `writePaths` still exists; the permission gate enforces it when a profile sets it.
+
+**Typical chain:** bruckheimer → plan → greybeard → implement (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
+
+**Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole` / `defaultEffortForDirector`): package `modelRole` defaults are orchestrator/plan/review → `high`, implement/explore/docs/test → `medium`, with **intern** pinned to `low`. Spawn-time binary fallback is orchestrator → `high`, worker → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
 
 **Session records** (`src/subagent/session-store.ts`): each spawn is retained as an inspectable child session (id, profile, description, brief, status, tool activity, transcript entries). Child events land only in this store — not in the parent chat transcript. Live progress still uses the light `onProgress` channel for the status bar. Completed sessions are capped (`maxCompleted`) so a long chat does not grow without bound.
 
@@ -237,16 +299,16 @@ Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlug
 
 ### System Prompt (`src/agent/prompts.ts`)
 
-The agent's identity is **Corbits Code**, framed as a senior coding assistant running in a terminal harness. The prompt is deliberately minimal: a frontier model already knows how to be a coding agent, so the static prompt carries only what it cannot derive — harness-specific facts and the project's identity. The base is three small, individually-exported sections:
+The primary session identity is **Skywalker** (`buildChatRole` → `createSkywalkerSystemPrompt`). Product name remains Corbits Code; when asked its name, the primary answers Skywalker. Role: orchestrate-only — classify, dispatch closed directors via `task`, track the fleet, synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are **not mounted** on the primary session (structural never-implement for path tools). Residual mutation surfaces: `run_shell` remains (gated; shell file-writes denied by auto-shell policy), MCP tools added after the strip are not re-filtered by `PRIMARY_DENIED_PRODUCT_TOOLS`, and leaf `writePaths` only apply to path-keyed product tools. A frontier model already knows how to code; the static prompt carries harness-specific facts and the closed-fleet orchestration policy. The base is three individually-exported sections:
 
-- `buildChatRole` — one-line identity and purpose.
-- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked (use `write_file`/`edit_file`), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
-- `buildGuidelines` — be concise, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
-- `buildPromptDisciplineBlock` — a shared, prohibition-form section appended exactly once to every built prompt (chat and sub-agent, every provider family): dedicated tools over shell (`read_file`/`edit_file`/`write_file`, never `cat`/`sed`/heredoc/`echo`), no setting or exporting environment variables (recurring needs belong in project settings), `web_fetch`/`web_search` instead of `curl`/`wget`/hand-rolled queries, one operation per `run_shell` call, turn semantics (a tool-less reply is the final answer, no repeat searches, stop and change approach after three failed attempts, batch independent reads in parallel), and TTY output rules (short bold headers, one-line bullets, backticks for paths/commands, no wide tables).
+- `buildChatRole` — Skywalker primary identity (orchestrate; do not implement product work by default).
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked, primary product mutations are unmounted (spawn implement/docs directors), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
+- `buildGuidelines` — be concise, prefer `task` for product work, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
+- `buildPromptDisciplineBlock` — a shared, prohibition-form section appended exactly once to every built prompt (chat and sub-agent, every provider family). Primary vs leaf wording differs for product writes: leaves are told to use `read_file`/`edit_file`/`write_file`; Skywalker is told product writes are unmounted and durable edits go through directors. Shared rules: never `cat`/`sed`/heredoc/`echo` for file work, no setting or exporting environment variables (recurring needs belong in project settings), `web_fetch`/`web_search` instead of `curl`/`wget`/hand-rolled queries, one operation per `run_shell` call, turn semantics (a tool-less reply is the final answer, no repeat searches, stop and change approach after three failed attempts, batch independent reads in parallel), and TTY output rules (short bold headers, one-line bullets, backticks for paths/commands, no wide tables).
 
 **Provider-conditional residuals.** Per-family additions layer on top of the shared block via the same `ModelFamilyPolicy` mechanism the directors use (`src/subagent/provider-family.ts`, `src/agent/model-family-policy.ts`) — additive lines, never prompt forks. **Grok** leaves get `buildGrokLeafAntiThrashNote` (gated by `shouldApplyGrokAntiThrash` / `applyGrokFinishBias`, withheld from orchestrators): a compact finish-bias reinforcement plus a one-line reminder to route file/web work through the dedicated tools rather than `run_shell`, motivated by observed tool-routing thrash on the same harness. **Kimi** intentionally has no residual yet — `detectModelFamily` already resolves the family so callers can branch on it, but the prompt seam is left unfilled pending eval characterization of Kimi's behavior, mirroring the provisional (permissive-default) policy in `model-family-policy.ts`.
 
-`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. Skill loading is entirely model-driven — there is no operator invocation. Skills are discovered (and deduped by name) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, in that precedence. Corbits Code does not ship a bundled skill catalog — skills come from plugins and the project tree.
+`buildChatSystemPrompt` (TUI chat) and `buildSubAgentSystemPrompt` assemble: base → core tool list → lazy skills listing → live `<env>` block → appended extensions. Built-in catalog tools and MCP integrations load dynamically via `tool_search` rather than being enumerated. Skills follow the same lazy principle pi-style: each discovered skill contributes only its name + one-line description to the prompt, and the model pulls a skill's full instructions into context on demand by calling `use_skill`. The operator can also invoke the same skill as `/<skill-name>` (see Skills below). Skills are discovered (and deduped by name, first-wins) from enabled plugin dirs, then `.agents`/`.claude`/`.codex/skills`, in that precedence. Corbits Code ships a bundled catalog via the first-party `corbits-skills` plugin (origin `repo`); project-local skills of the same name are shadowed by an enabled plugin skill.
 
 **Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.corbits/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
 
@@ -327,7 +389,7 @@ OpenTUI (`@opentui/core`) is the shipping shell; the Ink/React tree has been del
 - **Shell** (`shell.ts`) — Owns the transcript window, header, status line, prompt, overlay/palette stack, and layout/relayout (`applyLayout`, `relayout`). Transcript rows are appended via `appendStreamRow`/`appendObserveStreamRow`; focus moves between prompt and transcript via `applyFocus`/`toggleShellFocus`.
 - **Product host** (`product-host.ts`) — Creates the `CliRenderer`, wires the event emitter bridge, model/command catalogs, and chrome pushes.
 - **Runner host** (`runner-host.ts`) — Runner-facing mount: catalog assembly from live config, chrome pushes on session change, subagent observe resolution, and session teardown (quitting is Ctrl+C twice, owned by the shell).
-- **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) and session-mode prompt (`src/tui/session-mode-prompt.ts`) use `runListModal` (`src/tui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui/command-surfaces.ts`).
+- **Overlays and pickers** — Resume picker (`src/tui/pick-session.ts`) uses `runListModal` (`src/tui/list-modal.ts`). Slash-command surfaces (`/model`, `/settings`, `/permissions`, `/plugins`, etc.) route through `openCommandSurface` (`src/tui/command-surfaces.ts`).
 - **Auto mode** — Toggled by CLI flags only (`--auto` / `--no-auto`); there is currently no in-session key bound to it.
 - `@file` mention resolution and image paste are not wired on the OpenTUI send path.
 
@@ -335,7 +397,13 @@ Known keybindings: `Ctrl+C` interrupts the in-flight run, and quits on a second 
 
 ### Skills (`src/extensions/skills.ts`)
 
-Skills are Markdown capability packages (`SKILL.md`) that the model loads on demand — pi-style lazy skills. They are not slash commands and are never operator-invoked; discovery and loading are entirely model-driven.
+Skills are Markdown capability packages (`SKILL.md`). Each skill is a **dual surface**: the model loads it on demand via the `use_skill` core tool (pi-style lazy listing), and the operator can invoke it as `/<skill-name>` unless frontmatter sets `user-invocable: false`. `loadSkillCommands` (`src/plugins/skill-commands.ts`) synthesizes a slash command that sends the SKILL.md body (plus typed args) to the primary session; untagged skills still become slashes.
+
+Corbits Code **ships a bundled catalog** as the first-party data-only plugin `plugins/corbits-skills/` (id `corbits-skills`, kind `command`, `defaultEnabled: true`). Origin `repo` is auto-trusted. Auto-**enable** applies only when `origin === "repo"` AND `manifest.defaultEnabled` is true AND `settings.plugins[id]` is missing; an explicit `enabled: false` still disables. Marketplace (user / project / path / claude) `defaultEnabled` is ignored — those plugins stay opt-in. The id is `corbits-skills` (not `gaas`) so a later marketplace plugin cannot replace the module by id collision.
+
+`discoverRepoPlugins` locates `plugins/` next to the source root, at `dist/plugins`, or at `dirname(execPath)/plugins`. It never scans the session cwd for the bundled catalog.
+
+Primary is Skywalker. Bundled skill bodies that are operator slashes are **action** recipes that tell it to `task(agent="<director>")` — there is no catch-all worker. Default slashes: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. `/scribe` dispatches shakespeare; `/implement` spawns implement / greybeard / critique as the recipe specifies; `/plan` dispatches plan director (eng change plan; does not implement; does not file tracker issues); `/review` is a code-review action (not a director name); `/create-issue` remains the tracker command — Linear MCP when available, otherwise `ask_operator` for the platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`. Dispatch is `use_skill` only, not a default slash. Draper and emil are closed directors via `task(agent=…)`, not slashes. The operator types the slash; Skywalker reads the body and dispatches.
 
 #### Discovery and precedence
 
@@ -343,29 +411,34 @@ Skills are Markdown capability packages (`SKILL.md`) that the model loads on dem
 
 | Base directory | Source |
 |---|---|
-| `<pluginDir>/skills/` | Each enabled plugin that ships skills (`runner.ts` includes only `pluginConfig[id].enabled`) |
+| `<pluginDir>/skills/` | Each enabled plugin that ships skills, including the bundled `corbits-skills` catalog when auto-enabled (`skillDirsFromEnabledPlugins`) |
 | `.agents/skills/` | Shared across runtimes |
 | `.claude/skills/` | Claude Code workspace skills |
 | `.codex/skills/` | Codex workspace skills |
 
-Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so an enabled plugin skill shadows a project-local skill of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
+Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so an enabled plugin skill shadows a project-local skill of the same name. Plugin dirs are passed in discovery order (repo first), so a first-party catalog name wins over a later marketplace or project skill of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
 
 #### SKILL.md format
 
-A skill file begins with a YAML frontmatter block, followed by the body that holds the instructions. The loader parses only `description`; the skill's identifier (what `use_skill` takes) is its directory name. A skill with no `SKILL.md` or an empty body is skipped.
+A skill file begins with a YAML frontmatter block, followed by the body that holds the instructions. Discovery parses `description`; `loadSkillCommands` also reads `user-invocable`. The skill's identifier (what `use_skill` and `/<skill-name>` take) is its directory name. A skill with no `SKILL.md` or an empty body is skipped.
 
 | Field | Required | Description |
 |---|---|---|
-| `description` | yes | One-line summary shown in the prompt's lazy skills listing |
+| `description` | yes | One-line summary shown in the prompt's lazy skills listing and the slash picker |
 | `name` | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier |
+| `user-invocable` | no | When `false`, `loadSkillCommands` skips slash synthesis; the skill remains `use_skill` only. Untagged skills still become slashes (marketplace BC) |
 
-There are no `type`, `argument-hint`, or `disable-model-invocation` fields — a skill body is plain instruction text. Multi-step orchestration is a separate mechanism (see Workflows above), not a skill `type`.
+There are no `type` or `disable-model-invocation` fields required for model invocation — a skill body is plain instruction text. `argument-hint` on frontmatter is preserved for the slash picker (greyed arg guidance). Multi-step orchestration is a separate mechanism (see Workflows above), not a skill `type`.
 
-#### Loading (model-driven)
+#### Loading (model and operator)
 
-`buildSkillsSection` lists each discovered skill as `- name: description` in the system prompt — descriptions only, so the prompt stays small regardless of how many skills exist. The full instructions enter context only when the model calls the `use_skill` core tool (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result. There is no slash-command surface and no operator-side injection — the model decides when a skill applies and loads it itself.
+`buildSkillsSection` lists each discovered skill as `- name: description` in the system prompt — descriptions only, so the prompt stays small regardless of how many skills exist. The full instructions enter context in two ways:
 
-Which plugin skill directories are in scope is decided in `runner.ts`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched.
+1. **Model** — `use_skill` (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result.
+2. **Operator** — `/<skill-name>` from `loadSkillCommands` sends the same SKILL.md body (plus typed args) to the primary as a user turn. Skills with `user-invocable: false` are omitted from the slash registry and remain `use_skill` only. Skywalker then follows the recipe.
+
+Which plugin skill directories are in scope is decided in `runner.ts` / `skillDirsFromEnabledPlugins`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched. Slash-command registration is first-wins (built-ins, then plugins in discovery order), so a first-party `/implement` stays first-party if a marketplace plugin of the same slash name is also enabled.
+
 
 ## Data Flow
 

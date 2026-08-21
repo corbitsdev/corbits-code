@@ -10,7 +10,7 @@
 
 import type { KeyEvent } from "@opentui/core"
 
-import type { SessionMode } from "../config/session-mode.js"
+import { formatPluginWarningsSummary } from "../plugins/diagnostics.js"
 import { maskEcho, maskSecret } from "./provider-setup.js"
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js"
 import {
@@ -55,6 +55,11 @@ export type PluginEntry = {
   readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[]
   /** Absolute path an untrusted path-origin plugin was discovered at. */
   readonly originPath?: string
+  /**
+   * Standing load warnings attributable to this plugin (skill misses named by
+   * agent id, failed tool starts, …). Surfaced in the row hint and description.
+   */
+  readonly warnings?: readonly string[]
 }
 
 /** Result of a verify/addPath admin action, reported via `deps.notify`. */
@@ -65,15 +70,9 @@ export type WebProviderChoice = { readonly id: string; readonly name: string }
 
 export type CompactionMode = "llm" | "pruning"
 
-/** Where a session-mode write lands: every repo, or just this one. */
-export type SessionModeScope = "global" | "local"
-
 /** Live values behind the settings surface, re-read on every open. */
 export type SettingsSnapshot = {
   readonly compactionMode: CompactionMode
-  readonly sessionMode: SessionMode
-  /** Which scope `sessionMode` currently reflects — a local override wins over global. */
-  readonly sessionModeScope: SessionModeScope
   readonly waitForApproval: boolean
   readonly telemetryEnabled: boolean
   readonly showPromptCost: boolean
@@ -105,6 +104,12 @@ export type PluginsSurfaceDeps = {
   readonly webProviders: () => readonly WebProviderChoice[]
   readonly currentWebProvider: () => string | undefined
   readonly setWebProvider: (id: string | undefined) => Promise<void> | void
+  /**
+   * Standing session-level load warnings (or the full set when attribution is
+   * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
+   * runner, not this surface.
+   */
+  readonly loadWarnings?: () => readonly string[]
 }
 
 /** Discovered lifecycle hook, live enablement, and enough to describe what it runs. */
@@ -150,8 +155,6 @@ export type HooksSurfaceSummary = {
 export type SettingsSurfaceDeps = {
   readonly read: () => SettingsSnapshot
   readonly setCompactionMode: (mode: CompactionMode) => void
-  /** Writes to the given scope: "local" persists to `.corbits/settings.json` in cwd. */
-  readonly setSessionMode: (mode: SessionMode, scope: SessionModeScope) => void
   readonly setWaitForApproval: (value: boolean) => void
   readonly setTelemetryEnabled: (value: boolean) => void
   readonly setShowPromptCost: (value: boolean) => void
@@ -185,6 +188,8 @@ export type CommandSurfaceKind =
 
 const CLOSE_ID = "__close__"
 const BACK_ID = "__back__"
+/** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
+const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__"
 
 export function grantRowLabel(entry: GrantEntry): string {
   const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : ""
@@ -195,12 +200,18 @@ function pluginMissingCredential(entry: PluginEntry): boolean {
   return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0)
 }
 
+function pluginHasWarnings(entry: PluginEntry): boolean {
+  return (entry.warnings?.length ?? 0) > 0
+}
+
 export function pluginRowLabel(entry: PluginEntry): string {
   const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled"
   const blocker =
     entry.needsTrust !== true && !entry.enabled && pluginMissingCredential(entry)
       ? "needs api key"
-      : entry.kind
+      : pluginHasWarnings(entry)
+        ? "has warnings"
+        : entry.kind
   return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`
 }
 
@@ -216,6 +227,11 @@ function pluginDescription(entry: PluginEntry): ItemDescription {
   }
   if (!entry.enabled && pluginMissingCredential(entry)) {
     return { what, impact: "Needs an API key before it can be enabled — press Alt+C." }
+  }
+  if (pluginHasWarnings(entry) && entry.warnings !== undefined) {
+    const summary =
+      formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ")
+    return { what, impact: summary, tone: "consequence" }
   }
   return { what }
 }
@@ -268,14 +284,6 @@ const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
   { id: "llm", label: "summarize" },
   { id: "pruning", label: "drop" },
 ]
-const SESSION_MODE_OPTIONS: readonly CycleOption<SessionMode>[] = [
-  { id: "single", label: "single" },
-  { id: "orchestrator", label: "orchestrator" },
-]
-const SESSION_SCOPE_OPTIONS: readonly CycleOption<SessionModeScope>[] = [
-  { id: "global", label: "everywhere" },
-  { id: "local", label: "this repo" },
-]
 const ON_OFF_OPTIONS: readonly CycleOption<"on" | "off">[] = [
   { id: "on", label: "on" },
   { id: "off", label: "off" },
@@ -311,35 +319,6 @@ function settingsCycleRows(
       cycle: (dir) =>
         settings.setCompactionMode(
           cycleValue(COMPACTION_OPTIONS.map((o) => o.id), snapshot.compactionMode, dir),
-        ),
-    },
-    {
-      id: "session-mode",
-      value: `${"session mode".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_MODE_OPTIONS, snapshot.sessionMode)}`,
-      chosenLabel: activeOptionLabel(SESSION_MODE_OPTIONS, snapshot.sessionMode),
-      describe: {
-        what: "single agent works in-session; orchestrator delegates through a worker fleet.",
-        impact: "orchestrator can run sub-agents concurrently and costs more per turn.",
-        tone: "consequence",
-      },
-      cycle: (dir) =>
-        settings.setSessionMode(
-          cycleValue(SESSION_MODE_OPTIONS.map((o) => o.id), snapshot.sessionMode, dir),
-          snapshot.sessionModeScope,
-        ),
-    },
-    {
-      id: "session-scope",
-      value: `${"  scope".padEnd(SETTINGS_NAME_WIDTH)}${cycleField(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope)}`,
-      chosenLabel: activeOptionLabel(SESSION_SCOPE_OPTIONS, snapshot.sessionModeScope),
-      describe: {
-        what: "whether the session mode above applies to every repo or just this one.",
-        impact: "this repo writes a local override that takes precedence over the global default.",
-      },
-      cycle: (dir) =>
-        settings.setSessionMode(
-          snapshot.sessionMode,
-          cycleValue(SESSION_SCOPE_OPTIONS.map((o) => o.id), snapshot.sessionModeScope, dir),
         ),
     },
     {
@@ -795,6 +774,14 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     id: e.id,
     label: pluginRowLabel(e),
   }))
+  const loadWarnings = plugins.loadWarnings?.() ?? []
+  const loadSummary = formatPluginWarningsSummary(loadWarnings)
+  if (loadSummary !== undefined) {
+    rows.unshift({
+      id: PLUGIN_LOAD_WARNINGS_ID,
+      label: loadSummary.replace(/^plugins:\s*/, ""),
+    })
+  }
   if (rows.length === 0) {
     rows.push({ id: CLOSE_ID, label: "No plugins discovered" })
   }
@@ -806,12 +793,19 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
     frameId: "overlay-plugins",
     ...payload(rows),
     describe: (id) => {
+      if (id === PLUGIN_LOAD_WARNINGS_ID) {
+        return {
+          what: loadSummary ?? "Plugin load warnings.",
+          impact: "Standing diagnostics from plugin discovery and load. Fix the named skills or plugins, then relaunch.",
+          tone: "consequence",
+        }
+      }
       const target = byId.get(id)
       return target === undefined ? null : pluginDescription(target)
     },
     onAccept: (selection) => {
       const id = selectedId(selection, rows)
-      if (id === undefined || id === CLOSE_ID) return
+      if (id === undefined || id === CLOSE_ID || id === PLUGIN_LOAD_WARNINGS_ID) return
       const target = byId.get(id)
       if (target === undefined) return
       if (target.needsTrust === true) {
@@ -834,6 +828,7 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       // branch returns before that handler is reached (see shell.ts's
       // top-level onKey), so exactly one of the two can ever fire.
       if (key.ctrl || !(key.meta || key.option)) return false
+      if (id === PLUGIN_LOAD_WARNINGS_ID) return false
       const target = byId.get(id)
       if (target === undefined) return false
       const name = typeof key.name === "string" ? key.name.toLowerCase() : ""

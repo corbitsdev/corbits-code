@@ -9,12 +9,12 @@ describe("resolveModelFamilyPolicy", () => {
     expect(policy.toolOnlyTurnNudgeAt).toBeGreaterThan(20);
   });
 
-  test("grok no longer tightens the tool-only nudge threshold below the default", () => {
+  test("grok shares the default sub-agent stall timeout (thinking gaps are long)", () => {
     const grok = resolveModelFamilyPolicy({ providerName: "xai/default", model: "grok-4.5" });
     const base = resolveModelFamilyPolicy({ providerName: "anthropic", model: "claude-sonnet-4" });
     expect(grok.family).toBe("grok");
     expect(grok.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
-    expect(grok.subAgentStallTimeoutMs).toBeLessThan(base.subAgentStallTimeoutMs);
+    expect(grok.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
   });
 
   test("grok finish-bias applies to leaves but not orchestrators", () => {

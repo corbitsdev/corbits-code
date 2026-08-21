@@ -34,7 +34,7 @@ export async function pickSession(
   const picked = await runListModal({
     title: "Resume conversation",
     kind: "resume",
-    heading: ["Choose a previous session in this repo"],
+    heading: ["Choose a previous session in this checkout"],
     options: sessions.map((session) => ({
       id: session.sessionId,
       label: sessionResumeLabel(session),

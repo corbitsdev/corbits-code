@@ -14,11 +14,14 @@ import {
   noticeText,
   paintChrome,
   setChromeZones,
+  setPluginNeedsAttention,
+  setPromptModelLabel,
   setPromptWorkspace,
   isLanding,
   paintLanding,
   streamRowCount,
   surfaceSystemNotice,
+  toggleTasksPanel,
 } from "./shell"
 import { makeOperatorQuestion, openOperatorOverlay } from "./overlays"
 import {
@@ -625,12 +628,10 @@ describe("landing screen", () => {
     }, SIZE)
   })
 
-  test("startup plugin diagnostics keep the mountain too", async () => {
-    // CL-5718: CL-5618 routed MCP and hook notices away from the transcript
-    // but left plugin diagnostics going through the runner's own system-row
-    // helper, so any missing skill wiped the whole hero on load. The flush is
-    // a named seam now precisely so no producer of a startup diagnostic gets
-    // to decide this again.
+  test("startup plugin diagnostics keep the mountain and ride plugin !", async () => {
+    // Plugin load warnings no longer go through surfaceSystemNotice — they
+    // drive the standing `plugin !` attention mark instead. The mountain must
+    // still stay up while that mark is painted.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -643,14 +644,18 @@ describe("landing screen", () => {
         const before = markRows(h)
         expect(before.length).toBeGreaterThan(0)
 
-        const summary = "plugins: 3 skills missing: brand-identity, style, philosophy"
-        surfaceSystemNotice(shell, summary)
+        setPromptModelLabel(shell, { profile: "xai", model: "grok" })
+        setPluginNeedsAttention(shell, true)
         await settle(h)
 
         expect(isLanding(shell)).toBe(true)
         expect(markRows(h).length).toBe(before.length)
         expect(streamRowCount(shell)).toBe(0)
-        expect(noticeText(shell)).toContain("3 skills missing")
+        expect(noticeText(shell)).toBe("")
+        expect(shell.pluginNeedsAttention).toBe(true)
+        const frame = h.captureCharFrame()
+        expect(frame).toContain("plugin !")
+        expect(frame).not.toContain("skills missing")
       } finally {
         shell.dispose()
       }
@@ -660,7 +665,8 @@ describe("landing screen", () => {
   test("a flushed startup notice never carries a plumbing gutter label", async () => {
     // The transcript must never label a row "command": a system row's text
     // already says what it is, and the meta column is the operator's, not the
-    // wiring's.
+    // wiring's. (MCP notices still use the notice strip; plugin skill-miss
+    // summaries do not.)
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -669,13 +675,16 @@ describe("landing screen", () => {
       })
       try {
         await settle(h)
-        surfaceSystemNotice(shell, "plugins: 1 skill missing: style")
+        surfaceSystemNotice(
+          shell,
+          "mcp github did not connect (ECONNREFUSED) — its tools are unavailable; /mcp for detail",
+        )
         appendStreamRow(shell, { role: "user", text: "first prompt" })
         await settle(h)
 
         expect(isLanding(shell)).toBe(false)
         const frame = h.captureCharFrame()
-        expect(frame).toContain("1 skill missing")
+        expect(frame).toContain("mcp github did not connect")
         expect(frame).not.toContain("command")
         expect(frame).not.toContain("overlay")
       } finally {
@@ -775,6 +784,10 @@ describe("landing screen", () => {
           setChromeZones(shell, {
             task: [{ label: "wire the version badge", status: "doing" }],
           })
+          // CL-5847: hidden by default — opt in so the regression case (task
+          // row + version badge competing for the same short terminal) still
+          // exercises both painting at once.
+          toggleTasksPanel(shell)
           await settle(h)
 
           expect(isLanding(shell)).toBe(true)

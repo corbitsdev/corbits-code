@@ -1,5 +1,6 @@
 /**
- * Agent-loop integration harness for Corbits Code: wires `createAgent` to
+ * Agent-loop integration harness for Corbits Code: wires
+ * `createAgentWithLiveToolDispatch` (production default) to
  * `@intx/inference-testing` so full reactor cycles run without network I/O.
  *
  * Production-shaped stack: `createChatDirector`, `createAgentToolset` (posix +
@@ -24,6 +25,7 @@ import { setupHarness, type Harness } from "@intx/inference-testing";
 import type { ContextTransform, InferenceSource } from "@intx/types/runtime";
 import { type } from "arktype";
 
+import { createAgentWithLiveToolDispatch } from "../../src/agent/live-tool-dispatch.js";
 import { createChatDirector } from "../../src/agent/director.js";
 import { createAgentToolset } from "../../src/agent/tools.js";
 import { ID_PREFIX } from "../../src/branding.js";
@@ -51,6 +53,8 @@ export type OpenIntegrationSessionOpts = {
   systemPrompt?: string;
   /** Pre-inference transforms, delivered the production way: riding deps. */
   contextTransforms?: ContextTransform[];
+  /** Override to pin the published createAgent snapshot (characterization). */
+  createAgentFn?: typeof createAgent;
 };
 
 export async function openIntegrationSession(
@@ -90,7 +94,8 @@ export async function openIntegrationSession(
   });
 
   const storage = await createOptimizedContextStore(workdir);
-  const agent = await createAgent(def, {
+  const startAgent = opts.createAgentFn ?? createAgentWithLiveToolDispatch;
+  const agent = await startAgent(def, {
     sources: [INTEGRATION_SOURCE],
     defaultSource: INTEGRATION_SOURCE.id,
     storage,

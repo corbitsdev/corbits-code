@@ -28,8 +28,6 @@ import {
 function baseSnapshot(): SettingsSnapshot {
   return {
     compactionMode: "llm",
-    sessionMode: "orchestrator",
-    sessionModeScope: "global",
     waitForApproval: true,
     telemetryEnabled: false,
     showPromptCost: false,
@@ -86,6 +84,21 @@ describe("surface labels", () => {
     ).toBe("exa — enabled")
   })
 
+  test("plugin label surfaces standing load warnings", () => {
+    expect(
+      pluginRowLabel({
+        id: "agents",
+        name: "agents",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        warnings: [
+          'agent a: skill "style" referenced but not found in skill search path',
+        ],
+      }),
+    ).toBe("agents — enabled — has warnings")
+  })
+
 })
 
 /** Build a settings deps bag over a mutable snapshot, recording every write. */
@@ -94,7 +107,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   readonly snapshot: () => SettingsSnapshot
   readonly calls: {
     compaction: string[]
-    sessionMode: Array<{ mode: string; scope: string }>
     waitForApproval: boolean[]
     telemetry: boolean[]
     showPromptCost: boolean[]
@@ -103,7 +115,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
   let state: SettingsSnapshot = { ...baseSnapshot(), ...overrides }
   const calls = {
     compaction: [] as string[],
-    sessionMode: [] as Array<{ mode: string; scope: string }>,
     waitForApproval: [] as boolean[],
     telemetry: [] as boolean[],
     showPromptCost: [] as boolean[],
@@ -115,10 +126,6 @@ function settingsDeps(overrides?: Partial<SettingsSnapshot>): {
       setCompactionMode: (mode) => {
         calls.compaction.push(mode)
         state = { ...state, compactionMode: mode }
-      },
-      setSessionMode: (mode, scope) => {
-        calls.sessionMode.push({ mode, scope })
-        state = { ...state, sessionMode: mode, sessionModeScope: scope }
       },
       setWaitForApproval: (value) => {
         calls.waitForApproval.push(value)
@@ -187,18 +194,15 @@ describe("settings surface", () => {
     })
   })
 
-  test("session mode scope switch honours a local write", async () => {
+  test("settings surface has no session mode rows", async () => {
     await withShell(async (shell) => {
-      const { deps, calls } = settingsDeps()
+      const { deps } = settingsDeps()
       openCommandSurface(shell, "settings", deps)
       await Promise.resolve()
       await Promise.resolve()
 
-      moveOverlaySelection(shell, 2) // compaction, session mode, scope
-      cycleOverlaySelection(shell, 1)
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(calls.sessionMode).toEqual([{ mode: "orchestrator", scope: "local" }])
+      expect(shell.overlayItems.some((l) => l.includes("session mode"))).toBe(false)
+      expect(shell.overlayItems.some((l) => l.includes("scope"))).toBe(false)
     })
   })
 
@@ -211,7 +215,8 @@ describe("settings surface", () => {
 
       expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true)
 
-      moveOverlaySelection(shell, 5) // compaction, session mode, scope, approval wait, telemetry, show cost
+      // compaction, approval wait, telemetry, show cost
+      moveOverlaySelection(shell, 3)
       cycleOverlaySelection(shell, 1)
       await Promise.resolve()
       await Promise.resolve()
@@ -406,6 +411,37 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
 }
 
 describe("plugins surface admin actions", () => {
+  test("load warnings appear as a summary row under /plugins", async () => {
+    await withShell(async (shell) => {
+      const warnings = [
+        'agent a: skill "style" referenced but not found in skill search path',
+        'agent a: skill "philosophy" referenced but not found in skill search path',
+      ]
+      const { deps } = pluginActionDeps({
+        id: "agents",
+        name: "agents",
+        kind: "agent",
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        warnings,
+        agentProfiles: [{ id: "a" }],
+      })
+      // pluginActionDeps builds PluginsSurfaceDeps without loadWarnings; splice it in.
+      const plugins = deps.plugins!
+      const withWarnings: CommandSurfaceDeps = {
+        ...deps,
+        plugins: {
+          ...plugins,
+          loadWarnings: () => warnings,
+        },
+      }
+      openCommandSurface(shell, "plugins", withWarnings)
+      expect(shell.overlayItems.some((l) => l.includes("2 skills missing"))).toBe(true)
+      expect(shell.overlayItems.some((l) => l.includes("has warnings"))).toBe(true)
+    })
+  })
+
   test("c opens credentials, typing a 40+ char key and s saves it in full", async () => {
     await withShell(async (shell) => {
       const { deps, calls } = pluginActionDeps()

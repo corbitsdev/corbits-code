@@ -248,6 +248,22 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
   });
 });
 
+describe("plugin warnings route to plugin ! / /plugins, not startup notices", () => {
+  test("runner does not push formatPluginWarningsSummary into startupPluginNotices", async () => {
+    // Product lock: discovery / tool-plugin / profile skill-miss summaries must
+    // never become fire-and-forget surfaceSystemNotice chatter. They drive
+    // standingPluginWarnings → setPluginNeedsAttention + /plugins instead.
+    const src = await Bun.file(new URL("./runner.ts", import.meta.url)).text();
+    expect(src).toContain("standingPluginWarnings");
+    expect(src).toContain("setPluginNeedsAttention");
+    expect(src).not.toMatch(
+      /startupPluginNotices\.push\(\s*(discoveryNotice|toolPluginNotice|profileNotice)/,
+    );
+    // Unverified provider-key notice is still allowed on the startup path.
+    expect(src).toMatch(/startupPluginNotices\.push\([\s\S]*couldn't confirm your/);
+  });
+});
+
 // The interactive paths above always hand `resolveToolPlugins` a diagnostics
 // collector. Headless/standalone callers (exec's tool-plugin resolution,
 // direct unit tests) may supply neither `diagnostics` nor `onWarning` —

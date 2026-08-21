@@ -82,6 +82,9 @@ export type Rect = {
   readonly height: number;
 };
 
+/** Full-width y-stack only. Kept for API stability with shell callers. */
+export type LayoutMode = "stack";
+
 export type GeometryLayout = {
   readonly terminal: TerminalSize;
   readonly transcriptHeight: number;
@@ -100,6 +103,14 @@ export type GeometryLayout = {
   readonly sideMargin: number;
   /** Zone width after both gutters. */
   readonly contentWidth: number;
+  /** Always `"stack"` — dual-column rail was removed. */
+  readonly layoutMode: LayoutMode;
+  /** Transcript / chat column width. Equals contentWidth. */
+  readonly chatWidth: number;
+  /** Always 0 — no fleet rail. */
+  readonly railWidth: number;
+  /** Always 0 — no fleet rail gutter. */
+  readonly railGutter: number;
 };
 
 type MutableHeights = Record<ZoneId, number>;
@@ -171,6 +182,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
   return heights;
 }
 
+/** Vertical chrome budget: every non-residual zone. */
 function sumChrome(heights: MutableHeights): number {
   let total = 0;
   for (const id of PAINT_ORDER) {
@@ -220,7 +232,10 @@ function desiredOverlayHeight(
  * One collapse step: reduce the next collapsible zone.
  * Returns the zone id that was reduced, or null if nothing left to cut.
  */
-function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | null {
+function collapseOnce(
+  heights: MutableHeights,
+  collapsed: ZoneId[],
+): ZoneId | null {
   for (const id of COLLAPSE_ORDER) {
     const h = heights[id];
     if (h <= 0) continue;
@@ -296,7 +311,7 @@ function assignRects(
 ): Partial<Record<ZoneId, Rect>> {
   const regions: Partial<Record<ZoneId, Rect>> = {};
   const x = resolveSideMargin(terminal.columns);
-  const width = resolveContentWidth(terminal.columns);
+  const contentWidth = resolveContentWidth(terminal.columns);
   let y = 0;
   for (const id of PAINT_ORDER) {
     const height = heights[id];
@@ -304,7 +319,7 @@ function assignRects(
     regions[id] = {
       x,
       y,
-      width,
+      width: contentWidth,
       height,
     };
     y += height;
@@ -315,6 +330,7 @@ function assignRects(
 /**
  * Resolve shell region rects from terminal size, optional chrome, and overlay mode.
  * Pure: no I/O. Extra terminal rows accrue to the transcript residual.
+ * Layout is always a full-width y-stack (`layoutMode: "stack"`).
  */
 export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const terminal = {
@@ -328,6 +344,9 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       : Math.max(0, Math.floor(input.transcriptFloor));
   const heights = desiredHeights({ ...input, terminal });
   const collapsed: ZoneId[] = [];
+  const contentWidth = resolveContentWidth(terminal.columns);
+  const sideMargin = resolveSideMargin(terminal.columns);
+  const layoutMode: LayoutMode = "stack";
 
   // Full-shell modal: hide transcript and bottom chrome; overlay owns residual.
   if (mode === "full_shell") {
@@ -354,8 +373,12 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
       collapsed,
       overlayMode: mode,
       transcriptFloor: floor,
-      sideMargin: resolveSideMargin(terminal.columns),
-      contentWidth: resolveContentWidth(terminal.columns),
+      sideMargin,
+      contentWidth,
+      layoutMode,
+      chatWidth: contentWidth,
+      railWidth: 0,
+      railGutter: 0,
     };
   }
 
@@ -404,7 +427,10 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
         chrome,
         0,
       );
-      heights.transcript = Math.max(0, terminal.rows - sumChrome(heights) - heights.overlay_host);
+      heights.transcript = Math.max(
+        0,
+        terminal.rows - sumChrome(heights) - heights.overlay_host,
+      );
       break;
     }
   }
@@ -415,8 +441,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   heights.transcript = Math.max(0, terminal.rows - chromeHeight - overlayHeight);
 
   // Reclaim any rounding leftover into transcript only (never chrome).
-  const assigned =
-    chromeHeight + overlayHeight + heights.transcript;
+  const assigned = chromeHeight + overlayHeight + heights.transcript;
   if (assigned < terminal.rows) {
     heights.transcript += terminal.rows - assigned;
   }
@@ -433,7 +458,11 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     collapsed,
     overlayMode: mode,
     transcriptFloor: floor,
-    sideMargin: resolveSideMargin(terminal.columns),
-    contentWidth: resolveContentWidth(terminal.columns),
+    sideMargin,
+    contentWidth,
+    layoutMode,
+    chatWidth: contentWidth,
+    railWidth: 0,
+    railGutter: 0,
   };
 }

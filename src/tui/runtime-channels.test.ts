@@ -99,7 +99,7 @@ describe("hook channel", () => {
 })
 
 describe("mcp.status channel", () => {
-  test("a server awaiting authorization takes a notice segment, not a transcript row", async () => {
+  test("a server awaiting authorization takes a prompt-box mark, not a transcript row", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
       emitter.emit("mcp.status", {
@@ -108,7 +108,8 @@ describe("mcp.status channel", () => {
         url: "https://mcp.test/auth",
       })
       const painted = await frame()
-      expect(painted).toContain("mcp linear needs auth (/mcp)")
+      expect(painted).toContain("mcp !")
+      expect(painted).not.toContain("needs auth")
       expect(painted).not.toContain("https://mcp.test/auth")
       expect(host.shell.streamLog).toEqual([])
     } finally {
@@ -116,15 +117,15 @@ describe("mcp.status channel", () => {
     }
   })
 
-  test("connected clears the standing auth segment from state and the painted frame", async () => {
+  test("connected clears the standing auth mark from state and the painted frame", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless()
     try {
       emitter.emit("mcp.status", { name: "linear", state: "needs-auth", url: "https://x/a" })
-      expect(await frame()).toContain("needs auth")
+      expect(await frame()).toContain("mcp !")
       emitter.emit("mcp.status", { name: "linear", state: "connected", tools: ["a"] })
       const painted = await frame()
       expect(host.shell.mcpNeedsAuth).toEqual([])
-      expect(painted).not.toContain("needs auth")
+      expect(painted).not.toContain("mcp !")
     } finally {
       cleanup()
     }
@@ -196,49 +197,51 @@ describe("permission.grant channel", () => {
   })
 })
 
-describe("subagent.progress channel", () => {
-  test("the live tool name reaches the agents chrome zone", async () => {
-    const { host, emitter, frame, cleanup } = await mountHeadless({
+describe("agents chrome (zone off — transcript Task rows own live lanes)", () => {
+  test("setChrome with running agents does not paint an agents zone", async () => {
+    const { host, frame, cleanup } = await mountHeadless({
       chrome: {
         agents: [
-          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+            currentToolName: "grep",
+            currentToolStartedAt: null,
+          },
         ],
       },
     })
     try {
-      expect(await frame()).not.toContain("grep")
-      emitter.emit("subagent.progress", {
-        description: "map callers",
-        toolName: "grep",
-      })
-      // The board right-aligns each lane's tail into a column, so the tool
-      // name is on the row but no longer adjacent to the description.
+      // Fleet board chrome is off: live lane status rides transcript Task rows,
+      // not a dedicated agents zone. Injecting agents into chrome must not paint
+      // them into the frame or the transcript.
       const painted = await frame()
-      expect(painted).toContain("map callers")
-      expect(painted).toContain("grep")
-      // Progress is chrome, never a transcript row: one line per worker tool
-      // call would bury the turn it is a detail of.
+      expect(painted).not.toContain("map callers")
+      expect(painted).not.toContain("grep")
       expect(host.shell.streamLog).toEqual([])
     } finally {
       cleanup()
     }
   })
 
-  test("a later chrome push keeps the live tool name", async () => {
-    const { host, emitter, frame, cleanup } = await mountHeadless()
+  test("a later chrome push still leaves the agents zone empty", async () => {
+    const { host, frame, cleanup } = await mountHeadless()
     try {
-      emitter.emit("subagent.progress", {
-        description: "map callers",
-        toolName: "grep",
-      })
       host.setChrome({
         agents: [
-          { agentId: "explore", description: "map callers", status: "running", currentToolStartedAt: null },
+          {
+            agentId: "explore",
+            description: "map callers",
+            status: "running",
+            currentToolName: "grep",
+            currentToolStartedAt: null,
+          },
         ],
       })
       const painted = await frame()
-      expect(painted).toContain("map callers")
-      expect(painted).toContain("grep")
+      expect(painted).not.toContain("map callers")
+      expect(painted).not.toContain("grep")
     } finally {
       cleanup()
     }
@@ -250,6 +253,12 @@ describe("subagent.progress channel", () => {
  * anywhere is a feature nobody can see, and it fails silently. Static because
  * the subscribers are spread across the runner itself and the product host,
  * and only some of them exist at any one mount.
+ *
+ * `subagent.progress` is still emitted by the runner for external listeners,
+ * but the product host no longer paints from it — tool state rides the
+ * subagent store (`currentToolName` + clock) via setChrome. Drop it from the
+ * "must have a .on somewhere" set so a deliberate non-subscriber is not a
+ * false alarm.
  */
 describe("every emitted runtime channel has a subscriber", () => {
   const srcDir = fileURLToPath(new URL("../", import.meta.url))
@@ -258,13 +267,14 @@ describe("every emitted runtime channel has a subscriber", () => {
   const emitted = new Set(
     [...runner.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) => m[1]!),
   )
+  // Progress pings are store-mirrored chrome, not a host paint path.
+  emitted.delete("subagent.progress")
 
   test("the runner still emits the channels this suite knows about", () => {
     for (const channel of [
       "hook",
       "mcp.status",
       "permission.grant",
-      "subagent.progress",
     ]) {
       expect([...emitted]).toContain(channel)
     }

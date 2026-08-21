@@ -129,19 +129,11 @@ describe("observeSessionFromSubAgents", () => {
 })
 
 describe("mountRunnerHost chrome wiring", () => {
-  // CL-5731: the task-change callback was built (director writes tasks,
-  // getTasks()/onTasksChange exist) but had no live consumer — the chrome
-  // push mechanism type-checked fine with `subscribeChrome` omitted, so a
-  // director's task update never reached the shell. `subscribeChrome` is now
-  // a required dep (not optional) so that regression cannot type-check
-  // again, but the type alone does not prove the wiring actually runs: this
-  // test drives a real notify() call through mountRunnerHost end to end and
-  // asserts the task panel painted from it, the way the real runner's
-  // `emitter.emit("tasks", ...)` -> `subscribeChrome` -> `pushChrome` chain
-  // does. If `subscribeChrome`'s notify callback were ever dropped again
-  // (e.g. `deps.subscribeChrome?.(pushChrome)` silently no-op on undefined),
-  // this test fails because the second push never reaches the panel.
-  test("a live chrome push (subscribeChrome notify) repaints the task panel", async () => {
+  // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
+  // now parks both chrome strips (always null), so a tasks push must not
+  // paint the checklist — this test asserts the notify path still runs and
+  // leaves the task panel empty (rebuild later; live work is ● Task rows).
+  test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
     const harness = await createHarness({ width: 80, height: 24 })
     let liveTasks: readonly { title: string; status: "todo" | "doing" | "done" | "cancelled" }[] = []
     let notify: (() => void) | undefined
@@ -168,16 +160,17 @@ describe("mountRunnerHost chrome wiring", () => {
       expect(host.shell.taskBox.visible).toBe(false)
       expect(notify).toBeDefined()
 
-      // Mirrors createChatDirector's onTasksChange firing after a
-      // manage_tasks tool call: the live source changes, then the runner
-      // notifies the host — it does not push the new snapshot itself.
+      // Mirrors createChatDirector's onTasksChange: live source changes, then
+      // the runner notifies the host. formatChromeZones parks the checklist.
       liveTasks = [{ title: "wire task panel", status: "doing" }]
       notify?.()
 
-      expect(host.shell.taskBox.visible).toBe(true)
+      expect(host.shell.taskBox.visible).toBe(false)
       await harness.renderOnce()
       const frame = harness.captureCharFrame()
-      expect(frame).toContain("wire task panel")
+      expect(frame).not.toContain("wire task panel")
+      // Notify callback stayed registered — subscribe path ran without error.
+      expect(notify).toBeDefined()
     } finally {
       host.dispose()
       harness.destroy()
@@ -205,14 +198,11 @@ describe("mountRunnerHost command surfaces", () => {
         settings: {
           read: () => ({
             compactionMode: "llm",
-            sessionMode: "orchestrator",
-            sessionModeScope: "global",
             waitForApproval: true,
             telemetryEnabled: false,
             showPromptCost: false,
           }),
           setCompactionMode: () => {},
-          setSessionMode: () => {},
           setWaitForApproval: () => {},
           setTelemetryEnabled: () => {},
           setShowPromptCost: () => {},
@@ -255,7 +245,7 @@ describe("mountRunnerHost model picker", () => {
       host.refreshModels([{ provider: "xai", model: "grok-4" }], [])
       closeInsetOverlay(host.shell)
       expect(host.openSurface("models")).toBe(true)
-      expect(host.shell.overlayItems[0]).toBe("xai / grok-4 (current)")
+      expect(host.shell.overlayItems[0]).toBe("grok-4 * [xai] (current)")
     } finally {
       host.dispose()
       harness.destroy()
@@ -288,7 +278,7 @@ describe("mountRunnerHost model picker", () => {
         { xai: { models: ["grok-4"] }, openai: { models: ["gpt-5"] } },
       )
       expect(host.openSurface("models")).toBe(true)
-      // Flat list: the new provider appears as a leaf `provider / model` row,
+      // Flat list: the new provider appears as a leaf `model * [provider]` row,
       // not a nested group to drill into.
       expect(host.shell.overlayItems.some((label) => label.includes("openai"))).toBe(true)
       expect(host.shell.overlayItems.some((label) => label.includes("gpt-5"))).toBe(true)
@@ -323,6 +313,35 @@ describe("mountRunnerHost model picker", () => {
       const fKey = { name: "f", ctrl: false, meta: false, option: true } as KeyEvent
       expect(runOverlayAction(host.shell, fKey)).toBe(true)
       expect(toggled).toEqual(["xai:grok-4"])
+    } finally {
+      host.dispose()
+      harness.destroy()
+    }
+  })
+
+  test("Alt+D sets default on the focused row via onSetDefault", async () => {
+    const harness = await createHarness({ width: 80, height: 24 })
+    const setDefault: string[] = []
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => {},
+      interrupt: () => {},
+      providers: { xai: { models: ["grok-4"] } },
+      onModelSelect: () => {},
+      onSetDefault: (id) => setDefault.push(id),
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    })
+    try {
+      expect(host.openSurface("models")).toBe(true)
+      const dKey = { name: "d", ctrl: false, meta: false, option: true } as KeyEvent
+      expect(runOverlayAction(host.shell, dKey)).toBe(true)
+      expect(setDefault).toEqual(["xai:grok-4"])
     } finally {
       host.dispose()
       harness.destroy()
@@ -470,7 +489,7 @@ describe("mountRunnerHost quit key", () => {
     }
   })
 
-  // Quitting is Ctrl+C twice. The host claims no key of its own, so an empty
+  // Quitting is Ctrl+C. The host claims no key of its own, so an empty
   // prompt is not a special case: Ctrl+D stays the prompt's own binding.
   test("Ctrl+D at an empty prompt does not quit", async () => {
     const harness = await createHarness({ width: 80, height: 24 })

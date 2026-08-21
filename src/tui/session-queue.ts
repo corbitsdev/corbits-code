@@ -1,6 +1,12 @@
 /**
  * Mid-run queue / steer / interrupt state machine (interaction contract §3).
  * Pure data — no paint, no OpenTUI. Shell + demo own delivery and UI flash.
+ *
+ * Product chords (CL-6290):
+ *   - Enter mid-run → kind "steer" (soft steer; drain at tool.boundary)
+ *   - Alt+Enter mid-run → kind "queue" (follow-up; drain only when run goes idle)
+ * Internal "reinject" is a separate bridge/shell submit kind, not a QueueKind,
+ * and no product chord wires it anymore — leave the path for tests/API only.
  */
 
 import type { PendingImageAttachment } from "./image-attachments.js"
@@ -38,9 +44,19 @@ export function createSessionQueue(
   }
 }
 
-/** Pending badge count (queue + steer share one pool). */
+/** Pending badge count (queue + steer share one pool for depth totals). */
 export function badgeCount(state: SessionQueueState): number {
   return state.items.length
+}
+
+/** Soft-steer pending count (Enter mid-run). */
+export function steerCount(state: SessionQueueState): number {
+  return state.items.filter((i) => i.kind === "steer").length
+}
+
+/** Follow-up pending count (Alt+Enter mid-run). */
+export function queueCount(state: SessionQueueState): number {
+  return state.items.filter((i) => i.kind === "queue").length
 }
 
 export function setRunState(
@@ -139,11 +155,18 @@ export function drainOrder(
   return [...steers, ...queues]
 }
 
-/** Pop next delivery item (steer-first). */
+/**
+ * Pop next delivery item. When `kind` is set, only that class (FIFO within
+ * class); otherwise full `drainOrder` (steer-first, then queue).
+ */
 export function drainOne(
   state: SessionQueueState,
+  kind?: QueueKind,
 ): { state: SessionQueueState; item: QueueItem | null } {
-  const order = drainOrder(state)
+  const order =
+    kind === undefined
+      ? drainOrder(state)
+      : state.items.filter((i) => i.kind === kind)
   const item = order[0] ?? null
   if (!item) return { state, item: null }
   return {
@@ -153,4 +176,19 @@ export function drainOne(
     },
     item,
   }
+}
+
+/** Drain every pending soft-steer; leave follow-ups untouched. */
+export function drainSteersOnly(
+  state: SessionQueueState,
+): { state: SessionQueueState; drained: readonly QueueItem[] } {
+  const drained: QueueItem[] = []
+  let current = state
+  for (;;) {
+    const next = drainOne(current, "steer")
+    if (!next.item) break
+    drained.push(next.item)
+    current = next.state
+  }
+  return { state: current, drained }
 }

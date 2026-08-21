@@ -2,16 +2,28 @@
 
 Local, multi-model capability checks against the **product** agent path (`corbits exec`), not the scripted integration harness.
 
+**Inspired by** patterns from [SWE-bench](https://www.swebench.com/) (issue → patch → tests), [Terminal-Bench](https://www.tbench.ai/) (agent shell workflows), and [LiveCodeBench](https://livecodebench.github.io/) (coding task suites). This suite uses small hermetic fixtures and `verify.sh` graders; it does **not** run those external harnesses.
+
 ## What this measures
 
 Whether a real model + our directors/tools can complete small coding tasks on fixture repos. Graders are objective shell scripts (`verify.sh`) — pass/fail, not LLM-as-judge.
+
+Eval workdirs are initialized as git repositories (HEAD exists) so isolated workers and git-aware skills have a baseline.
 
 One run can **try different things**: multiple cases × multiple provider/model variants (matrix), with every product-path metric we can record written into the results JSON.
 
 | Tier | Case | Fixture | Intent |
 |------|------|---------|--------|
 | simple | `simple-health` | `tests/fixtures/multi-file-service` | Single-file route + test |
-| complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests |
+| complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests (sync API contract) |
+| complex | `complex-stock-gate` | `tests/fixtures/demo-comparison` | Multi-file stock-gated orders + mutable state |
+| complex | `complex-idempotent-orders` | `tests/fixtures/demo-comparison` | Idempotency-Key header + multi-file order store |
+| complex | `complex-bugfix` | `tests/fixtures/buggy-service` | Issue→patch→tests: fix failing post GET without breaking users |
+| complex | `complex-pagination` | `tests/fixtures/demo-comparison` | Multi-file feature: query pagination on GET /products |
+| complex | `complex-rename-user` | `tests/fixtures/multi-file-service` | Refactor/rename user `name` → `displayName` across files |
+| complex | `complex-dispatch-spawn` | `tests/fixtures/multi-file-service` | Dispatch GET /readyz via `task`; grader checks the route, not that the primary skipped DIY |
+| complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read` | Read many fixture files then write the planted token; does not assert compaction fired |
+
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
 | bait | `env-bait` | `tests/fixtures/env-config-build` | Build configured via file; catches `FOO=bar cmd` env prefixes |
@@ -72,6 +84,7 @@ shell parser.
 | `maxChainSegmentsPerCommand` | largest chain in one command | lower is better |
 | `networkCommandCount` | segments invoking curl/wget/nc/... | lower is better |
 | `webFetchToolCallCount` | `web_fetch` tool calls (0 when the tool is absent or unused) | informational |
+| `taskToolCallCount` | `task` tool calls (0 when the tool is absent or unused) | informational |
 | `editViaShellCount` | sed/perl/awk `-i` edits or heredoc writes | lower is better |
 | `repeatedSearchCount` | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better |
 | `longestToolOnlyStreak` | longest run of assistant turns with tool calls and no text | lower is better |
@@ -80,35 +93,40 @@ shell parser.
 
 ## Prerequisites
 
-- Configured provider (same as interactive `corbits`)
+- A configured provider matching the CLI `--provider` / `--model` (or `--matrix` cells)
 - Network access for inference
 - Bun
 
 Evals default to `--dangerously-skip-permissions` so the agent can write without a human at the gate. Override with `--ask-permissions` if you want the non-interactive deny path.
 
+## Provider/model
+
+CLI `--provider <name>` and `--model <id>` are required for every run, including `--dry-run`. Alternatively, pass `--matrix` with complete `provider:model` cells. Local `.corbits/settings.json` is never the implicit eval target.
+
 ## Run
 
 ```bash
-# All cases with the configured default provider/model
-bun run eval:capability
+# All cases — explicit provider/model required
+bun run eval:capability -- --provider <name> --model <id>
 
 # One case, explicit model
-bun run eval:capability -- --case simple-health --provider xai/thegreataxios --model grok-4.5
+bun run eval:capability -- --case simple-health --provider xai --model grok-4.5
 
 # Multi-model matrix (cases × variants)
 bun run eval:capability -- \
-  --matrix "xai/thegreataxios:grok-4.5,openai:gpt-4.1" \
+  --matrix "xai:grok-4.5,openai:gpt-4.1" \
   --out evals/capability/results/matrix.json
 
 # Labeled variants
 bun run eval:capability -- --matrix "fast=xai:grok-4.5,strong=openai:gpt-4.1"
 
 # Baseline improve/regress (keys by variantId::caseId)
-bun run eval:capability -- --out evals/capability/results/run2.json \
+bun run eval:capability -- --provider <name> --model <id> \
+  --out evals/capability/results/run2.json \
   --baseline evals/capability/results/run1.json
 
 # Gate run: 5 repeats per cell against the frozen baseline
-bun run eval:capability -- --repeats 5 \
+bun run eval:capability -- --provider <name> --model <id> --repeats 5 \
   --out evals/capability/results/candidate.json \
   --baseline evals/capability/results/baseline-0286.json
 ```
@@ -118,8 +136,8 @@ bun run eval:capability -- --repeats 5 \
 Any change intended to shift agent behavior (prompts, directors, tools) is
 confirmed here, not by anecdote:
 
-1. Run the suite with `--repeats 5` (repeats smooth model variance; a single
-   run of a bait case proves nothing).
+1. Run the suite with `--provider` / `--model` (or `--matrix`) and `--repeats 5`
+   (repeats smooth model variance; a single run of a bait case proves nothing).
 2. Compare against the frozen baseline
    (`evals/capability/results/baseline-0286.json`) with `--baseline`.
 3. Read the verdicts: any pass-rate change per cell is significant; behavior
@@ -137,8 +155,8 @@ Flags:
 | Flag | Meaning |
 |------|---------|
 | `--case <id\|all>` | Case id or `all` (default) |
-| `--provider` / `--model` | Single-variant override via `loadConfig` |
-| `--matrix <cells>` | Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated) |
+| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings |
+| `--matrix <cells>` | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides |
 | `--config <path>` | Settings file override (CI injection) |
 | `--out <path>` | Write machine-readable results JSON |
 | `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
@@ -147,7 +165,7 @@ Flags:
 | `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `600000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
 | `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
 | `--repeats <n>` | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates |
-| `--dry-run` | Load cases × variants and print plan; no inference |
+| `--dry-run` | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix` |
 
 ## Case format
 
@@ -169,6 +187,7 @@ verify.sh   # objective grader (exit 0 = pass)
 - `verify` — grader filename (default `verify.sh`)
 - `bait` — optional `{ metric, threshold }` marking the behavior metric this case reproduces (see the bait table above)
 - `httpFixture` — when `true`, the runner starts a hermetic HTTP server on `127.0.0.1` (ephemeral port, per-run token), substitutes `{{HTTP_URL}}` in the prompt, and passes `EVAL_HTTP_URL` / `EVAL_HTTP_TOKEN` to `verify.sh`. The server is stopped when the case run ends — nothing external is contacted
+- `requireBehaviors` — optional `[{ metric, min?, max? }]`. After the run, each listed metric must fall in range or the case fails. Missing capture with a non-empty list fails closed
 
 ## Results JSON (v3)
 
@@ -233,6 +252,7 @@ verify.sh   # objective grader (exit 0 = pass)
         "maxChainSegmentsPerCommand": 2,
         "networkCommandCount": 0,
         "webFetchToolCallCount": 0,
+        "taskToolCallCount": 0,
         "editViaShellCount": 0,
         "repeatedSearchCount": 0,
         "longestToolOnlyStreak": 2,

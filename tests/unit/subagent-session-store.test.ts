@@ -310,6 +310,7 @@ describe("createTaskTool session recording", () => {
       description: "inspect store",
       prompt: "do the job",
       context: "background",
+      intent: "explore",
     });
     expect(out).toContain("## Summary\nDone.");
     const sessions = store.list();
@@ -336,7 +337,7 @@ describe("createTaskTool session recording", () => {
         throw new Error("boom");
       },
     });
-    const out = await call(tool, { description: "fail me", prompt: "x" });
+    const out = await call(tool, { description: "fail me", prompt: "x", intent: "explore" });
     expect(out).toContain("failed: boom");
     const session = store.list()[0];
     expect(session?.status).toBe("failed");
@@ -351,7 +352,7 @@ describe("createTaskTool session recording", () => {
       provider,
       run: async () => "ok",
     });
-    const out = await call(tool, { description: "no store", prompt: "x" });
+    const out = await call(tool, { description: "no store", prompt: "x", intent: "explore" });
     expect(out).toContain("ok");
   });
 
@@ -395,7 +396,7 @@ describe("createTaskTool session recording", () => {
         return "should not complete";
       },
     });
-    const out = await call(tool, { description: "stuck looper", prompt: "spin" });
+    const out = await call(tool, { description: "stuck looper", prompt: "spin", intent: "explore" });
     expect(out).toContain('cancelled by operator');
     expect(sawAbort).toBe(true);
     const session = store.list()[0];
@@ -425,7 +426,7 @@ describe("createTaskTool session recording", () => {
         return "nope";
       },
     });
-    const out = await call(tool, { description: "parent stop child", prompt: "x" }, parent.signal);
+    const out = await call(tool, { description: "parent stop child", prompt: "x", intent: "explore" }, parent.signal);
     expect(out).toContain("cancelled by operator");
     expect(store.list()[0]?.status).toBe("cancelled");
   });

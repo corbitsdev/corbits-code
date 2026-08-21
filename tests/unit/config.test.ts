@@ -181,7 +181,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       model: "m",
       reasoningEffort: "high" as const,
       mcpServers: [{ name: "s", command: "echo" }],
-      sessionMode: "single" as const,
+      sessionMode: "orchestrator" as const,
       env: { FOO: "bar" },
     };
     await writeFile(localPath, JSON.stringify(localFixture));

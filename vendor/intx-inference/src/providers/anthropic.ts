@@ -32,12 +32,17 @@ const ANTHROPIC_TOOL_NAME_LIMIT: ToolNameLimit = {
 };
 
 // Models that reject thinking:{type:"enabled",budget_tokens} and require
-// thinking:{type:"adaptive"} with output_config.effort. Keep aligned with
-// the discovery plug-in's ADAPTIVE_THINKING_MODELS set.
-const ADAPTIVE_THINKING_MODELS: ReadonlySet<string> = new Set([
+// thinking:{type:"adaptive"} with output_config.effort. The discovery
+// plug-in's ADAPTIVE_THINKING_MODELS set must match this one; a guard test in
+// the anthropic discovery package pins the two equal so they cannot drift.
+export const ADAPTIVE_THINKING_MODELS: ReadonlySet<string> = new Set([
   "claude-sonnet-5",
   "claude-opus-5",
   "claude-fable-5",
+  "claude-opus-4-8",
+  "claude-opus-4-6",
+  "claude-opus-4-7",
+  "claude-sonnet-4-6",
 ]);
 
 // ---------------------------------------------------------------------------

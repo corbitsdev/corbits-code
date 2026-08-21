@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { readdir } from "node:fs/promises";
-import { release, type as osType } from "node:os";
+import { arch, release, type as osType } from "node:os";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -8,6 +8,10 @@ const run = promisify(execFile);
 export type EnvironmentInfo = {
   cwd: string;
   platform: string;
+  /** CPU architecture (e.g. arm64, x64). */
+  arch: string;
+  /** Runtime label (e.g. Bun 1.2.x or Node 22.x). */
+  runtime: string;
   date: Date;
   isGitRepo: boolean;
   gitBranch?: string;
@@ -78,9 +82,15 @@ async function gatherTopLevel(cwd: string): Promise<string | undefined> {
 
 export async function gatherEnvironment(cwd: string, date = new Date()): Promise<EnvironmentInfo> {
   const [gitInfo, topLevel] = await Promise.all([gatherGit(cwd), gatherTopLevel(cwd)]);
+  const runtime =
+    typeof Bun !== "undefined"
+      ? `Bun ${Bun.version}`
+      : `Node ${process.versions.node}`;
   return {
     cwd,
     platform: `${osType()} ${release()}`,
+    arch: arch(),
+    runtime,
     date,
     isGitRepo: false,
     ...gitInfo,

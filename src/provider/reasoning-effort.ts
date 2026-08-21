@@ -158,6 +158,11 @@ export type ResolveEffortForRoleOpts = {
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
   pin?: ReasoningEffort;
+  /**
+   * Package modelRole default (CL-5816). When set, replaces the binary
+   * orchestrator/leaf default so intern can be low while implement stays medium.
+   */
+  roleDefault?: ReasoningEffort;
   /** Parent session effort — used only when the role default is not supported. */
   parentEffort?: ReasoningEffort;
   model: string;
@@ -206,11 +211,12 @@ export function pickEffortFromCascade(opts: {
  */
 export function resolveEffortForRole(opts: ResolveEffortForRoleOpts): ReasoningEffort | undefined {
   const supported = supportedEfforts(opts.model, undefined, opts.isCodex === true);
+  const roleDefault =
+    opts.roleDefault ??
+    (opts.orchestrator ? ROLE_DEFAULT_EFFORT.orchestrator : ROLE_DEFAULT_EFFORT.leaf);
   return pickEffortFromCascade({
     ...(opts.pin !== undefined ? { pin: opts.pin } : {}),
-    roleDefault: opts.orchestrator
-      ? ROLE_DEFAULT_EFFORT.orchestrator
-      : ROLE_DEFAULT_EFFORT.leaf,
+    roleDefault,
     ...(opts.parentEffort !== undefined ? { parentEffort: opts.parentEffort } : {}),
     supported,
   });

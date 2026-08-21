@@ -27,6 +27,17 @@ export type EvalBait = {
   threshold: number;
 };
 
+/**
+ * Hard bound on a captured numeric behavior metric. The case fails when the
+ * metric is outside [min, max] (either bound optional; at least one required).
+ * Used for honesty checks (e.g. web-bait must actually call web_fetch).
+ */
+export type BehaviorRequirement = {
+  metric: NumericBehaviorMetric;
+  min?: number;
+  max?: number;
+};
+
 export type EvalCase = {
   id: string;
   tier: EvalTier;
@@ -45,6 +56,11 @@ export type EvalCase = {
    * ephemeral port) for the case and substitutes `{{HTTP_URL}}` in the prompt.
    */
   httpFixture?: boolean;
+  /**
+   * Optional post-run honesty bounds on captured behavior metrics. Fail the
+   * case when a bound is violated even if agent exit and verify.sh are green.
+   */
+  requireBehaviors?: BehaviorRequirement[];
 };
 
 /** Token counters from the product run sink (mirrors TokenUsage shape). */
@@ -238,6 +254,7 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
       : undefined;
   const bait = parseBait(raw.bait, id);
   const httpFixture = raw.httpFixture === true ? true : undefined;
+  const requireBehaviors = parseRequireBehaviors(raw.requireBehaviors, id);
   return {
     id,
     tier,
@@ -249,6 +266,7 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(bait !== undefined ? { bait } : {}),
     ...(httpFixture !== undefined ? { httpFixture } : {}),
+    ...(requireBehaviors !== undefined ? { requireBehaviors } : {}),
   };
 }
 
@@ -268,6 +286,94 @@ function parseBait(raw: unknown, caseId: string): EvalBait | undefined {
     throw new Error(`case ${caseId}: bait.threshold must be a non-negative number`);
   }
   return { metric, threshold };
+}
+
+function parseRequireBehaviors(
+  raw: unknown,
+  caseId: string,
+): BehaviorRequirement[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error(`case ${caseId}: requireBehaviors must be an array`);
+  }
+  if (raw.length === 0) {
+    throw new Error(`case ${caseId}: requireBehaviors must be non-empty when present`);
+  }
+  return raw.map((entry, index) => parseBehaviorRequirement(entry, caseId, index));
+}
+
+function parseBehaviorRequirement(
+  raw: unknown,
+  caseId: string,
+  index: number,
+): BehaviorRequirement {
+  const label = `case ${caseId}: requireBehaviors[${index}]`;
+  if (!isRecord(raw)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const metric = raw.metric;
+  if (typeof metric !== "string" || !isNumericBehaviorMetric(metric)) {
+    throw new Error(
+      `${label}.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`,
+    );
+  }
+  const hasMin = raw.min !== undefined;
+  const hasMax = raw.max !== undefined;
+  if (!hasMin && !hasMax) {
+    throw new Error(`${label} must set at least one of min or max`);
+  }
+  let min: number | undefined;
+  let max: number | undefined;
+  if (hasMin) {
+    if (typeof raw.min !== "number" || !Number.isFinite(raw.min) || raw.min < 0) {
+      throw new Error(`${label}.min must be a non-negative number`);
+    }
+    min = raw.min;
+  }
+  if (hasMax) {
+    if (typeof raw.max !== "number" || !Number.isFinite(raw.max) || raw.max < 0) {
+      throw new Error(`${label}.max must be a non-negative number`);
+    }
+    max = raw.max;
+  }
+  if (min !== undefined && max !== undefined && min > max) {
+    throw new Error(`${label}: min (${min}) must be <= max (${max})`);
+  }
+  return {
+    metric,
+    ...(min !== undefined ? { min } : {}),
+    ...(max !== undefined ? { max } : {}),
+  };
+}
+
+/**
+ * Check captured behavior metrics against case requireBehaviors bounds.
+ * Fails closed when capture is missing and requirements are non-empty.
+ */
+export function checkBehaviorRequirements(
+  behaviors: BehaviorMetrics | null,
+  reqs: readonly BehaviorRequirement[],
+): { ok: boolean; failures: string[] } {
+  if (reqs.length === 0) return { ok: true, failures: [] };
+  if (behaviors === null) {
+    return {
+      ok: false,
+      failures: [
+        "requireBehaviors set but behavior capture missing (no turn stream recorded)",
+      ],
+    };
+  }
+  const failures: string[] = [];
+  for (const req of reqs) {
+    const value = behaviors[req.metric];
+    if (req.min !== undefined && value < req.min) {
+      failures.push(`${req.metric}=${value} below min ${req.min}`);
+    }
+    if (req.max !== undefined && value > req.max) {
+      failures.push(`${req.metric}=${value} above max ${req.max}`);
+    }
+  }
+  return { ok: failures.length === 0, failures };
 }
 
 /** Load every case under `casesRoot` (one subdirectory per case with case.json). */
@@ -421,6 +527,8 @@ export function defaultVariantId(provider?: string, model?: string): string {
  *   - `provider/model` (slash only when no colon)
  *   - `label=provider:model`
  * Empty / omitted → single default variant (caller provider/model flags).
+ * Each expanded cell must have both provider and model (after applying
+ * `--provider`/`--model` as cell defaults when a side is omitted).
  */
 export function parseMatrix(
   matrix: string | undefined,
@@ -443,10 +551,14 @@ export function parseMatrix(
   if (cells.length === 0) {
     throw new Error("--matrix has no variants");
   }
-  return cells.map((cell, index) => parseMatrixCell(cell, index));
+  return cells.map((cell, index) => parseMatrixCell(cell, index, fallback));
 }
 
-function parseMatrixCell(cell: string, index: number): EvalVariant {
+function parseMatrixCell(
+  cell: string,
+  index: number,
+  fallback: { provider?: string; model?: string },
+): EvalVariant {
   let label: string | undefined;
   let rest = cell;
   const eq = cell.indexOf("=");
@@ -469,15 +581,15 @@ function parseMatrixCell(cell: string, index: number): EvalVariant {
       `matrix cell ${index + 1} "${cell}" must be provider:model or label=provider:model`,
     );
   }
-  if (provider === undefined && model === undefined) {
-    throw new Error(`matrix cell ${index + 1} "${cell}" is empty`);
+  provider = provider ?? fallback.provider;
+  model = model ?? fallback.model;
+  if (provider === undefined || model === undefined) {
+    throw new Error(
+      `matrix cell ${index + 1} "${cell}" must specify both provider and model`,
+    );
   }
   const id = label ?? defaultVariantId(provider, model);
-  return {
-    id,
-    ...(provider !== undefined ? { provider } : {}),
-    ...(model !== undefined ? { model } : {}),
-  };
+  return { id, provider, model };
 }
 
 /** Cartesian product of cases × variants (cases outer for stable progress). */

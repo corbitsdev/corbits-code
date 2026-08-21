@@ -8,10 +8,11 @@ import { homedir } from "node:os";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Project identity for the global session tree under
-// ~/.corbits/projects/<project-key>/<thread-id>/. Prefer a git *common* root so
-// main + linked worktrees share resume history; fall back to the workspace
-// realpath for non-git trees. The key is a readable slug plus a short hash of
-// the absolute root so common folder names ("src", "app") do not collide.
+// ~/.corbits/projects/<project-key>/<thread-id>/. Prefer this checkout's git
+// toplevel so linked worktrees each have their own resume list; fall back to
+// the workspace realpath for non-git trees. The key is a readable slug plus a
+// short hash of the absolute root so common folder names ("src", "app") do
+// not collide.
 
 function realpathOr(path: string): string {
   try {
@@ -30,34 +31,30 @@ function slugSegment(name: string): string {
 }
 
 /**
- * Shared project root for session identity.
+ * Checkout project root for session identity.
  *
- * Linked worktrees each have their own toplevel path; `--git-common-dir` points
- * at the main repo's `.git`, so parent-of-common-dir is stable across worktrees.
+ * Nested cwd under a git toplevel shares that root (and therefore the same
+ * project key). Linked worktrees each have their own `--show-toplevel`.
  */
 export function projectRootFor(cwd: string): string {
   try {
-    const commonRaw = execFileSync(
+    const toplevelRaw = execFileSync(
       "git",
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      ["rev-parse", "--path-format=absolute", "--show-toplevel"],
       {
         cwd,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       },
     ).trim();
-    if (commonRaw.length > 0) {
-      const commonAbs = realpathOr(
-        isAbsolute(commonRaw) ? commonRaw : resolve(cwd, commonRaw),
-      );
-      // Standard layout: <repo>/.git  →  project root is parent.
-      // Bare repo: common dir is the bare store itself.
-      const root =
-        basename(commonAbs) === ".git" ? dirname(commonAbs) : commonAbs;
-      return realpathOr(root);
+    if (toplevelRaw.length > 0) {
+      const toplevelAbs = isAbsolute(toplevelRaw)
+        ? toplevelRaw
+        : resolve(cwd, toplevelRaw);
+      return realpathOr(toplevelAbs);
     }
   } catch {
-    // Not a git worktree (or git unavailable) — use the workspace path.
+    // Not a git checkout (or git unavailable) — use the workspace path.
   }
   return realpathOr(cwd);
 }

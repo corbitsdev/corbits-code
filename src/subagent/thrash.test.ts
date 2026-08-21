@@ -392,6 +392,32 @@ describe("thrash pure module", () => {
     expect(thrashFromReRead(state)).toBe(true);
   });
 
+  test("unique reads at any volume are not a stop", () => {
+    const calls: ThrashToolCallBlock[] = [];
+    for (let i = 0; i < 200; i++) {
+      calls.push(read(`src/file-${i}.ts`));
+    }
+    const state = applyAll(calls);
+    expect(
+      evaluateThrashStop({
+        state,
+        hasToolCalls: true,
+        turnsCompleted: 40,
+        maxTurns: 60,
+      }),
+    ).toBeNull();
+  });
+
+  test("same grep pattern counts as re-read pressure", () => {
+    const calls: ThrashToolCallBlock[] = [];
+    for (let i = 0; i < DEFAULT_THRASH_CONFIG.reReadLimit; i++) {
+      calls.push(grep("formatModelPicker"));
+    }
+    for (let i = 0; i < 4; i++) calls.push(read(`pad-${i}.ts`));
+    const state = applyAll(calls);
+    expect(thrashFromReRead(state)).toBe(true);
+  });
+
   test("config overrides apply to evaluateThrashStop", () => {
     const state = applyAll([read("a.ts"), read("a.ts")]);
     expect(

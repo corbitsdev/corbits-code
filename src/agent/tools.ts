@@ -32,7 +32,7 @@ import {
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
+import { advertisedToolNamesForSessionMode, PRIMARY_DENIED_PRODUCT_TOOLS, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
@@ -106,7 +106,7 @@ export type AgentToolsetArgs = {
   // every turn (workflow or not), so the model can call it with nothing active;
   // this lets its handler report an honest no-op instead of a false advance.
   isWorkflowActive?: () => boolean;
-  // Primary session mode: single-agent sessions omit sub-agent tooling.
+  // Primary session mode (always orchestrator; kept for call-site wiring).
   sessionMode?: SessionMode;
   // Session-start facts gating lsp advertisement. Omitted callers (tests,
   // ad-hoc toolset construction) get it advertised, matching prior behavior.
@@ -145,6 +145,9 @@ export type MCPServerState =
   | { name: string; state: "failed"; error: string };
 
 export type MCPConnectCallbacks = {
+  // Headless hosts must not advertise an auth callback they cannot complete.
+  // Its presence is how the MCP client decides an OAuth flow is interactive.
+  interactiveAuth: boolean;
   // Fired whenever a server's connection state changes.
   onStatus: (state: MCPServerState) => void;
   // Fired after a server connects and its tools are registered, with the new
@@ -338,7 +341,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
+  // Primary Skywalker never mounts product mutation tools — never-implement is
+  // structural (toolset), not prompt-only. Leaves that need write/edit/delete
+  // mount them via createTaskTool / runSubAgent's own tool assembly.
+  const primaryDenied = new Set(PRIMARY_DENIED_PRODUCT_TOOLS);
+  const primaryTools = baseTools.filter((tool) => !primaryDenied.has(tool.definition.name));
+
+  const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerRef = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 
@@ -354,7 +363,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         callbacks.onStatus({ name: config.name, state: "connecting" });
         const result = await connectMCPServer(config, {
           stderr: "ignore",
-          onAuthURL: (name, url) => callbacks.onStatus({ name, state: "needs-auth", url }),
+          ...(callbacks.interactiveAuth
+            ? { onAuthURL: (name: string, url: string) => callbacks.onStatus({ name, state: "needs-auth", url }) }
+            : {}),
           // Mid-session re-auth fires needs-auth again without a later connected
           // event. Re-emit connected only when tools are already registered so
           // first-connect still waits for the real post-connect status.

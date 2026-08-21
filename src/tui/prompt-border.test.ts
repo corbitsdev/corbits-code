@@ -3,7 +3,10 @@ import { describe, expect, test } from "bun:test"
 import {
   BORDER,
   CONTEXT_PRESSURE_THRESHOLD,
+  MCP_ATTENTION_LABEL,
+  PLUGIN_ATTENTION_LABEL,
   abbreviateHome,
+  composeAttentionLabel,
   composeCostContextMeter,
   composeRule,
   composeWorkspaceLabel,
@@ -136,6 +139,59 @@ describe("composeRule", () => {
     // Too narrow for anything: plain rule.
     const plain = composeRule({ ...base, width: 5 })
     expect(isPlainRule(plain)).toBe(true)
+  })
+
+  test("attention sits immediately left of the label", () => {
+    const parts = composeRule({
+      width: 40,
+      corners: TOP,
+      attention: "mcp !",
+      label: "xai · grok",
+    })
+    expect(ruleText(parts)).toBe("╭───────────────── mcp ! ─ xai · grok ─╮")
+    expect(ruleWidth(parts)).toBe(40)
+    expect(parts.some((p) => p.role === "attention")).toBe(true)
+    expect(parts.some((p) => p.role === "label")).toBe(true)
+  })
+
+  test("combined mcp and plugin attention seats as one run", () => {
+    const attention = composeAttentionLabel({ mcp: true, plugin: true })
+    expect(attention).toBe("mcp ! · plugin !")
+    const parts = composeRule({
+      width: 48,
+      corners: TOP,
+      attention: attention!,
+      label: "xai · grok",
+    })
+    expect(ruleText(parts)).toContain("mcp ! · plugin !")
+    expect(parts.filter((p) => p.role === "attention")).toHaveLength(1)
+  })
+
+  test("composeAttentionLabel covers each attention combination", () => {
+    expect(composeAttentionLabel({})).toBeUndefined()
+    expect(composeAttentionLabel({ mcp: true })).toBe(MCP_ATTENTION_LABEL)
+    expect(composeAttentionLabel({ plugin: true })).toBe(PLUGIN_ATTENTION_LABEL)
+    expect(composeAttentionLabel({ mcp: true, plugin: true })).toBe(
+      "mcp ! · plugin !",
+    )
+  })
+
+  test("attention alone still seats when there is no model label", () => {
+    const parts = composeRule({ width: 20, corners: TOP, attention: "mcp !" })
+    expect(ruleText(parts)).toBe("╭────────── mcp ! ─╮")
+    expect(parts.some((p) => p.role === "attention")).toBe(true)
+  })
+
+  test("a rule too narrow for both keeps the label and drops attention", () => {
+    const parts = composeRule({
+      width: 22,
+      corners: TOP,
+      attention: "mcp !",
+      label: "xai · grok-4.6",
+    })
+    expect(parts.some((p) => p.role === "attention")).toBe(false)
+    expect(ruleText(parts)).toContain("xai · grok-4.6")
+    expect(ruleWidth(parts)).toBe(22)
   })
 
   test("the rule stays exactly the requested width with a meter present, at every size", () => {

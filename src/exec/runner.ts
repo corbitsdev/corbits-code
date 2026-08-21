@@ -3,7 +3,6 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, stderr } from "node:process";
 import { isAbsolute, join, resolve } from "node:path";
 import {
-  createAgent,
   defineAgent,
   defineTool,
   createDirectorRegistry,
@@ -54,6 +53,7 @@ import type {
   PermissionRequest,
 } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
+import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
 import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
 import {
@@ -547,7 +547,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       const withLiveCreds = sources.map((s) =>
         s.id === liveSource.id ? { ...s, apiKey: liveSource.apiKey } : s,
       );
-      return createAgent(def, {
+      return createAgentWithLiveToolDispatch(def, {
         sources: withLiveCreds,
         defaultSource,
         storage,
@@ -591,6 +591,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     if (agentToolset.connectMCP !== undefined) {
       await agentToolset
         .connectMCP({
+          interactiveAuth: false,
           onStatus: (status) => {
             if (status.state === "connected") {
               connectedMcp = [

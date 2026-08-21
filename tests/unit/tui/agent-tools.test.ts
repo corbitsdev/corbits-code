@@ -27,6 +27,7 @@ const mockPosixTools = {
 // mock.module below runs, making the "restore" a no-op.
 const realToolsPosix = { ...(await import("@intx/tools-posix")) };
 const realPosixToolPlugins = { ...(await import("../../../src/agent/posix-tool-plugins.js")) };
+const realMcpClient = { ...(await import("../../../src/mcp/client.js")) };
 const realMcpPlugin = { ...(await import("../../../src/mcp/plugin.js")) };
 const realPathEscapePlugin = { ...(await import("../../../src/plugins/path-escape-plugin.js")) };
 const realAuthzPlugin = { ...(await import("../../../src/plugins/authz-plugin.js")) };
@@ -45,6 +46,17 @@ mock.module("@intx/tools-posix", () => ({
 
 mock.module("../../../src/agent/posix-tool-plugins.js", () => ({
   buildCorePosixToolPlugins: () => [],
+}));
+
+const mockConnectMCPServer = mock(async (config: { name: string }) => ({
+  ok: false as const,
+  serverName: config.name,
+  error: "not connected",
+}));
+
+mock.module("../../../src/mcp/client.js", () => ({
+  ...realMcpClient,
+  connectMCPServer: mockConnectMCPServer,
 }));
 
 mock.module("../../../src/mcp/plugin.js", () => ({
@@ -113,6 +125,7 @@ mock.module("../../../src/agent/director.js", () => ({
 afterAll(() => {
   mock.module("@intx/tools-posix", () => realToolsPosix);
   mock.module("../../../src/agent/posix-tool-plugins.js", () => realPosixToolPlugins);
+  mock.module("../../../src/mcp/client.js", () => realMcpClient);
   mock.module("../../../src/mcp/plugin.js", () => realMcpPlugin);
   mock.module("../../../src/plugins/path-escape-plugin.js", () => realPathEscapePlugin);
   mock.module("../../../src/plugins/authz-plugin.js", () => realAuthzPlugin);
@@ -177,8 +190,11 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
 
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).toContain("read_file");
-  expect(names).toContain("write_file");
   expect(names).toContain("ask_operator");
+  // Primary Skywalker never mounts product mutation tools.
+  expect(names).not.toContain("write_file");
+  expect(names).not.toContain("edit_file");
+  expect(names).not.toContain("delete_file");
 });
 
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {
@@ -288,20 +304,7 @@ const subAgentDeps = {
   profiles: () => [],
 };
 
-test("single session mode omits task and search_agents from registered tools", async () => {
-  const toolset = await createAgentToolset({
-    cwd: "/fake",
-    permissionGate: fakePermissionGate,
-    onOperatorGate: async () => ({ kind: "option", index: 0 }),
-    sessionMode: "single",
-    subAgent: subAgentDeps,
-  });
-  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
-  expect(names).not.toContain("task");
-  expect(names).not.toContain("search_agents");
-});
-
-test("orchestrator session mode registers task and search_agents", async () => {
+test("default session registers task and search_agents", async () => {
   const toolset = await createAgentToolset({
     cwd: "/fake",
     permissionGate: fakePermissionGate,
@@ -312,6 +315,26 @@ test("orchestrator session mode registers task and search_agents", async () => {
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).toContain("task");
   expect(names).toContain("search_agents");
+});
+
+test("headless MCP connection does not wait for interactive OAuth", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [{ name: "granola", url: "https://example.test/mcp" }],
+    mcpServersSource: "global",
+  });
+
+  await toolset.connectMCP({
+    interactiveAuth: false,
+    onStatus: () => {},
+    onToolsChanged: () => {},
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[1]?.onAuthURL).toBeUndefined();
 });
 
 test("dispose calls posixTools.dispose", async () => {

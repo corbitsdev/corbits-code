@@ -8,9 +8,12 @@ export const STALL_TIMEOUT_MS = 900_000
 // When the run starts *saying* it looks stuck. Well short of the abort: nobody
 // waits out the backstop, they conclude the product hung and quit, so silence
 // has to be named long before it is acted on. Notice, not a shorter timeout —
-// a slow model or a long tool call is not a stall, and killing it at 90s would
-// break working runs to fix a wording problem.
-export const STALL_NOTICE_MS = 90_000
+// a slow model or a long tool call is not a stall, and killing it early would
+// break working runs to fix a wording problem. Grok-4.6 on the Responses path
+// streams only sparse reasoning *summaries* while billing tens of thousands of
+// thinking tokens, so 60–180s of true client silence mid-think is routine;
+// the notice sits above that band and matches DEFAULT_STALL_MS on Task rows.
+export const STALL_NOTICE_MS = 300_000
 
 export type ShouldAbortForStallArgs = {
   readonly status: TurnStatus

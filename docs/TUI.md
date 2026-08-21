@@ -38,12 +38,16 @@ row at a time down to its 3-row base — never the transcript
 
 Horizontally, every surface sits inside one shared gutter
 (`resolveSideMargin`, `src/tui/geometry/margins.ts`) so the shell reads
-as a single column of content rather than stacked panes. The gutter is one
-column per side at every width that can afford it, and zero below
-`MARGIN_MIN_COLUMNS` (40), where every column belongs to content. There is no
-middle tier: one column is already enough to keep content off the frame edge,
-which is the gutter's entire job, and anything wider only read as excess air on
-a wide pane. The gutter costs no rows.
+as a single column of content rather than stacked panes.
+`resolveGeometry` always returns `layoutMode: "stack"` — full-width
+y-stack, no dual-column rail. The live agents zone stays empty; fleet
+status paints as `● Task …` transcript rows instead (see Agents below).
+The side gutter is one column per side at every width that can afford it,
+and zero below `MARGIN_MIN_COLUMNS` (40), where every column belongs to
+content. There is no middle tier: one column is already enough to keep
+content off the frame edge, which is the gutter's entire job, and
+anything wider only read as excess air on a wide pane. The gutter costs
+no rows.
 
 Vertically, the same file keeps content off the top and bottom edges with one
 blank row each: `TOP_PAD_ROWS` above the first transcript row, and
@@ -62,7 +66,9 @@ assistant/tool rows are unchanged.
 
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule as
-`profile · model · effort` (empty segments omitted); the brand
+`profile · model · effort` (empty segments omitted), and a
+compact `mcp !` sits immediately left of it when any MCP server still needs
+authorization (`/mcp` is the surface that names them); the brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui/shell.ts`). Both rules cost zero transcript rows because they
@@ -73,7 +79,7 @@ activity word — never the raw tool, MCP server, or plugin identifier that is
 actually executing. `resolveTurnLabel` (`src/tui/session-chrome.ts`)
 maps execution onto the closed set `ACTIVITY_STATES` exported from that
 module (`thinking`, `planning`, `researching`, `building`, `working`,
-`waiting`, `orchestrating`, `stalled`, `stopping`); that export is the source
+`waiting`, `stalled`, `stopping`); that export is the source
 of truth for what the slot can say, not this list. It is led by a single density cell
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
@@ -99,7 +105,7 @@ While sub-agents are running, the slot reports the *fleet*, not the parent.
 rank it above the parent's own stall clock: with live lanes the parent is
 idle by design, so its silence says nothing about whether the session is
 progressing, and reporting it was how a session with every lane wedged still
-read as `working`. A fleet with no stalled lane reads `orchestrating`; one
+read as `working`. A fleet with no stalled lane reads `working`; one
 stalled lane makes the whole indicator read `stalled`, which is the state that
 should pull an operator's eye to the panel. A blocked gate and a stopping turn
 still outrank the fleet. With zero running sub-agents the roll-up is empty and
@@ -133,22 +139,20 @@ removed line), not a decision marker, and no decision-marker shares that row.
 
 ## The live task list panel
 
-The `task` chrome zone renders a standing panel above the transcript, one row
-per task the task tool has written (`manage_tasks`) — distinct from the
-`agents` panel below it. A task is a unit of work with a status; an agent is
-an executor with its own context and transcript. The two are never merged
-into one panel: `formatTasksPanel` (`src/tui/chrome-state.ts`) and
-`formatAgentsPanel` are separate formatters feeding separate zones with
-separate row types (`TaskPanelRow` vs. `AgentPanelRow`).
+**Parked pending rebuild.** `formatChromeZones` (`src/tui/chrome-state.ts`)
+always returns `{ task: null, agents: null }` — neither the checklist strip nor
+the agents/fleet board auto-paints. Live work stays on transcript `● Task …`
+rows (see below). `formatTasksPanel` / `formatAgentsPanel` remain for a future
+rebuild; demos and shell tests may still feed preformatted rows via
+`setChromeZones` directly, and Alt+T (`toggleTasksPanel`) still toggles the
+shell's hidden flag for those manual paints.
 
-Each row shows a bracket status marker (`[ ]` todo, `[~]` doing, `[x]` done,
-`[-]` cancelled) ahead of the title. Terminal tasks still render — the panel
-is a live list of work, not just what remains — so an operator watching it
-sees a task move to `[x]` rather than have it silently vanish. The panel is
-bounded to `TASKS_PANEL_MAX_VISIBLE` rows, same shape as the agents panel: a
-longer list degrades to a trailing `+N more` row rather than growing the zone
-without limit, and it shrinks one row at a time under space pressure
-(`COLLAPSE_ORDER` in `geometry/zones.ts`) rather than vanishing in one step.
+A task is a unit of work with a status; an agent is an executor with its own
+context and transcript. They are never merged into one panel. When the
+checklist strip is rebuilt, each row will show a bracket status marker (`[ ]`
+todo, `[~]` doing, `[x]` done, `[-]` cancelled) ahead of the title, bounded to
+`TASKS_PANEL_MAX_VISIBLE` with a trailing `+N more` under overflow, and
+shrinking via `COLLAPSE_ORDER` in `geometry/zones.ts`.
 
 Two independent mechanisms keep the task panel from ever costing the prompt
 box a row on a short terminal, and they guarantee different things.
@@ -163,160 +167,56 @@ mechanism substitutes for the other: the cap bounds the prompt's own growth
 on any terminal, tall or short; the collapse order bounds what other zones
 are allowed to take from it once the transcript floor is at risk.
 
-The panel is toggleable independent of its live data: `toggleTasksPanel`
-(bound to Alt+T) flips a hidden flag held on the shell for its lifetime — in
-memory only, nothing written to storage — while
-the live task list keeps updating underneath it. Un-hiding shows the current
-list, not a stale snapshot from before the hide. Hidden or empty, the zone
-costs zero rows.
+The panel stays **hidden by default** (CL-5847): a fresh shell does not paint
+the checklist. `toggleTasksPanel` (bound to Alt+T) opts in for the shell's
+lifetime — it flips a hidden flag held on the shell in memory only — so demos
+and tests that call `setChromeZones` with task rows can still show them.
+Because `formatChromeZones` parks auto-paint, Alt+T alone does not surface a
+live `manage_tasks` list today.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-resume (`restoreTasks`). The runner forwards that into the OpenTUI host via
-`RunnerHostDeps.chrome`/`subscribeChrome` (`src/tui/runner-host.ts`):
-`subscribeChrome` is a required dependency, not optional. The production
-caller has always passed a real subscription, so this did not fix an
-observed break; it closes a shape that could have been omitted and would
-still have type-checked — the same "callback that types fine when absent"
-hazard this feature's own callback (`onTasksChange`) is named after in the
-tracking issue. `runner-host.test.ts` drives a live `subscribeChrome` notify
-end to end and asserts the panel actually repaints, so an omission would now
-fail a test as well as the type checker.
+hydrate. `manage_tasks` calls paint no transcript rows; with chrome strips
+parked, that list has no standing chrome surface until rebuild.
 
-## The live agents panel
+## Live sub-agent rows (Task tool)
 
-The `agents` chrome zone renders a standing panel above the transcript, one
-row per currently-running sub-agent. Each row reads
-`agentId: description · elapsed · tool`, sourced from the same
-`agentProgress()` clock/tool/stall computation used to trail a task row in the
-transcript (`src/tui/agent-progress.ts`); the panel does not compute
-progress a second way. Past one running agent the panel is led by a fleet
-summary row (`N agents`, plus `· N stalled` or `· in tools`), counted from the
-same lane states the rows below render, so header and rows can never disagree.
-The zone reserves `AGENTS_PANEL_MAX_VISIBLE + 2` rows to hold that summary, the
-lanes, and the `+N more` trailer together — clipping the last of the three
-would drop the fold-away count at exactly the fan-out where it is the only
-thing reporting the hidden lanes.
+Live workers paint as pending `task` tool rows in the transcript — the
+operator-preferred Amp/Codex-style lines:
 
-`laneState()` is the single definition of what a lane is doing, and every
-surface consumes it rather than comparing timestamps itself. It returns one of
-three states:
+```
+● Task Design Lab interview 1:07 · AskUserQuestion
+● Task UI variations 0:59 · write_file
+```
 
-| Lane state | Means | Row reads |
-|---|---|---|
-| `working` | activity within `DEFAULT_STALL_MS` | `· 2:34 · grep` |
-| `in_tool` | silent, but a tool call is outstanding and under `IN_TOOL_STALL_MS` | `· 2:34 · run_shell 1:30` |
-| `stalled` | silent with nothing outstanding to explain it | `· 2:34 · quiet 0:45 · stalled` |
-
-`in_tool` is what makes the surface honest. A worker inside one long tool call
-emits no events for the entire execution, so silence alone cannot separate a
-wedged reactor from a ten-minute test run — and it did not: a fleet whose lanes
-were all running shell commands flipped to `stalled` in lockstep while every
-one of them was working. `currentToolStartedAt` on the sub-agent session store
-(`src/subagent/session-store.ts`) is the fact that separates them; only the
-store sets it, because only the store observes a call ending.
-
-The store keys outstanding calls by call id (`outstandingTools`) and reports
-the oldest live one — the call that explains the longest silence. It cannot
-collapse to a single scalar: the reactor runs parallel calls concurrently, so a
-fast grep finishing beside a ten-minute shell command would retire the shell
-command's clock and reproduce the original defect on one lane. A result whose
-call id was never seen to start retires nothing.
-
-`currentToolStartedAt` is a **required** field on every type between the store
-and a surface. There are four hand-written mapping hops on the live path, and
-a hop that drops it silently reclassifies a busy lane as stalled — which is how
-this shipped broken once, caught only by running a real fleet. Required makes
-that a compile error rather than a misclassification; `chrome-state.test.ts`
-also asserts the panel and the transcript row agree on a live example.
-
-`in_tool` is bounded, not terminal. A call outstanding longer than
-`IN_TOOL_STALL_MS` (10 minutes) escalates to `stalled` regardless, so a wedged
-build, a shell blocked on stdin, or a deadlocked child eventually surfaces
-instead of reading as busy forever. **Within that window those failures are
-genuinely invisible to the stall signal** — the honest trade for not crying
-stall over every real test suite. The per-row tool clock climbing is the signal
-a human can read in the meantime, which is why the row shows it. The same bound
-backstops calls that never report a result at all: the reactor's
-approval-suspend path emits no completion, so a before-tool extension returning
-suspend would otherwise leave a call outstanding permanently. Nothing registers
-such an extension today.
-
-The number beside a lane's state always explains that state. A healthy lane
-shows its lifetime; a lane stuck in one tool also shows how long that tool has
-run; a stalled lane also shows how long it has been silent. Reading a lifetime
-clock next to the word `stalled` was the original defect — the number the
-operator watched climbing was unrelated to the word beside it.
-
-The panel is bounded to `AGENTS_PANEL_MAX_VISIBLE` rows
-(`src/tui/geometry/zones.ts`); a larger fan-out degrades to a trailing
-`+N more` row rather than growing the zone — and therefore the chrome
-budget — without limit. Its height is requested from the geometry resolver
-like every other zone, never guessed: the caller passes the exact row count it
-is about to render (`ZoneVisibility.agents: boolean | number`), and the
-resolver clamps it to the zone's registered max. Agents that have reached a
-terminal state (done/failed/cancelled) do not occupy a row; zero running
-agents is zero rows and zero chrome. `observe` mode overrides the panel with a
-single `observe: <agentId> — <description>` line instead of per-agent rows.
-
-Which agents survive a fan-out past `AGENTS_PANEL_MAX_VISIBLE`, and the order
-those survivors render in, are two different questions with two different
-answers (`formatAgentsPanel` in `chrome-state.ts`). Selection — which N
-agents are shown before the rest fold into `+N more` — keys on staleness
-(`lastActivityAt`), so the agent most likely to be stalled is guaranteed a
-row rather than the caller's feed order (which sorts running sessions
-newest-first) silently hiding it. Presentation — the order the surviving
-rows paint in — keys on `startedAt` instead: `lastActivityAt` changes on
-every tool event, so sorting the visible rows by it would reshuffle the
-panel on every repaint. `startedAt` is stable for the life of a running
-agent, with `agentId` as a tiebreak for a simultaneous fan-out.
-
-Under space pressure, the zone shrinks one row at a time toward 1 rather
-than collapsing straight to 0 (`COLLAPSE_ORDER` treats it like `progress`,
-not like the single-row `task` strip) — a 1-row panel still carries
-the stalest agent plus its `+N more` trailer, so it stays meaningful all
-the way down. Only once every other collapsible zone ahead of it in
-`COLLAPSE_ORDER` and the panel itself are exhausted does it reach 0, the
-same last-resort floor every other optional zone shares.
+`runtime-bridge` paints each `task` call as a stream row and rewrites it in
+place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
+stall marker). There is no standing FLEET board and no dual-rail agents chrome:
+`formatChromeZones` always returns both zones null (`task` and `agents`), and
+geometry is stack-only (`layoutMode: "stack"`, `railWidth: 0`). Checklist and
+agents strips are parked pending rebuild; Alt+T / direct `setChromeZones` may
+still paint for demos and tests.
 
 ### Unprompted fleet reports
 
-The agents panel is a standing picture of what is running right now; it says
-nothing when a lane finishes, stalls, or fails unless the operator interrupts
-to ask. `src/subagent/fleet-report.ts` closes that gap with its own channel:
-a system-notice line, pushed into the transcript through the same
-`surfaceSystemNotice` path as any other system row, the moment a lane
-transition is worth saying. It does not touch the panel's rows or its
-`laneState()` computation — it reads the same sub-agent session store the
-panel reads, and calls the same `agentProgress()` stall definition
-(`isStalled`) so the two surfaces never disagree about whether a lane is
-stalled, only about *when* they say so: the panel shows it continuously,
-the notice announces the transition once.
+Parent prose owns success narratives. Transcript fleet notices exist only for
+attention live Task rows cannot keep: a lane **failed** while other work is
+still running, and **one** dry-fleet line when the last lane finishes
+(`N done · nothing running`). Per-lane `done — summary` walls and live
+`dispatched` re-announcements are never printed.
 
-Store changes drive it directly, so a lane finishing or failing lands the
-moment it happens. A `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel
-dispatch that lands as N store changes settle into one observation instead
-of N lines. Quiet detection is separate: `FLEET_STALL_POLL_MS` (5s) re-runs
-observation so a lane that went quiet with no further store event is still
-announced once. Past `COALESCE_ABOVE` (3) changes in one observation the
-individual lines collapse into a single tally (`"9 done, 3 failed"`); below
-that threshold each change gets its own line. The one case both the fleet
-going idle and a coalesced tally would otherwise say the same thing —
-all changes are terminal and the tally alone already says "N done, N
-failed" — the idle line replaces the tally instead of repeating it with
-"— nothing running" tacked on.
-
-Outcomes and errors are clipped to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
-same "one update is one row, never wrapped" rule the panel's rows follow.
-`fleetDigest()` is the on-demand counterpart: the same picture in one line,
-answering "where is the fleet" without an interrupt, for `/status` or an
-operator question mid-run.
+`src/subagent/fleet-report.ts` is pure: it reads the same sub-agent session
+store and the same `agentProgress()` stall definition. Store changes drive it;
+a `FLEET_REPORT_SETTLE_MS` (400ms) timer lets a parallel dispatch settle into
+one observation. Quiet detection uses `FLEET_STALL_POLL_MS` (5s). Past
+`COALESCE_ABOVE` (3) attention events in one observation, lines collapse into
+a single tally. Errors clip to `OUTCOME_CHARS`/`MAX_UPDATE_CHARS` on the
+"one update is one row" rule. `fleetDigest()` is the on-demand counterpart
+for `/status` or an operator question mid-run.
 
 ## How pop-ups should feel
 
 A blocking surface (permissions, an operator question, the model/provider
-picker, settings, help, the `/` command list, …) shares one overlay host and
-one height path — there is no second modal stack with independent row
 accounting (`src/tui/geometry/resolve.ts`,
 `src/tui/shell.ts:openListOverlay`). Opening a second surface either
 replaces the one that was open or stacks over it; either way Escape always
@@ -342,6 +242,16 @@ unresolved gate "hangs the run until the process is killed"). This exists
 because an earlier version could abandon the awaited promise on Escape and
 leave the session parked with no recovery path short of killing the process;
 Escape must always settle the promise it is dismissing.
+
+Once a permission or operator prompt is answered — or cancelled, timed out,
+or auto-settled by a grant / abort / teardown — it leaves the screen and
+does **not** replay the request, the command, or the chosen option into the
+transcript. The overlay is the question; the tool row that follows is the
+outcome. Grey `permission` / `operator` recap cards restated the same ask
+after it was already decided. Expanding a collapsed payload while the
+overlay is open still writes the full payload into the scrollable
+transcript, because that text would otherwise be unreachable before
+approval.
 
 The decision surfaces (permission approval, operator question) are the one
 framed content in the shell, and they are shaped rather than merely listed
@@ -372,16 +282,25 @@ are painted at the geometry resolver's shared `contentWidth`
 leading marker column and no per-row kind column; the selected row is marked
 by text color only (`paintPaletteList` in `shell.ts`: "the highlighted row
 already stands out by sitting under the cursor, so a leading `>` and a grey
-block would both be saying the same thing twice"). The list also paints with
-no title rule — the filter row (`> query`) directly under the box already
-shows what was typed, so a second header line would say nothing new
-(`repaintPalette`).
+block would both be saying the same thing twice"). Rows stay name-only
+(`/help`, `/model`); the focused command's registry description paints in the
+shared two-line description zone under the list (`openListOverlay({ describe })`,
+`paintDescriptionZone` in `shell.ts`). A missing or blank `description` still
+reserves the zone (rule plus two blank lines); it does not collapse. Built-ins
+have copy; this is the empty-description edge. The list also paints with no
+title rule — slash-popup query lives in the prompt, so an orphan `>` filter
+row under the box would be chrome that says nothing the prompt isn't already
+showing (`repaintPalette`).
 
 ## Slash commands and pickers
 
 `/` at an empty prompt opens the command list, narrowed by name prefix as
-more is typed; Tab completes the name so arguments can be typed, Enter runs
-it. Every entry is backed by the live command registry
+more is typed (`cmd.id` in `openSlashCommands`); Tab completes the name so
+arguments can be typed, Enter runs it. The query lives in the prompt — list
+chrome is in How selectors should work above. When the prefix matches
+nothing, the overlay closes and the prompt is left as typed: `/` then `z`
+with no `z…` command vanishes the list and leaves `/z`. Slash never paints
+a `(no matches)` row. Every entry is backed by the live command registry
 (`src/tui/command-catalog.ts:commandItemsFromRegistry`) — there is no
 separate palette overlay and no shell-owned action outside the registry. The
 overlay this reuses is still internally called `"palette"` (`shell.ts`'s
@@ -420,10 +339,13 @@ known, accepted cost of the badge rather than an oversight — see
 The model/provider picker is one flat, type-to-filter list
 (`src/tui/product-host.ts` + `openModelPickerOverlay({ typeToFilter: true })`):
 recent and favorite provider+model pairs sit at the top, then every
-`provider / model` leaf from the catalog. Typing narrows the list in place
-(printable keys claimed by the filter row, same pattern as the command
-palette); Enter selects. Escape closes the picker. The row matching the
-session's live active model gets a `(current)` suffix. Alt+F on a model row
+`model * [provider]` leaf from the catalog. Typing narrows the list in place
+(printable keys claimed by the picker's own `>` filter row); Enter selects
+for this session. Escape closes the picker. The row matching the session's
+live active model gets a `(current)` suffix. **Alt+D** persists the focused
+pair as the default (global `defaultProvider` + that provider's `defaultModel`
++ project-local selection) without switching the live session or closing the
+picker. Alt+F on a model row
 still toggles favorite when a favorite hook is wired. While type-to-filter is
 active, bare `j`/`k` type into the filter rather than moving the highlight —
 use arrow keys (or the filtered list's navigation) to move.
@@ -472,23 +394,28 @@ Enter and Shift+Enter, so on those Shift+Enter silently does nothing — driven
 live, this is exactly what happens, not a hypothetical. Ctrl+Enter/Ctrl+J are
 the chord to point an operator at when Shift+Enter doesn't respond.
 
-### Queue-and-steer vs. stop-and-reinject
+### Soft steer vs. follow-up
 
-There used to be two gestures that both waited for a run to reach a turn
-boundary before delivering — a bug in its own right, since an operator had no
-way to tell them apart from the result. There are now two gestures with two
-different effects:
+Two mid-run gestures, two delivery times (CL-6290):
 
-- **Enter, mid-run** — queues the message and delivers it at the next turn
-  boundary, where it steers the run. The queued row in the transcript says
-  `[will steer next]` while pending and `[steering]` once delivered, so the
-  operator sees what will happen to it, not just a badge count
-  (`submitPrompt`, `drainAtBoundary` in `runtime-bridge.ts`).
-- **Alt+Enter, mid-run** — stops the run immediately, without waiting for a
-  boundary, and restarts from this message. A `stop — restarting from your
-  message` system row and a `[restarted here]` user row mark the cut. Idle,
-  or with an empty prompt, Alt+Enter does nothing — there is nothing to stop
-  or restart from.
+- **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
+  next **parent** `tool.boundary` (the parent tool finishing, not a child). A
+  long parent `run_shell` or an awaiting `task()` is parent-busy and holds
+  steers. The transcript row says `[will steer next]` while pending and
+  `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
+  `runtime-bridge.ts`).
+- **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
+  only on **session-idle** (parent-idle and no live fleet lanes). Does not
+  interrupt or reinject. The transcript row says `[will follow up]` while
+  pending and `[following up]` once delivered. Idle, or with an empty prompt,
+  Alt+Enter does nothing — there is nothing to wait for. (Internal `"reinject"`
+  remains in the submit API for tests; no product chord wires it.)
+
+When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
+(3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).
+Follow-up-only does not; a sub-threshold in-flight tool does not. Delivery is
+unchanged. Idle-with-fleet is not shipped — Enter stays a queued steer until
+the parent tool finishes, not a new turn while workers run.
 
 Interrupting (Ctrl+C) never discards a queued or steered message. It used to
 — the transcript literally said `interrupt — discarded N pending`, and an
@@ -499,17 +426,19 @@ at the interrupt itself (`doInterrupt` drains after `port.interrupt()`), not
 left waiting on an idle event the stop may never produce (`interrupt` in
 `session-queue.ts` no longer clears `items`).
 
-**Sub-agent lanes on redirect.** Both Ctrl+C and Alt+Enter interrupt by
-closing the underlying agent (`runner.ts`'s `interrupt()` — "the only thing
-that aborts the reactor mid-inference"). That close cascades: it aborts the
-shared operation signal the `task` tool was given, which the tool forwards to
-the child agent's own controller, so an in-flight sub-agent dispatch is
-aborted along with the parent's turn and reports back as cancelled by the
-operator rather than being left to finish silently detached
-(`src/subagent/task-tool.ts`). Redirecting the parent — by either gesture —
-is a decision to stop the fleet it dispatched too, not just the parent's own
-turn; there is no path today to redirect the parent while leaving running
-lanes alone.
+**Sub-agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
+(queued drain) leave running workers alone — they never call
+`runner.ts`'s `interrupt()`, so the parent's operation signal stays live and
+in-flight `task` dispatches keep running. Ctrl+C is the explicit fleet
+teardown: `doInterrupt` → `port.interrupt()` → `currentAgent.close()` aborts
+the shared operation signal the `task` tool was given, which the tool
+forwards to the child agent's own controller, so an in-flight sub-agent
+dispatch is aborted along with the parent's turn and reports back as
+cancelled by the operator rather than being left to finish silently detached
+(`src/subagent/task-tool.ts`). `/clear` and session exit still call
+`subAgentSessions.cancelAll` for an explicit session-wide cancel; that path
+is separate from interrupt and must stay off the soft-steer / follow-up
+gestures.
 
 Up/Down are caret motion first inside a multi-line buffer. History recall
 only fires when the caret is already at the first or last wrapped row of the
@@ -555,12 +484,12 @@ Ctrl+C interrupts a busy run (or clears a non-empty idle prompt); a second
 Ctrl+C within a 2-second window (`CTRL_C_EXIT_WINDOW_MS`) quits — this
 replaced an Ink-era yes/no exit-confirm modal with the same intent (an
 explicit second confirmation) without adding a modal (`handleCtrlC`,
-`shell.ts`). See "Queue-and-steer vs. stop-and-reinject" above for the two
+`shell.ts`). See "Soft steer vs. follow-up" above for the two
 mid-run gestures and what interrupting does to sub-agent lanes. The interrupt
 keeps whatever is sitting in the queue rather than discarding it — the
 operator typed those messages meaning them delivered, not meaning "cancel
 this run and also throw away what I typed"; the transcript row says so
-(`"interrupt — N pending kept"`). Kept items are handed over at the
+(`"N pending kept"`). Kept items are handed over at the
 interrupt itself (`doInterrupt` in `runtime-bridge.ts` drains after
 `port.interrupt()`), serialized behind the agent rebuild the stop starts —
 a stop does not reliably produce an idle event to drain against later.

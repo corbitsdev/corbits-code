@@ -7,6 +7,7 @@ import type {
   ReactorState,
 } from "@intx/types/runtime";
 import { createChatDirector } from "./director.js";
+import { forcedStopReport } from "../subagent/stop-policy.js";
 import { OPERATOR_ORIGINATED_FLAG } from "./message-provenance.js";
 import { buildCompactionContinuationMessage as tuiCompactionContinuation } from "../tui/runner.js";
 import { buildCompactionContinuationMessage as execCompactionContinuation } from "../exec/runner.js";
@@ -740,5 +741,48 @@ describe("ChatDirector tool-only loop protection", () => {
     const actions = await runToolOnlyStreak(director, capabilities, 25);
     expect(actions.some((a) => a.type === "reply")).toBe(false);
     expect(actions.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  test("after a hard-block salvage, Skywalker is nudged once and unique reads do not pause", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
+    const capabilities = makeCapabilities();
+    const salvage = forcedStopReport("no-ship", "mapped the tree, never edited");
+    await director.decide(
+      {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "test",
+          timestamp: 0,
+          content: [{ type: "tool_call", id: "task-1", name: "task", arguments: {} }],
+        },
+        usage: { input: 0, output: 0 },
+        source: "test",
+      } as unknown as ReactorInboundEvent,
+      mockState,
+      capabilities,
+    );
+    const afterSalvage = actionsArray(
+      await director.decide(
+        {
+          type: "tool.done",
+          result: { callId: "task-1", content: salvage },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        capabilities,
+      ),
+    );
+    expect(ephemeralText(afterSalvage.find((a) => a.type === "infer"))).toContain(
+      "stopped without finishing",
+    );
+
+    const later = await runToolOnlyStreak(director, capabilities, 20, toolOnlyTurn);
+    expect(later.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
+    expect(later.some((a) => a.type === "infer")).toBe(true);
   });
 });

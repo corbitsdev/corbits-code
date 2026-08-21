@@ -384,7 +384,7 @@ describe("wireGates", () => {
     })
   })
 
-  test("gate content reaches the transcript only after the operator decides", async () => {
+  test("gate decisions do not replay the request into the transcript", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 96, rows: 30 },
@@ -401,20 +401,15 @@ describe("wireGates", () => {
         const dispose = wireGates(emitter, shell)
         emitter.emit("permission.gate", { request, resolve: () => {} })
 
-        // The overlay is showing this text; a transcript copy directly above it
-        // reads as a second, unrelated request.
         expect(
           shell.streamLog.filter((r) => r.meta === "permission"),
         ).toHaveLength(0)
 
         acceptOverlaySelection(shell)
 
-        const recorded = shell.streamLog
-          .filter((r) => r.meta === "permission")
-          .map((r) => r.text)
-          .join("\n")
-        expect(recorded).toContain("ls -la ~/.corbits/projects")
-        expect(recorded).toContain("Reject")
+        expect(
+          shell.streamLog.filter((r) => r.meta === "permission"),
+        ).toHaveLength(0)
 
         dispose()
       } finally {
@@ -424,7 +419,7 @@ describe("wireGates", () => {
   })
 })
 
-describe("each gate decision appends exactly one transcript row", () => {
+describe("gate decisions stay out of the transcript", () => {
   test("permission accept", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -438,7 +433,7 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         const before = shell.streamLog.length
         acceptOverlaySelection(shell)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -458,7 +453,7 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         const before = shell.streamLog.length
         closeInsetOverlay(shell)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -482,7 +477,7 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         const before = shell.streamLog.length
         acceptOverlaySelection(shell)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -506,7 +501,7 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         const before = shell.streamLog.length
         closeInsetOverlay(shell)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -546,7 +541,7 @@ describe("each gate decision appends exactly one transcript row", () => {
           meta: false,
           option: false,
         } as unknown as KeyEvent)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -569,7 +564,7 @@ describe("each gate decision appends exactly one transcript row", () => {
           timeoutMs: 5,
         })
         await new Promise((r) => setTimeout(r, 20))
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -593,20 +588,19 @@ describe("each gate decision appends exactly one transcript row", () => {
           signal: controller.signal,
         })
         controller.abort()
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
     })
   })
 
-  // The queue (settle-once guard) and the transcript recorder (record-once
-  // per decision) are two independent mechanisms layered on the same set of
-  // terminal paths. Racing a timeout against an abort on the same request
-  // exercises both at once: clearTimers must retire the loser before it can
-  // run autoDeny a second time, so ev.resolve fires exactly once and exactly
-  // one row lands, no matter which trigger wins.
-  test("a timeout and an abort racing the same request settle once and record once", async () => {
+  // The queue's settle-once guard is independent of the transcript: racing a
+  // timeout against an abort on the same request exercises that guard.
+  // clearTimers must retire the loser before it can run autoDeny a second
+  // time, so ev.resolve fires exactly once no matter which trigger wins, and
+  // neither path writes a recap row.
+  test("a timeout and an abort racing the same request settle once", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -633,14 +627,14 @@ describe("each gate decision appends exactly one transcript row", () => {
         controller.abort()
 
         expect(resolveCount).toBe(1)
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
     })
   })
 
-  test("a queued gate's timeout settles once and records once, only after it is displayed", async () => {
+  test("a queued gate's timeout settles once, only after it is displayed", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -673,7 +667,7 @@ describe("each gate decision appends exactly one transcript row", () => {
         await new Promise((r) => setTimeout(r, 20))
 
         expect(resolveCount).toBe(1)
-        expect(shell.streamLog.length - before).toBe(2) // first gate's row + the queued gate's timeout row
+        expect(shell.streamLog.length - before).toBe(0) // first gate + queued timeout both silent
       } finally {
         shell.dispose()
       }
@@ -682,8 +676,8 @@ describe("each gate decision appends exactly one transcript row", () => {
 
   // reconcile() (src/permission/queue.ts) settles a queued request directly
   // when a grant covers it, with no accept/cancel/autoDeny callback of its
-  // own to hang a row on — this is the one terminal path that has no natural
-  // call site, so it needs its own coverage.
+  // own. Coverage here is that the queued request still resolves, without
+  // ever opening and without writing a recap row.
   test("a grant draining a queued request without ever displaying it", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -717,17 +711,14 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         expect(resolveCount).toBe(1)
         expect(resolved).toEqual({ allow: true })
-        expect(shell.streamLog.length - before).toBe(1)
-        expect(shell.streamLog.at(-1)?.text).toContain(
-          "Auto-approved (already granted)",
-        )
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
     })
   })
 
-  test("a grant draining the currently displayed request closes it and records once", async () => {
+  test("a grant draining the currently displayed request closes it without a recap", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -753,10 +744,7 @@ describe("each gate decision appends exactly one transcript row", () => {
 
         expect(resolveCount).toBe(1)
         expect(shell.overlayList).toBeNull()
-        expect(shell.streamLog.length - before).toBe(1)
-        expect(shell.streamLog.at(-1)?.text).toContain(
-          "Auto-approved (already granted)",
-        )
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -765,9 +753,9 @@ describe("each gate decision appends exactly one transcript row", () => {
 
   // drain() (src/permission/queue.ts) denies whatever is still queued on
   // teardown — the same no-call-site path as a grant drain, but the
-  // opposite outcome. Mislabeling this "Auto-approved" would tell the
-  // operator a request ran when it was actually dropped unanswered.
-  test("disposing with a request still queued records it as denied, not approved", async () => {
+  // opposite outcome. Coverage is the deny itself; neither path writes a
+  // recap row.
+  test("disposing with a request still queued denies it without a recap", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -775,9 +763,8 @@ describe("each gate decision appends exactly one transcript row", () => {
       })
       const emitter = new EventEmitter()
       // The currently-open request has no accept/cancel/autoDeny call site
-      // triggered before teardown either, so dispose must record it too —
-      // both entries go through the same no-call-site fallback as the
-      // queued one.
+      // triggered before teardown either, so dispose must settle it too —
+      // both entries go through drain() without writing a recap.
       let openResolveCount = 0
       let queuedResolveCount = 0
       let queuedResolved: unknown
@@ -804,11 +791,7 @@ describe("each gate decision appends exactly one transcript row", () => {
       expect(openResolveCount).toBe(1)
       expect(queuedResolveCount).toBe(1)
       expect(queuedResolved).toEqual({ allow: false })
-      expect(shell.streamLog.length - before).toBe(2)
-      for (const row of shell.streamLog.slice(-2)) {
-        expect(row.text).toContain("Denied (session ended)")
-        expect(row.text).not.toContain("Auto-approved")
-      }
+      expect(shell.streamLog.length - before).toBe(0)
       shell.dispose()
     })
   })
@@ -1148,7 +1131,7 @@ describe("operator.gate auto-cancel", () => {
     })
   })
 
-  test("each terminal path writes exactly one transcript row", async () => {
+  test("each terminal path settles without writing a transcript row", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -1165,7 +1148,7 @@ describe("operator.gate auto-cancel", () => {
           timeoutMs: 5,
         })
         await new Promise((r) => setTimeout(r, 20))
-        expect(shell.streamLog.length - before).toBe(1)
+        expect(shell.streamLog.length - before).toBe(0)
       } finally {
         shell.dispose()
       }
@@ -1208,10 +1191,7 @@ describe("operator.gate auto-cancel", () => {
 
       expect(openResolved).toEqual(operatorCancelResult())
       expect(queuedResolved).toEqual(operatorCancelResult())
-      expect(shell.streamLog.length - before).toBe(2)
-      for (const row of shell.streamLog.slice(-2)) {
-        expect(row.text).toContain("Cancelled (session ended)")
-      }
+      expect(shell.streamLog.length - before).toBe(0)
       shell.dispose()
     })
   })

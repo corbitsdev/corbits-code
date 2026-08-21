@@ -9,6 +9,7 @@ import {
   coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
+  PRIMARY_DENIED_PRODUCT_TOOLS,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -21,7 +22,12 @@ const NO_AVAILABILITY: ToolAvailability = {
 
 const defs: ToolDefinition[] = [
   { name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {}, required: [] } },
-  { name: "web_search", description: "search the web for pages", inputSchema: { type: "object", properties: {}, required: [] } },
+  // Unadvertised built-in stand-in for ranking tests (web_search is now catalog).
+  {
+    name: "present",
+    description: "search and render layout primitives for pages",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
   { name: "lsp", description: "resolve symbols, find references", inputSchema: { type: "object", properties: {}, required: [] } },
   {
     name: "mcp__linear__create_issue",
@@ -41,8 +47,8 @@ const index = createToolIndex(() => defs);
 
 describe("createToolIndex", () => {
   test("ranks a name-token match above a description-only match", () => {
-    const results = index.search("search");
-    expect(results[0]).toBe("web_search");
+    const results = index.search("present");
+    expect(results[0]).toBe("present");
   });
 
   test("finds an MCP tool by raw substring even when not a whole token", () => {
@@ -50,7 +56,7 @@ describe("createToolIndex", () => {
   });
 
   test("matches by capability words in the description", () => {
-    expect(index.search("pages")).toContain("web_search");
+    expect(index.search("pages")).toContain("present");
   });
 
   test("never returns lsp — it is a core tool", () => {
@@ -63,21 +69,34 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read_file");
   });
 
-  test("orchestrator mode advertises task and search_agents; single mode omits them", () => {
+  test("orchestrator mode advertises task and search_agents", () => {
     expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("task");
     expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("search_agents");
-    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("task");
-    expect(advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY)).not.toContain("search_agents");
   });
 
-  test("manage_tasks is advertised in both session modes regardless of availability", () => {
-    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("manage_tasks");
+  test("manage_tasks is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
   });
 
   test("present is never in the advertised core set — discovered via tool_search only", () => {
     expect(CORE_TOOL_NAMES).not.toContain("present");
     expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
+  });
+
+  test("primary CORE and CATALOG omit product mutation tools", () => {
+    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+      expect(CORE_TOOL_NAMES).not.toContain(name);
+      expect(CATALOG_TOOL_NAMES).not.toContain(name);
+    }
+    expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual(["write_file", "edit_file", "delete_file"]);
+  });
+
+  test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {
+    expect(CATALOG_TOOL_NAMES).toContain("web_fetch");
+    expect(CATALOG_TOOL_NAMES).toContain("web_search");
+    const advertised = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(advertised).toContain("web_fetch");
+    expect(advertised).toContain("web_search");
   });
 
   test("lsp is advertised only when a language server was detected at startup", () => {
@@ -89,8 +108,7 @@ describe("createToolIndex", () => {
     ).not.toContain("lsp");
   });
 
-  test("ask_operator is advertised regardless of session mode or availability", () => {
-    expect(coreToolNamesForSessionMode("single", NO_AVAILABILITY)).toContain("ask_operator");
+  test("ask_operator is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("ask_operator");
   });
 
@@ -118,10 +136,10 @@ describe("createToolSearchTool", () => {
       lookup: (name) => defs.find((d) => d.name === name),
       promote: (names) => promoted.push(...names),
     });
-    const out = await call(tool, { query: "search the web" });
-    expect(promoted).toContain("web_search");
-    expect(out).toContain("web_search");
-    expect(out).toContain("search the web");
+    const out = await call(tool, { query: "render layout" });
+    expect(promoted).toContain("present");
+    expect(out).toContain("present");
+    expect(out).toContain("layout");
   });
 
   test("surfaces a matched tool's input schema so the model can shape arguments", async () => {
@@ -160,22 +178,23 @@ describe("advertisedTools", () => {
     { name: "mcp__linear__create_issue", description: "create", inputSchema: { type: "object", properties: {}, required: [] } },
   ];
 
-  test("single session mode omits multi-agent tools from the wire prefix", () => {
-    const names = advertisedTools(
-      registry,
-      [],
-      advertisedToolNamesForSessionMode("single", FULL_AVAILABILITY),
-    ).map((d) => d.name);
-    expect(names).not.toContain("task");
-    expect(names).not.toContain("search_agents");
+  test("orchestrator wire prefix names include multi-agent tools", () => {
+    const prefix = advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY);
+    expect(prefix).toContain("task");
+    expect(prefix).toContain("search_agents");
+    // advertisedTools only emits tools present in the registry; multi-agent
+    // tools appear on the wire when createAgentToolset registers them.
+    const names = advertisedTools(registry, [], prefix).map((d) => d.name);
     expect(names).toContain("read_file");
+    expect(names).not.toContain("mcp__linear__create_issue");
   });
 
   test("with no activation, advertises only the fixed built-in set, never MCP tools", () => {
     const names = advertisedTools(registry).map((d) => d.name);
     expect(names).toContain("read_file");
     expect(names).toContain("grep");
-    expect(names).toContain("write_file");
+    // write_file is not in primary CATALOG — product mutations are leaf-only.
+    expect(names).not.toContain("write_file");
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 

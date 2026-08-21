@@ -27,6 +27,7 @@ import {
   type PluginLoadDiagnostics,
   type PluginModule,
 } from "../plugins/loader.js";
+import { isPluginModuleEnabled } from "../plugins/register.js";
 import {
   loadApprovals,
   loadGlobalApprovals,
@@ -181,18 +182,13 @@ export async function discoverSessionPlugins(
   ]);
 }
 
-/** Skill directories from plugins that are both executable and enabled in settings. */
+/** Skill directories from plugins that are executable and enabled (settings or repo defaultEnabled). */
 export function skillDirsFromEnabledPlugins(
   modules: readonly PluginModule[],
   pluginConfig: Record<string, PluginConfig | undefined>,
 ): string[] {
   return modules
-    .filter(
-      (m) =>
-        m.dir !== undefined &&
-        m.manifest?.id !== undefined &&
-        pluginConfig[m.manifest.id]?.enabled === true,
-    )
+    .filter((m) => m.dir !== undefined && isPluginModuleEnabled(m, pluginConfig))
     .map((m) => m.dir!);
 }
 

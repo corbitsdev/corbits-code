@@ -56,6 +56,24 @@ describe("stream paint", () => {
     }
   })
 
+  test("steer / follow-up prefixes distinguish pending vs delivered", () => {
+    expect(userBody({ role: "user", text: "a", meta: "steer" })[0]).toContain(
+      "[will steer next] a",
+    )
+    expect(userBody({ role: "user", text: "b", meta: "queue" })[0]).toContain(
+      "[will follow up] b",
+    )
+    expect(userBody({ role: "user", text: "c", meta: "steering" })[0]).toContain(
+      "[steering] c",
+    )
+    expect(
+      userBody({ role: "user", text: "d", meta: "following-up" })[0],
+    ).toContain("[following up] d")
+    expect(
+      userBody({ role: "user", text: "e", meta: "following-up" })[0],
+    ).not.toContain("steering")
+  })
+
   test("a long operator message wraps as one left-aligned block", () => {
     const text =
       "please find every call site of the legacy token helper and tell me which of them still run in production"
