@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   DOCS_TOOLS,
   IMPLEMENT_TOOLS,
+  ORCHESTRATOR_TOOLS,
   READ_TOOLS,
+  SKYWALKER_TOOLS,
 } from "./tool-sets.js";
 
 describe("DOCS_TOOLS", () => {
@@ -32,5 +34,15 @@ describe("DOCS_TOOLS", () => {
     for (const surface of [READ_TOOLS, IMPLEMENT_TOOLS]) {
       expect(surface).toContain("run_shell");
     }
+  });
+});
+
+describe("SKYWALKER_TOOLS", () => {
+  test("mounts writes and dispatch; greybeard orchestrator surface does not write", () => {
+    expect(SKYWALKER_TOOLS).toEqual(
+      expect.arrayContaining(["write_file", "edit_file", "delete_file", "task", "search_agents"]),
+    );
+    expect(ORCHESTRATOR_TOOLS).not.toContain("write_file");
+    expect(ORCHESTRATOR_TOOLS).toContain("task");
   });
 });

@@ -11,21 +11,13 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.systemPrompt.startsWith("Placeholder")).toBe(false);
   });
 
-  test("systemPrompt names Shakespeare and states PRIMARY INTENT", () => {
-    expect(shakespearePackage.systemPrompt).toMatch(/Shakespeare/i);
-    expect(shakespearePackage.systemPrompt).toContain("PRIMARY INTENT");
-    expect(shakespearePackage.systemPrompt).toMatch(/product/i);
-    expect(shakespearePackage.systemPrompt).toMatch(/architecture/i);
-    expect(shakespearePackage.systemPrompt).toMatch(/implementation/i);
-  });
-
-  test("systemPrompt bakes scribe workflow without requiring use_skill scribe", () => {
+  test("systemPrompt owns P/A/I docs and does not interview", () => {
     const prompt = shakespearePackage.systemPrompt;
-    expect(prompt).toMatch(/Document discovery|document discovery/i);
-    expect(prompt).toMatch(/gap/i);
-    expect(prompt).toMatch(/cross-document|cross-doc|consistency/i);
-    expect(prompt).toMatch(/interview|question/i);
-    expect(prompt).not.toMatch(/use_skill\s*\(\s*["']scribe["']\s*\)/);
+    expect(prompt).toContain("PRIMARY INTENT");
+    expect(prompt).toContain("PRODUCT.md");
+    expect(prompt).toContain("ARCHITECTURE.md");
+    expect(prompt).toContain("IMPLEMENTATION.md");
+    expect(prompt).toMatch(/cannot interview/i);
   });
 
   test("spawn.maySpawn is false (leaf)", () => {
@@ -51,8 +43,9 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.modelRole).toBe("docs");
   });
 
-  test("optionalSkills are style and philosophy", () => {
-    expect(shakespearePackage.optionalSkills).toEqual(["style", "philosophy"]);
+  test("required style and philosophy; optional scribe", () => {
+    expect(shakespearePackage.requiredSkills).toEqual(["style", "philosophy"]);
+    expect(shakespearePackage.optionalSkills).toEqual(["scribe"]);
   });
 
   test("nudge.maxTurns is 50", () => {

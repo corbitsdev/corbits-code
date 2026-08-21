@@ -94,9 +94,11 @@ describe("director registry", () => {
   test("packageToProfile maps envelope and spawn", () => {
     const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
     expect(explore.id).toBe("explore");
-    expect(explore.systemPromptRole).toContain('agent id `explore`');
+    expect(explore.systemPromptRole).toContain('task(agent="explore")');
     expect(explore.systemPromptRole).toContain(DIRECTOR_REGISTRY.explore.systemPrompt);
-    expect(explore.description).toContain("agent id: explore");
+    expect(explore.description).toBe(
+      `${DIRECTOR_REGISTRY.explore.name} — ${DIRECTOR_REGISTRY.explore.description}`,
+    );
     expect(explore.capabilities?.mode).toBe("allow");
     expect(explore.capabilities?.tools).toContain("read_file");
     expect(explore.capabilities?.tools).not.toContain("write_file");
@@ -139,7 +141,6 @@ describe("director registry", () => {
       "testsmith",
       "tester",
       "gaasbot",
-      "skywalker",
     ] as const) {
       const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
       expect(allow).not.toContain("write_file");
@@ -169,13 +170,14 @@ describe("director registry", () => {
     }
   });
 
-  test("skywalker primary stance: never implement, no product write tools", () => {
+  test("skywalker primary stance: may write, may chain, no catch-all", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
-    expect(s.systemPrompt).toContain("NEVER implement");
+    expect(s.systemPrompt).toContain("You may edit files");
+    expect(s.systemPrompt).toContain("You may chain agents");
     expect(s.systemPrompt).toContain("You are Skywalker");
     expect(s.systemPrompt).toMatch(/No catch-all worker/i);
     expect(s.tools?.allow).toContain("task");
-    expect(s.tools?.allow).not.toContain("write_file");
+    expect(s.tools?.allow).toContain("write_file");
     expect(s.spawn.allowlist).toHaveLength(15);
   });
 
@@ -188,12 +190,20 @@ describe("director registry", () => {
     }
   });
 
-  test("every director profile declares matching agent id in system prompt", () => {
+  test("every director profile leads with name and spawn id", () => {
     for (const id of DIRECTOR_IDS) {
-      const profile = packageToProfile(DIRECTOR_REGISTRY[id]);
-      expect(profile.systemPromptRole).toContain(`agent id \`${id}\``);
-      expect(profile.systemPromptRole).toContain(`task(agent="${id}")`);
-      expect(profile.description).toContain(`agent id: ${id}`);
+      const pkg = DIRECTOR_REGISTRY[id];
+      const profile = packageToProfile(pkg);
+      const role = profile.systemPromptRole ?? "";
+      expect(pkg.name.length).toBeGreaterThan(0);
+      expect(role).toContain(`task(agent="${id}")`);
+      expect(profile.description).toBe(`${pkg.name} — ${pkg.description}`);
+      if (pkg.systemPrompt.startsWith(`You are ${pkg.name}`)) {
+        expect(role.startsWith(`You are ${pkg.name}.`)).toBe(false);
+        expect(role).toContain(`You are ${pkg.name}`);
+      } else {
+        expect(role.startsWith(`You are ${pkg.name}.`)).toBe(true);
+      }
     }
   });
 });

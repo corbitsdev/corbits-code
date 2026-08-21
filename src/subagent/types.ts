@@ -45,6 +45,8 @@ export type SubAgentSandboxDeps = {
   getBlobReader?: () => BlobReader | undefined;
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
+  /** Plugin/project skill directories so workers can load bodies via use_skill. */
+  skillDirs?: string[];
 };
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
@@ -98,6 +100,8 @@ export type RunSubAgentParams = {
   onProgress?: (info: { description: string; toolName: string }) => void;
   capabilities?: CapabilityFilter;
   systemPromptRole?: string;
+  /** Plugin/project skill directories so this worker can call use_skill. */
+  skillDirs?: string[];
   /**
    * Director authz write-path allowlist. Passed into sub-agent identity so the
    * permission gate can deny out-of-lane writes (not prompt policy).

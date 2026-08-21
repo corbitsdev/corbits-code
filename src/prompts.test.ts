@@ -39,7 +39,8 @@ test("agent identity is Skywalker orchestrator", () => {
   expect(orchestrator).toContain("Corbits Code");
   expect(orchestrator).toContain("When asked your name, answer: Skywalker");
   expect(orchestrator).toContain("PRIMARY INTENT");
-  expect(orchestrator).toContain("Delegate");
+  expect(orchestrator).toContain("You may edit files");
+  expect(orchestrator).toContain("You may chain agents");
   expect(orchestrator).toContain("Match operator tone");
   // Mode arg is ignored — product is orchestrator-only (CL-5814).
   expect(buildChatRole()).toContain("You are Skywalker");
@@ -47,8 +48,9 @@ test("agent identity is Skywalker orchestrator", () => {
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
-  expect(facts).toContain("write_file, edit_file, delete_file");
-  expect(facts).toContain("not mounted on the primary Skywalker session");
+  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("delete_file");
+  expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
@@ -254,12 +256,12 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
 
 test("sub-agent prompt carries the report-back contract and harness facts", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("short-lived child agent dispatched by Corbits Code");
+  expect(prompt).toContain("short-lived agent dispatched by Corbits Code");
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");
-  expect(prompt).toContain("Change files with write_file/edit_file");
-  expect(prompt).toContain("remove files with delete_file");
   expect(prompt).toContain("parent session's permission gate");
+  expect(prompt).toContain("tool_search");
+  expect(prompt).toContain("use_skill");
   expect(prompt).not.toContain("without asking for approval");
   expect(prompt).not.toContain("ask_operator");
 });
@@ -273,10 +275,11 @@ test("sub-agent report contract treats Success criteria as completion gate", () 
   expect(contract).toContain("Intent / Do not");
 });
 
-test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
+test("sub-agent prompt advertises tool_search and use_skill", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).not.toContain("tool_search");
-  expect(prompt).toContain("your full toolset");
+  expect(prompt).toContain("tool_search");
+  expect(prompt).toContain("use_skill");
+  expect(prompt).not.toContain("full file, search, and shell toolset");
 });
 
 // Pins the appendix-last invariant for JS-plugin agents: regardless of how the
@@ -286,12 +289,11 @@ test("sub-agent prompt does not advertise tool_search (it gets the full toolset)
 // JS-plugin-only path that bypasses the data-only loader still gets them.
 test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-style systemPromptRole", () => {
   const role = "You are a JS-plugin scout. Map the call graph and report.";
-  const prompt = buildSubAgentSystemPrompt([role]);
+  const prompt = buildSubAgentSystemPrompt(undefined, undefined, role);
   expect(prompt).toContain(role);
   expect(prompt).toContain("## Corbits Code notes");
-  // Workers get the no-recursion rule, not the spawn syntax.
   expect(prompt).toContain("You are a worker");
-  // Agent voice leads; translation notes are the last section.
+  expect(prompt.indexOf(role)).toBe(0);
   expect(prompt.indexOf(role)).toBeLessThan(prompt.indexOf("## Corbits Code notes"));
 });
 
@@ -326,7 +328,7 @@ test("sub-agent prompt requires structured report envelope and stick-to-brief", 
   expect(prompt).toContain("## Blockers");
   expect(prompt).toContain("## Paths");
   expect(prompt).toContain("Stick to the dispatch brief");
-  expect(prompt).toContain("manage_tasks checklist");
+  expect(prompt).toContain("manage_tasks is yours alone");
 });
 
 test("default sub-agent prompt omits Grok anti-thrash residual", () => {

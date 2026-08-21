@@ -6,13 +6,16 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.id).toBe("skywalker");
   });
 
-  test("systemPrompt is real, not placeholder", () => {
+  test("systemPrompt is a short roster, not a playbook", () => {
     expect(skywalkerPackage.systemPrompt.length).toBeGreaterThan(0);
     expect(skywalkerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
     expect(skywalkerPackage.systemPrompt).toContain("You are Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain("When asked your name, answer: Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain("PRIMARY INTENT");
-    expect(skywalkerPackage.systemPrompt).toContain("NEVER implement");
+    expect(skywalkerPackage.systemPrompt).toContain("You may edit files");
+    expect(skywalkerPackage.systemPrompt).toContain("You may chain agents");
+    expect(skywalkerPackage.systemPrompt).toContain("Match operator tone");
+    expect(skywalkerPackage.systemPrompt).not.toContain("NEVER implement");
   });
 
   test("createSkywalkerSystemPrompt returns package systemPrompt", () => {
@@ -41,13 +44,13 @@ describe("skywalkerPackage", () => {
     ]);
   });
 
-  test("tools.allow mounts orchestrator surface without product writes", () => {
+  test("tools.allow mounts writes and dispatch", () => {
     const allow = skywalkerPackage.tools?.allow ?? [];
     expect(allow).toContain("task");
     expect(allow).toContain("search_agents");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("report required sections", () => {
@@ -73,101 +76,32 @@ describe("skywalkerPackage", () => {
   });
 
   test("primaryIntent and outOfLane", () => {
-    expect(skywalkerPackage.primaryIntent).toBe(
-      "Orchestrate only — triage and dispatch; do not implement product code",
-    );
-    expect(skywalkerPackage.outOfLane).toContain("product edits");
+    expect(skywalkerPackage.primaryIntent).toContain("Do the work");
     expect(skywalkerPackage.outOfLane).toContain("catch-all worker");
-    expect(skywalkerPackage.outOfLane).toContain(
-      "searching the repo yourself after a worker stops without finishing",
-    );
-    expect(skywalkerPackage.outOfLane).toContain("diagnostic fleets for why/how/stall questions");
+    expect(skywalkerPackage.outOfLane).toContain("waiting for the operator to name a director");
+    expect(skywalkerPackage.outOfLane).not.toContain("product edits");
   });
 
   test("nudge maxTurns", () => {
     expect(skywalkerPackage.nudge?.maxTurns).toBe(100);
   });
 
-  test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
+  test("systemPrompt lists every spawnable director", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Parent tools");
-    expect(p).toContain("long-blocking");
-    expect(p).toContain("tool.boundary");
-    expect(p).toContain("Dispatch intern");
+    for (const id of skywalkerPackage.spawn.allowlist ?? []) {
+      expect(p).toContain(id);
+    }
+    expect(p).toContain('Never task(agent="skywalker")');
+    expect(p).toMatch(/No catch-all worker/i);
   });
 
-  test("systemPrompt has effort scaling / fan-out ladder", () => {
+  test("systemPrompt treats slash actions as optional", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Effort scaling");
-    expect(p).toContain("fan-out");
-    expect(p).toContain("0–1 worker");
-    expect(p).toContain("2–4 workers");
-    expect(p).toContain("split ownership by path/package");
-    expect(p).toContain("at most 4 workers at once");
-  });
-
-  test("systemPrompt anti-cascade keeps digs out of fleets", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Anti-cascade");
-    expect(p).toContain("COMMUNICATION first");
-    expect(p).toContain("Never spawn parallel");
-    expect(p).toContain("one explore worker");
-    expect(p).toContain("search the repo yourself after a worker stops");
-    expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
-  });
-
-  test("systemPrompt simple path skips explore+critique for tiny work", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("one implement worker");
-    expect(p).toContain("skip explore and skip critique");
-    expect(p).toContain("tests green");
-    expect(p).toContain("Do not always explore→implement→critique");
-  });
-
-  test("systemPrompt routes URL reads through web_fetch on primary", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Fetch URLs");
-    expect(p).toContain("web_fetch");
-    expect(p).toContain("already mounted");
-    expect(p).toContain("curl/wget");
-  });
-
-  test("systemPrompt requires brief completeness for multi-worker dispatch", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Brief completeness");
-    expect(p).toContain("success_criteria");
-    expect(p).toContain("do_not");
-    expect(p).toContain("report_focus");
-    expect(p).toContain("multi-worker");
+    expect(p).toContain("optional explicit recipes");
   });
 
   test("systemPrompt does not use leaf jargon", () => {
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaf\b/i);
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaves\b/i);
-  });
-
-  test("systemPrompt puts API signatures into implement success_criteria", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("function signature or return shape");
-    expect(p).toContain("verbatim");
-    expect(p).toContain("sync vs Promise");
-    expect(p).toContain("implement success_criteria");
-  });
-
-  test("systemPrompt has critique-after-implement verify path", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Verify after ship");
-    expect(p).toContain("public-API");
-    expect(p).toContain("critique");
-    expect(p).toContain("tester");
-    expect(p).toContain("correctness/brief gaps");
-  });
-
-  test("systemPrompt re-dispatches implement on blocking critique", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("blocking");
-    expect(p).toContain("re-dispatch");
-    expect(p).toContain("ship → verify → fix → re-verify");
-    expect(p).toContain("Cap re-fix rounds");
   });
 });

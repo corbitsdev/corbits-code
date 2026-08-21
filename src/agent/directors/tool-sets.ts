@@ -1,8 +1,7 @@
 // Small, explicit tool allowlists for director packages.
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
-// manage_tasks is always mounted by runSubAgent after the filter — omit it here.
-// use_skill / tool_search / ask_operator are primary-session tools: leaves do
-// not mount them (skill guidance is baked into package system prompts).
+// manage_tasks, use_skill, and tool_search are harness tools mounted by
+// runSubAgent after the filter — omit them here. ask_operator stays primary-only.
 
 /** Read/search/shell — no product mutation. */
 export const READ_TOOLS = [
@@ -48,6 +47,13 @@ export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir"] as const;
 /** Nested orchestrator surface (greybeard / package filter): dispatch only. */
 export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
+  "search_agents",
+  "task",
+] as const;
+
+/** Primary Skywalker: implement surface plus dispatch. */
+export const SKYWALKER_TOOLS = [
+  ...IMPLEMENT_TOOLS,
   "search_agents",
   "task",
 ] as const;

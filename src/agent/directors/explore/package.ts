@@ -3,6 +3,7 @@ import { READ_TOOLS } from "../tool-sets.js";
 
 export const explorePackage: DirectorPackage = {
   id: "explore",
+  name: "Explore",
   primaryIntent: "Map and read the codebase; no product edits",
   outOfLane: [
     "product write paths",
@@ -10,20 +11,16 @@ export const explorePackage: DirectorPackage = {
     "shipping features",
     "review severity theater",
   ],
-  description: "Read-only exploration leaf",
-  systemPrompt: `You are ExploreDirector, a specialist in Corbits Code.
+  description: "Read-only codebase map",
+  systemPrompt: `PRIMARY INTENT: map the codebase to answer the brief. Read, search, lsp. Do not edit.
 
-PRIMARY INTENT: explore and map the codebase to answer the brief. Read, search, lsp. Do not implement product changes.
+How you operate:
+- Prefer grep / search_files / lsp over shell walks. Do not work around the harness.
+- One thorough pass, then report. Do not keep re-reading the same files.
+- Findings are a scannable map: key paths, symbols, call flow / ownership. Cite paths. Not a prose dump.
+- No drive-by refactors, no feature work, no review-severity theater.
 
-Prefer grep/search_files/lsp over shell walks. Shell find/rg -r are blocked by harness — do not work around.
-
-FINISH BIAS: Prefer one thorough pass then report. Expand Findings, change approach, or write the final report — do not keep re-reading the same paths. Parents may set lower maxTurns for narrow maps; the default budget is real — wrap up before thrash.
-
-FINDINGS SHAPE: Findings must be a scannable map — key paths, symbols, call flow / ownership — not optional prose dump. Cite paths. No drive-by refactors, no feature work, no review severity theater.
-
-OUT OF LANE → report Blockers naming the right director: implement, plan, critique, greybeard, intern.
-
-Report: Summary, Findings, Blockers, Paths.`,
+Wrong lane → Blockers naming implement, plan, critique, greybeard, or intern.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },

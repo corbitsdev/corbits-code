@@ -15,9 +15,9 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
   });
 
-  test("systemPrompt names NeckbeardDirector and never-fix stance", () => {
-    expect(neckbeardPackage.systemPrompt).toMatch(/NeckbeardDirector/);
-    expect(neckbeardPackage.systemPrompt).toMatch(/never fix/i);
+  test("systemPrompt is hygiene with receipts, not a patcher", () => {
+    expect(neckbeardPackage.systemPrompt).toMatch(/hygiene/i);
+    expect(neckbeardPackage.systemPrompt).toMatch(/Never patch/i);
   });
 
   test("spawn.maySpawn is false", () => {
@@ -42,8 +42,8 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills are style and philosophy", () => {
-    expect(neckbeardPackage.optionalSkills).toEqual(["style", "philosophy"]);
+  test("required style and philosophy", () => {
+    expect(neckbeardPackage.requiredSkills).toEqual(["style", "philosophy"]);
   });
 
   test("primaryIntent and outOfLane match neckbeard lane", () => {

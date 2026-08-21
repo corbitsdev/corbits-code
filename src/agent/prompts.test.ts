@@ -13,10 +13,6 @@ import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 const REGISTERED_TOOL_NAMES = new Set([
   ...CORE_TOOL_NAMES,
   ...CATALOG_TOOL_NAMES,
-  // Product mutation tools mount on workers, not primary CORE/CATALOG ads.
-  "write_file",
-  "edit_file",
-  "delete_file",
 ]);
 
 const REFERENCED_TOOL_NAMES = [
@@ -82,28 +78,28 @@ describe("shared discipline block appears exactly once per built prompt", () => 
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
-  it("appears exactly once in a worker prompt (default family)", () => {
+  it("is omitted from a worker prompt (default family)", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: false,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 
-  it("appears exactly once in a grok worker prompt", () => {
+  it("is omitted from a grok worker prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: true,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 
-  it("appears exactly once in an orchestrator sub-agent prompt", () => {
+  it("is omitted from an orchestrator sub-agent prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: true,
       grokAntiThrash: false,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 });
 

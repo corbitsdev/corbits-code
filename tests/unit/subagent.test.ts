@@ -143,10 +143,8 @@ test("handler reports runner failures without throwing", async () => {
 
 test("sub-agent prompt is autonomous and forbids recursion for workers", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("sub-agent");
-  expect(prompt).toContain("permission policy as the parent session");
+  expect(prompt).toContain("short-lived agent");
   expect(prompt).toContain("parent session's permission gate");
-  // Workers must not be invited to spawn further agents.
   expect(prompt).toContain("You are a worker");
   expect(prompt).not.toContain("MAY call `task`");
 });

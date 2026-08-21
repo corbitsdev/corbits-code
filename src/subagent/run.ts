@@ -38,6 +38,9 @@ import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
+import { createUseSkillTool } from "../agent/use-skill.js";
+import { createToolIndex, createToolSearchTool } from "../agent/tool-search.js";
+import { discoverSkills } from "../extensions/skills.js";
 import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
@@ -164,10 +167,13 @@ export function coreSubAgentWebTools(): AgentTool[] {
 
 function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilter): AgentTool[] {
   const nameSet = new Set(capabilities.tools);
-  if (capabilities.mode === "exclude") {
-    return tools.filter((t) => !nameSet.has(t.definition.name));
-  }
-  return tools.filter((t) => nameSet.has(t.definition.name));
+  const keep = (name: string): boolean => {
+    // MCP tools stay dispatchable so tool_search can load them; the envelope
+    // only constrains the posix/web surface advertised up front.
+    if (name.startsWith("mcp__")) return true;
+    return capabilities.mode === "exclude" ? !nameSet.has(name) : nameSet.has(name);
+  };
+  return tools.filter((t) => keep(t.definition.name));
 }
 
 export type SubAgentRunController = {
@@ -314,6 +320,22 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         return "Tasks updated.";
       },
     }),
+    createUseSkillTool(params.cwd, params.skillDirs ?? []),
+  ];
+  const advertised = new Set(
+    tools.map((t) => t.definition.name).filter((name) => !name.startsWith("mcp__")),
+  );
+  const toolIndex = createToolIndex(
+    () => tools.map((t) => t.definition),
+    [...advertised, "tool_search"],
+  );
+  tools = [
+    ...tools,
+    createToolSearchTool({
+      search: (query) => toolIndex.search(query),
+      lookup: (name) => tools.find((t) => t.definition.name === name)?.definition,
+      promote: () => undefined,
+    }),
   ];
 
   // Orchestrators need task + search_agents installed, not just mentioned in
@@ -354,6 +376,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
         ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
         ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
+        ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
       }),
       ...(nd.profiles !== undefined
         ? [
@@ -367,12 +390,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   }
 
   const environment = await gatherEnvironment(params.cwd);
-  const extensions =
-    params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
-  const toolNames = tools.map((t) => t.definition.name);
-  const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
+  const skills = await discoverSkills(params.cwd, params.skillDirs ?? []);
+  const toolNames = tools
+    .map((t) => t.definition.name)
+    .filter((name) => !name.startsWith("mcp__"));
+  const systemPrompt = buildSubAgentSystemPrompt(undefined, environment, params.systemPromptRole, {
     orchestrator: params.orchestrator === true,
     toolNames,
+    ...(skills.length > 0 ? { skills } : {}),
     grokAntiThrash: shouldApplyGrokAntiThrash({
       providerName: params.provider.providerName,
       model: params.provider.model,

@@ -11,9 +11,9 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
   });
 
-  test("systemPrompt states PRIMARY INTENT and GreybeardDirector", () => {
+  test("systemPrompt states PRIMARY INTENT", () => {
     expect(greybeardPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(greybeardPackage.systemPrompt).toContain("GreybeardDirector");
+    expect(greybeardPackage.systemPrompt).toMatch(/architecture judgment/i);
   });
 
   test("spawn.maySpawn is true with limited allowlist", () => {
@@ -32,10 +32,9 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("plan");
   });
 
-  test("systemPrompt forbids parallel diagnostic fleets", () => {
-    expect(greybeardPackage.systemPrompt).toMatch(/do the review yourself/i);
-    expect(greybeardPackage.systemPrompt).toMatch(/spawn at most one intern/i);
-    expect(greybeardPackage.systemPrompt).toMatch(/never spawn a parallel diagnostic fleet/i);
+  test("systemPrompt may chain evidence workers, not implement", () => {
+    expect(greybeardPackage.systemPrompt).toMatch(/chain intern, explore, and critique/i);
+    expect(greybeardPackage.systemPrompt).toMatch(/Do not spawn implement/i);
   });
 
   test("tools.allow is orchestrator surface without product writes", () => {
@@ -57,8 +56,9 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order", () => {
-    expect(greybeardPackage.optionalSkills).toEqual(["style", "philosophy"]);
+  test("required style and philosophy", () => {
+    expect(greybeardPackage.requiredSkills).toEqual(["style", "philosophy"]);
+    expect(greybeardPackage.optionalSkills).toBeUndefined();
   });
 
   test("primaryIntent and outOfLane match greybeard lane", () => {

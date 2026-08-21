@@ -38,36 +38,16 @@ describe("implementPackage", () => {
     expect(implementPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills order is style, philosophy, typescript", () => {
-    expect(implementPackage.optionalSkills).toEqual(["style", "philosophy", "typescript"]);
+  test("required style and philosophy; optional typescript", () => {
+    expect(implementPackage.requiredSkills).toEqual(["style", "philosophy"]);
+    expect(implementPackage.optionalSkills).toEqual(["typescript"]);
   });
 
-  test("systemPrompt has DONE GATE for success_criteria", () => {
+  test("systemPrompt is a done-gate, not an API-contract essay", () => {
     const prompt = implementPackage.systemPrompt;
-    expect(prompt).toContain("DONE GATE");
     expect(prompt).toContain("success_criteria");
-    expect(prompt).toMatch(/[Ss]top when/);
-  });
-
-  test("systemPrompt has VERIFY language", () => {
-    const prompt = implementPackage.systemPrompt;
-    expect(prompt).toContain("VERIFY");
-    expect(prompt).toMatch(/typecheck|tests/);
-    expect(prompt).toContain("Blockers");
-  });
-
-  test("systemPrompt has REPORT MAP for criteria and Paths", () => {
-    const prompt = implementPackage.systemPrompt;
-    expect(prompt).toContain("REPORT MAP");
-    expect(prompt).toMatch(/success_criteria.*pass|fail|blocked/s);
-    expect(prompt).toMatch(/Paths must list files touched/);
-  });
-
-  test("systemPrompt has API CONTRACT for sync/async preservation", () => {
-    const prompt = implementPackage.systemPrompt;
-    expect(prompt).toContain("API CONTRACT");
-    expect(prompt).toMatch(/sync/i);
-    expect(prompt).toMatch(/Promise|async/);
-    expect(prompt).toMatch(/public API|return shape/i);
+    expect(prompt).toMatch(/pass \| fail \| blocked/);
+    expect(prompt).not.toContain("Web Crypto");
+    expect(prompt).not.toContain("HMAC");
   });
 });

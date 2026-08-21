@@ -563,6 +563,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
         ...(deps.extraToolPlugins !== undefined ? { extraToolPlugins: deps.extraToolPlugins } : {}),
         ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
+        ...(deps.skillDirs !== undefined ? { skillDirs: deps.skillDirs } : {}),
       };
       const nestedDispatch: NestedDispatchDeps | undefined = orchestrator
         ? {

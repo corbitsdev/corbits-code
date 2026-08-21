@@ -28,6 +28,8 @@ const defaultChatTools = [
   "list_dir",
   "lsp",
   "manage_tasks",
+  "use_skill",
+  "tool_search",
 ];
 
 const joinSections = (sections: string[]) => sections.join("\n\n");
@@ -59,14 +61,7 @@ export function buildHarnessFacts(
   const subAgent = opts.subAgent ?? false;
   return [
     "Harness facts:",
-    ...(subAgent
-      ? [
-          "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
-        ]
-      : [
-          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT.md) for durable edits.",
-          "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools.",
-        ]),
+    "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
     "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
@@ -108,12 +103,10 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     ...(subAgent
       ? []
       : [
-          "- Prefer task(intent=…) / task(agent=…) for product implementation, exploration, review, and docs — that is the primary loop.",
+          "- Prefer doing small work yourself; chain task(agent=…) when isolation, parallel map, fresh-eyes review, or a named lane pays.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
-    subAgent
-      ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
-      : "- Product write tools are not mounted on Skywalker. Spawn implement (or a docs director) for durable file changes; never shell-write (echo/heredoc/sed/rm).",
+    "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm).",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
@@ -158,16 +151,12 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
 // appended exactly once per built prompt. Prohibition form throughout: these
 // are the failure modes observed across shipped agents (OpenCode, Codex CLI,
 // Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
-export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): string {
-  const subAgent = opts.subAgent ?? false;
-  const toolsOverShell = subAgent
-    ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
-    : "- Never use run_shell to read, edit, or write files — use read_file for reads; durable product edits go through implement/docs directors (write tools are not mounted on Skywalker); cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
+export function buildPromptDisciplineBlock(_opts: { subAgent?: boolean } = {}): string {
   return [
     "Prompt discipline:",
     "",
     "Tools over shell:",
-    toolsOverShell,
+    "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.",
     "- Never use echo or shell output to talk to the user — that is what your reply is for.",
     "",
     "Environment:",
@@ -328,21 +317,23 @@ export function buildChatSystemPrompt(
 // call `task` (no recursion past depth 1). An orchestrator profile is the
 // documented exception — its purpose IS to fan work out to other agents —
 // so the appendix grants permission and links the syntax.
+export function buildWorkerHarness(): string {
+  return [
+    "Harness facts:",
+    "- Mounted tools are listed below. Load more with tool_search. Load a skill body with use_skill before work it covers.",
+    "- Shell file-writes and deletions are blocked.",
+    "- You share the parent session's permission gate. You cannot ask the operator — put gaps under Blockers.",
+    "- Turn budget is real. When the job is done, stop tooling and emit the report envelope.",
+    "- manage_tasks is yours alone if you use it; it is not shared with the parent.",
+  ].join("\n");
+}
+
 export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): string {
-  // Workers must not be told both "spawn with task" and "do not call task".
-  // Orchestrators get the spawn instruction; everyone else gets the no-recursion
-  // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
-      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
-  return [
-    `## ${PRODUCT_NAME} notes`,
-    "",
-    recursionRule,
-    `- Tools use ${PRODUCT_NAME} names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks.`,
-    "- Upstream `mode: primary` is not encoded — every profile here is a spawnable sub-agent definition.",
-  ].join("\n");
+      ? `- You are an orchestrator: you MAY call \`task\` to chain specialists (e.g. task(agent="explore", prompt="...")). Stay inside your spawn allowlist. Prefer search_agents before naming a specialist. \`task\` spawns an agent; manage_tasks is your checklist.`
+      : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report instead of spawning.`;
+  return [`## ${PRODUCT_NAME} notes`, "", recursionRule].join("\n");
 }
 
 // Final-reply envelope the parent can parse. Free-form prose is allowed inside
@@ -388,37 +379,34 @@ export function buildGrokLeafAntiThrashNote(): string {
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
-  baseOverride?: string,
+  identity?: string,
   opts: {
     orchestrator?: boolean;
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    skills?: readonly SkillSummary[];
   } = {},
 ): string {
-  const base =
-    baseOverride !== undefined && baseOverride.trim().length > 0
-      ? baseOverride.trim()
-      : joinSections([
-          `You are a sub-agent — a short-lived child agent dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
-          buildHarnessFacts({ dynamicTools: false, subAgent: true }),
-          buildGuidelines({ subAgent: true }),
-          buildPromptDisciplineBlock({ subAgent: true }),
-          buildSubAgentReportContract(),
-        ]);
+  const who =
+    identity !== undefined && identity.trim().length > 0
+      ? identity.trim()
+      : `You are a worker — a short-lived agent dispatched by ${PRODUCT_NAME} for one job.`;
   const toolListForPrompt =
     opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;
-  const sections = [base, buildAvailableTools(toolListForPrompt), contextSection(env)];
+  const sections = [who];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
+  sections.push(buildWorkerHarness());
+  if (opts.skills !== undefined && opts.skills.length > 0) {
+    sections.push(buildSkillsSection(opts.skills));
+  }
+  sections.push(buildAvailableTools(toolListForPrompt), contextSection(env));
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
   }
-  // Always-last: the Corbits Code translation notes apply to every dispatched
-  // agent, regardless of whether its definition came from a JS plugin or a
-  // corbitsdev-format markdown file. The orchestrator flag rewrites the
-  // recursion rule for profiles whose purpose is to dispatch other agents.
+  sections.push(buildSubAgentReportContract());
   sections.push(buildSubAgentAppendix(opts));
   return joinSections(sections);
 }

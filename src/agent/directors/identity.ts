@@ -2,30 +2,44 @@ import type { DirectorPackage } from "./types.js";
 import type { ModelRole } from "./types.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 
+function skillsHeader(pkg: DirectorPackage): string | null {
+  const required = pkg.requiredSkills ?? [];
+  const optional = pkg.optionalSkills ?? [];
+  const listed = pkg.requiredSkills !== undefined || pkg.optionalSkills !== undefined;
+  if (!listed) return null;
+  if (required.length === 0 && optional.length === 0) {
+    return "Skills: none listed. use_skill still works if the session has others.";
+  }
+  const lines: string[] = [];
+  if (required.length > 0) {
+    lines.push(
+      `Required skills — load with use_skill BEFORE other work: ${required.join(", ")}.`,
+    );
+  }
+  if (optional.length > 0) {
+    lines.push(
+      `Optional skills — load with use_skill when they apply: ${optional.join(", ")}.`,
+    );
+  }
+  return lines.join("\n");
+}
+
 /**
  * Prefix every director system prompt with a stable identity block so the model
- * always sees agent id, model role, and optional skills — no ambiguity about which
- * package it is or how the parent should re-spawn it.
+ * always sees who it is first — primacy, not an appendix.
  */
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
-  const skillsLine =
-    pkg.optionalSkills === undefined
-      ? null
-      : pkg.optionalSkills.length === 0
-        ? "Optional skills: none by default."
-        : `Optional skills (names for awareness; guidance is baked into this prompt — use_skill is not mounted on workers): ${pkg.optionalSkills.join(", ")}.`;
+  const skillsLine = skillsHeader(pkg);
+  const greeting = `You are ${pkg.name}.`;
+  const bodyAlreadyGreets = pkg.systemPrompt.startsWith(`You are ${pkg.name}`);
   const header = [
-    `Identity: agent id \`${pkg.id}\` — spawn as task(agent="${pkg.id}").`,
-    `Model role: ${pkg.modelRole}.`,
+    ...(bodyAlreadyGreets ? [] : [greeting]),
+    `Spawn as task(agent="${pkg.id}").`,
     ...(skillsLine !== null ? [skillsLine] : []),
   ].join("\n");
   return `${header}\n\n${pkg.systemPrompt}`;
 }
 
-/**
- * Product default reasoning effort by package modelRole (CL-5816 slice).
- * Intern is the cheap worker: same implement role, lower effort budget.
- */
 export const MODEL_ROLE_DEFAULT_EFFORT = {
   orchestrator: "high",
   plan: "high",
@@ -34,9 +48,9 @@ export const MODEL_ROLE_DEFAULT_EFFORT = {
   explore: "medium",
   docs: "medium",
   test: "medium",
+  intern: "low",
 } as const satisfies Record<ModelRole, ReasoningEffort>;
 
 export function defaultEffortForDirector(pkg: DirectorPackage): ReasoningEffort {
-  if (pkg.id === "intern") return "low";
   return MODEL_ROLE_DEFAULT_EFFORT[pkg.modelRole];
 }

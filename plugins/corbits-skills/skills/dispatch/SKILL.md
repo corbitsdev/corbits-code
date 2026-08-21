@@ -39,7 +39,7 @@ If the spec is vague, incomplete, or contradictory: stop and report Blockers. Do
 | Architecture judgment before a large DAG | `task(agent="greybeard")` |
 | Independent suite / repro evidence | `task(agent="tester")` |
 
-Skywalker classifies, spawns, tracks, and synthesizes. Product mutation tools are not mounted on this session. Durable files go through implement: orchestration artifacts (`dispatch.yaml`, `plan.md`, status) and product code. Implement is used for those artifacts because it has write tools; intern does not (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest.
+Skywalker may write files itself or chain specialists. Prefer implement for a long isolated ship; intern does not mount write tools (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest.
 
 Prefer typed briefs: `intent`, `success_criteria`, `do_not`, `report_focus`, and `agent`.
 

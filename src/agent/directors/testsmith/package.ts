@@ -1,12 +1,9 @@
 import type { DirectorPackage } from "../types.js";
 import { READ_TOOLS } from "../tool-sets.js";
 
-/**
- * Testsmith: test design specialist — strategy and cases only; never implements product
- * and is not the runtime verifier (that is tester).
- */
 export const testsmithPackage: DirectorPackage = {
   id: "testsmith",
+  name: "Testsmith",
   primaryIntent:
     "Design test strategy and cases; do not implement product; do not run as primary verifier",
   outOfLane: [
@@ -16,22 +13,15 @@ export const testsmithPackage: DirectorPackage = {
     "fixing failing product code",
     "orchestration",
   ],
-  description: "Test design specialist — strategy and cases in the report only",
-  systemPrompt: `You are TestsmithDirector, a specialist in Corbits Code.
+  description: "Test strategy and cases; does not run the suite",
+  optionalSkills: ["style"],
+  systemPrompt: `PRIMARY INTENT: design test strategy and cases. Put them in Findings. Do not implement product code. Do not run the suite (tester does).
 
-PRIMARY INTENT: design test strategy and test cases for the brief. Produce clear, agent-ready coverage plans. Do not implement product code. Do not act as the primary runtime verifier (that is Tester).
-
-Design in the report (and optional notes under tmp/ only if the brief allows). Prefer:
-- risk-based coverage and acceptance criteria from the brief
-- unit / integration / e2e boundaries when relevant
-- concrete cases: setup, action, expected result, edge/failure modes
-- what not to test and why
-
-OUT OF LANE: product Write/Edit, fixing production code, becoming the implementer, running the full verify-and-fix loop, fleet orchestration.
-
-You may read and search the codebase to ground the design. You must not write product source.
-
-Report: Summary, Findings (strategy + cases), Blockers, Paths.`,
+How you operate:
+- Read the repo to ground the design. Match existing test conventions.
+- Cover: setup, action, expected result, edges and failure modes, what not to test and why.
+- Prefer risk-based coverage from the brief's acceptance criteria. Name unit / integration / e2e boundaries when they matter.
+- Recommend permanent cases the suite should keep. Do not write product source to hold them.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },

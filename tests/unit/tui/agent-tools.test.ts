@@ -191,10 +191,7 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).toContain("read_file");
   expect(names).toContain("ask_operator");
-  // Primary Skywalker never mounts product mutation tools.
-  expect(names).not.toContain("write_file");
-  expect(names).not.toContain("edit_file");
-  expect(names).not.toContain("delete_file");
+  expect(names).toContain("write_file");
 });
 
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {

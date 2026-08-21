@@ -37,8 +37,9 @@ describe("planPackage", () => {
     expect(planPackage.modelRole).toBe("plan");
   });
 
-  test("optionalSkills order", () => {
-    expect(planPackage.optionalSkills).toEqual(["style", "philosophy", "interview"]);
+  test("required style and philosophy; optional interview", () => {
+    expect(planPackage.requiredSkills).toEqual(["style", "philosophy"]);
+    expect(planPackage.optionalSkills).toEqual(["interview"]);
   });
 
   test("primaryIntent and outOfLane match plan lane", () => {

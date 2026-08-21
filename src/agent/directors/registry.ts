@@ -119,7 +119,7 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
   const capabilities = packageToCapabilities(pkg);
   return {
     id: pkg.id,
-    description: `${pkg.description} (agent id: ${pkg.id})`,
+    description: `${pkg.name} — ${pkg.description}`,
     systemPromptRole: formatDirectorSystemPrompt(pkg),
     // Nested spawn is still gated by allowOrchestrator on the parent task tool.
     // Greybeard/skywalker maySpawn marks intent; leaves stay non-orchestrator.

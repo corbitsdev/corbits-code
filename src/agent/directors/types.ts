@@ -25,7 +25,15 @@ export type DirectorId = (typeof DIRECTOR_IDS)[number];
 export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general";
 
 /** Static model-role tag for CL-5816 stub resolution (not a full package yet). */
-export type ModelRole = "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
+export type ModelRole =
+  | "orchestrator"
+  | "implement"
+  | "explore"
+  | "review"
+  | "plan"
+  | "docs"
+  | "test"
+  | "intern";
 
 export type ToolEnvelope = {
   /** Tools mounted when present — prefer small allowlists over deny-everything. */
@@ -58,6 +66,7 @@ export type ReportContract = {
  */
 export type DirectorPackage = {
   readonly id: DirectorId;
+  readonly name: string;
   /** Hard primary intent lane — one job. */
   readonly primaryIntent: string;
   /** Explicit out-of-lane work this director must refuse or reclassify. */
@@ -65,7 +74,9 @@ export type DirectorPackage = {
   readonly description: string;
   /** Opinionated core prompt (prompt-first). */
   readonly systemPrompt: string;
-  /** Optional skills the worker may load dynamically (ordered). */
+  /** Skills this director must load with use_skill before other work (ordered). */
+  readonly requiredSkills?: readonly string[];
+  /** Skills to load with use_skill when they apply (ordered). */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   /**

@@ -11,6 +11,32 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+Skywalker identity stays on the primary; workers get a job-shaped director prompt plus a thin overlay. Product write tools are mounted on Skywalker; slash actions stay optional.
+
+### Directors
+
+- **Skywalker can write files and chains specialists from a short roster.**
+  The primary prompt is identity plus a name/description list of the closed
+  fleet. Product write tools are mounted. Skywalker may do small work itself
+  or chain `task(agent=…)` in sequence or parallel. Slash actions stay
+  optional. The operator does not name a director.
+- **Director prompts are job-shaped; identity is first.** Worker assembly
+  leads with the director body, then a thin harness, tools, env, and one
+  report contract. The Skywalker constitution is not prepended. `*Director`
+  suffixes, baked skill fiction, interview-the-operator, and the Web Crypto
+  eval scar are gone. Intern's model role is `intern` (effort low).
+- **Workers mount use_skill and tool_search.** Skill bodies load on demand.
+  MCP tools stay dispatchable and are discovered via tool_search instead of
+  being stripped by the posix envelope.
+
+### Plugins
+
+- **Slash recipes are optional explicit actions.** Draper and emil are not
+  skills or slashes — Skywalker still dispatches them from chat. Ordinary
+  chat does not need a slash.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

@@ -16,11 +16,11 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 // dispatchable — the model finds it via tool_search when a session actually
 // needs it.
 //
-// Product mutation tools (write_file / edit_file / delete_file) are intentionally
-// absent from the primary Skywalker core/catalog sets — they mount only on leaf
-// directors that need them (implement, shakespeare, …). See PRIMARY_DENIED_PRODUCT_TOOLS.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
+  "write_file",
+  "edit_file",
+  "delete_file",
   "lsp",
   "run_shell",
   "ask_operator",
@@ -33,13 +33,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   // round-trip. Catalog-only placement left the model discovering profiles then
   // failing on an unloaded task tool.
   "task",
-];
-
-/** Product mutation tools denied on the primary Skywalker session (structural). */
-export const PRIMARY_DENIED_PRODUCT_TOOLS: readonly string[] = [
-  "write_file",
-  "edit_file",
-  "delete_file",
 ];
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
@@ -77,11 +70,9 @@ export function advertisedToolNamesForSessionMode(
 // Built-in file/search/web tools advertised alongside the core set. They carry full
 // schemas on the wire so the model can call them directly; MCP tools are not
 // listed at all — they are discovered blind via tool_search.
-// write_file is intentionally omitted: primary Skywalker does not mutate product
-// files; implement/docs leaves mount write tools via their own toolsets.
 // web_fetch / web_search are catalog (not deferred): URL reads and search are
 // first-class primary work; requiring tool_search before web_fetch caused
-// thrash on web-bait and contradicted the skywalker "already mounted" rule.
+// thrash on web-bait.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
   "search_files",
   "grep",

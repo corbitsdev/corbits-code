@@ -37,8 +37,8 @@ describe("internPackage", () => {
     }
   });
 
-  test("modelRole is implement", () => {
-    expect(internPackage.modelRole).toBe("implement");
+  test("modelRole is intern", () => {
+    expect(internPackage.modelRole).toBe("intern");
   });
 
   test("optionalSkills is empty by default", () => {
@@ -47,6 +47,6 @@ describe("internPackage", () => {
 
   test("primaryIntent and description", () => {
     expect(internPackage.primaryIntent).toContain("Mechanical shell/commands only");
-    expect(internPackage.description).toBe("Mechanical intern leaf");
+    expect(internPackage.description).toContain("Exact mechanical shell");
   });
 });

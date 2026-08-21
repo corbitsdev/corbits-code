@@ -14,7 +14,7 @@ describe("testerPackage", () => {
   test("systemPrompt states PRIMARY INTENT to verify not fix", () => {
     expect(testerPackage.systemPrompt).toContain("PRIMARY INTENT");
     expect(testerPackage.systemPrompt).toMatch(/run|verify/i);
-    expect(testerPackage.systemPrompt).toMatch(/never fix|do not.*fix|Never fix/i);
+    expect(testerPackage.systemPrompt).toMatch(/Do not patch|never fix|do not fix/i);
   });
 
   test("spawn.maySpawn is false (leaf)", () => {

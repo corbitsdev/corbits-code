@@ -15,43 +15,11 @@ describe("critiquePackage", () => {
     expect(critiquePackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
   });
 
-  test("systemPrompt is evidence-based and never-fix", () => {
+  test("systemPrompt is evidence-based and does not patch", () => {
     expect(critiquePackage.systemPrompt).toMatch(/evidence-based/i);
-    expect(critiquePackage.systemPrompt).toMatch(/never fix/i);
-    expect(critiquePackage.systemPrompt).toMatch(/permanent tests/i);
-  });
-
-  test("systemPrompt is correctness-only / anti-over-engineering", () => {
-    expect(critiquePackage.systemPrompt).toMatch(/correctness-only/i);
-    expect(critiquePackage.systemPrompt).toMatch(/anti-over-engineering/i);
-    expect(critiquePackage.systemPrompt).toMatch(
-      /correctness or the stated requirements\/success_criteria/i,
-    );
-    expect(critiquePackage.systemPrompt).toMatch(/style nits/i);
-    expect(critiquePackage.systemPrompt).toMatch(/file-for-later/i);
-    expect(critiquePackage.systemPrompt).toMatch(/Do not drive over-engineering/i);
-    expect(critiquePackage.systemPrompt).toMatch(/impossible cases/i);
-  });
-
-  test("systemPrompt flags API contract / sync→async as blocking", () => {
-    expect(critiquePackage.systemPrompt).toMatch(/API contract check/i);
-    expect(critiquePackage.systemPrompt).toMatch(
-      /blocking when brief specifies signatures/i,
-    );
-    expect(critiquePackage.systemPrompt).toMatch(/public exports/i);
-    expect(critiquePackage.systemPrompt).toMatch(/Sync\s*→\s*async/i);
-    expect(critiquePackage.systemPrompt).toMatch(
-      /returning Promise when callers expect a plain value/i,
-    );
-    expect(critiquePackage.systemPrompt).toMatch(
-      /blocking correctness defect/i,
-    );
-    expect(critiquePackage.systemPrompt).toMatch(
-      /parameter order\/optionality\/return-type drift/i,
-    );
-    expect(critiquePackage.systemPrompt).toMatch(
-      /Rank these as blocking, not style nits/i,
-    );
+    expect(critiquePackage.systemPrompt).toMatch(/do not patch/i);
+    expect(critiquePackage.systemPrompt).toMatch(/path \+ symbol/i);
+    expect(critiquePackage.systemPrompt).not.toContain("Web Crypto");
   });
 
   test("spawn.maySpawn is false", () => {
@@ -80,8 +48,9 @@ describe("critiquePackage", () => {
     expect(critiquePackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order is style, philosophy", () => {
-    expect(critiquePackage.optionalSkills).toEqual(["style", "philosophy"]);
+  test("required style and philosophy; optional review", () => {
+    expect(critiquePackage.requiredSkills).toEqual(["style", "philosophy"]);
+    expect(critiquePackage.optionalSkills).toEqual(["review"]);
   });
 
   test("primaryIntent and outOfLane match critique lane", () => {

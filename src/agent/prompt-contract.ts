@@ -9,7 +9,7 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "Tool choice:",
   "Ask vs proceed:",
   "Scope and conventions:",
-  "Product write tools are not mounted on Skywalker",
+  "You may edit files",
   "ask_operator only when permission blocks you",
   "Touch only code required for the task",
   "load the style and philosophy skills",
