@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -220,6 +220,13 @@ describe("pathEscapePlugin", () => {
       await rm(link);
       await symlink(outside, link);
       expect(args.path).not.toContain(outside);
+
+      // A real writer using the resolved path lands the bytes at the
+      // canonical (safe) location, never under the retargeted symlink.
+      await writeFile(args.path, "hi");
+      expect(await readFile(args.path, "utf8")).toBe("hi");
+      expect(existsSync(join(outside, "note.txt"))).toBe(false);
+
       await rm(outside, { recursive: true, force: true });
     });
   });

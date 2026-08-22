@@ -1,5 +1,6 @@
 import { resolve, sep } from "node:path";
 import { matchesPattern } from "./matcher.js";
+import { realpathNearestOr } from "./path-restriction.js";
 
 /**
  * Director write-path allowlist (authz, not prompt policy).
@@ -29,8 +30,12 @@ export function matchesWritePathAllowlist(
   if (allowlist.length === 0) return false;
   if (subject.length === 0) return false;
 
-  const absCwd = resolve(cwd);
-  const abs = resolve(cwd, subject);
+  // Canonicalize both sides the same way path-restriction does: a symlinked
+  // cwd (e.g. macOS /tmp -> /private/tmp) must not desync from a subject
+  // already resolved to its realpath by resolveWorkspacePath, which would
+  // otherwise hard-deny a legitimate allowlisted write.
+  const absCwd = realpathNearestOr(resolve(cwd));
+  const abs = realpathNearestOr(resolve(cwd, subject));
   let rel: string;
   if (abs === absCwd) {
     rel = ".";

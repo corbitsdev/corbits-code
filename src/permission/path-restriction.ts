@@ -44,7 +44,7 @@ function realpathOr(path: string): string {
 // the raw (possibly symlink-relative) path, which would defeat containment
 // checks whenever the workspace root itself is reached through a symlink
 // (e.g. macOS's /tmp -> /private/tmp).
-function realpathNearestOr(path: string): string {
+export function realpathNearestOr(path: string): string {
   try {
     return realpathSync(path);
   } catch {
