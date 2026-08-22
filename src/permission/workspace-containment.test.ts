@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import type { ToolCall } from "@intx/types/runtime";
 
 import { isAutoAllowedShellCall } from "./classify.js";
-import { createPathRestriction } from "./path-restriction.js";
+import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 
 let cwd = "";
 let worktree = "";
@@ -90,4 +90,35 @@ test("a symlink pointing outside the workspace is refused, even for a not-yet-ex
 
   expect(autoAllowed).toBe(false);
   expect(restricted).toBe(true);
+});
+
+test("resolveWorkspacePath returns the canonical target so a later symlink retarget cannot redirect a write (CL-6712 TOCTOU)", async () => {
+  // A symlink that is in-bounds at check time (target -> inside cwd) must
+  // resolve to the canonical real path, not the lexical path through the
+  // symlink. If the caller only remembered the lexical path and re-opened it
+  // after the symlink is retargeted, the write would follow the new target
+  // instead of the one that was actually approved.
+  const rootsProvider = () => [];
+  const realTarget = join(cwd, "real-target");
+  await mkdir(realTarget, { recursive: true });
+  const link = join(cwd, "link");
+  await symlink(realTarget, link);
+
+  const resolved = resolveWorkspacePath(cwd, join("link", "note.txt"), rootsProvider);
+  expect(resolved).toBe(join(realpathSync(realTarget), "note.txt"));
+
+  // Retarget the symlink to point outside the workspace, as an attacker
+  // would do between the allow check and the actual write.
+  await rm(link);
+  await symlink(outside, link);
+
+  // The canonical path captured before the retarget still points at the
+  // originally-approved location inside the workspace — it never traverses
+  // "link" again, so it is unaffected by the retarget.
+  expect(resolved).not.toContain(outside);
+
+  // A fresh check against the now-retargeted symlink correctly sees the
+  // escape and denies it.
+  const restriction = createPathRestriction(cwd, rootsProvider, home);
+  expect(restriction.isRestricted(join(link, "note.txt"), true)).toBe(true);
 });

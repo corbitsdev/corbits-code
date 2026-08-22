@@ -44,7 +44,7 @@ function realpathOr(path: string): string {
 // the raw (possibly symlink-relative) path, which would defeat containment
 // checks whenever the workspace root itself is reached through a symlink
 // (e.g. macOS's /tmp -> /private/tmp).
-function realpathNearestOr(path: string): string {
+export function realpathNearestOr(path: string): string {
   try {
     return realpathSync(path);
   } catch {
@@ -68,9 +68,18 @@ const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
 // Resolves `path` (relative or absolute, possibly traversing `..`) against
 // `cwd` and checks it against the workspace boundary: `cwd` itself plus every
 // root `rootsProvider` reports (the session's registered git worktrees, or
-// any other allowlisted sibling). Returns the resolved absolute path when the
-// target is in bounds, `undefined` otherwise — callers that need a hard
-// allow/deny (rather than an allow/ask distinction) can key off that.
+// any other allowlisted sibling). Returns the CANONICAL real path (symlink
+// segments resolved; for a not-yet-created target, the nearest existing
+// ancestor's real path rejoined with the missing tail) when the target is in
+// bounds, `undefined` otherwise — callers that need a hard allow/deny (rather
+// than an allow/ask distinction) can key off that.
+//
+// Returning the canonical path rather than the lexical `abs` closes a
+// TOCTOU: a symlink segment that is in-bounds at check time can be
+// retargeted before a write actually happens. Callers (e.g. pathEscapePlugin)
+// substitute this return value into the tool call's path argument, so the
+// writer that ultimately opens the file never re-traverses the original
+// symlink — it uses the already-resolved location.
 //
 // A relative `../` is deliberately resolved and realpath-checked against the
 // allowlist rather than rejected outright: the raw path alone can't tell a
@@ -84,9 +93,9 @@ export function resolveWorkspacePath(
   const abs = resolve(cwd, path);
   const realCwd = realpathOr(resolve(cwd));
   const real = realpathNearestOr(abs);
-  if (real === realCwd || real.startsWith(realCwd + sep)) return abs;
-  if (inKnownRoots(real, rootsProvider())) return abs;
-  if (inKnownRoots(real, rootsProvider(true))) return abs;
+  if (real === realCwd || real.startsWith(realCwd + sep)) return real;
+  if (inKnownRoots(real, rootsProvider())) return real;
+  if (inKnownRoots(real, rootsProvider(true))) return real;
   return undefined;
 }
 

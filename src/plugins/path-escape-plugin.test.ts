@@ -1,4 +1,8 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { pathEscapePlugin } from "./path-escape-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -174,5 +178,56 @@ describe("pathEscapePlugin", () => {
     expect(allowed.isError).not.toBe(true);
     const args = JSON.parse(String(allowed.content)) as { path: string };
     expect(args.path).toBe("/other-repo/README.md");
+  });
+
+  describe("symlink TOCTOU (CL-6712)", () => {
+    let cwd = "";
+
+    beforeEach(async () => {
+      cwd = await mkdtemp(join(tmpdir(), "corbits-path-escape-"));
+    });
+
+    afterEach(async () => {
+      await rm(cwd, { recursive: true, force: true });
+    });
+
+    test("write_file receives the canonical path, unaffected by a later symlink retarget", async () => {
+      const realTarget = join(cwd, "real-target");
+      await mkdir(realTarget, { recursive: true });
+      const link = join(cwd, "link");
+      await symlink(realTarget, link);
+
+      const plugin = pathEscapePlugin(cwd);
+      const next = async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: JSON.stringify(call.arguments),
+      });
+      const handler = plugin.middleware ? plugin.middleware(next) : next;
+
+      const result = await handler(
+        makeCall("write_file", { path: join("link", "note.txt"), content: "hi" }),
+        new AbortController().signal,
+      );
+      const args = JSON.parse(String(result.content)) as { path: string };
+      // The path handed to write_file is already the resolved real-target
+      // location, not the symlink-relative path.
+      expect(args.path).toBe(join(realpathSync(realTarget), "note.txt"));
+
+      // An attacker retargets the symlink after the allow check. A writer
+      // that (correctly) uses the path it was given above is unaffected —
+      // it never re-traverses "link".
+      const outside = await mkdtemp(join(tmpdir(), "corbits-path-escape-outside-"));
+      await rm(link);
+      await symlink(outside, link);
+      expect(args.path).not.toContain(outside);
+
+      // A real writer using the resolved path lands the bytes at the
+      // canonical (safe) location, never under the retargeted symlink.
+      await writeFile(args.path, "hi");
+      expect(await readFile(args.path, "utf8")).toBe("hi");
+      expect(existsSync(join(outside, "note.txt"))).toBe(false);
+
+      await rm(outside, { recursive: true, force: true });
+    });
   });
 });
