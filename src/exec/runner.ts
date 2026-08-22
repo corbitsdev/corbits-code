@@ -507,6 +507,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
               id: config.providerName,
               apiKey: config.apiKey,
               model: config.model,
+              ...(config.reasoningEffort !== undefined
+                ? { reasoningEffort: config.reasoningEffort }
+                : {}),
             })
           : buildOpenAICompatibleInitialSource();
 

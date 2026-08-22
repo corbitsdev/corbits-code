@@ -107,6 +107,10 @@ export function validateEffort(
  * Next effort on the model's supported ladder (wraps around). Returns undefined
  * when the model supports no reasoning effort — callers flash a status and leave
  * the session config alone.
+ *
+ * Walks from resolveSessionEffort: unset and leftover unsupported current sit
+ * on the family default, then the next rung. When there is no family default
+ * but the ladder is non-empty, start at supported[0].
  */
 export function cycleReasoningEffort(
   model: string,
@@ -115,11 +119,51 @@ export function cycleReasoningEffort(
 ): ReasoningEffort | undefined {
   const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.length === 0) return undefined;
-  if (current === undefined || !supported.includes(current)) {
+  const implicit = resolveSessionEffort(model, current, isCodex);
+  if (implicit === undefined || !supported.includes(implicit)) {
     return supported[0];
   }
-  const idx = supported.indexOf(current);
+  const idx = supported.indexOf(implicit);
   return supported[(idx + 1) % supported.length];
+}
+
+/**
+ * Product default effort for a live session model. Distinct from role defaults
+ * (`defaultEffortForDirector`): this is what the prompt shows and what Shift+Tab
+ * advances from when the operator has not picked a level.
+ *
+ * Family table: grok* → high; Codex → medium; gpt-5.1 chat (`none` on the
+ * ladder, not Codex) → none; gpt-5/o1/o3/o4 → medium. Unknown models with a
+ * conservative rung set stay undefined so we do not invent a family default.
+ */
+export function defaultEffortForModel(
+  model: string,
+  isCodex = false,
+): ReasoningEffort | undefined {
+  const supported = supportedEfforts(model, undefined, isCodex);
+  if (supported.length === 0) return undefined;
+  const pick = (desired: ReasoningEffort): ReasoningEffort | undefined =>
+    supported.includes(desired) ? desired : undefined;
+  if (model.startsWith("grok")) return pick("high");
+  if (!isCodex && supported.includes("none")) return "none";
+  if (isCodex || isKnownOpenAIReasoningModel(model)) return pick("medium");
+  return undefined;
+}
+
+/**
+ * Effort the session is currently on: a configured level when the model accepts
+ * it, otherwise the family default. Empty ladders stay undefined. Does not
+ * write back into session config — display and request wiring read this.
+ */
+export function resolveSessionEffort(
+  model: string,
+  configured: ReasoningEffort | undefined,
+  isCodex = false,
+): ReasoningEffort | undefined {
+  const supported = supportedEfforts(model, undefined, isCodex);
+  if (supported.length === 0) return undefined;
+  if (configured !== undefined && supported.includes(configured)) return configured;
+  return defaultEffortForModel(model, isCodex);
 }
 
 // ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ import {
   type ProviderCatalogEntry,
 } from "./index.js";
 import type { Settings } from "./settings.js";
-import type { ReasoningEffort } from "../provider/reasoning-effort.js";
+import { resolveSessionEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { resolveDefaultModel } from "./providers.js";
@@ -77,7 +77,11 @@ export function buildInferenceSourceForRef(
   if (baseURL === undefined) return null;
 
   const maxTokens = maxTokensFor(settings, ref.provider, ref.model);
-  const effort = ref.reasoningEffort ?? ctx.reasoningEffort;
+  const configured = ref.reasoningEffort ?? ctx.reasoningEffort;
+  const effort =
+    configured !== undefined
+      ? resolveSessionEffort(ref.model, configured, entry?.codexProfile !== undefined)
+      : undefined;
 
   if (entry?.codexProfile !== undefined) {
     return buildCodexSource({
@@ -94,6 +98,7 @@ export function buildInferenceSourceForRef(
       id: ref.provider,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
   if (

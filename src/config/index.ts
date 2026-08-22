@@ -168,10 +168,12 @@ export function buildXaiSource(fields: {
   id: string;
   apiKey: string;
   model: string;
+  reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
   const userId = xaiUserIdFromAccessToken(fields.apiKey);
   const providerOptions: Record<string, unknown> = {};
   if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
+  if (fields.reasoningEffort !== undefined) providerOptions["reasoning_effort"] = fields.reasoningEffort;
   return {
     id: fields.id,
     provider: GROK_RESPONSES_PROVIDER,

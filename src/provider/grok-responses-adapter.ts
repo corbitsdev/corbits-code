@@ -152,6 +152,10 @@ function buildRequest(
   const input = systemMessage !== undefined ? [systemMessage, ...conversation] : conversation;
   const tools = toResponsesTools(options);
 
+  const reasoning: { summary: "detailed"; effort?: string } = { summary: "detailed" };
+  const effort = optionString(options, "reasoning_effort");
+  if (effort !== undefined) reasoning.effort = effort;
+
   const body: Record<string, unknown> = {
     model,
     input,
@@ -160,8 +164,9 @@ function buildRequest(
     include: ["reasoning.encrypted_content"],
     // "detailed" streams denser summary deltas than "auto". Grok bills full
     // thinking tokens but only returns summarized text; sparse auto summaries
-    // left the stall/activity clocks quiet for 60–120s mid-think.
-    reasoning: { summary: "detailed" },
+    // left the stall/activity clocks quiet for 60–120s mid-think. Effort is
+    // forwarded when the source set it — this adapter does not invent a default.
+    reasoning,
   };
   if (tools !== undefined) {
     body["tools"] = tools;
