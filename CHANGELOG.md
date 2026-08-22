@@ -11,7 +11,7 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.100] - 2026-08-22
 
 ### Plugins
 
@@ -33,6 +33,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   and eval `--agent-timeout-ms` still bound the run. `tools.maxTimeoutMs`
   still clamps non-shell tools when set and does not cap a longer requested
   `run_shell`.
+
+- **`task` (sub-agent dispatch) is always exempt from the generic tool-execution
+  watchdog**, even when Settings arm it. Workers past 11 minutes with healthy
+  activity complete and return their own report instead of surfacing as
+  operator cancels; maxTurns, no-progress, thrash, and the opt-in `deadlineMs`
+  remain the operative bounds.
 
 ### Directors
 
