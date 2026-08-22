@@ -259,6 +259,12 @@ describe("validators", () => {
     expect(isSettings({ providers: firepass.providers, showPromptCost: true })).toBe(true);
   });
 
+  test("isSettings accepts dangerouslySkipPermissions", () => {
+    expect(isSettings({ providers: firepass.providers, dangerouslySkipPermissions: true })).toBe(
+      true,
+    );
+  });
+
   test("isLocalSettings rejects credentials", () => {
     expect(isLocalSettings({ provider: "a", apiKey: "leak" })).toBe(false);
   });
@@ -774,6 +780,17 @@ test("loadSettings round-trips showPromptCost", async () => {
     const path = join(dir, ".corbits", "settings.json");
     await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
     expect(await loadSettings(path)).toEqual({ ...firepass, showPromptCost: true });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadSettings round-trips dangerouslySkipPermissions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+  try {
+    const path = join(dir, ".corbits", "settings.json");
+    await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: true });
+    expect(await loadSettings(path)).toEqual({ ...firepass, dangerouslySkipPermissions: true });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

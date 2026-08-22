@@ -567,6 +567,9 @@ export async function loadConfig(
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
+  dangerouslySkipPermissions =
+    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
+
   // OAuth profiles live in home-level auth stores, not in settings files. They
   // are merged in only for the real default settings path: an explicit --config
   // or test override selects a controlled provider set that should not pull in

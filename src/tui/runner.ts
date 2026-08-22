@@ -1846,11 +1846,48 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
+  // Absent file → fresh base; unreadable/invalid → skip the write rather than
+  // clobber a corrupt settings file with a minimal shell. Returns false when
+  // the write is skipped so `/yolo` can notice that the live flip did not persist.
+  const persistGlobalSettings = async (
+    what: string,
+    apply: (base: Settings) => Settings,
+  ): Promise<boolean> => {
+    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+    if (base === null) {
+      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
+        what,
+        path: config.globalSettingsPath,
+      });
+      return false;
+    }
+    await saveGlobalSettings(config.globalSettingsPath, apply(base));
+    return true;
+  };
+
   const commandContext: CommandContext = {
     signalClear: newSession,
     getSkipPermissions: () => permissionGate.getSkipPermissions(),
     setSkipPermissions: (value: boolean) => {
       permissionGate.setSkipPermissions(value);
+      config.dangerouslySkipPermissions = value;
+      void (async () => {
+        try {
+          const written = await persistGlobalSettings("skip-permissions default", (base) => ({
+            ...base,
+            dangerouslySkipPermissions: value,
+          }));
+          if (!written) {
+            systemNotice(
+              "Yolo flipped for this session, but the default did not stick.",
+            );
+          }
+        } catch {
+          systemNotice(
+            "Yolo flipped for this session, but the default did not stick.",
+          );
+        }
+      })();
     },
     getCostSummary: (): CostSummary => {
       const usage = runSink.getTokenUsage();
@@ -1930,23 +1967,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // The permissions surface addresses grants by their position in the last
   // listing, so revoke resolves against the same snapshot the operator saw.
   let listedGrants: readonly ScopedApproval[] = [];
-
-  // Absent file → fresh base; unreadable/invalid → skip the write rather than
-  // clobber a corrupt settings file with a minimal shell.
-  const persistGlobalSettings = async (
-    what: string,
-    apply: (base: Settings) => Settings,
-  ): Promise<void> => {
-    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-    if (base === null) {
-      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
-        what,
-        path: config.globalSettingsPath,
-      });
-      return;
-    }
-    await saveGlobalSettings(config.globalSettingsPath, apply(base));
-  };
 
   const localSettingsFile = localSettingsPath(config.cwd);
   // Same fail-open shape as persistGlobalSettings, against the per-repo file.
