@@ -275,7 +275,7 @@ export type SubAgentStopReason =
  * (Summary, Findings, Blockers, Paths). Omitting `lastAssistantText`
  * still completes (back-compat). Missing envelope nudges
  * once (`incomplete-report`) then salvages (`incomplete-report-stop`).
- * When `requireEvidence` is set (review/critique), an empty `readCounts`
+ * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
  * is not complete even with all four headings — same incomplete-report
  * nudge then salvage, so a wrap-up envelope cannot fake a real review.
  */
@@ -297,7 +297,7 @@ export function evaluateSubAgentStop(input: {
    */
   requireEdit?: boolean;
   /**
-   * When true (intent=review / critique leaf), a tool-using run that never
+   * When true (CritiqueDirector leaf), a tool-using run that never
    * read or searched a file is not a successful complete — even a four-heading
    * envelope is incomplete-report so the parent does not treat a wrap-up
    * narration as a finished review.
@@ -317,7 +317,7 @@ export function evaluateSubAgentStop(input: {
   // read/searched (no edit_file/write_file/delete_file) is never-edited —
   // both hard-block identical re-dispatch. After those, a tool-less turn
   // following tools is complete only with a report envelope (or when
-  // lastAssistantText is omitted). Review/critique additionally requires
+  // lastAssistantText is omitted). CritiqueDirector additionally requires
   // at least one read/search in thrashState.readCounts.
   if (!input.hasToolCalls) {
     if (!input.everHadToolCalls) return "never-acted";

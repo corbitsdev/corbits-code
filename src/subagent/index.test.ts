@@ -34,6 +34,7 @@ import {
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
+  shouldRequireEvidence,
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
@@ -45,6 +46,8 @@ import {
 } from "./index.js";
 
 import { type } from "arktype";
+import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
+import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type {
   ReactorAction,
   ReactorCapabilities,
@@ -277,6 +280,28 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
+  test("shouldRequireEvidence is armed for CritiqueDirector prompt", () => {
+    expect(
+      shouldRequireEvidence({
+        systemPromptRole: formatDirectorSystemPrompt(DIRECTOR_REGISTRY.critique),
+      }),
+    ).toBe(true);
+    expect(
+      shouldRequireEvidence({
+        systemPromptRole: DIRECTOR_REGISTRY.critique.systemPrompt,
+      }),
+    ).toBe(true);
+  });
+
+  test("shouldRequireEvidence is off for greybeard even with intent=review", () => {
+    expect(
+      shouldRequireEvidence({
+        intent: "review",
+        systemPromptRole: formatDirectorSystemPrompt(DIRECTOR_REGISTRY.greybeard),
+      }),
+    ).toBe(false);
+  });
+
   test("evaluateSubAgentStop does not complete a review/critique with empty readCounts even with a full envelope", () => {
     const thrashState = {
       totalToolCalls: 1,
@@ -295,7 +320,7 @@ describe("sub-agent stop helpers", () => {
         thrashState,
         requireEvidence: true,
       }),
-    ).not.toBe("complete");
+    ).toBe("incomplete-report");
   });
 
   test("evaluateSubAgentStop completes a review when readCounts has file evidence", () => {
@@ -315,6 +340,27 @@ describe("sub-agent stop helpers", () => {
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: true,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes greybeard spawn-only envelope when requireEvidence is off", () => {
+    const thrashState = {
+      totalToolCalls: 1,
+      readCounts: new Map(),
+      editedPaths: new Set<string>(),
+    };
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: FULL_REPORT_ENVELOPE,
+        thrashState,
+        requireEvidence: false,
       }),
     ).toBe("complete");
   });

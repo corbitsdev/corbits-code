@@ -93,7 +93,7 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly repeatLimit: number;
   /** When true (intent=implement), tool-less finish without edits salvages as never-edited. */
   private readonly requireEdit: boolean;
-  /** When true (intent=review / critique), empty readCounts is not a successful complete. */
+  /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
   private everHadToolCalls = false;

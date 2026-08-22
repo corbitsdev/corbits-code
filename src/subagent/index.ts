@@ -116,6 +116,7 @@ export {
   coreSubAgentWebTools,
   createSubAgentRunController,
   runSubAgent,
+  shouldRequireEvidence,
   type SubAgentRunController,
 } from "./run.js";
 
