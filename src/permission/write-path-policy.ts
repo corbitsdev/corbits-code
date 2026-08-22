@@ -4,7 +4,8 @@ import { realpathNearestOr, UNRESOLVABLE } from "./path-restriction.js";
 
 /**
  * Director write-path allowlist (authz, not prompt policy).
- * When set on a sub-agent identity, write_file / edit_file / delete_file must
+ * When set on a sub-agent identity, write_file / edit_file / delete_file /
+ * apply_patch must
  * target a path matching one of these patterns. Enforced in the permission
  * gate; skipPermissions (yolo) bypasses the whole gate before this runs.
  *

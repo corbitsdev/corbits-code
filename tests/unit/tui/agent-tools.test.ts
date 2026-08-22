@@ -197,6 +197,8 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   expect(names).toContain("write_file");
   expect(names).toContain("edit_file");
   expect(names).toContain("delete_file");
+  // apply_patch is Codex-only and stripped on primary even when mounted.
+  expect(names).not.toContain("apply_patch");
 });
 
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {
