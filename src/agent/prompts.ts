@@ -162,7 +162,7 @@ export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): s
   const subAgent = opts.subAgent ?? false;
   const toolsOverShell = subAgent
     ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
-    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn implement/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
+    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn build/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",

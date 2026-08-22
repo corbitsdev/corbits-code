@@ -36,6 +36,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Directors
 
+- **Skywalker spawn-target for product code is `build`.** Prompt and
+  skill copy that still said `spawn implement` / `task(agent="implement")`
+  now dispatch `build`. Intent graph `explore → implement → critique`
+  and slash `/implement` are unchanged.
+
 - **Skywalker may DIY tiny product writes (CL-6629).** Path tools
   (`write_file` / `edit_file` / `delete_file`) remount on the primary
   session. Tiny/single-file/one-route bounded edits are the exception;

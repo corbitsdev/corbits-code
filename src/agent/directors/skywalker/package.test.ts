@@ -95,6 +95,7 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("long-blocking");
     expect(p).toContain("tool.boundary");
     expect(p).toContain("Dispatch intern");
+    expect(p).toContain("or build (substantial code)");
   });
 
   test("systemPrompt has effort scaling / fan-out ladder", () => {
@@ -164,10 +165,21 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("correctness/brief gaps");
   });
 
-  test("systemPrompt re-dispatches implement on blocking critique", () => {
+  test("systemPrompt spawn-target for substantial code is build, not implement", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("spawn build");
+    expect(p).toContain("spawn (build for code");
+    expect(p).toContain("build = ship product code + tests");
+    expect(p).not.toMatch(/\bspawn implement\b/);
+    expect(p).toContain("explore → implement → critique");
+    expect(p).toContain("Do not always explore→implement→critique");
+    expect(p).toContain("implement = ship product code + tests");
+  });
+
+  test("systemPrompt re-dispatches build on blocking critique", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("blocking");
-    expect(p).toContain("re-dispatch");
+    expect(p).toContain("re-dispatch **build**");
     expect(p).toContain("ship → verify → fix → re-verify");
     expect(p).toContain("Cap re-fix rounds");
   });

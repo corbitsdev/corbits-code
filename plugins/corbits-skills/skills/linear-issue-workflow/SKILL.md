@@ -1,7 +1,7 @@
 ---
 name: linear-issue-workflow
 user-invocable: false
-description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn implement for substantial landings.
+description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn build for substantial landings.
 argument-hint: "<issue-id> [--reviewer <reviewer>]"
 ---
 
@@ -40,7 +40,7 @@ If intern fails, stop and `ask_operator`. If the operator rejects the issue befo
 3. If the operator rejects the plan and the issue cannot be salvaged, intern tears down the worktree (Phase 7) rather than leaving it stranded.
 4. Attach the plan to the Linear issue. **Do not post the plan as a comment** — comments are for discussion, not archives.
 
-   Spawn `task(agent="implement")` with a mechanical brief to write the approved plan to the worktree's `tmp/plan-<ISSUE-ID>.md` (do not commit it). Intern captures byte size with `wc -c`. Primary then:
+   Spawn `task(agent="build")` with a mechanical brief to write the approved plan to the worktree's `tmp/plan-<ISSUE-ID>.md` (do not commit it). Intern captures byte size with `wc -c`. Primary then:
 
    1. `mcp__linear__prepare_attachment_upload` with `issue`, `filename`, `contentType: "text/markdown"`, and `size`. Response contains `uploadRequest.url`, `uploadRequest.headers`, and `assetUrl`. The signed URL expires in 60 seconds.
    2. Intern PUTs the raw file bytes to `uploadRequest.url` via `run_shell`, every header from `uploadRequest.headers` verbatim (exact casing). Do not base64-encode. If PUT returns 403 because the URL expired, prepare a fresh URL and retry once.
@@ -55,15 +55,15 @@ If intern fails, stop and `ask_operator`. If the operator rejects the issue befo
 Do not implement on Skywalker. For each commit-sized unit, run `/implement`:
 
 1. `task(agent="greybeard")` on the approach before any code is written.
-2. `task(agent="implement")` with a typed brief (`intent`, `success_criteria`, `do_not`, `report_focus`) and the absolute worktree path. Bug fixes start from a failing test. Features ship tests with the change.
+2. `task(agent="build")` with a typed brief (`intent`, `success_criteria`, `do_not`, `report_focus`) and the absolute worktree path. Bug fixes start from a failing test. Features ship tests with the change.
 3. `task(agent="intern")` or `task(agent="tester")` for the project build/test gate.
-4. `task(agent="critique")` on the diff. Blocking findings → re-dispatch implement (cap two re-fix rounds), then re-run the gate and critique.
+4. `task(agent="critique")` on the diff. Blocking findings → re-dispatch build (cap two re-fix rounds), then re-run the gate and critique.
 
 Track units with `manage_tasks`. Copy style/philosophy into worker briefs (`use_skill` on the primary before spawning; workers do not mount `use_skill`).
 
 ### Checkboxes
 
-If the issue description contains a task list (`- [ ]` items), tick boxes as implement reports each one complete. Update with `mcp__linear__save_issue`, passing the full description with only the relevant `- [ ]` flipped to `- [x]`. Do not rewrite surrounding text. If there is no task list, skip — do not invent one.
+If the issue description contains a task list (`- [ ]` items), tick boxes as build reports each one complete. Update with `mcp__linear__save_issue`, passing the full description with only the relevant `- [ ]` flipped to `- [x]`. Do not rewrite surrounding text. If there is no task list, skip — do not invent one.
 
 ## Phase 5: Branch review
 
@@ -154,7 +154,7 @@ If the worktree directory was already deleted: `git worktree prune`.
 
 ## Hard rules
 
-- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. Substantial issue landings: spawn implement (this recipe).
-- Spawn with `task(agent="greybeard")`, `task(agent="implement")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
+- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. Substantial issue landings: spawn build (this recipe).
+- Spawn with `task(agent="greybeard")`, `task(agent="build")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
 - Clarifying questions use `ask_operator`.
 - Shell is `run_shell`, not a Bash tool.
