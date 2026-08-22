@@ -36,6 +36,10 @@ const MAX_EFFORT_CODEX_MODELS: readonly string[] = ["gpt-5.6-sol", "gpt-5.6-terr
 // purpose: these are the levels the broadest range of reasoning models accept.
 const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"];
 
+// grok-4.6 accepts xhigh; grok-4.5 and composer stay on the unknown-model subset.
+const GROK_46_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "xhigh"];
+const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
+
 function isKnownOpenAIReasoningModel(model: string): boolean {
   return model.startsWith("gpt-5") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");
 }
@@ -74,6 +78,9 @@ export function supportedEfforts(
   }
   if (isKnownOpenAIReasoningModel(model)) {
     return [...DEFAULT_EFFORTS];
+  }
+  if (GROK_46_MODELS.includes(model)) {
+    return [...GROK_46_EFFORTS];
   }
   return [...UNKNOWN_MODEL_EFFORTS];
 }

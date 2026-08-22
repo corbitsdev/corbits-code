@@ -77,6 +77,18 @@ describe("supportedEfforts", () => {
   test("unknown model gets the safe subset", () => {
     expect(supportedEfforts("some-random-model")).toEqual(["low", "medium", "high"]);
   });
+
+  test("grok-4.6 includes xhigh", () => {
+    expect(supportedEfforts("grok-4.6")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  test("grok-4.5 stays on the unknown-model subset without xhigh", () => {
+    expect(supportedEfforts("grok-4.5")).toEqual(["low", "medium", "high"]);
+  });
+
+  test("grok-composer-2.5-fast stays on the unknown-model subset without xhigh", () => {
+    expect(supportedEfforts("grok-composer-2.5-fast")).toEqual(["low", "medium", "high"]);
+  });
 });
 
 describe("validateEffort", () => {
@@ -96,6 +108,11 @@ describe("validateEffort", () => {
   test("rejects xhigh on unknown models", () => {
     expect(validateEffort("unknown", "xhigh").ok).toBe(false);
     expect(validateEffort("unknown", "minimal").ok).toBe(false);
+  });
+
+  test("accepts xhigh on grok-4.6 and rejects it on grok-4.5", () => {
+    expect(validateEffort("grok-4.6", "xhigh")).toEqual({ ok: true });
+    expect(validateEffort("grok-4.5", "xhigh").ok).toBe(false);
   });
 });
 
@@ -117,6 +134,11 @@ describe("cycleReasoningEffort", () => {
   test("returns undefined for a non-reasoning model", () => {
     setModelReasoningCapabilities({ "chat-only-model": false });
     expect(cycleReasoningEffort("chat-only-model", "medium")).toBeUndefined();
+  });
+
+  test("wraps high to xhigh to low on grok-4.6", () => {
+    expect(cycleReasoningEffort("grok-4.6", "high")).toBe("xhigh");
+    expect(cycleReasoningEffort("grok-4.6", "xhigh")).toBe("low");
   });
 });
 
