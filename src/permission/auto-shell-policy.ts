@@ -361,7 +361,12 @@ function worktreePathArgs(
 // Contained non-force add/remove and ordinary prune/list auto-allow so dispatch
 // can create sibling worktrees without a human click; force flags, uncontained
 // paths, and uncommon subcommands still ask.
-function safeWorktreeCommand(
+// Exported for gate.ts's pre-grant restricted-path guard: a contained or
+// permitted-sibling `git worktree add/remove` destination must not force an
+// operator ask ahead of grant matching (CL-5638) the same way it already
+// skips the auto-mode ask below — one authority for "is this worktree
+// destination safe," used by both auto mode and the standing-grant guard.
+export function safeWorktreeCommand(
   command: string,
   isRestricted: (path: string, isWrite: boolean) => boolean,
   cwd: string,

@@ -11,7 +11,7 @@ import {
   commandTargetsRestricted,
   MEGA_CHAIN_SEGMENT_THRESHOLD,
 } from "./classify.js";
-import { autoShellRuleForCall } from "./auto-shell-policy.js";
+import { autoShellRuleForCall, safeWorktreeCommand } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
@@ -84,8 +84,28 @@ function hasExactFullCommandGrant(
 // preGrantGuardReason (which only needs to know whether one tripped).
 type SegmentGuard = { kind: "secret" | "restricted" };
 
-function segmentGuard(segment: string, isRestricted: (path: string, isWrite: boolean) => boolean): SegmentGuard | undefined {
+// `cwd`/`rootsProvider`, when both supplied, let a contained or
+// permitted-sibling `git worktree add/remove` destination (see
+// safeWorktreeCommand) skip the generic restricted-path scan below — the
+// same exemption auto mode already applies (autoShellRuleForCall) — so a
+// standing `git worktree *` grant gets a chance to match instead of the
+// destination forcing an ask on every call regardless of any grant. Omitted
+// (as from call sites with no cwd on hand) simply skips the exemption and
+// falls back to today's behavior.
+function segmentGuard(
+  segment: string,
+  isRestricted: (path: string, isWrite: boolean) => boolean,
+  cwd?: string,
+  rootsProvider?: RootsProvider,
+): SegmentGuard | undefined {
   if (commandReferencesSensitivePath(segment) !== undefined) return { kind: "secret" };
+  if (
+    cwd !== undefined &&
+    rootsProvider !== undefined &&
+    safeWorktreeCommand(segment, isRestricted, cwd, rootsProvider) === true
+  ) {
+    return undefined;
+  }
   if (commandTargetsRestricted(segment, isRestricted)) return { kind: "restricted" };
   return undefined;
 }
@@ -119,6 +139,7 @@ function bindRestrictedToProcessCwd(
 export function preGrantGuardReason(
   request: PermissionRequest,
   isRestricted: (path: string, isWrite: boolean) => boolean,
+  rootsProvider?: RootsProvider,
 ): string | undefined {
   if (request.tool !== "run_shell") return undefined;
   const fullCommand = request.subject;
@@ -131,7 +152,7 @@ export function preGrantGuardReason(
   const restricted =
     request.cwd !== undefined ? bindRestrictedToProcessCwd(isRestricted, request.cwd) : isRestricted;
   for (const segment of segments) {
-    const guard = segmentGuard(segment, restricted);
+    const guard = segmentGuard(segment, restricted, request.cwd, rootsProvider);
     if (guard !== undefined) {
       return guard.kind === "secret"
         ? `${segment} references a sensitive path`
@@ -154,12 +175,13 @@ export function isRequestCoveredByGrant(
   activeProviderModel: string | undefined,
   isRestricted: (path: string, isWrite: boolean) => boolean,
   workspace: GrantWorkspace,
+  rootsProvider?: RootsProvider,
 ): boolean {
   if (!grantScopeMatches(approval, request.tool, activeProviderModel, request.cwd, workspace)) return false;
   if (request.tool !== "run_shell") {
     return matchesPattern(request.subject, approval.pattern);
   }
-  if (preGrantGuardReason(request, isRestricted) !== undefined) return false;
+  if (preGrantGuardReason(request, isRestricted, rootsProvider) !== undefined) return false;
   const segments = splitChainedCommand(request.subject).filter((s) => !isShellCommentOnly(s));
   if (segments.length === 0) return false;
   if (segments.length > 1) {
@@ -334,7 +356,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       persist?.(approval, grant);
     }
     options.onGrant?.(approval, (request) =>
-      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted, grantWorkspace()),
+      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted, grantWorkspace(), rootsProvider),
     );
   };
 
@@ -473,7 +495,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           // replay for a guarded one just because the pattern also matches it.
           // segmentGuard is the same guard preGrantGuardReason applies before
           // isRequestCoveredByGrant lets a queued request skip the prompt.
-          const guard = segmentGuard(segment, isRestrictedHere);
+          const guard = segmentGuard(segment, isRestrictedHere, effectiveCwd, rootsProvider);
           if (guard !== undefined) {
             if (guard.kind === "secret") anySecret = true;
             needsOperator = true;
