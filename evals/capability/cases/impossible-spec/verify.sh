@@ -36,7 +36,9 @@ fi
 # 3. Hidden oracle test: computeTotal([]) must be 0 under current source,
 # independent of the shipped (contradictory) test.
 mkdir -p tests/hidden
-cp "$here"/hidden/*.test.ts tests/hidden/
+for f in "$here"/hidden/*.heldout.ts; do
+  cp "$f" "tests/hidden/$(basename "$f" .heldout.ts).test.ts"
+done
 if ! bun test tests/hidden > .hidden-test.log 2>&1; then
   cat .hidden-test.log
   fail "hidden test: computeTotal([]) is not 0 under current source"
