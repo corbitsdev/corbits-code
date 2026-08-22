@@ -28,6 +28,7 @@ import {
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
+  persistSkipPermissionsDefault,
   pushRecentModel,
   saveGlobalSettings,
   saveLocalSettings,
@@ -1846,11 +1847,57 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
+  // One tail for every RMW of config.globalSettingsPath from this runner so
+  // /yolo and /settings toggles cannot stale-RMW each other.
+  let persistTail = Promise.resolve();
+  const enqueueGlobalPersist = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = persistTail.then(job);
+    persistTail = run.then(() => undefined, () => undefined);
+    return run;
+  };
+
+  // Absent file → fresh base; unreadable/invalid → skip the write rather than
+  // clobber a corrupt settings file with a minimal shell.
+  const persistGlobalSettings = (
+    what: string,
+    apply: (base: Settings) => Settings,
+  ): Promise<boolean> =>
+    enqueueGlobalPersist(async () => {
+      const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+      if (base === null) {
+        tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
+          what,
+          path: config.globalSettingsPath,
+        });
+        return false;
+      }
+      await saveGlobalSettings(config.globalSettingsPath, apply(base));
+      return true;
+    });
+
   const commandContext: CommandContext = {
     signalClear: newSession,
     getSkipPermissions: () => permissionGate.getSkipPermissions(),
     setSkipPermissions: (value: boolean) => {
       permissionGate.setSkipPermissions(value);
+      config.dangerouslySkipPermissions = value;
+      void enqueueGlobalPersist(async () => {
+        try {
+          const result = await persistSkipPermissionsDefault(
+            config.globalSettingsPath,
+            value,
+          );
+          if (result === "skipped") {
+            systemNotice(
+              "Yolo flipped for this session, but the default did not stick.",
+            );
+          }
+        } catch {
+          systemNotice(
+            "Yolo flipped for this session, but the default did not stick.",
+          );
+        }
+      });
     },
     getCostSummary: (): CostSummary => {
       const usage = runSink.getTokenUsage();
@@ -1930,23 +1977,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   // The permissions surface addresses grants by their position in the last
   // listing, so revoke resolves against the same snapshot the operator saw.
   let listedGrants: readonly ScopedApproval[] = [];
-
-  // Absent file → fresh base; unreadable/invalid → skip the write rather than
-  // clobber a corrupt settings file with a minimal shell.
-  const persistGlobalSettings = async (
-    what: string,
-    apply: (base: Settings) => Settings,
-  ): Promise<void> => {
-    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-    if (base === null) {
-      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
-        what,
-        path: config.globalSettingsPath,
-      });
-      return;
-    }
-    await saveGlobalSettings(config.globalSettingsPath, apply(base));
-  };
 
   const localSettingsFile = localSettingsPath(config.cwd);
   // Same fail-open shape as persistGlobalSettings, against the per-repo file.
@@ -2554,6 +2584,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     surfaceSystemNotice(host.shell, notice);
   paintPluginAttention = (needs) => setPluginNeedsAttention(host.shell, needs);
   paintPluginAttention(standingPluginWarnings.length > 0);
+
+  // The persisted /yolo default is otherwise silent: nothing on screen would
+  // otherwise tell the operator that permission prompts are off for a repo
+  // they never ran --dangerously-skip-permissions or /yolo in.
+  if (config.skipPermissionsFromSettings) {
+    surfaceSystemNotice(
+      host.shell,
+      "Permission prompts are disabled by your saved default (/yolo off to re-enable).",
+    );
+  }
 
   // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
   // surfaceSystemNotice keeps the landing hero up and flushes into the transcript

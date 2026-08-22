@@ -67,7 +67,7 @@ $ corbits exec "Add JWT auth to the API"
 $ corbits run "Add JWT auth to the API"
 ```
 
-Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the OpenTUI shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set (or auto mode covers them). In the TUI, `/yolo` is the mid-session twin of that flag. `ask_operator` reads a single line from stdin when available.
+Same directors, tools, permissions, MCP, plugins, and hooks as the TUI — without the OpenTUI shell. The exec bootstrap is a deliberate fork of the TUI path (not a shared factory yet); see `docs/ARCHITECTURE.md` “Exec Runner” for intentional deltas (no workflow controller; single primary send; non-interactive permission gate). Compaction continuation matches TUI so long runs do not stall after compact. Streams assistant text to stdout for scripts and CI. Non-interactive by default: actions that need operator approval are denied unless `--dangerously-skip-permissions` is set, a persisted `/yolo` default is on, or auto mode covers them. `--dangerously-skip-permissions` still forces this process; secret-guard and authz still apply. `ask_operator` reads a single line from stdin when available.
 
 Local multi-model capability checks use this path (`bun run eval:capability`); see `evals/capability/README.md`.
 
@@ -97,7 +97,7 @@ is the direct, explicit resume path.
 
 ## Slash Commands (TUI)
 
-The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (models-only picker for connected accounts; **Alt+A** adds a provider), `/settings`, `/permissions`, `/plugins`, `/clear`, `/new`, `/mcp`, and `/yolo` (mid-session twin of `--dangerously-skip-permissions`; `/yolo [on|off|toggle]`, bare `/yolo` toggles), plus a `/<name>` command per available workflow. Plugins can register additional commands.
+The TUI has an extensible slash-command framework. Built-ins include `/help` (shortcut + command overlay), `/model` (models-only picker for connected accounts; **Alt+A** adds a provider), `/settings`, `/permissions`, `/plugins`, `/clear`, `/new`, `/mcp`, and `/yolo` (persists as the user-global skip-permissions default; `--dangerously-skip-permissions` still forces this process; secret-guard and authz still apply; `/yolo [on|off|toggle]`, bare `/yolo` toggles), plus a `/<name>` command per available workflow. When a session starts with the persisted default already on, the TUI shows a startup notice ("Permission prompts are disabled by your saved default…") so the silent machine-wide default is never invisible; `corbits exec` prints the equivalent warning to stderr. Plugins can register additional commands.
 
 **Default skills** exist out of the gate as first-party slash **actions**, not director names: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. Each one is a Skywalker recipe — the slash sends the skill body to the primary, which then `task(agent="<director>")`. `/scribe` → shakespeare; `/implement` spawns build / greybeard / critique as the recipe specifies; `/plan` → plan director (eng change plan: files, AC, non-goals, risks, ordered steps; does not implement); `/review` is a code-review action. `/create-issue` remains the tracker command: Linear MCP when available; otherwise it `ask_operator`s for the platform (GitHub etc.) and persists `Preferred issue tracker` in `.corbits/MEMORY.md` (GitHub via `gh issue create`). Dispatch is not a default slash — it stays `use_skill` only, along with git-rebase, linear-issue-workflow, style, philosophy, typescript, and opsh (`user-invocable: false`). Draper and emil are not slashes; they remain closed directors via `task(agent=…)`. There is no catch-all worker. Slash names are also available to the model via `use_skill`. Disable the catalog in `/plugins` (`corbits-skills`) if you want them gone.
 
@@ -124,7 +124,7 @@ The exact turn thresholds are model-family-dependent (tighter for models with ob
 
 **What the user sees:** In a non-interactive `corbits exec` run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
 
-**Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, re-run with `--dangerously-skip-permissions`, or use `/yolo` mid-session in the TUI.
+**Recovery:** Re-run interactively (TUI), pre-approve via persisted approvals, narrow the action, re-run with `--dangerously-skip-permissions`, or use `/yolo` in the TUI (persists as the user-global default).
 
 ### Resume after interruption
 

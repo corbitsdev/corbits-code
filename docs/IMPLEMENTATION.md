@@ -166,7 +166,7 @@ Intent defaults: `intent=implement` → director `build`; explore/plan → same-
 
 ### Auto Mode
 
-Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). It is toggled only via those CLI flags — there is currently no in-session key bound to it. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call. Skip-permissions (`--dangerously-skip-permissions`) has a mid-session TUI toggle: `/yolo [on|off|toggle]` (bare `/yolo` also toggles) wires `getSkipPermissions`/`setSkipPermissions` so the gate and pre-gate sandboxes honor the change on the next tool call without rebuilding plugins.
+Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-auto` to start off, or `--auto` to force on). It is toggled only via those CLI flags — there is currently no in-session key bound to it. The permission gate reads the flag (`getAuto`/`setAuto` in `src/permission/gate.ts`) on the next tool call. `--dangerously-skip-permissions` still forces this process. `/yolo [on|off|toggle]` (bare `/yolo` also toggles) persists as the user-global default and wires `getSkipPermissions`/`setSkipPermissions` so the gate and pre-gate sandboxes honor the change on the next tool call without rebuilding plugins. `/yolo` writes the same `config.globalSettingsPath` target as the other `/settings`-style toggles, including a `--config` override. Secret-guard and authz still apply. `loadConfig` tracks `skipPermissionsFromSettings` (true only when the effective value came from persisted settings, not the CLI flag) so `runTUI` can show a startup notice and `exec` can print an equivalent stderr warning for the otherwise-silent persisted default.
 
 When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOLS` and any `run_shell` that does not match the auto-shell policy. The policy (`autoShellRuleForCall` / `AUTO_SHELL_RULES` in `src/permission/auto-shell-policy.ts`) peels wrappers via `expandShellSubjects` (`bash`/`sh`/`zsh -c`, `xargs`, transparent prefixes), then applies:
 
@@ -315,7 +315,7 @@ Printed by `corbits --help` / `-h` from `CLI_HELP_TEXT` in `src/config/index.ts`
 | `--model <id>` | provider default | Select a model for the active provider |
 | `--profile <name>` | — | Settings profile |
 | `--force` | false | Override an existing run state |
-| `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain). Mid-session TUI twin: `/yolo [on\|off\|toggle]` via `setSkipPermissions` |
+| `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain). This launch flag still forces this process; `/yolo [on\|off\|toggle]` persists as the user-global default via `setSkipPermissions` |
 | `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
 | `--no-auto` | false | Start with auto mode off (ask on every consequential action); no in-session key toggles it |
 | `--help`, `-h` | — | Show help (exit 0 via `CliHelpError`) |

@@ -165,6 +165,8 @@ export type Settings = {
   // breakdown on demand, so the border only needs to opt in to the running
   // total.
   showPromptCost?: boolean;
+  // User-global YOLO default; `/yolo` writes it.
+  dangerouslySkipPermissions?: boolean;
 };
 
 function modelRefKey(ref: ModelRef): string {
@@ -477,6 +479,7 @@ const SettingsSchema = type({
   "recentModels?": ModelRefSchema.array(),
   "favoriteModels?": ModelRefSchema.array(),
   "showPromptCost?": "boolean",
+  "dangerouslySkipPermissions?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -653,6 +656,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "otel",
   "recentModels",
   "favoriteModels",
+  "dangerouslySkipPermissions",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -772,6 +776,8 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
     showPromptCost: s.showPromptCost !== undefined ? Boolean(s.showPromptCost) : undefined,
+    dangerouslySkipPermissions:
+      s.dangerouslySkipPermissions !== undefined ? Boolean(s.dangerouslySkipPermissions) : undefined,
   };
   const settings: Settings = {
     providers: s.providers as Settings["providers"],
@@ -1008,6 +1014,18 @@ export async function saveGlobalSettings(path: string, settings: Settings): Prom
   await mkdir(dirname(path), { recursive: true });
   await writeFile(tmp, payload);
   await rename(tmp, path);
+}
+
+// Silent helper: callers log or notice. Skips when the write base is null so a
+// corrupt settings file is never replaced with a one-key rewrite.
+export async function persistSkipPermissionsDefault(
+  path: string,
+  value: boolean,
+): Promise<"ok" | "skipped"> {
+  const base = await loadGlobalSettingsWriteBase(path);
+  if (base === null) return "skipped";
+  await saveGlobalSettings(path, { ...base, dangerouslySkipPermissions: value });
+  return "ok";
 }
 
 // Stamp the global `onboarded` flag. Reads the on-disk global settings fresh

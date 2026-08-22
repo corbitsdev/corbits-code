@@ -279,6 +279,10 @@ export type Config = {
   task: string;
   force: boolean;
   dangerouslySkipPermissions: boolean;
+  // True when dangerouslySkipPermissions came from the persisted global
+  // default rather than this invocation's CLI flag. Entry points use this to
+  // surface a startup notice since the persisted default is otherwise silent.
+  skipPermissionsFromSettings: boolean;
   auto: boolean;
   /**
    * Exec-only chosen primary director. Omitted = Skywalker (product default).
@@ -348,6 +352,7 @@ export type UnconfiguredConfig = {
   task: string;
   force: boolean;
   dangerouslySkipPermissions: boolean;
+  skipPermissionsFromSettings: boolean;
   auto: boolean;
   command: "tui" | "exec";
   /** Exec-only chosen primary. Omitted on the unconfigured path too. */
@@ -388,6 +393,9 @@ Flags:
   --force                     override an existing run state
   --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
+                               skip permission prompts for this run only;
+                               /yolo in the TUI instead persists the default
+                               machine-wide in ~/.corbits/settings.json
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
 `;
@@ -589,6 +597,14 @@ export async function loadConfig(
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
 
+  // Track whether the effective value came from the persisted global default
+  // rather than this invocation's --dangerously-skip-permissions flag, so the
+  // TUI/exec entry points can surface a startup notice for the silent case.
+  const skipPermissionsFromSettings =
+    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
+  dangerouslySkipPermissions =
+    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
+
   // OAuth profiles live in home-level auth stores, not in settings files. They
   // are merged in only for the real default settings path: an explicit --config
   // or test override selects a controlled provider set that should not pull in
@@ -653,6 +669,7 @@ export async function loadConfig(
       task,
       force,
       dangerouslySkipPermissions,
+      skipPermissionsFromSettings,
       auto,
       command,
       ...(director !== undefined ? { director } : {}),
@@ -705,6 +722,7 @@ export async function loadConfig(
     task: resumeTask,
     force,
     dangerouslySkipPermissions,
+    skipPermissionsFromSettings,
     auto,
     command,
     ...(director !== undefined ? { director } : {}),

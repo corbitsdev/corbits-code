@@ -358,6 +358,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const interactive = input.isTTY === true && output.isTTY === true;
 
+    if (config.skipPermissionsFromSettings) {
+      stderr.write(
+        "Warning: permission prompts are disabled by your saved default (/yolo off to re-enable).\n",
+      );
+    }
+
     const permissionGate = createPermissionGate({
       approvals: seededApprovals,
       telemetry: liveTelemetry,
