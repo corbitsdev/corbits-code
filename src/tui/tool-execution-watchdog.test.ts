@@ -148,6 +148,19 @@ describe("tool execution watchdog", () => {
     ).toBe(100);
   });
 
+  test("non-positive or non-finite mcp.timeoutMs falls back to the default instead of a 1ms timeout", () => {
+    const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 0 }, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
+    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: -5 }, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
+    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: NaN }, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
+  });
+
   test("withTimeout dispose clears timer without leaving hung state", async () => {
     const parent = new AbortController();
     const budget = withTimeout(parent.signal, 50);
@@ -229,6 +242,23 @@ describe("tool execution watchdog", () => {
       expect(hung2.content).toContain("mcp__linear__get_issue timed out");
       expect(fast.content).toBe("ok");
       expect(fast.isError).toBeUndefined();
+    },
+    10_000,
+  );
+
+  test(
+    "mcp.timeoutMs: 0 does not instantly time out an mcp tool call (falls back to the default)",
+    async () => {
+      const runner = createDynamicToolRunner(
+        [stringTool("mcp__linear__get_issue", async () => "ok")],
+        { mcpTimeoutMs: 0 },
+      );
+      const result = await runner.run(
+        { id: "1", name: "mcp__linear__get_issue", arguments: {} },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toBe("ok");
     },
     10_000,
   );

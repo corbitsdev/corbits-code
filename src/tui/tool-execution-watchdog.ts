@@ -97,7 +97,14 @@ export function resolveToolExecutionTimeoutMs(
 
 function resolveMcpToolTimeoutMs(config: ToolWatchdogConfig | undefined): number {
   const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
-  const raw = config?.mcpTimeoutMs ?? DEFAULT_MCP_TOOL_TIMEOUT_MS;
+  const configured = config?.mcpTimeoutMs;
+  // A non-positive or non-finite configured value is not a valid budget (it
+  // would floor to a ~0ms timeout and instantly fail every MCP call, which is
+  // unconditionally armed) — fall back to the default instead of clamping to 1ms.
+  const raw =
+    configured !== undefined && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_MCP_TOOL_TIMEOUT_MS;
   return Math.min(max, Math.max(1, Math.floor(raw)));
 }
 
