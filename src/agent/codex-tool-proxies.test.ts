@@ -4,6 +4,7 @@ import type { AgentTool } from "@intx/agent";
 
 import {
   allowDeleteFromCapabilities,
+  allowShellFromCapabilities,
   createCodexToolProxies,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
@@ -38,6 +39,12 @@ function makeRecorder(initial: Record<string, string> = {}): {
       files.delete(path);
       return { content: `Deleted file: ${path}` };
     }
+    if (name === "run_shell") {
+      return { content: `ran: ${JSON.stringify(args)}` };
+    }
+    if (name === "manage_tasks") {
+      return { content: "Tasks updated." };
+    }
     return { content: `unknown tool: ${name}`, isError: true };
   };
   return { calls, files, runTool };
@@ -51,6 +58,11 @@ async function invokeApplyPatch(tools: AgentTool[], input: string) {
   );
 }
 
+async function invokeTool(tools: AgentTool[], name: string, args: Record<string, unknown>) {
+  const runner = createToolRunner(tools);
+  return runner.run({ id: "call-1", name, arguments: args }, new AbortController().signal);
+}
+
 describe("createCodexToolProxies", () => {
   test("returns [] when not Codex", () => {
     const tools = createCodexToolProxies({
@@ -60,14 +72,13 @@ describe("createCodexToolProxies", () => {
     expect(tools).toEqual([]);
   });
 
-  test("returns apply_patch stringTool when Codex", () => {
+  test("returns apply_patch, shell, update_plan stringTools when Codex", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
     });
-    expect(tools).toHaveLength(1);
-    expect(tools[0]!.definition.name).toBe("apply_patch");
-    expect(tools[0]!.kind).toBe("string");
+    expect(tools.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
+    expect(tools.every((t) => t.kind === "string")).toBe(true);
     expect(tools[0]!.definition.inputSchema).toMatchObject({
       required: ["input"],
     });
@@ -312,6 +323,117 @@ print("Hello, world!")
   });
 });
 
+describe("shell proxy", () => {
+  test("string command forwards to run_shell", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "shell", { command: "ls -la" });
+    expect(result.isError).toBeFalsy();
+    expect(calls).toEqual([{ name: "run_shell", args: { command: "ls -la" } }]);
+  });
+
+  test("bash -lc argv triple unwraps to the script", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    await invokeTool(tools, "shell", { command: ["bash", "-lc", "echo 'hi there'"] });
+    expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hi there'" } }]);
+  });
+
+  test("other argv arrays are shell-quoted and joined", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    await invokeTool(tools, "shell", { command: ["echo", "hello world"] });
+    expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hello world'" } }]);
+  });
+
+  test("workdir and timeout_ms translate to cwd and timeout", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    await invokeTool(tools, "shell", {
+      command: "pwd",
+      workdir: "/tmp/work",
+      timeout_ms: 5000,
+    });
+    expect(calls).toEqual([
+      { name: "run_shell", args: { command: "pwd", cwd: "/tmp/work", timeout: 5000 } },
+    ]);
+  });
+
+  test("missing command surfaces as tool error", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "shell", {});
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/command/);
+    expect(calls).toEqual([]);
+  });
+
+  test("allowShell false refuses without calling run_shell", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool, allowShell: false });
+    const result = await invokeTool(tools, "shell", { command: "ls" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/not allowed/);
+    expect(calls).toEqual([]);
+  });
+
+  test("run_shell isError propagates as tool error", async () => {
+    const runTool: CodexRunTool = async () => ({ content: "boom", isError: true });
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "shell", { command: "ls" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/boom/);
+  });
+});
+
+describe("update_plan proxy", () => {
+  test("maps plan steps onto manage_tasks(action=create)", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "update_plan", {
+      explanation: "getting started",
+      plan: [
+        { step: "Read the file", status: "completed" },
+        { step: "Write the fix", status: "in_progress" },
+        { step: "Run tests", status: "pending" },
+      ],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(calls).toEqual([
+      {
+        name: "manage_tasks",
+        args: {
+          action: "create",
+          tasks: [
+            { id: "p1", title: "Read the file", status: "done" },
+            { id: "p2", title: "Write the fix", status: "doing" },
+            { id: "p3", title: "Run tests", status: "todo" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("malformed plan surfaces as tool error", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "update_plan", {
+      plan: [{ step: "no status here" }],
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/plan/);
+    expect(calls).toEqual([]);
+  });
+
+  test("missing plan surfaces as tool error", async () => {
+    const { calls, runTool } = makeRecorder();
+    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const result = await invokeTool(tools, "update_plan", {});
+    expect(result.isError).toBe(true);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("allowDeleteFromCapabilities", () => {
   test("docs allowlist (no delete_file) → false; implement → true", () => {
     expect(
@@ -326,6 +448,20 @@ describe("allowDeleteFromCapabilities", () => {
     ).toBe(true);
     expect(
       allowDeleteFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
+    ).toBe(false);
+  });
+});
+
+describe("allowShellFromCapabilities", () => {
+  test("docs allowlist (no run_shell) → false; implement → true", () => {
+    expect(allowShellFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(false);
+    expect(allowShellFromCapabilities({ mode: "allow", tools: IMPLEMENT_TOOLS })).toBe(true);
+    expect(allowShellFromCapabilities(undefined)).toBe(true);
+    expect(
+      allowShellFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
+    ).toBe(true);
+    expect(
+      allowShellFromCapabilities({ mode: "exclude", tools: ["run_shell"] }),
     ).toBe(false);
   });
 });
