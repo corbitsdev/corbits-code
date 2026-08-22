@@ -1,15 +1,33 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { initEvalGitRepo, parseArgs } from "./eval-capability.ts";
+import { initEvalGitRepo, mapPool, parseArgs } from "./eval-capability.ts";
 
 const execFileAsync = promisify(execFile);
 
 describe("parseArgs", () => {
+  const savedConcurrency = process.env.CORBITS_EVAL_CONCURRENCY;
+
+  const restoreConcurrency = (): void => {
+    if (savedConcurrency === undefined) {
+      delete process.env.CORBITS_EVAL_CONCURRENCY;
+    } else {
+      process.env.CORBITS_EVAL_CONCURRENCY = savedConcurrency;
+    }
+  };
+
+  afterEach(() => {
+    restoreConcurrency();
+  });
+
+  beforeEach(() => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+  });
+
   test("--help does not require provider or model", () => {
     const opts = parseArgs(["--help"]);
     expect(opts.help).toBe(true);
@@ -60,6 +78,77 @@ describe("parseArgs", () => {
     expect(pair.model).not.toBe("xai/thegreataxios");
     expect(pair.provider).toBe("foo");
     expect(pair.model).toBe("bar");
+  });
+
+  test("defaults concurrency to 1", () => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.concurrency).toBe(1);
+  });
+
+  test("--concurrency 4 is accepted", () => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "4"]);
+    expect(opts.concurrency).toBe(4);
+  });
+
+  test("invalid --concurrency values throw", () => {
+    const pair = ["--provider", "foo", "--model", "bar"] as const;
+    expect(() => parseArgs([...pair, "--concurrency", "0"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "-1"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "1.5"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "foo"])).toThrow(/positive integer/);
+  });
+
+  test("CORBITS_EVAL_CONCURRENCY sets the default", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "3";
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.concurrency).toBe(3);
+  });
+
+  test("--concurrency overrides CORBITS_EVAL_CONCURRENCY", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "8";
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "2"]);
+    expect(opts.concurrency).toBe(2);
+  });
+
+  test("invalid CORBITS_EVAL_CONCURRENCY throws", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "0";
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar"])).toThrow(
+      /CORBITS_EVAL_CONCURRENCY must be a positive integer/,
+    );
+  });
+});
+
+describe("mapPool", () => {
+  test("N overlapping jobs with concurrency N finish in ~one job duration", async () => {
+    const jobMs = 80;
+    const n = 4;
+    const start = Date.now();
+    const results = await mapPool([0, 1, 2, 3], n, async (item) => {
+      await new Promise((r) => setTimeout(r, jobMs));
+      return item;
+    });
+    const elapsed = Date.now() - start;
+    expect(results).toEqual([0, 1, 2, 3]);
+    expect(elapsed).toBeLessThan(jobMs * 2);
+    expect(elapsed).toBeGreaterThanOrEqual(jobMs - 20);
+  });
+
+  test("preserves input order when later items finish first", async () => {
+    const results = await mapPool([1, 2, 3], 3, async (item) => {
+      await new Promise((r) => setTimeout(r, (4 - item) * 30));
+      return item;
+    });
+    expect(results).toEqual([1, 2, 3]);
+  });
+
+  test("empty input returns an empty array", async () => {
+    expect(await mapPool([], 4, async (item) => item)).toEqual([]);
+  });
+
+  test("rejects non-positive concurrency", async () => {
+    await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(/positive integer/);
   });
 });
 

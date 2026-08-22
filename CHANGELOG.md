@@ -11,6 +11,16 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Plugins
+
+- **Requested `run_shell` timeouts are no longer capped at 10 minutes.** The 15s
+  default when timeout is omitted is unchanged. A ceiling applies only when
+  settings set `shell.maxTimeoutMs`. Capability evals accept `--concurrency <n>`
+  (env `CORBITS_EVAL_CONCURRENCY`, default 1) so a live matrix can run
+  independent case×variant×repeat cells in parallel.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

@@ -13,6 +13,7 @@ import {
   DEFAULT_SHELL_TIMEOUT_MS,
   MAX_SHELL_OUTPUT_BYTES,
   advertiseShellGuardTimeout,
+  resolveShellTimeoutMs,
   runGuardedShell,
   shellGuardPlugin,
 } from "./shell-guard-plugin.js";
@@ -151,6 +152,36 @@ describe("runGuardedShell", () => {
     );
     setTimeout(() => controller.abort(), 50);
     await expect(promise).rejects.toThrow(/aborted/);
+  });
+});
+
+describe("resolveShellTimeoutMs", () => {
+  test("omitted timeout uses the 15s default", () => {
+    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS)).toBe(15_000);
+    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS, undefined)).toBe(
+      DEFAULT_SHELL_TIMEOUT_MS,
+    );
+  });
+
+  test("non-positive requested timeout falls back to default", () => {
+    expect(resolveShellTimeoutMs(0, DEFAULT_SHELL_TIMEOUT_MS)).toBe(DEFAULT_SHELL_TIMEOUT_MS);
+    expect(resolveShellTimeoutMs(-1, DEFAULT_SHELL_TIMEOUT_MS)).toBe(DEFAULT_SHELL_TIMEOUT_MS);
+  });
+
+  test("requested timeout well above 10 minutes is not clamped when maxMs is omitted", () => {
+    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS)).toBe(5_400_000);
+    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS, undefined)).toBe(5_400_000);
+    expect(resolveShellTimeoutMs(900_000, DEFAULT_SHELL_TIMEOUT_MS)).toBe(900_000);
+  });
+
+  test("configured maxMs still clamps", () => {
+    expect(resolveShellTimeoutMs(900_000, DEFAULT_SHELL_TIMEOUT_MS, 100)).toBe(100);
+    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS, 600_000)).toBe(600_000);
+    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS, 100)).toBe(100);
+  });
+
+  test("requested below maxMs is unchanged", () => {
+    expect(resolveShellTimeoutMs(1_000, DEFAULT_SHELL_TIMEOUT_MS, 600_000)).toBe(1_000);
   });
 });
 

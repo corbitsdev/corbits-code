@@ -68,6 +68,8 @@ type CliOptions = {
   verifyTimeoutMs: number;
   /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
   repeats: number;
+  /** Independent case×variant×repeat cells in parallel (default 1). */
+  concurrency: number;
   dryRun: boolean;
   help: boolean;
   /**
@@ -93,6 +95,7 @@ function printUsage(): void {
   --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
+  --concurrency <n>     Independent cells in parallel (default 1, env CORBITS_EVAL_CONCURRENCY)
   --dry-run             List cases × variants only (still requires --provider/--model or --matrix)
   --allow-provider-fallback  Allow resolved provider/model to differ from
                              what was requested (default: hard-fail)
@@ -100,11 +103,54 @@ function printUsage(): void {
 `);
 }
 
+function parsePositiveInteger(raw: string, label: string): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return n;
+}
+
+function defaultConcurrency(): number {
+  const raw = process.env.CORBITS_EVAL_CONCURRENCY;
+  if (raw === undefined || raw === "") return 1;
+  return parsePositiveInteger(raw, "CORBITS_EVAL_CONCURRENCY");
+}
+
+/**
+ * Run `mapper` over `items` with at most `concurrency` in flight.
+ * Results stay in input order even when later items finish first.
+ */
+export async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("concurrency must be a positive integer");
+  }
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index]!, index);
+    }
+  };
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 export function parseArgs(argv: readonly string[]): CliOptions {
   const opts: CliOptions = {
     caseSelector: "all",
     skipPermissions: true,
     repeats: 1,
+    concurrency: defaultConcurrency(),
     dryRun: false,
     help: false,
     allowProviderFallback: false,
@@ -175,6 +221,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         opts.repeats = n;
         break;
       }
+      case "--concurrency":
+        opts.concurrency = parsePositiveInteger(next(), "--concurrency");
+        break;
       case "--dry-run":
         opts.dryRun = true;
         break;
@@ -771,6 +820,7 @@ async function main(): Promise<number> {
   }
 
   console.log(`Repeats per cell: ${opts.repeats}`);
+  console.log(`Concurrency: ${opts.concurrency}`);
 
   if (opts.dryRun) {
     console.log("dry-run: no inference");
@@ -781,14 +831,15 @@ async function main(): Promise<number> {
   }
 
   const startedAt = new Date().toISOString();
-  const results: CaseResult[] = [];
-
+  const cells: Array<{ caseDef: EvalCase; variant: EvalVariant; repeat: number }> = [];
   for (const { caseDef, variant } of plan) {
     for (let repeat = 0; repeat < opts.repeats; repeat++) {
-      const result = await runCase(caseDef, variant, opts, repeat);
-      results.push(result);
+      cells.push({ caseDef, variant, repeat });
     }
   }
+  const results = await mapPool(cells, opts.concurrency, ({ caseDef, variant, repeat }) =>
+    runCase(caseDef, variant, opts, repeat),
+  );
 
   const finishedAt = new Date().toISOString();
   const totals = summarizeRun(results);
