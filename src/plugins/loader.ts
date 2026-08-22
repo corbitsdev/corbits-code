@@ -58,6 +58,14 @@ export type PluginModule = {
    * `origin`, which drives trust gating.
    */
   source?: string;
+  /**
+   * Set by dedupePluginModules when this module's id shadowed an earlier
+   * repo module that had manifest.defaultEnabled === true. Lets
+   * isPluginModuleEnabled keep the id default-on after a same-id later
+   * install replaces the bundled module, without requiring an explicit
+   * settings flag (CL-6716).
+   */
+  shadowedRepoDefaultEnabled?: boolean;
 };
 
 // Read and validate a manifest.json beside the module. Plugins may declare
@@ -563,6 +571,13 @@ export async function discoverUserPlugins(
 // paths), so "last wins" means an explicit path overrides a user plugin, which
 // overrides a bundled one. Modules without a manifest carry no id and are kept
 // as-is.
+//
+// A later non-repo module with the same id as a repo defaultEnabled plugin
+// would otherwise silently turn the bundled default off — the survivor is
+// non-repo, so isPluginModuleEnabled's origin==="repo" check fails and
+// enablement then requires an explicit settings flag (CL-6716). Carry the
+// repo default-on forward via shadowedRepoDefaultEnabled so the id stays
+// enabled by default unless the user explicitly disables it in settings.
 export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
   const indexById = new Map<string, number>();
   const result: PluginModule[] = [];
@@ -574,7 +589,13 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
     }
     const existing = indexById.get(id);
     if (existing !== undefined) {
-      result[existing] = mod;
+      const prev = result[existing]!;
+      const wasRepoDefaultEnabled =
+        prev.shadowedRepoDefaultEnabled === true
+        || (prev.origin === "repo" && prev.manifest?.defaultEnabled === true);
+      result[existing] = wasRepoDefaultEnabled
+        ? { ...mod, shadowedRepoDefaultEnabled: true }
+        : mod;
     } else {
       indexById.set(id, result.length);
       result.push(mod);
