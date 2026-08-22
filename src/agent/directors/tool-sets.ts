@@ -22,6 +22,7 @@ export const BUILD_TOOLS = [
   "write_file",
   "edit_file",
   "delete_file",
+  "apply_patch",
 ] as const;
 
 /**
@@ -31,12 +32,14 @@ export const BUILD_TOOLS = [
  * is still enforced by the permission gate on path-keyed write tools.
  *
  * Composed from READ_TOOLS minus run_shell so it tracks the read surface
- * automatically; only the write tools are added explicitly.
+ * automatically; only the write tools are added explicitly. `apply_patch` is
+ * included so Codex docs leaves keep the proxy after the capability filter.
  */
 export const DOCS_TOOLS = [
   ...READ_TOOLS.filter((t) => t !== "run_shell"),
   "write_file",
   "edit_file",
+  "apply_patch",
 ] as const;
 
 /** Review / counsel: read surface, no writes. */

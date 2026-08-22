@@ -1172,6 +1172,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     permissionGate,
     skillDirs,
     telemetry: liveTelemetry,
+    isCodex: isCodexProviderName(config.providerName),
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
     toolWatchdog: liveToolWatchdog,

@@ -10,6 +10,7 @@ import {
 import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
 import { resolveWorkspacePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
+import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -29,7 +30,8 @@ const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir"
 // restriction (outside the workspace boundary, or writes under the session state root).
 
 // Covers both read-only tools (dropped from allow to ask) and the mutating
-// file tools (dropped from auto-allow to ask in auto mode).
+// file tools (dropped from auto-allow to ask in auto mode). apply_patch is
+// omitted here — its subjects come from the envelope (see productMutationPaths).
 const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file", "delete_file"]);
 
 // `lsp` names its target `filePath`; every other path-arg tool uses `path`.
@@ -37,13 +39,13 @@ function pathArgKey(toolName: string): string {
   return toolName === "lsp" ? "filePath" : "path";
 }
 
-// write_file/edit_file/delete_file mutate the target; every other path-arg tool only
+// Product mutation tools mutate the target; every other path-arg tool only
 // reads it. Restriction policy (see path-restriction.ts) treats reads and
 // writes of a session-state path differently, so callers need to tell the
 
 // gate which mode a given tool call is in.
 function isWriteTool(toolName: string): boolean {
-  return toolName === "write_file" || toolName === "edit_file" || toolName === "delete_file";
+  return isProductMutationTool(toolName);
 }
 
 export type Tier = "allow" | "ask";
@@ -207,6 +209,9 @@ export function callTargetsRestricted(
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
   if (call.name === "run_shell") return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
+  if (call.name === "apply_patch") {
+    return productMutationPaths(call.name, call.arguments).some((path) => isRestricted(path, true));
+  }
   return restrictedPathArg(call, isRestricted) !== undefined;
 }
 
@@ -443,7 +448,28 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
       },
     ];
   }
-  if (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file") {
+  if (isProductMutationTool(call.name)) {
+    if (call.name === "apply_patch") {
+      const paths = productMutationPaths(call.name, call.arguments);
+      if (paths.length === 0) {
+        return [
+          {
+            tool: "apply_patch",
+            action: "Apply patch",
+            subject: "",
+            arguments: call.arguments,
+            scopes: [],
+          },
+        ];
+      }
+      return paths.map((path) => ({
+        tool: "apply_patch",
+        action: "Apply patch",
+        subject: path,
+        arguments: call.arguments,
+        scopes: fileScopes(path),
+      }));
+    }
     const path = stringArg(call, "path");
     const action = call.name === "write_file" ? "Write file" : call.name === "edit_file" ? "Edit file" : "Delete file";
     return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
