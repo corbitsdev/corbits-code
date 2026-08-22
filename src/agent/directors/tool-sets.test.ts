@@ -11,7 +11,7 @@ describe("DOCS_TOOLS", () => {
     expect(DOCS_TOOLS).not.toContain("delete_file");
   });
 
-  test("keeps read/search/lsp/web + file writes", () => {
+  test("keeps read/search/lsp/web + file writes + apply_patch", () => {
     const expected: readonly string[] = [
       "read_file",
       "grep",
@@ -22,6 +22,7 @@ describe("DOCS_TOOLS", () => {
       "web_search",
       "write_file",
       "edit_file",
+      "apply_patch",
     ];
     for (const tool of expected) {
       expect(DOCS_TOOLS as readonly string[]).toContain(tool);
@@ -32,5 +33,14 @@ describe("DOCS_TOOLS", () => {
     for (const surface of [READ_TOOLS, IMPLEMENT_TOOLS]) {
       expect(surface).toContain("run_shell");
     }
+  });
+});
+
+describe("IMPLEMENT_TOOLS", () => {
+  test("includes apply_patch alongside path mutation tools", () => {
+    expect(IMPLEMENT_TOOLS).toContain("write_file");
+    expect(IMPLEMENT_TOOLS).toContain("edit_file");
+    expect(IMPLEMENT_TOOLS).toContain("delete_file");
+    expect(IMPLEMENT_TOOLS).toContain("apply_patch");
   });
 });

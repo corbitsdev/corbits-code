@@ -14,6 +14,15 @@ describe("toolCallPreview", () => {
     ).toBe("src/subagent/session-store.ts");
   });
 
+  test("apply_patch preview uses the first envelope path", () => {
+    const input = `*** Begin Patch
+*** Add File: hello.txt
++Hello
+*** End Patch
+`;
+    expect(toolCallPreview("apply_patch", JSON.stringify({ input }))).toBe("hello.txt");
+  });
+
   test("grep shows the pattern", () => {
     expect(
       toolCallPreview("grep", JSON.stringify({ pattern: "currentToolPreview", path: "src" })),

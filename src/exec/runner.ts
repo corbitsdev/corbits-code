@@ -25,7 +25,7 @@ import {
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
 } from "../config/settings.js";
-import { codexProfileFromProviderName } from "../config/codex-providers.js";
+import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
@@ -353,6 +353,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       permissionGate,
       skillDirs,
       telemetry: liveTelemetry,
+      isCodex: isCodexProviderName(config.providerName),
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),

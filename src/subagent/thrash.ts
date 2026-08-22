@@ -9,6 +9,8 @@
  * report-forced are one-shot wrap-up / redirect nudges, not stops.
  */
 
+import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+
 /** Tunable thresholds for thrash / force-report detection. */
 export type ThrashConfig = {
   /** Same path read this many times triggers hard re-read thrash stop. */
@@ -73,7 +75,6 @@ export type ThrashToolCallBlock = {
 
 const READ_TOOLS = new Set(["read_file"]);
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
-const EDIT_TOOLS = new Set(["edit_file", "write_file", "delete_file"]);
 
 function parseArgs(raw: unknown): Record<string, unknown> {
   let args: unknown = raw ?? {};
@@ -158,11 +159,16 @@ export function nextThrashState(
       if (readCounts === null) readCounts = new Map(prev.readCounts);
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
-    } else if (EDIT_TOOLS.has(name) && path !== null) {
-      if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
-      editedPaths.add(path);
-      if (readCounts === null) readCounts = new Map(prev.readCounts);
-      decayReadsForPath(readCounts, path);
+    } else if (isProductMutationTool(name)) {
+      const paths = productMutationPaths(name, args);
+      if (paths.length > 0) {
+        if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
+        if (readCounts === null) readCounts = new Map(prev.readCounts);
+        for (const edited of paths) {
+          editedPaths.add(edited);
+          decayReadsForPath(readCounts, edited);
+        }
+      }
     }
   }
 
