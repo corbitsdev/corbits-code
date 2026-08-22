@@ -821,16 +821,69 @@ describe("ChatDirector tool-only loop protection", () => {
   // will see, so it must re-arm the backstop interval regardless of how many
   // parent turns (tool.done -> infer cycles) that takes in total.
   describe("CL-5893: successful leaf task completions re-arm the backstop", () => {
-    test("a productive streak of successful task completions never hard-pauses, however many parent turns elapse", async () => {
+    test("a back-to-back streak of successful task completions is bounded — the cap exhausts and the nudge/pause escalation eventually fires", async () => {
       const director = createChatDirector("system", [], {
         onTasksChange: () => {},
         provider: providerlessPolicy,
       });
       const capabilities = makeCapabilities();
 
-      let sawPauseOrNudge = false;
-      for (let i = 0; i < 300; i++) {
+      // Every success here lands one turn after the last reset, so the
+      // MAX_LEAF_PROGRESS_BACKSTOP_RESETS credits are consumed almost
+      // immediately (the worst case for the bound — a genuinely spaced-out
+      // fleet gets far more turns before exhausting the same cap). Once
+      // exhausted, successes stop resetting the interval and the ordinary
+      // nudge (at the 100-turn threshold) then pause (a further 100 turns
+      // unheeded) fire on schedule.
+      let nudgedAt: number | null = null;
+      let pausedAt: number | null = null;
+      for (let i = 0; i < 300 && pausedAt === null; i++) {
         const id = `task-ok-${i}`;
+        await director.decide(taskTurn(id), mockState, capabilities);
+        const result = actionsArray(await director.decide(taskDoneEvent(id), mockState, capabilities));
+        if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
+          pausedAt = i;
+        } else if (
+          nudgedAt === null &&
+          result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
+        ) {
+          nudgedAt = i;
+        }
+      }
+
+      expect(nudgedAt).not.toBeNull();
+      expect(pausedAt).not.toBeNull();
+      // A runaway trivial-success loop still pauses — it just gets the cap's
+      // worth of extra headroom first, well past the plain 100-turn
+      // threshold, before the escalation is forced.
+      expect(pausedAt as number).toBeGreaterThan(150);
+    });
+
+    test("an operator message re-arms the full leaf-progress cap", async () => {
+      const director = createChatDirector("system", [], {
+        onTasksChange: () => {},
+        provider: providerlessPolicy,
+      });
+      const capabilities = makeCapabilities();
+
+      // Exhaust the cap with MAX_LEAF_PROGRESS_BACKSTOP_RESETS (5) successes.
+      for (let i = 0; i < 5; i++) {
+        const id = `task-ok-a-${i}`;
+        await director.decide(taskTurn(id), mockState, capabilities);
+        await director.decide(taskDoneEvent(id), mockState, capabilities);
+      }
+
+      await director.decide(messageReceived(), mockState, capabilities);
+
+      // If the cap were not re-armed by the operator message, all 100 of
+      // these would get zero credit and turnsSinceUserMessage would climb
+      // straight to the 100-turn nudge threshold by the last iteration. With
+      // the cap re-armed, the first 5 are credited again (holding the
+      // interval near zero) and the remaining 95 only climb to 95 — no
+      // nudge or pause.
+      let sawPauseOrNudge = false;
+      for (let i = 0; i < 100; i++) {
+        const id = `task-ok-b-${i}`;
         await director.decide(taskTurn(id), mockState, capabilities);
         const result = actionsArray(await director.decide(taskDoneEvent(id), mockState, capabilities));
         if (
@@ -841,6 +894,35 @@ describe("ChatDirector tool-only loop protection", () => {
         }
       }
       expect(sawPauseOrNudge).toBe(false);
+    });
+
+    test("non-string tool result content gets no backstop credit — the backstop still nudges then pauses", async () => {
+      const director = createChatDirector("system", [], {
+        onTasksChange: () => {},
+        provider: providerlessPolicy,
+      });
+      const capabilities = makeCapabilities();
+
+      let nudged = false;
+      let paused = false;
+      for (let i = 0; i < 200 && !paused; i++) {
+        const id = `task-nonstring-${i}`;
+        await director.decide(taskTurn(id), mockState, capabilities);
+        const result = actionsArray(
+          await director.decide(
+            { type: "tool.done", result: { callId: id, isError: false, content: undefined } } as unknown as ReactorInboundEvent,
+            mockState,
+            capabilities,
+          ),
+        );
+        if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
+          paused = true;
+        } else if (result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))) {
+          nudged = true;
+        }
+      }
+      expect(nudged).toBe(true);
+      expect(paused).toBe(true);
     });
 
     test("periodic successful task completions amid other tool-only turns keep resetting the backstop", async () => {

@@ -27,6 +27,7 @@ import {
   detectToolFingerprintThrash,
   detectTurnsSinceUserMessageBackstop,
   TURNS_SINCE_USER_MESSAGE_BACKSTOP,
+  MAX_LEAF_PROGRESS_BACKSTOP_RESETS,
   TOOL_FINGERPRINT_HISTORY_CAP,
   type ToolFingerprintThrashCheck,
 } from "../subagent/stop-policy.js";
@@ -431,6 +432,14 @@ class ChatDirectorImpl extends DefaultDirector {
   // is in effect (the next operator message clears both together).
   private backstopNudgeFiredAtTurn: number | null = null;
   private pendingBackstopNudge = false;
+  // CL-5893: how many times a successful leaf task completion has re-armed
+  // the backstop since the last genuine operator message. Capped at
+  // MAX_LEAF_PROGRESS_BACKSTOP_RESETS so an unbroken run of trivial
+  // always-succeeding leaf tasks cannot reset the backstop forever — once
+  // exhausted, leaf successes stop resetting the interval and the ordinary
+  // nudge/pause escalation proceeds. Reset to 0 only alongside the other
+  // operator-message resets below, never by the leaf-success path itself.
+  private leafProgressBackstopResets = 0;
   // Which mechanism triggered pausedForToolOnly — the period-detection fast
   // path (a recognized cycle) or the backstop escalation (nudge went
   // unheeded for a further full interval with no user message). Drives the
@@ -679,6 +688,7 @@ class ChatDirectorImpl extends DefaultDirector {
         this.turnsSinceUserMessage = 0;
         this.backstopNudgeFiredAtTurn = null;
         this.pendingBackstopNudge = false;
+        this.leafProgressBackstopResets = 0;
         this.salvageNudgeFired = false;
         this.pendingSalvageNudge = null;
         this.pendingTaskCallIds.clear();
@@ -869,10 +879,26 @@ class ChatDirectorImpl extends DefaultDirector {
       // which a completed task says nothing about) or salvageNudgeFired.
       // True no-progress (tool-only churn with no successful leaf completions)
       // still nudges then pauses exactly as before.
-      if (!event.result.isError && salvage === null) {
+      //
+      // Bounded (round 2): this reset is capped at
+      // MAX_LEAF_PROGRESS_BACKSTOP_RESETS per operator message so an
+      // unbroken loop of trivial always-succeeding leaf tasks cannot reset
+      // the backstop forever — once the cap is exhausted, leaf successes
+      // stop resetting the interval and the nudge/pause escalation
+      // eventually forces an operator checkpoint. Credit also requires the
+      // tool result content to actually be a string: non-string content is
+      // coerced to "" above only for salvage classification (an empty body
+      // classifies as success), which must not also buy backstop credit.
+      if (
+        !event.result.isError &&
+        salvage === null &&
+        typeof event.result.content === "string" &&
+        this.leafProgressBackstopResets < MAX_LEAF_PROGRESS_BACKSTOP_RESETS
+      ) {
         this.turnsSinceUserMessage = 0;
         this.backstopNudgeFiredAtTurn = null;
         this.pendingBackstopNudge = false;
+        this.leafProgressBackstopResets++;
       }
     }
 
