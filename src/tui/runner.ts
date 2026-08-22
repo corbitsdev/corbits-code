@@ -2429,13 +2429,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const fleetStallPoll = setInterval(reportFleet, FLEET_STALL_POLL_MS);
   if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();
 
-  // Same names the operator can already reach by typing them: skills the
-  // session discovered at startup, agents from the live profile registry
-  // (which trust changes can update mid-session, so read through the
-  // closure rather than snapshotting it here).
+  // Registered slash-command names only — bare skill/agent words stay unstyled.
   setPromptRecognitionSource(host.shell, () => ({
-    skillNames: skills.map((skill) => skill.name),
-    agentNames: liveAgentProfiles.map((profile) => profile.id),
+    commandNames: listCommands().map((command) => command.name),
   }));
 
   // Shift+Tab: cycle reasoning effort for the live model and rebuild sources so

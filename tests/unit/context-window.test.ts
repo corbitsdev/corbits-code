@@ -4,6 +4,7 @@ import {
   contextWindowFor,
   compactionThresholdFor,
   contextTokensFromUsage,
+  contextMeterBand,
   COMPACTION_WINDOW_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
@@ -66,6 +67,17 @@ describe("context meter fractions", () => {
   test("danger sits between compaction and hard overflow", () => {
     expect(CONTEXT_METER_DANGER_FRACTION).toBeGreaterThan(COMPACTION_WINDOW_FRACTION);
     expect(CONTEXT_METER_DANGER_FRACTION).toBeLessThan(1);
-    expect(CONTEXT_METER_DANGER_FRACTION).toBe(0.9);
+    expect(CONTEXT_METER_DANGER_FRACTION).toBe(0.8);
+  });
+});
+
+describe("contextMeterBand", () => {
+  test("0–60 is quiet, 61–80 warning, 81–100 danger", () => {
+    expect(contextMeterBand(0)).toBe("quiet");
+    expect(contextMeterBand(60)).toBe("quiet");
+    expect(contextMeterBand(61)).toBe("warning");
+    expect(contextMeterBand(80)).toBe("warning");
+    expect(contextMeterBand(81)).toBe("danger");
+    expect(contextMeterBand(100)).toBe("danger");
   });
 });

@@ -13,8 +13,11 @@
  */
 
 import { stringWidth } from "./view/height.js"
-import { renderRamp } from "./ramp.js"
 import { formatContextPercentLabel } from "../cost/cost-summary.js"
+import {
+  contextMeterBand,
+  type ContextMeterBand,
+} from "../provider/context-window.js"
 
 /** Rounded box drawing, all single-cell. */
 export const BORDER = {
@@ -44,7 +47,7 @@ export type RuleInput = {
   /** Left-hand run (the lockup). Dropped first when the rule cannot seat everything. */
   readonly brand?: string
   /**
-   * Cost/context run, richest form (context ramp + percent + cost). Sits
+   * Cost/context run, richest form (percent + cost). Sits
    * between the brand and the label. Dropped before the label but after the
    * brand: it is a live gauge, not the operator's own workspace.
    */
@@ -254,15 +257,6 @@ export function ruleWidth(parts: readonly RulePart[]): number {
   return widthOf(parts)
 }
 
-/**
- * Fraction of the context window at which the meter turns from its resting
- * color to `UI.action`. Proactive compaction fires at `COMPACTION_WINDOW_FRACTION`
- * (0.6, see `src/provider/context-window.ts`); this sits a good way below it so
- * the operator sees pressure building — and can act on it — before compaction
- * silently rewrites the conversation out from under them.
- */
-export const CONTEXT_PRESSURE_THRESHOLD = 0.5
-
 export type CostContextInput = {
   /** 0–100, or null when the model's context window is unknown. */
   readonly contextPercentUsed: number | null
@@ -274,11 +268,10 @@ export type CostContextInput = {
 }
 
 export type CostContextMeter = {
-  /** Density-ramp glyphs, `RAMP_WIDTH` cells, fill proportional to `percent`. */
   readonly percentLabel: string
   readonly costLabel: string | null
-  /** True once `percent` has crossed `CONTEXT_PRESSURE_THRESHOLD`. */
-  readonly pressured: boolean
+  /** Inclusive band from `contextPercentUsed`: 0–60 quiet, 61–80 warning, 81–100 danger. */
+  readonly band: ContextMeterBand
 }
 
 /**
@@ -293,7 +286,7 @@ export function composeCostContextMeter(input: CostContextInput): CostContextMet
   return {
     percentLabel: formatContextPercentLabel(percent, input.contextIsEstimate),
     costLabel: cost.length > 0 ? cost : null,
-    pressured: percent / 100 >= CONTEXT_PRESSURE_THRESHOLD,
+    band: contextMeterBand(percent),
   }
 }
 

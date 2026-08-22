@@ -68,11 +68,20 @@ The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule as
 `profile · model · effort` (empty segments omitted), and a
 compact `mcp !` sits immediately left of it when any MCP server still needs
-authorization (`/mcp` is the surface that names them); the brand
+authorization (`/mcp` is the surface that names them), painted in
+`UI.warning` (sand, `#d1ad7d`) — the same role `plugin !` uses. Orange is
+not spent on these standing marks. The brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
-`src/tui/shell.ts`). Both rules cost zero transcript rows because they
+`src/tui/shell.ts`). Context occupancy rides that bottom rule as a percent:
+0–60 `UI.textDim`, 61–80 `UI.warning`, 81–100 `UI.error`; an optional cost
+suffix stays dim. Both rules cost zero transcript rows because they
 ride the prompt box's own border.
+
+Inside the prompt, only a leading registered `/command` (the `/name` only)
+and `@mention` tokens anywhere paint `UI.action`. Bare skill or agent words
+(`implement`, `emil`, `brand review`) stay unstyled, as does a `/review`
+that appears mid-prose.
 
 While a turn is live the lockup slot swaps the wordmark for a semantic
 activity word — never the raw tool, MCP server, or plugin identifier that is
@@ -130,10 +139,13 @@ rather than repainting an unchanging frame.
 Color is a small, deliberate palette, not decoration
 (`src/tui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
 gray, so every emphasis level keeps the same warm hue. Orange
-(`UI.action`) is spent once per screen: it marks the session identity and
-whatever is currently awaiting a human decision (an approval subject, an
-active choice) — nothing else competes with it. Ongoing, non-decision status
-uses the bronze/sand/ember chrome ramp and green (`UI.done`) for completion.
+(`UI.action`) is spent once per screen: it marks the session identity,
+a leading `/command` or `@mention` in the prompt, and whatever is currently
+awaiting a human decision (an approval subject, an active choice) — nothing
+else competes with it. Standing caution (`mcp !`, `plugin !`, the context
+meter's 61–80 band) uses `UI.warning`; the meter turns `UI.error` at 81–100.
+Ongoing, non-decision status uses the bronze/sand/ember chrome ramp and green
+(`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
 removed line), not a decision marker, and no decision-marker shares that row.
 

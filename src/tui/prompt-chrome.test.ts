@@ -6,6 +6,7 @@ import { withTestRenderer } from "./harness"
 import {
   createAppShell,
   noticeText,
+  setPromptCostContext,
   setPromptModelLabel,
   setPromptWorkspace,
   setMcpNeedsAuth,
@@ -15,6 +16,7 @@ import {
   setStatusFlash,
   submitPrompt,
 } from "./shell"
+import { UI } from "./theme"
 
 async function withShell(
   fn: (shell: ReturnType<typeof createAppShell>) => void,
@@ -320,6 +322,74 @@ describe("no permanent hint strip", () => {
       expect(painted).not.toContain("/ commands")
       expect(painted).not.toContain("@ files")
       expect(painted).not.toContain("^C stop")
+    })
+  })
+})
+
+type RuleChunk = { readonly text: string; readonly fg: unknown }
+
+function ruleChunksOf(rule: { content: unknown }): RuleChunk[] {
+  const content = rule.content
+  if (typeof content !== "object" || content === null) return []
+  const { chunks } = content as { chunks?: readonly { text?: string; fg?: unknown }[] }
+  return (chunks ?? []).map((c) => ({ text: c.text ?? "", fg: c.fg }))
+}
+
+function fgHex(fg: unknown): string {
+  if (typeof fg === "string") return fg.toLowerCase()
+  if (fg && typeof fg === "object") {
+    const rec = fg as { hex?: string; toHex?: () => string; buffer?: ArrayLike<number> }
+    if (typeof rec.hex === "string") return rec.hex.toLowerCase()
+    if (typeof rec.toHex === "function") return rec.toHex().toLowerCase()
+    if (rec.buffer !== undefined && rec.buffer.length >= 3) {
+      const r = rec.buffer[0] ?? 0
+      const g = rec.buffer[1] ?? 0
+      const b = rec.buffer[2] ?? 0
+      return `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`
+    }
+  }
+  return ""
+}
+
+function chunkMatching(chunks: readonly RuleChunk[], needle: string): RuleChunk | undefined {
+  return chunks.find((c) => c.text.includes(needle))
+}
+
+describe("chrome attention and meter colors", () => {
+  test("mcp ! and plugin ! paint in UI.warning", async () => {
+    await withShell((shell) => {
+      setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" })
+      setMcpNeedsAuth(shell, ["granola"])
+      setPluginNeedsAttention(shell, true)
+      const chunks = ruleChunksOf(shell.promptTopRule)
+      const mark = chunkMatching(chunks, "mcp !")
+      expect(mark).toBeDefined()
+      expect(fgHex(mark?.fg)).toBe(UI.warning)
+    })
+  })
+
+  test("context percent 0–60 is textDim, 61–80 warning, 81–100 error; cost stays textDim", async () => {
+    await withShell((shell) => {
+      const paint = (percent: number) => {
+        setPromptCostContext(shell, {
+          contextPercentUsed: percent,
+          costLabel: "$0.42",
+          contextIsEstimate: false,
+        })
+        return ruleChunksOf(shell.promptBottomRule)
+      }
+
+      const quiet = paint(60)
+      expect(fgHex(chunkMatching(quiet, "60%")?.fg)).toBe(UI.textDim)
+      expect(fgHex(chunkMatching(quiet, "$0.42")?.fg)).toBe(UI.textDim)
+
+      const warning = paint(80)
+      expect(fgHex(chunkMatching(warning, "80%")?.fg)).toBe(UI.warning)
+      expect(fgHex(chunkMatching(warning, "$0.42")?.fg)).toBe(UI.textDim)
+
+      const danger = paint(81)
+      expect(fgHex(chunkMatching(danger, "81%")?.fg)).toBe(UI.error)
+      expect(fgHex(chunkMatching(danger, "$0.42")?.fg)).toBe(UI.textDim)
     })
   })
 })

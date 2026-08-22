@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 
 import {
   BORDER,
-  CONTEXT_PRESSURE_THRESHOLD,
   MCP_ATTENTION_LABEL,
   PLUGIN_ATTENTION_LABEL,
   abbreviateHome,
@@ -236,18 +235,15 @@ describe("composeCostContextMeter", () => {
     expect(costContextText(meter, false)).toContain("68%")
   })
 
-  test("turns pressured past the threshold, not before it", () => {
-    const thresholdPercent = CONTEXT_PRESSURE_THRESHOLD * 100
-    const below = composeCostContextMeter({
-      contextPercentUsed: thresholdPercent - 1,
-      contextIsEstimate: false,
-    })!
-    const atOrAbove = composeCostContextMeter({
-      contextPercentUsed: thresholdPercent,
-      contextIsEstimate: false,
-    })!
-    expect(below.pressured).toBe(false)
-    expect(atOrAbove.pressured).toBe(true)
+  test("bands from the percent: 60 quiet, 80 warning, 81 danger", () => {
+    const bandAt = (percent: number) =>
+      composeCostContextMeter({ contextPercentUsed: percent, contextIsEstimate: false })!.band
+    expect(bandAt(0)).toBe("quiet")
+    expect(bandAt(60)).toBe("quiet")
+    expect(bandAt(61)).toBe("warning")
+    expect(bandAt(80)).toBe("warning")
+    expect(bandAt(81)).toBe("danger")
+    expect(bandAt(100)).toBe("danger")
   })
 
   test("flags an estimated percent with a tilde", () => {

@@ -48,6 +48,10 @@ export type Theme = {
   readonly heading: string
   /** Completed and succeeded. */
   readonly done: string
+  /** Standing caution: attention marks, meter warning band. */
+  readonly warning: string
+  /** Failure and the meter danger band. */
+  readonly error: string
 }
 
 /**
@@ -76,8 +80,9 @@ const CREAM_FAINT = "#787166"
 // separable — they differ in lightness first, hue second, and all three sit
 // well under the action orange's saturation.
 const BRONZE = "#93733f" // dimmest: motion and machine chrome
-const SAND = "#d1ad7d" // brightest: keywords, links, command arguments
+const SAND = "#d1ad7d" // brightest: keywords, links, args, and standing caution
 const EMBER = "#a97243" // burnt, between the two: document structure
+const ERROR_RED = "#e0594d" // meter danger band, failures
 
 export const corbitsDark: Theme = {
   name: "corbits-dark",
@@ -91,6 +96,8 @@ export const corbitsDark: Theme = {
   inFlightBright: SAND,
   heading: EMBER,
   done: BRAND.ridgeGreen,
+  warning: SAND,
+  error: ERROR_RED,
 }
 
 /** Every theme that ships. A picker would choose from here. */

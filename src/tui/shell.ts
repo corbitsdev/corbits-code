@@ -81,7 +81,6 @@ import {
   type CostContextMeter,
   type RulePart,
 } from "./prompt-border.js"
-import { RAMP_WIDTH } from "./ramp.js"
 import {
   viewToTableContent,
   type McpStructuredView,
@@ -383,7 +382,7 @@ export function setMentionSuggestionSource(
   else shellMentionSource.delete(shell)
 }
 
-/** Names the prompt is allowed to highlight as recognized skills/agents. */
+/** Names the prompt is allowed to highlight as leading `/command` tokens. */
 const shellRecognitionSource = new WeakMap<AppShell, PromptRecognitionSource>()
 
 export function setPromptRecognitionSource(
@@ -1574,7 +1573,7 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
       continue
     }
     if (part.role === "attention") {
-      chunks.push(fgChunk(UI.action)(part.text))
+      chunks.push(fgChunk(UI.warning)(part.text))
       continue
     }
     chunks.push(
@@ -1585,22 +1584,24 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
 }
 
 /**
- * Color a meter cell: the ramp glyphs are always orange, so pressure reads as
- * *intensity* rather than a hue swap — `actionDim` while quiet, so the run
- * sits as chrome and leaves `action` free for the one thing awaiting a
- * decision, and only the full `action` orange once past
- * `CONTEXT_PRESSURE_THRESHOLD`, when the meter itself becomes worth noticing.
- * The percent and cost read as dim chrome the same as the workspace label.
+ * Color a meter cell: the percent takes the band color (quiet `textDim`,
+ * warning sand, danger red) and the optional cost suffix stays dim chrome.
  */
 function meterChunks(shell: AppShell, cell: string): TextChunk[] {
-  const ramp = cell.slice(1, 1 + RAMP_WIDTH)
-  const rest = cell.slice(1 + RAMP_WIDTH)
-  const rampFg = shell.costContext?.pressured === true ? UI.action : UI.actionDim
-  return [
-    fgChunk(UI.textFaint)(" "),
-    fgChunk(rampFg)(ramp),
-    fgChunk(UI.textDim)(rest),
-  ]
+  const meter = shell.costContext
+  const percentFg =
+    meter?.band === "danger" ? UI.error : meter?.band === "warning" ? UI.warning : UI.textDim
+  if (meter === null) return [fgChunk(percentFg)(cell)]
+  const percent = meter.percentLabel
+  const idx = cell.indexOf(percent)
+  if (idx === -1) return [fgChunk(percentFg)(cell)]
+  const before = cell.slice(0, idx)
+  const after = cell.slice(idx + percent.length)
+  const chunks: TextChunk[] = []
+  if (before.length > 0) chunks.push(fgChunk(UI.textFaint)(before))
+  chunks.push(fgChunk(percentFg)(percent))
+  if (after.length > 0) chunks.push(fgChunk(UI.textDim)(after))
+  return chunks
 }
 
 /** The status slot's state, as the lockup renderer wants it. */
@@ -1916,7 +1917,7 @@ function promptRecognizedStyleId(): number {
 const promptHighlightedValue = new WeakMap<AppShell, string>()
 
 /**
- * Re-mark recognized skill/agent tokens in the prompt. Runs once per frame
+ * Re-mark leading slash commands and @mentions in the prompt. Runs once per frame
  * (see `onFrame` in `createShell`), and only does anything when the prompt's
  * text actually changed since the last frame — typing that doesn't touch a
  * token, and every non-typing frame, is a no-op string comparison.

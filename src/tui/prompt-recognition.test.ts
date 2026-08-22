@@ -6,53 +6,80 @@ import {
   type PromptRecognitionSource,
 } from "./prompt-recognition"
 
+const COMMANDS = ["implement", "review", "improve", "linear-create"] as const
+
 describe("buildPromptRecognitionMatcher", () => {
   test("returns null for an empty name set", () => {
     expect(buildPromptRecognitionMatcher([])).toBeNull()
   })
 
-  test("matches a known single-word name as a whole word", () => {
-    const matcher = buildPromptRecognitionMatcher(["emil"])
-    expect(resolvePromptHighlightSpans("ask emil to review", matcher)).toEqual([
-      { start: 4, end: 8 },
+  test("a leading registered slash command paints /name only", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement", "review"])
+    expect(resolvePromptHighlightSpans("/implement now", matcher)).toEqual([
+      { start: 0, end: 10 },
     ])
   })
 
-  test("does not match a lookalike that only contains the name", () => {
-    const matcher = buildPromptRecognitionMatcher(["emil"])
-    expect(resolvePromptHighlightSpans("emily said hi", matcher)).toEqual([])
-  })
-
-  test("matches a multi-word skill name as a whole phrase", () => {
-    const matcher = buildPromptRecognitionMatcher(["brand review"])
-    expect(
-      resolvePromptHighlightSpans("ask draper to run a brand review", matcher),
-    ).toEqual([{ start: 20, end: 32 }])
-  })
-
-  test("longer names win over a shorter name that is their prefix", () => {
-    const matcher = buildPromptRecognitionMatcher(["brand", "brand review"])
-    const spans = resolvePromptHighlightSpans("run brand review now", matcher)
-    expect(spans).toEqual([{ start: 4, end: 16 }])
-  })
-
-  test("matches every recognized token in a mixed line", () => {
-    const matcher = buildPromptRecognitionMatcher(["emil", "draper", "brand review"])
-    const spans = resolvePromptHighlightSpans(
-      "ask emil and draper to run a brand review",
-      matcher,
-    )
-    expect(spans).toEqual([
-      { start: 4, end: 8 },
-      { start: 13, end: 19 },
-      { start: 29, end: 41 },
+  test("does not paint arguments after the command name", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"])
+    expect(resolvePromptHighlightSpans("/implement the thing", matcher)).toEqual([
+      { start: 0, end: 10 },
     ])
   })
 
-  test("matching is case-insensitive", () => {
-    const matcher = buildPromptRecognitionMatcher(["emil"])
-    expect(resolvePromptHighlightSpans("EMIL, please look", matcher)).toEqual([
-      { start: 0, end: 4 },
+  test("bare words stay unstyled even when they match a registered name", () => {
+    const matcher = buildPromptRecognitionMatcher([...COMMANDS])
+    for (const text of ["emil", "implement", "brand review", "improve", "linear-create"]) {
+      expect(resolvePromptHighlightSpans(text, matcher)).toEqual([])
+    }
+  })
+
+  test("a mid-prose slash command stays unstyled", () => {
+    const matcher = buildPromptRecognitionMatcher(["review", "implement"])
+    expect(resolvePromptHighlightSpans("please /review this", matcher)).toEqual([])
+  })
+
+  test("an @mention paints anywhere", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"])
+    expect(resolvePromptHighlightSpans("ask @emil to review", matcher)).toEqual([
+      { start: 4, end: 9 },
+    ])
+  })
+
+  test("mentions paint even when no commands are registered", () => {
+    expect(resolvePromptHighlightSpans("@emil", null)).toEqual([{ start: 0, end: 5 }])
+  })
+
+  test("a quoted @mention paints the quoted token", () => {
+    expect(resolvePromptHighlightSpans('see @"brand review" please', null)).toEqual([
+      { start: 4, end: 19 },
+    ])
+  })
+
+  test("a leading command and a mention both paint", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"])
+    expect(resolvePromptHighlightSpans("/implement @emil", matcher)).toEqual([
+      { start: 0, end: 10 },
+      { start: 11, end: 16 },
+    ])
+  })
+
+  test("longer command names win over a shorter prefix", () => {
+    const matcher = buildPromptRecognitionMatcher(["brand", "brand-review"])
+    expect(resolvePromptHighlightSpans("/brand-review now", matcher)).toEqual([
+      { start: 0, end: 13 },
+    ])
+  })
+
+  test("a lookalike command prefix does not match", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"])
+    expect(resolvePromptHighlightSpans("/implements", matcher)).toEqual([])
+  })
+
+  test("slash matching is case-insensitive", () => {
+    const matcher = buildPromptRecognitionMatcher(["implement"])
+    expect(resolvePromptHighlightSpans("/IMPLEMENT", matcher)).toEqual([
+      { start: 0, end: 10 },
     ])
   })
 })
@@ -60,8 +87,7 @@ describe("buildPromptRecognitionMatcher", () => {
 describe("resolvePromptRecognitionMatcher", () => {
   test("caches the matcher while the name set is unchanged", () => {
     const source: PromptRecognitionSource = () => ({
-      skillNames: ["brand review"],
-      agentNames: ["emil"],
+      commandNames: ["implement"],
     })
     const first = resolvePromptRecognitionMatcher(source)
     const second = resolvePromptRecognitionMatcher(source)
@@ -69,17 +95,15 @@ describe("resolvePromptRecognitionMatcher", () => {
   })
 
   test("rebuilds the matcher when the name set changes", () => {
-    let names = ["emil"]
+    let names = ["implement"]
     const source: PromptRecognitionSource = () => ({
-      skillNames: [],
-      agentNames: names,
+      commandNames: names,
     })
     const first = resolvePromptRecognitionMatcher(source)
-    names = ["emil", "draper"]
+    names = ["implement", "review"]
     const second = resolvePromptRecognitionMatcher(source)
     expect(second).not.toBe(first)
-    expect(resolvePromptHighlightSpans("ask draper", second)).toEqual([
-      { start: 4, end: 10 },
-    ])
+    expect(resolvePromptHighlightSpans("/review", second)).toEqual([{ start: 0, end: 7 }])
+    expect(resolvePromptHighlightSpans("review", second)).toEqual([])
   })
 })
