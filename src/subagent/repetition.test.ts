@@ -103,6 +103,37 @@ describe("detectRepetition", () => {
     ).join("");
     expect(detectRepetition(`Migration progress:\n${items}`)).toBeNull();
   });
+
+  test("does not flag templated enumeration in thinking after digit folding", () => {
+    // Regression: folding digits collapses a healthy templated line to a
+    // byte-identical ~40+ char unit once its digits are erased. 200 lines
+    // (~10KB) would trip windowMinChars 4 / repeatThreshold 32 without the
+    // maxFoldedPeriodChars gate, aborting a healthy worker mid-reasoning.
+    const items = Array.from(
+      { length: 200 },
+      (_, i) => `${i + 1}. Ran batch ${i + 1} and verified ${i * 3} records migrated\n`,
+    ).join("");
+    const hit = detectRepetition(items, DEFAULT_THINKING_REPETITION_CONFIG, {
+      normalizeDigits: true,
+    });
+    expect(hit).toBeNull();
+  });
+
+  test("still catches the monotonic counter with thousands of pairs", () => {
+    const text = monotonicCounterStream(4000);
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    expect(hit).not.toBeNull();
+    expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_THINKING_REPETITION_CONFIG.repeatThreshold);
+  });
+
+  test("a near-counter with a short prose wrapper still folds to a short period and trips", () => {
+    // "step N/N done. " folds to "step 0/0 done. " — a 15-char period, still
+    // within maxFoldedPeriodChars (16), so this shape is (deliberately) still
+    // caught: it reads as a stalled step counter, not templated enumeration.
+    const text = Array.from({ length: 100 }, (_, i) => `step ${i}/${i + 1} done. `).join("");
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    expect(hit).not.toBeNull();
+  });
 });
 
 describe("repetition check accounting at the cycle-text cap", () => {

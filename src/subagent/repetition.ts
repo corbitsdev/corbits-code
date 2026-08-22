@@ -16,6 +16,17 @@ export type RepetitionConfig = {
   repeatThreshold: number;
   /** How much normalized tail text is examined per check. */
   probeChars: number;
+  /**
+   * Largest normalized window (chars) the digit-folded path may fire on.
+   * Only meaningful with opts.normalizeDigits — folding digit runs to one
+   * placeholder can turn a healthy templated enumeration line into a
+   * byte-identical period once its digits are erased. A true oscillating- or
+   * monotonic-counter loop folds to a tiny period (a few chars); a templated
+   * prose line folds to a much longer one. Capping the folded period length
+   * lets the short, counter-shaped periods through while refusing to fire on
+   * the long, prose-shaped ones. Ignored when normalizeDigits is false.
+   */
+  maxFoldedPeriodChars?: number;
 };
 
 // windowMinChars * repeatThreshold = 128 chars of exactly periodic text —
@@ -33,16 +44,25 @@ export const DEFAULT_REPETITION_CONFIG: RepetitionConfig = {
 export const REPETITION_CHECK_INTERVAL_CHARS = 256;
 
 // Thinking streams are never shown to the user, so unlike text (see
-// normalize() below) they can safely fold digit runs into one placeholder —
-// there is no numbered-list or table false-positive risk to protect against.
-// That normalization collapses a monotonic counter ("0/1 1/2 2/3 …") to a
-// short constant-length unit ("0/0 0/0 0/0 …"), so the window threshold can
-// drop accordingly while the repeat threshold stays high enough that a loop
-// still needs a long sustained run to trip.
+// normalize() below) they can fold digit runs into one placeholder without
+// risking a numbered-list or table rendering complaint. But folding still
+// erases real information: a healthy templated enumeration line (a worker
+// narrating "N. Ran batch N and verified N*3 records migrated" once per
+// iteration) is only distinct because of its digits, so once folded, many
+// such lines become one repeating ~40+ char unit and look exactly like a
+// loop. The discriminator that keeps that safe is period length: a true
+// oscillating- or monotonic-counter loop ("0/1 1/2 2/3 …") folds to a tiny
+// period (a handful of chars — the counter digits and their separators),
+// while a templated prose line folds to a much longer one (the surrounding
+// sentence survives folding intact). maxFoldedPeriodChars caps the folded
+// path to short periods so it only ever catches counter-shaped loops, never
+// prose-shaped enumeration; the repeat threshold on top of that still
+// requires a long sustained run before it trips.
 export const DEFAULT_THINKING_REPETITION_CONFIG: RepetitionConfig = {
   windowMinChars: 4,
   repeatThreshold: 32,
   probeChars: 8192,
+  maxFoldedPeriodChars: 16,
 };
 
 export type RepetitionHit = {
@@ -109,6 +129,9 @@ export function detectRepetition(
     const suffixLen = i + 1;
     const period = suffixLen - (pi[i] ?? 0);
     if (period < config.windowMinChars) continue;
+    if (opts.normalizeDigits && config.maxFoldedPeriodChars !== undefined) {
+      if (period > config.maxFoldedPeriodChars) continue;
+    }
     if (suffixLen < period * config.repeatThreshold) continue;
     const repeats = Math.floor(suffixLen / period);
     if (best === null || repeats > best.repeats) {
