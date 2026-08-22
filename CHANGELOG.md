@@ -16,10 +16,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 ### Plugins
 
 - **Requested `run_shell` timeouts are no longer capped at 10 minutes.** The 15s
-  default when timeout is omitted is unchanged. A ceiling applies only when
-  settings set `shell.maxTimeoutMs`. Capability evals accept `--concurrency <n>`
-  (env `CORBITS_EVAL_CONCURRENCY`, default 1) so a live matrix can run
-  independent case×variant×repeat cells in parallel.
+  default when timeout is omitted is unchanged. `shell.maxTimeoutMs` still
+  clamps the command when set. The tool-execution watchdog follows a longer
+  requested `run_shell` timeout instead of aborting at 11 minutes;
+  `tools.timeoutMs` / `tools.maxTimeoutMs` still bound other tools only.
+  Capability evals accept `--concurrency <n>` (env `CORBITS_EVAL_CONCURRENCY`,
+  default 1); overlapping `httpFixture` cells isolate `EVAL_HTTP_URL` so
+  parallel web-bait runs do not share a process.env origin.
 
 ## [0.2.99] - 2026-08-21
 

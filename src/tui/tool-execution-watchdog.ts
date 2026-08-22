@@ -15,10 +15,19 @@ export type ToolWatchdogConfig = {
   waitForApproval?: boolean;
 };
 
-// Default exceeds shell-guard's per-command max so run_shell is not cut off by
-// this layer before its own timeout fires.
+// Outer budget for tools that have no per-call timeout. run_shell with a longer
+// requested timeout is resolved separately (see resolveToolExecutionTimeoutMs)
+// so this default — and MAX_TOOL_EXECUTION_TIMEOUT_MS / tools.maxTimeoutMs —
+// cannot abort it first. Omitting run_shell timeout still defaults to 15s
+// inside shell-guard.
 export const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 660_000;
 export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
+
+/**
+ * Watchdog arms before shell-guard, so the outer budget must outlast a matching
+ * requested run_shell timeout or this layer wins the race and aborts first.
+ */
+export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 
 /**
  * After budget/parent abort wins the race, wait this long for the in-flight
@@ -37,10 +46,42 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
 const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
 
-export function resolveToolExecutionTimeoutMs(config?: ToolWatchdogConfig): number {
+export function resolveToolExecutionTimeoutMs(
+  config?: ToolWatchdogConfig,
+  call?: ToolCall,
+): number {
+  if (call?.name === "run_shell") {
+    return resolveRunShellWatchdogTimeoutMs(config, call);
+  }
   const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
   const raw = config?.defaultMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
   return Math.min(max, Math.max(1, Math.floor(raw)));
+}
+
+function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
+  const timeout = call.arguments.timeout;
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) {
+    return undefined;
+  }
+  return Math.floor(timeout);
+}
+
+/**
+ * run_shell's watchdog floor is the requested command timeout (plus slack so
+ * this outer timer cannot beat shell-guard). tools.maxTimeoutMs /
+ * MAX_TOOL_EXECUTION_TIMEOUT_MS still bound other tools only — they must not
+ * reimpose a cap when the operator/model passed a longer run_shell timeout.
+ * Omitting timeout leaves the default outer budget (shell-guard still uses 15s).
+ */
+function resolveRunShellWatchdogTimeoutMs(
+  config: ToolWatchdogConfig | undefined,
+  call: ToolCall,
+): number {
+  const raw = config?.defaultMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
+  const floor = Math.max(1, Math.floor(raw));
+  const requested = requestedRunShellTimeoutMs(call);
+  if (requested === undefined) return floor;
+  return Math.max(floor, requested + RUN_SHELL_WATCHDOG_SLACK_MS);
 }
 
 /** Default true: freeze tool budget while a permission prompt is open. */

@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
+  DEFAULT_TOOL_EXECUTION_TIMEOUT_MS,
+  MAX_TOOL_EXECUTION_TIMEOUT_MS,
+  RUN_SHELL_WATCHDOG_SLACK_MS,
   getToolApprovalBudget,
   isUsableToolExecuteResult,
   preferExecuteSalvageAfterAbort,
@@ -29,6 +32,42 @@ const stringTool = (name: string, handler: () => Promise<string>): AgentTool => 
 describe("tool execution watchdog", () => {
   test("resolveToolExecutionTimeoutMs clamps to max", () => {
     expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 })).toBe(100);
+  });
+
+  test("run_shell requested timeout above 660s is not scheduled at the 11-minute default", () => {
+    const requested = 5_400_000;
+    const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
+    const ms = resolveToolExecutionTimeoutMs(undefined, call);
+    expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
+    expect(ms).toBeGreaterThan(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
+    expect(ms).toBeGreaterThan(MAX_TOOL_EXECUTION_TIMEOUT_MS);
+  });
+
+  test("tools.maxTimeoutMs does not cap a longer requested run_shell timeout", () => {
+    const requested = 5_400_000;
+    const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
+    const ms = resolveToolExecutionTimeoutMs(
+      { defaultMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, maxMs: 100_000 },
+      call,
+    );
+    expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
+  });
+
+  test("omitted run_shell timeout keeps the default outer budget (shell-guard still 15s)", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "run_shell", arguments: {} }),
+    ).toBe(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { maxMs: 100_000 },
+        { id: "1", name: "run_shell", arguments: { timeout: 0 } },
+      ),
+    ).toBe(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
+  });
+
+  test("non-shell tools still honor tools.maxTimeoutMs", () => {
+    const call = { id: "1", name: "read_file", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 }, call)).toBe(100);
   });
 
   test("withTimeout dispose clears timer without leaving hung state", async () => {

@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { evalHttpEnvGet } from "./eval-http-env.js";
 
 // Blocks requests to loopback, private, link-local, and other non-public IP
 // ranges before a fetch is issued, and again after every redirect hop (a
@@ -47,13 +48,14 @@ export type SsrfCheckResult = { ok: true } | { ok: false; reason: string };
 // Narrow, deliberate exception: the capability eval's hermetic "web-bait" case
 // binds a per-run HTTP fixture to 127.0.0.1 (see scripts/eval-capability.ts
 // startHTTPFixture) specifically so web_fetch can be exercised without curl.
-// EVAL_HTTP_URL is only ever set by that harness for that one child process; an
-// operator's real session never has it set, so this does not weaken the guard
-// for any target the eval harness did not itself stand up. Matched by origin
-// (not full URL) so a same-origin redirect within the fixture still passes the
-// per-hop re-check.
+// The allowed origin is the calling cell's ALS overlay (see eval-http-env.ts),
+// falling back to process.env.EVAL_HTTP_URL for tests that set it directly.
+// An operator's real session never has it set, so this does not weaken the
+// guard for any target the eval harness did not itself stand up. Matched by
+// origin (not full URL) so a same-origin redirect within the fixture still
+// passes the per-hop re-check.
 function isEvalFixtureUrl(rawUrl: string): boolean {
-  const allowed = process.env.EVAL_HTTP_URL;
+  const allowed = evalHttpEnvGet("EVAL_HTTP_URL");
   if (allowed === undefined || allowed.length === 0) return false;
   try {
     return new URL(rawUrl).origin === new URL(allowed).origin;

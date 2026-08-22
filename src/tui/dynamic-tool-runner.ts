@@ -52,7 +52,7 @@ export function createDynamicToolRunner(
       if (found === undefined) {
         return { callId: call.id, content: `unknown tool: ${call.name}`, isError: true };
       }
-      const executionTimeoutMs = resolveToolExecutionTimeoutMs(watchdogConfig);
+      const executionTimeoutMs = resolveToolExecutionTimeoutMs(watchdogConfig, call);
       const waitForApproval = resolveWaitForApproval(watchdogConfig);
       const result = await runWithToolExecutionWatchdog(
         call,
