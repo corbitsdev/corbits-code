@@ -5,6 +5,8 @@ import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "..
 import { loadState } from "../session/state.js";
 
 
+import { isDirectorId } from "../agent/directors/registry.js";
+import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
 import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
@@ -279,6 +281,11 @@ export type Config = {
   dangerouslySkipPermissions: boolean;
   auto: boolean;
   /**
+   * Exec-only chosen primary director. Omitted = Skywalker (product default).
+   * `--director` is rejected in TUI mode.
+   */
+  director?: DirectorId;
+  /**
    * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the non-TUI
    * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
    */
@@ -343,6 +350,8 @@ export type UnconfiguredConfig = {
   dangerouslySkipPermissions: boolean;
   auto: boolean;
   command: "tui" | "exec";
+  /** Exec-only chosen primary. Omitted on the unconfigured path too. */
+  director?: DirectorId;
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
   // The original error message, used for non-TUI (exec) error output.
@@ -377,6 +386,7 @@ Flags:
   --profile <name>            settings profile
   --resume                    interactive session picker
   --force                     override an existing run state
+  --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
@@ -474,6 +484,7 @@ export async function loadConfig(
   // to ask-on-every-write. There is currently no in-session key to toggle auto;
   // Shift+Tab in the TUI cycles reasoning effort instead.
   let auto = true;
+  let director: DirectorId | undefined;
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
@@ -513,6 +524,17 @@ export async function loadConfig(
     }
     if (arg === "--force") {
       force = true;
+      continue;
+    }
+    if (arg === "--director") {
+      const value = requireValue("--director", args[++i]);
+      if (command !== "exec") {
+        throw new Error("--director is only available in exec mode");
+      }
+      if (!isDirectorId(value)) {
+        throw new Error(`Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`);
+      }
+      director = value;
       continue;
     }
 
@@ -633,6 +655,7 @@ export async function loadConfig(
       dangerouslySkipPermissions,
       auto,
       command,
+      ...(director !== undefined ? { director } : {}),
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local
@@ -684,6 +707,7 @@ export async function loadConfig(
     dangerouslySkipPermissions,
     auto,
     command,
+    ...(director !== undefined ? { director } : {}),
     globalSettingsPath: effectiveSettingsPath,
     sessionId,
     noWorkflow,

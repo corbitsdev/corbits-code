@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildBifrostSource, buildOpenAISource, buildXaiSource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { DIRECTOR_IDS } from "./agent/directors/types.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
@@ -181,6 +182,55 @@ describe("loadConfig", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("parses exec --director implement", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["exec", "--cwd", cwd, "--director", "implement", "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.director).toBe("implement");
+      expect(config.task).toBe("ship it");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("omits director as undefined (skywalker default)", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.director).toBeUndefined();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("unknown --director id errors listing DIRECTOR_IDS", async () => {
+    await expect(
+      loadConfig(["exec", "--director", "nope", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(new RegExp(`Unknown director "nope".*${DIRECTOR_IDS.join(", ")}`));
+  });
+
+  test("--director without a value errors", async () => {
+    await expect(loadConfig(["exec", "--director"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--director requires a value",
+    );
+  });
+
+  test("--director without exec/run is rejected", async () => {
+    await expect(
+      loadConfig(["--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--director is only available in exec mode");
   });
 
   test("resume --pick opens the session picker without requiring prior sessions", async () => {

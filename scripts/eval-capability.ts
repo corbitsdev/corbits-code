@@ -77,6 +77,11 @@ type CliOptions = {
    * differs from what was requested, instead of hard-failing.
    */
   allowProviderFallback: boolean;
+  /**
+   * Exec overlay: run the product path as this closed-fleet director.
+   * Eval/CI override, not single-agent mode. Omitted = skywalker default.
+   */
+  director?: string;
 };
 
 function printUsage(): void {
@@ -99,6 +104,8 @@ function printUsage(): void {
   --dry-run             List cases × variants only (still requires --provider/--model or --matrix)
   --allow-provider-fallback  Allow resolved provider/model to differ from
                              what was requested (default: hard-fail)
+  --director <id>       Exec overlay: run as this director (default: skywalker).
+                        Eval/CI override, not single-agent mode
   -h, --help            Show help
 `);
 }
@@ -229,6 +236,9 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         break;
       case "--allow-provider-fallback":
         opts.allowProviderFallback = true;
+        break;
+      case "--director":
+        opts.director = next();
         break;
       default:
         throw new Error(`Unknown argument: ${a}`);
@@ -608,6 +618,7 @@ async function runCase(
     if (opts.configPath !== undefined) argv.push("--config", opts.configPath);
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
     argv.push("--force");
+    if (opts.director !== undefined) argv.push("--director", opts.director);
 
     const maxTurns = opts.maxTurnsOverride ?? caseDef.maxTurns ?? null;
     // maxTurns is a soft post-run budget (case fails if exceeded). It does not
