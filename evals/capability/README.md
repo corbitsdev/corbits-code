@@ -25,6 +25,7 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read` | Read many fixture files then write the planted token; does not assert compaction fired |
 | complex | `hidden-contract-inventory` | `tests/fixtures/inventory-service` | Implement stock reservations from a prose contract (API.md); graded by held-out tests the agent never sees |
 | complex | `broken-toolchain` | `tests/fixtures/broken-toolchain` | Three stacked, independent environment failures (non-executable codegen hook, broken vendor symlink, corrupt source file) block a trivially-correct test suite; grader checks each fix individually plus a freshly-regenerated codegen artifact so partial repair and fabrication both fail |
+| complex | `misleading-symptom` | `tests/fixtures/report-pipeline` | Crash visibly implicates the wrong module (routes/reports.ts, next to a decoy rounding TODO); root cause is one hop away in services/aggregate.ts. Guarding only the crash site makes the suite look green while returning a plausible-but-wrong total — held-out tests assert the actual value |
 
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
