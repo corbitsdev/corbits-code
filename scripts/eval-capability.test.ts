@@ -256,21 +256,28 @@ describe("initEvalGitRepo", () => {
 });
 
 describe("buildEvalDiagnostics", () => {
-  test("non-Codex provider gets a null instructions hash and the advertised tool list", () => {
-    const diagnostics = buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
+  test("non-Codex provider gets a null instructions hash and the default orchestrator tool list", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
     expect(diagnostics.codexInstructionsHash).toBeNull();
     expect(diagnostics.advertisedTools).toContain("read_file");
     expect(diagnostics.advertisedTools).toContain("run_shell");
     expect(diagnostics.reasoningEffort).toBeNull();
   });
 
-  test("Codex provider gets a non-null instructions hash", () => {
-    const diagnostics = buildEvalDiagnostics(sampleConfig({ providerName: "codex/default" }));
+  test("Codex provider gets a non-null instructions hash", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "codex/default" }));
     expect(diagnostics.codexInstructionsHash).toMatch(/^[0-9a-f]{12}$/);
   });
 
-  test("echoes back the configured reasoning effort", () => {
-    const diagnostics = buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));
+  test("echoes back the configured reasoning effort", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));
     expect(diagnostics.reasoningEffort).toBe("high");
+  });
+
+  test("--director build reports the director's own advertised allowlist", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ director: "build" }));
+    expect(diagnostics.advertisedTools).not.toEqual(
+      (await buildEvalDiagnostics(sampleConfig({}))).advertisedTools,
+    );
   });
 });

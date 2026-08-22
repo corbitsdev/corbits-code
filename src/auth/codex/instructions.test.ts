@@ -89,6 +89,23 @@ describe("refreshCodexInstructions", () => {
     expect(codexInstructions()).toBe(before);
   });
 
+  test("rejects within the timeout when a fetch never resolves (hung connection)", async () => {
+    const before = codexInstructions();
+    global.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          signal.addEventListener("abort", () => reject(signal.reason as Error));
+        }
+      });
+    }) as unknown as typeof fetch;
+
+    const started = Date.now();
+    await expect(refreshCodexInstructions()).rejects.toBeTruthy();
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(codexInstructions()).toBe(before);
+  }, 20_000);
+
   test("codexInstructionsHash reflects the currently resolved instructions text", async () => {
     const hashBefore = codexInstructionsHash();
     expect(hashBefore).toMatch(/^[0-9a-f]{12}$/);
