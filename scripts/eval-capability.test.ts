@@ -119,9 +119,9 @@ describe("parseArgs", () => {
     );
   });
 
-  test("--director implement is parsed", () => {
-    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "implement"]);
-    expect(opts.director).toBe("implement");
+  test("--director build is parsed", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "build"]);
+    expect(opts.director).toBe("build");
   });
 
   test("omitted --director stays undefined", () => {

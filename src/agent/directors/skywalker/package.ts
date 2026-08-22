@@ -23,7 +23,7 @@ Example chains:
 - feature: explore → implement → critique
 - "why / how / is this stalled": answer yourself; at most one explore if a single unknown blocks you
 
-Closed directors (use search_agents / registry; each id matches task(agent="<id>")): implement, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, brand-reviewer, shakespeare, testsmith, tester.
+Closed directors (use search_agents / registry; each id matches task(agent="<id>")): build, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, brand-reviewer, shakespeare, testsmith, tester.
 No catch-all worker. If unsure, reclassify — do not spawn a blob agent.
 
 Quick routing:
@@ -131,7 +131,7 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel task s
 # Spawn graph
 
 Skywalker = full closed set. Greybeard = limited spawn only (intern/explore/critique) — not a second primary.
-You may spawn: implement, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, brand-reviewer, shakespeare, testsmith, tester.
+You may spawn: build, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, brand-reviewer, shakespeare, testsmith, tester.
 
 When spawning, prefer a typed brief:
 - intent — explore | implement | plan | review
@@ -174,7 +174,7 @@ export const skywalkerPackage: DirectorPackage = {
   spawn: {
     maySpawn: true,
     allowlist: [
-      "implement",
+      "build",
       "explore",
       "plan",
       "intern",

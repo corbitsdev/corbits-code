@@ -7,7 +7,7 @@ import { emilPackage } from "./emil/index.js";
 import { explorePackage } from "./explore/index.js";
 import { gaasbotPackage } from "./gaasbot/index.js";
 import { greybeardPackage } from "./greybeard/index.js";
-import { implementPackage } from "./implement/index.js";
+import { buildDirectorPackage } from "./build/index.js";
 import { internPackage } from "./intern/index.js";
 import { neckbeardPackage } from "./neckbeard/index.js";
 import { planPackage } from "./plan/index.js";
@@ -27,7 +27,7 @@ import {
 
 /** Intent → default director when `task(agent=…)` is omitted. No general director. */
 export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> = {
-  implement: "implement",
+  implement: "build",
   explore: "explore",
   plan: "plan",
   review: "critique",
@@ -39,7 +39,7 @@ export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "gener
  */
 export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> = {
   skywalker: skywalkerPackage,
-  implement: implementPackage,
+  build: buildDirectorPackage,
   explore: explorePackage,
   plan: planPackage,
   intern: internPackage,

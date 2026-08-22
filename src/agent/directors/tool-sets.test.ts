@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   DOCS_TOOLS,
-  IMPLEMENT_TOOLS,
+  BUILD_TOOLS,
   ORCHESTRATOR_TOOLS,
   READ_TOOLS,
   SKYWALKER_TOOLS,
@@ -31,7 +31,7 @@ describe("DOCS_TOOLS", () => {
   });
 
   test("run_shell stays on the other surfaces", () => {
-    for (const surface of [READ_TOOLS, IMPLEMENT_TOOLS]) {
+    for (const surface of [READ_TOOLS, BUILD_TOOLS]) {
       expect(surface).toContain("run_shell");
     }
   });

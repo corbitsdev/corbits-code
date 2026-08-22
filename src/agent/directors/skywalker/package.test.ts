@@ -24,7 +24,7 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
     expect(skywalkerPackage.spawn.allowlist).toHaveLength(15);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
-      "implement",
+      "build",
       "explore",
       "plan",
       "intern",
