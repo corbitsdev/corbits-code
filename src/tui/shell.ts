@@ -5052,16 +5052,33 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
     return false
   }
 
+  // The onAccept closure reads through this ref rather than closing over
+  // `suggestions`/`at`/`cursor` directly, so a same-session refresh can
+  // update what accept splices without re-binding the callback.
+  mentionAcceptState.set(shell, { suggestions, atStart: at.atStart, cursor })
+
+  // Every keystroke lands here while the popup is already open. Closing and
+  // reopening the overlay released the host between the two calls — long
+  // enough for a queued permission/operator gate to open on it — and left the
+  // gate's overlay on screen while `mentionPopups` still claimed ownership.
+  // Refreshing the open list in place never releases the host, so a queued
+  // gate has nothing to drain into.
+  if (isMentionPopupOpen(shell)) {
+    setOverlayItems(shell, [...suggestions])
+    return true
+  }
+
   closeMentionPopup(shell)
   openMentionsOverlay(shell, {
     items: [...suggestions],
     onAccept: (selection) => {
-      const completion = suggestions[selection.index]
-      if (completion === undefined) return
+      const state = mentionAcceptState.get(shell)
+      const completion = state?.suggestions[selection.index]
+      if (completion === undefined || state === undefined) return
       const spliced = spliceMentionCompletion(
         shell.prompt.value,
-        at.atStart,
-        cursor,
+        state.atStart,
+        state.cursor,
         completion,
       )
       shell.prompt.value = spliced.value
@@ -5076,6 +5093,12 @@ export async function openAtMentionSuggestions(shell: AppShell): Promise<boolean
 
 const mentionPopups = new WeakSet<AppShell>()
 const mentionGenerations = new WeakMap<AppShell, number>()
+type MentionAcceptState = {
+  readonly suggestions: readonly string[]
+  readonly atStart: number
+  readonly cursor: number
+}
+const mentionAcceptState = new WeakMap<AppShell, MentionAcceptState>()
 
 /** True while the `@` path popup owns typed characters. */
 export function isMentionPopupOpen(shell: AppShell): boolean {
