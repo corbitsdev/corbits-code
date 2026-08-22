@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
@@ -148,11 +148,34 @@ export async function loadProjectTrust(cwd: string, home: string = homedir()): P
   return (await readProjectTrustStore(cwd, home)).store;
 }
 
+// Written via temp-file + rename (same pattern as path-trust.ts / saveGlobalSettings)
+// so a concurrent reader never sees a truncated or half-written store — a torn
+// read would be indistinguishable from a corrupt file and wipe consent.
 async function saveProjectTrust(cwd: string, store: ProjectTrustStore, home: string = homedir()): Promise<void> {
   const path = projectTrustPath(cwd, home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const record = { repo: resolve(cwd), ...store };
-  await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  await rename(tmp, path);
+}
+
+// The grant helpers re-read the store immediately before writing, but two
+// in-process mutations interleaving between that read and the write would
+// still drop grants (e.g. a plugin-trust and an MCP-trust update landing at
+// the same time). Chain them per trust-store path so each mutation sees the
+// previous one's result. (Cross-process writers remain last-writer-wins of a
+// complete file, same as path-trust.ts.)
+const mutationQueues = new Map<string, Promise<unknown>>();
+
+function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const prior = mutationQueues.get(key) ?? Promise.resolve();
+  const next = prior.then(run, run);
+  mutationQueues.set(
+    key,
+    next.catch(() => undefined),
+  );
+  return next;
 }
 
 export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string): boolean {
@@ -165,13 +188,15 @@ export async function trustPlugin(
   pluginPath: string,
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
-  const store = await loadProjectTrust(cwd, home);
   const abs = resolve(pluginPath);
-  if (!store.trustedPluginPaths.includes(abs)) {
-    store.trustedPluginPaths = [...store.trustedPluginPaths, abs];
-    await saveProjectTrust(cwd, store, home);
-  }
-  return store;
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    if (!store.trustedPluginPaths.includes(abs)) {
+      store.trustedPluginPaths = [...store.trustedPluginPaths, abs];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
 }
 
 /**
@@ -200,13 +225,15 @@ export async function trustMcpServer(
   server: MCPServerConfig,
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
-  const store = await loadProjectTrust(cwd, home);
   const fp = mcpServerFingerprint(server);
-  if (!store.trustedMcpFingerprints.includes(fp)) {
-    store.trustedMcpFingerprints = [...store.trustedMcpFingerprints, fp];
-    await saveProjectTrust(cwd, store, home);
-  }
-  return store;
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    if (!store.trustedMcpFingerprints.includes(fp)) {
+      store.trustedMcpFingerprints = [...store.trustedMcpFingerprints, fp];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
 }
 
 /**
