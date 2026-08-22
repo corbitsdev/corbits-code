@@ -878,11 +878,22 @@ function isCatastrophicRm(segment: string): boolean {
 }
 
 // Blank quoted interiors so CMD does not treat `;` inside `-m` text as a new command.
+// Double-quoted `$(...)` / backticks stay visible: their contents are real commands.
 function skipQuotedSpans(command: string): string {
   let out = "";
   let quote: '"' | "'" | undefined;
-  let substDepth = 0;
+  // Quote to restore when each `$(...)` closes. Extra `(` inside a substitution
+  // is a `"paren"` frame so its `)` does not restore quote. A depth counter that
+  // only restores at 0 treats the `"` after inner `"$(...)"` as an opener and
+  // blanks sibling eval.
+  const substStack: Array<'"' | "'" | undefined | "paren"> = [];
   let inBacktick = false;
+
+  const enterSubst = (): void => {
+    substStack.push(quote);
+    quote = undefined;
+  };
+
   for (let i = 0; i < command.length; i++) {
     const ch = command[i]!;
     if (quote === "'") {
@@ -910,8 +921,7 @@ function skipQuotedSpans(command: string): string {
         continue;
       }
       if (ch === "$" && command[i + 1] === "(") {
-        substDepth++;
-        quote = undefined;
+        enterSubst();
         out += "$(";
         i++;
         continue;
@@ -930,21 +940,21 @@ function skipQuotedSpans(command: string): string {
       out += ch;
       continue;
     }
-    if (substDepth > 0 && ch === "$" && command[i + 1] === "(") {
-      substDepth++;
+    if (substStack.length > 0 && ch === "$" && command[i + 1] === "(") {
+      enterSubst();
       out += "$(";
       i++;
       continue;
     }
-    if (substDepth > 0 && ch === "(") {
-      substDepth++;
+    if (substStack.length > 0 && ch === "(") {
+      substStack.push("paren");
       out += ch;
       continue;
     }
-    if (substDepth > 0 && ch === ")") {
-      substDepth--;
+    if (substStack.length > 0 && ch === ")") {
+      const frame = substStack.pop();
       out += ch;
-      if (substDepth === 0) quote = '"';
+      if (frame !== "paren") quote = frame;
       continue;
     }
     if (ch === '"' || ch === "'") quote = ch;

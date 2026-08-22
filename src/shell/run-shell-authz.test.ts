@@ -403,6 +403,13 @@ describe("quoted arguments are not command-position eval", () => {
     expect(runShellAuthzBlockReason(`echo "$(eval echo pwned)"`)).toMatch(destructive);
   });
 
+  test("nested quoted substitution does not hide sibling eval", () => {
+    expect(runShellAuthzBlockReason(`echo "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`git commit -m "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`bash -c "$(echo "$(true)"; eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`echo "$(echo "$(true)" && eval echo pwned)"`)).toMatch(destructive);
+  });
+
   test("eval after a closed quoted -m is still denied", () => {
     expect(runShellAuthzBlockReason(`git commit -m "fix" ; eval echo pwned`)).toMatch(destructive);
   });
