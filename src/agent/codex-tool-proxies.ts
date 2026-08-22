@@ -22,9 +22,22 @@ export type CodexRunTool = (
   args: Record<string, unknown>,
 ) => Promise<{ content: string; isError?: boolean }>;
 
+/**
+ * Dispatches update_plan's translated call onto the real manage_tasks
+ * handler. `manage_tasks` is not a posix tool — it has no handler in the
+ * posixTools registry `runTool` forwards to — so this is its own callback,
+ * wired at each mount site (src/agent/tools.ts, src/subagent/run.ts) to the
+ * exact same manage_tasks stringTool handler that site installs.
+ */
+export type CodexRunManageTasks = (
+  args: Record<string, unknown>,
+) => Promise<{ content: string; isError?: boolean }>;
+
 export type CreateCodexToolProxiesOpts = {
   isCodex: boolean;
   runTool: CodexRunTool;
+  /** Dispatches update_plan's translated manage_tasks(action="create") call. */
+  runManageTasks: CodexRunManageTasks;
   /**
    * When false, Delete File and Update+Move refuse without calling `delete_file`.
    * Defaults to true (implement / unconstrained). Docs leaves pass false because
@@ -141,7 +154,7 @@ export function createCodexToolProxies(opts: CreateCodexToolProxiesOpts): AgentT
   return [
     createApplyPatchProxy(opts.runTool, allowDelete),
     createShellProxy(opts.runTool, allowShell),
-    createUpdatePlanProxy(opts.runTool),
+    createUpdatePlanProxy(opts.runManageTasks),
   ];
 }
 
@@ -266,7 +279,7 @@ function requireOk(
   label: string,
 ): string {
   if (result.isError === true) {
-    throw new Error(`apply_patch failed (${label}): ${result.content}`);
+    throw new Error(`${label} failed: ${result.content}`);
   }
   return result.content;
 }
@@ -394,7 +407,7 @@ function codexPlanStatusToTaskStatus(status: typeof CodexPlanStatus.infer): Task
   return "done";
 }
 
-function createUpdatePlanProxy(runTool: CodexRunTool): AgentTool {
+function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
   return stringTool({
     definition: updatePlanDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -415,7 +428,7 @@ function createUpdatePlanProxy(runTool: CodexRunTool): AgentTool {
         status: codexPlanStatusToTaskStatus(item.status),
       }));
       return requireOk(
-        await runTool("manage_tasks", { action: "create", tasks }),
+        await runManageTasks({ action: "create", tasks }),
         "update_plan",
       );
     },
