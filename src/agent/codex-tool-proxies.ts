@@ -1,6 +1,7 @@
 /**
- * Codex-only tool proxies. Factory only — mounting into createAgentToolset /
- * runSubAgent is intentionally out of scope for this module.
+ * Codex-only tool proxies: `apply_patch`, `shell`, `update_plan`. Factory
+ * only — mounting into createAgentToolset / runSubAgent is intentionally out
+ * of scope for this module.
  */
 
 import { type } from "arktype";
@@ -14,6 +15,7 @@ import {
   parseCodexApplyPatch,
   type PatchOp,
 } from "./codex-apply-patch.js";
+import type { TaskStatus } from "./tasks.js";
 
 export type CodexRunTool = (
   name: string,
@@ -29,6 +31,11 @@ export type CreateCodexToolProxiesOpts = {
    * DOCS_TOOLS includes apply_patch but not delete_file.
    */
   allowDelete?: boolean;
+  /**
+   * When false, `shell` refuses without calling `run_shell`. Defaults to true.
+   * Docs leaves pass false because DOCS_TOOLS omits run_shell.
+   */
+  allowShell?: boolean;
 };
 
 const ApplyPatchArgs = type({
@@ -121,14 +128,21 @@ export const applyPatchDefinition: ToolDefinition = {
 };
 
 /**
- * When `isCodex` is false, returns []. Otherwise returns a single `apply_patch`
- * stringTool that parses the Codex envelope and forwards each op through
- * `runTool` (write_file / delete_file / read_file).
+ * When `isCodex` is false, returns []. Otherwise returns the `apply_patch`,
+ * `shell`, and `update_plan` stringTools: `apply_patch` parses the Codex
+ * envelope and forwards each op through `runTool` (write_file / delete_file /
+ * read_file); `shell` forwards onto `run_shell`; `update_plan` forwards onto
+ * `manage_tasks`.
  */
 export function createCodexToolProxies(opts: CreateCodexToolProxiesOpts): AgentTool[] {
   if (!opts.isCodex) return [];
   const allowDelete = opts.allowDelete !== false;
-  return [createApplyPatchProxy(opts.runTool, allowDelete)];
+  const allowShell = opts.allowShell !== false;
+  return [
+    createApplyPatchProxy(opts.runTool, allowDelete),
+    createShellProxy(opts.runTool, allowShell),
+    createUpdatePlanProxy(opts.runTool),
+  ];
 }
 
 /**
@@ -144,6 +158,21 @@ export function allowDeleteFromCapabilities(
     return capabilities.tools.includes("delete_file");
   }
   return !capabilities.tools.includes("delete_file");
+}
+
+/**
+ * Resolve whether `shell` may forward onto `run_shell` given a leaf
+ * capability filter. Mirrors allowDeleteFromCapabilities against `run_shell`
+ * instead of `delete_file` — docs leaves (DOCS_TOOLS omits run_shell) refuse.
+ */
+export function allowShellFromCapabilities(
+  capabilities: { mode: "allow" | "exclude"; tools: readonly string[] } | undefined,
+): boolean {
+  if (capabilities === undefined) return true;
+  if (capabilities.mode === "allow") {
+    return capabilities.tools.includes("run_shell");
+  }
+  return !capabilities.tools.includes("run_shell");
 }
 
 function createApplyPatchProxy(runTool: CodexRunTool, allowDelete: boolean): AgentTool {
@@ -240,4 +269,155 @@ function requireOk(
     throw new Error(`apply_patch failed (${label}): ${result.content}`);
   }
   return result.content;
+}
+
+// --- shell (Codex's native command-execution tool) ---
+//
+// The pinned Codex base instructions (bridgeMessage in
+// codex-responses-adapter.ts) name this tool `shell`, not `exec_command` — that
+// is the only native name this codebase's own reference material documents, so
+// it is the name proxied here.
+
+const ShellArgs = type({
+  command: "string | string[]",
+  "workdir?": "string",
+  "timeout_ms?": "number",
+});
+
+export const shellDefinition: ToolDefinition = {
+  name: "shell",
+  description: "Runs a shell command and returns its output.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      command: {
+        description:
+          "The command to run, as a shell string or an argv array (e.g. [\"bash\",\"-lc\",\"ls\"]).",
+      },
+      workdir: { type: "string", description: "Working directory for the command." },
+      timeout_ms: { type: "number", description: "Timeout in milliseconds." },
+    },
+    required: ["command"],
+  },
+};
+
+const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh"]);
+
+function shellQuote(arg: string): string {
+  if (/^[A-Za-z0-9_\-./:=@%]+$/.test(arg)) return arg;
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Codex's `shell` tool sends `command` as either a plain string or an argv
+ * array. `run_shell` takes a single shell string. The common argv shape is a
+ * `[shell, "-lc"|"-c", script]` triple — unwrap that to the script verbatim so
+ * embedded spaces/quoting survive. Any other array is shell-quoted element by
+ * element and joined, which is lossy for exotic argv (e.g. a NUL byte in an
+ * arg) but matches ordinary command arrays.
+ */
+function normalizeShellCommand(command: string | string[]): string {
+  if (typeof command === "string") return command;
+  if (
+    command.length === 3 &&
+    SHELL_WRAPPERS.has(command[0]!.replace(/^.*\//, "")) &&
+    (command[1] === "-lc" || command[1] === "-c")
+  ) {
+    return command[2]!;
+  }
+  return command.map(shellQuote).join(" ");
+}
+
+function createShellProxy(runTool: CodexRunTool, allowShell: boolean): AgentTool {
+  return stringTool({
+    definition: shellDefinition,
+    handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+      const parsed = ShellArgs(rawArgs);
+      if (parsed instanceof type.errors) {
+        throw new Error("Error: shell requires a command (string or string[]).");
+      }
+      if (!allowShell) {
+        throw new Error(
+          "shell: not allowed for this agent (run_shell capability missing).",
+        );
+      }
+      const args: Record<string, unknown> = { command: normalizeShellCommand(parsed.command) };
+      if (parsed.workdir !== undefined) args.cwd = parsed.workdir;
+      if (parsed.timeout_ms !== undefined) args.timeout = parsed.timeout_ms;
+      return requireOk(await runTool("run_shell", args), "shell");
+    },
+  });
+}
+
+// --- update_plan (Codex's native plan/checklist tool) ---
+
+const CodexPlanStatus = type("'pending' | 'in_progress' | 'completed'");
+
+const UpdatePlanArgs = type({
+  "explanation?": "string",
+  plan: type({
+    step: "string>0",
+    status: CodexPlanStatus,
+  }).array(),
+});
+
+export const updatePlanDefinition: ToolDefinition = {
+  name: "update_plan",
+  description:
+    "Updates your task plan. Provide the full ordered list of plan steps, each with a status.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      explanation: { type: "string" },
+      plan: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            step: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["pending", "in_progress", "completed"],
+            },
+          },
+          required: ["step", "status"],
+        },
+      },
+    },
+    required: ["plan"],
+  },
+};
+
+function codexPlanStatusToTaskStatus(status: typeof CodexPlanStatus.infer): TaskStatus {
+  if (status === "pending") return "todo";
+  if (status === "in_progress") return "doing";
+  return "done";
+}
+
+function createUpdatePlanProxy(runTool: CodexRunTool): AgentTool {
+  return stringTool({
+    definition: updatePlanDefinition,
+    handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+      const parsed = UpdatePlanArgs(rawArgs);
+      if (parsed instanceof type.errors) {
+        throw new Error(
+          "Error: update_plan requires a plan array of { step, status }.",
+        );
+      }
+      // manage_tasks has no "cancelled" equivalent in Codex's plan shape
+      // (pending/in_progress/completed) — this proxy never produces it, so a
+      // Codex model cannot cancel a step through update_plan. That is a
+      // lossy-but-safe narrowing (dropped, not misrepresented), not a bug fix
+      // for the underlying task tool, which stays out of scope here.
+      const tasks = parsed.plan.map((item, i) => ({
+        id: `p${i + 1}`,
+        title: item.step,
+        status: codexPlanStatusToTaskStatus(item.status),
+      }));
+      return requireOk(
+        await runTool("manage_tasks", { action: "create", tasks }),
+        "update_plan",
+      );
+    },
+  });
 }

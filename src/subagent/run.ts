@@ -37,6 +37,7 @@ import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import {
   allowDeleteFromCapabilities,
+  allowShellFromCapabilities,
   createCodexToolProxies,
   type CodexRunTool,
 } from "../agent/codex-tool-proxies.js";
@@ -339,6 +340,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       isCodex: isCodexProviderName(params.provider.providerName),
       runTool,
       allowDelete: allowDeleteFromCapabilities(params.capabilities),
+      allowShell: allowShellFromCapabilities(params.capabilities),
     }),
   ];
 

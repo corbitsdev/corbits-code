@@ -36,6 +36,11 @@ describe("DOCS_TOOLS", () => {
       expect(surface).toContain("run_shell");
     }
   });
+
+  test("excludes the shell proxy (no run_shell) but keeps update_plan", () => {
+    expect(DOCS_TOOLS).not.toContain("shell");
+    expect(DOCS_TOOLS).toContain("update_plan");
+  });
 });
 
 describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
@@ -55,5 +60,10 @@ describe("BUILD_TOOLS", () => {
     expect(BUILD_TOOLS).toContain("edit_file");
     expect(BUILD_TOOLS).toContain("delete_file");
     expect(BUILD_TOOLS).toContain("apply_patch");
+  });
+
+  test("includes the Codex shell and update_plan proxy names", () => {
+    expect(BUILD_TOOLS).toContain("shell");
+    expect(BUILD_TOOLS).toContain("update_plan");
   });
 });
