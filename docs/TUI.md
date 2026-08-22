@@ -133,6 +133,14 @@ threshold, so a resumed session with already-stale activity shows the settled
 glyph immediately rather than alarming about silence the operator missed, and
 a stall that breaks and re-arms bursts again.
 
+Auto-abort (`shouldAbortForStall`) is reserved for a stream that had already
+started producing tokens and then went dead mid-flight — not for a run that
+is merely *awaiting* the model's next response (right after submit, or the
+instant a tool batch resolves and `awaitingResponse` flips back to true).
+That wait has no signal to tell "still coming" from "never coming" apart, so
+it is never auto-aborted no matter how long it runs; it still surfaces via
+the notice, keeping the operator in control of whether to give up on it.
+
 An idle session animates nothing at all: the monitor tick stops entirely
 rather than repainting an unchanging frame.
 
