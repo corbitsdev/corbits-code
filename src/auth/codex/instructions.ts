@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { GPT_5_CODEX_PROMPT } from "./prompts/gpt-5-codex.js";
@@ -18,6 +19,10 @@ const PROMPT_PATH = "codex-rs/core/gpt_5_codex_prompt.md";
 
 const PROMPT_SENTINEL = "You are Codex";
 const MIN_PROMPT_LENGTH = 1000;
+
+// Bounds both network calls below so a black-holed connection can never hang
+// exec boot, which awaits refreshCodexInstructions before first inference.
+const CODEX_INSTRUCTIONS_TIMEOUT_MS = 10_000;
 
 export function isValidCodexPrompt(text: string): boolean {
   return text.length >= MIN_PROMPT_LENGTH && text.startsWith(PROMPT_SENTINEL);
@@ -42,8 +47,19 @@ export function codexInstructions(): string {
   return instructions;
 }
 
+/**
+ * Short identity for the in-use instructions text, for eval/diagnostic
+ * records — never sent to the model.
+ */
+export function codexInstructionsHash(): string {
+  return createHash("sha256").update(codexInstructions()).digest("hex").slice(0, 12);
+}
+
 async function latestReleaseTag(): Promise<string> {
-  const res = await fetch(RELEASES_LATEST, { headers: { accept: "application/vnd.github+json" } });
+  const res = await fetch(RELEASES_LATEST, {
+    headers: { accept: "application/vnd.github+json" },
+    signal: AbortSignal.timeout(CODEX_INSTRUCTIONS_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`Codex release lookup failed (HTTP ${String(res.status)}).`);
   const data = (await res.json()) as { tag_name?: unknown };
   if (typeof data.tag_name !== "string") throw new Error("Codex release lookup returned no tag.");
@@ -52,7 +68,10 @@ async function latestReleaseTag(): Promise<string> {
 
 export async function refreshCodexInstructions(): Promise<void> {
   const tag = await latestReleaseTag();
-  const res = await fetch(`https://raw.githubusercontent.com/openai/codex/${encodeURIComponent(tag)}/${PROMPT_PATH}`);
+  const res = await fetch(
+    `https://raw.githubusercontent.com/openai/codex/${encodeURIComponent(tag)}/${PROMPT_PATH}`,
+    { signal: AbortSignal.timeout(CODEX_INSTRUCTIONS_TIMEOUT_MS) },
+  );
   if (!res.ok) throw new Error(`Codex prompt fetch failed (HTTP ${String(res.status)}).`);
   const text = await res.text();
   if (!isValidCodexPrompt(text)) throw new Error("Codex prompt fetch returned an unexpected body.");

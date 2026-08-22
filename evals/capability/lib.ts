@@ -134,7 +134,17 @@ export type CaseResult = {
   behaviors: BehaviorMetrics | null;
   /** Set when the resolved provider/model differed from what was requested. */
   providerFallback: ProviderFallbackInfo | null;
+  /** Per-cell diagnostics for debugging eval failures; null when unavailable. */
+  diagnostics: EvalDiagnostics | null;
   textPreview?: string;
+};
+
+export type EvalDiagnostics = {
+  /** Short identity (hash) of the pinned Codex instructions text in use; null for non-Codex providers. */
+  codexInstructionsHash: string | null;
+  /** Built-in tool names advertised to the model for this run. */
+  advertisedTools: readonly string[];
+  reasoningEffort: string | null;
 };
 
 export type MetricStats = {
@@ -726,7 +736,20 @@ function parseCaseResult(raw: unknown): CaseResult {
         : 0,
     behaviors: parseBehaviorMetrics(raw.behaviors),
     providerFallback: parseProviderFallback(raw.providerFallback),
+    diagnostics: parseEvalDiagnostics(raw.diagnostics),
     ...(typeof raw.textPreview === "string" ? { textPreview: raw.textPreview } : {}),
+  };
+}
+
+function parseEvalDiagnostics(raw: unknown): EvalDiagnostics | null {
+  if (!isRecord(raw)) return null;
+  if (!Array.isArray(raw.advertisedTools)) return null;
+  const advertisedTools = raw.advertisedTools.filter((t): t is string => typeof t === "string");
+  return {
+    codexInstructionsHash:
+      typeof raw.codexInstructionsHash === "string" ? raw.codexInstructionsHash : null,
+    advertisedTools,
+    reasoningEffort: typeof raw.reasoningEffort === "string" ? raw.reasoningEffort : null,
   };
 }
 
