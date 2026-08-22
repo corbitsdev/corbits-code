@@ -11,13 +11,60 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.101] - 2026-08-22
 
-### Changed
+### Permissions
 
 - **`/yolo` persists as the user-global skip-permissions default.** Exec
   inherits it; `--dangerously-skip-permissions` still forces the current
-  process. Secret-guard and authz still apply.
+  process. Secret-guard and authz still apply. The TUI shows a startup notice
+  (and exec a stderr warning) when prompts are disabled by the saved default.
+
+- **Always-allow for `git worktree *` now covers later worktree commands.**
+  Contained and permitted-sibling worktree add/remove segments no longer hit
+  the restricted-path guard before grant matching, so a standing grant
+  applies instead of re-prompting on every dispatch. Force flags, chained
+  commands, and genuinely-outside destinations still prompt.
+
+- **Empty workspace roots can no longer disable path containment.** An empty
+  string in the roots list used to make every absolute path count as
+  contained; it is now rejected before the prefix compare.
+
+### TUI
+
+- **The stall watchdog no longer aborts healthy waits for the model.** A run
+  that is merely awaiting the model's next token (after submit or after a
+  tool batch resolves) surfaces a persistent stall notice but is never
+  auto-aborted; auto-abort is reserved for a stream that started emitting
+  and then died mid-flight. Live sub-agents and open permission gates keep
+  their existing exemptions.
+
+### Sub-agents
+
+- **Thinking-token loops now trip the repetition detector.** Thinking deltas
+  feed the same cycle buffer and abort path as visible text, with a
+  short-period digit-folded check that catches monotonic counters (`0/1 1/2
+  2/3 …`) without flagging healthy templated enumeration; the looped window
+  is flushed to `partial.jsonl` for diagnosis.
+
+### Trust & plugins
+
+- **Project-trust stores are atomic, serialized, and cwd-correct.** Saves go
+  through temp-file + rename behind a per-store mutation queue; a store
+  missing its `repo` field is invalid (empty grants); plugin trust paths
+  resolve against the project cwd, never the process cwd, and relative
+  entries are dropped on load.
+
+- **Repo plugins with `defaultEnabled` load agent profiles**, matching how
+  skills already gate; tool plugins remain consent-gated. A later same-id
+  install can no longer silently turn a bundled default off.
+
+### CI
+
+- **ESLint + Prettier land with a split concurrent CI** (lint / typecheck /
+  build-and-test) with dependency and lint caches; `bun run check` is the
+  single pre-PR gate. The lint job is non-blocking until the repo-wide
+  mechanical fix batch lands.
 
 ## [0.2.100] - 2026-08-22
 
