@@ -413,12 +413,18 @@ class ChatDirectorImpl extends DefaultDirector {
   // synthetic system sends (compaction continuations, retries, future
   // director continuations) fire that event too without being operator
   // input (round-5 fix; see message-provenance.ts for the flag's invariant).
+  // CL-5893: also reset (without being treated as an operator message) by a
+  // successful leaf task tool.done — see the pendingTaskCallIds handling
+  // below — so a parent productively blocked on long-running task calls does
+  // not hard-pause purely from turn volume; a true no-progress tool-only
+  // loop with no successful completions is unaffected.
   // Increments on every turn boundary, tool-only or narrated alike.
   private turnsSinceUserMessage = 0;
   // Set to the turnsSinceUserMessage value at which the backstop nudge fired,
   // so the escalation check can require a full further backstop interval to
   // elapse (still with no user message and no period-detected thrash) before
-  // hard-pausing. Reset to null only on an operator-originated message; it
+  // hard-pausing. Reset to null on an operator-originated message or a
+  // successful leaf task completion (CL-5893); it
   // is NOT reset when thrash detection or the escalation pause fires —
   // pausedForToolOnly and toolOnlyPauseReason are recomputed fresh every
   // turn instead, so a stale non-null value here is harmless once a pause
@@ -850,6 +856,23 @@ class ChatDirectorImpl extends DefaultDirector {
       if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
         this.salvageNudgeFired = true;
         this.pendingSalvageNudge = PRIMARY_SALVAGE_NUDGE;
+      }
+      // CL-5893: a parent productively blocked on long-running task calls
+      // racks up turnsSinceUserMessage one tool.done->infer cycle at a time
+      // per leaf, and could hard-pause on fleet-heavy work despite never
+      // actually stalling. A successful leaf completion — no tool error, and
+      // no salvage class at all (not even a soft one like turn-budget or
+      // deadline) — is real progress the operator will see reflected in the
+      // transcript, so it re-arms the backstop interval exactly like a fresh
+      // operator message would, without being treated as one: it does not
+      // touch toolOnlyStreak/toolFingerprintHistory (those track cycling,
+      // which a completed task says nothing about) or salvageNudgeFired.
+      // True no-progress (tool-only churn with no successful leaf completions)
+      // still nudges then pauses exactly as before.
+      if (!event.result.isError && salvage === null) {
+        this.turnsSinceUserMessage = 0;
+        this.backstopNudgeFiredAtTurn = null;
+        this.pendingBackstopNudge = false;
       }
     }
 
