@@ -15,7 +15,9 @@ if [[ ! -f package.json ]]; then
 fi
 
 mkdir -p tests/hidden
-cp "$here"/hidden/*.test.ts tests/hidden/
+for f in "$here"/hidden/*.heldout.ts; do
+  cp "$f" "tests/hidden/$(basename "$f" .heldout.ts).test.ts"
+done
 
 if ! bun test 2>&1 | tee .verify.log; then
   echo "FAIL: bun test (hidden reservation contract + shipped product tests)"
