@@ -1,11 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   loadProjectTrust,
   projectTrustPath,
+  readProjectTrustStore,
   trustMcpServer,
   trustPlugin,
   type ProjectTrustStore,
@@ -97,6 +98,34 @@ describe("project trust store", () => {
         () => false,
       );
       expect(exists).toBe(false);
+    });
+  });
+
+  test("store without a repo field is invalid, not defaulted to empty-but-valid", async () => {
+    await withTempHome(async (home, cwd) => {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({ trustedPluginPaths: ["/plugins/a"], trustedMcpFingerprints: [] }),
+      );
+
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store.trustedPluginPaths).toEqual([]);
+      expect(result.store.trustedMcpFingerprints).toEqual([]);
+    });
+  });
+
+  test("store with a non-string repo field is invalid", async () => {
+    await withTempHome(async (home, cwd) => {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, JSON.stringify({ repo: 12345, trustedPluginPaths: [] }));
+
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("invalid");
+      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
     });
   });
 });
