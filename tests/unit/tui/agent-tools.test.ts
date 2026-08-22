@@ -8,6 +8,8 @@ const mockPosixTools = {
   definitions: [
     { name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {}, required: [] } },
     { name: "write_file", description: "Write a file", inputSchema: { type: "object", properties: {}, required: [] } },
+    { name: "edit_file", description: "Edit a file", inputSchema: { type: "object", properties: {}, required: [] } },
+    { name: "delete_file", description: "Delete a file", inputSchema: { type: "object", properties: {}, required: [] } },
   ] as ToolDefinition[],
   run: mock(async (_call: ToolCall, _signal: AbortSignal) => ({
     callId: "test",
@@ -191,10 +193,10 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).toContain("read_file");
   expect(names).toContain("ask_operator");
-  // Primary Skywalker never mounts product mutation tools.
-  expect(names).not.toContain("write_file");
-  expect(names).not.toContain("edit_file");
-  expect(names).not.toContain("delete_file");
+  // Primary Skywalker mounts product mutation tools for DIY tiny/bounded edits.
+  expect(names).toContain("write_file");
+  expect(names).toContain("edit_file");
+  expect(names).toContain("delete_file");
 });
 
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {

@@ -51,3 +51,11 @@ export const ORCHESTRATOR_TOOLS = [
   "search_agents",
   "task",
 ] as const;
+
+/** Skywalker primary: orchestrator surface plus product writes for DIY tiny work. */
+export const SKYWALKER_TOOLS = [
+  ...ORCHESTRATOR_TOOLS,
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;

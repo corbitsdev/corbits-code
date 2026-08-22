@@ -12,7 +12,8 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.systemPrompt).toContain("You are Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain("When asked your name, answer: Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain("PRIMARY INTENT");
-    expect(skywalkerPackage.systemPrompt).toContain("NEVER implement");
+    expect(skywalkerPackage.systemPrompt).toContain("write_file/edit_file/delete_file");
+    expect(skywalkerPackage.systemPrompt).toContain("DIY tiny/single-file/one-route");
   });
 
   test("createSkywalkerSystemPrompt returns package systemPrompt", () => {
@@ -41,13 +42,13 @@ describe("skywalkerPackage", () => {
     ]);
   });
 
-  test("tools.allow mounts orchestrator surface without product writes", () => {
+  test("tools.allow mounts orchestrator surface plus product writes for DIY", () => {
     const allow = skywalkerPackage.tools?.allow ?? [];
     expect(allow).toContain("task");
     expect(allow).toContain("search_agents");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("report required sections", () => {
@@ -74,9 +75,9 @@ describe("skywalkerPackage", () => {
 
   test("primaryIntent and outOfLane", () => {
     expect(skywalkerPackage.primaryIntent).toBe(
-      "Orchestrate only — triage and dispatch; do not implement product code",
+      "Orchestrate; DIY tiny/bounded product edits; spawn for substantial work",
     );
-    expect(skywalkerPackage.outOfLane).toContain("product edits");
+    expect(skywalkerPackage.outOfLane).toContain("substantial multi-file product work without spawning");
     expect(skywalkerPackage.outOfLane).toContain("catch-all worker");
     expect(skywalkerPackage.outOfLane).toContain(
       "searching the repo yourself after a worker stops without finishing",
@@ -118,9 +119,9 @@ describe("skywalkerPackage", () => {
 
   test("systemPrompt simple path skips explore+critique for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("one implement worker");
-    expect(p).toContain("skip explore and skip critique");
-    expect(p).toContain("tests green");
+    expect(p).toContain("DIY on the parent");
+    expect(p).toContain("skip spawn, skip explore, skip critique");
+    expect(p).toContain("write_file/edit_file");
     expect(p).toContain("Do not always explore→implement→critique");
   });
 

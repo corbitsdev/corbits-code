@@ -34,6 +34,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   still clamps non-shell tools when set and does not cap a longer requested
   `run_shell`.
 
+### Directors
+
+- **Skywalker may DIY tiny product writes (CL-6629).** Path tools
+  (`write_file` / `edit_file` / `delete_file`) remount on the primary
+  session. Tiny/single-file/one-route bounded edits are the exception;
+  spawn remains default for substantial/multi-file/parallel/specialist
+  work (hard cap 4 workers). Docs/design still spawn shakespeare /
+  bruckheimer / brand-reviewer except one-line fixes. Greybeard stays
+  write-free. Shell file-writes stay denied. Spawn is a judgment call,
+  not a tool ban.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

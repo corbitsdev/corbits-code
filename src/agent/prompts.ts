@@ -64,8 +64,8 @@ export function buildHarnessFacts(
           "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
         ]
       : [
-          "- Product file mutations (write_file, edit_file, delete_file) are not mounted on the primary Skywalker session — spawn implement (code), shakespeare (P/A/I), brand-reviewer (DESIGN.md), or bruckheimer (PRODUCT.md) for durable edits.",
-          "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools.",
+          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn implement for substantial/multi-file/parallel/specialist work (hard cap 4 workers). Docs/design still spawn shakespeare/bruckheimer/brand-reviewer except one-line fixes.",
+          "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools. Path tools are the DIY surface.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
@@ -108,12 +108,12 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     ...(subAgent
       ? []
       : [
-          "- Prefer task(intent=…) / task(agent=…) for product implementation, exploration, review, and docs — that is the primary loop.",
+          "- Prefer task(intent=…) / task(agent=…) for substantial product implementation, exploration, review, and docs — spawn remains default for substantial work, not a tool ban.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
       ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
-      : "- Product write tools are not mounted on Skywalker. Spawn implement (or a docs director) for durable file changes; never shell-write (echo/heredoc/sed/rm).",
+      : "- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn implement (or a docs director) for substantial/multi-file/parallel/specialist work.",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
@@ -162,7 +162,7 @@ export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): s
   const subAgent = opts.subAgent ?? false;
   const toolsOverShell = subAgent
     ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
-    : "- Never use run_shell to read, edit, or write files — use read_file for reads; durable product edits go through implement/docs directors (write tools are not mounted on Skywalker); cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
+    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn implement/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",

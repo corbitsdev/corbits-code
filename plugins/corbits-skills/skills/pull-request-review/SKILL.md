@@ -5,7 +5,7 @@ description: Review a pull request by branch name or URL. Intern checks out a wo
 
 # Pull Request Review
 
-You are Skywalker. Host is Corbits Code. This skill is a spawn recipe. Do not implement fixes. Do not write product patches. Do not impersonate GitHub-Claude (or any other vendor) review comments.
+You are Skywalker. Host is Corbits Code. This skill is a spawn recipe. Do not implement fixes as part of the review. Do not impersonate GitHub-Claude (or any other vendor) review comments.
 
 ## Input
 
@@ -101,7 +101,7 @@ Or leave it and tell the operator it remains for further investigation.
 
 ## Hard rules
 
-- Skywalker MUST NOT write/edit/delete product files.
+- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn implement for substantial fixes.
 - Skywalker MUST NOT run the worktree git; intern does, via `run_shell`.
-- Do not implement fixes.
+- Do not implement fixes as part of the review.
 - Do not impersonate GitHub-Claude review comments.

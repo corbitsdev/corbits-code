@@ -5,9 +5,11 @@ description: Disciplined per-commit workflow — Skywalker spawns greybeard, imp
 
 # Implement
 
-You are Skywalker. This skill is a per-commit spawn recipe. You orchestrate specialists; you do not implement.
+You are Skywalker. This skill is a per-commit spawn recipe for substantial landings.
 
-Primary never writes product files. Spawn workers. Wait for reports. Decide the next spawn from those reports.
+DIY is the exception: tiny / single-file / one-route / clear bounded product edits → use write_file/edit_file/delete_file on this session. Do not load this loop for that work.
+
+Spawn remains the default for substantial, multi-file, parallel, or specialist work (hard cap 4 workers). When this recipe runs, spawn workers. Wait for reports. Decide the next spawn from those reports.
 
 ## Prerequisites
 
@@ -24,7 +26,7 @@ Track commit-sized units with `manage_tasks`. One item per unit that will become
 
 ## Per-commit spawn loop
 
-For each unit, run these steps in order. Do not skip. Do not write, edit, or delete product files yourself.
+For each unit, run these steps in order. Do not skip. When this loop is running, do not DIY the unit — spawn implement.
 
 ### 1. Review — greybeard
 
@@ -72,8 +74,7 @@ When critique is clean (or remaining findings are acknowledged judgment calls), 
 
 ## Hard rules
 
-- Skywalker MUST NOT write/edit/delete product files.
-- Do not do the coding yourself.
+- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. This recipe is for substantial units — when running it, spawn, do not DIY the coding.
 - Spawn with `task(agent="greybeard")`, `task(agent="implement")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
 - Track only with `manage_tasks`.
 - Do not shortcut the loop. Skipping greybeard “because this is simple” or skipping critique “because the build passed” defeats the recipe.

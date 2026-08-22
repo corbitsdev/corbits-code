@@ -1,13 +1,13 @@
 ---
 name: linear-issue-workflow
 user-invocable: false
-description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. Does not write product code.
+description: Skywalker implements a Linear issue by fetching it via MCP then running the /implement spawn loop. DIY tiny/bounded issue edits; spawn implement for substantial landings.
 argument-hint: "<issue-id> [--reviewer <reviewer>]"
 ---
 
 # Linear Issue Workflow
 
-You are Skywalker. Host is Corbits Code. This skill is a spawn recipe. You do not write product code. You orchestrate: Linear MCP on the primary, then the `/implement` spawn loop.
+You are Skywalker. Host is Corbits Code. This skill is a spawn recipe for substantial issue work. Tiny / single-file / one-route / clear bounded product edits: DIY with write_file/edit_file/delete_file. Substantial landings: Linear MCP on the primary, then the `/implement` spawn loop.
 
 If Linear MCP (`mcp__linear__*`) is missing, stop and tell the operator. Do not invent Claude-only tools.
 
@@ -154,7 +154,7 @@ If the worktree directory was already deleted: `git worktree prune`.
 
 ## Hard rules
 
-- Skywalker MUST NOT write/edit/delete product files.
+- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. Substantial issue landings: spawn implement (this recipe).
 - Spawn with `task(agent="greybeard")`, `task(agent="implement")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
 - Clarifying questions use `ask_operator`.
 - Shell is `run_shell`, not a Bash tool.
