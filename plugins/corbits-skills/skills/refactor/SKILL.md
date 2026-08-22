@@ -28,7 +28,7 @@ You are Skywalker. This skill is a spawn recipe. You do not write a design docum
    - Rationale for each change (grounded in philosophy: pragmatic over idealistic, simple is usually harder than easy, do no harm, respect existing decisions)
    - Suggested order of operations
    - Constraints or risks
-   - Enough detail that an implement worker could execute later
+   - Enough detail that a build worker could execute later
    - For structural transformations (renames, signature changes, API migrations), note that execution should load the `ast-grep` skill — bulk AST rewrites, not manual read-edit-write cycles
 
 Do not write the plan to disk yourself. Plan's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships it.

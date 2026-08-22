@@ -101,7 +101,7 @@ Or leave it and tell the operator it remains for further investigation.
 
 ## Hard rules
 
-- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn implement for substantial fixes.
+- This recipe reviews; it does not land product patches. If the operator then asks for a tiny/bounded fix, DIY with write_file/edit_file/delete_file; spawn build for substantial fixes.
 - Skywalker MUST NOT run the worktree git; intern does, via `run_shell`.
 - Do not implement fixes as part of the review.
 - Do not impersonate GitHub-Claude review comments.

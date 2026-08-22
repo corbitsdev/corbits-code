@@ -135,7 +135,7 @@ bun run eval:capability -- --provider <name> --model <id> --repeats 5 \
 
 # Overlay a closed-fleet director on the product exec path (eval/CI override,
 # not single-agent mode). Omit / skywalker keep the default Skywalker session.
-bun run eval:capability -- --provider <name> --model <id> --director implement
+bun run eval:capability -- --provider <name> --model <id> --director build
 ```
 
 ## Confirmation gate for behavior changes
@@ -169,12 +169,12 @@ Flags:
 | `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
 | `--ask-permissions` | Do **not** pass `--dangerously-skip-permissions` |
 | `--max-turns <n>` | Soft turn budget: case **fails** if `turnsUsed` exceeds, or if turns are not reported when a budget is set (fail closed). Does not hard-kill mid-run |
-| `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `600000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
+| `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
 | `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
 | `--repeats <n>` | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates |
 | `--concurrency <n>` | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster |
 | `--dry-run` | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix` |
-| `--director <id>` | Exec overlay: run the product `corbits exec` path as this closed-fleet director (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `implement`) do not mount `task`. |
+| `--director <id>` | Exec overlay: run the product `corbits exec` path as this closed-fleet director (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
 
 ## Case format
 

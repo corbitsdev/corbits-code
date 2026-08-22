@@ -18,7 +18,7 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 //
 // Product mutation tools (write_file / edit_file / delete_file) sit in CORE so
 // the primary Skywalker session can DIY tiny/bounded edits without a
-// tool_search round-trip. Substantial work still spawns implement / docs
+// tool_search round-trip. Substantial work still spawns build / docs
 // directors — that is a prompt judgment call, not a toolset strip.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
