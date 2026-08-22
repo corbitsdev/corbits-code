@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -64,6 +65,21 @@ function extractStringArrayField(value: unknown[] | undefined, field: string, pa
   return strings;
 }
 
+// Symlink twins of the same repo (e.g. macOS's /tmp -> /private/tmp) must key
+// and compare as the same project — otherwise grants written via one spelling
+// are invisible via the other (fail-closed availability) and each spelling
+// accumulates its own duplicate store. realpath collapses the twins; a path
+// that doesn't exist yet (or isn't readable) falls back to the lexical
+// resolve so callers never see an error from this normalization step alone.
+function canonicalizeCwd(cwd: string): string {
+  const resolved = resolve(cwd);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 // SECURITY: project trust records must NOT live inside the repo they authorize —
 // a hostile repo could otherwise ship its own `.corbits/trust.json` and
 // pre-grant consent to its plugins and MCP servers. We store them under the
@@ -71,7 +87,7 @@ function extractStringArrayField(value: unknown[] | undefined, field: string, pa
 // interactive consent on THIS machine can populate them. Path-origin plugins
 // use a separate global store (`path-trust.ts`); do not OR the two lists.
 export function projectTrustPath(cwd: string, home: string = homedir()): string {
-  const repo = resolve(cwd);
+  const repo = canonicalizeCwd(cwd);
   const key = createHash("sha256").update(repo).digest("hex").slice(0, 32);
   return join(home, SETTINGS_DIR_NAME, "trust", `${key}.json`);
 }
@@ -138,8 +154,8 @@ export async function readProjectTrustStore(
     logger.warn`project trust store missing repo field at ${path}`;
     return { state: "invalid", store: emptyStore() };
   }
-  if (resolve(validated.repo) !== resolve(cwd)) {
-    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
+  if (canonicalizeCwd(validated.repo) !== canonicalizeCwd(cwd)) {
+    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${canonicalizeCwd(cwd)}`;
     return { state: "invalid", store: emptyStore() };
   }
   // Grants are recorded as absolute paths (see requireAbsolute below); a
@@ -173,7 +189,7 @@ export async function loadProjectTrust(cwd: string, home: string = homedir()): P
 async function saveProjectTrust(cwd: string, store: ProjectTrustStore, home: string = homedir()): Promise<void> {
   const path = projectTrustPath(cwd, home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const record = { repo: resolve(cwd), ...store };
+  const record = { repo: canonicalizeCwd(cwd), ...store };
   const tmp = `${path}.${process.pid}.tmp`;
   await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
   await rename(tmp, path);
@@ -205,7 +221,7 @@ function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
 // project cwd instead of rejecting — path.resolve(cwd, pluginPath) leaves an
 // already-absolute pluginPath untouched.
 function resolveAgainstProjectCwd(cwd: string, pluginPath: string): string {
-  return resolve(cwd, pluginPath);
+  return resolve(canonicalizeCwd(cwd), pluginPath);
 }
 
 export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string, cwd: string = process.cwd()): boolean {
