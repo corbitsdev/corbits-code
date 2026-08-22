@@ -70,8 +70,13 @@
         "@intx/log": "0.2.2",
         "@intx/mime": "0.2.2",
         "@intx/types": "workspace:*",
+        "@isomorphic-git/lightning-fs": "4.7.0",
         "arktype": "catalog:",
+        "buffer": "^6.0.3",
         "isomorphic-git": "catalog:",
+      },
+      "devDependencies": {
+        "@intx/crypto": "0.2.2",
       },
     },
     "vendor/intx-types": {
@@ -222,6 +227,10 @@
     "@intx/tools-posix": ["@intx/tools-posix@0.2.2", "", { "dependencies": { "@intx/agent": "0.2.2", "@intx/types": "0.2.2" } }, "sha512-SN2TDAotUj/9wj4QdmmcSsO8InujxMFNLn5UGwmKXYSz7yoGcJrFyJlYkhmrJPECRdU86bvflTvgEydxpW0wZg=="],
 
     "@intx/types": ["@intx/types@workspace:vendor/intx-types"],
+
+    "@isomorphic-git/idb-keyval": ["@isomorphic-git/idb-keyval@3.3.2", "", {}, "sha512-r8/AdpiS0/WJCNR/t/gsgL+M8NMVj/ek7s60uz3LmpCaTF2mEVlZJlB01ZzalgYzRLXwSPC92o+pdzjM7PN/pA=="],
+
+    "@isomorphic-git/lightning-fs": ["@isomorphic-git/lightning-fs@4.7.0", "", { "dependencies": { "@isomorphic-git/idb-keyval": "3.3.2", "isomorphic-textencoder": "1.0.1", "just-debounce-it": "1.1.0", "just-once": "1.1.0" }, "bin": { "superblocktxt": "src/superblocktxt.js" } }, "sha512-eJg541itXKCOyj3DBAnd0KNY1mNgi29GCpy7FgKWsgatu/ulEKv+dMxxjhUNL68Jh3uPTaGNfeAjdJiHUYEGnw=="],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
@@ -453,6 +462,8 @@
 
     "fast-levenshtein": ["fast-levenshtein@2.0.6", "", {}, "sha512-DCXu6Ifhqcks7TZKY3Hxp3y6qphY5SJZmrWMDrKcERSOXWQdMhU9Ig/PYrzyw/ul9jOIyh0N4M0tbC5hodg8dw=="],
 
+    "fast-text-encoding": ["fast-text-encoding@1.0.6", "", {}, "sha512-VhXlQgj9ioXCqGstD37E/HBeqEGV/qOD/kmbVG8h5xKBYvM1L3lR1Zn4555cQ8GkYbJa8aJSipLPndE1k6zK2w=="],
+
     "fast-uri": ["fast-uri@3.1.2", "", {}, "sha512-rVjf7ArG3LTk+FS6Yw81V1DLuZl1bRbNrev6Tmd/9RaroeeRRJhAt7jg/6YFxbvAQXUCavSoZhPPj6oOx+5KjQ=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
@@ -547,6 +558,8 @@
 
     "isomorphic-git": ["isomorphic-git@1.38.3", "", { "dependencies": { "async-lock": "^1.4.1", "clean-git-ref": "^2.0.1", "crc-32": "^1.2.0", "diff3": "0.0.3", "ignore": "^5.1.4", "minimisted": "^2.0.0", "pako": "^1.0.10", "pify": "^4.0.1", "readable-stream": "^4.0.0", "sha.js": "^2.4.12", "simple-get": "^4.0.1" }, "bin": { "isogit": "cli.cjs" } }, "sha512-rOpt0yIW9HD1o6mA4w2f4XP5Lj42QnccbFbhzkby6L+t9c2klQxf9seqyrw5x8JcWWnbuPuN7v7YJ7yvHj9OPA=="],
 
+    "isomorphic-textencoder": ["isomorphic-textencoder@1.0.1", "", { "dependencies": { "fast-text-encoding": "^1.0.0" } }, "sha512-676hESgHullDdHDsj469hr+7t3i/neBKU9J7q1T4RHaWwLAsaQnywC0D1dIUId0YZ+JtVrShzuBk1soo0+GVcQ=="],
+
     "jose": ["jose@6.2.3", "", {}, "sha512-YYVDInQKFJfR/xa3ojUTl8c2KoTwiL1R5Wg9YCydwH0x0B9grbzlg5HC7mMjCtUJjbQ/YnGEZIhI5tCgfTb4Hw=="],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
@@ -564,6 +577,10 @@
     "json-stable-stringify-without-jsonify": ["json-stable-stringify-without-jsonify@1.0.1", "", {}, "sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw=="],
 
     "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
+
+    "just-debounce-it": ["just-debounce-it@1.1.0", "", {}, "sha512-87Nnc0qZKgBZuhFZjYVjSraic0x7zwjhaTMrCKlj0QYKH6lh0KbFzVnfu6LHan03NO7J8ygjeBeD0epejn5Zcg=="],
+
+    "just-once": ["just-once@1.1.0", "", {}, "sha512-+rZVpl+6VyTilK7vB/svlMPil4pxqIJZkbnN7DKZTOzyXfun6ZiFeq2Pk4EtCEHZ0VU4EkdFzG8ZK5F3PErcDw=="],
 
     "keyv": ["keyv@4.5.4", "", { "dependencies": { "json-buffer": "3.0.1" } }, "sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw=="],
 
