@@ -61,7 +61,6 @@ import {
   resolveDefaultSubAgentMaxTurns,
   toolWatchdogFromSettings,
 } from "../config/settings.js";
-import { resolveToolExecutionTimeoutMs } from "../tui/tool-execution-watchdog.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import { ID_PREFIX } from "../branding.js";
@@ -284,16 +283,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   // visible to the finally block, which is a sibling scope, not a child.
   let stallWatchdog: ReturnType<typeof setInterval> | undefined;
   // Combines the caller's cancel signal with an optional opt-in wall-clock
-  // deadline so a leaf that hits the deadline can still return a salvage report
-  // rather than racing the outer per-tool-call watchdog (which would discard the
-  // run wholesale). When deadlineMs is omitted, no timer is armed — maxTurns +
-  // cancel remain the only bounds. Declared before try so finally can dispose.
+  // deadline so a leaf that hits the deadline can still return a salvage
+  // report. When deadlineMs is omitted, no timer is armed — maxTurns + cancel
+  // remain the only bounds. Declared before try so finally can dispose.
+  // The task tool is exempt from the generic per-tool watchdog (see
+  // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
-      ? resolveSubAgentDeadlineMs(
-          params.deadlineMs,
-          resolveToolExecutionTimeoutMs(toolWatchdogFromSettings(params.settings)),
-        )
+      ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
       : undefined;
   const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
 
