@@ -2,12 +2,12 @@
 name: dispatch
 user-invocable: false
 argument-hint: "[<name> | dispatch/<name>/ | dispatch/<name>/dispatch.yaml | <spec-file> ]"
-description: Multi-lane DAG orchestration. Skywalker recipe — use_skill("dispatch"). Spawns explore, intern, implement, plan, and critique. Never implements product code.
+description: Multi-lane DAG orchestration. Skywalker recipe — use_skill("dispatch"). Spawns explore, intern, implement, plan, and critique. DAG product tasks go through implement; Skywalker may DIY tiny edits outside the DAG.
 ---
 
 # Dispatch
 
-You are Skywalker. This skill is loadable with `use_skill("dispatch")`. Follow this recipe; do not implement product code; do not write `dispatch.yaml` or `plan.md` yourself.
+You are Skywalker. This skill is loadable with `use_skill("dispatch")`. Follow this recipe. DAG product tasks go through implement workers. Do not write `dispatch.yaml` or `plan.md` yourself (intern cannot write; implement writes manifests). Tiny / single-file / one-route product edits outside this DAG may be DIY with write_file/edit_file/delete_file.
 
 Orchestrate parallel director runs across a dependency graph. Fan out work, fan in reports, critique, verify, re-dispatch fixes, and synthesize until done.
 
@@ -39,7 +39,7 @@ If the spec is vague, incomplete, or contradictory: stop and report Blockers. Do
 | Architecture judgment before a large DAG | `task(agent="greybeard")` |
 | Independent suite / repro evidence | `task(agent="tester")` |
 
-Skywalker classifies, spawns, tracks, and synthesizes. Product mutation tools are not mounted on this session. Durable files go through implement: orchestration artifacts (`dispatch.yaml`, `plan.md`, status) and product code. Implement is used for those artifacts because it has write tools; intern does not (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest.
+Skywalker classifies, spawns, tracks, and synthesizes. Path tools (`write_file` / `edit_file` / `delete_file`) are mounted for DIY tiny/bounded product edits; spawn remains the default for DAG product work. Durable orchestration artifacts (`dispatch.yaml`, `plan.md`, status) still go through implement — intern does not have write tools (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest. Do not write those manifests on Skywalker.
 
 Prefer typed briefs: `intent`, `success_criteria`, `do_not`, `report_focus`, and `agent`.
 

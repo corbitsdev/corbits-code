@@ -139,7 +139,6 @@ describe("director registry", () => {
       "testsmith",
       "tester",
       "gaasbot",
-      "skywalker",
     ] as const) {
       const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
       expect(allow).not.toContain("write_file");
@@ -169,13 +168,16 @@ describe("director registry", () => {
     }
   });
 
-  test("skywalker primary stance: never implement, no product write tools", () => {
+  test("skywalker primary stance: DIY tiny writes, spawn for substantial work", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
-    expect(s.systemPrompt).toContain("NEVER implement");
+    expect(s.systemPrompt).toContain("write_file/edit_file/delete_file");
+    expect(s.systemPrompt).toContain("DIY tiny/single-file/one-route");
     expect(s.systemPrompt).toContain("You are Skywalker");
     expect(s.systemPrompt).toMatch(/No catch-all worker/i);
     expect(s.tools?.allow).toContain("task");
-    expect(s.tools?.allow).not.toContain("write_file");
+    expect(s.tools?.allow).toContain("write_file");
+    expect(s.tools?.allow).toContain("edit_file");
+    expect(s.tools?.allow).toContain("delete_file");
     expect(s.spawn.allowlist).toHaveLength(15);
   });
 
