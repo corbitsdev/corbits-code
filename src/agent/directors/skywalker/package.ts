@@ -30,7 +30,6 @@ Quick routing:
 - explore = map/read codebase
 - plan = ordered eng plan (no ship)
 - build = ship product code + tests
-- implement = ship product code + tests
 - critique = defects with evidence (no fix)
 - greybeard = architecture judgment
 - neckbeard = hygiene / pedantry with receipts

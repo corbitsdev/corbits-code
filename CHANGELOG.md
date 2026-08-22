@@ -54,7 +54,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `corbits exec --director <id>` (and eval `--director`) overlays that
   package's system prompt and tool allowlist on the product exec path.
   Omit / skywalker keep the default Skywalker session. Directors that
-  cannot spawn (for example implement) do not mount `task`. This is an
+  cannot spawn (for example build) do not mount `task`. This is an
   exec/eval/CI override, not a TUI or single-agent mode.
 
 ## [0.2.99] - 2026-08-21

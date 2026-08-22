@@ -170,10 +170,10 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("spawn build");
     expect(p).toContain("spawn (build for code");
     expect(p).toContain("build = ship product code + tests");
+    expect(p).not.toContain("implement = ship product code + tests");
     expect(p).not.toMatch(/\bspawn implement\b/);
     expect(p).toContain("explore → implement → critique");
     expect(p).toContain("Do not always explore→implement→critique");
-    expect(p).toContain("implement = ship product code + tests");
   });
 
   test("systemPrompt re-dispatches build on blocking critique", () => {
