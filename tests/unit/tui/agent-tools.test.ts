@@ -195,6 +195,7 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   expect(names).not.toContain("write_file");
   expect(names).not.toContain("edit_file");
   expect(names).not.toContain("delete_file");
+  expect(names).not.toContain("apply_patch");
 });
 
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {

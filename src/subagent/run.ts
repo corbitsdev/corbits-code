@@ -35,6 +35,13 @@ import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import {
+  allowDeleteFromCapabilities,
+  createCodexToolProxies,
+  type CodexRunTool,
+} from "../agent/codex-tool-proxies.js";
+
+import { isCodexProviderName } from "../config/codex-providers.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
@@ -310,6 +317,33 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   if (inherited.length > 0) {
     tools = [...tools, ...inherited];
   }
+
+  // Codex apply_patch proxy: mount after posix+web(+mcp), before capability
+  // filter, so implement/docs allowlists can keep it when Codex. allowDelete
+  // follows whether delete_file is in the leaf capability include list (docs
+  // omits it; implement includes it).
+  const runTool: CodexRunTool = async (name, args) => {
+    const result = await posixTools.run(
+      { id: "codex-proxy", name, arguments: args },
+      new AbortController().signal,
+    );
+    return {
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
+      ...(result.isError === true ? { isError: true } : {}),
+    };
+  };
+  tools = [
+    ...tools,
+    ...createCodexToolProxies({
+      isCodex: isCodexProviderName(params.provider.providerName),
+      runTool,
+      allowDelete: allowDeleteFromCapabilities(params.capabilities),
+    }),
+  ];
+
 
   if (params.capabilities !== undefined) {
     tools = applyCapabilityFilter(tools, params.capabilities);

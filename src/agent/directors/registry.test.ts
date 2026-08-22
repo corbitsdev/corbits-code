@@ -157,7 +157,7 @@ describe("director registry", () => {
 
   test("implement mounts product writes; intern is shell-only; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.implement.tools?.allow).toEqual(
-      expect.arrayContaining(["write_file", "edit_file", "delete_file"]),
+      expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
     expect(internAllow).toContain("run_shell");
