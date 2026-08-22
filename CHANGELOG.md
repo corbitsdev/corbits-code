@@ -11,6 +11,35 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [0.2.102] - 2026-08-22
+
+### Permissions
+
+- **Workspace containment returns canonical real paths.** Writers receive the
+  realpath from the containment allow, closing the symlink-retarget window
+  between check and write; the write-path allowlist compares both sides in
+  canonical space so symlinked cwds don't false-deny.
+
+- **Dangling or looping symlink components fail closed.** A path component
+  that exists but cannot resolve (dangling link, symlink loop) is denied by
+  containment and the write-path allowlist instead of being treated as a
+  missing tail; genuinely-new file paths still resolve via the nearest real
+  ancestor.
+
+### Trust
+
+- **Project-trust stores are keyed by realpath.** The same repo reached via
+  symlink twins (e.g. `/tmp` vs `/private/tmp`) now finds the same grants;
+  the saved `repo` field and validity compare canonicalize consistently.
+
+### TUI
+
+- **Typeahead popups no longer leak queued permission gates.** Both the
+  @-mention popup and the slash-command palette refresh their suggestion
+  lists in place instead of close+reopen, so a queued gate can't open (and
+  swallow keys) mid-filter. Zero matches shows "(no matches)" without
+  releasing the popup; Enter there preserves the typed text.
+
 ## [0.2.101] - 2026-08-22
 
 ### Permissions
