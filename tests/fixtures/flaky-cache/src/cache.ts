@@ -39,4 +39,8 @@ export class TTLCache<T> {
   size(): number {
     return this.store.size;
   }
+
+  expiresAt(key: string): number | undefined {
+    return this.store.get(key)?.expiresAt;
+  }
 }
