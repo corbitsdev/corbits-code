@@ -17,12 +17,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - **Requested `run_shell` timeouts are no longer capped at 10 minutes.** The 15s
   default when timeout is omitted is unchanged. `shell.maxTimeoutMs` still
-  clamps the command when set. The tool-execution watchdog follows a longer
-  requested `run_shell` timeout instead of aborting at 11 minutes;
-  `tools.timeoutMs` / `tools.maxTimeoutMs` still bound other tools only.
-  Capability evals accept `--concurrency <n>` (env `CORBITS_EVAL_CONCURRENCY`,
+  clamps the command when set.
+
+- Capability evals accept `--concurrency <n>` (env `CORBITS_EVAL_CONCURRENCY`,
   default 1); overlapping `httpFixture` cells isolate `EVAL_HTTP_URL` so
   parallel web-bait runs do not share a process.env origin.
+
+### TUI
+
+- **Tool `run()` no longer has an implicit 11-minute wall-clock abort.** The
+  outer watchdog arms only when Settings set `tools.timeoutMs` /
+  `tools.maxTimeoutMs`, or when `run_shell` passes a positive `timeout`
+  (requested plus slack, so this layer cannot beat shell-guard). Unset
+  settings leave `task` and other tools unbounded; parent cancel, maxTurns,
+  and eval `--agent-timeout-ms` still bound the run. `tools.maxTimeoutMs`
+  still clamps non-shell tools when set and does not cap a longer requested
+  `run_shell`.
 
 ## [0.2.99] - 2026-08-21
 

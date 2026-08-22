@@ -15,12 +15,8 @@ export type ToolWatchdogConfig = {
   waitForApproval?: boolean;
 };
 
-// Outer budget for tools that have no per-call timeout. run_shell with a longer
-// requested timeout is resolved separately (see resolveToolExecutionTimeoutMs)
-// so this default — and MAX_TOOL_EXECUTION_TIMEOUT_MS / tools.maxTimeoutMs —
-// cannot abort it first. Omitting run_shell timeout still defaults to 15s
-// inside shell-guard.
-export const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 660_000;
+// Cap applied when Settings set tools.timeoutMs without tools.maxTimeoutMs.
+// Not an implicit default — omitted settings leave the watchdog unarmed.
 export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
 
 /**
@@ -46,16 +42,26 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
 const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
 
+/**
+ * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
+ * Parent cancel, maxTurns, and eval `--agent-timeout-ms` still bound the run.
+ *
+ * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, or when
+ * run_shell passes a positive arguments.timeout (requested + slack so this
+ * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
+ * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
+ */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
   call?: ToolCall,
-): number {
+): number | undefined {
   if (call?.name === "run_shell") {
-    return resolveRunShellWatchdogTimeoutMs(config, call);
+    const requested = requestedRunShellTimeoutMs(call);
+    if (requested !== undefined) {
+      return requested + RUN_SHELL_WATCHDOG_SLACK_MS;
+    }
   }
-  const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
-  const raw = config?.defaultMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
-  return Math.min(max, Math.max(1, Math.floor(raw)));
+  return resolveSettingsWatchdogTimeoutMs(config);
 }
 
 function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
@@ -66,22 +72,15 @@ function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
   return Math.floor(timeout);
 }
 
-/**
- * run_shell's watchdog floor is the requested command timeout (plus slack so
- * this outer timer cannot beat shell-guard). tools.maxTimeoutMs /
- * MAX_TOOL_EXECUTION_TIMEOUT_MS still bound other tools only — they must not
- * reimpose a cap when the operator/model passed a longer run_shell timeout.
- * Omitting timeout leaves the default outer budget (shell-guard still uses 15s).
- */
-function resolveRunShellWatchdogTimeoutMs(
+function resolveSettingsWatchdogTimeoutMs(
   config: ToolWatchdogConfig | undefined,
-  call: ToolCall,
-): number {
-  const raw = config?.defaultMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
-  const floor = Math.max(1, Math.floor(raw));
-  const requested = requestedRunShellTimeoutMs(call);
-  if (requested === undefined) return floor;
-  return Math.max(floor, requested + RUN_SHELL_WATCHDOG_SLACK_MS);
+): number | undefined {
+  if (config === undefined || (config.defaultMs === undefined && config.maxMs === undefined)) {
+    return undefined;
+  }
+  const max = config.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
+  const raw = config.defaultMs ?? max;
+  return Math.min(max, Math.max(1, Math.floor(raw)));
 }
 
 /** Default true: freeze tool budget while a permission prompt is open. */
@@ -121,6 +120,22 @@ export type PauseableTimeout = {
   pause: () => PauseToken;
   resume: (token: PauseToken) => void;
 };
+
+/** Chain parent cancel without arming a run-duration timer. */
+function withParentAbort(signal: AbortSignal): PauseableTimeout {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  signal.addEventListener("abort", onParentAbort, { once: true });
+  if (signal.aborted) controller.abort();
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      signal.removeEventListener("abort", onParentAbort);
+    },
+    pause: (): PauseToken => 0,
+    resume: (_token: PauseToken) => {},
+  };
+}
 
 /**
  * Like withTimeout, but the remaining budget freezes while paused (e.g. while
@@ -322,8 +337,10 @@ export type ToolExecutionWatchdogOptions = {
 };
 
 /**
- * Runs `execute` under a wall-clock race against `parentSignal`, matching the
- * shell-guard search-tool pattern so non-abortable work still returns on time.
+ * Runs `execute` under a race against `parentSignal` and, when `timeoutMs` is
+ * set, a wall-clock budget. `undefined` timeout does not arm a timer — parent
+ * cancel and the approval-budget ALS still apply. Permission pause ceiling
+ * (`MAX_TOOL_APPROVAL_PAUSE_MS`) stays a stuck-prompt guard, not a run cap.
  *
  * When budget/parent abort wins the race, the signal is still aborted, but we
  * give the in-flight execute a short grace to return a usable non-error body
@@ -333,19 +350,22 @@ export type ToolExecutionWatchdogOptions = {
 export async function runWithToolExecutionWatchdog(
   call: ToolCall,
   parentSignal: AbortSignal,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   execute: (signal: AbortSignal) => Promise<ToolResult>,
   options: ToolExecutionWatchdogOptions,
 ): Promise<ToolResult> {
   const salvageGraceMs = options.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
   const waitForApproval = options.waitForApproval;
-  const budget = waitForApproval
-    ? withPauseableTimeout(parentSignal, timeoutMs)
-    : {
-        ...withTimeout(parentSignal, timeoutMs),
-        pause: (): PauseToken => 0,
-        resume: (_token: PauseToken) => {},
-      };
+  const budget: PauseableTimeout =
+    timeoutMs === undefined
+      ? withParentAbort(parentSignal)
+      : waitForApproval
+        ? withPauseableTimeout(parentSignal, timeoutMs)
+        : {
+            ...withTimeout(parentSignal, timeoutMs),
+            pause: (): PauseToken => 0,
+            resume: (_token: PauseToken) => {},
+          };
   // Nested runs (task tool → child tool call) shadow the parent store: the
   // gate captures the innermost budget, so pause/resume must chain outward or
   // the parent `task` budget keeps ticking under the permission modal.
@@ -375,9 +395,10 @@ export async function runWithToolExecutionWatchdog(
         if (salvaged !== undefined) return salvaged;
         // Avoid unhandled rejection if execute later fails after we move on.
         void executePromise.catch(() => {});
-        const content = parentSignal.aborted
-          ? `${call.name} aborted`
-          : formatToolExecutionTimeoutMessage(call.name, timeoutMs);
+        const content =
+          timeoutMs !== undefined && !parentSignal.aborted
+            ? formatToolExecutionTimeoutMessage(call.name, timeoutMs)
+            : `${call.name} aborted`;
         return { callId: call.id, content, isError: true };
       }
 
@@ -392,6 +413,7 @@ export async function runWithToolExecutionWatchdog(
       if (
         budget.signal.aborted &&
         !parentSignal.aborted &&
+        timeoutMs !== undefined &&
         outcome.isError === true &&
         typeof outcome.content === "string" &&
         isAbortLikeToolError(outcome.content)

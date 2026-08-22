@@ -792,6 +792,10 @@ describe("sub-agent stop helpers", () => {
     expect(resolveSubAgentDeadlineMs(45_000, 660_000)).toBe(45_000);
   });
 
+  test("resolveSubAgentDeadlineMs keeps an explicit deadline when the outer watchdog is omitted", () => {
+    expect(resolveSubAgentDeadlineMs(18_000_000, undefined)).toBe(18_000_000);
+  });
+
   test("resolveSubAgentDeadlineMs skips arming when outer watchdog is at or below the margin", () => {
     expect(resolveSubAgentDeadlineMs(5_000, 5_000)).toBeUndefined();
     expect(resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS)).toBeUndefined();

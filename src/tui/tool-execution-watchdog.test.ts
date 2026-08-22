@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
-  DEFAULT_TOOL_EXECUTION_TIMEOUT_MS,
   MAX_TOOL_EXECUTION_TIMEOUT_MS,
   RUN_SHELL_WATCHDOG_SLACK_MS,
   getToolApprovalBudget,
@@ -34,35 +33,59 @@ describe("tool execution watchdog", () => {
     expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 })).toBe(100);
   });
 
-  test("run_shell requested timeout above 660s is not scheduled at the 11-minute default", () => {
-    const requested = 5_400_000;
+  test("task with no settings timeout is unbounded", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "task", arguments: {} }),
+    ).toBeUndefined();
+  });
+
+  test("omitted config does not arm a default watchdog", () => {
+    expect(resolveToolExecutionTimeoutMs(undefined)).toBeUndefined();
+    expect(resolveToolExecutionTimeoutMs({})).toBeUndefined();
+    expect(resolveToolExecutionTimeoutMs({ waitForApproval: true })).toBeUndefined();
+  });
+
+  test("settings timeout without max clamps to MAX_TOOL_EXECUTION_TIMEOUT_MS", () => {
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999 })).toBe(
+      MAX_TOOL_EXECUTION_TIMEOUT_MS,
+    );
+  });
+
+  test("run_shell requested 5-hour timeout is not clamped", () => {
+    const requested = 18_000_000;
     const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
     const ms = resolveToolExecutionTimeoutMs(undefined, call);
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
-    expect(ms).toBeGreaterThan(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
     expect(ms).toBeGreaterThan(MAX_TOOL_EXECUTION_TIMEOUT_MS);
   });
 
   test("tools.maxTimeoutMs does not cap a longer requested run_shell timeout", () => {
-    const requested = 5_400_000;
+    const requested = 18_000_000;
     const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
-    const ms = resolveToolExecutionTimeoutMs(
-      { defaultMs: DEFAULT_TOOL_EXECUTION_TIMEOUT_MS, maxMs: 100_000 },
-      call,
-    );
+    const ms = resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 100_000 }, call);
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
-  test("omitted run_shell timeout keeps the default outer budget (shell-guard still 15s)", () => {
+  test("omitted run_shell timeout is unbounded (shell-guard still 15s)", () => {
     expect(
       resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "run_shell", arguments: {} }),
-    ).toBe(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
+    ).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "run_shell",
+        arguments: { timeout: 0 },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("omitted run_shell timeout still honors settings default", () => {
     expect(
       resolveToolExecutionTimeoutMs(
-        { maxMs: 100_000 },
-        { id: "1", name: "run_shell", arguments: { timeout: 0 } },
+        { defaultMs: 60_000, maxMs: 100_000 },
+        { id: "1", name: "run_shell", arguments: {} },
       ),
-    ).toBe(DEFAULT_TOOL_EXECUTION_TIMEOUT_MS);
+    ).toBe(60_000);
   });
 
   test("non-shell tools still honor tools.maxTimeoutMs", () => {
@@ -193,6 +216,47 @@ describe("tool execution watchdog", () => {
     ]);
     expect(afterAbort.isError).toBe(true);
     expect(afterAbort.content).toBe("hang aborted");
+  });
+
+  test("undefined timeout lets a 50ms tool complete", async () => {
+    const result = await runWithToolExecutionWatchdog(
+      { id: "unbounded", name: "task", arguments: {} },
+      new AbortController().signal,
+      undefined,
+      async () => {
+        await new Promise((r) => setTimeout(r, 50));
+        return { callId: "unbounded", content: "ok" };
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.content).toBe("ok");
+  });
+
+  test("undefined timeout still surfaces parent abort", async () => {
+    const parent = new AbortController();
+    const pending = runWithToolExecutionWatchdog(
+      { id: "unbounded-hang", name: "task", arguments: {} },
+      parent.signal,
+      undefined,
+      async () => {
+        await new Promise(() => {});
+        return { callId: "unbounded-hang", content: "ok" };
+      },
+      { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
+    );
+    parent.abort();
+    const afterAbort = await Promise.race([
+      pending,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("watchdog did not settle after parent abort + grace")),
+          TEST_SALVAGE_GRACE_MS + 500,
+        ),
+      ),
+    ]);
+    expect(afterAbort.isError).toBe(true);
+    expect(afterAbort.content).toBe("task aborted");
   });
 
   test("isUsableToolExecuteResult rejects errors and empty bodies", () => {
