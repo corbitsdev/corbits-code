@@ -510,6 +510,90 @@ describe("loadConfig", () => {
     }
   });
 
+  test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.dangerouslySkipPermissions).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: false,
+        }),
+      );
+      const config = await loadConfig(
+        ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
+        { globalSettingsPath: globalPath },
+      );
+      expect(config.dangerouslySkipPermissions).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("exec inherits persisted skip-permissions without the CLI flag", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.dangerouslySkipPermissions).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("reads provider and model from a --config settings file", async () => {
     const cwd = await emptyCwd();
     try {
