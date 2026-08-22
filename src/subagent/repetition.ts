@@ -32,6 +32,19 @@ export const DEFAULT_REPETITION_CONFIG: RepetitionConfig = {
 // cutting the cost by two orders of magnitude.
 export const REPETITION_CHECK_INTERVAL_CHARS = 256;
 
+// Thinking streams are never shown to the user, so unlike text (see
+// normalize() below) they can safely fold digit runs into one placeholder —
+// there is no numbered-list or table false-positive risk to protect against.
+// That normalization collapses a monotonic counter ("0/1 1/2 2/3 …") to a
+// short constant-length unit ("0/0 0/0 0/0 …"), so the window threshold can
+// drop accordingly while the repeat threshold stays high enough that a loop
+// still needs a long sustained run to trip.
+export const DEFAULT_THINKING_REPETITION_CONFIG: RepetitionConfig = {
+  windowMinChars: 4,
+  repeatThreshold: 32,
+  probeChars: 8192,
+};
+
 export type RepetitionHit = {
   /** The normalized window that repeats. */
   window: string;
@@ -50,10 +63,16 @@ export type RepetitionHit = {
 // Format / invisible separators (ZWSP, BOM, soft hyphen, bidi marks, …) are
 // stripped so a model that injects them between identical windows cannot
 // evade the detector. Observed thrash loops used U+200B between repeats.
-function normalize(text: string): string {
-  return text
+// `normalizeDigits` opts a caller into folding digit runs to one placeholder,
+// which collapses a monotonic counter's varying digits into a repeating unit.
+// Reserved for thinking streams (see DEFAULT_THINKING_REPETITION_CONFIG),
+// which are never rendered to the user and so carry none of the numbered-list
+// / table false-positive risk that keeps text normalization digit-preserving.
+function normalize(text: string, normalizeDigits: boolean): string {
+  const stripped = text
     .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
     .replace(/\s+/g, " ");
+  return normalizeDigits ? stripped.replace(/\d+/g, "0") : stripped;
 }
 
 function prefixFunction(s: string): Int32Array {
@@ -77,8 +96,9 @@ function prefixFunction(s: string): Int32Array {
 export function detectRepetition(
   text: string,
   config: RepetitionConfig = DEFAULT_REPETITION_CONFIG,
+  opts: { normalizeDigits?: boolean } = {},
 ): RepetitionHit | null {
-  const tail = normalize(text.slice(-config.probeChars));
+  const tail = normalize(text.slice(-config.probeChars), opts.normalizeDigits ?? false);
   if (tail.length < config.windowMinChars * config.repeatThreshold) return null;
 
   const reversed = [...tail].reverse().join("");

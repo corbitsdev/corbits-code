@@ -4,8 +4,16 @@ import { appendCycleText, CYCLE_TEXT_CAP_CHARS } from "../session/stream-journal
 import {
   detectRepetition,
   DEFAULT_REPETITION_CONFIG,
+  DEFAULT_THINKING_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,
 } from "./repetition.js";
+
+// A monotonic counter that never repeats verbatim: each pair's numerator and
+// denominator both grow, so raw text is never byte-periodic (the shape that
+// escaped detection live: ~64k thinking tokens of "0/1 1/2 2/3 …").
+function monotonicCounterStream(pairs: number): string {
+  return Array.from({ length: pairs }, (_, i) => `${i}/${i + 1} `).join("");
+}
 
 const LOOP_SENTENCE =
   "next: dig footer/chrome and module structure for plan. 0/1.0 done. 1 remaining. 1h left. 0 errors. ";
@@ -68,6 +76,32 @@ describe("detectRepetition", () => {
   test("returns null for text shorter than one full window set", () => {
     expect(detectRepetition("short")).toBeNull();
     expect(detectRepetition("")).toBeNull();
+  });
+
+  test("a strictly monotonic counter escapes the default (text) config even with thousands of tokens", () => {
+    // Documents the known, deliberate limitation for visible text: a growing
+    // counter is never byte-periodic, so it stays indistinguishable from a
+    // legitimate numbered list without digit normalization.
+    const text = monotonicCounterStream(4000);
+    expect(detectRepetition(text)).toBeNull();
+  });
+
+  test("digit-normalized detection catches the monotonic counter (thinking-stream shape)", () => {
+    const text = monotonicCounterStream(4000);
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    expect(hit).not.toBeNull();
+    expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_THINKING_REPETITION_CONFIG.repeatThreshold);
+  });
+
+  test("a healthy numbered list stays untripped under the default (text) config", () => {
+    // The run loop never passes normalizeDigits for inference.text.delta —
+    // this pins that visible text keeps the digit-preserving path regardless
+    // of how many items stream.
+    const items = Array.from(
+      { length: 400 },
+      (_, i) => `${i + 1}. Ran batch ${i + 1} and verified ${i * 3} records migrated\n`,
+    ).join("");
+    expect(detectRepetition(`Migration progress:\n${items}`)).toBeNull();
   });
 });
 
