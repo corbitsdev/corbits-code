@@ -57,6 +57,68 @@ test("buildInferenceSourceForRef applies leg reasoning effort", () => {
   expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "high" });
 });
 
+test("leftover xhigh on gpt-5 inference source sends medium, not xhigh", () => {
+  const settings: Settings = {
+    providers: {
+      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+    },
+  };
+  const source = buildInferenceSourceForRef(
+    { provider: "openai", model: "gpt-5", reasoningEffort: "xhigh" },
+    { sessionId: "s1", catalog: [...catalog] },
+    settings,
+  );
+  expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "medium" });
+});
+
+test("unset still omits reasoning_effort", () => {
+  const settings: Settings = {
+    providers: {
+      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+    },
+  };
+  const source = buildInferenceSourceForRef(
+    { provider: "openai", model: "gpt-5" },
+    { sessionId: "s1", catalog: [...catalog] },
+    settings,
+  );
+  expect(source?.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+});
+
+test("buildInferenceSourceForRef forwards reasoning effort on xAI sources", () => {
+  const xaiCatalog: ProviderCatalogEntry[] = [
+    {
+      name: "xai/work",
+      baseURL: "https://api.x.ai/v1",
+      apiKey: "tok",
+      models: ["grok-4.6"],
+      defaultModel: "grok-4.6",
+      xaiProfile: "work",
+    },
+  ];
+  const withLeg = buildInferenceSourceForRef(
+    { provider: "xai/work", model: "grok-4.6", reasoningEffort: "low" },
+    { sessionId: "s1", catalog: xaiCatalog },
+    undefined,
+  );
+  expect(withLeg?.provider).toBe("grok-responses");
+  expect(withLeg?.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
+
+  const withCtx = buildInferenceSourceForRef(
+    { provider: "xai/work", model: "grok-4.6" },
+    { sessionId: "s1", catalog: xaiCatalog, reasoningEffort: "medium" },
+    undefined,
+  );
+  expect(withCtx?.defaults?.providerOptions).toMatchObject({ reasoning_effort: "medium" });
+
+  const unset = buildInferenceSourceForRef(
+    { provider: "xai/work", model: "grok-4.6" },
+    { sessionId: "s1", catalog: xaiCatalog },
+    undefined,
+  );
+  expect(unset?.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+});
+
 test("buildMainSessionSources backs the active head with other configured providers", () => {
   const settings: Settings = {
     providers: {

@@ -53,7 +53,7 @@ import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import type { PluginsAdmin, PluginDescriptor } from "../plugins/admin.js";
 import type { PluginManifest } from "../plugins/manifest.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
-import { cycleReasoningEffort } from "../provider/reasoning-effort.js";
+import { cycleReasoningEffort, resolveSessionEffort } from "../provider/reasoning-effort.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { refreshCodexInstructions } from "../auth/codex/instructions.js";
@@ -1386,6 +1386,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             id: config.providerName,
             apiKey: config.apiKey,
             model: config.model,
+            ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
           })
         : buildOpenAICompatibleInitialSource();
   }
@@ -2146,11 +2147,18 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         });
       });
     },
-    modelLabel: () => ({
-      profile: config.providerName,
-      model: config.model,
-      ...(config.reasoningEffort !== undefined ? { effort: config.reasoningEffort } : {}),
-    }),
+    modelLabel: () => {
+      const effort = resolveSessionEffort(
+        config.model,
+        config.reasoningEffort,
+        isCodexProviderName(config.providerName),
+      );
+      return {
+        profile: config.providerName,
+        model: config.model,
+        ...(effort !== undefined ? { effort } : {}),
+      };
+    },
     activeModel: () => ({ provider: config.providerName, model: config.model }),
     readCostSummary: () => commandContext.getCostSummary?.(),
     showPromptCost: () => liveShowPromptCost,

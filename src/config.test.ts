@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBifrostSource, buildOpenAISource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { buildBifrostSource, buildOpenAISource, buildXaiSource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
@@ -674,6 +674,29 @@ describe("buildBifrostSource", () => {
       reasoningEffort: "low",
     });
     expect(source.defaults?.providerOptions).toEqual({ reasoning_effort: "low" });
+  });
+});
+
+describe("buildXaiSource", () => {
+  test("omits reasoning_effort when effort is absent", () => {
+    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    expect(source.provider).toBe("grok-responses");
+    expect(source.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+  });
+
+  test("sets providerOptions.reasoning_effort when effort is present", () => {
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      reasoningEffort: "low",
+    });
+    expect(source.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
+  });
+
+  test("does not invent high when effort is absent", () => {
+    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    expect(source.defaults?.providerOptions?.["reasoning_effort"]).toBeUndefined();
   });
 });
 

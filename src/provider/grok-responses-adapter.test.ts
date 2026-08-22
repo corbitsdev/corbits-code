@@ -75,4 +75,43 @@ describe("createGrokResponsesAdapter", () => {
     expect(body.include).toEqual(["reasoning.encrypted_content"]);
     expect(body.reasoning).toEqual({ summary: "detailed" });
   });
+
+  test("forwards providerOptions.reasoning_effort onto reasoning.effort", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        timestamp: 0,
+        content: [{ type: "text", text: "hello" }],
+      },
+    ];
+
+    const request = adapter.buildRequest(turns, "grok-4.6", {
+      providerOptions: { reasoning_effort: "low" },
+    });
+    const body = JSON.parse(request.body) as {
+      reasoning?: { effort?: string; summary?: string };
+    };
+
+    expect(body.reasoning).toEqual({ effort: "low", summary: "detailed" });
+  });
+
+  test("does not invent high when no reasoning_effort is set", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        timestamp: 0,
+        content: [{ type: "text", text: "hello" }],
+      },
+    ];
+
+    const request = adapter.buildRequest(turns, "grok-4.6", {});
+    const body = JSON.parse(request.body) as {
+      reasoning?: { effort?: string; summary?: string };
+    };
+
+    expect(body.reasoning).toEqual({ summary: "detailed" });
+    expect(body.reasoning?.effort).toBeUndefined();
+  });
 });

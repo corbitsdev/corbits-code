@@ -11,7 +11,10 @@ import {
   clampEffort,
   pickEffortFromCascade,
   resolveEffortForRole,
+  defaultEffortForModel,
+  resolveSessionEffort,
 } from "./reasoning-effort.js";
+import { composePromptActionBarModelLabel } from "../tui/components/prompt-action-bar-label.js";
 
 describe("REASONING_EFFORTS", () => {
   test("is ordered from least to most effort", () => {
@@ -103,15 +106,41 @@ describe("cycleReasoningEffort", () => {
   afterEach(() => setModelReasoningCapabilities({}));
 
   test("walks the gpt-5 ladder and wraps", () => {
-    expect(cycleReasoningEffort("gpt-5", undefined)).toBe("minimal");
     expect(cycleReasoningEffort("gpt-5", "minimal")).toBe("low");
     expect(cycleReasoningEffort("gpt-5", "low")).toBe("medium");
     expect(cycleReasoningEffort("gpt-5", "medium")).toBe("high");
     expect(cycleReasoningEffort("gpt-5", "high")).toBe("minimal");
   });
 
-  test("starts at the first supported level when current is unsupported", () => {
-    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe("minimal");
+  test("unset gpt-5 cycles from the implicit medium default to high", () => {
+    expect(cycleReasoningEffort("gpt-5", undefined)).toBe("high");
+  });
+
+  test("unset grok cycles from implicit high, matching an explicit high", () => {
+    expect(cycleReasoningEffort("grok-4.6", undefined)).toBe(
+      cycleReasoningEffort("grok-4.6", "high"),
+    );
+    expect(cycleReasoningEffort("grok-4.6", "high")).toBe("low");
+  });
+
+  test("unset gpt-5.1 chat cycles from implicit none to minimal", () => {
+    expect(cycleReasoningEffort("gpt-5.1", undefined)).toBe("minimal");
+  });
+
+  test("leftover unsupported effort cycles from the family default", () => {
+    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe("high");
+    expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe(cycleReasoningEffort("gpt-5", "medium"));
+  });
+
+  test("grok leftover minimal cycles the same as unset / high", () => {
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", undefined));
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", "high"));
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe("low");
+  });
+
+  test("unknown models with rungs still start at supported[0] when no default exists", () => {
+    expect(defaultEffortForModel("some-random-model")).toBeUndefined();
+    expect(cycleReasoningEffort("some-random-model", undefined)).toBe("low");
   });
 
   test("returns undefined for a non-reasoning model", () => {
@@ -310,5 +339,90 @@ describe("resolveEffortForRole", () => {
         isCodex: true,
       }),
     ).toBe("high");
+  });
+});
+
+describe("defaultEffortForModel", () => {
+  afterEach(() => setModelReasoningCapabilities({}));
+
+  test("grok family defaults to high", () => {
+    expect(defaultEffortForModel("grok-4.6")).toBe("high");
+    expect(defaultEffortForModel("grok-4.5")).toBe("high");
+  });
+
+  test("gpt-5 and o-series default to medium", () => {
+    expect(defaultEffortForModel("gpt-5")).toBe("medium");
+    expect(defaultEffortForModel("o1")).toBe("medium");
+    expect(defaultEffortForModel("o3-mini")).toBe("medium");
+    expect(defaultEffortForModel("o4-mini")).toBe("medium");
+  });
+
+  test("gpt-5.1 chat defaults to none when none is on the ladder", () => {
+    expect(supportedEfforts("gpt-5.1").includes("none")).toBe(true);
+    expect(defaultEffortForModel("gpt-5.1")).toBe("none");
+    expect(defaultEffortForModel("gpt-5.1", false)).toBe("none");
+  });
+
+  test("Codex defaults to medium", () => {
+    expect(defaultEffortForModel("gpt-5.6-sol", true)).toBe("medium");
+    expect(defaultEffortForModel("gpt-5.1-codex", true)).toBe("medium");
+  });
+
+  test("empty ladder yields undefined", () => {
+    setModelReasoningCapabilities({ "chat-only-model": false });
+    expect(defaultEffortForModel("chat-only-model")).toBeUndefined();
+  });
+
+  test("unknown models with rungs have no family default", () => {
+    expect(supportedEfforts("some-random-model").length).toBeGreaterThan(0);
+    expect(defaultEffortForModel("some-random-model")).toBeUndefined();
+  });
+});
+
+describe("resolveSessionEffort", () => {
+  afterEach(() => setModelReasoningCapabilities({}));
+
+  test("empty ladder yields undefined even when configured", () => {
+    setModelReasoningCapabilities({ "chat-only-model": false });
+    expect(resolveSessionEffort("chat-only-model", "high")).toBeUndefined();
+  });
+
+  test("keeps a supported configured level", () => {
+    expect(resolveSessionEffort("gpt-5", "low")).toBe("low");
+    expect(resolveSessionEffort("grok-4.6", "low")).toBe("low");
+  });
+
+  test("falls back to the family default when unset or unsupported", () => {
+    expect(resolveSessionEffort("gpt-5", undefined)).toBe("medium");
+    expect(resolveSessionEffort("gpt-5", "xhigh")).toBe("medium");
+    expect(resolveSessionEffort("grok-4.6", undefined)).toBe("high");
+    expect(resolveSessionEffort("gpt-5.1", undefined)).toBe("none");
+    expect(resolveSessionEffort("gpt-5.6-sol", undefined, true)).toBe("medium");
+    expect(resolveSessionEffort("some-random-model", undefined)).toBeUndefined();
+  });
+});
+
+describe("prompt action bar effort label", () => {
+  test("joiner stays a dumb concatenation of the resolved session effort", () => {
+    const effort = resolveSessionEffort("grok-4.6", undefined);
+    expect(effort).toBe("high");
+    expect(
+      composePromptActionBarModelLabel({
+        profile: "xai/work",
+        model: "grok-4.6",
+        ...(effort !== undefined ? { effort } : {}),
+      }),
+    ).toBe("xai/work · grok-4.6 · high");
+  });
+
+  test("shows gpt-5 medium without seeding a configured effort", () => {
+    const effort = resolveSessionEffort("gpt-5", undefined);
+    expect(effort).toBe("medium");
+    expect(
+      composePromptActionBarModelLabel({
+        model: "gpt-5",
+        ...(effort !== undefined ? { effort } : {}),
+      }),
+    ).toBe("gpt-5 · medium");
   });
 });
