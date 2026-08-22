@@ -241,7 +241,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 | Director | Owns | Does not own |
 |---|---|---|
-| implement | Ship product code | Pure docs, pure review |
+| build | Ship product code | Pure docs, pure review |
 | explore | Map/read codebase | Product edits |
 | plan | Eng change plan (steps, paths, tests, risks) | Arch gate, product discovery, code |
 | intern | Mechanical commands only | Ambiguous or product-design work |
@@ -271,7 +271,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 | Intent | Default director |
 |---|---|
-| implement | implement |
+| implement | build |
 | explore | explore |
 | plan | plan |
 | review | critique (override with `agent=…`) |
@@ -287,7 +287,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, brand-reviewer, bruckheimer) mount write tools with **no** package `writePaths`. Lane routing is spawn policy (shakespeare = P/A/I docs, brand-reviewer = DESIGN.md, bruckheimer = product discovery), not a file lock. Optional `writePaths` still exists; the permission gate enforces it when a profile sets it.
 
-**Typical chain:** bruckheimer → plan → greybeard → implement (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
+**Typical chain:** bruckheimer → plan → greybeard → build (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
 
 **Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole` / `defaultEffortForDirector`): package `modelRole` defaults are orchestrator/plan/review → `high`, implement/explore/docs/test → `medium`, with **intern** pinned to `low`. Spawn-time binary fallback is orchestrator → `high`, worker → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
 
@@ -302,7 +302,7 @@ Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlug
 The primary session identity is **Skywalker** (`buildChatRole` → `createSkywalkerSystemPrompt`). Product name remains Corbits Code; when asked its name, the primary answers Skywalker. Role: orchestrate — classify, DIY tiny/single-file/one-route product edits, dispatch closed directors via `task` for substantial work, track the fleet, synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are mounted on the primary session (CORE and `SKYWALKER_TOOLS`) so Skywalker can DIY bounded edits; spawn remains the default for substantial, multi-file, parallel, or specialist work (hard cap 4 workers). Shell file-writes stay denied by auto-shell policy. MCP tools are not re-filtered by a product-write deny list (that list is gone). Leaf `writePaths` only apply to path-keyed product tools when a profile sets them. A frontier model already knows how to code; the static prompt carries harness-specific facts and the closed-fleet orchestration policy. The base is three individually-exported sections:
 
 - `buildChatRole` — Skywalker primary identity (orchestrate; DIY tiny/bounded product edits; spawn for substantial work).
-- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked, path tools are the DIY surface on primary (spawn implement/docs directors for substantial work), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked, path tools are the DIY surface on primary (spawn build/docs directors for substantial work), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
 - `buildGuidelines` — be concise, prefer `task` for substantial product work, DIY tiny/bounded edits on the parent, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
 - `buildPromptDisciplineBlock` — a shared, prohibition-form section appended exactly once to every built prompt (chat and sub-agent, every provider family). Primary vs leaf wording differs for product writes: leaves are told to use `read_file`/`edit_file`/`write_file`; Skywalker is told to DIY tiny/bounded edits with those path tools and spawn directors for substantial work. Shared rules: never `cat`/`sed`/heredoc/`echo` for file work, no setting or exporting environment variables (recurring needs belong in project settings), `web_fetch`/`web_search` instead of `curl`/`wget`/hand-rolled queries, one operation per `run_shell` call, turn semantics (a tool-less reply is the final answer, no repeat searches, stop and change approach after three failed attempts, batch independent reads in parallel), and TTY output rules (short bold headers, one-line bullets, backticks for paths/commands, no wide tables).
 
@@ -376,7 +376,7 @@ tool call
 - **queue** — Headless settle registry (`src/permission/queue.ts`). Surfaces enqueue outstanding requests; `wirePermissionGrantReconciliation` listens for `permission.grant` and drains every queued request the new grant covers, without a second prompt. Teardown calls `drain()` so no awaited resolve is left hanging.
 - **types** — `Approval`, `ApprovalScope`, `PermissionRequest`, `ApprovalOutcome`.
 
-**Tool wall-clock budget vs. permission prompts.** Each tool `run()` is wrapped by an outer execution watchdog (`src/tui/tool-execution-watchdog.ts`, defaults ~11 min). By default (`tools.waitForApproval`, Settings → Tools, **On**), that budget freezes while the operator is deciding on a permission prompt, so a late approve still runs the tool and the agent waits for the decision instead of timing out under the modal. When **Off**, the budget keeps ticking during the prompt; if it expires first the tool is skipped and the permission modal is dismissed via the budget AbortSignal (auto-deny with a timeout message). The TUI permission queue (`src/tui/gate-wire.ts`, backed by `src/permission/queue.ts`) attaches that signal so ghost prompts cannot outlive an already-aborted tool.
+**Tool wall-clock budget vs. permission prompts.** Each tool `run()` is wrapped by an outer execution watchdog (`src/tui/tool-execution-watchdog.ts`). The watchdog arms only when Settings set `tools.timeoutMs` / `tools.maxTimeoutMs`, or when `run_shell` passes a positive timeout (requested plus slack, so this layer cannot beat shell-guard). Unset settings leave `task` and other tools unbounded; parent cancel, maxTurns, and eval `--agent-timeout-ms` still bound the run. By default (`tools.waitForApproval`, Settings → Tools, **On**), an armed budget freezes while the operator is deciding on a permission prompt, so a late approve still runs the tool and the agent waits for the decision instead of timing out under the modal. When **Off**, the budget keeps ticking during the prompt; if it expires first the tool is skipped and the permission modal is dismissed via the budget AbortSignal (auto-deny with a timeout message). The TUI permission queue (`src/tui/gate-wire.ts`, backed by `src/permission/queue.ts`) attaches that signal so ghost prompts cannot outlive an already-aborted tool.
 
 Approval scopes offered: Allow Once (persist nothing), Allow Always for a file or its directory (file tools), or a command shape (shell). There is intentionally no "all files" rung. Project-scoped Allow Always grants are confined to the session that minted them: they match the session root and its registered git worktrees (`cwdMatchesGrant` in `src/permission/authz-grants.ts` via `createWorktreeRootsProvider`), not bare process-cwd equality — so a grant at the repo root still covers a sub-agent running in a sibling worktree of the same project.
 
@@ -403,7 +403,7 @@ Corbits Code **ships a bundled catalog** as the first-party data-only plugin `pl
 
 `discoverRepoPlugins` locates `plugins/` next to the source root, at `dist/plugins`, or at `dirname(execPath)/plugins`. It never scans the session cwd for the bundled catalog.
 
-Primary is Skywalker. Bundled skill bodies that are operator slashes are **action** recipes that tell it to `task(agent="<director>")` — there is no catch-all worker. Default slashes: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. `/scribe` dispatches shakespeare; `/implement` spawns implement / greybeard / critique as the recipe specifies; `/plan` dispatches plan director (eng change plan; does not implement; does not file tracker issues); `/review` is a code-review action (not a director name); `/create-issue` remains the tracker command — Linear MCP when available, otherwise `ask_operator` for the platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`. Dispatch is `use_skill` only, not a default slash. Draper and emil are closed directors via `task(agent=…)`, not slashes. The operator types the slash; Skywalker reads the body and dispatches.
+Primary is Skywalker. Bundled skill bodies that are operator slashes are **action** recipes that tell it to `task(agent="<director>")` — there is no catch-all worker. Default slashes: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. `/scribe` dispatches shakespeare; `/implement` spawns build / greybeard / critique as the recipe specifies; `/plan` dispatches plan director (eng change plan; does not implement; does not file tracker issues); `/review` is a code-review action (not a director name); `/create-issue` remains the tracker command — Linear MCP when available, otherwise `ask_operator` for the platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`. Dispatch is `use_skill` only, not a default slash. Draper and emil are closed directors via `task(agent=…)`, not slashes. The operator types the slash; Skywalker reads the body and dispatches.
 
 #### Discovery and precedence
 

@@ -50,7 +50,7 @@ describe("director registry", () => {
   test("intent map defaults (no general)", () => {
     expect(resolveDirector({ intent: "implement" })).toMatchObject({
       ok: true,
-      package: { id: "implement" },
+      package: { id: "build" },
     });
     expect(resolveDirector({ intent: "explore" })).toMatchObject({
       ok: true,
@@ -154,8 +154,8 @@ describe("director registry", () => {
     }
   });
 
-  test("implement mounts product writes; intern is shell-only; other leaves do not spawn", () => {
-    expect(DIRECTOR_REGISTRY.implement.tools?.allow).toEqual(
+  test("build mounts product writes; intern is shell-only; other leaves do not spawn", () => {
+    expect(DIRECTOR_REGISTRY.build.tools?.allow).toEqual(
       expect.arrayContaining(["write_file", "edit_file", "delete_file"]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];

@@ -16,8 +16,8 @@ export const READ_TOOLS = [
   "web_search",
 ] as const;
 
-/** Implement: read + full file mutation. */
-export const IMPLEMENT_TOOLS = [
+/** Build: read + full file mutation. */
+export const BUILD_TOOLS = [
   ...READ_TOOLS,
   "write_file",
   "edit_file",

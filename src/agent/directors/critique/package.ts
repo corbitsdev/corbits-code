@@ -47,10 +47,10 @@ API contract check (blocking when brief specifies signatures):
 - Prefer reading tests/callers; if shell is allowed, a tiny sync call that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
-Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/implement.
+Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/build.
 
 OUT OF LANE → refuse or reclassify under Blockers:
-- implementing fixes (route to implement)
+- implementing fixes (route to build)
 - architecture portfolio without code evidence (route to greybeard)
 - visual brand / DESIGN.md (route to brand-reviewer / draper)
 - pedantic fun without evidence (route to neckbeard only if hygiene is the brief)

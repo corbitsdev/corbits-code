@@ -15,6 +15,7 @@ describe("testerPackage", () => {
     expect(testerPackage.systemPrompt).toContain("PRIMARY INTENT");
     expect(testerPackage.systemPrompt).toMatch(/run|verify/i);
     expect(testerPackage.systemPrompt).toMatch(/never fix|do not.*fix|Never fix/i);
+    expect(testerPackage.systemPrompt).toContain("re-dispatch to build or testsmith");
   });
 
   test("spawn.maySpawn is false (leaf)", () => {

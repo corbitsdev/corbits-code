@@ -184,16 +184,16 @@ describe("loadConfig", () => {
     }
   });
 
-  test("parses exec --director implement", async () => {
+  test("parses exec --director build", async () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["exec", "--cwd", cwd, "--director", "implement", "ship it"], {
+      const config = await loadConfig(["exec", "--cwd", cwd, "--director", "build", "ship it"], {
         globalSettingsPath: globalPath,
       });
       assertConfigured(config);
       expect(config.command).toBe("exec");
-      expect(config.director).toBe("implement");
+      expect(config.director).toBe("build");
       expect(config.task).toBe("ship it");
     } finally {
       await rm(cwd, { recursive: true, force: true });
@@ -219,6 +219,14 @@ describe("loadConfig", () => {
     await expect(
       loadConfig(["exec", "--director", "nope", "ship it"], { globalSettingsPath: NO_SETTINGS }),
     ).rejects.toThrow(new RegExp(`Unknown director "nope".*${DIRECTOR_IDS.join(", ")}`));
+  });
+
+  test("--director implement is unknown and lists closed-fleet ids including build", async () => {
+    await expect(
+      loadConfig(["exec", "--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`));
+    expect(DIRECTOR_IDS).toContain("build");
+    expect(DIRECTOR_IDS).not.toContain("implement");
   });
 
   test("--director without a value errors", async () => {

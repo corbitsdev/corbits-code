@@ -158,11 +158,11 @@ Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTR
 2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
 3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
 4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker; plugin agent profiles still load and can override by id.
-5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn implement/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. Optional `writePaths` (when a profile sets it) only gate path-keyed product tools.
+5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn build/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. Optional `writePaths` (when a profile sets it) only gate path-keyed product tools.
 6. Shipped directors omit `writePaths`. The optional field is still enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`) when a plugin/custom profile sets it.
 7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/worker binary > parent inheritance. Optional skills are listed in the identity header for awareness; workers do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
 
-Intent defaults: implement/explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other directors no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
+Intent defaults: `intent=implement` → director `build`; explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other directors no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
 
 ### Auto Mode
 
@@ -220,7 +220,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
 
-  Optional `tools` block for the outer per-tool wall-clock budget:
+  Optional `tools` block to arm the outer per-tool wall-clock budget (unset leaves the watchdog unarmed):
 
   ```json
   "tools": {
@@ -230,7 +230,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()` (defaults ~11 min / 30 min).
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`.
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Always applies — the primary session is always orchestrator-capable (CL-5814).
@@ -250,8 +250,8 @@ All `tools.*` keys live in the global settings file only — there is no per-rep
 
 | Key | Default | Effect |
 |---|---|---|
-| `tools.timeoutMs` | 660000 (~11 min) | Default outer wall-clock budget per tool `run()` |
-| `tools.maxTimeoutMs` | 1800000 (30 min) | Cap on the outer budget |
+| `tools.timeoutMs` | unset (watchdog unarmed) | Outer wall-clock budget per tool `run()` when set |
+| `tools.maxTimeoutMs` | unset | Cap on the outer budget when set; does not cap a longer requested `run_shell` |
 | `tools.waitForApproval` | `true` | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
 
 The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.

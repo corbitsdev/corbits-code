@@ -36,6 +36,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Directors
 
+- **Skywalker spawn-target for product code is `build`.** Prompt and
+  skill copy that still said `spawn implement` / `task(agent="implement")`
+  now dispatch `build`. Intent graph `explore → implement → critique`
+  and slash `/implement` are unchanged.
+
 - **Skywalker may DIY tiny product writes (CL-6629).** Path tools
   (`write_file` / `edit_file` / `delete_file`) remount on the primary
   session. Tiny/single-file/one-route bounded edits are the exception;
@@ -47,9 +52,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - **Exec and capability evals can run as a chosen primary director.**
   `corbits exec --director <id>` (and eval `--director`) overlays that
-  package's system prompt and tool allowlist on the product exec path.
+  package's system prompt and initially-advertised tool set on the product exec path.
   Omit / skywalker keep the default Skywalker session. Directors that
-  cannot spawn (for example implement) do not mount `task`. This is an
+  cannot spawn (for example build) do not mount `task`. This is an
   exec/eval/CI override, not a TUI or single-agent mode.
 
 ## [0.2.99] - 2026-08-21

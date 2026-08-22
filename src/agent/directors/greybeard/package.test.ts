@@ -28,8 +28,14 @@ describe("greybeardPackage", () => {
     expect(allow).toContain("explore");
     expect(allow).toContain("critique");
     expect(allow).not.toContain("implement");
+    expect(allow).not.toContain("build");
     expect(allow).not.toContain("skywalker");
     expect(allow).not.toContain("plan");
+  });
+
+  test("systemPrompt forbids spawning implement and names build as off-list", () => {
+    expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
+    expect(greybeardPackage.systemPrompt).toContain("Do not spawn build");
   });
 
   test("systemPrompt forbids parallel diagnostic fleets", () => {
