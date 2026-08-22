@@ -32,15 +32,20 @@ export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
  * maxTurns + operator cancel are the primary bounds; callers pass deadlineMs
  * only when they want an extra wall-clock stop.
  *
+ * When the outer watchdog is omitted (undefined), the requested deadline is
+ * kept — an absent settings timeout must not clamp a 5-hour (or any) explicit
+ * deadline down to a hidden default.
+ *
  * Returns undefined (do not arm) when the outer watchdog is at or below the
  * salvage margin — an internal deadline would otherwise race or exceed outer
  * and leave no room to return a salvage report.
  */
 export function resolveSubAgentDeadlineMs(
   requestedMs: number,
-  outerWatchdogMs: number,
+  outerWatchdogMs: number | undefined,
 ): number | undefined {
   const requested = Math.max(1, Math.floor(requestedMs));
+  if (outerWatchdogMs === undefined) return requested;
   if (outerWatchdogMs <= SUBAGENT_DEADLINE_MARGIN_MS) return undefined;
   // Ceiling must never exceed outer − margin (and stays ≥ 1 once outer > margin).
   const ceiling = Math.max(1, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);

@@ -11,6 +11,29 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Plugins
+
+- **Requested `run_shell` timeouts are no longer capped at 10 minutes.** The 15s
+  default when timeout is omitted is unchanged. `shell.maxTimeoutMs` still
+  clamps the command when set.
+
+- Capability evals accept `--concurrency <n>` (env `CORBITS_EVAL_CONCURRENCY`,
+  default 1); overlapping `httpFixture` cells isolate `EVAL_HTTP_URL` so
+  parallel web-bait runs do not share a process.env origin.
+
+### TUI
+
+- **Tool `run()` no longer has an implicit 11-minute wall-clock abort.** The
+  outer watchdog arms only when Settings set `tools.timeoutMs` /
+  `tools.maxTimeoutMs`, or when `run_shell` passes a positive `timeout`
+  (requested plus slack, so this layer cannot beat shell-guard). Unset
+  settings leave `task` and other tools unbounded; parent cancel, maxTurns,
+  and eval `--agent-timeout-ms` still bound the run. `tools.maxTimeoutMs`
+  still clamps non-shell tools when set and does not cap a longer requested
+  `run_shell`.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

@@ -5,6 +5,7 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { runWithEvalHttpEnv, evalHttpEnvGet } from "../../src/tools/eval-http-env.js";
 import {
   isNumericBehaviorMetric,
   parseBehaviorMetrics,
@@ -422,6 +423,8 @@ export function makeResultKey(variantId: string, caseId: string): string {
   return `${variantId}::${caseId}`;
 }
 
+export { evalHttpEnvGet, runWithEvalHttpEnv };
+
 /**
  * Env vars the eval-only SSRF fixture exception in src/tools/ssrf-guard.ts
  * checks against. Shared by the agent process (must see EVAL_HTTP_URL so
@@ -433,23 +436,15 @@ export function httpFixtureEnv(fixture: { url: string; token: string }): Record<
 }
 
 /**
- * Sets process.env vars for the duration of fn, restoring the prior values
- * (or deleting the key if it was unset) afterward, even on throw. The agent
- * runs in-process via runExec rather than as a spawned child, so fixture env
- * needed by in-process code (e.g. the eval-only SSRF exception) must be
- * applied to process.env directly instead of a child's env object.
+ * Isolates `vars` for the duration of `fn` via async context (ALS), even when
+ * sibling cells overlap under `--concurrency`. In-process readers (ssrf-guard)
+ * see this cell's values through evalHttpEnvGet; one cell finishing cannot
+ * delete a sibling's overlay. process.env is left alone so a restore cannot
+ * clobber a concurrent cell. verify.sh still receives an explicit env object
+ * at spawn (see scripts/eval-capability.ts).
  */
 export async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> {
-  const prior = new Map(Object.keys(vars).map((k) => [k, process.env[k]]));
-  Object.assign(process.env, vars);
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of prior) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
+  return runWithEvalHttpEnv(vars, fn);
 }
 
 /**

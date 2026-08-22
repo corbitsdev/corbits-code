@@ -18,9 +18,6 @@ import {
 // so open-ended walks cannot OOM the host.
 
 export const DEFAULT_SHELL_TIMEOUT_MS = 15_000;
-// Upper bound on a per-command timeout override, so the model cannot ask for an
-// effectively unbounded wait. Configurable via settings.
-export const MAX_SHELL_TIMEOUT_MS = 600_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
 export type ShellTimeoutConfig = {
@@ -28,6 +25,21 @@ export type ShellTimeoutConfig = {
   maxMs?: number;
   maxOutputBytes?: number;
 };
+
+/**
+ * Effective run_shell timeout. Omitting `requested` (or a non-positive value)
+ * uses `defaultMs`. `maxMs` clamps only when settings pass it — there is no
+ * implicit 10-minute ceiling.
+ */
+export function resolveShellTimeoutMs(
+  requested: number | undefined,
+  defaultMs: number,
+  maxMs?: number,
+): number {
+  const base = requested !== undefined && requested > 0 ? requested : defaultMs;
+  if (maxMs === undefined) return base;
+  return Math.min(base, maxMs);
+}
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
@@ -356,7 +368,6 @@ export function shellGuardPlugin(
   options: ShellGuardPluginOptions = {},
 ): ToolPlugin {
   const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
-  const maxMs = timeoutConfig?.maxMs ?? MAX_SHELL_TIMEOUT_MS;
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
@@ -412,9 +423,11 @@ export function shellGuardPlugin(
             };
           }
           const requested = optionalNumber(call.arguments.timeout);
-          const baseTimeoutMs =
-            requested !== undefined && requested > 0 ? requested : defaultMs;
-          const effectiveTimeout = Math.min(baseTimeoutMs, maxMs);
+          const effectiveTimeout = resolveShellTimeoutMs(
+            requested,
+            defaultMs,
+            timeoutConfig?.maxMs,
+          );
           const wrappedCommand = wrapCommandWithPwdProbe(command);
           try {
             const { output, exitCode, timedOut, outputTruncated } =
