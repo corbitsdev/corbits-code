@@ -233,6 +233,16 @@ Provider and model configuration lives in JSON settings files. The global file h
   - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. The `task` tool is always exempt: a dispatched sub-agent is bounded by its own limits (maxTurns, no-progress, thrash, opt-in `deadlineMs`), not the generic per-tool budget.
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
+  Optional `mcp` block bounds MCP tool calls (`mcp__*` names) specifically — unlike `tools.*`, this arms **unconditionally** even with no settings at all, defaulting to **5 minutes**, since a wedged MCP server otherwise hangs a call forever with nothing to bound it (CL-6895):
+
+  ```json
+  "mcp": {
+    "timeoutMs": 300000
+  }
+  ```
+
+  On expiry the call returns a normal tool-error result ("MCP tool `<name>` timed out after `<n>`s — the server may be wedged; retry or continue without it") that the model can react to; the turn itself is never aborted. `tools.maxTimeoutMs`, if set, still caps `mcp.timeoutMs`.
+
   Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Always applies — the primary session is always orchestrator-capable (CL-5814).
 
   Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
@@ -253,6 +263,7 @@ All `tools.*` keys live in the global settings file only — there is no per-rep
 | `tools.timeoutMs` | unset (watchdog unarmed) | Outer wall-clock budget per tool `run()` when set |
 | `tools.maxTimeoutMs` | unset | Cap on the outer budget when set; does not cap a longer requested `run_shell` |
 | `tools.waitForApproval` | `true` | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
+| `mcp.timeoutMs` | **300000** (5 min) — armed even when unset | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set |
 
 The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
 

@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.js";
+import {
+  formatMcpToolTimeoutMessage,
+  formatToolExecutionTimeoutMessage,
+} from "../plugins/tool-time-budget.js";
+import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 /** Wall-clock budget for a single tool `run()` invocation (outer guard). */
@@ -13,7 +17,21 @@ export type ToolWatchdogConfig = {
    * is dismissed via the budget AbortSignal.
    */
   waitForApproval?: boolean;
+  /**
+   * Override for mcp__* tool calls (settings.mcp.timeoutMs). Unlike the
+   * generic defaultMs/maxMs pair, MCP tools are always bounded — a wedged MCP
+   * server otherwise hangs a tool call forever (CL-6895) — so this only
+   * changes the bound, it never leaves it unarmed.
+   */
+  mcpTimeoutMs?: number;
 };
+
+// Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
+// is unset. Live forensics (CL-6895) showed multi-minute MCP calls that were
+// merely slow and later completed successfully, not deadlocked — so this stays
+// generous (5 minutes) rather than the shorter default used for other tools,
+// while still bounding a genuinely wedged server.
+export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
 
 // Cap applied when Settings set tools.timeoutMs without tools.maxTimeoutMs.
 // Not an implicit default — omitted settings leave the watchdog unarmed.
@@ -54,6 +72,11 @@ const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
  * The task tool is exempt: it runs an entire sub-agent that carries its own
  * bounds (maxTurns, no-progress, thrash, opt-in deadline), so the generic
  * per-tool budget would abort healthy long-running workers mid-run.
+ *
+ * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
+ * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
+ * MCP server can wedge a call forever with no other watchdog to bound it
+ * (CL-6895).
  */
 export function resolveToolExecutionTimeoutMs(
   config?: ToolWatchdogConfig,
@@ -66,7 +89,23 @@ export function resolveToolExecutionTimeoutMs(
       return requested + RUN_SHELL_WATCHDOG_SLACK_MS;
     }
   }
+  if (call !== undefined && isMcpToolName(call.name)) {
+    return resolveMcpToolTimeoutMs(config);
+  }
   return resolveSettingsWatchdogTimeoutMs(config);
+}
+
+function resolveMcpToolTimeoutMs(config: ToolWatchdogConfig | undefined): number {
+  const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
+  const configured = config?.mcpTimeoutMs;
+  // A non-positive or non-finite configured value is not a valid budget (it
+  // would floor to a ~0ms timeout and instantly fail every MCP call, which is
+  // unconditionally armed) — fall back to the default instead of clamping to 1ms.
+  const raw =
+    configured !== undefined && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_MCP_TOOL_TIMEOUT_MS;
+  return Math.min(max, Math.max(1, Math.floor(raw)));
 }
 
 function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
@@ -283,6 +322,12 @@ function isAbortLikeToolError(content: string): boolean {
   return /abort/i.test(content);
 }
 
+function formatTimeoutMessage(toolName: string, timeoutMs: number): string {
+  return isMcpToolName(toolName)
+    ? formatMcpToolTimeoutMessage(toolName, timeoutMs)
+    : formatToolExecutionTimeoutMessage(toolName, timeoutMs);
+}
+
 /** True when execute produced a body the parent should prefer over synthetic abort/timeout. */
 export function isUsableToolExecuteResult(result: ToolResult): boolean {
   return (
@@ -402,7 +447,7 @@ export async function runWithToolExecutionWatchdog(
         void executePromise.catch(() => {});
         const content =
           timeoutMs !== undefined && !parentSignal.aborted
-            ? formatToolExecutionTimeoutMessage(call.name, timeoutMs)
+            ? formatTimeoutMessage(call.name, timeoutMs)
             : `${call.name} aborted`;
         return { callId: call.id, content, isError: true };
       }
@@ -425,7 +470,7 @@ export async function runWithToolExecutionWatchdog(
       ) {
         return {
           callId: call.id,
-          content: formatToolExecutionTimeoutMessage(call.name, timeoutMs),
+          content: formatTimeoutMessage(call.name, timeoutMs),
           isError: true,
         };
       }

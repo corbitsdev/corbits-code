@@ -135,6 +135,11 @@ export type Settings = {
   // the budget keeps ticking during the prompt; if it expires first the tool is
   // skipped and the prompt is dismissed.
   tools?: { timeoutMs?: number; maxTimeoutMs?: number; waitForApproval?: boolean };
+  // Wall-clock budget for MCP tool calls specifically (mcp__* names). Unlike
+  // the generic `tools` budget, this one is armed by default (see
+  // DEFAULT_MCP_TOOL_TIMEOUT_MS) since a wedged MCP server otherwise hangs a
+  // tool call forever with nothing to bound it.
+  mcp?: { timeoutMs?: number };
   // Anonymous PostHog telemetry. Global only — never written to per-repo
   // local settings. `enabled` defaults to true (opt-out); `installationId`
   // is a random UUID generated once on first use; `noticeShown` stamps that
@@ -244,20 +249,23 @@ export function shellTimeoutFromSettings(
   };
 }
 
-// Maps the settings tools block to the shape the tool-execution watchdog expects.
-// Returns undefined when nothing is configured so callers can skip the override.
+// Maps the settings tools/mcp blocks to the shape the tool-execution watchdog
+// expects. Returns undefined only when nothing at all is configured so callers
+// can skip the override; mcp.timeoutMs alone (with no tools.* set) still
+// produces a config, since MCP timeouts are armed unconditionally.
 export function toolWatchdogFromSettings(
   settings?: Settings | null,
-): { defaultMs?: number; maxMs?: number; waitForApproval?: boolean } | undefined {
+): { defaultMs?: number; maxMs?: number; waitForApproval?: boolean; mcpTimeoutMs?: number } | undefined {
   const tools = settings?.tools;
-  if (tools === undefined) return undefined;
-  const hasTimeout = tools.timeoutMs !== undefined || tools.maxTimeoutMs !== undefined;
-  const hasWait = tools.waitForApproval !== undefined;
-  if (!hasTimeout && !hasWait) return undefined;
+  const mcpTimeoutMs = settings?.mcp?.timeoutMs;
+  const hasTimeout = tools?.timeoutMs !== undefined || tools?.maxTimeoutMs !== undefined;
+  const hasWait = tools?.waitForApproval !== undefined;
+  if (!hasTimeout && !hasWait && mcpTimeoutMs === undefined) return undefined;
   return {
-    ...(tools.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
-    ...(tools.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
-    ...(tools.waitForApproval !== undefined ? { waitForApproval: tools.waitForApproval } : {}),
+    ...(tools?.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
+    ...(tools?.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
+    ...(tools?.waitForApproval !== undefined ? { waitForApproval: tools.waitForApproval } : {}),
+    ...(mcpTimeoutMs !== undefined ? { mcpTimeoutMs } : {}),
   };
 }
 
@@ -463,6 +471,9 @@ const SettingsSchema = type({
     "timeoutMs?": "number",
     "maxTimeoutMs?": "number",
     "waitForApproval?": "boolean",
+  }),
+  "mcp?": type({
+    "timeoutMs?": "number",
   }),
   "telemetry?": type({
     "enabled?": "boolean",
@@ -771,6 +782,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
         : undefined,
     shell: s.shell as Settings["shell"] | undefined,
     tools: s.tools as Settings["tools"] | undefined,
+    mcp: s.mcp as Settings["mcp"] | undefined,
     telemetry: s.telemetry as Settings["telemetry"] | undefined,
     otel: s.otel as Settings["otel"] | undefined,
     recentModels: s.recentModels as Settings["recentModels"] | undefined,

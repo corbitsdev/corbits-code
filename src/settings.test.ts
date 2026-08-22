@@ -738,6 +738,22 @@ describe("loaders", () => {
     });
     expect(toolWatchdogFromSettings({ providers: {} })).toBeUndefined();
   });
+
+  test("toolWatchdogFromSettings maps mcp.timeoutMs alone (no tools.* set)", () => {
+    expect(toolWatchdogFromSettings({ providers: {}, mcp: { timeoutMs: 45_000 } })).toEqual({
+      mcpTimeoutMs: 45_000,
+    });
+  });
+
+  test("toolWatchdogFromSettings merges mcp.timeoutMs alongside tools.*", () => {
+    expect(
+      toolWatchdogFromSettings({
+        providers: {},
+        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000 },
+        mcp: { timeoutMs: 45_000 },
+      }),
+    ).toEqual({ defaultMs: 120_000, maxMs: 600_000, mcpTimeoutMs: 45_000 });
+  });
 });
 
 describe("persistSkipPermissionsDefault", () => {

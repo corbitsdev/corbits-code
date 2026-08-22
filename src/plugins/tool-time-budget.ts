@@ -39,6 +39,14 @@ export function formatToolExecutionTimeoutMessage(
   return `${trimmed}\n\n${notice}`;
 }
 
+export function formatMcpToolTimeoutMessage(toolName: string, timeoutMs: number): string {
+  const seconds = Math.round(timeoutMs / 1000);
+  return (
+    `MCP tool ${toolName} timed out after ${seconds}s — the server may be wedged; ` +
+    `retry or continue without it.`
+  );
+}
+
 export function formatReadFileTimeoutMessage(
   path: string,
   partialResult?: string,
