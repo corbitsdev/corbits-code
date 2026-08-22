@@ -92,6 +92,30 @@ test("a symlink pointing outside the workspace is refused, even for a not-yet-ex
   expect(restricted).toBe(true);
 });
 
+test("a dangling symlink under cwd pointing outside denies a child path, and stays denied after the outside target is created (CL-6715)", async () => {
+  // The symlink target does not exist yet, so realpath fails on the link
+  // itself (not just on the not-yet-existing child) — the walk must not
+  // treat the dangling link's name as an ordinary missing tail segment.
+  const rootsProvider = () => [];
+  const link = join(cwd, "dangling-link");
+  const outsideTarget = join(outside, "not-created-yet");
+  await symlink(outsideTarget, link);
+  const target = join(link, "child.txt");
+
+  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+
+  const restriction = createPathRestriction(cwd, rootsProvider, home);
+  expect(restriction.isRestricted(target, false)).toBe(true);
+  expect(restriction.isRestricted(target, true)).toBe(true);
+
+  // A race that creates the outside target between check and open must not
+  // retroactively legitimize the earlier check, and a fresh check afterward
+  // must still deny (the link still ultimately points outside the workspace).
+  await mkdir(outsideTarget, { recursive: true });
+  await writeFile(join(outsideTarget, "child.txt"), "s");
+  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+});
+
 test("resolveWorkspacePath returns the canonical target so a later symlink retarget cannot redirect a write (CL-6712 TOCTOU)", async () => {
   // A symlink that is in-bounds at check time (target -> inside cwd) must
   // resolve to the canonical real path, not the lexical path through the
