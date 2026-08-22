@@ -93,6 +93,26 @@ describe("matchesWritePathAllowlist with a symlinked cwd", () => {
   });
 });
 
+describe("matchesWritePathAllowlist with an unresolvable cwd", () => {
+  test("a cwd whose final component is a dangling symlink is hard-denied, not spuriously allowed (CL-6715)", () => {
+    // If cwd itself is unresolvable, both absCwd and abs collapse to the same
+    // UNRESOLVABLE sentinel, `abs === absCwd` goes true, rel becomes ".", and
+    // a root-matching pattern (e.g. "**") would otherwise spuriously allow —
+    // turning a hard authz deny into an ask-prompt.
+    const parent = mkdtempSync(join(realpathSync(tmpdir()), "write-path-dangling-parent-"));
+    const danglingCwd = join(parent, "dangling-cwd");
+    try {
+      symlinkSync(join(parent, "does-not-exist"), danglingCwd);
+
+      expect(matchesWritePathAllowlist("anything.md", ["**"], danglingCwd)).toBe(false);
+      expect(matchesWritePathAllowlist("PRODUCT.md", ["PRODUCT.md"], danglingCwd)).toBe(false);
+    } finally {
+      rmSync(danglingCwd, { force: true });
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("writePathDeniedReason", () => {
   test("names allowlist and subject", () => {
     const reason = writePathDeniedReason("src/x.ts", ["PRODUCT.md", "docs/*"]);

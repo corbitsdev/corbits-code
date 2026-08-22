@@ -44,7 +44,7 @@ function realpathOr(path: string): string {
 // simply missing. Contains a NUL byte, which can never appear in a real
 // filesystem path, so it can't collide with (or be mistaken for a prefix of)
 // any genuine result, and every containment compare against it fails.
-const UNRESOLVABLE = "\0unresolvable\0";
+export const UNRESOLVABLE = "\0unresolvable\0";
 
 // A write/edit target usually doesn't exist yet, so realpath the nearest
 // existing ancestor and rejoin the missing tail rather than falling back to

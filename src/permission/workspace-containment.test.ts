@@ -108,12 +108,23 @@ test("a dangling symlink under cwd pointing outside denies a child path, and sta
   expect(restriction.isRestricted(target, false)).toBe(true);
   expect(restriction.isRestricted(target, true)).toBe(true);
 
-  // A race that creates the outside target between check and open must not
-  // retroactively legitimize the earlier check, and a fresh check afterward
-  // must still deny (the link still ultimately points outside the workspace).
+  // Creating the outside target after the initial check must not retroactively
+  // legitimize it: this is ordinary outside-symlink denial (the link still
+  // ultimately points outside the workspace), re-checked once the target exists.
   await mkdir(outsideTarget, { recursive: true });
   await writeFile(join(outsideTarget, "child.txt"), "s");
   expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+});
+
+test("a symlink loop under cwd is denied by resolveWorkspacePath (CL-6715)", async () => {
+  const rootsProvider = () => [];
+  const linkA = join(cwd, "loop-a");
+  const linkB = join(cwd, "loop-b");
+  await symlink(linkB, linkA);
+  await symlink(linkA, linkB);
+
+  expect(resolveWorkspacePath(cwd, join("loop-a", "child.txt"), rootsProvider)).toBeUndefined();
+  expect(resolveWorkspacePath(cwd, "loop-a", rootsProvider)).toBeUndefined();
 });
 
 test("resolveWorkspacePath returns the canonical target so a later symlink retarget cannot redirect a write (CL-6712 TOCTOU)", async () => {
