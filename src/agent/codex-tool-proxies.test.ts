@@ -6,12 +6,19 @@ import {
   allowDeleteFromCapabilities,
   allowShellFromCapabilities,
   createCodexToolProxies,
+  type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
 import { DOCS_TOOLS, IMPLEMENT_TOOLS } from "./directors/tool-sets.js";
+import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 
 type Call = { name: string; args: Record<string, unknown> };
 
+// `manage_tasks` is deliberately NOT a branch here: the real posixTools
+// registry runTool forwards to has no manage_tasks handler (only
+// read_file/write_file/run_shell/edit_file/search_files/grep + the
+// delete_file plugin), so an unrecognized name falling through to the
+// `unknown tool` branch is the accurate stand-in for that registry.
 function makeRecorder(initial: Record<string, string> = {}): {
   calls: Call[];
   files: Map<string, string>;
@@ -42,12 +49,37 @@ function makeRecorder(initial: Record<string, string> = {}): {
     if (name === "run_shell") {
       return { content: `ran: ${JSON.stringify(args)}` };
     }
-    if (name === "manage_tasks") {
-      return { content: "Tasks updated." };
-    }
     return { content: `unknown tool: ${name}`, isError: true };
   };
   return { calls, files, runTool };
+}
+
+const unusedManageTasks: CodexRunManageTasks = async () => ({ content: "unused" });
+
+// A real manage_tasks dispatch: parses with the actual arktype schema and
+// mutates a real Task[] with the actual applyManageTasks reducer from
+// tasks.ts — the same two functions the manage_tasks stringTool handlers in
+// src/agent/tools.ts and src/subagent/run.ts call. No mock recorder involved.
+function makeRealManageTasks(): {
+  calls: Record<string, unknown>[];
+  getTasks: () => Task[];
+  runManageTasks: CodexRunManageTasks;
+} {
+  let tasks: Task[] = [];
+  const calls: Record<string, unknown>[] = [];
+  const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
+    calls.push(rawArgs);
+    const parsed = parseManageTasksArgs(rawArgs);
+    if (parsed === null) {
+      return {
+        content: "Error: manage_tasks requires action ('create' or 'update').",
+        isError: true,
+      };
+    }
+    tasks = applyManageTasks(tasks, parsed);
+    return { content: "Tasks updated." };
+  };
+  return { calls, getTasks: () => tasks, runManageTasks };
 }
 
 async function invokeApplyPatch(tools: AgentTool[], input: string) {
@@ -68,6 +100,7 @@ describe("createCodexToolProxies", () => {
     const tools = createCodexToolProxies({
       isCodex: false,
       runTool: async () => ({ content: "unused" }),
+      runManageTasks: unusedManageTasks,
     });
     expect(tools).toEqual([]);
   });
@@ -76,6 +109,7 @@ describe("createCodexToolProxies", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      runManageTasks: unusedManageTasks,
     });
     expect(tools.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
     expect(tools.every((t) => t.kind === "string")).toBe(true);
@@ -86,7 +120,7 @@ describe("createCodexToolProxies", () => {
 
   test("add forwards write_file with Codex trailing newline", async () => {
     const { calls, files, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -109,7 +143,7 @@ describe("createCodexToolProxies", () => {
 
   test("delete forwards delete_file", async () => {
     const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -125,7 +159,7 @@ describe("createCodexToolProxies", () => {
 
   test("allowDelete false refuses Delete without calling delete_file", async () => {
     const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -145,7 +179,7 @@ describe("createCodexToolProxies", () => {
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -169,7 +203,7 @@ print("Hi")
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -193,7 +227,7 @@ print("Hi")
 print("bye")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -219,7 +253,7 @@ print("bye")
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -250,7 +284,7 @@ print("Hello, world!")
       "src/app.py": "old\n",
       "obsolete.txt": "x",
     });
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -278,7 +312,7 @@ print("Hello, world!")
 
   test("parse failure surfaces as tool error (isError)", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Add File: a.txt
@@ -295,6 +329,7 @@ print("Hello, world!")
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      runManageTasks: unusedManageTasks,
     });
     const runner = createToolRunner(tools);
     const result = await runner.run(
@@ -307,7 +342,7 @@ print("Hello, world!")
 
   test("runTool isError aborts the patch with isError", async () => {
     const { runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -326,7 +361,7 @@ print("Hello, world!")
 describe("shell proxy", () => {
   test("string command forwards to run_shell", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeTool(tools, "shell", { command: "ls -la" });
     expect(result.isError).toBeFalsy();
     expect(calls).toEqual([{ name: "run_shell", args: { command: "ls -la" } }]);
@@ -334,21 +369,21 @@ describe("shell proxy", () => {
 
   test("bash -lc argv triple unwraps to the script", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     await invokeTool(tools, "shell", { command: ["bash", "-lc", "echo 'hi there'"] });
     expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hi there'" } }]);
   });
 
   test("other argv arrays are shell-quoted and joined", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     await invokeTool(tools, "shell", { command: ["echo", "hello world"] });
     expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hello world'" } }]);
   });
 
   test("workdir and timeout_ms translate to cwd and timeout", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     await invokeTool(tools, "shell", {
       command: "pwd",
       workdir: "/tmp/work",
@@ -361,7 +396,7 @@ describe("shell proxy", () => {
 
   test("missing command surfaces as tool error", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeTool(tools, "shell", {});
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/command/);
@@ -370,7 +405,7 @@ describe("shell proxy", () => {
 
   test("allowShell false refuses without calling run_shell", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowShell: false });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, allowShell: false, runManageTasks: unusedManageTasks });
     const result = await invokeTool(tools, "shell", { command: "ls" });
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/not allowed/);
@@ -379,7 +414,7 @@ describe("shell proxy", () => {
 
   test("run_shell isError propagates as tool error", async () => {
     const runTool: CodexRunTool = async () => ({ content: "boom", isError: true });
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
     const result = await invokeTool(tools, "shell", { command: "ls" });
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/boom/);
@@ -387,9 +422,23 @@ describe("shell proxy", () => {
 });
 
 describe("update_plan proxy", () => {
-  test("maps plan steps onto manage_tasks(action=create)", async () => {
-    const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+  // Real dispatch, not a mock recorder: runManageTasks here is
+  // makeRealManageTasks, which parses with the real parseManageTasksArgs and
+  // mutates a real Task[] with the real applyManageTasks reducer from
+  // tasks.ts — the same two functions the manage_tasks stringTool handlers
+  // wire up in src/agent/tools.ts and src/subagent/run.ts. This is what would
+  // have caught the dead-dispatch bug: routing update_plan through `runTool`
+  // (which only reaches posixTools, with no manage_tasks handler) fails with
+  // "unknown tool: manage_tasks" the instant this real dispatch is invoked,
+  // even though the old mock recorder's `if (name === "manage_tasks")`
+  // special case made every existing test pass.
+  test("maps plan steps onto manage_tasks(action=create) and actually mutates the task list", async () => {
+    const { calls, getTasks, runManageTasks } = makeRealManageTasks();
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool: async () => ({ content: "unused" }),
+      runManageTasks,
+    });
     const result = await invokeTool(tools, "update_plan", {
       explanation: "getting started",
       plan: [
@@ -401,22 +450,30 @@ describe("update_plan proxy", () => {
     expect(result.isError).toBeFalsy();
     expect(calls).toEqual([
       {
-        name: "manage_tasks",
-        args: {
-          action: "create",
-          tasks: [
-            { id: "p1", title: "Read the file", status: "done" },
-            { id: "p2", title: "Write the fix", status: "doing" },
-            { id: "p3", title: "Run tests", status: "todo" },
-          ],
-        },
+        action: "create",
+        tasks: [
+          { id: "p1", title: "Read the file", status: "done" },
+          { id: "p2", title: "Write the fix", status: "doing" },
+          { id: "p3", title: "Run tests", status: "todo" },
+        ],
       },
+    ]);
+    // The real Task[] state, produced by the real applyManageTasks reducer —
+    // proof the dispatch reaches an actual task store, not just a recorded call.
+    expect(getTasks()).toEqual([
+      { id: "p1", title: "Read the file", status: "done" },
+      { id: "p2", title: "Write the fix", status: "doing" },
+      { id: "p3", title: "Run tests", status: "todo" },
     ]);
   });
 
   test("malformed plan surfaces as tool error", async () => {
-    const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const { calls, runManageTasks } = makeRealManageTasks();
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool: async () => ({ content: "unused" }),
+      runManageTasks,
+    });
     const result = await invokeTool(tools, "update_plan", {
       plan: [{ step: "no status here" }],
     });
@@ -426,8 +483,12 @@ describe("update_plan proxy", () => {
   });
 
   test("missing plan surfaces as tool error", async () => {
-    const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool });
+    const { calls, runManageTasks } = makeRealManageTasks();
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool: async () => ({ content: "unused" }),
+      runManageTasks,
+    });
     const result = await invokeTool(tools, "update_plan", {});
     expect(result.isError).toBe(true);
     expect(calls).toEqual([]);

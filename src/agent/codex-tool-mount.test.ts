@@ -85,6 +85,40 @@ describe("Codex apply_patch mount", () => {
     await toolset.dispose();
   });
 
+  test("update_plan dispatches through the real mount without hitting posixTools", async () => {
+    // Unstubbed createPosixTools (real temp dir): update_plan used to call
+    // runTool("manage_tasks", ...), which forwards onto posixTools.run and
+    // fails with "unknown tool: manage_tasks" — posixTools has no
+    // manage_tasks handler. This exercises the real createAgentToolset mount
+    // (src/agent/tools.ts) end to end, not a mock recorder, so it would have
+    // caught that dead dispatch.
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-codex-mount-"));
+    const { createAgentToolset } = await import("./tools.js");
+    const permissionGate = {
+      check: async () => ({ allowed: true }),
+      getSkipPermissions: () => false,
+    } as never;
+
+    const toolset = await createAgentToolset({
+      cwd,
+      permissionGate,
+      onOperatorGate: async () => ({ kind: "option", index: 0 }),
+      isCodex: true,
+    });
+    const result = await toolset.dynamicRunner.run(
+      {
+        id: "call-1",
+        name: "update_plan",
+        arguments: {
+          plan: [{ step: "Do the thing", status: "in_progress" }],
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeFalsy();
+    await toolset.dispose();
+  });
+
   test("IMPLEMENT_TOOLS and DOCS_TOOLS include apply_patch; CORE_TOOL_NAMES does not", () => {
     expect(IMPLEMENT_TOOLS).toContain("apply_patch");
     expect(DOCS_TOOLS).toContain("apply_patch");
@@ -95,6 +129,7 @@ describe("Codex apply_patch mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
+      runManageTasks: async () => ({ content: "ok" }),
     });
     expect(proxies.map((t) => t.definition.name)).toEqual([
       "apply_patch",
@@ -120,6 +155,7 @@ describe("Codex apply_patch mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
+      runManageTasks: async () => ({ content: "ok" }),
       allowDelete: allowDeleteFromCapabilities(docsCapabilities),
       allowShell: allowShellFromCapabilities(docsCapabilities),
     });
@@ -138,6 +174,7 @@ describe("Codex apply_patch mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: false,
       runTool: async () => ({ content: "ok" }),
+      runManageTasks: async () => ({ content: "ok" }),
       allowDelete: allowDeleteFromCapabilities({ mode: "allow", tools: IMPLEMENT_TOOLS }),
       allowShell: allowShellFromCapabilities({ mode: "allow", tools: IMPLEMENT_TOOLS }),
     });
