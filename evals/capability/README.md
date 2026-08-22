@@ -24,6 +24,7 @@ One run can **try different things**: multiple cases × multiple provider/model 
 | complex | `complex-dispatch-spawn` | `tests/fixtures/multi-file-service` | Dispatch GET /readyz via `task`; grader checks the route, not that the primary skipped DIY |
 | complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read` | Read many fixture files then write the planted token; does not assert compaction fired |
 | complex | `hidden-contract-inventory` | `tests/fixtures/inventory-service` | Implement stock reservations from a prose contract (API.md); graded by held-out tests the agent never sees |
+| complex | `broken-toolchain` | `tests/fixtures/broken-toolchain` | Three stacked, independent environment failures (non-executable codegen hook, broken vendor symlink, corrupt source file) block a trivially-correct test suite; grader checks each fix individually plus a freshly-regenerated codegen artifact so partial repair and fabrication both fail |
 
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
