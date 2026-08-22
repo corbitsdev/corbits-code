@@ -130,8 +130,15 @@ export async function readProjectTrustStore(
     path,
   );
   // Guard against a stale/copied record keyed to a different repo path: the
-  // file records the repo it was written for and must match this cwd.
-  if (validated.repo !== undefined && resolve(validated.repo) !== resolve(cwd)) {
+  // file records the repo it was written for and must match this cwd. A
+  // missing or non-string `repo` is invalid too — without it, a hand-edited
+  // or stripped store would apply its grants to whatever cwd happens to hash
+  // to this filename, defeating the mismatch guard entirely.
+  if (typeof validated.repo !== "string") {
+    logger.warn`project trust store missing repo field at ${path}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  if (resolve(validated.repo) !== resolve(cwd)) {
     logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
     return { state: "invalid", store: emptyStore() };
   }
