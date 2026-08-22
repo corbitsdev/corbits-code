@@ -5199,6 +5199,39 @@ export function openSlashCommands(shell: AppShell): boolean {
     closeSlashPopup(shell)
     return false
   }
+
+  // Every keystroke lands here while the popup is already open. Closing and
+  // reopening released the overlay host between the two calls (closeSlashPopup
+  // routes through closeInsetOverlay, which fires notifyOverlayClosed) — long
+  // enough for a queued permission/operator gate to drain onto it. Refreshing
+  // the open palette in place never releases the host, so a queued gate has
+  // nothing to drain into. priorOverlay stacking is untouched here (it is only
+  // ever written by openListOverlay's stack-on-open path), so a palette
+  // stacked over a prior overlay keeps that snapshot across the refresh.
+  if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
+    shell.paletteCommands = matches
+    const bag = internals.get(shell)
+    if (bag) {
+      bag.paletteFilter = {
+        query: bag.paletteFilter?.query ?? "",
+        title: "commands · /",
+        catalog: matches,
+        typeToFilter: false,
+      }
+      bag.overlayDescribe = (id) => {
+        const cmd = matches.find((c) => c.id === id)
+        const what = cmd?.description?.trim()
+        return what ? { what } : null
+      }
+    }
+    setOverlayItems(
+      shell,
+      paletteLabels(matches),
+      matches.map((c) => c.id),
+    )
+    return true
+  }
+
   closeSlashPopup(shell)
   openPalette(shell, { catalog: matches, title: "commands · /" })
   slashPopups.add(shell)
