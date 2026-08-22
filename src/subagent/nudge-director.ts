@@ -93,6 +93,8 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly repeatLimit: number;
   /** When true (intent=implement), tool-less finish without edits salvages as never-edited. */
   private readonly requireEdit: boolean;
+  /** When true (intent=review / critique), empty readCounts is not a successful complete. */
+  private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
   private everHadToolCalls = false;
   private streak: ToolCallStreak = {
@@ -148,6 +150,7 @@ export class SubAgentDirector extends DefaultDirector {
     stallTimeoutMs?: number,
     now: () => number = Date.now,
     requireEdit: boolean = false,
+    requireEvidence: boolean = false,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
@@ -157,6 +160,7 @@ export class SubAgentDirector extends DefaultDirector {
     this.now = now;
     this.lastActivityAt = now();
     this.requireEdit = requireEdit;
+    this.requireEvidence = requireEvidence;
   }
 
   override async decide(
@@ -217,6 +221,7 @@ export class SubAgentDirector extends DefaultDirector {
         repeatLimit: this.repeatLimit,
         thrashState: this.thrashState,
         requireEdit: this.requireEdit,
+        requireEvidence: this.requireEvidence,
         lastAssistantText: this.lastAssistantText,
         incompleteReportNudgeFired: this.incompleteReportNudgeFired,
       });

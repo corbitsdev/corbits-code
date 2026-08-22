@@ -417,6 +417,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         modelFamilyPolicy.subAgentStallTimeoutMs,
         Date.now,
         params.intent === "implement",
+        params.intent === "review" ||
+          (typeof params.systemPromptRole === "string" &&
+            params.systemPromptRole.includes("CritiqueDirector")),
       ),
   });
 

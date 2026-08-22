@@ -277,6 +277,48 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
+  test("evaluateSubAgentStop does not complete a review/critique with empty readCounts even with a full envelope", () => {
+    const thrashState = {
+      totalToolCalls: 1,
+      readCounts: new Map(),
+      editedPaths: new Set<string>(),
+    };
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: FULL_REPORT_ENVELOPE,
+        thrashState,
+        requireEvidence: true,
+      }),
+    ).not.toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes a review when readCounts has file evidence", () => {
+    const thrashState = {
+      totalToolCalls: 1,
+      readCounts: new Map([["src/gate.ts", 1]]),
+      editedPaths: new Set<string>(),
+    };
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 2,
+        maxTurns: 10,
+        consecutiveIdentical: 0,
+        repeatLimit: 2,
+        lastAssistantText: FULL_REPORT_ENVELOPE,
+        thrashState,
+        requireEvidence: true,
+      }),
+    ).toBe("complete");
+  });
+
   test("evaluateSubAgentStop returns never-acted when the run never used tools", () => {
     expect(
       evaluateSubAgentStop({
