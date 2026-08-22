@@ -5,9 +5,31 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { initEvalGitRepo, mapPool, parseArgs } from "./eval-capability.ts";
+import { initEvalGitRepo, mapPool, parseArgs, buildEvalDiagnostics } from "./eval-capability.ts";
+import type { Config } from "../src/config/index.ts";
 
 const execFileAsync = promisify(execFile);
+
+function sampleConfig(over: Partial<Config> = {}): Config {
+  return {
+    configured: true,
+    apiKey: "key",
+    baseURL: "https://example.test",
+    model: "gpt-5",
+    providerName: "openai",
+    cwd: process.cwd(),
+    task: "do it",
+    force: true,
+    dangerouslySkipPermissions: true,
+    skipPermissionsFromSettings: false,
+    auto: false,
+    command: "exec",
+    globalSettingsPath: "/dev/null",
+    providers: [],
+    sessionId: "sess-1",
+    ...over,
+  } as Config;
+}
 
 describe("parseArgs", () => {
   const savedConcurrency = process.env.CORBITS_EVAL_CONCURRENCY;
@@ -230,5 +252,25 @@ describe("initEvalGitRepo", () => {
       restoreGitConfigGlobal();
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildEvalDiagnostics", () => {
+  test("non-Codex provider gets a null instructions hash and the advertised tool list", () => {
+    const diagnostics = buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
+    expect(diagnostics.codexInstructionsHash).toBeNull();
+    expect(diagnostics.advertisedTools).toContain("read_file");
+    expect(diagnostics.advertisedTools).toContain("run_shell");
+    expect(diagnostics.reasoningEffort).toBeNull();
+  });
+
+  test("Codex provider gets a non-null instructions hash", () => {
+    const diagnostics = buildEvalDiagnostics(sampleConfig({ providerName: "codex/default" }));
+    expect(diagnostics.codexInstructionsHash).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  test("echoes back the configured reasoning effort", () => {
+    const diagnostics = buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));
+    expect(diagnostics.reasoningEffort).toBe("high");
   });
 });

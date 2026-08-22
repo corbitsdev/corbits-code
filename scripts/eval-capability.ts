@@ -14,9 +14,13 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { loadConfig } from "../src/config/index.js";
+import { loadConfig, type Config } from "../src/config/index.js";
 import { runExec } from "../src/exec/runner.js";
 import { SETTINGS_DIR_NAME } from "../src/branding.js";
+import { codexProfileFromProviderName } from "../src/config/codex-providers.js";
+import { codexInstructionsHash } from "../src/auth/codex/instructions.js";
+import { advertisedToolNamesForSessionMode } from "../src/agent/tool-search.js";
+import { detectLanguageServerAvailable } from "../src/agent/lsp-availability.js";
 import {
   loadEvalCases,
   filterCases,
@@ -41,6 +45,7 @@ import {
   type EvalVariant,
   type EvalTokenUsage,
   type ProviderFallbackInfo,
+  type EvalDiagnostics,
 } from "../evals/capability/lib.js";
 import {
   deriveBehaviorMetrics,
@@ -531,6 +536,24 @@ async function resolveVariantLabels(
   };
 }
 
+/**
+ * Per-cell diagnostics for debugging eval failures: which Codex instructions
+ * text was pinned, which built-in tools the model was offered, and the
+ * requested reasoning effort. Mirrors the exec runner's own session-mode/tool
+ * gating (see src/agent/tool-search.ts) rather than re-running toolset setup.
+ */
+export function buildEvalDiagnostics(config: Config): EvalDiagnostics {
+  const codexProfile = codexProfileFromProviderName(config.providerName);
+  const advertisedTools = advertisedToolNamesForSessionMode("orchestrator", {
+    languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+  });
+  return {
+    codexInstructionsHash: codexProfile !== undefined ? codexInstructionsHash() : null,
+    advertisedTools,
+    reasoningEffort: config.reasoningEffort ?? null,
+  };
+}
+
 function failResult(
   caseDef: EvalCase,
   variant: EvalVariant,
@@ -568,6 +591,7 @@ function failResult(
     repeat,
     behaviors: null,
     providerFallback: null,
+    diagnostics: null,
     ...partial,
   };
 }
@@ -633,6 +657,7 @@ async function runCase(
       );
     }
 
+    const diagnostics = buildEvalDiagnostics(config);
     const agentStarted = Date.now();
     // runExec runs the agent in-process (no child, unlike verify.sh below), so
     // the fixture origin must reach it via process.env directly for the
@@ -770,6 +795,7 @@ async function runCase(
       repeat,
       behaviors,
       providerFallback,
+      diagnostics,
       textPreview,
     };
   } catch (err) {

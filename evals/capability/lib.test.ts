@@ -71,6 +71,7 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     repeat: over.repeat ?? 0,
     behaviors: over.behaviors ?? null,
     providerFallback: over.providerFallback ?? null,
+    diagnostics: over.diagnostics ?? null,
   };
 }
 
@@ -753,6 +754,38 @@ describe("parseEvalRunReport", () => {
       resolvedProvider: "xai",
       resolvedModel: "grok-4.0",
     });
+  });
+
+  test("round-trips diagnostics stamping on a case result", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [
+        sampleResult({
+          diagnostics: {
+            codexInstructionsHash: "abc123def456",
+            advertisedTools: ["read_file", "run_shell"],
+            reasoningEffort: "high",
+          },
+        }),
+      ],
+    });
+    expect(report.cases[0]!.diagnostics).toEqual({
+      codexInstructionsHash: "abc123def456",
+      advertisedTools: ["read_file", "run_shell"],
+      reasoningEffort: "high",
+    });
+  });
+
+  test("legacy reports with no diagnostics parse to null", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [sampleResult()],
+    });
+    expect(report.cases[0]!.diagnostics).toBeNull();
   });
 
   test("legacy reports default repeat 0 and null behaviors", () => {

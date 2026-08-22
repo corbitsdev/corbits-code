@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { GPT_5_CODEX_PROMPT } from "./prompts/gpt-5-codex.js";
@@ -40,6 +41,14 @@ let instructions: string | undefined;
 export function codexInstructions(): string {
   if (instructions === undefined) instructions = loadCached();
   return instructions;
+}
+
+/**
+ * Short identity for the in-use instructions text, for eval/diagnostic
+ * records — never sent to the model.
+ */
+export function codexInstructionsHash(): string {
+  return createHash("sha256").update(codexInstructions()).digest("hex").slice(0, 12);
 }
 
 async function latestReleaseTag(): Promise<string> {
