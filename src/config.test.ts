@@ -537,6 +537,33 @@ describe("loadConfig", () => {
     }
   });
 
+  test("settings dangerouslySkipPermissions false without the CLI flag stays false", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: false,
+        }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.dangerouslySkipPermissions).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
     const cwd = await emptyCwd();
     try {

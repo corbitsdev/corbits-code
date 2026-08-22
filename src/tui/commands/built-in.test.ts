@@ -83,17 +83,17 @@ describe("/yolo command", () => {
     };
     expect(getCommand("yolo")!.handler("", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission prompts skipped.",
+      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
     expect(skip).toBe(true);
     expect(getCommand("yolo")!.handler("", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode off — permission prompts restored.",
+      text: "Yolo mode off — permission prompts restored. Saved as the default.",
     });
     expect(skip).toBe(false);
     expect(getCommand("yolo")!.handler("toggle", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission prompts skipped.",
+      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
     expect(skip).toBe(true);
   });
@@ -109,12 +109,12 @@ describe("/yolo command", () => {
     };
     expect(getCommand("yolo")!.handler("on", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode on — permission prompts skipped.",
+      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
     });
     expect(skip).toBe(true);
     expect(getCommand("yolo")!.handler("off", ctx)).toEqual({
       type: "message",
-      text: "Yolo mode off — permission prompts restored.",
+      text: "Yolo mode off — permission prompts restored. Saved as the default.",
     });
     expect(skip).toBe(false);
   });

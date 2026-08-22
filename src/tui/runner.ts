@@ -28,6 +28,7 @@ import {
   loadSettings,
   localSettingsPath,
   markTelemetryNoticeShown,
+  persistSkipPermissionsDefault,
   pushRecentModel,
   saveGlobalSettings,
   saveLocalSettings,
@@ -1846,24 +1847,33 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
   }
 
+  // One tail for every RMW of config.globalSettingsPath from this runner so
+  // /yolo and /settings toggles cannot stale-RMW each other.
+  let persistTail = Promise.resolve();
+  const enqueueGlobalPersist = <T>(job: () => Promise<T>): Promise<T> => {
+    const run = persistTail.then(job);
+    persistTail = run.then(() => undefined, () => undefined);
+    return run;
+  };
+
   // Absent file → fresh base; unreadable/invalid → skip the write rather than
-  // clobber a corrupt settings file with a minimal shell. Returns false when
-  // the write is skipped so `/yolo` can notice that the live flip did not persist.
-  const persistGlobalSettings = async (
+  // clobber a corrupt settings file with a minimal shell.
+  const persistGlobalSettings = (
     what: string,
     apply: (base: Settings) => Settings,
-  ): Promise<boolean> => {
-    const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
-    if (base === null) {
-      tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
-        what,
-        path: config.globalSettingsPath,
-      });
-      return false;
-    }
-    await saveGlobalSettings(config.globalSettingsPath, apply(base));
-    return true;
-  };
+  ): Promise<boolean> =>
+    enqueueGlobalPersist(async () => {
+      const base = await loadGlobalSettingsWriteBase(config.globalSettingsPath);
+      if (base === null) {
+        tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
+          what,
+          path: config.globalSettingsPath,
+        });
+        return false;
+      }
+      await saveGlobalSettings(config.globalSettingsPath, apply(base));
+      return true;
+    });
 
   const commandContext: CommandContext = {
     signalClear: newSession,
@@ -1871,13 +1881,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     setSkipPermissions: (value: boolean) => {
       permissionGate.setSkipPermissions(value);
       config.dangerouslySkipPermissions = value;
-      void (async () => {
+      void enqueueGlobalPersist(async () => {
         try {
-          const written = await persistGlobalSettings("skip-permissions default", (base) => ({
-            ...base,
-            dangerouslySkipPermissions: value,
-          }));
-          if (!written) {
+          const result = await persistSkipPermissionsDefault(
+            config.globalSettingsPath,
+            value,
+          );
+          if (result === "skipped") {
             systemNotice(
               "Yolo flipped for this session, but the default did not stick.",
             );
@@ -1887,7 +1897,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             "Yolo flipped for this session, but the default did not stick.",
           );
         }
-      })();
+      });
     },
     getCostSummary: (): CostSummary => {
       const usage = runSink.getTokenUsage();

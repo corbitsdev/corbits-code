@@ -11,6 +11,14 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Changed
+
+- **`/yolo` persists as the user-global skip-permissions default.** Exec
+  inherits it; `--dangerously-skip-permissions` still forces the current
+  process. Secret-guard and authz still apply.
+
 ## [0.2.100] - 2026-08-22
 
 ### Plugins
