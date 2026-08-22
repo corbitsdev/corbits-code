@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
+  DEFAULT_MCP_TOOL_TIMEOUT_MS,
   MAX_TOOL_EXECUTION_TIMEOUT_MS,
   RUN_SHELL_WATCHDOG_SLACK_MS,
   getToolApprovalBudget,
@@ -122,6 +123,31 @@ describe("tool execution watchdog", () => {
     expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 }, call)).toBe(100);
   });
 
+  test("mcp tool calls are bounded by default even with no config (CL-6895)", () => {
+    const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs(undefined, call)).toBe(DEFAULT_MCP_TOOL_TIMEOUT_MS);
+    expect(resolveToolExecutionTimeoutMs({}, call)).toBe(DEFAULT_MCP_TOOL_TIMEOUT_MS);
+  });
+
+  test("mcp.timeoutMs overrides the mcp default", () => {
+    const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 45_000 }, call)).toBe(45_000);
+  });
+
+  test("tools.defaultMs alone (no mcpTimeoutMs) does not affect the mcp default", () => {
+    const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 5_000 }, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
+  });
+
+  test("tools.maxTimeoutMs still caps a longer mcp.timeoutMs override", () => {
+    const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
+    expect(
+      resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 9_999_999, maxMs: 100 }, call),
+    ).toBe(100);
+  });
+
   test("withTimeout dispose clears timer without leaving hung state", async () => {
     const parent = new AbortController();
     const budget = withTimeout(parent.signal, 50);
@@ -157,6 +183,55 @@ describe("tool execution watchdog", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toBe(formatToolExecutionTimeoutMessage("slow", 30));
   });
+
+  test(
+    "mcp tool whose promise never resolves times out with a model-reactable error, turn continues",
+    async () => {
+      const runner = createDynamicToolRunner(
+        [
+          stringTool(
+            "mcp__linear__get_issue",
+            () => new Promise<string>(() => {}), // never resolves — wedged server
+          ),
+        ],
+        { mcpTimeoutMs: 30 },
+      );
+      const result = await runner.run(
+        { id: "1", name: "mcp__linear__get_issue", arguments: {} },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("mcp__linear__get_issue timed out after 0s");
+      expect(result.content).toContain("the server may be wedged");
+    },
+    10_000,
+  );
+
+  test(
+    "concurrent mcp tool calls each time out independently",
+    async () => {
+      const runner = createDynamicToolRunner(
+        [
+          stringTool("mcp__linear__get_issue", () => new Promise<string>(() => {})),
+          stringTool("mcp__linear__list_issues", async () => "ok"),
+        ],
+        { mcpTimeoutMs: 30 },
+      );
+      const signal = new AbortController().signal;
+      const [hung1, hung2, fast] = await Promise.all([
+        runner.run({ id: "1", name: "mcp__linear__get_issue", arguments: {} }, signal),
+        runner.run({ id: "2", name: "mcp__linear__get_issue", arguments: {} }, signal),
+        runner.run({ id: "3", name: "mcp__linear__list_issues", arguments: {} }, signal),
+      ]);
+      expect(hung1.isError).toBe(true);
+      expect(hung1.content).toContain("mcp__linear__get_issue timed out");
+      expect(hung2.isError).toBe(true);
+      expect(hung2.content).toContain("mcp__linear__get_issue timed out");
+      expect(fast.content).toBe("ok");
+      expect(fast.isError).toBeUndefined();
+    },
+    10_000,
+  );
 
   test("parent cancel prefers execute salvage body over synthetic aborted", async () => {
     const parent = new AbortController();
