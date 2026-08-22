@@ -2585,6 +2585,16 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   paintPluginAttention = (needs) => setPluginNeedsAttention(host.shell, needs);
   paintPluginAttention(standingPluginWarnings.length > 0);
 
+  // The persisted /yolo default is otherwise silent: nothing on screen would
+  // otherwise tell the operator that permission prompts are off for a repo
+  // they never ran --dangerously-skip-permissions or /yolo in.
+  if (config.skipPermissionsFromSettings) {
+    surfaceSystemNotice(
+      host.shell,
+      "Permission prompts are disabled by your saved default (/yolo off to re-enable).",
+    );
+  }
+
   // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
   // surfaceSystemNotice keeps the landing hero up and flushes into the transcript
   // once a session row ends the landing (same path as MCP startup chatter).

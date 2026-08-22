@@ -491,6 +491,7 @@ describe("loadConfig", () => {
         globalSettingsPath: globalPath,
       });
       expect(config.dangerouslySkipPermissions).toBe(false);
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -505,6 +506,8 @@ describe("loadConfig", () => {
         { globalSettingsPath: globalPath },
       );
       expect(config.dangerouslySkipPermissions).toBe(true);
+      // Came from the CLI flag, not the persisted default — no startup notice.
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -532,6 +535,9 @@ describe("loadConfig", () => {
         globalSettingsPath: globalPath,
       });
       expect(config.dangerouslySkipPermissions).toBe(true);
+      // Origin is the persisted default, not this invocation's flag — the
+      // startup notice should fire.
+      expect(config.skipPermissionsFromSettings).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -559,6 +565,7 @@ describe("loadConfig", () => {
         globalSettingsPath: globalPath,
       });
       expect(config.dangerouslySkipPermissions).toBe(false);
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -587,6 +594,8 @@ describe("loadConfig", () => {
         { globalSettingsPath: globalPath },
       );
       expect(config.dangerouslySkipPermissions).toBe(true);
+      // CLI flag wins over settings — no notice is warranted here.
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -616,8 +625,43 @@ describe("loadConfig", () => {
       assertConfigured(config);
       expect(config.command).toBe("exec");
       expect(config.dangerouslySkipPermissions).toBe(true);
+      expect(config.skipPermissionsFromSettings).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("persisted skip-permissions default applies regardless of cwd (machine-wide scope)", async () => {
+    // The global settings file is machine-wide: a session opened against a
+    // completely different cwd still inherits the same default. This is the
+    // exact silent-everywhere behavior the startup notice exists to surface.
+    const globalCwd = await emptyCwd();
+    const otherCwd = await emptyCwd();
+    try {
+      const globalPath = join(globalCwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["--cwd", otherCwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.cwd).toBe(otherCwd);
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      expect(config.skipPermissionsFromSettings).toBe(true);
+    } finally {
+      await rm(globalCwd, { recursive: true, force: true });
+      await rm(otherCwd, { recursive: true, force: true });
     }
   });
 
