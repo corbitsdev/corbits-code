@@ -13,7 +13,7 @@ describe("DOCS_TOOLS", () => {
     expect(DOCS_TOOLS).not.toContain("delete_file");
   });
 
-  test("keeps read/search/lsp/web + file writes", () => {
+  test("keeps read/search/lsp/web + file writes + apply_patch", () => {
     const expected: readonly string[] = [
       "read_file",
       "grep",
@@ -24,6 +24,7 @@ describe("DOCS_TOOLS", () => {
       "web_search",
       "write_file",
       "edit_file",
+      "apply_patch",
     ];
     for (const tool of expected) {
       expect(DOCS_TOOLS as readonly string[]).toContain(tool);
@@ -45,5 +46,14 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     }
     expect(SKYWALKER_TOOLS).toContain("task");
     expect(ORCHESTRATOR_TOOLS).toContain("task");
+  });
+});
+
+describe("BUILD_TOOLS", () => {
+  test("includes apply_patch alongside path mutation tools", () => {
+    expect(BUILD_TOOLS).toContain("write_file");
+    expect(BUILD_TOOLS).toContain("edit_file");
+    expect(BUILD_TOOLS).toContain("delete_file");
+    expect(BUILD_TOOLS).toContain("apply_patch");
   });
 });

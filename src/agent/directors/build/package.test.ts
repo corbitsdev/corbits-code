@@ -24,6 +24,7 @@ describe("buildDirectorPackage", () => {
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
+    expect(allow).toContain("apply_patch");
   });
 
   test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {
