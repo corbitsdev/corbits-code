@@ -5313,8 +5313,12 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
     !key.option
   ) {
     closeSlashPopup(shell)
+    // Zero matches: nothing to dispatch. Preserve the typed text instead of
+    // wiping it — pre-refresh this state was unreachable (popup closed on
+    // zero matches, so Enter fell through to normal prompt handling).
+    if (!active) return true
     setPromptText(shell, "")
-    if (active) dispatchPaletteSelection(shell, active)
+    dispatchPaletteSelection(shell, active)
     return true
   }
 

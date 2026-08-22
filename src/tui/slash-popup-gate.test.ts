@@ -150,4 +150,49 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
       }
     })
   })
+
+  test("Enter on zero matches closes the popup, keeps the typed text, and drains a queued gate", async () => {
+    await withShell(async ({ shell, press }) => {
+      const emitter = new EventEmitter()
+      const dispose = wireGates(emitter, shell)
+      const disposeClosedSpy = onOverlayClosed(shell, () => {})
+      try {
+        press("/")
+        press("m")
+        press("o")
+        press("z")
+        expect(shell.prompt.value).toBe("/moz")
+        expect(shell.paletteCommands).toEqual([])
+        expect(isSlashPopupOpen(shell)).toBe(true)
+
+        let resolved: unknown
+        emitter.emit("permission.gate", {
+          request: {
+            tool: "run_shell",
+            action: "Run shell command",
+            subject: "bun test",
+            scopes: [],
+          },
+          resolve: (outcome: unknown) => {
+            resolved = outcome
+          },
+        })
+        expect(shell.overlayKind).toBe("palette")
+        expect(resolved).toBeUndefined()
+
+        // Enter with no active command must not wipe the typed text.
+        press("Enter")
+        expect(isSlashPopupOpen(shell)).toBe(false)
+        expect(shell.prompt.value).toBe("/moz")
+
+        // Popup close is a genuine dismiss: the queued gate drains onto it.
+        await Bun.sleep(60)
+        expect(shell.overlayKind).toBe("permissions")
+        expect(resolved).toBeUndefined()
+      } finally {
+        disposeClosedSpy()
+        dispose()
+      }
+    })
+  })
 })
