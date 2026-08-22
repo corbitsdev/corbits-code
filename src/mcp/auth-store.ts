@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
@@ -46,11 +46,59 @@ export async function loadAuthState(serverName: string, home: string = homedir()
   return {};
 }
 
-// Tokens are credentials, so the directory and file are restricted to the owner.
-export async function saveAuthState(serverName: string, state: MCPAuthState, home: string = homedir()): Promise<void> {
-  const path = authFilePath(serverName, home);
-  await mkdir(mcpAuthDir(home), { recursive: true, mode: 0o700 });
-  const tmp = `${path}.${process.pid}.tmp`;
+// pid alone is not unique per call — concurrent saves in one process must not
+// share a temp path or the second rename hits ENOENT after the first moves it.
+let tmpWriteCounter = 0;
+
+// Serialize read-modify-write per auth file so two OAuth provider instances for
+// the same server cannot clobber each other's fields (classic lost-update: one
+// session's saveCodeVerifier wiping another's just-written tokens).
+const updateChains = new Map<string, Promise<unknown>>();
+
+async function writeAuthFile(path: string, state: MCPAuthState): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.${process.pid}.${(tmpWriteCounter += 1)}.tmp`;
   await writeFile(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
   await rename(tmp, path);
+}
+
+// Tokens are credentials, so the directory and file are restricted to the owner.
+// Full replace — prefer updateAuthState when mutating a single field so concurrent
+// writers merge instead of last-writer-wins on a stale snapshot.
+export async function saveAuthState(serverName: string, state: MCPAuthState, home: string = homedir()): Promise<void> {
+  const path = authFilePath(serverName, home);
+  const previous = updateChains.get(path) ?? Promise.resolve();
+  const write = previous.then(
+    () => writeAuthFile(path, state),
+    () => writeAuthFile(path, state),
+  );
+  updateChains.set(path, write.then(() => undefined, () => undefined));
+  await write;
+}
+
+// Load → mutate → save under the per-file chain. Mutator receives a mutable
+// snapshot of the latest on-disk state; the returned object is what was written.
+export async function updateAuthState(
+  serverName: string,
+  mutator: (state: MCPAuthState) => void,
+  home: string = homedir(),
+): Promise<MCPAuthState> {
+  const path = authFilePath(serverName, home);
+  const previous = updateChains.get(path) ?? Promise.resolve();
+  const run = previous.then(
+    async () => {
+      const state = await loadAuthState(serverName, home);
+      mutator(state);
+      await writeAuthFile(path, state);
+      return state;
+    },
+    async () => {
+      const state = await loadAuthState(serverName, home);
+      mutator(state);
+      await writeAuthFile(path, state);
+      return state;
+    },
+  );
+  updateChains.set(path, run.then(() => undefined, () => undefined));
+  return run;
 }
