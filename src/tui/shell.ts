@@ -1309,6 +1309,32 @@ function overlayRowsPerItem(kind: PrimaryOverlayKind | null): number {
   return isDecisionOverlay(kind) ? DECISION_CHOICE_ROWS : 1
 }
 
+/**
+ * Recompute the overlay host's row budget from the current item count and
+ * relayout into it. Callers that refresh an already-open overlay's items in
+ * place (rather than reopening) must call this themselves — a filter that
+ * narrows a list and then widens it again would otherwise stay pinned at
+ * whatever size it first opened at.
+ */
+function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
+  const perItem = overlayRowsPerItem(shell.overlayKind)
+  const hostRows = overlayHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    itemCount * perItem,
+  )
+  const minHostRows = overlayMinHostRows(
+    shell,
+    shell.overlayBodyLines.length,
+    itemCount > 0,
+  )
+  relayout(shell, {
+    overlayMode: "inset",
+    overlayBodyRows: hostRows,
+    overlayMinBodyRows: minHostRows,
+  })
+}
+
 /** Columns a body/choice row may paint into, inside border and leading space. */
 function overlayRowWidth(shell: AppShell): number {
   return Math.max(8, Math.max(20, shell.layout.contentWidth) - 4)
@@ -3690,20 +3716,9 @@ export function openListOverlay(
   // against OVERLAY_MAX_FRACTION and the transcript floor, and applyLayout
   // shrinks the viewport to whatever survived — so a longer list scrolls
   // instead of growing, and a short one leaves no dead rows below it.
-  const perItem = overlayRowsPerItem(shell.overlayKind)
   // An empty list charges no rows: a chooser with nothing to choose must not
   // reserve a blank band the operator can neither read nor act on.
   const listItems = labels.length
-  const hostRows = overlayHostRows(
-    shell,
-    shell.overlayBodyLines.length,
-    listItems * perItem,
-  )
-  const minHostRows = overlayMinHostRows(
-    shell,
-    shell.overlayBodyLines.length,
-    listItems > 0,
-  )
 
   shell.overlayList = createListViewport({
     count: labels.length,
@@ -3720,11 +3735,7 @@ export function openListOverlay(
     target: focusTarget,
     scrollOwner: isPalette ? "palette" : "overlay",
   })
-  relayout(shell, {
-    overlayMode: "inset",
-    overlayBodyRows: hostRows,
-    overlayMinBodyRows: minHostRows,
-  })
+  relayoutOverlayHost(shell, listItems)
   applyFocus(shell)
   paintOverlayList(shell)
 }
@@ -4301,13 +4312,24 @@ export function setOverlayItems(
   items: readonly string[],
   itemIds?: readonly string[],
   itemValues?: readonly (string | undefined)[],
+  opts?: { readonly resetActive?: boolean },
 ): void {
   if (!shell.overlayList) return
   shell.overlayItems = items
   const bag = internals.get(shell)
   if (bag && itemIds) bag.overlayItemIds = [...itemIds]
   if (bag && itemValues) bag.overlayItemValues = [...itemValues]
-  shell.overlayList = setListCount(shell.overlayList, items.length)
+  // Most callers (mention/model-picker filtering) keep the operator's current
+  // selection as the list narrows. The `/` popup instead resets to the top
+  // row on every keystroke, matching pre-refresh behavior where each filter
+  // reopened the overlay fresh.
+  shell.overlayList = opts?.resetActive
+    ? createListViewport({
+        count: items.length,
+        height: shell.overlayList.height,
+        activeIndex: 0,
+      })
+    : setListCount(shell.overlayList, items.length)
   paintOverlayList(shell)
 }
 
@@ -5195,10 +5217,6 @@ export function openSlashCommands(shell: AppShell): boolean {
   const matches = resolvePaletteCatalog(shell).filter((cmd) =>
     cmd.id.toLowerCase().startsWith(q),
   )
-  if (matches.length === 0) {
-    closeSlashPopup(shell)
-    return false
-  }
 
   // Every keystroke lands here while the popup is already open. Closing and
   // reopening released the overlay host between the two calls (closeSlashPopup
@@ -5208,34 +5226,54 @@ export function openSlashCommands(shell: AppShell): boolean {
   // nothing to drain into. priorOverlay stacking is untouched here (it is only
   // ever written by openListOverlay's stack-on-open path), so a palette
   // stacked over a prior overlay keeps that snapshot across the refresh.
+  //
+  // A typo that zeroes the matches must not fall through to closeSlashPopup
+  // while the popup is already open — that closes through the same
+  // notifyOverlayClosed path and drains a queued gate mid-filter. Instead
+  // this refreshes in place to a "(no matches)" row, same as the general
+  // palette does, and holds the host until a real dismiss (deleting the `/`,
+  // Esc, accept) or a backspace that restores matches.
   if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
-    shell.paletteCommands = matches
-    const bag = internals.get(shell)
-    if (bag) {
-      bag.paletteFilter = {
-        query: bag.paletteFilter?.query ?? "",
-        title: "commands · /",
-        catalog: matches,
-        typeToFilter: false,
-      }
-      bag.overlayDescribe = (id) => {
-        const cmd = matches.find((c) => c.id === id)
-        const what = cmd?.description?.trim()
-        return what ? { what } : null
-      }
-    }
-    setOverlayItems(
-      shell,
-      paletteLabels(matches),
-      matches.map((c) => c.id),
-    )
+    refreshSlashPopupInPlace(shell, matches)
     return true
+  }
+
+  if (matches.length === 0) {
+    closeSlashPopup(shell)
+    return false
   }
 
   closeSlashPopup(shell)
   openPalette(shell, { catalog: matches, title: "commands · /" })
   slashPopups.add(shell)
   return true
+}
+
+/** Refresh the already-open `/` popup's rows in place for the given matches. */
+function refreshSlashPopupInPlace(
+  shell: AppShell,
+  matches: readonly PaletteCommand[],
+): void {
+  const labels = matches.length > 0 ? paletteLabels(matches) : ["(no matches)"]
+  shell.paletteCommands = matches
+  const bag = internals.get(shell)
+  if (bag) {
+    bag.paletteFilter = {
+      query: bag.paletteFilter?.query ?? "",
+      title: "commands · /",
+      catalog: matches,
+      typeToFilter: false,
+    }
+    bag.overlayDescribe = (id) => {
+      const cmd = matches.find((c) => c.id === id)
+      const what = cmd?.description?.trim()
+      return what ? { what } : null
+    }
+  }
+  setOverlayItems(shell, labels, matches.map((c) => c.id), undefined, {
+    resetActive: true,
+  })
+  relayoutOverlayHost(shell, labels.length)
 }
 
 function setPromptText(shell: AppShell, value: string): void {

@@ -14,6 +14,7 @@ import { wireGates } from "./gate-wire"
 import {
   createAppShell,
   isSlashPopupOpen,
+  onOverlayClosed,
   type AppShell,
 } from "./shell"
 
@@ -62,6 +63,18 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
     await withShell(async ({ shell, press }) => {
       const emitter = new EventEmitter()
       const dispose = wireGates(emitter, shell)
+      // The host closing (onOverlayClosed) is what the queued gate waits
+      // on to drain — see gate-wire.ts's onOverlayClosed/pending. Under the
+      // old close-then-reopen refresh this fires on every filter keystroke
+      // (closeSlashPopup -> closeInsetOverlay -> notifyOverlayClosed) even
+      // though the palette immediately re-stacks on top and every assertion
+      // on shell.overlayKind alone sees only "palette" again by the time it
+      // runs. Counting this call directly is what actually distinguishes
+      // the in-place refresh from the old close+reopen one.
+      let closedCount = 0
+      const disposeClosedSpy = onOverlayClosed(shell, () => {
+        closedCount++
+      })
       try {
         press("/")
         expect(isSlashPopupOpen(shell)).toBe(true)
@@ -83,6 +96,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         // Queued, not opened — the slash popup still owns the host.
         expect(shell.overlayKind).toBe("palette")
         expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(0)
 
         // Refreshing the filter must not release the host to the queued gate.
         press("m")
@@ -94,6 +108,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
           "mcp",
         ])
         expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(0)
 
         // Filtering keeps working after the refresh.
         press("o")
@@ -101,13 +116,36 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.paletteCommands.map((c) => c.id)).toEqual(["model"])
         expect(isSlashPopupOpen(shell)).toBe(true)
         expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(0)
+
+        // A keystroke that drops matches to zero must not dismiss the popup
+        // either — it stays owned with a "(no matches)" row, and the gate
+        // stays queued behind it.
+        press("z")
+        expect(shell.prompt.value).toBe("/moz")
+        expect(isSlashPopupOpen(shell)).toBe(true)
+        expect(shell.overlayKind).toBe("palette")
+        expect(shell.paletteCommands).toEqual([])
+        expect(shell.overlayItems).toEqual(["(no matches)"])
+        expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(0)
+
+        // A backspace that restores matches refreshes back in place too.
+        press("Backspace")
+        expect(shell.prompt.value).toBe("/mo")
+        expect(shell.paletteCommands.map((c) => c.id)).toEqual(["model"])
+        expect(isSlashPopupOpen(shell)).toBe(true)
+        expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(0)
 
         // A true dismiss still drains the queue as before.
         press("Escape")
         await Bun.sleep(60)
         expect(shell.overlayKind).toBe("permissions")
         expect(resolved).toBeUndefined()
+        expect(closedCount).toBe(1)
       } finally {
+        disposeClosedSpy()
         dispose()
       }
     })

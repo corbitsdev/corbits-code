@@ -160,29 +160,38 @@ describe("slash command popup", () => {
     })
   })
 
-  test("an unmatched name prefix closes the popup and keeps the typed text", async () => {
+  test("an unmatched name prefix refreshes in place instead of closing", async () => {
     await withShell(async ({ shell, press, render, frame }) => {
       press("/")
       press("z")
       await render()
-      expect(isSlashPopupOpen(shell)).toBe(false)
-      expect(shell.overlayList).toBeNull()
+      // The popup was already open (from "/") when the filter zeroed out —
+      // closing here would release the host, which is exactly the gap a
+      // queued gate can drain into mid-filter. It stays owned and shows the
+      // same "(no matches)" row the general palette uses.
+      expect(isSlashPopupOpen(shell)).toBe(true)
+      expect(shell.overlayList).not.toBeNull()
       expect(shell.prompt.value).toBe("/z")
-      expect(shell.overlayItems).not.toContain("(no matches)")
-      expect(frame()).not.toContain("(no matches)")
+      expect(shell.overlayItems).toEqual(["(no matches)"])
+      expect(frame()).toContain("(no matches)")
+
+      // A backspace that restores a match refreshes back in place.
+      press("Backspace")
+      expect(isSlashPopupOpen(shell)).toBe(true)
+      expect(shell.paletteCommands.map((c) => c.id)).toEqual(CATALOG.map((c) => c.id))
     })
   })
 
-  test("description prose does not keep the slash list open", async () => {
+  test("description prose keeps the slash list open with no matches", async () => {
     await withShell(async ({ shell, press, render, frame }) => {
       press("/")
       press("p")
       await render()
-      expect(isSlashPopupOpen(shell)).toBe(false)
-      expect(shell.overlayList).toBeNull()
+      expect(isSlashPopupOpen(shell)).toBe(true)
+      expect(shell.overlayList).not.toBeNull()
       expect(shell.prompt.value).toBe("/p")
-      expect(shell.overlayItems).not.toContain("(no matches)")
-      expect(frame()).not.toContain("(no matches)")
+      expect(shell.overlayItems).toEqual(["(no matches)"])
+      expect(frame()).toContain("(no matches)")
     })
   })
 })
