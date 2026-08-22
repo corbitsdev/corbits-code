@@ -34,6 +34,11 @@ describe("DOCS_TOOLS", () => {
       expect(surface).toContain("run_shell");
     }
   });
+
+  test("excludes the shell proxy (no run_shell) but keeps update_plan", () => {
+    expect(DOCS_TOOLS).not.toContain("shell");
+    expect(DOCS_TOOLS).toContain("update_plan");
+  });
 });
 
 describe("IMPLEMENT_TOOLS", () => {
@@ -42,5 +47,10 @@ describe("IMPLEMENT_TOOLS", () => {
     expect(IMPLEMENT_TOOLS).toContain("edit_file");
     expect(IMPLEMENT_TOOLS).toContain("delete_file");
     expect(IMPLEMENT_TOOLS).toContain("apply_patch");
+  });
+
+  test("includes the Codex shell and update_plan proxy names", () => {
+    expect(IMPLEMENT_TOOLS).toContain("shell");
+    expect(IMPLEMENT_TOOLS).toContain("update_plan");
   });
 });
