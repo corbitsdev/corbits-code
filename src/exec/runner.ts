@@ -27,6 +27,9 @@ import {
 } from "../config/settings.js";
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
+import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
+import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
+import type { DirectorId } from "../agent/directors/types.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
@@ -109,6 +112,40 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 /** Normalize unknown catch values for structured warn/error logs. */
 export function formatCaughtError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Exec-primary director overlay. Omit / skywalker keep the product default
+ * (`loadSessionChatPrompt` + advertised session tools). Any other closed-fleet
+ * id uses the package prompt and allowlist. Worker effort/nudge are not applied.
+ */
+export type ExecDirectorOverlay = {
+  /** Package system prompt; omitted on the skywalker default path. */
+  systemPrompt?: string;
+  /** `pkg.tools.allow` (task stripped when `maySpawn` is false). */
+  advertisedAllow?: readonly string[];
+  mountTask: boolean;
+};
+
+export function resolveExecDirectorOverlay(
+  director: DirectorId | undefined,
+): ExecDirectorOverlay {
+  if (director === undefined || director === "skywalker") {
+    return { mountTask: true };
+  }
+  const pkg = DIRECTOR_REGISTRY[director];
+  const allow = pkg.tools?.allow;
+  const advertisedAllow =
+    allow !== undefined && allow.length > 0
+      ? pkg.spawn.maySpawn
+        ? [...allow]
+        : allow.filter((name) => name !== "task")
+      : undefined;
+  return {
+    systemPrompt: formatDirectorSystemPrompt(pkg),
+    ...(advertisedAllow !== undefined ? { advertisedAllow } : {}),
+    mountTask: pkg.spawn.maySpawn,
+  };
 }
 
 /** Content-less inbound used after compact so the reactor re-enters (matches TUI). */
@@ -348,6 +385,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     let currentAgent: Agent | null = null;
 
+    const overlay = resolveExecDirectorOverlay(config.director);
+
     const agentToolset = await createAgentToolset({
       cwd: config.cwd,
       permissionGate,
@@ -384,30 +423,39 @@ export async function runExec(config: Config): Promise<ExecResult> {
         );
         return result.kind === "option" && result.index === 0;
       },
-      subAgent: {
-        provider: () => liveSubAgentProvider.current,
-        sessions: subAgentSessions,
-        getWorkdirBase: () => sessionDir(config.cwd, sessionId),
-        onProgress: () => undefined,
-        ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
-        catalog: () => config.providers,
-        profiles: () => liveAgentProfiles,
-      },
+      ...(overlay.mountTask
+        ? {
+            subAgent: {
+              provider: () => liveSubAgentProvider.current,
+              sessions: subAgentSessions,
+              getWorkdirBase: () => sessionDir(config.cwd, sessionId),
+              onProgress: () => undefined,
+              ...(config.settings !== undefined ? { settings: () => config.settings! } : {}),
+              catalog: () => config.providers,
+              profiles: () => liveAgentProfiles,
+            },
+          }
+        : {}),
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     });
     toolset = agentToolset;
 
-    const { systemPrompt } = await loadSessionChatPrompt({
-      cwd: config.cwd,
-      skillDirs,
-      ...(config.systemPromptExtensions !== undefined
-        ? { systemPromptExtensions: config.systemPromptExtensions }
-        : {}),
-      sessionMode,
-      toolAvailability,
-    });
+    const systemPrompt =
+      overlay.systemPrompt ??
+      (
+        await loadSessionChatPrompt({
+          cwd: config.cwd,
+          skillDirs,
+          ...(config.systemPromptExtensions !== undefined
+            ? { systemPromptExtensions: config.systemPromptExtensions }
+            : {}),
+          sessionMode,
+          toolAvailability,
+        })
+      ).systemPrompt;
 
-    const advertisedBuiltInPrefix = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
+    const advertisedBuiltInPrefix =
+      overlay.advertisedAllow ?? advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
     const activatedToolNames = createActivatedToolTracker();
     // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
     const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>

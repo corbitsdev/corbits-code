@@ -118,6 +118,22 @@ describe("parseArgs", () => {
       /CORBITS_EVAL_CONCURRENCY must be a positive integer/,
     );
   });
+
+  test("--director implement is parsed", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "implement"]);
+    expect(opts.director).toBe("implement");
+  });
+
+  test("omitted --director stays undefined", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.director).toBeUndefined();
+  });
+
+  test("--director without a value throws", () => {
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--director"])).toThrow(
+      "--director requires a value",
+    );
+  });
 });
 
 describe("mapPool", () => {
@@ -150,6 +166,7 @@ describe("mapPool", () => {
   test("rejects non-positive concurrency", async () => {
     await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(/positive integer/);
   });
+
 });
 
 describe("initEvalGitRepo", () => {

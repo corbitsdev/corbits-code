@@ -45,6 +45,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   write-free. Shell file-writes stay denied. Spawn is a judgment call,
   not a tool ban.
 
+- **Exec and capability evals can run as a chosen primary director.**
+  `corbits exec --director <id>` (and eval `--director`) overlays that
+  package's system prompt and tool allowlist on the product exec path.
+  Omit / skywalker keep the default Skywalker session. Directors that
+  cannot spawn (for example implement) do not mount `task`. This is an
+  exec/eval/CI override, not a TUI or single-agent mode.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.
