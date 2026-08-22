@@ -58,8 +58,12 @@ function realpathNearestOr(path: string): string {
   }
 }
 
+// An empty root must never reach the prefix compare: `"" + sep` is just
+// `sep` (e.g. "/" on Unix), which every absolute path starts with, turning
+// containment into allow-all. A root of exactly `sep` itself is not this bug
+// — `startsWith(sep + sep)` correctly rejects unrelated absolute paths.
 const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
-  roots.some((root) => real === root || real.startsWith(root + sep));
+  roots.some((root) => root.length > 0 && (real === root || real.startsWith(root + sep)));
 
 // Resolves `path` (relative or absolute, possibly traversing `..`) against
 // `cwd` and checks it against the workspace boundary: `cwd` itself plus every
