@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { type } from "arktype";
 import { getLogger } from "@intx/log";
@@ -142,10 +142,22 @@ export async function readProjectTrustStore(
     logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
     return { state: "invalid", store: emptyStore() };
   }
+  // Grants are recorded as absolute paths (see requireAbsolute below); a
+  // relative entry has no fixed meaning on load — resolving it here would
+  // bind to whatever process.cwd() happens to be, the same confused-cwd bug
+  // path-trust.ts guards against on disk. Drop it instead of guessing.
+  const absolutePluginPaths: string[] = [];
+  for (const p of trustedPluginPaths) {
+    if (!isAbsolute(p)) {
+      logger.warn`project trust store dropping non-absolute trustedPluginPaths entry at ${path}: ${p}`;
+      continue;
+    }
+    absolutePluginPaths.push(resolve(p));
+  }
   return {
     state: "valid",
     store: {
-      trustedPluginPaths: trustedPluginPaths.map((p) => resolve(p)),
+      trustedPluginPaths: absolutePluginPaths,
       trustedMcpFingerprints: [...trustedMcpFingerprints],
     },
   };
@@ -185,8 +197,19 @@ function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string): boolean {
-  const abs = resolve(pluginPath);
+// A relative pluginPath has no fixed meaning until resolved against some cwd;
+// resolving it against process.cwd() (path.resolve's default) would trust a
+// different directory than the caller's project, the confused-cwd bug
+// path-trust.ts avoids by requiring absolute paths outright. Project trust
+// callers pass relative paths in practice, so resolve against the given
+// project cwd instead of rejecting — path.resolve(cwd, pluginPath) leaves an
+// already-absolute pluginPath untouched.
+function resolveAgainstProjectCwd(cwd: string, pluginPath: string): string {
+  return resolve(cwd, pluginPath);
+}
+
+export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string, cwd: string = process.cwd()): boolean {
+  const abs = resolveAgainstProjectCwd(cwd, pluginPath);
   return store.trustedPluginPaths.includes(abs);
 }
 
@@ -195,7 +218,7 @@ export async function trustPlugin(
   pluginPath: string,
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
-  const abs = resolve(pluginPath);
+  const abs = resolveAgainstProjectCwd(cwd, pluginPath);
   return enqueueMutation(projectTrustPath(cwd, home), async () => {
     const store = await loadProjectTrust(cwd, home);
     if (!store.trustedPluginPaths.includes(abs)) {

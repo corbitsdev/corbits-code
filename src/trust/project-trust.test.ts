@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { resolve } from "node:path";
+
 import {
+  isPluginTrusted,
   loadProjectTrust,
   projectTrustPath,
   readProjectTrustStore,
@@ -114,6 +117,44 @@ describe("project trust store", () => {
       expect(result.state).toBe("invalid");
       expect(result.store.trustedPluginPaths).toEqual([]);
       expect(result.store.trustedMcpFingerprints).toEqual([]);
+    });
+  });
+
+  test("a relative grant resolves against the project cwd, not process.cwd()", async () => {
+    // process.cwd() during test runs is the repo checkout, not the project
+    // directory under test — a real-world stand-in for "some other tree".
+    expect(process.cwd()).not.toBe("/repo/under/test");
+    await withTempHome(async (home, cwd) => {
+      await trustPlugin(cwd, "relative/plugin", home);
+
+      const store = await loadProjectTrust(cwd, home);
+      expect(store.trustedPluginPaths).toEqual([resolve(cwd, "relative/plugin")]);
+
+      // The grant binds to the project cwd's tree...
+      expect(isPluginTrusted(store, "relative/plugin", cwd)).toBe(true);
+      // ...not to process.cwd()'s tree, even though it resolves the same
+      // relative string.
+      expect(isPluginTrusted(store, "relative/plugin", process.cwd())).toBe(false);
+      expect(isPluginTrusted(store, resolve(process.cwd(), "relative/plugin"))).toBe(false);
+    });
+  });
+
+  test("a non-absolute trustedPluginPaths entry on disk is dropped on load, not resolved against process.cwd()", async () => {
+    await withTempHome(async (home, cwd) => {
+      const path = projectTrustPath(cwd, home);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          repo: cwd,
+          trustedPluginPaths: ["relative/plugin", "/plugins/absolute"],
+          trustedMcpFingerprints: [],
+        }),
+      );
+
+      const result = await readProjectTrustStore(cwd, home);
+      expect(result.state).toBe("valid");
+      expect(result.store.trustedPluginPaths).toEqual(["/plugins/absolute"]);
     });
   });
 
