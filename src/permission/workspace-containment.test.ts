@@ -92,6 +92,41 @@ test("a symlink pointing outside the workspace is refused, even for a not-yet-ex
   expect(restricted).toBe(true);
 });
 
+test("a dangling symlink under cwd pointing outside denies a child path, and stays denied after the outside target is created (CL-6715)", async () => {
+  // The symlink target does not exist yet, so realpath fails on the link
+  // itself (not just on the not-yet-existing child) — the walk must not
+  // treat the dangling link's name as an ordinary missing tail segment.
+  const rootsProvider = () => [];
+  const link = join(cwd, "dangling-link");
+  const outsideTarget = join(outside, "not-created-yet");
+  await symlink(outsideTarget, link);
+  const target = join(link, "child.txt");
+
+  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+
+  const restriction = createPathRestriction(cwd, rootsProvider, home);
+  expect(restriction.isRestricted(target, false)).toBe(true);
+  expect(restriction.isRestricted(target, true)).toBe(true);
+
+  // Creating the outside target after the initial check must not retroactively
+  // legitimize it: this is ordinary outside-symlink denial (the link still
+  // ultimately points outside the workspace), re-checked once the target exists.
+  await mkdir(outsideTarget, { recursive: true });
+  await writeFile(join(outsideTarget, "child.txt"), "s");
+  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+});
+
+test("a symlink loop under cwd is denied by resolveWorkspacePath (CL-6715)", async () => {
+  const rootsProvider = () => [];
+  const linkA = join(cwd, "loop-a");
+  const linkB = join(cwd, "loop-b");
+  await symlink(linkB, linkA);
+  await symlink(linkA, linkB);
+
+  expect(resolveWorkspacePath(cwd, join("loop-a", "child.txt"), rootsProvider)).toBeUndefined();
+  expect(resolveWorkspacePath(cwd, "loop-a", rootsProvider)).toBeUndefined();
+});
+
 test("resolveWorkspacePath returns the canonical target so a later symlink retarget cannot redirect a write (CL-6712 TOCTOU)", async () => {
   // A symlink that is in-bounds at check time (target -> inside cwd) must
   // resolve to the canonical real path, not the lexical path through the

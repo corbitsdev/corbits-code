@@ -1,6 +1,6 @@
 import { resolve, sep } from "node:path";
 import { matchesPattern } from "./matcher.js";
-import { realpathNearestOr } from "./path-restriction.js";
+import { realpathNearestOr, UNRESOLVABLE } from "./path-restriction.js";
 
 /**
  * Director write-path allowlist (authz, not prompt policy).
@@ -36,6 +36,11 @@ export function matchesWritePathAllowlist(
   // otherwise hard-deny a legitimate allowlisted write.
   const absCwd = realpathNearestOr(resolve(cwd));
   const abs = realpathNearestOr(resolve(cwd, subject));
+  // Either side unresolvable (dangling symlink/loop component) must hard-deny.
+  // Otherwise an unresolvable cwd and an unresolvable subject both collapse to
+  // the same sentinel, `abs === absCwd` goes true, rel becomes ".", and a
+  // root-matching allowlist pattern spuriously allows.
+  if (absCwd === UNRESOLVABLE || abs === UNRESOLVABLE) return false;
   let rel: string;
   if (abs === absCwd) {
     rel = ".";
