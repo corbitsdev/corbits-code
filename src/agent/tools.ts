@@ -50,6 +50,7 @@ import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
 import {
   createCodexToolProxies,
+  type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
@@ -235,6 +236,23 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     };
   };
 
+  // manage_tasks is not a posix tool — task state is owned by the director,
+  // which derives it from the manage_tasks tool_call it observes in the
+  // model's own output (see applyManageTasksToolCall in director.ts), not
+  // from this handler's return value. This handler only validates, so
+  // update_plan's proxy shares it rather than forwarding through posixTools
+  // (which has no manage_tasks handler to forward to).
+  const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
+    const parsed = parseManageTasksArgs(rawArgs);
+    if (parsed === null) {
+      return {
+        content: "Error: manage_tasks requires action ('create' or 'update').",
+        isError: true,
+      };
+    }
+    return { content: "Tasks updated." };
+  };
+
   // Align the advertised run_shell timeout with shell-guard's resolved default.
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
@@ -288,11 +306,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     stringTool({
       definition: manageTasksDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const parsed = parseManageTasksArgs(rawArgs);
-        if (parsed === null) {
-          return "Error: manage_tasks requires action ('create' or 'update').";
-        }
-        return "Tasks updated.";
+        const result = await runManageTasks(rawArgs);
+        return result.content;
       },
     }),
     stringTool({
@@ -371,7 +386,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // Codex proxies land before the primary deny filter so Skywalker still strips
   // apply_patch via PRIMARY_DENIED_PRODUCT_TOOLS when isCodex is true.
   baseTools.push(
-    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool }),
+    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool, runManageTasks }),
   );
 
   // Primary Skywalker never mounts product mutation tools — never-implement is
