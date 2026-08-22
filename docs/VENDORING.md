@@ -24,8 +24,21 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 | Package | Vendor path | License | Synced from upstream commit | Retrieved | Local patches |
 |---|---|---|---|---|---|
 | `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | None — verbatim |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | None — verbatim |
+| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim |
+| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim |
+
+`@intx/inference` is temporarily behind `@intx/types` and
+`@intx/storage-isogit` as of the 2026-08-22 sync: this is stage 2 of a
+staged re-vendor (the two lower-coupling packages first), with
+`@intx/inference`'s re-sync tracked separately as stage 3. The
+cross-package coupling described below did not regress in this gap — the
+`PendingOperation` shape both packages already shared did not change
+between `ad0f99e7` and `55c4431e` (`vendor/intx-types/src/runtime.ts` and
+`src/index.ts` are byte-identical across that range), so `@intx/inference`
+built against the older `@intx/types` still typechecks against the newer
+one. A later re-sync of `@intx/inference` should still move all three
+together per the coupling rule below, since that check only holds for
+this specific gap, not in general.
 
 The license column records what each package declares in its own
 `package.json`; the corresponding `LICENSE` file travels with every vendored
@@ -113,6 +126,36 @@ those packages now resolves to the single root instance. As of this sync,
 `@intx/types` and `@intx/storage-isogit` are verbatim copies of upstream —
 no modifications. A diff against any later upstream checkout at the same
 paths will show 100% upstream-authored lines.
+
+## Notable upstream shape changes carried by the 2026-08-22 sync
+
+Upstream commit `5f798bea` ("Inject the runtime into iso-git storage")
+split `@intx/storage-isogit`'s entry point: the package root (`.`) no
+longer exports a bindable `createIsogitStore` free function, and callers
+now pick a runtime-bound entry point instead — `./node` (backed by
+`createNodeIsogitRuntime`) or `./browser`. `vendor/intx-storage-isogit/`'s
+`package.json` `exports` map picks up both new subpaths verbatim from
+upstream. The one first-party consumer,
+`src/session/optimized-context-store.ts`, now imports `createIsogitStore`
+from `@intx/storage-isogit/node` instead of the package root — the
+`./node` re-export has the identical `(dir, signer?, gcPolicy?)` signature
+the old root export had, so this is an import-path change, not a
+behavioral one. The package also picked up two new dependencies
+(`@isomorphic-git/lightning-fs`, `buffer`, both used only by the new
+`./browser` runtime, which nothing here imports) and a new
+`@intx/crypto` dev dependency for its own test suite, pinned to `0.2.2`
+like the existing `@intx/mime` dev dependency on `@intx/inference` — the
+same "stay on published npm for a package we don't vendor" pattern.
+
+One new upstream test, `browser-bundle.test.ts`, is excluded via
+`bunfig.toml`'s `pathIgnorePatterns`. It bundles `browser.ts` with
+`Bun.build` under the `intx-src` export condition, which resolves
+`@intx/log` and `@intx/mime` to `./src/*.ts` — real files in upstream's
+own monorepo, where those two are also vendored source. Here they remain
+published npm installs (`dist/` only, no `src/`), so the condition
+matches an export key whose target does not exist and the bundle fails
+to resolve. This is an environment gap, not a defect in the vendored
+code; re-check it whenever `@intx/log` or `@intx/mime` get vendored too.
 
 `@intx/inference` carries local patches — real fixes not yet present
 upstream, not workarounds for something upstream has since fixed. Every

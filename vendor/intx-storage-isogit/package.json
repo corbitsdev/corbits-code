@@ -7,13 +7,26 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./node": {
+      "types": "./src/node.ts",
+      "default": "./src/node.ts"
+    },
+    "./browser": {
+      "types": "./src/browser.ts",
+      "default": "./src/browser.ts"
     }
   },
   "dependencies": {
     "@intx/log": "0.2.2",
     "@intx/mime": "0.2.2",
     "@intx/types": "workspace:*",
+    "@isomorphic-git/lightning-fs": "4.7.0",
     "arktype": "catalog:",
+    "buffer": "^6.0.3",
     "isomorphic-git": "catalog:"
+  },
+  "devDependencies": {
+    "@intx/crypto": "0.2.2"
   }
 }
