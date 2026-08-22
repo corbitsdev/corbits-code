@@ -178,8 +178,9 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   spawnAllowlist?: readonly string[];
   /**
    * Optional wall-clock budget (ms) for each worker this tool spawns. Opt-in
-   * only — there is no default leaf death clock. When set, clamped below the
-   * outer tool-execution watchdog so a salvage report can return first.
+   * only — there is no default leaf death clock. The task tool is exempt from
+   * the generic tool-execution watchdog, so this deadline is the only
+   * wall-clock bound on a worker.
    */
   deadlineMs?: number;
 

@@ -39,6 +39,35 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
+  test("task is exempt from the settings watchdog", () => {
+    // Sub-agents carry their own bounds (maxTurns, no-progress, thrash,
+    // opt-in deadline); the generic per-tool budget must not abort them.
+    const call = { id: "1", name: "task", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+    ).toBeUndefined();
+  });
+
+  test("task run outlasting the generic budget completes with its own report", async () => {
+    const runner = createDynamicToolRunner(
+      [
+        stringTool("task", async () => {
+          // Slow but progressing: runs well past the 30ms generic budget.
+          await new Promise((r) => setTimeout(r, 120));
+          return "## Summary\nworker report";
+        }),
+      ],
+      { defaultMs: 30 },
+    );
+    const result = await runner.run(
+      { id: "t", name: "task", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("worker report");
+  });
+
   test("omitted config does not arm a default watchdog", () => {
     expect(resolveToolExecutionTimeoutMs(undefined)).toBeUndefined();
     expect(resolveToolExecutionTimeoutMs({})).toBeUndefined();

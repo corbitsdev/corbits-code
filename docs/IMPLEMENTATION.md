@@ -230,7 +230,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`.
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. The `task` tool is always exempt: a dispatched sub-agent is bounded by its own limits (maxTurns, no-progress, thrash, opt-in `deadlineMs`), not the generic per-tool budget.
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Always applies — the primary session is always orchestrator-capable (CL-5814).
