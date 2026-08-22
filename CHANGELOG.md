@@ -11,6 +11,19 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### TUI
+
+- **In-flight tool rows show elapsed time.** Ordinary pending calls (MCP,
+  search, shell) tick a live clock the same way Task rows already do, so a
+  slow-but-alive call is distinguishable from a hung turn.
+
+- **The stall notice comes down the moment activity resumes.** It is a live
+  diagnosis, not a sticky banner: a tool finishing or the turn settling
+  clears it on that paint, even if the monitor tick has already been
+  cancelled.
+
 ## [0.2.102] - 2026-08-22
 
 ### Permissions

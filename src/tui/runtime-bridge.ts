@@ -927,6 +927,17 @@ export function attachSessionBridge(
 
   const paintPhaseAt = (nowMs: number, isStalled: boolean): void => {
     const turn = bag.turn
+    // The stall notice is a live diagnosis, not a sticky banner: it has to
+    // set *and* clear on every paint — including handle() — because the
+    // cadence timer is cancelled the moment the turn settles. If we only
+    // touched it from tick(), a tool.done → inference.done burst that lands
+    // before the next tick would leave the banner up forever.
+    const level = stallLevel(stallArgsFor(nowMs))
+    if (level === "notice") {
+      setStatusFlash(shell, STALL_NOTICE_MESSAGE)
+    } else if (shell.statusFlash === STALL_NOTICE_MESSAGE) {
+      setStatusFlash(shell, null)
+    }
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
     paintLanding(shell, nowMs, turn.isProcessing)
@@ -1214,18 +1225,6 @@ export function attachSessionBridge(
         STALL_RECOVERY_MESSAGE,
       )
       return
-    }
-
-    // Notice only — the phase still paints below, because a ramp that stops
-    // moving is the very thing that reads as a hang.
-    const level = stallLevel(stallArgs)
-    if (level === "notice") {
-      setStatusFlash(shell, STALL_NOTICE_MESSAGE)
-    } else if (shell.statusFlash === STALL_NOTICE_MESSAGE) {
-      // Activity resumed after the notice was posted: it carries no ttl (it
-      // must stay up for as long as the silence lasts), so nothing else would
-      // ever take it down once the run starts producing again.
-      setStatusFlash(shell, null)
     }
 
     // Same "is this stalled at all" question `paintPhase` asks above — call
