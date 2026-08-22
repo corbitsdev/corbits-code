@@ -140,9 +140,10 @@ export type AgentToolsetArgs = {
     useWorktree?: boolean;
   };
   /**
-   * When true, mount Codex-only tool proxies (apply_patch) into baseTools.
-   * Primary then strips apply_patch so DIY stays on write_file/edit_file/delete_file;
-   * leaves keep apply_patch when their allowlist includes it.
+   * When true, mount Codex-only tool proxies (apply_patch, shell, update_plan)
+   * into baseTools. Primary then strips apply_patch so DIY stays on
+   * write_file/edit_file/delete_file; shell and update_plan stay mounted.
+   * Leaves keep apply_patch when their allowlist includes it.
    */
   isCodex?: boolean;
 };
