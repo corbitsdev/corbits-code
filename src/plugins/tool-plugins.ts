@@ -36,7 +36,10 @@ export function collectToolPlugins(modules: PluginModule[]): ToolPluginCandidate
 }
 
 // A tool plugin adds in-process agent capabilities, so it is wired in only when
-// the user has both enabled it AND given one-time consent.
+// the user has both enabled it AND given one-time consent. Unlike skills
+// (isPluginModuleEnabled) and agent profiles (resolveAgentPluginProfiles),
+// repo manifest.defaultEnabled never activates a tool plugin on its own — this
+// is intentional, not an oversight, until product intent changes.
 export function isToolPluginActive(config: Record<string, PluginConfig>, id: string): boolean {
   return config[id]?.enabled === true && config[id]?.consented === true;
 }
