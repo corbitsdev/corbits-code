@@ -5,6 +5,7 @@ import { type } from "arktype";
 
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
+import { PRODUCT_MUTATION_TOOLS } from "./product-mutation-tools.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered and dispatchable but discovered on demand via tool_search, keeping
@@ -16,9 +17,10 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 // dispatchable — the model finds it via tool_search when a session actually
 // needs it.
 //
-// Product mutation tools (write_file / edit_file / delete_file) are intentionally
-// absent from the primary Skywalker core/catalog sets — they mount only on leaf
-// directors that need them (implement, shakespeare, …). See PRIMARY_DENIED_PRODUCT_TOOLS.
+// Product mutation tools (write_file / edit_file / delete_file / apply_patch) are
+// intentionally absent from the primary Skywalker core/catalog sets — they mount
+// only on leaf directors that need them (implement, shakespeare, …). See
+// PRIMARY_DENIED_PRODUCT_TOOLS.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
   "lsp",
@@ -36,11 +38,7 @@ export const CORE_TOOL_NAMES: readonly string[] = [
 ];
 
 /** Product mutation tools denied on the primary Skywalker session (structural). */
-export const PRIMARY_DENIED_PRODUCT_TOOLS: readonly string[] = [
-  "write_file",
-  "edit_file",
-  "delete_file",
-];
+export const PRIMARY_DENIED_PRODUCT_TOOLS: readonly string[] = PRODUCT_MUTATION_TOOLS;
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
 

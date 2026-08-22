@@ -84,11 +84,16 @@ describe("createToolIndex", () => {
   });
 
   test("primary CORE and CATALOG omit product mutation tools", () => {
-    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+    for (const name of ["write_file", "edit_file", "delete_file", "apply_patch"] as const) {
       expect(CORE_TOOL_NAMES).not.toContain(name);
       expect(CATALOG_TOOL_NAMES).not.toContain(name);
     }
-    expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual(["write_file", "edit_file", "delete_file"]);
+    expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual([
+      "write_file",
+      "edit_file",
+      "delete_file",
+      "apply_patch",
+    ]);
   });
 
   test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {

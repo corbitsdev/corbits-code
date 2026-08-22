@@ -48,6 +48,10 @@ import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-searc
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
+import {
+  createCodexToolProxies,
+  type CodexRunTool,
+} from "./codex-tool-proxies.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -135,6 +139,12 @@ export type AgentToolsetArgs = {
     // sharing this session's cwd. See src/subagent/worktree.ts.
     useWorktree?: boolean;
   };
+  /**
+   * When true, mount Codex-only tool proxies (apply_patch) into baseTools
+   * before the primary deny filter. Primary still strips apply_patch via
+   * PRIMARY_DENIED_PRODUCT_TOOLS; leaves keep it when their allowlist includes it.
+   */
+  isCodex?: boolean;
 };
 
 // Per-server connection state surfaced to the TUI.
@@ -207,6 +217,23 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       ...(shellEnv !== undefined ? { shellEnv } : {}),
     }),
   });
+
+  // Codex apply_patch proxy forwards ops through posixTools.run so permission
+  // plugins (gate, path policy, etc.) still apply — same call shape as
+  // posix-tool-plugins.test.ts.
+  const runTool: CodexRunTool = async (name, args) => {
+    const result = await posixTools.run(
+      { id: "codex-proxy", name, arguments: args },
+      new AbortController().signal,
+    );
+    return {
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
+      ...(result.isError === true ? { isError: true } : {}),
+    };
+  };
 
   // Align the advertised run_shell timeout with shell-guard's resolved default.
   const baseTools: AgentTool[] = [
@@ -339,6 +366,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       lookup: (name) => runnerRef?.currentDefinitions().find((d) => d.name === name),
       promote: (names) => promoter.promote(names),
     }),
+  );
+
+  // Codex proxies land before the primary deny filter so Skywalker still strips
+  // apply_patch via PRIMARY_DENIED_PRODUCT_TOOLS when isCodex is true.
+  baseTools.push(
+    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool }),
   );
 
   // Primary Skywalker never mounts product mutation tools — never-implement is
