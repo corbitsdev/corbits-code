@@ -73,6 +73,7 @@ import type { StreamRow } from "./stream.js"
 import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
 import {
   agentProgress,
+  clockLabel,
   fleetProgress,
   type AgentProgressSession,
 } from "./agent-progress.js"
@@ -356,6 +357,12 @@ type BridgeBag = {
   now: () => number
   /** Transcript row each in-flight call occupies, so its result can resolve it. */
   toolRows: Map<string, number>
+  /**
+   * When each in-flight ordinary tool call started, so its row can carry a
+   * live elapsed clock instead of sitting on a static pending mark for the
+   * length of a slow call — the one case a healthy turn reads as dead.
+   */
+  toolCallStartedAt: Map<string, number>
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number
   /**
@@ -564,7 +571,15 @@ function applyToolCall(
   } else {
     appendStreamRow(shell, row)
   }
-  if (event.callId !== undefined) bag.toolRows.set(event.callId, index)
+  if (event.callId !== undefined) {
+    bag.toolRows.set(event.callId, index)
+    // A diff call's row already carries a "+n/-n" stat — that is the fact
+    // worth keeping, not an elapsed clock, so only ordinary calls (no stat of
+    // their own) pick up the live timer.
+    if (row.stat === undefined) {
+      bag.toolCallStartedAt.set(event.callId, bag.now())
+    }
+  }
   if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
     bag.taskCallIds.add(event.callId)
   }
@@ -590,13 +605,20 @@ function applyToolResult(
   })
   const tracked =
     event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined
+  // The elapsed clock was scaffolding for the wait, not a fact about the
+  // call — clear it before the merge so it never crowds out the answer's own
+  // addendum (e.g. "3 lines") the way a diff's own +/- count is allowed to.
+  const clockOwned =
+    event.callId !== undefined && bag.toolCallStartedAt.has(event.callId)
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId)
+    bag.toolCallStartedAt.delete(event.callId)
     bag.taskCallIds.delete(event.callId)
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null
   const index = tracked ?? bag.lastToolRow
-  const call = streamRowAt(shell, index)
+  const rawCall = streamRowAt(shell, index)
+  const call = clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall
   if (call === undefined || call.pending !== true) {
     appendStreamRow(shell, result)
     return
@@ -642,6 +664,40 @@ function syncAgentProgress(
   }
 }
 
+/** Drop `stat` entirely rather than set it `undefined` (exactOptionalPropertyTypes). */
+function omitStat(row: StreamRow): StreamRow {
+  const { stat: _stat, ...rest } = row
+  return rest
+}
+
+/**
+ * Refresh every plain in-flight tool call's row with how long it has been
+ * running. A `task` dispatch already gets this (and more) from
+ * `syncAgentProgress`, so those calls are skipped here rather than double
+ * painted. Without a live clock an ordinary call's row sits on a static
+ * pending mark for however long the tool takes — indistinguishable from a
+ * hung turn once that stretches past a few seconds.
+ */
+function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
+  if (bag.toolCallStartedAt.size === 0) return
+  for (const [callId, startedAt] of bag.toolCallStartedAt) {
+    if (bag.taskCallIds.has(callId)) continue
+    const index = bag.toolRows.get(callId)
+    if (index === undefined) {
+      bag.toolCallStartedAt.delete(callId)
+      continue
+    }
+    const row = streamRowAt(shell, index)
+    if (row === undefined || row.pending !== true) {
+      bag.toolCallStartedAt.delete(callId)
+      continue
+    }
+    const stat = clockLabel(nowMs - startedAt)
+    if (row.stat === stat) continue
+    replaceStreamRowAt(shell, index, { ...row, stat })
+  }
+}
+
 /**
  * Retract everything the failed attempt painted, then forget the row
  * bookkeeping that pointed into it — a rolled-back tool call has no row left
@@ -655,6 +711,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
       bag.toolRows.delete(callId)
+      bag.toolCallStartedAt.delete(callId)
       bag.taskCallIds.delete(callId)
     }
   }
@@ -802,6 +859,7 @@ export function attachSessionBridge(
     quotaFired: false,
     now,
     toolRows: new Map(),
+    toolCallStartedAt: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
     agentSessions: [],
@@ -878,6 +936,7 @@ export function attachSessionBridge(
     if (bag.openRow !== null && bag.openRow.kind === "thinking") {
       advanceOpenReveal(shell, bag.openRow, nowMs)
     }
+    syncToolElapsed(shell, bag, nowMs)
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
@@ -1162,6 +1221,11 @@ export function attachSessionBridge(
     const level = stallLevel(stallArgs)
     if (level === "notice") {
       setStatusFlash(shell, STALL_NOTICE_MESSAGE)
+    } else if (shell.statusFlash === STALL_NOTICE_MESSAGE) {
+      // Activity resumed after the notice was posted: it carries no ttl (it
+      // must stay up for as long as the silence lasts), so nothing else would
+      // ever take it down once the run starts producing again.
+      setStatusFlash(shell, null)
     }
 
     // Same "is this stalled at all" question `paintPhase` asks above — call

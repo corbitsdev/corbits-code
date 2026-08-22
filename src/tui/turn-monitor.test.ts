@@ -326,6 +326,28 @@ describe("stall watchdog", () => {
     })
   })
 
+  test("clears the notice once activity resumes, rather than leaving it up", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(500)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+
+        // The model starts producing again — the notice must not linger past
+        // the silence it was reporting.
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } })
+        t.tick()
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   test("aborts and flashes once a mid-stream hang crosses the stall timeout", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
