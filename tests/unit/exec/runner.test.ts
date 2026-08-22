@@ -57,7 +57,7 @@ describe("resolveExecDirectorOverlay", () => {
     expect(overlay.advertisedAllow).toBeDefined();
     expect(overlay.advertisedAllow).not.toContain("task");
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
-    expect(overlay.systemPrompt).toContain("ImplementDirector");
+    expect(overlay.systemPrompt).toContain("BuildDirector");
   });
 
   test("skywalker default still can mount task", () => {

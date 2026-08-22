@@ -52,7 +52,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 - **Exec and capability evals can run as a chosen primary director.**
   `corbits exec --director <id>` (and eval `--director`) overlays that
-  package's system prompt and tool allowlist on the product exec path.
+  package's system prompt and initially-advertised tool set on the product exec path.
   Omit / skywalker keep the default Skywalker session. Directors that
   cannot spawn (for example build) do not mount `task`. This is an
   exec/eval/CI override, not a TUI or single-agent mode.

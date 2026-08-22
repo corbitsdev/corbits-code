@@ -174,7 +174,7 @@ Flags:
 | `--repeats <n>` | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates |
 | `--concurrency <n>` | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster |
 | `--dry-run` | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix` |
-| `--director <id>` | Exec overlay: run the product `corbits exec` path as this closed-fleet director (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
+| `--director <id>` | Exec overlay: run the product `corbits exec` path with this director's system prompt and initially-advertised tool set (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
 
 ## Case format
 

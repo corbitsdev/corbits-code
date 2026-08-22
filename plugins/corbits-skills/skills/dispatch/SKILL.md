@@ -125,7 +125,7 @@ commits:
 tasks:
   - id: 1a-extract_auth_module
     type: feature               # feature | bugfix (omit for explore)
-    agent: build            # build | intern | explore
+    agent: build                # build | intern | explore
     depends-on: []
     receives: []                # subset of depends-on; default = depends-on
     status: pending             # pending | dispatched | completed | failed | fixing

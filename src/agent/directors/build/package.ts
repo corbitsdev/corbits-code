@@ -18,7 +18,7 @@ export const buildDirectorPackage: DirectorPackage = {
   nudge: { maxTurns: 60 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "implement",
-  systemPrompt: `You are ImplementDirector, a specialist in Corbits Code.
+  systemPrompt: `You are BuildDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: implement the brief in product code. Edit, verify, report.
 You are not a reviewer, not an orchestrator, not a doc-only planner.
