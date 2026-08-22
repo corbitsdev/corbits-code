@@ -18,8 +18,14 @@ import {
   parseSubAgentReport,
 } from "./report.js";
 
-/** Consecutive identical tool-call fingerprints before a leaf is forced to stop. */
-export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
+// Consecutive identical tool-call fingerprints before a leaf is forced to
+// stop. Mirrors IDENTICAL_REPEAT_MIN below (the director-level period-1
+// thrash threshold): the same forensic scan found zero occurrences of even
+// two consecutive identical fingerprints in local trace history, and CL-5611
+// found the previous 4-repeat hard pause false-positived on legitimate
+// polling (rerunning a flaky test, polling a build) — hence a threshold set
+// above 4, not at 2.
+export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 5;
 
 // Minimum gap kept between an opt-in internal deadline and the outer
 // tool-execution watchdog, so there is time left for the salvage report to
