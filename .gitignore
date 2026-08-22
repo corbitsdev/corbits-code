@@ -8,6 +8,7 @@ dist/
 .corbits/MEMORY.md
 .interchange/
 .cache/
+.eslintcache
 .pi
 .claude/settings.local.json
 .claude/worktrees
