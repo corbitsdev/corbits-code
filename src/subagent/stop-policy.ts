@@ -275,6 +275,9 @@ export type SubAgentStopReason =
  * (Summary, Findings, Blockers, Paths). Omitting `lastAssistantText`
  * still completes (back-compat). Missing envelope nudges
  * once (`incomplete-report`) then salvages (`incomplete-report-stop`).
+ * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
+ * is not complete even with all four headings — same incomplete-report
+ * nudge then salvage, so a wrap-up envelope cannot fake a real review.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
@@ -294,6 +297,13 @@ export function evaluateSubAgentStop(input: {
    */
   requireEdit?: boolean;
   /**
+   * When true (CritiqueDirector leaf), a tool-using run that never
+   * read or searched a file is not a successful complete — even a four-heading
+   * envelope is incomplete-report so the parent does not treat a wrap-up
+   * narration as a finished review.
+   */
+  requireEvidence?: boolean;
+  /**
    * Final assistant text of this turn. When omitted, a tool-less turn after
    * tools still completes (back-compat for existing unit tests). When provided,
    * a missing four-heading envelope (Summary/Findings/Blockers/Paths) nudges
@@ -307,7 +317,8 @@ export function evaluateSubAgentStop(input: {
   // read/searched (no edit_file/write_file/delete_file) is never-edited —
   // both hard-block identical re-dispatch. After those, a tool-less turn
   // following tools is complete only with a report envelope (or when
-  // lastAssistantText is omitted).
+  // lastAssistantText is omitted). CritiqueDirector additionally requires
+  // at least one read/search in thrashState.readCounts.
   if (!input.hasToolCalls) {
     if (!input.everHadToolCalls) return "never-acted";
     if (
@@ -319,6 +330,14 @@ export function evaluateSubAgentStop(input: {
     if (
       input.lastAssistantText !== undefined &&
       !hasReportEnvelope(input.lastAssistantText)
+    ) {
+      return input.incompleteReportNudgeFired === true
+        ? "incomplete-report-stop"
+        : "incomplete-report";
+    }
+    if (
+      input.requireEvidence === true &&
+      (input.thrashState === undefined || input.thrashState.readCounts.size === 0)
     ) {
       return input.incompleteReportNudgeFired === true
         ? "incomplete-report-stop"

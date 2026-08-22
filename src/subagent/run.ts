@@ -89,6 +89,7 @@ import {
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
 import type { RunSubAgentParams, SubAgentProvider } from "./types.js";
+import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
 export type {
@@ -221,6 +222,21 @@ export function createSubAgentRunController(
       parentSignal?.removeEventListener("abort", onParentAbort);
     },
   };
+}
+
+/**
+ * Arm requireEvidence only for CritiqueDirector. Greybeard is also
+ * intent=review and may spawn-only then envelope; that is not a fake
+ * review — do not pull it into the empty-readCounts gate.
+ */
+export function shouldRequireEvidence(input: {
+  intent?: TaskIntent;
+  systemPromptRole?: string;
+}): boolean {
+  return (
+    typeof input.systemPromptRole === "string" &&
+    input.systemPromptRole.includes("CritiqueDirector")
+  );
 }
 
 // Spin up an isolated, autonomous agent loop, hand it one task, and return
@@ -417,6 +433,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         modelFamilyPolicy.subAgentStallTimeoutMs,
         Date.now,
         params.intent === "implement",
+        shouldRequireEvidence(params),
       ),
   });
 
