@@ -217,10 +217,13 @@ export function registerBuiltInCommands(): void {
       if (next) {
         return {
           type: "message",
-          text: "Yolo mode on — permission prompts skipped.",
+          text: "Yolo mode on — permission prompts skipped. Saved as the default.",
         };
       }
-      return { type: "message", text: "Yolo mode off — permission prompts restored." };
+      return {
+        type: "message",
+        text: "Yolo mode off — permission prompts restored. Saved as the default.",
+      };
     },
   });
 

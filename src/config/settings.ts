@@ -1016,6 +1016,18 @@ export async function saveGlobalSettings(path: string, settings: Settings): Prom
   await rename(tmp, path);
 }
 
+// Silent helper: callers log or notice. Skips when the write base is null so a
+// corrupt settings file is never replaced with a one-key rewrite.
+export async function persistSkipPermissionsDefault(
+  path: string,
+  value: boolean,
+): Promise<"ok" | "skipped"> {
+  const base = await loadGlobalSettingsWriteBase(path);
+  if (base === null) return "skipped";
+  await saveGlobalSettings(path, { ...base, dangerouslySkipPermissions: value });
+  return "ok";
+}
+
 // Stamp the global `onboarded` flag. Reads the on-disk global settings fresh
 // (never an in-memory Settings that may carry injected OAuth provider entries
 // with short-lived access tokens) and re-saves with onboarded set. When the

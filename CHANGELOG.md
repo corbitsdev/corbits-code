@@ -11,6 +11,14 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Changed
+
+- **`/yolo` persists as the user-global skip-permissions default.** Exec
+  inherits it; `--dangerously-skip-permissions` still forces the current
+  process. Secret-guard and authz still apply.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

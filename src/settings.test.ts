@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { chmod, mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -24,6 +24,7 @@ import {
   validateTaskMaxTurns,
   toolWatchdogFromSettings,
   loadGlobalSettingsWriteBase,
+  persistSkipPermissionsDefault,
   markLastChangelogVersion,
   pushRecentModel,
   toggleFavoriteModel,
@@ -739,6 +740,56 @@ describe("loaders", () => {
   });
 });
 
+describe("persistSkipPermissionsDefault", () => {
+  test("writes true", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await saveGlobalSettings(path, firepass);
+      expect(await persistSkipPermissionsDefault(path, true)).toBe("ok");
+      expect(await loadSettings(path)).toEqual({
+        ...firepass,
+        dangerouslySkipPermissions: true,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("writes false", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: true });
+      expect(await persistSkipPermissionsDefault(path, false)).toBe("ok");
+      expect(await loadSettings(path)).toEqual({
+        ...firepass,
+        dangerouslySkipPermissions: false,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("skips invalid or unreadable settings and leaves the file unchanged", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+    try {
+      const path = join(dir, "settings.json");
+      const garbage = "{ not json";
+      await writeFile(path, garbage);
+      expect(await persistSkipPermissionsDefault(path, true)).toBe("skipped");
+      expect(await readFile(path, "utf8")).toBe(garbage);
+
+      const wrongShape = JSON.stringify({ providers: "wrong-shape" });
+      await writeFile(path, wrongShape);
+      expect(await persistSkipPermissionsDefault(path, true)).toBe("skipped");
+      expect(await readFile(path, "utf8")).toBe(wrongShape);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("sessionMode", () => {
   test("loadSettings drops legacy single sessionMode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
@@ -791,6 +842,8 @@ test("loadSettings round-trips dangerouslySkipPermissions", async () => {
     const path = join(dir, ".corbits", "settings.json");
     await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: true });
     expect(await loadSettings(path)).toEqual({ ...firepass, dangerouslySkipPermissions: true });
+    await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: false });
+    expect(await loadSettings(path)).toEqual({ ...firepass, dangerouslySkipPermissions: false });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
