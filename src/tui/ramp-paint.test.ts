@@ -280,7 +280,7 @@ describe("palette", () => {
 
   test("chrome stays below the action orange so orange still reads as an event", () => {
     const action = saturation(UI.action)
-    for (const hex of [UI.inFlight, UI.inFlightBright, UI.heading]) {
+    for (const hex of [UI.inFlight, UI.inFlightBright, UI.heading, UI.warning]) {
       expect(saturation(hex)).toBeLessThan(action)
     }
   })

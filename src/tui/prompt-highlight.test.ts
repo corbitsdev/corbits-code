@@ -1,7 +1,6 @@
 /**
- * End-to-end: a recognized skill/agent name typed into the real prompt
- * widget paints orange; a lookalike that merely contains a recognized name
- * does not.
+ * End-to-end: a leading `/command` or `@mention` typed into the real prompt
+ * widget paints orange; bare skill/agent words and mid-prose slashes do not.
  */
 import { describe, expect, test } from "bun:test"
 import { RGBA } from "@opentui/core"
@@ -26,8 +25,7 @@ function withShell(
       run: "idle",
     })
     setPromptRecognitionSource(shell, () => ({
-      skillNames: ["brand review"],
-      agentNames: ["emil", "draper"],
+      commandNames: ["implement", "review", "improve", "linear-create"],
     }))
     try {
       await fn(shell, h)
@@ -55,40 +53,50 @@ function spansFor(h: Harness, text: string): { text: string; fg: RGBA }[] {
 }
 
 describe("prompt recognition highlighting", () => {
-  test("a recognized agent name paints in the action color", async () => {
+  test("a leading slash command paints in the action color", async () => {
     await withShell(async (shell, h) => {
-      await compose(shell, h, "ask emil to review")
-      const spans = spansFor(h, "emil")
+      await compose(shell, h, "/implement")
+      const spans = spansFor(h, "/implement")
       expect(spans.length).toBeGreaterThan(0)
       expect(spans.some((s) => s.fg.equals(ACTION_FG))).toBe(true)
     })
   })
 
-  test("a recognized multi-word skill name paints in the action color", async () => {
+  test("an @mention paints in the action color", async () => {
     await withShell(async (shell, h) => {
-      await compose(shell, h, "ask draper to run a brand review")
-      const spans = spansFor(h, "brand review")
+      await compose(shell, h, "ask @emil to review")
+      const spans = spansFor(h, "@emil")
       expect(spans.length).toBeGreaterThan(0)
       expect(spans.some((s) => s.fg.equals(ACTION_FG))).toBe(true)
     })
   })
 
-  test("a lookalike that is not a recognized name stays unstyled", async () => {
+  test("bare words stay unstyled", async () => {
     await withShell(async (shell, h) => {
-      await compose(shell, h, "emily is not emil")
-      const spans = spansFor(h, "emily")
+      for (const word of ["emil", "implement", "brand review", "improve", "linear-create"]) {
+        await compose(shell, h, word)
+        const spans = spansFor(h, word)
+        expect(spans.length).toBeGreaterThan(0)
+        expect(spans.every((s) => !s.fg.equals(ACTION_FG))).toBe(true)
+      }
+    })
+  })
+
+  test("a mid-prose slash command stays unstyled", async () => {
+    await withShell(async (shell, h) => {
+      await compose(shell, h, "please /review this")
+      const spans = spansFor(h, "/review")
       expect(spans.length).toBeGreaterThan(0)
       expect(spans.every((s) => !s.fg.equals(ACTION_FG))).toBe(true)
     })
   })
 
-  test("a mixed line highlights only the recognized tokens", async () => {
+  test("a lookalike that is not a mention stays unstyled", async () => {
     await withShell(async (shell, h) => {
-      await compose(shell, h, "emily asked emil and draper for a brand review")
-      expect(spansFor(h, "emily").every((s) => !s.fg.equals(ACTION_FG))).toBe(true)
-      expect(spansFor(h, "emil").some((s) => s.fg.equals(ACTION_FG))).toBe(true)
-      expect(spansFor(h, "draper").some((s) => s.fg.equals(ACTION_FG))).toBe(true)
-      expect(spansFor(h, "brand review").some((s) => s.fg.equals(ACTION_FG))).toBe(true)
+      await compose(shell, h, "emily is not emil")
+      const spans = spansFor(h, "emily")
+      expect(spans.length).toBeGreaterThan(0)
+      expect(spans.every((s) => !s.fg.equals(ACTION_FG))).toBe(true)
     })
   })
 })

@@ -77,8 +77,21 @@ export function contextWindowFor(model: string): number {
 export const COMPACTION_WINDOW_FRACTION = 0.6;
 
 // Status-bar meter turns danger at this fraction of the window — past
-// compaction and approaching hard overflow at 1.0.
-export const CONTEXT_METER_DANGER_FRACTION = 0.9;
+// compaction and approaching hard overflow at 1.0. Inclusive integer bands
+// keep 80 in warning and start danger at 81.
+export const CONTEXT_METER_DANGER_FRACTION = 0.8;
+
+export type ContextMeterBand = "quiet" | "warning" | "danger";
+
+/**
+ * Map a 0–100 context-window percent onto the meter band.
+ * Inclusive: 0–60 quiet, 61–80 warning, 81–100 danger.
+ */
+export function contextMeterBand(percentUsed: number): ContextMeterBand {
+  if (percentUsed <= 60) return "quiet";
+  if (percentUsed <= 80) return "warning";
+  return "danger";
+}
 
 // Token threshold at which the director should compact, sized to the model's
 // real window. `model` may be undefined early in a session (no cycle yet); we
