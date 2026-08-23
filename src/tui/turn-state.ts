@@ -561,6 +561,7 @@ export function turnStateFromEvent(
       return streaming(state, "text", nowMs, deltaText(event));
 
     case "inference.thinking.delta":
+    case "thinking.delta":
       return streaming(state, "thinking", nowMs, deltaText(event));
 
     case "inference.tool_call.delta":
