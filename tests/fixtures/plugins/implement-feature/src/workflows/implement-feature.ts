@@ -19,7 +19,8 @@ export const implementFeature: Workflow = {
     {
       id: "test",
       label: "Test",
-      prompt: "Run the narrowest relevant checks, then broader tests as appropriate. Fix failures you introduced.",
+      prompt:
+        "Run the narrowest relevant checks, then broader tests as appropriate. Fix failures you introduced.",
     },
     {
       id: "review",
@@ -33,7 +34,8 @@ export const implementFeature: Workflow = {
       id: "gate",
       label: "Ship approval",
       type: "gate",
-      prompt: "Summarize the feature, test results, and review outcomes. Wait for operator approval.",
+      prompt:
+        "Summarize the feature, test results, and review outcomes. Wait for operator approval.",
     },
   ],
 };

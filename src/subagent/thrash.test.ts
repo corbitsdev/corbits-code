@@ -35,7 +35,7 @@ function grep(pattern: string): ThrashToolCallBlock {
   return { type: "tool_call", name: "grep", arguments: { pattern, path: "src" } };
 }
 
-function applyAll(calls: ReadonlyArray<ThrashToolCallBlock>): ThrashState {
+function applyAll(calls: readonly ThrashToolCallBlock[]): ThrashState {
   return nextThrashState(EMPTY_THRASH_STATE, calls);
 }
 
@@ -157,13 +157,7 @@ describe("thrash pure module", () => {
 
   test("few re-reads of one path without edit stay under thrash", () => {
     // 3 reads < reReadLimit=4, even with other tools mixed in.
-    const state = applyAll([
-      read("big.ts"),
-      grep("x"),
-      read("big.ts"),
-      grep("y"),
-      read("big.ts"),
-    ]);
+    const state = applyAll([read("big.ts"), grep("x"), read("big.ts"), grep("y"), read("big.ts")]);
     expect(thrashFromReRead(state)).toBe(false);
   });
 
@@ -322,13 +316,7 @@ describe("thrash pure module", () => {
   });
 
   test("tool-less turns never return thrash stop reasons", () => {
-    const state = applyAll([
-      edit("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-    ]);
+    const state = applyAll([edit("a.ts"), read("a.ts"), read("a.ts"), read("a.ts"), read("a.ts")]);
     expect(
       evaluateThrashStop({
         state,

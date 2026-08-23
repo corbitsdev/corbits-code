@@ -4,7 +4,7 @@ import type { ApprovalOutcome, PermissionRequest, RequestApproval } from "../per
 import { getToolApprovalBudget } from "./tool-execution-watchdog.js";
 import type { PermissionGateEvent } from "./gate-events.js";
 
-export type CreateGateRequestApprovalArgs = {
+export interface CreateGateRequestApprovalArgs {
   /** Emits the gate event to the UI; returns false when nothing is listening. */
   emitGate: (event: PermissionGateEvent) => boolean;
   /**
@@ -14,7 +14,7 @@ export type CreateGateRequestApprovalArgs = {
    * a future generalized auto-continue mechanism owns re-arming this.
    */
   approvalTimeout: () => { timeoutMs: number; timeoutMessage: string } | undefined;
-};
+}
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "tui", "permission"]);
 

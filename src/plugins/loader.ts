@@ -24,7 +24,7 @@ import {
 
 export type { PluginLoadDiagnostics } from "./diagnostics.js";
 
-export type PluginModule = {
+export interface PluginModule {
   // Self-description (id, name, kind, credential fields), when the module
   // exports a valid `manifest`. Drives the /plugins UI and web-provider wiring.
   manifest?: PluginManifest;
@@ -66,7 +66,7 @@ export type PluginModule = {
    * settings flag (CL-6716).
    */
   shadowedRepoDefaultEnabled?: boolean;
-};
+}
 
 // Read and validate a manifest.json beside the module. Plugins may declare
 // their manifest as a JS export (mod.manifest) or a sibling manifest.json file;
@@ -94,8 +94,7 @@ async function readPluginMetadataOnly(
   }
   const abs = resolve(dir);
   const manifest =
-    (await readManifestJson(abs))
-    ?? (await readManifestJson(join(abs, ".claude-plugin")));
+    (await readManifestJson(abs)) ?? (await readManifestJson(join(abs, ".claude-plugin")));
   if (manifest === null) {
     return null;
   }
@@ -164,9 +163,7 @@ export async function loadPluginEntry(
         // collector over a pre-bound onWarning sink.
         const dataOnly = await loadDataOnlyPlugin(entryPath, {
           cwd,
-          ...(opts.diagnostics !== undefined
-            ? { diagnostics: opts.diagnostics }
-            : { onWarning }),
+          ...(opts.diagnostics !== undefined ? { diagnostics: opts.diagnostics } : { onWarning }),
         });
         if (dataOnly !== null) {
           const mod: PluginModule = { dir: entryPath, manifest: dataOnly.manifest };
@@ -192,22 +189,36 @@ export async function loadPluginEntry(
     // Dynamic import resolves relative specifiers against this module, not cwd,
     // so resolve to an absolute path first (callers may pass a relative path).
     const importTarget = isAbsolute(target) ? target : resolve(target);
-    const mod = await import(importTarget) as Record<string, unknown>;
+    const mod = (await import(importTarget)) as Record<string, unknown>;
     const result: PluginModule = { dir: dirname(importTarget) };
-    const manifest = parsePluginManifest(mod.manifest)
-      ?? (await readManifestJson(dirname(importTarget)))
-      ?? (await readManifestJson(dirname(dirname(importTarget))));
+    const manifest =
+      parsePluginManifest(mod.manifest) ??
+      (await readManifestJson(dirname(importTarget))) ??
+      (await readManifestJson(dirname(dirname(importTarget))));
     if (manifest !== null) result.manifest = manifest;
-    if (mod.workflowPlugin != null && typeof mod.workflowPlugin === "object" && "workflows" in mod.workflowPlugin) {
+    if (
+      mod.workflowPlugin != null &&
+      typeof mod.workflowPlugin === "object" &&
+      "workflows" in mod.workflowPlugin
+    ) {
       result.workflowPlugin = mod.workflowPlugin as WorkflowPlugin;
     }
-    if (mod.commandPlugin != null && typeof mod.commandPlugin === "object" && "commands" in mod.commandPlugin) {
+    if (
+      mod.commandPlugin != null &&
+      typeof mod.commandPlugin === "object" &&
+      "commands" in mod.commandPlugin
+    ) {
       result.commandPlugin = mod.commandPlugin as CommandPlugin;
     }
-    if (mod.agentPlugin != null && typeof mod.agentPlugin === "object" && "agents" in mod.agentPlugin) {
+    if (
+      mod.agentPlugin != null &&
+      typeof mod.agentPlugin === "object" &&
+      "agents" in mod.agentPlugin
+    ) {
       result.agentPlugin = mod.agentPlugin as { agents: unknown[] };
     }
-    if (typeof mod.createWebProvider === "function") result.createWebProvider = mod.createWebProvider;
+    if (typeof mod.createWebProvider === "function")
+      result.createWebProvider = mod.createWebProvider;
     if (typeof mod.createToolPlugin === "function") result.createToolPlugin = mod.createToolPlugin;
     // A default-exported factory maps strictly to the factory for the manifest's
     // kind, so web and tool plugins can both just `export default` — and a tool
@@ -257,19 +268,16 @@ async function pathExists(p: string): Promise<boolean> {
 
 /** Why a marketplace `source` entry was not expanded to a member path. */
 export type ExpandPluginPathSkipReason =
-  | "absolute"
-  | "outside-contain-root"
-  | "missing"
-  | "invalid-entry";
+  "absolute" | "outside-contain-root" | "missing" | "invalid-entry";
 
-export type ExpandPluginPathSkip = {
+export interface ExpandPluginPathSkip {
   source: string;
   reason: ExpandPluginPathSkipReason;
   /** Absolute path after resolve, when known. */
   resolved?: string;
-};
+}
 
-export type ExpandPluginPathOptions = {
+export interface ExpandPluginPathOptions {
   /**
    * Resolved member directories must stay under this root (or equal it).
    * Claude installs: `~/.claude/plugins`. Path/pluginPaths marketplaces omit
@@ -290,7 +298,7 @@ export type ExpandPluginPathOptions = {
    * record that a caller is deliberately ignoring skips.
    */
   onSkip: (skip: ExpandPluginPathSkip) => void;
-};
+}
 
 /** One-line description of a skip, shared by every `onSkip` sink (diagnostics or stderr). */
 export function formatExpandSkip(skip: ExpandPluginPathSkip): string {
@@ -382,20 +390,15 @@ export async function expandPluginPath(
   // 1. Declared marketplace: relative `source` list, contained under containRoot
   // (or parent of marketplace root for path plugins — any depth under that parent).
   try {
-    const raw = await readFile(
-      join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
-      "utf8",
-    );
+    const raw = await readFile(join(marketplaceRoot, ".claude-plugin", "marketplace.json"), "utf8");
     const parsed = JSON.parse(raw) as unknown;
     if (
-      typeof parsed === "object"
-      && parsed !== null
-      && Array.isArray((parsed as { plugins?: unknown }).plugins)
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Array.isArray((parsed as { plugins?: unknown }).plugins)
     ) {
-      const containRoot = resolve(
-        opts.containRoot ?? defaultContainRoot(marketplaceRoot),
-      );
-      const candidates: Array<{ source: string; resolved: string }> = [];
+      const containRoot = resolve(opts.containRoot ?? defaultContainRoot(marketplaceRoot));
+      const candidates: { source: string; resolved: string }[] = [];
       for (const p of (parsed as { plugins: unknown[] }).plugins) {
         if (typeof p !== "object" || p === null) {
           report({ source: "", reason: "invalid-entry" });
@@ -418,9 +421,7 @@ export async function expandPluginPath(
         }
         candidates.push({ source: src, resolved });
       }
-      const existing = await Promise.all(
-        candidates.map((c) => pathExists(c.resolved)),
-      );
+      const existing = await Promise.all(candidates.map((c) => pathExists(c.resolved)));
       const surviving: string[] = [];
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i]!;
@@ -454,9 +455,7 @@ export async function expandPluginPath(
     (await pathExists(join(marketplaceRoot, "index.ts"))) ||
     (await pathExists(join(marketplaceRoot, "src", "index.ts")));
   if (hasPluginsSubdir && !rootIsPlugin) {
-    const containRoot = resolve(
-      opts.containRoot ?? defaultContainRoot(marketplaceRoot),
-    );
+    const containRoot = resolve(opts.containRoot ?? defaultContainRoot(marketplaceRoot));
     let entries: import("node:fs").Dirent[];
     try {
       entries = await readdir(join(marketplaceRoot, "plugins"), { withFileTypes: true });
@@ -523,7 +522,9 @@ async function scanPluginsDir(
     // Each entry may itself be a marketplace, so expand before loading. A
     // skipped member routes into `diagnostics` when the caller has one, same
     // as loadPluginEntry below — otherwise it would bypass the collector.
-    const dirs = await expandPluginPath(join(dir, entry), { onSkip: resolveExpandSkip(diagnostics) });
+    const dirs = await expandPluginPath(join(dir, entry), {
+      onSkip: resolveExpandSkip(diagnostics),
+    });
     for (const d of dirs) {
       const abs = resolve(d);
       if (originRequiresTrust(origin) && isTrusted !== undefined && !isTrusted(abs)) {
@@ -560,7 +561,14 @@ export async function discoverUserPlugins(
   const projectDir = join(cwd, SETTINGS_DIR_NAME, "plugins");
   const userDir = join(homedir(), SETTINGS_DIR_NAME, "plugins");
   const [project, user] = await Promise.all([
-    scanPluginsDir(projectDir, cwd, "project", opts.isPluginTrusted, opts.diagnostics, opts.telemetry),
+    scanPluginsDir(
+      projectDir,
+      cwd,
+      "project",
+      opts.isPluginTrusted,
+      opts.diagnostics,
+      opts.telemetry,
+    ),
     scanPluginsDir(userDir, cwd, "user", undefined, opts.diagnostics, opts.telemetry),
   ]);
   return [...project, ...user];
@@ -591,11 +599,9 @@ export function dedupePluginModules(modules: PluginModule[]): PluginModule[] {
     if (existing !== undefined) {
       const prev = result[existing]!;
       const wasRepoDefaultEnabled =
-        prev.shadowedRepoDefaultEnabled === true
-        || (prev.origin === "repo" && prev.manifest?.defaultEnabled === true);
-      result[existing] = wasRepoDefaultEnabled
-        ? { ...mod, shadowedRepoDefaultEnabled: true }
-        : mod;
+        prev.shadowedRepoDefaultEnabled === true ||
+        (prev.origin === "repo" && prev.manifest?.defaultEnabled === true);
+      result[existing] = wasRepoDefaultEnabled ? { ...mod, shadowedRepoDefaultEnabled: true } : mod;
     } else {
       indexById.set(id, result.length);
       result.push(mod);
@@ -767,18 +773,16 @@ export async function discoverClaudeInstalledPlugins(
       : { onWarning: stderrPluginWarning },
   );
   const onExpandSkip =
-    opts.onExpandSkip
-    ?? ((skip: ExpandPluginPathSkip) => {
+    opts.onExpandSkip ??
+    ((skip: ExpandPluginPathSkip) => {
       const where = skip.resolved !== undefined ? ` → ${skip.resolved}` : "";
       warnExpand(
         `skipped marketplace source ${JSON.stringify(skip.source)} (${skip.reason})${where}`,
       );
     });
-  const installPaths: Array<{ abs: string; registryKey: string }> = [];
+  const installPaths: { abs: string; registryKey: string }[] = [];
   const seen = new Set<string>();
-  for (const [registryKey, entries] of Object.entries(
-    pluginsField as Record<string, unknown>,
-  )) {
+  for (const [registryKey, entries] of Object.entries(pluginsField as Record<string, unknown>)) {
     if (!Array.isArray(entries)) continue;
     for (const entry of entries) {
       if (typeof entry !== "object" || entry === null) continue;
@@ -841,10 +845,7 @@ export async function discoverClaudeInstalledPlugins(
         plugin.manifest = {
           ...plugin.manifest,
           id: idFromKey,
-          name:
-            plugin.manifest.name === plugin.manifest.id
-              ? idFromKey
-              : plugin.manifest.name,
+          name: plugin.manifest.name === plugin.manifest.id ? idFromKey : plugin.manifest.name,
         };
       }
       opts.telemetry?.capture("plugin_loaded", { origin: "user" });
@@ -862,4 +863,3 @@ function looksLikeVersionDirId(id: string): boolean {
 
 /** Re-export for callers that need the type without importing trust directly. */
 export type { PluginOrigin, ProjectTrustStore };
-

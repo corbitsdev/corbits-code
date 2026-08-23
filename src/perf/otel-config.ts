@@ -25,7 +25,7 @@ export const OTEL_ENV = {
 } as const;
 
 /** Non-secret settings block for OTEL export (global settings only). */
-export type OtelSettings = {
+export interface OtelSettings {
   /** Explicit off switch. When false and no env endpoint, export stays disabled. */
   enabled?: boolean;
   /** OTLP base URL (http/https). Env OTEL_EXPORTER_OTLP_ENDPOINT overrides. */
@@ -43,19 +43,19 @@ export type OtelSettings = {
    * Prefer non-secret labels only in settings.
    */
   resourceAttributes?: Record<string, string>;
-};
+}
 
-export type EnabledOtelExportConfig = {
+export interface EnabledOtelExportConfig {
   enabled: true;
   endpoint: string;
   headers: Readonly<Record<string, string>>;
   serviceName: string;
   resourceAttributes: Readonly<Record<string, string>>;
-};
+}
 
-export type DisabledOtelExportConfig = {
+export interface DisabledOtelExportConfig {
   enabled: false;
-};
+}
 
 export type OtelExportConfig = EnabledOtelExportConfig | DisabledOtelExportConfig;
 

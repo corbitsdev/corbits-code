@@ -104,19 +104,19 @@ export type SpanName = (typeof SPAN_NAMES)[number];
 
 const SPAN_NAME_SET: ReadonlySet<string> = new Set(SPAN_NAMES);
 
-export type PerfSpan = {
+export interface PerfSpan {
   id: string;
   name: SpanName;
   parentId?: string;
   startNs: bigint;
   endNs?: bigint;
   tags?: PerfTags;
-};
+}
 
-export type StartOptions = {
+export interface StartOptions {
   parentId?: string;
   tags?: Record<string, unknown>;
-};
+}
 
 /** Fixed ring capacity for completed spans — constant, not a settings UI. */
 export const RING_CAPACITY = 4096;
@@ -308,4 +308,3 @@ export function clear(): void {
   nextId = 0;
   clearActiveTurnId();
 }
-
