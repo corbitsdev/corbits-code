@@ -927,7 +927,12 @@ describe("buildBifrostSource", () => {
 
 describe("buildXaiSource", () => {
   test("omits reasoning_effort when effort is absent", () => {
-    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
     expect(source.provider).toBe("grok-responses");
     expect(source.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
   });
@@ -937,14 +942,30 @@ describe("buildXaiSource", () => {
       id: "xai/work",
       apiKey: "tok",
       model: "grok-4.6",
+      sessionId: "sess-1",
       reasoningEffort: "low",
     });
     expect(source.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
   });
 
   test("does not invent high when effort is absent", () => {
-    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
     expect(source.defaults?.providerOptions?.["reasoning_effort"]).toBeUndefined();
+  });
+
+  test("stashes the session id for the adapter's prompt_cache_key", () => {
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
+    expect(source.defaults?.providerOptions).toMatchObject({ grokSessionId: "sess-1" });
   });
 });
 

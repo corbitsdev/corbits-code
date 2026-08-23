@@ -24,6 +24,9 @@ import {
 
 export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
 
+// Key the source stashes in defaults.providerOptions for this adapter.
+export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
+
 type ResponsesInputContentPart =
   { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
 
@@ -134,6 +137,11 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
+function optionString(options: InferenceOptions, key: string): string | undefined {
+  const value = options.providerOptions?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function dedupeToolOutputs(items: ResponsesInputItem[]): ResponsesInputItem[] {
   const seen = new Set<string>();
   const deduped: ResponsesInputItem[] = [];
@@ -177,6 +185,10 @@ function buildRequest(
   }
   if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
   if (options.temperature !== undefined) body["temperature"] = options.temperature;
+  // With store:false this is the only cache-routing signal; keying it to the
+  // inference thread's session id keeps every request on the same cache shard.
+  const sessionId = optionString(options, OPENAI_SESSION_ID_OPTION);
+  if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
 
   return {
     url: "/responses",
