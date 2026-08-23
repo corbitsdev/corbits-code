@@ -5,16 +5,19 @@ import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
-export type SkillSummary = { name: string; description: string };
+export interface SkillSummary {
+  name: string;
+  description: string;
+}
 
-export type ResolveSkillBodyOptions = {
+export interface ResolveSkillBodyOptions {
   /**
    * Plugin root directory for path-like skill refs (`./skills/style`,
    * `skills/style`, `../sibling`). Required for path-like resolution;
    * ignored for bare skill names.
    */
   pluginRoot?: string;
-};
+}
 
 // Skill subfolders live under enabled plugin dirs first, then project-local dirs.
 function skillBaseDirs(cwd: string, pluginDirs: string[]): string[] {
@@ -89,16 +92,12 @@ async function resolvePathLikeSkillBody(
   if (!pathIsInsideOrEqual(resolved, root)) return undefined;
 
   // File form (…/SKILL.md) or directory form (…/skill-dir → …/skill-dir/SKILL.md).
-  const skillMd =
-    basename(resolved) === "SKILL.md" ? resolved : join(resolved, "SKILL.md");
+  const skillMd = basename(resolved) === "SKILL.md" ? resolved : join(resolved, "SKILL.md");
   if (!pathIsInsideOrEqual(skillMd, root)) return undefined;
 
   // Symlink escape bar: realpath both sides when the candidate exists.
   try {
-    const [realSkill, realRoot] = await Promise.all([
-      realpath(skillMd),
-      realpath(root),
-    ]);
+    const [realSkill, realRoot] = await Promise.all([realpath(skillMd), realpath(root)]);
     if (!pathIsInsideOrEqual(realSkill, realRoot)) return undefined;
     return bodyFromSkillPath(realSkill);
   } catch {
@@ -137,7 +136,10 @@ export async function resolveSkillBody(
 // Discover every available skill (name + one-line description) for the lazy
 // listing in the system prompt. Deduped by name: the first base dir that
 // provides a skill wins, so a higher-precedence dir shadows a lower one.
-export async function discoverSkills(cwd: string, pluginDirs: string[] = []): Promise<SkillSummary[]> {
+export async function discoverSkills(
+  cwd: string,
+  pluginDirs: string[] = [],
+): Promise<SkillSummary[]> {
   const seen = new Map<string, SkillSummary>();
   for (const base of skillBaseDirs(cwd, pluginDirs)) {
     const entries = await readdir(base, { withFileTypes: true }).catch(() => undefined);

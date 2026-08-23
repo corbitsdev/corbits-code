@@ -148,7 +148,10 @@ export function splitChainedCommand(command: string): string[] {
 // opening line verbatim and resume scanning the heredoc body from there.
 // Shared by splitChainedCommand and stripCommentLines so both stay in sync on
 // what counts as heredoc syntax.
-function parseHeredocOpener(command: string, i: number): { marker: string; lineEnd: number } | null {
+function parseHeredocOpener(
+  command: string,
+  i: number,
+): { marker: string; lineEnd: number } | null {
   if (command[i] !== "<" || command[i + 1] !== "<") return null;
   let j = i + 2;
   if (command[j] === "-") j++; // <<- strips leading tabs
@@ -240,7 +243,11 @@ export function stripCommentLines(command: string): string {
 
     // Line continuation only applies outside an already-open comment — inside
     // one, a backslash is just another comment character.
-    if (commentState !== "yes" && ch === "\\" && (command[i + 1] === "\n" || command[i + 1] === "\r")) {
+    if (
+      commentState !== "yes" &&
+      ch === "\\" &&
+      (command[i + 1] === "\n" || command[i + 1] === "\r")
+    ) {
       const after = command[i + 1] as string;
       line += ch + after;
       i += 1;
@@ -351,7 +358,6 @@ export function isShellNoOp(segment: string): boolean {
   return SHELL_NO_OPS.has(segment.trim());
 }
 
-
 // Split a single command segment into whitespace-separated tokens, treating a
 // quoted run as one token. Backtick and `$(` are not treated as literal text
 // even inside double quotes: shell double-quoting suppresses word-splitting
@@ -459,8 +465,25 @@ const MAX_PREFIX_SCOPES = 3;
 // `git push`, `git reset --hard`, `npm publish`, etc. — so for these the prefix
 // ladder starts at two tokens (`git push *`), never the program alone.
 const MULTIPLEXERS = new Set([
-  "git", "npm", "pnpm", "yarn", "npx", "bun", "bunx", "docker", "kubectl",
-  "cargo", "go", "make", "gh", "brew", "pip", "pip3", "python", "python3", "node",
+  "git",
+  "npm",
+  "pnpm",
+  "yarn",
+  "npx",
+  "bun",
+  "bunx",
+  "docker",
+  "kubectl",
+  "cargo",
+  "go",
+  "make",
+  "gh",
+  "brew",
+  "pip",
+  "pip3",
+  "python",
+  "python3",
+  "node",
 ]);
 
 // Build the ladder of approval scopes for a shell command segment, broad to
@@ -478,7 +501,13 @@ export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
   // a persisted "(cd *" would match any subshell starting with cd, far broader
   // than what the operator saw. Offer only the exact command.
   if (command.startsWith("(")) {
-    return [{ id: "exact", label: "Always allow this exact command", pattern: escapeGlobLiteral(command) }];
+    return [
+      {
+        id: "exact",
+        label: "Always allow this exact command",
+        pattern: escapeGlobLiteral(command),
+      },
+    ];
   }
 
   const scopes: ApprovalScope[] = [];

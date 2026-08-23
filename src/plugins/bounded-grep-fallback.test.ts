@@ -3,10 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import {
-  runBoundedGrep,
-  runBoundedSearchFiles,
-} from "./bounded-grep-fallback.js";
+import { runBoundedGrep, runBoundedSearchFiles } from "./bounded-grep-fallback.js";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "bounded-grep-"));
@@ -110,4 +107,3 @@ describe("runBoundedSearchFiles", () => {
     });
   });
 });
-

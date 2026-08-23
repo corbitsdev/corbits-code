@@ -283,11 +283,11 @@ Instead of silencing the compiler, restructure the code so the value is provably
 
 ```typescript
 // Bad - hiding a potential bug
-const user = users.find(u => u.id === id)!;
+const user = users.find((u) => u.id === id)!;
 processUser(user);
 
 // Good - handle the null case
-const user = users.find(u => u.id === id);
+const user = users.find((u) => u.id === id);
 if (!user) {
   throw new Error(`User not found: ${id}`);
 }
@@ -306,6 +306,7 @@ if (!handler) {
 ```
 
 If you find yourself reaching for `!`, it means one of:
+
 - The code doesn't properly guarantee the value exists (fix the code)
 - The type is too wide for the context (narrow it with a guard or restructure)
 - An upstream function returns `T | null` when it shouldn't (fix the upstream function)
@@ -317,10 +318,7 @@ Prefer generic type parameters with constraints over index signatures:
 ```typescript
 // Bad - index signature (too permissive)
 export interface LoggingBackend {
-  configureApp(args: {
-    level: LogLevel;
-    [key: string]: unknown;
-  }): Promise<void>;
+  configureApp(args: { level: LogLevel; [key: string]: unknown }): Promise<void>;
 }
 
 // Good - generic with constraint (type-safe)
@@ -465,10 +463,7 @@ function timeout(timeoutMs: number, msg?: string) {
   );
 }
 
-const result = await Promise.race([
-  fetchData(),
-  timeout(5000, "fetch timed out"),
-]);
+const result = await Promise.race([fetchData(), timeout(5000, "fetch timed out")]);
 ```
 
 ### Retry Logic

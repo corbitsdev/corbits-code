@@ -143,7 +143,8 @@ function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] 
 
 function ephemeralText(action: ReactorAction | undefined): string | undefined {
   if (action === undefined || action.type !== "infer") return undefined;
-  const opts = action.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> } | undefined;
+  const opts = action.options as
+    { ephemeralTurns?: { content: { text?: string }[] }[] } | undefined;
   return opts?.ephemeralTurns?.[0]?.content?.[0]?.text;
 }
 
@@ -167,7 +168,10 @@ describe("ChatDirector tool-only loop protection", () => {
   const providerlessPolicy = { providerName: "test-provider" };
 
   test("nudges once at the family threshold, after pending tools execute", async () => {
-    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
     const capabilities = makeCapabilities();
 
     // Default family nudges at 25 consecutive tool-only turns.
@@ -178,7 +182,10 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("the nudge is one-shot — it does not repeat on the next tool-only turn", async () => {
-    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
     const capabilities = makeCapabilities();
 
     await runToolOnlyStreak(director, capabilities, 25);
@@ -188,7 +195,7 @@ describe("ChatDirector tool-only loop protection", () => {
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-// Required by CL-5611: a long productive tool-only streak (varied
+  // Required by CL-5611: a long productive tool-only streak (varied
   // fingerprints every turn) must run straight through both the nudge and
   // well past any prior hard-pause threshold without ever pausing.
   test("a long productive tool-only streak continues without pausing", async () => {
@@ -199,7 +206,9 @@ describe("ChatDirector tool-only loop protection", () => {
     const capabilities = makeCapabilities();
 
     const actions = await runToolOnlyStreak(director, capabilities, 50);
-    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -236,7 +245,9 @@ describe("ChatDirector tool-only loop protection", () => {
 
     await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
     const actions = await runToolOnlyStreak(director, capabilities, 3, toolOnlyTurn);
-    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -407,7 +418,9 @@ describe("ChatDirector tool-only loop protection", () => {
     // A further 99 turns without a user message: still no pause (the
     // escalation window has not fully elapsed).
     const stillNoPause = await runToolOnlyStreak(director, capabilities, 99, rotationTurn);
-    expect(stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
 
     // Turn 200: the nudge went unheeded for a full further interval — escalate to a pause.
     const actions = actionsArray(await runToolOnlyStreak(director, capabilities, 1, rotationTurn));
@@ -432,7 +445,16 @@ describe("ChatDirector tool-only loop protection", () => {
     const phaseBrokenTurn = (id: string): ReactorInboundEvent => {
       const i = Number(id.split("-")[1]);
       const window = i % 5;
-      const path = window === 0 ? "a.ts" : window === 1 ? "b.ts" : window === 2 ? "a.ts" : window === 3 ? "b.ts" : `unique-${i}.ts`;
+      const path =
+        window === 0
+          ? "a.ts"
+          : window === 1
+            ? "b.ts"
+            : window === 2
+              ? "a.ts"
+              : window === 3
+                ? "b.ts"
+                : `unique-${i}.ts`;
       return {
         type: "inference.done",
         turn: {
@@ -465,7 +487,9 @@ describe("ChatDirector tool-only loop protection", () => {
     const capabilities = makeCapabilities();
 
     const actions = await runToolOnlyStreak(director, capabilities, 99);
-    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -484,7 +508,9 @@ describe("ChatDirector tool-only loop protection", () => {
     for (let round = 0; round < 5; round++) {
       await director.decide(messageReceived(`keep going, round ${round}`), mockState, capabilities);
       const actions = await runToolOnlyStreak(director, capabilities, 80);
-      expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+      expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+        false,
+      );
     }
   });
 
@@ -509,10 +535,14 @@ describe("ChatDirector tool-only loop protection", () => {
       // One narrated word every 55 turns; otherwise a varied tool-only turn.
       const event = i > 0 && i % 55 === 0 ? textAndToolTurn(id, "working") : toolOnlyTurn(id);
       await director.decide(event, mockState, capabilities);
-      const result = actionsArray(await director.decide(toolDoneEvent(id), mockState, capabilities));
+      const result = actionsArray(
+        await director.decide(toolDoneEvent(id), mockState, capabilities),
+      );
       if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
         paused = true;
-      } else if (result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))) {
+      } else if (
+        result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
+      ) {
         nudged = true;
       }
     }
@@ -534,10 +564,12 @@ describe("ChatDirector tool-only loop protection", () => {
     // After the reset, a further 99 turns (below the threshold again) must
     // not nudge or pause.
     const afterReset = await runToolOnlyStreak(director, capabilities, 99);
-    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
-    expect(afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))).toBe(
+    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
       false,
     );
+    expect(
+      afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary")),
+    ).toBe(false);
   });
 
   // Round 5: round 4 reset turnsSinceUserMessage on any message.received,
@@ -554,9 +586,9 @@ describe("ChatDirector tool-only loop protection", () => {
   ] as const) {
     test(`a synthetic compaction continuation from ${label} does not reset the backstop`, async () => {
       const director = createChatDirector("system", [], {
-      onTasksChange: () => {},
-      provider: providerlessPolicy,
-    });
+        onTasksChange: () => {},
+        provider: providerlessPolicy,
+      });
       const capabilities = makeCapabilities();
 
       // Reach the backstop nudge, then deliver the real synthetic message
@@ -569,9 +601,9 @@ describe("ChatDirector tool-only loop protection", () => {
       // still lands exactly 100 turns after the nudge, same as if the
       // synthetic message had never arrived.
       const stillNoPause = await runToolOnlyStreak(director, capabilities, 99);
-      expect(stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-        false,
-      );
+      expect(
+        stillNoPause.some((a) => a.type === "reply" && a.content.includes("Auto-paused")),
+      ).toBe(false);
 
       const actions = actionsArray(await runToolOnlyStreak(director, capabilities, 1));
       const reply = actions.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
@@ -589,15 +621,21 @@ describe("ChatDirector tool-only loop protection", () => {
     await runToolOnlyStreak(director, capabilities, 100);
     // A synthetic message arrives first (e.g. a compaction continuation
     // mid-loop) — must not reset anything.
-    await director.decide(systemMessageReceived(tuiCompactionContinuation()), mockState, capabilities);
+    await director.decide(
+      systemMessageReceived(tuiCompactionContinuation()),
+      mockState,
+      capabilities,
+    );
     // Then the operator actually sends something.
     await director.decide(messageReceived("status check"), mockState, capabilities);
 
     const afterReset = await runToolOnlyStreak(director, capabilities, 99);
-    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
-    expect(afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))).toBe(
+    expect(afterReset.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
       false,
     );
+    expect(
+      afterReset.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary")),
+    ).toBe(false);
   });
 
   // Round 4: narration clears period-detection history (evidence the model
@@ -616,18 +654,27 @@ describe("ChatDirector tool-only loop protection", () => {
     // more repeats) while still counting toward the backstop.
     await runToolOnlyStreak(director, capabilities, 4, repeatedToolOnlyTurn);
     const narrated = actionsArray(
-      await director.decide(textAndToolTurn("narrate-1", "still working on it"), mockState, capabilities),
+      await director.decide(
+        textAndToolTurn("narrate-1", "still working on it"),
+        mockState,
+        capabilities,
+      ),
     );
     await director.decide(toolDoneEvent("narrate-1"), mockState, capabilities);
-    expect(narrated.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(narrated.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
 
     // Resume the repeated-fingerprint run — since history was cleared, it
     // takes a fresh IDENTICAL_REPEAT_MIN-length run to thrash-pause again,
     // and it must not reference the backstop when it does.
     const afterNarration = await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
-    const thrashReply = afterNarration.find((a) => a.type === "reply" && a.content.includes("Auto-paused"));
+    const thrashReply = afterNarration.find(
+      (a) => a.type === "reply" && a.content.includes("Auto-paused"),
+    );
     expect(thrashReply).toBeDefined();
-    if (thrashReply === undefined || thrashReply.type !== "reply") throw new Error("expected reply action");
+    if (thrashReply === undefined || thrashReply.type !== "reply")
+      throw new Error("expected reply action");
     expect(thrashReply.content).not.toContain("turns without a message from the operator");
 
     // Now prove narration did NOT reset turnsSinceUserMessage: drain the
@@ -659,7 +706,10 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("resumes after the operator sends a new message", async () => {
-    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
     const capabilities = makeCapabilities();
 
     await runToolOnlyStreak(director, capabilities, 5, repeatedToolOnlyTurn);
@@ -670,7 +720,10 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("a dismissed ask_operator counts toward the streak like any other tool-only turn", async () => {
-    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
     const capabilities = makeCapabilities();
 
     // 24 ordinary (varied) tool-only turns, then a turn whose only tool call
@@ -689,7 +742,14 @@ describe("ChatDirector tool-only loop protection", () => {
           role: "assistant",
           model: "test",
           timestamp: 0,
-          content: [{ type: "tool_call", id: askId, name: "ask_operator", arguments: { question: "?", options: ["a"] } }],
+          content: [
+            {
+              type: "tool_call",
+              id: askId,
+              name: "ask_operator",
+              arguments: { question: "?", options: ["a"] },
+            },
+          ],
         },
         usage: { input: 0, output: 0 },
         source: "test",
@@ -720,7 +780,10 @@ describe("ChatDirector tool-only loop protection", () => {
   });
 
   test("a busy-but-progressing session (text interleaved with tools) never trips", async () => {
-    const director = createChatDirector("system", [], { onTasksChange: () => {}, provider: providerlessPolicy });
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
     const capabilities = makeCapabilities();
 
     let lastActions: ReactorAction[] = [];
@@ -729,12 +792,14 @@ describe("ChatDirector tool-only loop protection", () => {
       await director.decide(textAndToolTurn(id, `Working on step ${i}.`), mockState, capabilities);
       lastActions = actionsArray(await director.decide(toolDoneEvent(id), mockState, capabilities));
     }
-    expect(lastActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(lastActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
     const infer = lastActions.find((a) => a.type === "infer");
     expect(ephemeralText(infer)).toBeUndefined();
   });
 
-// Required by CL-5611: the observed failure — a Grok session hard-paused
+  // Required by CL-5611: the observed failure — a Grok session hard-paused
   // at 10 turns of real progress (Linear lookups + code reads).
   test("grok no longer hard-pauses a 10-turn productive tool-only streak", async () => {
     const director = createChatDirector("system", [], {
@@ -744,7 +809,9 @@ describe("ChatDirector tool-only loop protection", () => {
     const capabilities = makeCapabilities();
 
     const actions = await runToolOnlyStreak(director, capabilities, 10);
-    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+      false,
+    );
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -810,9 +877,7 @@ describe("ChatDirector tool-only loop protection", () => {
     );
 
     const later = await runToolOnlyStreak(director, capabilities, 20, toolOnlyTurn);
-    expect(later.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-      false,
-    );
+    expect(later.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
     expect(later.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -840,7 +905,9 @@ describe("ChatDirector tool-only loop protection", () => {
       for (let i = 0; i < 300 && pausedAt === null; i++) {
         const id = `task-ok-${i}`;
         await director.decide(taskTurn(id), mockState, capabilities);
-        const result = actionsArray(await director.decide(taskDoneEvent(id), mockState, capabilities));
+        const result = actionsArray(
+          await director.decide(taskDoneEvent(id), mockState, capabilities),
+        );
         if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
           pausedAt = i;
         } else if (
@@ -885,7 +952,9 @@ describe("ChatDirector tool-only loop protection", () => {
       for (let i = 0; i < 100; i++) {
         const id = `task-ok-b-${i}`;
         await director.decide(taskTurn(id), mockState, capabilities);
-        const result = actionsArray(await director.decide(taskDoneEvent(id), mockState, capabilities));
+        const result = actionsArray(
+          await director.decide(taskDoneEvent(id), mockState, capabilities),
+        );
         if (
           result.some((a) => a.type === "reply" && a.content.includes("Auto-paused")) ||
           result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
@@ -910,14 +979,19 @@ describe("ChatDirector tool-only loop protection", () => {
         await director.decide(taskTurn(id), mockState, capabilities);
         const result = actionsArray(
           await director.decide(
-            { type: "tool.done", result: { callId: id, isError: false, content: undefined } } as unknown as ReactorInboundEvent,
+            {
+              type: "tool.done",
+              result: { callId: id, isError: false, content: undefined },
+            } as unknown as ReactorInboundEvent,
             mockState,
             capabilities,
           ),
         );
         if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
           paused = true;
-        } else if (result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))) {
+        } else if (
+          result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
+        ) {
           nudged = true;
         }
       }
@@ -974,7 +1048,9 @@ describe("ChatDirector tool-only loop protection", () => {
         );
         if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) {
           paused = true;
-        } else if (result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))) {
+        } else if (
+          result.some((a) => a.type === "infer" && ephemeralText(a)?.includes("progress summary"))
+        ) {
           nudged = true;
         }
       }
@@ -1000,7 +1076,8 @@ describe("ChatDirector tool-only loop protection", () => {
             capabilities,
           ),
         );
-        if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))) paused = true;
+        if (result.some((a) => a.type === "reply" && a.content.includes("Auto-paused")))
+          paused = true;
       }
       expect(paused).toBe(true);
     });

@@ -9,7 +9,9 @@ function tool(name: string): ToolDefinition {
   return { name, description: name, inputSchema: { type: "object", properties: {} } };
 }
 
-const ticketTracker: CapabilityMap = new Map([["ticket-tracker", [tool("mcp__Linear__save_issue")]]]);
+const ticketTracker: CapabilityMap = new Map([
+  ["ticket-tracker", [tool("mcp__Linear__save_issue")]],
+]);
 const empty: CapabilityMap = new Map();
 
 const simple: Workflow = {

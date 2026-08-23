@@ -3,15 +3,11 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import type { TokenUsage } from "@intx/types/runtime";
 import { createPerfReactorObserver } from "../perf/reactor-spans.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import {
-  createTurnContextCollector,
-  type LifecycleHookManager,
-  type RunSummary,
-} from "./hooks.js";
+import { createTurnContextCollector, type LifecycleHookManager, type RunSummary } from "./hooks.js";
 
 type TurnCollector = ReturnType<typeof createTurnContextCollector>;
 
-export type RunSinkArgs = {
+export interface RunSinkArgs {
   emitter: EventEmitter;
   hookManager: Pick<LifecycleHookManager, "dispatchPostTurn" | "getStatuses">;
   // Fired alongside dispatchPostTurn for each completed turn. Separate from
@@ -40,9 +36,9 @@ export type RunSinkArgs = {
   // subscription to the same event stream in a renderer: the renderer has
   // already been swapped out from under this constraint three times.
   onTurnBoundarySnapshot?: () => void;
-};
+}
 
-export type RunSink = {
+export interface RunSink {
   sink: (event: ReactorEmittedEvent) => void;
   getStatus: () => RunSummary["status"];
   getRunError: () => string | undefined;
@@ -57,7 +53,7 @@ export type RunSink = {
   // Resets accumulated run state (completed flag, error, turn history) so the
   // post-run hook for a new session reports only the turns from that session.
   reset: () => void;
-};
+}
 
 export function getTUIRunSummaryStatus(
   runCompleted: boolean,
@@ -87,8 +83,14 @@ export function resolveExecRunStatus(args: {
 }
 
 export function createRunSink(args: RunSinkArgs): RunSink {
-  const { emitter, hookManager, onTurnComplete, onTurnFailed, initialTurnCount, onTurnBoundarySnapshot } =
-    args;
+  const {
+    emitter,
+    hookManager,
+    onTurnComplete,
+    onTurnFailed,
+    initialTurnCount,
+    onTurnBoundarySnapshot,
+  } = args;
 
   function hasConfiguredHooks(): boolean {
     return hookManager.getStatuses().length > 0;
@@ -130,7 +132,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
   // index, which makes a repeat indistinguishable from a duplicate.
   let failedTurnIndex: number | null = null;
   // Always-on local PerfTrace: not gated by lifecycle hooks.
-  let perfObserver = createPerfReactorObserver();
+  const perfObserver = createPerfReactorObserver();
 
   function reportTurnFailure(error: string): void {
     if (!turnInFlight) return;
