@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
@@ -7,6 +7,7 @@ import { createToolRunner } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 
 import { createCodexToolProxies, type CodexRunTool } from "./codex-tool-proxies.js";
+import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 
@@ -23,11 +24,14 @@ async function invokeApplyPatch(tools: AgentTool[], input: string) {
   );
 }
 
-async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
+async function makeApplyPatch(
+  cwd: string,
+  options: { skipPermissions?: boolean } = {},
+): Promise<AgentTool[]> {
   const gate = createPermissionGate({
     approvals: [],
     interactive: false,
-    skipPermissions: true,
+    skipPermissions: options.skipPermissions ?? true,
     auto: false,
     cwd,
   });
@@ -36,23 +40,6 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
     plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
   });
   const runTool: CodexRunTool = async (name, args) => {
-    // read_file's real tool output is cat -n formatted (line numbers), which
-    // is not the raw content applyUpdateHunks needs — in production this
-    // means Update File hunks generally fail to match context (filed as
-    // CL-6966, Urgent; not this issue's bug to fix). This stub bypasses that
-    // known defect by returning raw content, so the "Update File shows the
-    // diff" test below is NOT proof that apply_patch Update works end to end
-    // — it only proves the diff-surfacing added here is correct once the op
-    // succeeds. Add File / Delete File below do not depend on read_file and
-    // are real, unstubbed coverage.
-    if (name === "read_file") {
-      const path = String((args as { path?: unknown }).path ?? "");
-      try {
-        return { content: await readFile(join(cwd, path), "utf8") };
-      } catch (err) {
-        return { content: err instanceof Error ? err.message : String(err), isError: true };
-      }
-    }
     const result = await posixTools.run(
       { id: "codex-proxy", name, arguments: args },
       new AbortController().signal,
@@ -62,14 +49,49 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
       ...(result.isError === true ? { isError: true } : {}),
     };
   };
+  // Real production path (CL-6966): Update File matches patch context against
+  // raw file content, not read_file's cat -n formatted output.
   return createCodexToolProxies({
     isCodex: true,
     runTool,
+    readRawFile: createCodexReadRawFile(cwd, gate),
     runManageTasks: async () => ({ content: "ok" }),
   });
 }
 
-describe("apply_patch surfaces the changed region", () => {
+describe("apply_patch Update File matches raw content, not read_file's numbered output (CL-6966)", () => {
+  test("multi-hunk Update File succeeds through the real production path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-"));
+    try {
+      await writeFile(
+        join(cwd, "app.py"),
+        "def greet():\n    print('hi')\n\n\ndef farewell():\n    print('bye')\n",
+      );
+      const tools = await makeApplyPatch(cwd);
+      const input = [
+        "*** Begin Patch",
+        "*** Update File: app.py",
+        "@@ def greet():",
+        "-    print('hi')",
+        "+    print('hello')",
+        "@@ def farewell():",
+        "-    print('bye')",
+        "+    print('goodbye')",
+        "*** End Patch",
+      ].join("\n");
+
+      const result = await invokeApplyPatch(tools, input);
+
+      expect(result.isError).not.toBe(true);
+      const written = await Bun.file(join(cwd, "app.py")).text();
+      expect(written).toBe(
+        "def greet():\n    print('hello')\n\n\ndef farewell():\n    print('goodbye')\n",
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("Update File shows the diff", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "apply-patch-diff-"));
     try {
@@ -126,6 +148,101 @@ describe("apply_patch surfaces the changed region", () => {
       expect(String(result.content)).toContain("+hello");
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("apply_patch Update File refuses reads outside the sanctioned workspace (CL-6966 follow-up)", () => {
+  // Insertion-only hunk (no context to match): the shape that makes an
+  // unauthorized raw read exploitable rather than merely wrong, since it
+  // requires no content match to "succeed" and hands the read content
+  // straight to write_file via Move to.
+  const insertionOnlyMoveInput = (path: string, moveTo: string) =>
+    [
+      "*** Begin Patch",
+      `*** Update File: ${path}`,
+      `*** Move to: ${moveTo}`,
+      "@@",
+      "+",
+      "*** End Patch",
+    ].join("\n");
+
+  test("../ traversal out of the workspace is refused", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-parent-"));
+    const cwd = join(parent, "workspace");
+    await mkdir(cwd);
+    try {
+      await writeFile(join(parent, "victim.txt"), "outside secret\n");
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput("../victim.txt", "leaked.txt"),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/i);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("a symlinked directory leading outside the workspace is refused", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-symlink-"));
+    const cwd = join(parent, "workspace");
+    const outside = join(parent, "outside");
+    await mkdir(cwd);
+    await mkdir(outside);
+    try {
+      await writeFile(join(outside, "victim.txt"), "outside secret\n");
+      await symlink(outside, join(cwd, "escape-link"));
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput("escape-link/victim.txt", "leaked.txt"),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/i);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("a secret-guard path (.env) is refused even with skipPermissions", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-secret-"));
+    try {
+      await writeFile(join(cwd, ".env"), "API_KEY=super-secret\n");
+      // skipPermissions: true (yolo) — secret-guard has no bypass, unlike containment.
+      const tools = await makeApplyPatch(cwd, { skipPermissions: true });
+
+      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput(".env", "leaked.txt"));
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file/i);
+      // The secret must never have reached the workspace under a new name.
+      expect(await Bun.file(join(cwd, "leaked.txt")).exists()).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("../ traversal to a secret file is refused (secret-guard applies to relative paths too)", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-secret-parent-"));
+    const cwd = join(parent, "workspace");
+    await mkdir(cwd);
+    try {
+      await writeFile(join(parent, ".env"), "API_KEY=super-secret\n");
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput("../.env", "leaked.txt"));
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+      expect(await Bun.file(join(cwd, "leaked.txt")).exists()).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
     }
   });
 });
