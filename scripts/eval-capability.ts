@@ -583,7 +583,7 @@ async function resolveVariantLabels(
  * gpt-5.6 family also takes max/ultra) — silently running at the provider's
  * default instead would poison a matrix without anyone noticing.
  */
-async function validateVariantEfforts(
+export async function validateVariantEfforts(
   variants: readonly EvalVariant[],
   opts: CliOptions,
 ): Promise<void> {
