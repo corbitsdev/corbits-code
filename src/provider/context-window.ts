@@ -78,6 +78,11 @@ export function contextWindowFor(model: string): number {
 // warning threshold so the color shift matches when compaction starts.
 export const COMPACTION_WINDOW_FRACTION = 0.6;
 
+// After a compact that remains over the high watermark, the governor waits for
+// usage to grow by this fraction of the window before re-arming. Growth
+// hysteresis, not a low watermark: dropping under 60% is not required.
+export const COMPACTION_RESUME_FRACTION = 0.1;
+
 // Status-bar meter turns danger at this fraction of the window — past
 // compaction and approaching hard overflow at 1.0. Inclusive integer bands
 // keep 80 in warning and start danger at 81.
@@ -101,4 +106,10 @@ export function contextMeterBand(percentUsed: number): ContextMeterBand {
 export function compactionThresholdFor(model: string | undefined): number {
   const window = model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
   return Math.floor(window * COMPACTION_WINDOW_FRACTION);
+}
+
+/** Tokens of growth past the last post-compact measurement before re-arming. */
+export function compactionResumeDeltaFor(model: string | undefined): number {
+  const window = model !== undefined ? contextWindowFor(model) : DEFAULT_CONTEXT_WINDOW;
+  return Math.floor(window * COMPACTION_RESUME_FRACTION);
 }

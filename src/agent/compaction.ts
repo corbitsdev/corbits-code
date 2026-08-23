@@ -5,7 +5,11 @@ import type {
   ReactorInboundEvent,
   ToolDefinition,
 } from "@intx/types/runtime";
-import { compactionThresholdFor, contextTokensFromUsage } from "../provider/context-window.js";
+import {
+  compactionResumeDeltaFor,
+  compactionThresholdFor,
+  contextTokensFromUsage,
+} from "../provider/context-window.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
 import { onTurnBoundary } from "./reactor-events.js";
@@ -50,6 +54,12 @@ export function createCompactionGovernor(
   // inference cycles (see interceptActions) where the event carries no model.
   let lastModel: string | undefined;
   let turnCount = 0;
+  // Growth hysteresis after a compact that remained over the high watermark:
+  // snapshot the post-compact infer's usage, then do not re-arm until usage
+  // grows by resumeDelta. Cleared once usage drops back to or under high.
+  // Overflow recovery ignores this and arms regardless.
+  let tokensAtLastCompact: number | undefined;
+  let awaitingPostCompactMeasurement = false;
 
   // Running local estimate of the turns we send, plus the fixed system-prompt
   // and tool-schema overhead every request carries. Providers that omit usage
@@ -67,7 +77,17 @@ export function createCompactionGovernor(
   }
 
   function isOverThreshold(contextTokens: number): boolean {
-    return contextTokens > compactionThresholdFor(lastModel) && turnCount > MIN_TURNS_TO_COMPACT;
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
+    const high = compactionThresholdFor(lastModel);
+    if (contextTokens <= high) return false;
+    if (tokensAtLastCompact !== undefined) {
+      return contextTokens >= tokensAtLastCompact + compactionResumeDeltaFor(lastModel);
+    }
+    return true;
+  }
+
+  function noteCompactIssued(): void {
+    awaitingPostCompactMeasurement = true;
   }
 
   function noteInferenceDone(
@@ -81,6 +101,15 @@ export function createCompactionGovernor(
     const reportedTokens = contextTokensFromUsage(event.usage);
     usingEstimate = reportedTokens <= 0;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
+    // Snapshot on the first inference.done after a compact (the post-compact
+    // infer), not at intercept time — intercept has no fresh usage.
+    if (awaitingPostCompactMeasurement) {
+      tokensAtLastCompact = contextTokens;
+      awaitingPostCompactMeasurement = false;
+    }
+    if (contextTokens <= compactionThresholdFor(lastModel)) {
+      tokensAtLastCompact = undefined;
+    }
     // Assign, don't OR: an under-threshold follow-up must disarm a sticky
     // pending left from an earlier over-threshold turn (e.g. after the
     // provider reports real usage that lands below the threshold).
@@ -111,6 +140,7 @@ export function createCompactionGovernor(
     if (!actions.some((a) => a.type === "infer")) return null;
     pending = false;
     postCompactInfer = true;
+    noteCompactIssued();
     requestContinuation?.();
     return [
       ...actions.filter((a) => a.type !== "infer"),
@@ -150,6 +180,7 @@ export function createCompactionGovernor(
     } else {
       postCompactMeter = true;
     }
+    noteCompactIssued();
     requestContinuation?.();
     return [capabilities.compact(COMPACTOR_NAME, "context-threshold")];
   }
@@ -169,6 +200,7 @@ export function createCompactionGovernor(
     overflowRecoveries++;
     pending = false;
     postCompactInfer = true;
+    noteCompactIssued();
     requestContinuation();
     return [capabilities.compact(COMPACTOR_NAME, "context-overflow")];
   }

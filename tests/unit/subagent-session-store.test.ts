@@ -290,7 +290,8 @@ describe("createTaskTool session recording", () => {
       },
       signal ?? new AbortController().signal,
     );
-    return result.content;
+    if (typeof result === "string") return result;
+    return typeof result.content === "string" ? result.content : JSON.stringify(result.content);
   }
 
   test("records a session on spawn and completes it with the report", async () => {

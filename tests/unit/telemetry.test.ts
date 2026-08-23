@@ -135,7 +135,7 @@ test("capture strips properties not in the event's allowlist", async () => {
   });
   await telemetry.flush();
   expect(events().length).toBe(1);
-  const body = events()[0];
+  const body = events()[0]!;
   expect(body.properties.status).toBe("ok");
   expect(body.properties.turn_count).toBe(3);
   expect(body.properties.duration_ms).toBe(100);
@@ -256,8 +256,8 @@ test("capture payload shape includes distinct_id and common props, with no clien
   telemetry.capture("cli_start");
   await telemetry.flush();
   expect(bodies.length).toBe(1);
-  expect(bodies[0].api_key).toBe("test-key");
-  const body = events()[0];
+  expect(bodies[0]!.api_key).toBe("test-key");
+  const body = events()[0]!;
   expect(body.event).toBe("cli_start");
   expect(body.properties.distinct_id).toBe("my-install-id");
   expect(typeof body.timestamp).toBe("string");
@@ -342,10 +342,10 @@ test("capture attaches the same session_id across multiple events in one process
   await telemetry.flush();
   const captured = events();
   expect(captured.length).toBe(2);
-  const sessionId = captured[0].properties.session_id;
+  const sessionId = captured[0]!.properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(captured[1].properties.session_id).toBe(sessionId);
+  expect(captured[1]!.properties.session_id).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });
 
@@ -355,7 +355,7 @@ test("ensureTelemetrySettings called twice keeps installationId and enabled flag
   try {
     const first = await ensureTelemetrySettings(path);
     expect(typeof first.telemetry?.installationId).toBe("string");
-    expect(first.telemetry?.installationId.length).toBeGreaterThan(0);
+    expect(first.telemetry?.installationId!.length).toBeGreaterThan(0);
 
     const second = await ensureTelemetrySettings(path);
     expect(second.telemetry?.installationId).toBe(first.telemetry?.installationId);
@@ -431,7 +431,7 @@ test("reaching the batch size sends one request holding every queued event", asy
   telemetry.capture("session_end", { turn_count: 3 });
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0])).toEqual([1, 2, 3]);
+  expect(turnCounts(bodies[0]!)).toEqual([1, 2, 3]);
 });
 
 test("a partial batch is sent once the batch interval elapses", async () => {
@@ -448,7 +448,7 @@ test("a partial batch is sent once the batch interval elapses", async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 60));
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0])).toEqual([1]);
+  expect(turnCounts(bodies[0]!)).toEqual([1]);
 });
 
 test("overflowing the queue drops the oldest events", async () => {
@@ -463,7 +463,7 @@ test("overflowing the queue drops the oldest events", async () => {
   for (let turn = 1; turn <= 5; turn++) telemetry.capture("session_end", { turn_count: turn });
   await telemetry.flush();
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0])).toEqual([3, 4, 5]);
+  expect(turnCounts(bodies[0]!)).toEqual([3, 4, 5]);
 });
 
 test("captures during a request queue behind it instead of opening a second one", async () => {
@@ -502,7 +502,7 @@ test("flush drains a partially full queue within its deadline", async () => {
   await telemetry.flush();
   expect(Date.now() - start).toBeLessThan(500);
   expect(bodies.length).toBe(1);
-  expect(turnCounts(bodies[0])).toEqual([1, 2]);
+  expect(turnCounts(bodies[0]!)).toEqual([1, 2]);
 });
 
 test("a hung endpoint caps the queue and never opens a second request", async () => {
@@ -520,7 +520,7 @@ test("a hung endpoint caps the queue and never opens a second request", async ()
   }
   expect(gate.bodies.length).toBe(1);
   expect(gate.peak()).toBe(1);
-  expect(turnCounts(gate.bodies[0])).toEqual([1, 2]);
+  expect(turnCounts(gate.bodies[0]!)).toEqual([1, 2]);
 
   gate.openGate();
   await telemetry.flush();

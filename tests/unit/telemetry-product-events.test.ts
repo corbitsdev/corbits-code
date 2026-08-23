@@ -137,7 +137,7 @@ test("skill_used carries no skill name, so an employer-named skill cannot leak",
 
   const tool = createUseSkillTool(cwd, [], telemetry);
   if (tool.kind !== "string") throw new Error(`expected string tool, got ${tool.kind}`);
-  const result = await tool.handler({ name: "acme-internal-deploy" });
+  const result = await tool.handler({ name: "acme-internal-deploy" }, new AbortController().signal);
 
   // Guard against the test passing because resolution failed: the event only
   // fires on a resolved skill, so a silent miss would trivially "not leak".
@@ -194,7 +194,9 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     getWorkdirBase: () => cwd,
     permissionGate: gate,
     provider: { providerName: "test-provider", baseURL: "http://localhost", model: "test-model" },
-    profiles: [{ id: "acmecorp-release-captain", description: "release", prompt: "release" }],
+    profiles: [
+      { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
+    ],
     run: async () => "done",
     telemetry,
   });

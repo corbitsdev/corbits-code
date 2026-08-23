@@ -7,7 +7,7 @@ import type {
   TokenUsage,
 } from "@intx/types/runtime";
 import { createCompactionGovernor } from "./compaction.js";
-import { compactionThresholdFor } from "../provider/context-window.js";
+import { compactionResumeDeltaFor, compactionThresholdFor } from "../provider/context-window.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "../session/compactor.js";
 
 const capabilities = {
@@ -86,6 +86,7 @@ function overflowError(): ReactorInboundEvent {
 }
 
 const overThreshold = compactionThresholdFor("m") + 1;
+const resumeDelta = compactionResumeDeltaFor("m");
 const inferAction: ReactorAction[] = [{ type: "infer" }];
 const tenTurns = turnsOfLength(10, 1);
 const threeTurns = turnsOfLength(3, 1);
@@ -385,5 +386,61 @@ describe("compaction governor", () => {
     // Provider-reported usage on the next turn clears the estimate flag.
     governor.noteInferenceDone(inferenceDone(1000), shrunk);
     expect(governor.usingEstimate).toBe(false);
+  });
+
+  test("does not re-arm after a compact that remains over the high watermark", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    // Post-compact snapshot is still over high; growth hysteresis must hold
+    // the next arm until usage grows by resumeDelta.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
+  test("re-arms after usage grows by the resume delta past the last compact", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold + resumeDelta), tenTurns);
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("clears hysteresis once usage drops under the high watermark", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    // Next crossing of high arms immediately — no growth delta required.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    const actions = governor.interceptActions(toolDone(), inferAction, capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("overflow still compact while hysteresis blocks the proactive path", () => {
+    const governor = createCompactionGovernor(() => {});
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+
+    const actions = governor.interceptOverflow(overflowError(), capabilities);
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 });

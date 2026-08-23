@@ -477,9 +477,11 @@ export function resolveRequestedProviderModel(
 ): { provider?: string; model?: string } {
   const requested = (v?: string): string | undefined =>
     v === undefined || v === "(default)" ? undefined : v;
+  const provider = variant.provider ?? requested(labels.provider);
+  const model = variant.model ?? requested(labels.model);
   return {
-    provider: variant.provider ?? requested(labels.provider),
-    model: variant.model ?? requested(labels.model),
+    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
   };
 }
 

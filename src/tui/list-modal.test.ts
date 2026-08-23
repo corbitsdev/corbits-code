@@ -1,20 +1,27 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { createHarness } from "./harness.js";
+import { createHarness, type Harness } from "./harness.js";
 import { runListModal } from "./list-modal.js";
+
+let harness: Harness | undefined;
+
+afterEach(() => {
+  harness?.destroy();
+  harness = undefined;
+});
 
 async function mountModal(): Promise<{
   choice: Promise<string | null>;
-  harness: Awaited<ReturnType<typeof createHarness>>;
+  harness: Harness;
 }> {
-  const harness = await createHarness({ width: 80, height: 24 });
+  harness = await createHarness({ width: 80, height: 24 });
   const choice = runListModal({
     title: "resume session",
     options: [
       { id: "s-1", label: "First session" },
       { id: "s-2", label: "Second session" },
     ],
-    createRenderer: async () => harness.renderer,
+    createRenderer: async () => harness!.renderer,
   });
   await harness.renderOnce();
   return { choice, harness };
