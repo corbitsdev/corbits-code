@@ -2183,7 +2183,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(second.dispatchCount).toBe(2);
   });
 
-  test("successful complete resets retry budget; hard-block is sticky", () => {
+  test("successful complete resets retry budget and clears soft salvage", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "ok job" });
     expect(ledger.admit(fp).ok).toBe(true);
@@ -2195,13 +2195,24 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(afterSuccess.ok).toBe(true);
     if (!afterSuccess.ok) throw new Error("expected admit");
     expect(afterSuccess.dispatchCount).toBe(1);
+  });
 
-    // Hard-block salvage is sticky for the session — success on a concurrent twin must not clear it.
-    const stickyFp = fingerprintTaskBrief({ prompt: "no-progress sticky" });
-    ledger.admit(stickyFp);
-    ledger.recordOutcome(stickyFp, "no-progress");
-    ledger.recordOutcome(stickyFp, null);
-    expect(ledger.admit(stickyFp).ok).toBe(false);
+  test("CL-6710: a parallel sibling success clears a hard-block salvage on the same fingerprint", () => {
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "parallel identical brief" });
+
+    // Two concurrent identical-brief dispatches both admit before either finishes.
+    expect(ledger.admit(fp).ok).toBe(true);
+    expect(ledger.admit(fp).ok).toBe(true);
+
+    // One sibling salvages (hard-block class)...
+    ledger.recordOutcome(fp, "no-progress");
+    // ...but the other sibling succeeds in the same wave.
+    ledger.recordOutcome(fp, null);
+
+    // The brief already produced a good report this wave — it must stay
+    // re-dispatchable, not stuck behind the losing sibling's hard-block.
+    expect(ledger.admit(fp).ok).toBe(true);
   });
 
   test("release undoes admit when run never produces a body", () => {

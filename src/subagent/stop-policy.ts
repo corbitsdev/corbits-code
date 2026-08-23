@@ -452,8 +452,7 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   deadline: "Stopped: wall-clock deadline reached before finishing.",
   stalled:
     "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
-  repetition:
-    "Stopped: degenerate repetition in streamed output (same window looping mid-turn).",
+  repetition: "Stopped: degenerate repetition in streamed output (same window looping mid-turn).",
   "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
   "turn-budget": "Turn budget reached before finishing.",
 };
