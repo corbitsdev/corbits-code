@@ -290,9 +290,15 @@ export class SubAgentDirector extends DefaultDirector {
                   : stop === "no-ship"
                     ? "subagent-no-ship"
                   : "subagent-turn-budget";
+        const detail =
+          stop === "no-progress"
+            ? `identical tool call × ${this.streak.consecutiveIdentical}`
+            : stop === "turn-budget"
+              ? `${this.turnsCompleted}/${this.maxTurns} turns`
+              : undefined;
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
-          capabilities.reply(forcedStopReport(stop, lastText(content))),
+          capabilities.reply(forcedStopReport(stop, lastText(content), detail)),
         ];
         this.compaction.noteIdleTurn(event, terminal);
         const compacted = this.compaction.interceptActions(event, terminal, capabilities);
@@ -354,7 +360,13 @@ export class SubAgentDirector extends DefaultDirector {
     }
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
-      capabilities.reply(forcedStopReport("stalled", this.lastAssistantText)),
+      capabilities.reply(
+        forcedStopReport(
+          "stalled",
+          this.lastAssistantText,
+          `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
+        ),
+      ),
     ];
     return terminal;
   }

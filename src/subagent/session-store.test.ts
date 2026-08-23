@@ -261,3 +261,35 @@ describe("parallel tool calls", () => {
     expect(store.get(session.id)?.currentToolStartedAt).toBeNull();
   });
 });
+
+describe("terminal stop reasons", () => {
+  test("complete() records the report's Stopped line as stopReason", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.complete(
+      session.id,
+      'Stopped: repetition — window "Groaning. " × 1363\n\n## Summary\nStopped: degenerate repetition in streamed output (same window looping mid-turn).',
+    );
+    const stored = store.get(session.id);
+    expect(stored?.status).toBe("done");
+    expect(stored?.stopReason).toBe('repetition — window "Groaning. " × 1363');
+  });
+
+  test("a clean complete has no stopReason", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.complete(session.id, "## Summary\nDone.\n\n## Findings\nx");
+    expect(store.get(session.id)?.stopReason).toBeUndefined();
+  });
+
+  test("cancel() records the cancel reason as stopReason", () => {
+    const store = createSubAgentSessionStore();
+    const withReason = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.cancel(withReason.id, "Session closed");
+    expect(store.get(withReason.id)?.stopReason).toBe("cancelled — Session closed");
+
+    const bare = store.start({ description: "d2", agentId: "a", brief: "b" });
+    store.cancel(bare.id);
+    expect(store.get(bare.id)?.stopReason).toBe("cancelled");
+  });
+});
