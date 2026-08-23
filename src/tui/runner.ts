@@ -147,7 +147,12 @@ import {
   observeFleet,
   taskToolDefinition,
 } from "../subagent/index.js";
-import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  InferenceSource,
+  ToolDefinition,
+  InboundMessage,
+} from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -1205,6 +1210,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Assigned before any tool runs; getter wires session blob reads into posix tools.
     let currentAgent!: Agent;
+    // Set alongside currentAgent in buildAgent; getter wires the session's own
+    // blob store into the truncation spill path (see result-truncation-plugin.ts).
+    let currentStorage: ContextStore | null = null;
 
     const toolset = await createAgentToolset({
       cwd: config.cwd,
@@ -1216,6 +1224,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
       toolWatchdog: liveToolWatchdog,
       getBlobReader: () => currentAgent.blobReader,
+      getBlobWriter: () => currentStorage?.writeBlob,
       isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
       onOperatorGate: (question, options) =>
@@ -1484,6 +1493,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     const buildAgent = async (): Promise<Agent> => {
       const storage = await createOptimizedContextStore(workdir);
+      currentStorage = storage;
       const sources = liveSources.length > 0 ? liveSources : [liveSource];
       const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
       return createAgentWithLiveToolDispatch(def, {
