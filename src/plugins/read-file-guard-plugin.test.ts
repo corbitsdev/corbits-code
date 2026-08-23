@@ -331,8 +331,11 @@ describe("readFileGuardPlugin", () => {
     expect(pathsRead.filter((p) => p === "huge.txt").length).toBe(1);
   });
 
-  test("a stale (already-consumed) cursor is rejected rather than silently re-served", async () => {
-    await fixture("stale.txt", Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"));
+  test("a stale (already-consumed) cursor names the original path and offset instead of a dead end", async () => {
+    const absolutePath = await fixture(
+      "stale.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = plugin.middleware!(fallback);
     const first = await middleware(
@@ -344,13 +347,68 @@ describe("readFileGuardPlugin", () => {
     const cursorPath = (match as RegExpExecArray)[1] as string;
 
     await middleware({ id: "s2", name: "read_file", arguments: { path: cursorPath } }, neverAbort());
-    // Second use of the same, already-consumed cursor: no blob reader is
-    // configured, so it falls through to the direct tool-output-URI path
-    // and reports the honest error rather than fabricating stale content.
+    // Second use of the same, already-consumed cursor: distinct from a
+    // generic missing-blob error, this must name a followable next step —
+    // the original source and the offset to resume from — rather than
+    // leaving the model to re-read the whole file from scratch.
     const replay = await middleware(
       { id: "s3", name: "read_file", arguments: { path: cursorPath } },
       neverAbort(),
     );
     expect(replay.isError).toBe(true);
+    expect(String(replay.content)).toContain("already used");
+    expect(String(replay.content)).toContain(absolutePath);
+    expect(String(replay.content)).toMatch(/offset=4\b/);
+  });
+
+  test("an unknown tool-output URI against a real blobReader gets the production 'blob not found' error, not a stale-cursor message", async () => {
+    const blobReader = {
+      async read(uri: string): Promise<Uint8Array> {
+        throw new Error(`Blob not found for key: ${uri}`);
+      },
+    };
+    const result = await run(
+      { id: "u1", name: "read_file", arguments: { path: "tool-output:///never-minted" } },
+      blobReader,
+    );
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toContain("Blob not found for key");
+    // Never a cursor's own wording, since this ID was never one of ours.
+    expect(String(result.content)).not.toContain("already used");
+  });
+
+  test("a stale cursor short-circuits before reaching a real blobReader's production 'blob not found' error", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 8_000 }, (_, i) => `row-${i}`).join("\n");
+    const blobReader = {
+      async read(uri: string): Promise<Uint8Array> {
+        if (uri === "tool-output:///spill-1") return encoder.encode(body);
+        throw new Error(`Blob not found for key: ${uri}`);
+      },
+    };
+    const plugin = readFileGuardPlugin(dir, { blobReader });
+    const middleware = plugin.middleware!(fallback);
+
+    const first = await middleware(
+      { id: "b1", name: "read_file", arguments: { path: "tool-output:///spill-1", limit: 5 } },
+      neverAbort(),
+    );
+    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(String(first.content));
+    expect(match).not.toBeNull();
+    const cursorPath = (match as RegExpExecArray)[1] as string;
+
+    await middleware({ id: "b2", name: "read_file", arguments: { path: cursorPath } }, neverAbort());
+    // Replaying the consumed cursor must not fall through to blobReader.read()
+    // (which would throw the opaque "Blob not found" error naming only the
+    // random cursor UUID) -- it must short-circuit to the actionable message
+    // naming the real spill URI and the offset to resume from.
+    const replay = await middleware(
+      { id: "b3", name: "read_file", arguments: { path: cursorPath } },
+      neverAbort(),
+    );
+    expect(replay.isError).toBe(true);
+    expect(String(replay.content)).toContain("already used");
+    expect(String(replay.content)).toContain("tool-output:///spill-1");
+    expect(String(replay.content)).not.toContain("Blob not found");
   });
 });
