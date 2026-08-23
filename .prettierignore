@@ -4,4 +4,6 @@ vendor/
 scratch/
 node_modules/
 CHANGELOG.md
+# Intentionally invalid source: the broken-toolchain eval fixture.
 tests/fixtures/broken-toolchain/
+

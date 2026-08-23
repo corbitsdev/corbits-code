@@ -4,4 +4,12 @@ pathIgnorePatterns = [
   "tests/fixtures/**",
   "eval/tasks/**",
   "tmp/**",
+  # Bundles vendor/intx-storage-isogit's browser entry point with Bun.build,
+  # under the "intx-src" export condition that resolves @intx/log and
+  # @intx/mime to ./src/*.ts. Upstream's own monorepo vendors those two
+  # packages too, so the condition finds real source; here they stay on
+  # published npm (dist-only, no src/), so the condition matches an export
+  # key whose target file doesn't exist. Not a vendored-code defect — see
+  # docs/VENDORING.md.
+  "vendor/intx-storage-isogit/src/browser-bundle.test.ts",
 ]
