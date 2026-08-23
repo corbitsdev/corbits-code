@@ -15,7 +15,13 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
+import {
+  DEFAULT_THRASH_CONFIG,
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  type ThrashState,
+} from "./thrash.js";
+import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
 import {
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   evaluateSubAgentStop,
@@ -119,6 +125,32 @@ export class SubAgentDirector extends DefaultDirector {
   private lastActivityAt: number;
   private consecutiveStalls = 0;
   private lastAssistantText = "";
+  // Every stop and nudge is recorded with its measured value beside its
+  // threshold, so a later threshold change can cite data instead of judgment
+  // (CL-6938). Defaults to a no-op: logging is diagnostic, never required.
+  private interventions: InterventionSink = NOOP_INTERVENTION_SINK;
+
+  /** Route this leaf's stop/nudge decisions to an intervention log. */
+  observeInterventions(sink: InterventionSink): void {
+    this.interventions = sink;
+  }
+
+  /** Run state every intervention record carries, for judging it afterwards. */
+  private interventionState(): {
+    turnsCompleted: number;
+    maxTurns: number;
+    totalToolCalls: number;
+    readCounts: number;
+    editedPaths: number;
+  } {
+    return {
+      turnsCompleted: this.turnsCompleted,
+      maxTurns: this.maxTurns,
+      totalToolCalls: this.thrashState.totalToolCalls,
+      readCounts: this.thrashState.readCounts.size,
+      editedPaths: this.thrashState.editedPaths.size,
+    };
+  }
 
   constructor(
     systemPrompt: string,
@@ -219,12 +251,24 @@ export class SubAgentDirector extends DefaultDirector {
         // Tool-less turn after tools, no report envelope. Must not fall through
         // to super.decide — DefaultDirector completes any tool-less turn.
         this.incompleteReportNudgeFired = true;
+        this.interventions({
+          id: "incomplete-report",
+          class: "nudge",
+          state: this.interventionState(),
+          detail: "tool-less turn after tools with no report envelope",
+        });
         return [
           capabilities.checkpoint("subagent-incomplete-report-nudge"),
           inferWithSubAgentNudge(capabilities, INCOMPLETE_REPORT_NUDGE),
         ];
       }
       if (stop === "incomplete-report-stop") {
+        this.interventions({
+          id: "incomplete-report-stop",
+          class: "stop",
+          state: this.interventionState(),
+          detail: "no report envelope after the wrap-up nudge",
+        });
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
           capabilities.reply(forcedStopReport("incomplete-report", this.lastAssistantText)),
@@ -240,6 +284,16 @@ export class SubAgentDirector extends DefaultDirector {
         // follows once their results land. Turn-budget stays reachable —
         // this fires once, forceReportWithin turns before the cap.
         this.pendingNudgeText = REPORT_FORCED_WRAP_UP_NUDGE;
+        this.interventions({
+          id: "report-forced",
+          class: "nudge",
+          measurement: {
+            metric: "turnsRemaining",
+            value: this.maxTurns - this.turnsCompleted,
+            threshold: DEFAULT_THRASH_CONFIG.forceReportWithin,
+          },
+          state: this.interventionState(),
+        });
       } else if (
         stop === "no-progress" ||
         stop === "turn-budget" ||
@@ -263,6 +317,20 @@ export class SubAgentDirector extends DefaultDirector {
             : stop === "turn-budget"
               ? `${this.turnsCompleted}/${this.maxTurns} turns`
               : undefined;
+        this.interventions({
+          id: stop,
+          class: "stop",
+          measurement:
+            stop === "no-progress"
+              ? {
+                  metric: "consecutiveIdentical",
+                  value: this.streak.consecutiveIdentical,
+                  threshold: this.repeatLimit,
+                }
+              : { metric: "turnsCompleted", value: this.turnsCompleted, threshold: this.maxTurns },
+          state: this.interventionState(),
+          ...(detail !== undefined ? { detail } : {}),
+        });
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content), detail)),
@@ -279,6 +347,11 @@ export class SubAgentDirector extends DefaultDirector {
       if (event.result.isError === true && this.pendingNudgeText !== REPORT_FORCED_WRAP_UP_NUDGE) {
         // Mandatory wrap-up wins over failed-tool recovery guidance.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
+        this.interventions({
+          id: "tool-failure-recovery",
+          class: "nudge",
+          state: this.interventionState(),
+        });
       }
     }
     const base = await super.decide(event, state, capabilities);
@@ -317,11 +390,24 @@ export class SubAgentDirector extends DefaultDirector {
 
     this.consecutiveStalls++;
     if (this.consecutiveStalls === 1) {
+      this.interventions({
+        id: "stall-nudge",
+        class: "nudge",
+        measurement: { metric: "silenceMs", value: elapsed, threshold: this.stallTimeoutMs },
+        state: this.interventionState(),
+      });
       return [
         capabilities.checkpoint("subagent-stall-nudge"),
         inferWithSubAgentNudge(capabilities, SUBAGENT_STALL_NUDGE),
       ];
     }
+    this.interventions({
+      id: "stalled",
+      class: "stop",
+      measurement: { metric: "silenceMs", value: elapsed, threshold: this.stallTimeoutMs },
+      state: this.interventionState(),
+      detail: `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
+    });
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
       capabilities.reply(
