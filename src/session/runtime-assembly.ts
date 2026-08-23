@@ -268,6 +268,8 @@ export interface SessionPruningCompactorArgs {
   summarize: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   telemetry?: Telemetry;
+  /** Fires only when turns were actually folded away — not on no-ops. */
+  onFolded?: (info: { turnsBefore: number; turnsAfter: number }) => void;
 }
 
 /** Shared pruning-compactor defaults for the main session agent. */
@@ -296,6 +298,7 @@ export function createSessionPruningCompactor(args: SessionPruningCompactorArgs)
           turns_before: turnsBefore,
           turns_after: result.output.length,
         });
+        args.onFolded?.({ turnsBefore, turnsAfter: result.output.length });
       }
       return result;
     },
