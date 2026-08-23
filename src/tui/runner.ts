@@ -127,7 +127,11 @@ import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
-import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
+import {
+  buildCostSummary,
+  maskContextMeterWhenNoTurns,
+  type CostSummary,
+} from "../cost/cost-summary.js";
 import { contextTokensFromUsage } from "../provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
@@ -1292,6 +1296,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
 
     const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
+    const hostHolder: { instance?: Awaited<ReturnType<typeof mountRunnerHost>> } = {};
 
     // Owns the workflow lifecycle: slash-command starts, capability overrides,
     // resume, and publishing status to the App via the emitter.
@@ -1871,6 +1876,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           // A fresh session drops any active workflow.
           workflowController.reset();
           fatalBuildError = null;
+          // Sink and director are empty now — repaint so the meter stays hidden
+          // rather than showing the pre-clear occupancy until the next turn.
+          hostHolder.instance?.refreshCostContext();
         } catch (err) {
           recordRunError(err);
           fatalBuildError = err instanceof Error ? err : new Error(String(err));
@@ -1989,7 +1997,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // that decision rather than re-deriving it from a second usage read.
         const contextEstimate = directorHolder.instance?.getContextEstimate();
         const isEstimate = contextEstimate !== undefined && contextEstimate.isEstimate;
-        return buildCostSummary({
+        const summary = buildCostSummary({
           modelId: config.model,
           baseURL: config.baseURL,
           pricingCache,
@@ -2003,6 +2011,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             : contextTokensFromUsage(lastTurnUsage),
           contextIsEstimate: isEstimate,
         });
+        return maskContextMeterWhenNoTurns(summary, runSink.getTurnCount());
       },
       startWorkflow: (name) => workflowController.start(name),
       getFleetStatus: () => fleetDigest(subAgentSessions.list(), Date.now()),
@@ -2479,6 +2488,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
       },
     });
+    hostHolder.instance = host;
 
     const shutdownRuntime = createRuntimeShutdown({
       disposeHost: host.dispose,
