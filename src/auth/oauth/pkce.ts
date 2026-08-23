@@ -10,11 +10,11 @@ function base64url(buffer: Buffer): string {
   return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export type Pkce = {
+export interface Pkce {
   verifier: string;
   challenge: string;
   method: "S256";
-};
+}
 
 export function generatePkce(): Pkce {
   // 32 random bytes → 43-char base64url string, within the RFC's 43–128 range.

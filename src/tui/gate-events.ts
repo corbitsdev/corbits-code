@@ -1,7 +1,7 @@
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 import type { OperatorResult } from "../agent/tools.js";
 
-export type OperatorGateEvent = {
+export interface OperatorGateEvent {
   question: string;
   options: string[];
   resolve: (result: OperatorResult) => void;
@@ -18,9 +18,9 @@ export type OperatorGateEvent = {
    * of the queue — so the modal cannot outlive a tool that already finished.
    */
   signal?: AbortSignal;
-};
+}
 
-export type PermissionGateEvent = {
+export interface PermissionGateEvent {
   request: PermissionRequest;
   resolve: (outcome: ApprovalOutcome) => void;
   /**
@@ -36,4 +36,4 @@ export type PermissionGateEvent = {
    * of the queue — so the modal cannot outlive a tool that already finished.
    */
   signal?: AbortSignal;
-};
+}

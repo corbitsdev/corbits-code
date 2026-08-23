@@ -1,5 +1,9 @@
 import { test, expect, describe } from "bun:test";
-import { formatMcpResult, extractMcpRecords, extractMcpRecord } from "../../../src/tui/mcp-result-format.js";
+import {
+  formatMcpResult,
+  extractMcpRecords,
+  extractMcpRecord,
+} from "../../../src/tui/mcp-result-format.js";
 
 describe("formatMcpResult", () => {
   test("summarizes a wrapped list by its key", () => {
@@ -22,11 +26,15 @@ describe("formatMcpResult", () => {
   });
 
   test("uses the singular noun for a single item", () => {
-    expect(formatMcpResult(JSON.stringify({ projects: [{ name: "Solo" }] })).preview).toBe("1 project");
+    expect(formatMcpResult(JSON.stringify({ projects: [{ name: "Solo" }] })).preview).toBe(
+      "1 project",
+    );
   });
 
   test("renders a single record's scalar fields", () => {
-    const r = formatMcpResult(JSON.stringify({ name: "Alpha", priority: { name: "Medium" }, items: [1, 2] }));
+    const r = formatMcpResult(
+      JSON.stringify({ name: "Alpha", priority: { name: "Medium" }, items: [1, 2] }),
+    );
     expect(r.full).toContain("name: Alpha");
     expect(r.full).toContain("priority: Medium");
     expect(r.full).toContain("items: [2 items]");
@@ -70,7 +78,9 @@ describe("extractMcpRecords (list detection)", () => {
   });
 
   test("a wrapper with a non-scalar sibling is treated as a record, not a list", () => {
-    expect(extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], meta: { page: 1 } }))).toBeNull();
+    expect(
+      extractMcpRecords(JSON.stringify({ projects: [{ name: "a" }], meta: { page: 1 } })),
+    ).toBeNull();
   });
 
   test("non-JSON content is not a record list", () => {

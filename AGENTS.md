@@ -19,7 +19,7 @@ git config core.hooksPath .githooks
 - **Paradigm:** Functional. No classes, no OOP.
 - **Types:** Full type safety. Avoid `any`; prefer `unknown`. Validate all external input at the boundary with arktype — do not hand-roll `typeof` guards for structured data.
 - **Files:** Small functions, small files, clear names. Acronyms keep their case (`URL`, `JSON`, `API`).
-- **Comments:** Comment *why*, never *what*. If a comment describes what the code does, fix the names instead.
+- **Comments:** Comment _why_, never _what_. If a comment describes what the code does, fix the names instead.
 - **No emojis** in code or docs.
 
 ## Scope Discipline
@@ -73,15 +73,15 @@ It authenticates over HTTPS via `gh`'s credential helper and rewrites the SSH re
 
 Interchange is the standard library for this repo, consumed as published `@intx/*` npm packages pinned at 0.2.2, except `@intx/inference`, `@intx/types`, and `@intx/storage-isogit`, which resolve to vendored source under `vendor/intx-*` at upstream head (coupled by the reactor's approval-suspend primitive; `@intx/inference` also carries a local patch set). See `docs/VENDORING.md` for what's vendored, from which upstream commit, and the re-sync procedure. We never modify or push to the upstream interchange repository. Before writing any new infrastructure — plugins, middleware, utilities, state management, logging, authz, inference, tools — check these packages.
 
-| Package | Covers |
-|---|---|
-| `@intx/authz` | Grant matching (`matchPattern`, `evaluateGrants`) for permission approvals; Corbits owns the gate, store, and TUI ask |
-| `@intx/inference` | Reactor loop, `createAuthzExtension`, `DefaultDirector` |
-| `@intx/agent` | Agent lifecycle, send queue, stream |
-| `@intx/tools-posix` | Shell, file read/write/edit, grep, search |
-| `@intx/storage-isogit` | Git-backed state persistence |
-| `@intx/log` | Structured logging via LogTape |
-| `@intx/types` | All shared runtime types |
+| Package                | Covers                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `@intx/authz`          | Grant matching (`matchPattern`, `evaluateGrants`) for permission approvals; Corbits owns the gate, store, and TUI ask |
+| `@intx/inference`      | Reactor loop, `createAuthzExtension`, `DefaultDirector`                                                               |
+| `@intx/agent`          | Agent lifecycle, send queue, stream                                                                                   |
+| `@intx/tools-posix`    | Shell, file read/write/edit, grep, search                                                                             |
+| `@intx/storage-isogit` | Git-backed state persistence                                                                                          |
+| `@intx/log`            | Structured logging via LogTape                                                                                        |
+| `@intx/types`          | All shared runtime types                                                                                              |
 
 ## Reference
 

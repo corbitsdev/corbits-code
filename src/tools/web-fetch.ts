@@ -60,7 +60,10 @@ function looksLikeBotBlock(status: number): boolean {
   return status === 403 || status === 429 || status === 999;
 }
 
-async function readCapped(response: Response, capBytes: number): Promise<{ text: string; truncated: boolean }> {
+async function readCapped(
+  response: Response,
+  capBytes: number,
+): Promise<{ text: string; truncated: boolean }> {
   const body = response.body;
   if (body === null) return { text: await response.text(), truncated: false };
   const reader = body.getReader();
@@ -118,8 +121,7 @@ async function fetchOnce(
 }
 
 export type WebFetchOutcome =
-  | { ok: true; content: string; truncated: boolean }
-  | { ok: false; error: string };
+  { ok: true; content: string; truncated: boolean } | { ok: false; error: string };
 
 export async function runWebFetch(
   rawUrl: string,
@@ -146,7 +148,10 @@ export async function runWebFetch(
           error: `Request to ${currentUrl} timed out after ${timeoutMs / 1000}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
         };
       }
-      return { ok: false, error: `Failed to fetch ${currentUrl}: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        ok: false,
+        error: `Failed to fetch ${currentUrl}: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
 
     if (response.status >= 300 && response.status < 400) {

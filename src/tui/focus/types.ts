@@ -7,34 +7,29 @@
 
 /** Known surfaces plus open string brand for list/kit consumers. */
 export type FocusTarget =
-  | "prompt"
-  | "transcript"
-  | "overlay"
-  | "observe"
-  | "palette"
-  | (string & {});
+  "prompt" | "transcript" | "overlay" | "observe" | "palette" | (string & {});
 
 /** One stack frame: who owns keys (`target`) and who owns wheel/page (`scrollOwner`). */
-export type FocusFrame = {
+export interface FocusFrame {
   readonly id: string;
   readonly target: FocusTarget;
   readonly scrollOwner: FocusTarget;
-};
+}
 
 /**
  * Focus stack, bottom → top.
  * Index 0 is always the shell base frame. Overlays and observe push above it.
  */
-export type FocusState = {
+export interface FocusState {
   readonly frames: readonly FocusFrame[];
-};
+}
 
 /** Current scroll lease derived from the top frame. */
-export type ScrollLease = {
+export interface ScrollLease {
   readonly owner: FocusTarget | null;
-};
+}
 
-export type OpenOverlayOpts = {
+export interface OpenOverlayOpts {
   /**
    * Surface kind. Defaults to `"overlay"`.
    * Use `"palette"` for the command palette (still an overlay-priority slot).
@@ -45,4 +40,4 @@ export type OpenOverlayOpts = {
    * Defaults to `target` (list/body owns scroll).
    */
   readonly scrollOwner?: FocusTarget;
-};
+}

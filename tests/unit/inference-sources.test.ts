@@ -122,7 +122,11 @@ test("buildInferenceSourceForRef forwards reasoning effort on xAI sources", () =
 test("buildMainSessionSources backs the active head with other configured providers", () => {
   const settings: Settings = {
     providers: {
-      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-4o", "gpt-4o-mini"] },
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-4o", "gpt-4o-mini"],
+      },
       local: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama"] },
     },
   };

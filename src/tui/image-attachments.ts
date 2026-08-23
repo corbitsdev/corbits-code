@@ -32,12 +32,10 @@ export type PendingImageAttachment = MessageAttachment & {
 };
 
 export type AttachImageResult =
-  | { ok: true; attachment: PendingImageAttachment }
-  | { ok: false; reason: string };
+  { ok: true; attachment: PendingImageAttachment } | { ok: false; reason: string };
 
 export type ClipboardImageResult =
-  | { ok: true; attachment: PendingImageAttachment }
-  | { ok: false; reason: string };
+  { ok: true; attachment: PendingImageAttachment } | { ok: false; reason: string };
 
 export function imageMimeTypeForPath(path: string): string | undefined {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
@@ -47,7 +45,10 @@ export function imageMimeTypeForPath(path: string): string | undefined {
 export function extractPastedImagePaths(text: string, cwd: string): string[] {
   const trimmed = text.trim();
   if (trimmed.length === 0) return [];
-  const lines = trimmed.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const candidates = lines.length > 1 ? lines : [trimmed];
   const out: string[] = [];
   for (const candidate of candidates) {
@@ -58,15 +59,16 @@ export function extractPastedImagePaths(text: string, cwd: string): string[] {
   return out;
 }
 
-export type ImagePathMention = {
+export interface ImagePathMention {
   raw: string;
   path: string;
-};
+}
 
 export function findImagePathMentions(text: string, cwd: string): ImagePathMention[] {
   const mentions: ImagePathMention[] = [];
   const seen = new Set<string>();
-  const pattern = /file:\/\/\S+|(?:[~./]|[A-Za-z]:)[^\n\r]*?\.(?:png|jpe?g|webp|gif)(?=$|\s|[),.;:!?])/gi;
+  const pattern =
+    /file:\/\/\S+|(?:[~./]|[A-Za-z]:)[^\n\r]*?\.(?:png|jpe?g|webp|gif)(?=$|\s|[),.;:!?])/gi;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
     const raw = trimTrailingPunctuation(match[0] ?? "");
@@ -89,7 +91,10 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
   }
   if (!info.isFile()) return { ok: false, reason: "not a file" };
   if (info.size > MAX_IMAGE_ATTACHMENT_BYTES) {
-    return { ok: false, reason: `image is too large; max ${formatBytes(MAX_IMAGE_ATTACHMENT_BYTES)}` };
+    return {
+      ok: false,
+      reason: `image is too large; max ${formatBytes(MAX_IMAGE_ATTACHMENT_BYTES)}`,
+    };
   }
   const raw = await readFile(path);
   // Hash the source bytes, not the (lossy, non-deterministic) capped output --
@@ -101,7 +106,10 @@ export async function imageAttachmentFromPath(path: string): Promise<AttachImage
     ok: true,
     attachment: {
       id: crypto.randomUUID(),
-      name: capped.contentType === mimeType ? basename(path) : replaceExtension(basename(path), capped.contentType),
+      name:
+        capped.contentType === mimeType
+          ? basename(path)
+          : replaceExtension(basename(path), capped.contentType),
       contentType: capped.contentType,
       data: capped.data,
       path,
@@ -135,7 +143,14 @@ export async function capImageForIngestion(
   if (process.platform !== "darwin") return { data, contentType: mimeType };
 
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const srcExt = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
+  const srcExt =
+    mimeType === "image/png"
+      ? "png"
+      : mimeType === "image/webp"
+        ? "webp"
+        : mimeType === "image/gif"
+          ? "gif"
+          : "jpg";
   const srcPath = join(tmpdir(), `corbits-image-cap-src-${stamp}.${srcExt}`);
   const outPath = join(tmpdir(), `corbits-image-cap-out-${stamp}.jpg`);
 
@@ -170,7 +185,7 @@ export async function capImageForIngestion(
 }
 
 function replaceExtension(name: string, contentType: string): string {
-  const ext = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] ?? "jpg";
+  const ext = contentType === "image/jpeg" ? "jpg" : (contentType.split("/")[1] ?? "jpg");
   const dot = name.lastIndexOf(".");
   return `${dot === -1 ? name : name.slice(0, dot)}.${ext}`;
 }
@@ -225,9 +240,10 @@ export function formatAttachmentSummary(attachments: readonly PendingImageAttach
 function normalizeImagePathCandidate(input: string, cwd: string): string | undefined {
   const unquoted = unquoteShellPath(trimTrailingPunctuation(input.trim()));
   if (unquoted === undefined) return undefined;
-  const expanded = unquoted === "~" || unquoted.startsWith("~/")
-    ? resolve(homedir(), unquoted.slice(2))
-    : unquoted;
+  const expanded =
+    unquoted === "~" || unquoted.startsWith("~/")
+      ? resolve(homedir(), unquoted.slice(2))
+      : unquoted;
   if (/\s/.test(expanded) && !isAbsolute(expanded) && input[0] !== "'" && input[0] !== '"') {
     return undefined;
   }
@@ -243,7 +259,10 @@ function unquoteShellPath(input: string): string | undefined {
       return undefined;
     }
   }
-  if ((input.startsWith("'") && input.endsWith("'")) || (input.startsWith('"') && input.endsWith('"'))) {
+  if (
+    (input.startsWith("'") && input.endsWith("'")) ||
+    (input.startsWith('"') && input.endsWith('"'))
+  ) {
     return input.slice(1, -1);
   }
   return input.replace(/\\([\\\s'"()])/g, "$1");
@@ -258,12 +277,17 @@ function formatBytes(bytes: number): string {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 }
 
-async function runProcess(command: string, args: string[]): Promise<{ code: number; stderr: string }> {
+async function runProcess(
+  command: string,
+  args: string[],
+): Promise<{ code: number; stderr: string }> {
   return await new Promise((resolveProcess) => {
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     const chunks: Buffer[] = [];
     child.stderr.on("data", (chunk: Buffer) => chunks.push(chunk));
     child.on("error", (err) => resolveProcess({ code: 1, stderr: err.message }));
-    child.on("close", (code) => resolveProcess({ code: code ?? 1, stderr: Buffer.concat(chunks).toString("utf8") }));
+    child.on("close", (code) =>
+      resolveProcess({ code: code ?? 1, stderr: Buffer.concat(chunks).toString("utf8") }),
+    );
   });
 }

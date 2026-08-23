@@ -78,7 +78,11 @@ export function tokensFromResponse(
 
 // Exchange an authorization code for tokens. `now` defaults to the current time
 // but stays injectable for deterministic tests.
-export async function exchangeCode(code: string, verifier: string, now: number): Promise<CodexTokens> {
+export async function exchangeCode(
+  code: string,
+  verifier: string,
+  now: number,
+): Promise<CodexTokens> {
   return tokensFromResponse(await exchangeSharedCode(codexOAuthConfig, code, verifier), now);
 }
 

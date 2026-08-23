@@ -6,7 +6,11 @@ import {
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
-const SOURCE: LastCycleSource = { sourceId: "xai/default", provider: "grok-responses", model: "grok-4.5" };
+const SOURCE: LastCycleSource = {
+  sourceId: "xai/default",
+  provider: "grok-responses",
+  model: "grok-4.5",
+};
 
 function adapter() {
   return createGrokResponsesAdapter(SOURCE);
@@ -45,38 +49,91 @@ describe("grok-responses buildRequest", () => {
     expect(body["reasoning"]).toEqual({ summary: "detailed" });
     // No `instructions` field — the system prompt rides as a system input message.
     expect(body["instructions"]).toBeUndefined();
-    const input = body["input"] as Array<Record<string, unknown>>;
-    expect(input[0]).toEqual({ type: "message", role: "system", content: "You are a coding agent." });
+    const input = body["input"] as Record<string, unknown>[];
+    expect(input[0]).toEqual({
+      type: "message",
+      role: "system",
+      content: "You are a coding agent.",
+    });
     expect(input[1]).toEqual({ type: "message", role: "user", content: "hello" });
   });
 
   test("maps tool calls and results to function_call items with flat tools", () => {
     const turns: ConversationTurn[] = [
-      { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } }], timestamp: 0 },
-      { role: "user", content: [{ type: "tool_result", callId: "call-1", content: [{ type: "text", text: "ok" }] }], timestamp: 0 },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } },
+        ],
+        timestamp: 0,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "ok" }] },
+        ],
+        timestamp: 0,
+      },
     ];
     const req = adapter().buildRequest(turns, "grok-4.5", {
       ...baseOptions,
-      tools: [{ name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {}, required: [] } }],
+      tools: [
+        {
+          name: "read_file",
+          description: "Read a file",
+          inputSchema: { type: "object", properties: {}, required: [] },
+        },
+      ],
     });
     const body = JSON.parse(req.body) as Record<string, unknown>;
-    const input = body["input"] as Array<Record<string, unknown>>;
-    expect(input[0]).toEqual({ type: "function_call", name: "read_file", arguments: JSON.stringify({ path: "a.ts" }), call_id: "call-1" });
+    const input = body["input"] as Record<string, unknown>[];
+    expect(input[0]).toEqual({
+      type: "function_call",
+      name: "read_file",
+      arguments: JSON.stringify({ path: "a.ts" }),
+      call_id: "call-1",
+    });
     expect(input[1]).toEqual({ type: "function_call_output", call_id: "call-1", output: "ok" });
-    const tools = body["tools"] as Array<Record<string, unknown>>;
+    const tools = body["tools"] as Record<string, unknown>[];
     expect(tools[0]).toMatchObject({ type: "function", name: "read_file" });
     expect(body["tool_choice"]).toBe("auto");
   });
 
   test("drops duplicate tool results for a call id", () => {
     const turns: ConversationTurn[] = [
-      { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } }], timestamp: 0 },
-      { role: "user", content: [{ type: "tool_result", callId: "call-1", content: [{ type: "text", text: "first" }] }], timestamp: 0 },
-      { role: "user", content: [{ type: "tool_result", callId: "call-1", content: [{ type: "text", text: "duplicate" }] }], timestamp: 0 },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "a.ts" } },
+        ],
+        timestamp: 0,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "first" }] },
+        ],
+        timestamp: 0,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "call-1", content: [{ type: "text", text: "duplicate" }] },
+        ],
+        timestamp: 0,
+      },
     ];
-    const body = JSON.parse(adapter().buildRequest(turns, "grok-4.5", baseOptions).body) as Record<string, unknown>;
+    const body = JSON.parse(adapter().buildRequest(turns, "grok-4.5", baseOptions).body) as Record<
+      string,
+      unknown
+    >;
     expect(body["input"]).toEqual([
-      { type: "function_call", name: "read_file", arguments: JSON.stringify({ path: "a.ts" }), call_id: "call-1" },
+      {
+        type: "function_call",
+        name: "read_file",
+        arguments: JSON.stringify({ path: "a.ts" }),
+        call_id: "call-1",
+      },
       { type: "function_call_output", call_id: "call-1", output: "first" },
     ]);
   });

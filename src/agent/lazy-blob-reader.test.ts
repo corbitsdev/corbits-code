@@ -61,10 +61,10 @@ describe("createCompositeBlobReader", () => {
   });
 
   test("falls back to the parent store for missing child keys (sub-agent re-read)", async () => {
-    let child: ReturnType<typeof readerWith> | undefined;
+    const child: { current?: ReturnType<typeof readerWith> } = {};
     const parent = readerWith({ parentSpill: "mcp-skill-body-tail" });
     const composite = createCompositeBlobReader(
-      () => child,
+      () => child.current,
       () => parent,
     );
 
@@ -73,7 +73,7 @@ describe("createCompositeBlobReader", () => {
       "mcp-skill-body-tail",
     );
 
-    child = readerWith({ ownSpill: "child-local" });
+    child.current = readerWith({ ownSpill: "child-local" });
     expect(dec.decode(await composite.read("tool-output:///parentSpill"))).toBe(
       "mcp-skill-body-tail",
     );
