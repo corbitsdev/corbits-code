@@ -11,15 +11,15 @@
 
 import { type } from "arktype";
 
-import { detectRepetition } from "./stall-watchdog.js";
+import { detectTailCharLoop } from "../subagent/repetition.js";
 import type { TurnStatus } from "./session-chrome.js";
 
 // Bound on the accumulated stream text kept for repetition checks. Comfortably
-// larger than the periods `detectRepetition` can confirm, so trimming never
+// larger than the periods `detectTailCharLoop` can confirm, so trimming never
 // drops content the check still needs.
 const STREAM_TEXT_BUFFER_CHARS = 8_000;
 
-// `detectRepetition` walks a character-level period search; cheap per call,
+// `detectTailCharLoop` walks a character-level period search; cheap per call,
 // but the reactor loop can emit a delta per token, and running it on every
 // single one makes it the hottest thing in that loop for no benefit — a
 // repeating tail does not appear or disappear between two three-character
@@ -108,7 +108,7 @@ export interface TurnState {
    * narrating a similar short line before each of several tool calls is
    * ordinary and must not accumulate into an apparent loop, whereas a
    * genuinely degenerate model repeats within one unbroken stream. Bounded to
-   * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectRepetition`, nothing else.
+   * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectTailCharLoop`, nothing else.
    */
   readonly streamText: string;
   /**
@@ -117,9 +117,9 @@ export interface TurnState {
    * throttle below tell "40 more chars arrived" from "the buffer is full."
    */
   readonly streamCharsSeen: number;
-  /** `streamCharsSeen` as of the last `detectRepetition` call. */
+  /** `streamCharsSeen` as of the last `detectTailCharLoop` call. */
   readonly repetitionCheckedAt: number;
-  /** Result of the most recent `detectRepetition` check on `streamText`. */
+  /** Result of the most recent `detectTailCharLoop` check on `streamText`. */
   readonly repeating: boolean;
   /**
    * `streamTokenCount` at the moment repetition was first observed this turn.
@@ -138,7 +138,7 @@ export interface TurnState {
    * Consecutive completed cycles whose fingerprint matched the one before it.
    * A model repeating the same block every cycle, with a tool call in
    * between each, builds this streak even though no single cycle's text ever
-   * gets long enough to trip `detectRepetition` on its own.
+   * gets long enough to trip `detectTailCharLoop` on its own.
    */
   readonly consecutiveMatchingCycles: number;
   /**
@@ -458,7 +458,7 @@ const streaming = (
   // starts empty (see `runningTool`) and would otherwise read back false on
   // the next check, un-latching a real detection the moment a tool call
   // interrupts the stream.
-  const repeating = state.repeating || (due && detectRepetition(streamText).repeating);
+  const repeating = state.repeating || (due && detectTailCharLoop(streamText).repeating);
   return {
     ...state,
     status: state.status === "blocked" ? "blocked" : "running",
