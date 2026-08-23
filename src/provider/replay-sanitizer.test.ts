@@ -2,6 +2,11 @@ import { describe, expect, it } from "bun:test";
 import type { AdapterRegistry } from "@intx/inference";
 import { createBuiltinRegistry } from "@intx/inference/providers";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
+import {
+  CODEX_RESPONSES_PROVIDER,
+  createCodexResponsesAdapter,
+  tagSignature,
+} from "./codex-responses-adapter.js";
 import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 import {
@@ -54,6 +59,13 @@ function corbitsRegistry(): AdapterRegistry {
       }
       return builtin.resolve(source, quirks);
     },
+  };
+}
+
+function codexRegistry(): AdapterRegistry {
+  return {
+    has: (provider) => provider === CODEX_RESPONSES_PROVIDER,
+    resolve: (source) => createCodexResponsesAdapter(source),
   };
 }
 
@@ -356,5 +368,36 @@ describe("withReplaySanitizer", () => {
     ];
     expect(() => adapter.buildRequest(thinkingOnlyHistory(), "claude-opus-4", {})).not.toThrow();
     expect(() => adapter.buildRequest(leftoverHistory, "claude-opus-4", {})).not.toThrow();
+  });
+
+  // Regression for CL-6912: sanitizeReplayTurns runs INSIDE buildRequest,
+  // before the adapter's own toResponsesItems ever sees a turn. A turn
+  // missing `model` must survive stripForeignBlocks's foreign-turn gate, not
+  // just signatureForModel's gate inside the adapter — otherwise the
+  // signature never reaches the adapter's own (correctly fixed) check.
+  it("carries a reasoning signature through the real buildRequest path when the turn has no model", () => {
+    const adapter = withReplaySanitizer(codexRegistry()).resolve({
+      sourceId: "s1",
+      provider: CODEX_RESPONSES_PROVIDER,
+      model: "gpt-5.1-codex",
+    });
+    const signature = tagSignature(CODEX_RESPONSES_PROVIDER, "cipher");
+    const turns: ConversationTurn[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "ponder", signature },
+          { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
+        ],
+        timestamp: 2,
+      } as unknown as ConversationTurn,
+    ];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    const body = JSON.parse(request.body) as { input: { type: string }[] };
+
+    expect(body.input.some((item) => item.type === "reasoning")).toBe(true);
+    expect(body.input.some((item) => item.type === "function_call")).toBe(true);
   });
 });
