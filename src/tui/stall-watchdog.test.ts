@@ -167,10 +167,20 @@ describe("detectRepetition", () => {
     const line1 =
       "I'll verify callId emission and remaining edges, then write the ranked findings."
     const line2 = "Confirming callId emission, then writing the ranked findings."
-    const text = Array(10).fill(`${line1}${line2}`).join("")
+    const text = Array(30).fill(`${line1}${line2}`).join("")
     const check = detectRepetition(text)
     expect(check.repeating).toBe(true)
     expect(check.period).toBe(line1.length + line2.length)
+  })
+
+  // The second captured incident: a 10-char unit ("Groaning. ") emitted
+  // ~1,363 times. The old 24-char period floor never saw it; 9 distinct
+  // chars keeps it above REPETITION_MIN_DISTINCT_CHARS.
+  test("flags a short-phrase loop with a 10-char unit", () => {
+    const text = "Groaning. ".repeat(60)
+    const check = detectRepetition(text)
+    expect(check.repeating).toBe(true)
+    expect(check.period).toBe("Groaning. ".length)
   })
 
   test("does not flag the same cycle a handful of times", () => {
