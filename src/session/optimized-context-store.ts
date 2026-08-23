@@ -361,8 +361,15 @@ async function reconcileSegmentStaging(
  * work per reactor checkpoint. Turns and prompt snapshots are written as rolling
  * segment files so `git add` re-hashes only the small active segment, and only
  * spilled tool-output blobs that are new since the last commit are staged.
+ *
+ * When native `git` is missing from PATH (Harbor / minimal containers), skip the
+ * wrapper and return the base isomorphic-git store — its commit path never shells out.
  */
 export async function createOptimizedContextStore(dir: string): Promise<ContextStore> {
+  if (Bun.which("git") === null) {
+    return await createIsogitStore(dir);
+  }
+
   const base = await createIsogitStore(dir);
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();

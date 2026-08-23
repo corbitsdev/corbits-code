@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -445,4 +445,69 @@ describe("createOptimizedContextStore checkpoint", () => {
     const atHead = await store.readAt(head.hash);
     expect(atHead).toHaveLength(total);
   }, 20_000);
+});
+
+describe("createOptimizedContextStore without native git", () => {
+  const originalWhich = Bun.which.bind(Bun);
+  let whichSpy: ReturnType<typeof spyOn> | undefined;
+  let spawnSpy: ReturnType<typeof spyOn> | undefined;
+
+  afterEach(() => {
+    whichSpy?.mockRestore();
+    spawnSpy?.mockRestore();
+    whichSpy = undefined;
+    spawnSpy = undefined;
+  });
+
+  test("returns the base isogit store and commits without spawning git", async () => {
+    whichSpy = spyOn(Bun, "which").mockImplementation((cmd: string) => {
+      if (cmd === "git") return null;
+      return originalWhich(cmd);
+    });
+    spawnSpy = spyOn(Bun, "spawn");
+
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+
+    await store.writeTurns([turn("no-git")]);
+    await store.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    });
+    const commit = await store.commit({ message: "isogit fallback" });
+
+    expect(commit.hash.length).toBeGreaterThan(0);
+    expect(commit.message).toBe("isogit fallback");
+
+    const loaded = await store.load();
+    expect(loaded.turns).toHaveLength(1);
+    expect((loaded.turns[0]!.content[0] as { text: string }).text).toBe("no-git");
+
+    const gitSpawns = spawnSpy.mock.calls.filter((call: unknown[]) => {
+      const argv = call[0];
+      return Array.isArray(argv) && argv[0] === "git";
+    });
+    expect(gitSpawns).toHaveLength(0);
+  });
+
+  test("still wraps with native git when git is on PATH", async () => {
+    expect(originalWhich("git")).not.toBeNull();
+
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    spawnSpy = spyOn(Bun, "spawn");
+
+    await store.writeTurns([turn("with-git")]);
+    await store.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    });
+    await store.commit({ message: "native path" });
+
+    const gitSpawns = spawnSpy.mock.calls.filter((call: unknown[]) => {
+      const argv = call[0];
+      return Array.isArray(argv) && argv[0] === "git";
+    });
+    expect(gitSpawns.length).toBeGreaterThan(0);
+  });
 });
