@@ -48,7 +48,7 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
   return {
     resultKey: over.resultKey ?? makeResultKey(variantId, id),
     id,
-    tier: over.tier ?? "simple",
+    tier: over.tier ?? "easy",
     title: over.title ?? "Health",
     variantId,
     provider: over.provider ?? "default",

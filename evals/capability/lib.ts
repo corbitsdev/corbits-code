@@ -26,6 +26,10 @@ export type EvalTier = "easy" | "med" | "hard" | "xhard";
 
 export const EVAL_TIERS: readonly EvalTier[] = ["easy", "med", "hard", "xhard"];
 
+function isEvalTier(value: string): value is EvalTier {
+  return EVAL_TIERS.includes(value as EvalTier);
+}
+
 /**
  * A bait declaration marks a case that exists to reproduce a known
  * misbehavior. The case misbehaves when the aggregate median of `metric`
@@ -255,7 +259,7 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
   if (typeof id !== "string" || id.length === 0) {
     throw new Error(`case.json missing id (${caseDir})`);
   }
-  if (typeof tier !== "string" || !EVAL_TIERS.includes(tier as EvalTier)) {
+  if (typeof tier !== "string" || !isEvalTier(tier)) {
     throw new Error(`case ${id}: tier must be ${EVAL_TIERS.join("|")}`);
   }
   if (typeof title !== "string" || title.length === 0) {
