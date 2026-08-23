@@ -20,6 +20,7 @@ import {
   baitReproduces,
   httpFixtureEnv,
   withEnv,
+  evalHttpEnvGet,
   detectProviderFallback,
   formatProviderFallback,
   resolveRequestedProviderModel,
@@ -70,6 +71,7 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     repeat: over.repeat ?? 0,
     behaviors: over.behaviors ?? null,
     providerFallback: over.providerFallback ?? null,
+    diagnostics: over.diagnostics ?? null,
   };
 }
 
@@ -754,6 +756,38 @@ describe("parseEvalRunReport", () => {
     });
   });
 
+  test("round-trips diagnostics stamping on a case result", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [
+        sampleResult({
+          diagnostics: {
+            codexInstructionsHash: "abc123def456",
+            advertisedTools: ["read_file", "run_shell"],
+            reasoningEffort: "high",
+          },
+        }),
+      ],
+    });
+    expect(report.cases[0]!.diagnostics).toEqual({
+      codexInstructionsHash: "abc123def456",
+      advertisedTools: ["read_file", "run_shell"],
+      reasoningEffort: "high",
+    });
+  });
+
+  test("legacy reports with no diagnostics parse to null", () => {
+    const report = parseEvalRunReport({
+      version: 3,
+      provider: "xai",
+      model: "grok",
+      cases: [sampleResult()],
+    });
+    expect(report.cases[0]!.diagnostics).toBeNull();
+  });
+
   test("legacy reports default repeat 0 and null behaviors", () => {
     const report = parseEvalRunReport({
       version: 2,
@@ -811,24 +845,29 @@ describe("withEnv / httpFixtureEnv", () => {
 
   test("makes the fixture origin visible to in-process code the way ssrf-guard reads it", async () => {
     const fixture = { url: "http://127.0.0.1:54321/", token: "tok" };
+    expect(evalHttpEnvGet("EVAL_HTTP_URL")).toBeUndefined();
     expect(process.env.EVAL_HTTP_URL).toBeUndefined();
     let seenDuring: string | undefined;
     await withEnv(httpFixtureEnv(fixture), async () => {
-      seenDuring = process.env.EVAL_HTTP_URL;
+      seenDuring = evalHttpEnvGet("EVAL_HTTP_URL");
+      expect(process.env.EVAL_HTTP_URL).toBeUndefined();
     });
     expect(seenDuring).toBe(fixture.url);
+    expect(evalHttpEnvGet("EVAL_HTTP_URL")).toBeUndefined();
     expect(process.env.EVAL_HTTP_URL).toBeUndefined();
   });
 
-  test("restores prior value on throw", async () => {
+  test("overlay does not leak after throw and leaves process.env untouched", async () => {
     process.env.EVAL_HTTP_URL = "http://pre-existing/";
     try {
       await expect(
         withEnv({ EVAL_HTTP_URL: "http://127.0.0.1:1/" }, async () => {
+          expect(evalHttpEnvGet("EVAL_HTTP_URL")).toBe("http://127.0.0.1:1/");
           throw new Error("boom");
         }),
       ).rejects.toThrow("boom");
       expect(process.env.EVAL_HTTP_URL).toBe("http://pre-existing/");
+      expect(evalHttpEnvGet("EVAL_HTTP_URL")).toBe("http://pre-existing/");
     } finally {
       delete process.env.EVAL_HTTP_URL;
     }

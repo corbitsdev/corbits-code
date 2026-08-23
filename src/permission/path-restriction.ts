@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import type { RootsProvider } from "./worktree-roots.js";
@@ -39,34 +39,71 @@ function realpathOr(path: string): string {
   }
 }
 
+// Sentinel returned by realpathNearestOr for a path that exists but couldn't
+// be resolved (a dangling symlink, or a symlink loop) rather than one that's
+// simply missing. Contains a NUL byte, which can never appear in a real
+// filesystem path, so it can't collide with (or be mistaken for a prefix of)
+// any genuine result, and every containment compare against it fails.
+export const UNRESOLVABLE = "\0unresolvable\0";
+
 // A write/edit target usually doesn't exist yet, so realpath the nearest
 // existing ancestor and rejoin the missing tail rather than falling back to
 // the raw (possibly symlink-relative) path, which would defeat containment
 // checks whenever the workspace root itself is reached through a symlink
 // (e.g. macOS's /tmp -> /private/tmp).
-function realpathNearestOr(path: string): string {
+//
+// realpath failure is ambiguous: it's either "this component doesn't exist
+// yet" (safe — the missing tail gets rejoined onto the nearest real ancestor)
+// or "this component exists but is a dangling symlink / symlink loop" (unsafe
+// — the link's name must not stand in for a normal under-cwd path segment,
+// since the walk otherwise reattaches it verbatim and containment sees a
+// plain child path with no idea a symlink is involved). lstat distinguishes
+// the two: it succeeds for an existing-but-broken symlink and fails only when
+// the component is genuinely absent.
+export function realpathNearestOr(path: string): string {
   try {
     return realpathSync(path);
   } catch {
+    try {
+      lstatSync(path);
+      return UNRESOLVABLE;
+    } catch {
+      // Doesn't exist at all — fall through to the nearest-ancestor walk.
+    }
     const parent = dirname(path);
     if (parent === path) return path;
     // Root (e.g. "/") already ends in the separator, so slicing past
     // parent.length alone lands on the tail; anywhere else the separator
     // between parent and tail must be skipped too.
     const tailStart = parent.endsWith(sep) ? parent.length : parent.length + 1;
-    return join(realpathNearestOr(parent), path.slice(tailStart));
+    const parentReal = realpathNearestOr(parent);
+    if (parentReal === UNRESOLVABLE) return UNRESOLVABLE;
+    return join(parentReal, path.slice(tailStart));
   }
 }
 
+// An empty root must never reach the prefix compare: `"" + sep` is just
+// `sep` (e.g. "/" on Unix), which every absolute path starts with, turning
+// containment into allow-all. A root of exactly `sep` itself is not this bug
+// — `startsWith(sep + sep)` correctly rejects unrelated absolute paths.
 const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
-  roots.some((root) => real === root || real.startsWith(root + sep));
+  roots.some((root) => root.length > 0 && (real === root || real.startsWith(root + sep)));
 
 // Resolves `path` (relative or absolute, possibly traversing `..`) against
 // `cwd` and checks it against the workspace boundary: `cwd` itself plus every
 // root `rootsProvider` reports (the session's registered git worktrees, or
-// any other allowlisted sibling). Returns the resolved absolute path when the
-// target is in bounds, `undefined` otherwise — callers that need a hard
-// allow/deny (rather than an allow/ask distinction) can key off that.
+// any other allowlisted sibling). Returns the CANONICAL real path (symlink
+// segments resolved; for a not-yet-created target, the nearest existing
+// ancestor's real path rejoined with the missing tail) when the target is in
+// bounds, `undefined` otherwise — callers that need a hard allow/deny (rather
+// than an allow/ask distinction) can key off that.
+//
+// Returning the canonical path rather than the lexical `abs` closes a
+// TOCTOU: a symlink segment that is in-bounds at check time can be
+// retargeted before a write actually happens. Callers (e.g. pathEscapePlugin)
+// substitute this return value into the tool call's path argument, so the
+// writer that ultimately opens the file never re-traverses the original
+// symlink — it uses the already-resolved location.
 //
 // A relative `../` is deliberately resolved and realpath-checked against the
 // allowlist rather than rejected outright: the raw path alone can't tell a
@@ -80,9 +117,10 @@ export function resolveWorkspacePath(
   const abs = resolve(cwd, path);
   const realCwd = realpathOr(resolve(cwd));
   const real = realpathNearestOr(abs);
-  if (real === realCwd || real.startsWith(realCwd + sep)) return abs;
-  if (inKnownRoots(real, rootsProvider())) return abs;
-  if (inKnownRoots(real, rootsProvider(true))) return abs;
+  if (real === UNRESOLVABLE) return undefined;
+  if (real === realCwd || real.startsWith(realCwd + sep)) return real;
+  if (inKnownRoots(real, rootsProvider())) return real;
+  if (inKnownRoots(real, rootsProvider(true))) return real;
   return undefined;
 }
 
@@ -126,6 +164,7 @@ function underRoot(abs: string, root: string): boolean {
   // unresolved while the abs path is rebuilt through an existing ancestor).
   const realRoot = realpathNearestOr(root);
   const realAbs = realpathNearestOr(abs);
+  if (realRoot === UNRESOLVABLE || realAbs === UNRESOLVABLE) return false;
   return realAbs === realRoot || realAbs.startsWith(realRoot + sep);
 }
 

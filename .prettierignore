@@ -1,0 +1,6 @@
+dist/
+vendor/
+.worktrees/
+scratch/
+node_modules/
+CHANGELOG.md

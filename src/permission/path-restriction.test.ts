@@ -48,6 +48,22 @@ test("workspace-relative paths are unrestricted", () => {
   expect(r.isRestricted("src/index.ts", true)).toBe(false);
 });
 
+test("an empty-string root does not turn containment into allow-all", () => {
+  // Regression for CL-6700: root + sep === sep when root is "", which every
+  // absolute path starts with. A sensitive absolute path resolved against
+  // a provider that yields "" roots must still be denied.
+  const r = createPathRestriction(cwd, () => [""], home);
+  expect(r.isRestricted("/etc/passwd", false)).toBe(true);
+  expect(r.isRestricted("/etc/passwd", true)).toBe(true);
+});
+
+test("a root of exactly \"/\" is not the same bug: it is not an allow-all prefix", () => {
+  // Documents the non-bug: "/" + sep is "//", which "/etc/passwd" does not
+  // start with, so an unrelated absolute path stays outside the workspace.
+  const r = createPathRestriction(cwd, () => ["/"], home);
+  expect(r.isRestricted("/etc/passwd", false)).toBe(true);
+});
+
 test("a directory sharing a string prefix with the workspace root is still restricted", async () => {
   // "<cwd>baz" shares a string prefix with cwd but is a distinct sibling
   // directory outside the workspace — the boundary check must not leak into

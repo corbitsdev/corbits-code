@@ -13,6 +13,9 @@ describe("bruckheimerPackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(bruckheimerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(bruckheimerPackage.systemPrompt).toContain(
+      "Route those via Blockers to build, greybeard, critique, or skywalker",
+    );
   });
 
   test("spawn.maySpawn is false", () => {

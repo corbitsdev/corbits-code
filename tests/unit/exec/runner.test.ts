@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Config } from "../../../src/config/index.js";
-import { formatCaughtError, runExec } from "../../../src/exec/runner.js";
+import { formatCaughtError, resolveExecDirectorOverlay, runExec } from "../../../src/exec/runner.js";
+import { BUILD_TOOLS } from "../../../src/agent/directors/tool-sets.js";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
@@ -46,5 +47,24 @@ describe("runExec", () => {
     } finally {
       process.stderr.write = origWrite;
     }
+  });
+});
+
+describe("resolveExecDirectorOverlay", () => {
+  test("build exec primary does not mount task", () => {
+    const overlay = resolveExecDirectorOverlay("build");
+    expect(overlay.mountTask).toBe(false);
+    expect(overlay.advertisedAllow).toBeDefined();
+    expect(overlay.advertisedAllow).not.toContain("task");
+    expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
+    expect(overlay.systemPrompt).toContain("BuildDirector");
+  });
+
+  test("skywalker default still can mount task", () => {
+    expect(resolveExecDirectorOverlay(undefined).mountTask).toBe(true);
+    expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();
+    expect(resolveExecDirectorOverlay(undefined).advertisedAllow).toBeUndefined();
+    expect(resolveExecDirectorOverlay("skywalker").mountTask).toBe(true);
+    expect(resolveExecDirectorOverlay("skywalker").systemPrompt).toBeUndefined();
   });
 });

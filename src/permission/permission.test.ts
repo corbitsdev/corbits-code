@@ -2813,7 +2813,10 @@ describe("listWorktreeRoots", () => {
     const { repo, worktree } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const relativeTarget = join("..", "secondary", "notes.md");
-    expect(resolveWorkspacePath(repo, relativeTarget, () => roots)).toBe(join(repo, "..", "secondary", "notes.md"));
+    // Canonical (realpath-resolved), not the lexical join — see CL-6712.
+    expect(resolveWorkspacePath(repo, relativeTarget, () => roots)).toBe(
+      join(realpathSync(join(repo, "..")), "secondary", "notes.md"),
+    );
   });
 
   test("resolveWorkspacePath still rejects a genuinely unrelated outside path", async () => {

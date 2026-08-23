@@ -25,7 +25,7 @@ export type CommandContext = {
   beginFeedbackCapture?: () => void;
   /** Whether skip-permissions (yolo) is active for this session. */
   getSkipPermissions?: () => boolean;
-  /** Toggle skip-permissions for the rest of the session (`/yolo`). */
+  /** Live-flip skip-permissions and persist `/yolo` as the user-global default. */
   setSkipPermissions?: (value: boolean) => void;
 };
 

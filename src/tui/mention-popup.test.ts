@@ -2,13 +2,16 @@
  * Integration: the `@` path popup narrows as you type, the same contract the
  * `/` command popup already honours.
  */
+import { EventEmitter } from "node:events"
 import { describe, expect, test } from "bun:test"
 
 import type { KeyEvent } from "@opentui/core"
 
+import { wireGates } from "./gate-wire"
 import { withTestRenderer } from "./harness"
 import {
   acceptOverlaySelection,
+  closeMentionPopup,
   createAppShell,
   handleMentionPopupKey,
   isMentionPopupOpen,
@@ -222,6 +225,66 @@ describe("@ popup narrows as you type", () => {
         "src/shell.ts",
         "src/parse-session.ts",
       ])
+    })
+  })
+
+  // CL-6698: a queued permission/operator gate must not open onto the host
+  // in the middle of a mention filter session. The old close-then-reopen
+  // refresh released the host between the two calls, and a gate queued
+  // behind the popup drained into that gap — leaving the gate's overlay on
+  // screen while `mentionPopups` still (wrongly) claimed ownership, so
+  // further keystrokes went nowhere.
+  test("a queued gate stays queued across a mention filter refresh", async () => {
+    await withShell(async (shell) => {
+      const emitter = new EventEmitter()
+      const dispose = wireGates(emitter, shell)
+      try {
+        await openAt(shell, "@")
+        expect(isMentionPopupOpen(shell)).toBe(true)
+
+        let resolved: unknown
+        emitter.emit("permission.gate", {
+          request: {
+            tool: "run_shell",
+            action: "Run shell command",
+            subject: "bun test",
+            scopes: [],
+          },
+          resolve: (outcome: unknown) => {
+            resolved = outcome
+          },
+        })
+
+        // Queued, not opened — the mention popup still owns the host.
+        expect(shell.overlayKind).toBe("mentions")
+        expect(resolved).toBeUndefined()
+
+        // Refreshing the filter must not release the host to the queued gate.
+        expect(await type(shell, printable("s"))).toBe(true)
+        expect(shell.prompt.value).toBe("@s")
+        expect(shell.overlayKind).toBe("mentions")
+        expect(isMentionPopupOpen(shell)).toBe(true)
+        expect(shell.overlayItems).toEqual([
+          "session-notes.md",
+          "src/",
+          "AGENTS.md",
+        ])
+        expect(resolved).toBeUndefined()
+
+        // Mention filtering keeps working after the refresh.
+        await type(shell, printable("e"))
+        expect(shell.prompt.value).toBe("@se")
+        expect(shell.overlayItems).toEqual(["session-notes.md"])
+        expect(isMentionPopupOpen(shell)).toBe(true)
+        expect(resolved).toBeUndefined()
+
+        // A true dismiss still drains the queue as before.
+        closeMentionPopup(shell)
+        expect(shell.overlayKind).toBe("permissions")
+        expect(resolved).toBeUndefined()
+      } finally {
+        dispose()
+      }
     })
   })
 })

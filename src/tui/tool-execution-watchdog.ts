@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.js";
+import {
+  formatMcpToolTimeoutMessage,
+  formatToolExecutionTimeoutMessage,
+} from "../plugins/tool-time-budget.js";
+import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 /** Wall-clock budget for a single tool `run()` invocation (outer guard). */
@@ -13,12 +17,31 @@ export type ToolWatchdogConfig = {
    * is dismissed via the budget AbortSignal.
    */
   waitForApproval?: boolean;
+  /**
+   * Override for mcp__* tool calls (settings.mcp.timeoutMs). Unlike the
+   * generic defaultMs/maxMs pair, MCP tools are always bounded — a wedged MCP
+   * server otherwise hangs a tool call forever (CL-6895) — so this only
+   * changes the bound, it never leaves it unarmed.
+   */
+  mcpTimeoutMs?: number;
 };
 
-// Default exceeds shell-guard's per-command max so run_shell is not cut off by
-// this layer before its own timeout fires.
-export const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 660_000;
+// Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
+// is unset. Live forensics (CL-6895) showed multi-minute MCP calls that were
+// merely slow and later completed successfully, not deadlocked — so this stays
+// generous (5 minutes) rather than the shorter default used for other tools,
+// while still bounding a genuinely wedged server.
+export const DEFAULT_MCP_TOOL_TIMEOUT_MS = 300_000;
+
+// Cap applied when Settings set tools.timeoutMs without tools.maxTimeoutMs.
+// Not an implicit default — omitted settings leave the watchdog unarmed.
 export const MAX_TOOL_EXECUTION_TIMEOUT_MS = 1_800_000;
+
+/**
+ * Watchdog arms before shell-guard, so the outer budget must outlast a matching
+ * requested run_shell timeout or this layer wins the race and aborts first.
+ */
+export const RUN_SHELL_WATCHDOG_SLACK_MS = 1_000;
 
 /**
  * After budget/parent abort wins the race, wait this long for the in-flight
@@ -37,9 +60,70 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
 
 const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
 
-export function resolveToolExecutionTimeoutMs(config?: ToolWatchdogConfig): number {
+/**
+ * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
+ * Parent cancel, maxTurns, and eval `--agent-timeout-ms` still bound the run.
+ *
+ * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, or when
+ * run_shell passes a positive arguments.timeout (requested + slack so this
+ * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
+ * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
+ *
+ * The task tool is exempt: it runs an entire sub-agent that carries its own
+ * bounds (maxTurns, no-progress, thrash, opt-in deadline), so the generic
+ * per-tool budget would abort healthy long-running workers mid-run.
+ *
+ * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
+ * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
+ * MCP server can wedge a call forever with no other watchdog to bound it
+ * (CL-6895).
+ */
+export function resolveToolExecutionTimeoutMs(
+  config?: ToolWatchdogConfig,
+  call?: ToolCall,
+): number | undefined {
+  if (call?.name === "task") return undefined;
+  if (call?.name === "run_shell") {
+    const requested = requestedRunShellTimeoutMs(call);
+    if (requested !== undefined) {
+      return requested + RUN_SHELL_WATCHDOG_SLACK_MS;
+    }
+  }
+  if (call !== undefined && isMcpToolName(call.name)) {
+    return resolveMcpToolTimeoutMs(config);
+  }
+  return resolveSettingsWatchdogTimeoutMs(config);
+}
+
+function resolveMcpToolTimeoutMs(config: ToolWatchdogConfig | undefined): number {
   const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
-  const raw = config?.defaultMs ?? DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
+  const configured = config?.mcpTimeoutMs;
+  // A non-positive or non-finite configured value is not a valid budget (it
+  // would floor to a ~0ms timeout and instantly fail every MCP call, which is
+  // unconditionally armed) — fall back to the default instead of clamping to 1ms.
+  const raw =
+    configured !== undefined && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_MCP_TOOL_TIMEOUT_MS;
+  return Math.min(max, Math.max(1, Math.floor(raw)));
+}
+
+function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
+  const timeout = call.arguments.timeout;
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) {
+    return undefined;
+  }
+  return Math.floor(timeout);
+}
+
+function resolveSettingsWatchdogTimeoutMs(
+  config: ToolWatchdogConfig | undefined,
+): number | undefined {
+  if (config === undefined || (config.defaultMs === undefined && config.maxMs === undefined)) {
+    return undefined;
+  }
+  const max = config.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
+  const raw = config.defaultMs ?? max;
   return Math.min(max, Math.max(1, Math.floor(raw)));
 }
 
@@ -80,6 +164,22 @@ export type PauseableTimeout = {
   pause: () => PauseToken;
   resume: (token: PauseToken) => void;
 };
+
+/** Chain parent cancel without arming a run-duration timer. */
+function withParentAbort(signal: AbortSignal): PauseableTimeout {
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  signal.addEventListener("abort", onParentAbort, { once: true });
+  if (signal.aborted) controller.abort();
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      signal.removeEventListener("abort", onParentAbort);
+    },
+    pause: (): PauseToken => 0,
+    resume: (_token: PauseToken) => {},
+  };
+}
 
 /**
  * Like withTimeout, but the remaining budget freezes while paused (e.g. while
@@ -222,6 +322,12 @@ function isAbortLikeToolError(content: string): boolean {
   return /abort/i.test(content);
 }
 
+function formatTimeoutMessage(toolName: string, timeoutMs: number): string {
+  return isMcpToolName(toolName)
+    ? formatMcpToolTimeoutMessage(toolName, timeoutMs)
+    : formatToolExecutionTimeoutMessage(toolName, timeoutMs);
+}
+
 /** True when execute produced a body the parent should prefer over synthetic abort/timeout. */
 export function isUsableToolExecuteResult(result: ToolResult): boolean {
   return (
@@ -281,8 +387,10 @@ export type ToolExecutionWatchdogOptions = {
 };
 
 /**
- * Runs `execute` under a wall-clock race against `parentSignal`, matching the
- * shell-guard search-tool pattern so non-abortable work still returns on time.
+ * Runs `execute` under a race against `parentSignal` and, when `timeoutMs` is
+ * set, a wall-clock budget. `undefined` timeout does not arm a timer — parent
+ * cancel and the approval-budget ALS still apply. Permission pause ceiling
+ * (`MAX_TOOL_APPROVAL_PAUSE_MS`) stays a stuck-prompt guard, not a run cap.
  *
  * When budget/parent abort wins the race, the signal is still aborted, but we
  * give the in-flight execute a short grace to return a usable non-error body
@@ -292,19 +400,22 @@ export type ToolExecutionWatchdogOptions = {
 export async function runWithToolExecutionWatchdog(
   call: ToolCall,
   parentSignal: AbortSignal,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   execute: (signal: AbortSignal) => Promise<ToolResult>,
   options: ToolExecutionWatchdogOptions,
 ): Promise<ToolResult> {
   const salvageGraceMs = options.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
   const waitForApproval = options.waitForApproval;
-  const budget = waitForApproval
-    ? withPauseableTimeout(parentSignal, timeoutMs)
-    : {
-        ...withTimeout(parentSignal, timeoutMs),
-        pause: (): PauseToken => 0,
-        resume: (_token: PauseToken) => {},
-      };
+  const budget: PauseableTimeout =
+    timeoutMs === undefined
+      ? withParentAbort(parentSignal)
+      : waitForApproval
+        ? withPauseableTimeout(parentSignal, timeoutMs)
+        : {
+            ...withTimeout(parentSignal, timeoutMs),
+            pause: (): PauseToken => 0,
+            resume: (_token: PauseToken) => {},
+          };
   // Nested runs (task tool → child tool call) shadow the parent store: the
   // gate captures the innermost budget, so pause/resume must chain outward or
   // the parent `task` budget keeps ticking under the permission modal.
@@ -334,9 +445,10 @@ export async function runWithToolExecutionWatchdog(
         if (salvaged !== undefined) return salvaged;
         // Avoid unhandled rejection if execute later fails after we move on.
         void executePromise.catch(() => {});
-        const content = parentSignal.aborted
-          ? `${call.name} aborted`
-          : formatToolExecutionTimeoutMessage(call.name, timeoutMs);
+        const content =
+          timeoutMs !== undefined && !parentSignal.aborted
+            ? formatTimeoutMessage(call.name, timeoutMs)
+            : `${call.name} aborted`;
         return { callId: call.id, content, isError: true };
       }
 
@@ -351,13 +463,14 @@ export async function runWithToolExecutionWatchdog(
       if (
         budget.signal.aborted &&
         !parentSignal.aborted &&
+        timeoutMs !== undefined &&
         outcome.isError === true &&
         typeof outcome.content === "string" &&
         isAbortLikeToolError(outcome.content)
       ) {
         return {
           callId: call.id,
-          content: formatToolExecutionTimeoutMessage(call.name, timeoutMs),
+          content: formatTimeoutMessage(call.name, timeoutMs),
           isError: true,
         };
       }

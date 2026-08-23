@@ -1,6 +1,6 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationFull, OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { loadAuthState, saveAuthState, type MCPAuthState } from "./auth-store.js";
+import { updateAuthState, type MCPAuthState } from "./auth-store.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export type OAuthProviderOptions = {
@@ -12,9 +12,45 @@ export type OAuthProviderOptions = {
 };
 export type CorbitsOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
 
+function redirectUrisInclude(info: OAuthClientInformationFull | undefined, redirectUrl: string): boolean {
+  const uris = info?.redirect_uris;
+  if (uris === undefined || uris.length === 0) return true;
+  return uris.includes(redirectUrl);
+}
+
+// Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
+// A later session that binds a new port cannot reuse that client_id for authorize
+// / token exchange — drop the stale registration when we have no refreshable
+// tokens and must run the browser flow again.
+function dropStaleClientRegistration(state: MCPAuthState, redirectUrl: string): void {
+  if (state.tokens !== undefined) return;
+  if (redirectUrisInclude(state.clientInformation, redirectUrl)) return;
+  delete state.clientInformation;
+  delete state.codeVerifier;
+}
+
+function replaceStored(stored: MCPAuthState, next: MCPAuthState): void {
+  delete stored.clientInformation;
+  delete stored.tokens;
+  delete stored.codeVerifier;
+  if (next.clientInformation !== undefined) stored.clientInformation = next.clientInformation;
+  if (next.tokens !== undefined) stored.tokens = next.tokens;
+  if (next.codeVerifier !== undefined) stored.codeVerifier = next.codeVerifier;
+}
+
 export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<CorbitsOAuthProvider> {
-  const stored: MCPAuthState = await loadAuthState(opts.serverName, opts.home);
-  const persist = (): Promise<void> => saveAuthState(opts.serverName, stored, opts.home);
+  // Load + scrub stale DCR under the per-file chain so concurrent providers see
+  // the same cleaned state. Mutations always re-read disk; this in-memory mirror
+  // only serves the SDK's sync getters (tokens / clientInformation / codeVerifier).
+  const stored: MCPAuthState = await updateAuthState(opts.serverName, (state) => {
+    dropStaleClientRegistration(state, opts.redirectUrl);
+  }, opts.home);
+
+  const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
+    const next = await updateAuthState(opts.serverName, mutator, opts.home);
+    replaceStored(stored, next);
+  };
+
   let oauthState: string | undefined;
   return {
     get redirectUrl(): string { return opts.redirectUrl; },
@@ -27,13 +63,15 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<C
     },
     clientInformation(): OAuthClientInformationMixed | undefined { return stored.clientInformation; },
     saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
-      stored.clientInformation = info as OAuthClientInformationFull;
-      return persist();
+      return apply((state) => {
+        state.clientInformation = info as OAuthClientInformationFull;
+      });
     },
     tokens(): OAuthTokens | undefined { return stored.tokens; },
     saveTokens(tokens: OAuthTokens): Promise<void> {
-      stored.tokens = tokens;
-      return persist();
+      return apply((state) => {
+        state.tokens = tokens;
+      });
     },
     redirectToAuthorization(authorizationUrl: URL): void {
       const state = authorizationUrl.searchParams.get("state");
@@ -41,18 +79,24 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<C
       opts.onAuthURL(opts.serverName, authorizationUrl.toString());
     },
     saveCodeVerifier(codeVerifier: string): Promise<void> {
-      stored.codeVerifier = codeVerifier;
-      return persist();
+      return apply((state) => {
+        state.codeVerifier = codeVerifier;
+      });
     },
     codeVerifier(): string {
       if (stored.codeVerifier === undefined) throw new Error("No PKCE code verifier saved for this authorization.");
       return stored.codeVerifier;
     },
     resetAuthorization(): Promise<void> {
-      delete stored.tokens;
-      delete stored.codeVerifier;
       oauthState = undefined;
-      return persist();
+      return apply((state) => {
+        delete state.tokens;
+        delete state.codeVerifier;
+        // Next browser flow needs a client registered for *this* loopback port.
+        if (!redirectUrisInclude(state.clientInformation, opts.redirectUrl)) {
+          delete state.clientInformation;
+        }
+      });
     },
   };
 }

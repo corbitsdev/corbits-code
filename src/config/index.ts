@@ -5,6 +5,8 @@ import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "..
 import { loadState } from "../session/state.js";
 
 
+import { isDirectorId } from "../agent/directors/registry.js";
+import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
 import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
@@ -277,7 +279,16 @@ export type Config = {
   task: string;
   force: boolean;
   dangerouslySkipPermissions: boolean;
+  // True when dangerouslySkipPermissions came from the persisted global
+  // default rather than this invocation's CLI flag. Entry points use this to
+  // surface a startup notice since the persisted default is otherwise silent.
+  skipPermissionsFromSettings: boolean;
   auto: boolean;
+  /**
+   * Exec-only chosen primary director. Omitted = Skywalker (product default).
+   * `--director` is rejected in TUI mode.
+   */
+  director?: DirectorId;
   /**
    * Entry mode. `"tui"` is the interactive Ink shell; `"exec"` is the non-TUI
    * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
@@ -341,8 +352,11 @@ export type UnconfiguredConfig = {
   task: string;
   force: boolean;
   dangerouslySkipPermissions: boolean;
+  skipPermissionsFromSettings: boolean;
   auto: boolean;
   command: "tui" | "exec";
+  /** Exec-only chosen primary. Omitted on the unconfigured path too. */
+  director?: DirectorId;
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
   // The original error message, used for non-TUI (exec) error output.
@@ -377,7 +391,11 @@ Flags:
   --profile <name>            settings profile
   --resume                    interactive session picker
   --force                     override an existing run state
+  --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
+                               skip permission prompts for this run only;
+                               /yolo in the TUI instead persists the default
+                               machine-wide in ~/.corbits/settings.json
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
 `;
@@ -474,6 +492,7 @@ export async function loadConfig(
   // to ask-on-every-write. There is currently no in-session key to toggle auto;
   // Shift+Tab in the TUI cycles reasoning effort instead.
   let auto = true;
+  let director: DirectorId | undefined;
   let configPath: string | undefined;
   let provider: string | undefined;
   let model: string | undefined;
@@ -513,6 +532,17 @@ export async function loadConfig(
     }
     if (arg === "--force") {
       force = true;
+      continue;
+    }
+    if (arg === "--director") {
+      const value = requireValue("--director", args[++i]);
+      if (command !== "exec") {
+        throw new Error("--director is only available in exec mode");
+      }
+      if (!isDirectorId(value)) {
+        throw new Error(`Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`);
+      }
+      director = value;
       continue;
     }
 
@@ -566,6 +596,14 @@ export async function loadConfig(
           return s;
         })
       : await loadSettings(options.globalSettingsPath ?? globalSettingsPath());
+
+  // Track whether the effective value came from the persisted global default
+  // rather than this invocation's --dangerously-skip-permissions flag, so the
+  // TUI/exec entry points can surface a startup notice for the silent case.
+  const skipPermissionsFromSettings =
+    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
+  dangerouslySkipPermissions =
+    dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
 
   // OAuth profiles live in home-level auth stores, not in settings files. They
   // are merged in only for the real default settings path: an explicit --config
@@ -631,8 +669,10 @@ export async function loadConfig(
       task,
       force,
       dangerouslySkipPermissions,
+      skipPermissionsFromSettings,
       auto,
       command,
+      ...(director !== undefined ? { director } : {}),
       globalSettingsPath: effectiveSettingsPath,
       providerError: err instanceof Error ? err.message : String(err),
       // Keep diagnostics even when provider setup fails early so junk local
@@ -682,8 +722,10 @@ export async function loadConfig(
     task: resumeTask,
     force,
     dangerouslySkipPermissions,
+    skipPermissionsFromSettings,
     auto,
     command,
+    ...(director !== undefined ? { director } : {}),
     globalSettingsPath: effectiveSettingsPath,
     sessionId,
     noWorkflow,
