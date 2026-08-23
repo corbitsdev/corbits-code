@@ -652,6 +652,9 @@ class ChatDirectorImpl extends DefaultDirector {
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
     if (this.compaction.resumeAfterCompact(event)) {
+      // Compacted history is the live occupancy until the next provider-
+      // reported inference.done; paint from the estimate in the meantime.
+      this.compaction.notePostCompact(state.turns ?? []);
       return capabilities.infer();
     }
     const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);

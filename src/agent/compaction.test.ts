@@ -335,4 +335,23 @@ describe("compaction governor", () => {
     // arming decision trusted reported usage, so it is not re-checked here.
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
   });
+
+  test("notePostCompact syncs the shrunk turns and keeps the estimate authoritative until the next inference.done", () => {
+    const governor = createCompactionGovernor(() => {});
+    const large = turnsOfLength(10, 200);
+    governor.noteInferenceDone(inferenceDone(overThreshold), large);
+    expect(governor.usingEstimate).toBe(false);
+    const before = governor.estimatedTokens;
+
+    const shrunk = turnsOfLength(3, 20);
+    governor.notePostCompact(shrunk);
+
+    expect(governor.usingEstimate).toBe(true);
+    expect(governor.estimatedTokens).toBeLessThan(before);
+    expect(governor.estimatedTokens).toBe(governor.syncFromTurns(shrunk));
+
+    // Provider-reported usage on the next turn clears the estimate flag.
+    governor.noteInferenceDone(inferenceDone(1000), shrunk);
+    expect(governor.usingEstimate).toBe(false);
+  });
 });

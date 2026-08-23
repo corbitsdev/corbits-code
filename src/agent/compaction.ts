@@ -173,6 +173,14 @@ export function createCompactionGovernor(
     return true;
   }
 
+  // After a successful compact, the provider-reported usage from before the
+  // shrink is stale. Re-sync from the compacted turns and treat the local
+  // estimate as authoritative until the next real inference.done.
+  function notePostCompact(turns: readonly ConversationTurn[]): void {
+    syncFromTurns(turns);
+    usingEstimate = true;
+  }
+
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
@@ -185,6 +193,7 @@ export function createCompactionGovernor(
     },
     syncFromTurns,
     noteInferenceDone,
+    notePostCompact,
     noteIdleTurn,
     interceptActions,
     interceptIdleContinuation,
