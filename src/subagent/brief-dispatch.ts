@@ -178,16 +178,11 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
         return;
       }
       if (salvage === null) {
-        // Successful complete resets the same-brief retry budget. Hard-block
-        // lastSalvage is sticky for the session and must not be cleared by a
-        // concurrent twin that finishes after thrash was already recorded.
-        if (existing.lastSalvage !== undefined && isHardBlockSalvage(existing.lastSalvage)) {
-          byFingerprint.set(fingerprint, {
-            dispatchCount: existing.dispatchCount,
-            lastSalvage: existing.lastSalvage,
-          });
-          return;
-        }
+        // CL-6710: a successful complete clears the sticky hard-block too.
+        // Two concurrent identical-brief dispatches can both admit; if one
+        // salvages and the other succeeds, the success proves the brief is
+        // re-dispatchable, so it must not leave the sibling's hard-block
+        // standing for the rest of the session.
         byFingerprint.set(fingerprint, { dispatchCount: 0 });
         return;
       }
