@@ -1,5 +1,6 @@
 import {
   BEARER_CREDENTIAL_SENTINEL,
+  encodeToolName,
   type BuiltRequest,
   type ProviderAdapter,
 } from "@intx/inference";
@@ -16,6 +17,7 @@ import {
   XAI_USER_AGENT,
 } from "../auth/xai/constants.js";
 import {
+  RESPONSES_TOOL_NAME_LIMIT,
   createResponsesBlockIndexer,
   parseJSONResponse,
   parseResponse,
@@ -70,6 +72,9 @@ function toResponsesItems(
   const role = turn.role;
   const parts: ResponsesInputContentPart[] = [];
   let hasImage = false;
+  // See codex-responses-adapter.ts toResponsesItems for why an unreplayed
+  // reasoning item suppresses the function_call(s) it produced.
+  let suppressOrphanedCalls = false;
 
   const flushMessage = (): void => {
     if (parts.length === 0) return;
@@ -82,6 +87,7 @@ function toResponsesItems(
     });
     parts.length = 0;
     hasImage = false;
+    suppressOrphanedCalls = false;
   };
 
   for (const block of turn.content) {
@@ -104,15 +110,17 @@ function toResponsesItems(
         });
       }
     } else if (block.type === "tool_call") {
+      if (suppressOrphanedCalls) continue;
       flushMessage();
       items.push({
         type: "function_call",
-        name: block.name,
+        name: encodeToolName(block.name, RESPONSES_TOOL_NAME_LIMIT),
         arguments: JSON.stringify(block.arguments ?? {}),
         call_id: block.id,
       });
     } else if (block.type === "tool_result") {
       flushMessage();
+      suppressOrphanedCalls = false;
       items.push({
         type: "function_call_output",
         call_id: block.callId,
@@ -132,6 +140,9 @@ function toResponsesItems(
       );
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+        suppressOrphanedCalls = false;
+      } else {
+        suppressOrphanedCalls = true;
       }
     }
   }
@@ -143,7 +154,7 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   if (options.tools === undefined || options.tools.length === 0) return undefined;
   return options.tools.map((t) => ({
     type: "function",
-    name: t.name,
+    name: encodeToolName(t.name, RESPONSES_TOOL_NAME_LIMIT),
     description: t.description,
     parameters: t.inputSchema,
   }));
@@ -154,17 +165,24 @@ function optionString(options: InferenceOptions, key: string): string | undefine
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function dedupeToolOutputs(items: ResponsesInputItem[]): ResponsesInputItem[] {
-  const seen = new Set<string>();
-  const deduped: ResponsesInputItem[] = [];
-  for (const item of items) {
-    if (item.type === "function_call_output") {
-      if (seen.has(item.call_id)) continue;
-      seen.add(item.call_id);
+// Keeps the LAST occurrence of each duplicate function_call / function_call_output
+// call_id, not the first: a duplicate is most often a corrected retry, and
+// discarding the retry in favor of the stale original silently replays the
+// wrong tool result. Both item types are covered — a duplicated function_call
+// is just as invalid on the wire as a duplicated output.
+function dedupeToolItems(items: ResponsesInputItem[]): ResponsesInputItem[] {
+  const lastIndexForCall = new Map<string, number>();
+  items.forEach((item, i) => {
+    if (item.type === "function_call" || item.type === "function_call_output") {
+      lastIndexForCall.set(`${item.type}:${item.call_id}`, i);
     }
-    deduped.push(item);
-  }
-  return deduped;
+  });
+  return items.filter((item, i) => {
+    if (item.type === "function_call" || item.type === "function_call_output") {
+      return lastIndexForCall.get(`${item.type}:${item.call_id}`) === i;
+    }
+    return true;
+  });
 }
 
 function buildRequest(
@@ -173,7 +191,7 @@ function buildRequest(
   options: InferenceOptions,
   requestProvider: string,
 ): BuiltRequest {
-  const conversation = dedupeToolOutputs(
+  const conversation = dedupeToolItems(
     messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider)),
   );
   const systemMessage: ResponsesInputItem | undefined =
@@ -224,10 +242,13 @@ function buildRequest(
 }
 
 export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAdapter {
-  const indexer = createResponsesBlockIndexer();
+  // Re-created per request in buildRequest — see codex-responses-adapter.ts.
+  let indexer = createResponsesBlockIndexer();
   return {
-    buildRequest: (messages, model, options) =>
-      buildRequest(messages, model, options, source.provider),
+    buildRequest: (messages, model, options) => {
+      indexer = createResponsesBlockIndexer();
+      return buildRequest(messages, model, options, source.provider);
+    },
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
     parseJSONResponse,
   };

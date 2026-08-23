@@ -1,4 +1,4 @@
-import type { Workflow } from "../../../../src/workflows/definition.js";
+import type { Workflow } from "../../../../../../src/workflows/definition.js";
 
 export const implementFeature: Workflow = {
   name: "implement-feature",

@@ -109,7 +109,9 @@ describe("view line count", () => {
         ],
       }),
     ).toBe(3);
-    const many = Array.from({ length: 250 }, (_, i) => [{ type: "text", text: String(i) }]);
+    const many = Array.from({ length: 250 }, (_, i) => [
+      { type: "text" as const, text: String(i) },
+    ]);
     // 200 visible + 1 "+more" footer line
     expect(at({ type: "grid", columns: cols, rows: many })).toBe(201);
   });

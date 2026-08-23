@@ -667,8 +667,8 @@ describe("resolveRequestedProviderModel", () => {
     expect(requested).toEqual({ provider: raw.provider, model: raw.model });
 
     const fallback = detectProviderFallback({
-      requestedProvider: requested.provider,
-      requestedModel: requested.model,
+      ...(requested.provider !== undefined ? { requestedProvider: requested.provider } : {}),
+      ...(requested.model !== undefined ? { requestedModel: requested.model } : {}),
       resolvedProvider: cell!.provider,
       resolvedModel: cell!.model,
     });
@@ -695,7 +695,7 @@ describe("resolveRequestedProviderModel", () => {
       {},
       { provider: "(default)", model: "(default)" },
     );
-    expect(requested).toEqual({ provider: undefined, model: undefined });
+    expect(requested).toEqual({});
   });
 });
 

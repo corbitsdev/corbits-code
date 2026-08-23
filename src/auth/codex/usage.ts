@@ -73,7 +73,7 @@ function parseUsage(payload: unknown): CodexUsage {
   };
 }
 
-async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
+export async function codexAuthHeaders(profileName: string): Promise<Record<string, string>> {
   const { access, accountId } = await getValidCodexToken(profileName);
   const headers: Record<string, string> = {
     authorization: `Bearer ${access}`,
