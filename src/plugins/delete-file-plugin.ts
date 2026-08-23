@@ -55,6 +55,12 @@ function resolveAllowOutside(value: boolean | (() => boolean) | undefined): bool
   return value === true;
 }
 
+// Above this size, skip reading the file into memory just to show a diff —
+// the diff output is already char-capped (MAX_DIFF_CHARS), so buffering a
+// large file for it is pure waste, and deleting a large file is a common
+// enough case that the read must not become a resource regression.
+const MAX_DELETE_PREVIEW_BYTES = 256 * 1024;
+
 export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions = {}): ToolPlugin {
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
@@ -83,18 +89,27 @@ export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions =
         }
         // Best-effort content capture before removal, so the result can show
         // what was deleted (bounded, same as edit/write diffs). A failed read
-        // (binary, permissions) never blocks the delete itself.
+        // (binary, permissions) never blocks the delete itself. Large files
+        // skip the read entirely (see MAX_DELETE_PREVIEW_BYTES) and get a
+        // byte-count summary instead.
         let before: string | undefined;
-        try {
-          before = await readFile(target, "utf8");
-        } catch {
-          // Unreadable or binary; delete proceeds without a diff.
+        const tooLargeToPreview = info.size > MAX_DELETE_PREVIEW_BYTES;
+        if (!tooLargeToPreview) {
+          try {
+            before = await readFile(target, "utf8");
+          } catch {
+            // Unreadable or binary; delete proceeds without a diff.
+          }
         }
 
         await unlink(target);
-        const diff = before === undefined ? undefined : formatChangeDiff(args.path, before, "");
-        const content =
-          diff === undefined ? `Deleted file: ${args.path}` : `Deleted file: ${args.path}\n\n${diff}`;
+        let content = `Deleted file: ${args.path}`;
+        if (tooLargeToPreview) {
+          content += ` (${info.size.toLocaleString()} bytes; too large to preview, content omitted)`;
+        } else if (before !== undefined) {
+          const diff = formatChangeDiff(args.path, before, "");
+          if (diff !== undefined) content += `\n\n${diff}`;
+        }
         return { callId: call.id, content };
       } catch (error) {
         if (errorCode(error) === "ENOENT") {

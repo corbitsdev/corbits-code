@@ -28,8 +28,24 @@ describe("formatChangeDiff", () => {
     const diff = formatChangeDiff("a.txt", before, after);
 
     expect(diff).toBeDefined();
-    expect(diff!.length).toBeLessThanOrEqual(MAX_DIFF_CHARS + 300);
+    // The cap must hold exactly — the truncation note is reserved WITHIN
+    // maxChars, not appended after it.
+    expect(diff!.length).toBeLessThanOrEqual(MAX_DIFF_CHARS);
     expect(diff).toContain("truncated");
+  });
+
+  test("truncation note never pushes the result past the cap at a small boundary", () => {
+    // A tiny maxChars stresses the fixed-point loop in truncate(): the note's
+    // own length (which depends on the digit counts it reports) must still
+    // fit within the cap it is describing.
+    const before = "a\n".repeat(50);
+    const after = "b\n".repeat(50);
+
+    for (const maxChars of [50, 80, 120, 200]) {
+      const diff = formatChangeDiff("a.txt", before, after, maxChars);
+      expect(diff).toBeDefined();
+      expect(diff!.length).toBeLessThanOrEqual(maxChars);
+    }
   });
 
   test("very large files skip full LCS and report a bounded summary", () => {
