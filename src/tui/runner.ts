@@ -1508,6 +1508,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             summarize: compactionSummarize,
             summaryContext,
             telemetry: liveTelemetry,
+            // Main-session folds only — exec runner and subagents stay silent.
+            onFolded: (info) => emitter.emit("compaction", info),
           }),
         },
       });
