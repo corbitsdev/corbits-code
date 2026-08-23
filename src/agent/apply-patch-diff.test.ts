@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
@@ -7,6 +7,7 @@ import { createToolRunner } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 
 import { createCodexToolProxies, type CodexRunTool } from "./codex-tool-proxies.js";
+import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 
@@ -36,23 +37,6 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
     plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
   });
   const runTool: CodexRunTool = async (name, args) => {
-    // read_file's real tool output is cat -n formatted (line numbers), which
-    // is not the raw content applyUpdateHunks needs — in production this
-    // means Update File hunks generally fail to match context (filed as
-    // CL-6966, Urgent; not this issue's bug to fix). This stub bypasses that
-    // known defect by returning raw content, so the "Update File shows the
-    // diff" test below is NOT proof that apply_patch Update works end to end
-    // — it only proves the diff-surfacing added here is correct once the op
-    // succeeds. Add File / Delete File below do not depend on read_file and
-    // are real, unstubbed coverage.
-    if (name === "read_file") {
-      const path = String((args as { path?: unknown }).path ?? "");
-      try {
-        return { content: await readFile(join(cwd, path), "utf8") };
-      } catch (err) {
-        return { content: err instanceof Error ? err.message : String(err), isError: true };
-      }
-    }
     const result = await posixTools.run(
       { id: "codex-proxy", name, arguments: args },
       new AbortController().signal,
@@ -62,14 +46,49 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
       ...(result.isError === true ? { isError: true } : {}),
     };
   };
+  // Real production path (CL-6966): Update File matches patch context against
+  // raw file content, not read_file's cat -n formatted output.
   return createCodexToolProxies({
     isCodex: true,
     runTool,
+    readRawFile: createCodexReadRawFile(cwd),
     runManageTasks: async () => ({ content: "ok" }),
   });
 }
 
-describe("apply_patch surfaces the changed region", () => {
+describe("apply_patch Update File matches raw content, not read_file's numbered output (CL-6966)", () => {
+  test("multi-hunk Update File succeeds through the real production path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-"));
+    try {
+      await writeFile(
+        join(cwd, "app.py"),
+        "def greet():\n    print('hi')\n\n\ndef farewell():\n    print('bye')\n",
+      );
+      const tools = await makeApplyPatch(cwd);
+      const input = [
+        "*** Begin Patch",
+        "*** Update File: app.py",
+        "@@ def greet():",
+        "-    print('hi')",
+        "+    print('hello')",
+        "@@ def farewell():",
+        "-    print('bye')",
+        "+    print('goodbye')",
+        "*** End Patch",
+      ].join("\n");
+
+      const result = await invokeApplyPatch(tools, input);
+
+      expect(result.isError).not.toBe(true);
+      const written = await Bun.file(join(cwd, "app.py")).text();
+      expect(written).toBe(
+        "def greet():\n    print('hello')\n\n\ndef farewell():\n    print('goodbye')\n",
+      );
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("Update File shows the diff", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "apply-patch-diff-"));
     try {

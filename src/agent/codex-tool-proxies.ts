@@ -23,6 +23,15 @@ export type CodexRunTool = (
 ) => Promise<{ content: string; isError?: boolean }>;
 
 /**
+ * Reads a file's raw content (no `cat -n` line-number prefixes) for the
+ * Update File leg of apply_patch. `read_file` — both the guard plugin and
+ * the underlying @intx/tools-posix implementation — always numbers its
+ * output for model display, so it cannot supply the raw text
+ * `applyUpdateHunks` needs to match a patch's context lines against (CL-6966).
+ */
+export type CodexReadRawFile = (path: string) => Promise<{ content: string; isError?: boolean }>;
+
+/**
  * Dispatches update_plan's translated call onto the real manage_tasks
  * handler. `manage_tasks` is not a posix tool — it has no handler in the
  * posixTools registry `runTool` forwards to — so this is its own callback,
@@ -36,6 +45,12 @@ export type CodexRunManageTasks = (
 export interface CreateCodexToolProxiesOpts {
   isCodex: boolean;
   runTool: CodexRunTool;
+  /**
+   * Reads raw file content for apply_patch's Update File leg (CL-6966). Kept
+   * separate from `runTool` because there is no tool name that returns raw
+   * content — `read_file` always numbers its output.
+   */
+  readRawFile: CodexReadRawFile;
   /** Dispatches update_plan's translated manage_tasks(action="create") call. */
   runManageTasks: CodexRunManageTasks;
   /**
@@ -152,7 +167,7 @@ export function createCodexToolProxies(opts: CreateCodexToolProxiesOpts): AgentT
   const allowDelete = opts.allowDelete !== false;
   const allowShell = opts.allowShell !== false;
   return [
-    createApplyPatchProxy(opts.runTool, allowDelete),
+    createApplyPatchProxy(opts.runTool, opts.readRawFile, allowDelete),
     createShellProxy(opts.runTool, allowShell),
     createUpdatePlanProxy(opts.runManageTasks),
   ];
@@ -188,7 +203,11 @@ export function allowShellFromCapabilities(
   return !capabilities.tools.includes("run_shell");
 }
 
-function createApplyPatchProxy(runTool: CodexRunTool, allowDelete: boolean): AgentTool {
+function createApplyPatchProxy(
+  runTool: CodexRunTool,
+  readRawFile: CodexReadRawFile,
+  allowDelete: boolean,
+): AgentTool {
   return stringTool({
     definition: applyPatchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -208,7 +227,7 @@ function createApplyPatchProxy(runTool: CodexRunTool, allowDelete: boolean): Age
 
       const lines: string[] = [];
       for (const op of patch.ops) {
-        const result = await applyOp(op, runTool, allowDelete);
+        const result = await applyOp(op, runTool, readRawFile, allowDelete);
         lines.push(result);
       }
       if (lines.length === 0) return "apply_patch: no file operations in envelope.";
@@ -217,7 +236,12 @@ function createApplyPatchProxy(runTool: CodexRunTool, allowDelete: boolean): Age
   });
 }
 
-async function applyOp(op: PatchOp, runTool: CodexRunTool, allowDelete: boolean): Promise<string> {
+async function applyOp(
+  op: PatchOp,
+  runTool: CodexRunTool,
+  readRawFile: CodexReadRawFile,
+  allowDelete: boolean,
+): Promise<string> {
   if (op.type === "add") {
     return requireOk(
       await runTool("write_file", { path: op.path, content: op.content }),
@@ -242,7 +266,11 @@ async function applyOp(op: PatchOp, runTool: CodexRunTool, allowDelete: boolean)
     );
   }
 
-  const read = await runTool("read_file", { path: op.path });
+  // read_file (both the guard plugin and the underlying tools-posix impl)
+  // numbers its output for model display, so it cannot supply the raw text
+  // applyUpdateHunks needs to match context lines against (CL-6966).
+  // readRawFile reads the file directly instead.
+  const read = await readRawFile(op.path);
   const original = requireOk(read, `read ${op.path}`);
 
   let updated: string;
