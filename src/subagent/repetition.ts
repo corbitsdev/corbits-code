@@ -29,11 +29,18 @@ export interface RepetitionConfig {
   maxFoldedPeriodChars?: number;
 }
 
-// windowMinChars * repeatThreshold = 128 chars of exactly periodic text —
-// far beyond anything legitimate prose or code produces by accident.
+// windowMinChars * repeatThreshold = 8 * 16 = 128 chars of exactly periodic
+// text — far beyond anything legitimate prose or code produces by accident.
+// windowMinChars sits at 8 because live loops repeat units as short as 10
+// chars ("Groaning. " emitted ~1,363 times), which a 16-char floor never sees;
+// the repeat threshold rises to 16 in compensation so the minimum periodic
+// span stays at 128 chars. Structural tics that legitimately repeat ("- item\n"
+// normalizes to 7 chars) still fall under the window floor, and longer healthy
+// repeats (a 6-row table separator, 3 identical code lines, a repeat(4)
+// paragraph) stay far below 16 consecutive repeats.
 export const DEFAULT_REPETITION_CONFIG: RepetitionConfig = {
-  windowMinChars: 16,
-  repeatThreshold: 8,
+  windowMinChars: 8,
+  repeatThreshold: 16,
   probeChars: 8192,
 };
 
@@ -65,6 +72,33 @@ export const DEFAULT_THINKING_REPETITION_CONFIG: RepetitionConfig = {
   maxFoldedPeriodChars: 16,
 };
 
+// Second, folded pass over *text* streams, for the flood shapes the default
+// (digit-preserving) config is structurally blind to. Live traces ending as
+// inference-error (670K wasted streamed chars) showed: incrementing counters
+// ("14279 14280 14281…", "5620/5620. 5621/5621…" — never byte-periodic),
+// repeated timestamps with drift ("18:22:27. 18:22:28."), "0% 0% 0%…",
+// repeated "```\n" fences and "}\n" braces, and emoji floods ("🤔 " ×~40K
+// chars). All fold (or already normalize) to a tiny 2–16 char period.
+//
+// The safety story for visible text is different from thinking, hence the
+// stricter numbers rather than reusing the thinking config:
+// - maxFoldedPeriodChars 16 refuses prose-shaped folds exactly as it does for
+//   thinking: a numbered-list or table row folds to a ~30–50 char period and
+//   never fires (see the normalize() rationale below).
+// - windowMinChars 2 (vs thinking's 4) reaches the shortest observed units:
+//   "0% " and "} " fold to 2–3 chars, below the thinking floor.
+// - repeatThreshold 64 (vs 32): the residual false-positive risk for text is
+//   a user-requested raw enumeration ("print 1..N"), which folds to "0 " —
+//   a legit dump of a few dozen numbers stays under 64 consecutive repeats,
+//   while the observed floods repeat thousands of times. Minimum folded
+//   periodic span: 2 * 64 = 128 chars.
+export const DEFAULT_TEXT_FOLDED_REPETITION_CONFIG: RepetitionConfig = {
+  windowMinChars: 2,
+  repeatThreshold: 64,
+  probeChars: 8192,
+  maxFoldedPeriodChars: 16,
+};
+
 export interface RepetitionHit {
   /** The normalized window that repeats. */
   window: string;
@@ -85,9 +119,11 @@ export interface RepetitionHit {
 // evade the detector. Observed thrash loops used U+200B between repeats.
 // `normalizeDigits` opts a caller into folding digit runs to one placeholder,
 // which collapses a monotonic counter's varying digits into a repeating unit.
-// Reserved for thinking streams (see DEFAULT_THINKING_REPETITION_CONFIG),
-// which are never rendered to the user and so carry none of the numbered-list
-// / table false-positive risk that keeps text normalization digit-preserving.
+// The digit-preserving default protects text streams' numbered lists and
+// tables; folded detection runs on them only as a second pass capped to tiny
+// periods (DEFAULT_TEXT_FOLDED_REPETITION_CONFIG), and uncapped-in-spirit on
+// thinking streams (DEFAULT_THINKING_REPETITION_CONFIG), which are never
+// rendered to the user and so carry less false-positive cost.
 function normalize(text: string, normalizeDigits: boolean): string {
   const stripped = text
     .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "")
@@ -121,6 +157,10 @@ export function detectRepetition(
   const tail = normalize(text.slice(-config.probeChars), opts.normalizeDigits ?? false);
   if (tail.length < config.windowMinChars * config.repeatThreshold) return null;
 
+  // Reverse by code point so surrogate pairs survive intact — an emoji flood
+  // ("🤔 " ×thousands) must stay byte-periodic after reversal. The prefix
+  // function and window extraction then both count plain UTF-16 units of the
+  // (pair-preserving) reversed string, so periods and slices stay consistent.
   const reversed = [...tail].reverse().join("");
   const pi = prefixFunction(reversed);
 
@@ -139,4 +179,69 @@ export function detectRepetition(
     }
   }
   return best;
+}
+
+/** Tunables for the contentless-growth guard. */
+export interface ContentlessGrowthConfig {
+  /** Raw streamed chars per measurement window. */
+  rawWindowChars: number;
+  /** A window with fewer visible chars than this counts as contentless. */
+  minVisibleChars: number;
+}
+
+// detectRepetition can never see a zero-width flood: normalize() strips
+// invisibles *before* the periodicity check, so thousands of U+200C/U+200D
+// chars (observed live: 500–53,000 per stream) collapse to a short, healthy-
+// looking string. This guard watches the inverse signal — raw text keeps
+// growing while its visible content does not. The bar: 2048 raw chars with
+// fewer than 32 visible. Legitimate sparse output never approaches it — even
+// a heavily indented code block or a wide table row carries hundreds of
+// visible chars per 2048 raw, and a healthy stream would need 64:1
+// invisible-or-whitespace-to-content to trip it.
+export const DEFAULT_CONTENTLESS_GROWTH_CONFIG: ContentlessGrowthConfig = {
+  rawWindowChars: 2048,
+  minVisibleChars: 32,
+};
+
+export interface ContentlessGrowthState {
+  /** Raw chars accumulated in the current window. */
+  rawChars: number;
+  /** Visible (invisible-stripped, whitespace-removed) chars in the window. */
+  visibleChars: number;
+}
+
+export const INITIAL_CONTENTLESS_GROWTH_STATE: ContentlessGrowthState = {
+  rawChars: 0,
+  visibleChars: 0,
+};
+
+// Whitespace is removed rather than collapsed: a window of pure newlines is
+// as contentless as one of pure ZWJ, and counting collapsed runs would let a
+// space-interleaved flood (ZWJ, space, ZWJ, space, …) smuggle half its
+// length past the epsilon.
+function visibleLength(token: string): number {
+  return normalize(token, false).replace(/ /g, "").length;
+}
+
+/**
+ * Fold one streamed token into the contentless-growth window. Returns the
+ * next state and whether the just-completed window was contentless: raw text
+ * grew by a full window while visible content grew less than the epsilon.
+ * Pure reducer — the caller owns the state across deltas; the window resets
+ * on completion either way, so one visible-rich window re-arms the guard.
+ */
+export function trackContentlessGrowth(
+  state: ContentlessGrowthState,
+  token: string,
+  config: ContentlessGrowthConfig = DEFAULT_CONTENTLESS_GROWTH_CONFIG,
+): { state: ContentlessGrowthState; hit: boolean } {
+  const rawChars = state.rawChars + token.length;
+  const visibleChars = state.visibleChars + visibleLength(token);
+  if (rawChars < config.rawWindowChars) {
+    return { state: { rawChars, visibleChars }, hit: false };
+  }
+  return {
+    state: INITIAL_CONTENTLESS_GROWTH_STATE,
+    hit: visibleChars < config.minVisibleChars,
+  };
 }
