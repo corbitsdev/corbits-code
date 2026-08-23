@@ -43,6 +43,33 @@ export type PartialFlushReason =
   | "send-failed"
   | "inference-error";
 
+/** Fields copied from `inference.error` `data.error` onto a partial.jsonl record. */
+export interface PartialInferenceError {
+  category?: string;
+  message?: string;
+  statusCode?: number;
+}
+
+function inferenceErrorFromEvent(event: ReactorEmittedEvent): PartialInferenceError | undefined {
+  const data = event.data as { error?: unknown } | undefined;
+  if (data === undefined || typeof data !== "object" || data === null) return undefined;
+  const raw = data.error;
+  if (raw === undefined || typeof raw !== "object" || raw === null) return undefined;
+  const rec = raw as Record<string, unknown>;
+  const error: PartialInferenceError = {};
+  if (typeof rec.category === "string") error.category = rec.category;
+  if (typeof rec.message === "string") error.message = rec.message;
+  if (typeof rec.statusCode === "number") error.statusCode = rec.statusCode;
+  if (
+    error.category === undefined &&
+    error.message === undefined &&
+    error.statusCode === undefined
+  ) {
+    return undefined;
+  }
+  return error;
+}
+
 export interface CycleTextRecorder {
   /** Feed every stream event; buffers deltas, resets on done, flushes on error. */
   handleEvent: (event: ReactorEmittedEvent) => void;
@@ -80,8 +107,10 @@ export function createCycleTextRecorder(
     reason: PartialFlushReason,
     text: string,
     thinkingText: string,
+    error?: PartialInferenceError,
   ): Promise<void> => {
-    if (text.trim().length === 0 && thinkingText.trim().length === 0) return;
+    const hasErrorPayload = reason === "inference-error" && error !== undefined;
+    if (text.trim().length === 0 && thinkingText.trim().length === 0 && !hasErrorPayload) return;
     const record: Record<string, unknown> = { reason, chars: text.length, text };
     // Omitted when empty: a text-only abort (the common case) keeps the
     // existing record shape, and diagnosing a thinking-loop abort needs the
@@ -90,6 +119,7 @@ export function createCycleTextRecorder(
       record.thinkingChars = thinkingText.length;
       record.thinkingText = thinkingText;
     }
+    if (error !== undefined) record.error = error;
     try {
       await appendFile(
         join(resolveContextDir(), PARTIAL_FILE),
@@ -104,12 +134,15 @@ export function createCycleTextRecorder(
     }
   };
 
-  const flush = async (reason: PartialFlushReason): Promise<void> => {
+  const flush = async (
+    reason: PartialFlushReason,
+    error?: PartialInferenceError,
+  ): Promise<void> => {
     const text = cycleText;
     const thinkingText = cycleThinkingText;
     cycleText = "";
     cycleThinkingText = "";
-    await writeRecord(reason, text, thinkingText);
+    await writeRecord(reason, text, thinkingText, error);
   };
 
   const handleEvent = (event: ReactorEmittedEvent): void => {
@@ -130,7 +163,7 @@ export function createCycleTextRecorder(
       return;
     }
     if (event.type === "inference.error") {
-      void flush("inference-error");
+      void flush("inference-error", inferenceErrorFromEvent(event));
     }
   };
 

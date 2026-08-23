@@ -77,7 +77,7 @@ import {
   sessionDir,
 } from "../session/index.js";
 import { saveState, type ConnectedMcpServer } from "../session/state.js";
-import { createRunSink, resolveExecRunStatus } from "../session/run-sink.js";
+import { createRunSink, resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import {
   createLifecycleHookManager,
   createRunSummary,
@@ -244,6 +244,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let textOut = "";
   let finalized = false;
   let turnsUsed = 0;
+  let runSink: RunSink | null = null;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -253,7 +254,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     if (status !== "running") finalized = true;
     await saveState(config.cwd, sessionId, {
       status,
-      turnsUsed,
+      turnsUsed: runSink?.getTurnCount() ?? turnsUsed,
       task,
       startedAt,
       model: `${config.providerName}:${config.model}`,
@@ -645,7 +646,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const hookManager = createLifecycleHookManager({
       hooks: await discoverLifecycleHooks(hookDirectories(config.cwd)),
     });
-    const runSink = createRunSink({ emitter, hookManager });
+    const liveSink = createRunSink({
+      emitter,
+      hookManager,
+      onTurnBoundarySnapshot: () => {
+        void persist("running");
+      },
+    });
+    runSink = liveSink;
 
     currentAgent = await buildAgent();
     agent = currentAgent;
@@ -680,7 +688,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // its partial output in partial.jsonl instead of vanishing.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
     const sink = (event: ReactorEmittedEvent): void => {
-      runSink.sink(event);
+      liveSink.sink(event);
       cycleRecorder.handleEvent(event);
       if (event.type === "inference.text.delta") {
         const token = (event.data as { token?: string }).token;
@@ -701,7 +709,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // sticky inference.error and would hide a real failure.
     let sendCompleted = false;
     let runError: string | undefined;
-    let sinkStatus: ReturnType<typeof runSink.getStatus> = "cancelled";
+    let sinkStatus: ReturnType<typeof liveSink.getStatus> = "cancelled";
     try {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
       if (initialCodexProfile !== undefined) {
@@ -845,7 +853,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       error: message,
       status: "failed",
       durationMs: Date.now() - startedAt,
-      turnsUsed,
+      turnsUsed: runSink?.getTurnCount() ?? turnsUsed,
       toolCallCount: 0,
       tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
       provider: config.providerName,
