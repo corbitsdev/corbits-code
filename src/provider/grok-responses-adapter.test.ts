@@ -98,6 +98,52 @@ describe("createGrokResponsesAdapter", () => {
     expect(body.reasoning).toEqual({ effort: "low", summary: "detailed" });
   });
 
+  test("keeps the latest function_call_output on a duplicate call_id", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        timestamp: 0,
+        content: [
+          { type: "tool_result", callId: "call_1", content: [{ type: "text", text: "stale" }] },
+          { type: "tool_result", callId: "call_1", content: [{ type: "text", text: "fresh" }] },
+        ],
+      },
+    ] as unknown as ConversationTurn[];
+
+    const request = adapter.buildRequest(turns, "grok-4.5", {});
+    const body = JSON.parse(request.body) as {
+      input: { type: string; call_id?: string; output?: string }[];
+    };
+    const outputs = body.input.filter((item) => item.type === "function_call_output");
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]?.output).toBe("fresh");
+  });
+
+  test("dedupes a duplicate function_call on the same call_id", () => {
+    const adapter = createGrokResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      {
+        role: "assistant",
+        timestamp: 0,
+        content: [
+          { type: "tool_call", id: "call_1", name: "shell", arguments: { a: 1 } },
+          { type: "tool_call", id: "call_1", name: "shell", arguments: { a: 2 } },
+        ],
+      },
+    ] as unknown as ConversationTurn[];
+
+    const request = adapter.buildRequest(turns, "grok-4.5", {});
+    const body = JSON.parse(request.body) as {
+      input: { type: string; call_id?: string; arguments?: string }[];
+    };
+    const calls = body.input.filter((item) => item.type === "function_call");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.arguments).toBe(JSON.stringify({ a: 2 }));
+  });
+
   test("does not invent high when no reasoning_effort is set", () => {
     const adapter = createGrokResponsesAdapter(source);
     const turns: ConversationTurn[] = [

@@ -4,6 +4,8 @@ import { PRODUCT_NAME } from "../branding.js";
 import {
   createCodexResponsesAdapter,
   isResponsesStreamTerminal,
+  signatureForModel,
+  tagSignature,
 } from "./codex-responses-adapter.js";
 
 const source: LastCycleSource = {
@@ -131,6 +133,158 @@ describe("createCodexResponsesAdapter usage parsing", () => {
       usage: { input: 100, output: 50, cacheRead: 20, cacheWrite: 0, thinking: 5 },
       source,
     });
+  });
+});
+
+describe("signatureForModel", () => {
+  const turnWithModel = (model: string | undefined): ConversationTurn =>
+    ({
+      role: "assistant",
+      model,
+      content: [],
+      timestamp: 0,
+    }) as unknown as ConversationTurn;
+
+  test("replays a signature on a turn with no persisted model", () => {
+    const signature = tagSignature("codex-responses", "cipher");
+    const result = signatureForModel(
+      turnWithModel(undefined),
+      "gpt-5.1-codex",
+      "codex-responses",
+      signature,
+    );
+    expect(result).toBe("cipher");
+  });
+
+  test("drops a signature when the turn's model genuinely differs", () => {
+    const signature = tagSignature("codex-responses", "cipher");
+    const result = signatureForModel(
+      turnWithModel("gpt-5.0-codex"),
+      "gpt-5.1-codex",
+      "codex-responses",
+      signature,
+    );
+    expect(result).toBeUndefined();
+  });
+
+  test("replays a signature when the model matches", () => {
+    const signature = tagSignature("codex-responses", "cipher");
+    const result = signatureForModel(
+      turnWithModel("gpt-5.1-codex"),
+      "gpt-5.1-codex",
+      "codex-responses",
+      signature,
+    );
+    expect(result).toBe("cipher");
+  });
+});
+
+describe("createCodexResponsesAdapter orphaned function_call suppression", () => {
+  test("drops a function_call whose reasoning signature could not be replayed", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      { role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        model: "gpt-5.0-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "ponder", signature: tagSignature("codex-responses", "c") },
+          { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
+        ],
+      },
+    ] as unknown as ConversationTurn[];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    const body = JSON.parse(request.body) as { input: { type: string }[] };
+
+    expect(body.input.some((item) => item.type === "reasoning")).toBe(false);
+    expect(body.input.some((item) => item.type === "function_call")).toBe(false);
+  });
+
+  test("keeps the function_call when its reasoning signature replays cleanly", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      { role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] },
+      {
+        role: "assistant",
+        model: "gpt-5.1-codex",
+        timestamp: 0,
+        content: [
+          { type: "thinking", thinking: "ponder", signature: tagSignature("codex-responses", "c") },
+          { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
+        ],
+      },
+    ] as unknown as ConversationTurn[];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    const body = JSON.parse(request.body) as { input: { type: string }[] };
+
+    expect(body.input.some((item) => item.type === "reasoning")).toBe(true);
+    expect(body.input.some((item) => item.type === "function_call")).toBe(true);
+  });
+});
+
+describe("createCodexResponsesAdapter tool-name codec", () => {
+  test("encodes a non-wire-safe tool name on the outgoing function tool definition", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      { role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] },
+    ];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {
+      tools: [
+        {
+          name: "@intx/tools-posix/sidecar-bundle:run_shell",
+          description: "run a shell command",
+          inputSchema: {},
+        },
+      ],
+    } as never);
+    const body = JSON.parse(request.body) as { tools: { name: string }[] };
+
+    expect(body.tools[0]?.name).toMatch(/^[A-Za-z_][A-Za-z0-9_-]*$/);
+    expect(body.tools[0]?.name).not.toBe("@intx/tools-posix/sidecar-bundle:run_shell");
+  });
+
+  test("decodes an encoded tool_call.start name back to the internal id", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const encoded = "IX_-40intx-2Ftools-2Dposix-2Fsidecar-2Dbundle-3Arun_shell";
+    const sseData = JSON.stringify({
+      type: "response.output_item.added",
+      item: { type: "function_call", id: "item_1", call_id: "call_1", name: encoded },
+    });
+
+    const events = adapter.parseResponse(sseData);
+    const start = events.find((e) => e.type === "inference.tool_call.start");
+
+    expect((start?.data as { name?: string })?.name).not.toBe(encoded);
+  });
+});
+
+describe("createCodexResponsesAdapter block indexer reset", () => {
+  test("resets block indices on a new buildRequest instead of accumulating across requests", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      { role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] },
+    ];
+
+    adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    adapter.parseResponse(
+      JSON.stringify({ type: "response.output_text.delta", item_id: "item_1", delta: "a" }),
+    );
+    adapter.parseResponse(
+      JSON.stringify({ type: "response.output_text.delta", item_id: "item_2", delta: "b" }),
+    );
+
+    // A new request (a fresh HTTP round trip) with a brand-new item id should
+    // start indexing from 0 again, not continue accumulating from the prior
+    // request's indexer state.
+    adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    const secondRequestDelta = adapter.parseResponse(
+      JSON.stringify({ type: "response.output_text.delta", item_id: "item_3", delta: "c" }),
+    );
+    expect((secondRequestDelta[0]?.data as { index?: number })?.index).toBe(0);
   });
 });
 

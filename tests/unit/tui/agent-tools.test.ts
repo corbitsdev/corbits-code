@@ -1,6 +1,7 @@
 import { afterAll, test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
+import type { PermissionGate } from "../../../src/permission/gate.js";
 
 const mockDispose = mock(async () => {});
 
@@ -68,11 +69,16 @@ mock.module("../../../src/agent/posix-tool-plugins.js", () => ({
   buildCorePosixToolPlugins: () => [],
 }));
 
-const mockConnectMCPServer = mock(async (config: { name: string }) => ({
-  ok: false as const,
-  serverName: config.name,
-  error: "not connected",
-}));
+const mockConnectMCPServer = mock(
+  async (
+    config: { name: string },
+    _options?: import("../../../src/mcp/client.js").MCPConnectOptions,
+  ) => ({
+    ok: false as const,
+    serverName: config.name,
+    error: "not connected",
+  }),
+);
 
 mock.module("../../../src/mcp/client.js", () => ({
   ...realMcpClient,
@@ -159,12 +165,22 @@ afterAll(() => {
 
 const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
-const fakePermissionGate = {
+const preApproveMock = mock((_tool: string, _pattern: string) => {});
+
+const fakePermissionGate: PermissionGate = {
   evaluate: mock(async () => ({ allowed: true as const })),
-  preApprove: mock(() => {}),
+  getApprovals: () => [],
+  reset: () => {},
+  getSessionApprovals: () => [],
+  removeSessionApproval: () => {},
+  setSeededApprovals: () => {},
+  getAuto: () => false,
+  setAuto: () => {},
+  getSkipPermissions: () => false,
+  setSkipPermissions: () => {},
+  preApprove: preApproveMock,
   registerMcpClient: mock(() => {}),
   unregisterMcpServer: mock(() => {}),
-  getSkipPermissions: () => false,
 };
 
 const callOperator = async (
@@ -243,7 +259,7 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
 });
 
 test("operator tool pre-approves the declared command for run_shell when an option is chosen", async () => {
-  fakePermissionGate.preApprove.mockClear();
+  preApproveMock.mockClear();
 
   const toolset = await createAgentToolset({
     cwd: "/fake",
@@ -257,12 +273,12 @@ test("operator tool pre-approves the declared command for run_shell when an opti
     command: "bun install",
   });
 
-  expect(fakePermissionGate.preApprove).toHaveBeenCalledWith("run_shell", "bun install");
-  expect(fakePermissionGate.preApprove).toHaveBeenCalledTimes(1);
+  expect(preApproveMock).toHaveBeenCalledWith("run_shell", "bun install");
+  expect(preApproveMock).toHaveBeenCalledTimes(1);
 });
 
 test("operator tool does not pre-approve anything when no command is declared", async () => {
-  fakePermissionGate.preApprove.mockClear();
+  preApproveMock.mockClear();
 
   const toolset = await createAgentToolset({
     cwd: "/fake",
@@ -272,7 +288,7 @@ test("operator tool does not pre-approve anything when no command is declared", 
 
   await callOperator(toolset, { question: "Which approach?", options: ["A", "B"] });
 
-  expect(fakePermissionGate.preApprove).not.toHaveBeenCalled();
+  expect(preApproveMock).not.toHaveBeenCalled();
 });
 
 test("operator tool returns the operator's free-form answer", async () => {

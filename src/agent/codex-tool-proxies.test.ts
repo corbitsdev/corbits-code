@@ -6,6 +6,7 @@ import {
   allowDeleteFromCapabilities,
   allowShellFromCapabilities,
   createCodexToolProxies,
+  type CodexReadRawFile,
   type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
@@ -26,9 +27,17 @@ function makeRecorder(initial: Record<string, string> = {}): {
   calls: Call[];
   files: Map<string, string>;
   runTool: CodexRunTool;
+  readRawFile: CodexReadRawFile;
 } {
   const files = new Map(Object.entries(initial));
   const calls: Call[] = [];
+  const readRawFile: CodexReadRawFile = async (path) => {
+    const content = files.get(path);
+    if (content === undefined) {
+      return { content: `File not found: ${path}`, isError: true };
+    }
+    return { content };
+  };
   const runTool: CodexRunTool = async (name, args) => {
     calls.push({ name, args });
     if (name === "read_file") {
@@ -54,10 +63,11 @@ function makeRecorder(initial: Record<string, string> = {}): {
     }
     return { content: `unknown tool: ${name}`, isError: true };
   };
-  return { calls, files, runTool };
+  return { calls, files, runTool, readRawFile };
 }
 
 const unusedManageTasks: CodexRunManageTasks = async () => ({ content: "unused" });
+const unusedReadRawFile: CodexReadRawFile = async () => ({ content: "unused" });
 
 // A real manage_tasks dispatch: parses with the actual arktype schema and
 // mutates a real Task[] with the actual applyManageTasks reducer from
@@ -103,6 +113,7 @@ describe("createCodexToolProxies", () => {
     const tools = createCodexToolProxies({
       isCodex: false,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks: unusedManageTasks,
     });
     expect(tools).toEqual([]);
@@ -112,6 +123,7 @@ describe("createCodexToolProxies", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks: unusedManageTasks,
     });
     expect(tools.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
@@ -122,10 +134,11 @@ describe("createCodexToolProxies", () => {
   });
 
   test("add forwards write_file with Codex trailing newline", async () => {
-    const { calls, files, runTool } = makeRecorder();
+    const { calls, files, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -149,10 +162,11 @@ describe("createCodexToolProxies", () => {
   });
 
   test("delete forwards delete_file", async () => {
-    const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "obsolete.txt": "gone" });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -169,10 +183,11 @@ describe("createCodexToolProxies", () => {
   });
 
   test("allowDelete false refuses Delete without calling delete_file", async () => {
-    const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "obsolete.txt": "gone" });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       allowDelete: false,
       runManageTasks: unusedManageTasks,
     });
@@ -194,10 +209,11 @@ describe("createCodexToolProxies", () => {
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       allowDelete: false,
       runManageTasks: unusedManageTasks,
     });
@@ -223,10 +239,11 @@ print("Hi")
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       allowDelete: false,
       runManageTasks: unusedManageTasks,
     });
@@ -241,7 +258,7 @@ print("Hi")
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls.map((c) => c.name)).toEqual(["read_file", "write_file"]);
+    expect(calls.map((c) => c.name)).toEqual(["write_file"]);
     expect(files.get("src/app.py")).toBe(`def greet():
 print("Hello, world!")
 `);
@@ -252,10 +269,11 @@ print("Hello, world!")
 print("Hi")
 print("bye")
 `;
-    const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -269,9 +287,8 @@ print("bye")
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls.map((c) => c.name)).toEqual(["read_file", "write_file"]);
-    expect(calls[0]!.args).toEqual({ path: "src/app.py" });
-    expect(calls[1]!.args.path).toBe("src/app.py");
+    expect(calls.map((c) => c.name)).toEqual(["write_file"]);
+    expect(calls[0]!.args.path).toBe("src/app.py");
     expect(files.get("src/app.py")).toBe(`def greet():
 print("Hello, world!")
 print("bye")
@@ -282,10 +299,11 @@ print("bye")
     const original = `def greet():
 print("Hi")
 `;
-    const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
+    const { calls, files, runTool, readRawFile } = makeRecorder({ "src/app.py": original });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -300,13 +318,12 @@ print("Hi")
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls.map((c) => c.name)).toEqual(["read_file", "write_file", "delete_file"]);
-    expect(calls[0]!.args).toEqual({ path: "src/app.py" });
-    expect(calls[1]!.args.path).toBe("src/main.py");
-    expect(calls[1]!.args.content).toBe(`def greet():
+    expect(calls.map((c) => c.name)).toEqual(["write_file", "delete_file"]);
+    expect(calls[0]!.args.path).toBe("src/main.py");
+    expect(calls[0]!.args.content).toBe(`def greet():
 print("Hello, world!")
 `);
-    expect(calls[2]!.args).toEqual({ path: "src/app.py" });
+    expect(calls[1]!.args).toEqual({ path: "src/app.py" });
     expect(files.has("src/app.py")).toBe(false);
     expect(files.get("src/main.py")).toBe(`def greet():
 print("Hello, world!")
@@ -314,13 +331,14 @@ print("Hello, world!")
   });
 
   test("multi-op patch runs each op in order", async () => {
-    const { calls, files, runTool } = makeRecorder({
+    const { calls, files, runTool, readRawFile } = makeRecorder({
       "src/app.py": "old\n",
       "obsolete.txt": "x",
     });
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -337,22 +355,18 @@ print("Hello, world!")
 `,
     );
     expect(result.isError).toBeFalsy();
-    expect(calls.map((c) => c.name)).toEqual([
-      "write_file",
-      "read_file",
-      "write_file",
-      "delete_file",
-    ]);
+    expect(calls.map((c) => c.name)).toEqual(["write_file", "write_file", "delete_file"]);
     expect(files.get("hello.txt")).toBe("Hello world\n");
     expect(files.get("src/app.py")).toBe("new\n");
     expect(files.has("obsolete.txt")).toBe(false);
   });
 
   test("parse failure surfaces as tool error (isError)", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -371,6 +385,7 @@ print("Hello, world!")
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks: unusedManageTasks,
     });
     const runner = createToolRunner(tools);
@@ -383,10 +398,11 @@ print("Hello, world!")
   });
 
   test("runTool isError aborts the patch with isError", async () => {
-    const { runTool } = makeRecorder();
+    const { runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeApplyPatch(
@@ -406,10 +422,11 @@ print("Hello, world!")
 
 describe("shell proxy", () => {
   test("string command forwards to run_shell", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeTool(tools, "shell", { command: "ls -la" });
@@ -418,10 +435,11 @@ describe("shell proxy", () => {
   });
 
   test("bash -lc argv triple unwraps to the script", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     await invokeTool(tools, "shell", { command: ["bash", "-lc", "echo 'hi there'"] });
@@ -429,10 +447,11 @@ describe("shell proxy", () => {
   });
 
   test("other argv arrays are shell-quoted and joined", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     await invokeTool(tools, "shell", { command: ["echo", "hello world"] });
@@ -440,10 +459,11 @@ describe("shell proxy", () => {
   });
 
   test("workdir and timeout_ms translate to cwd and timeout", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     await invokeTool(tools, "shell", {
@@ -457,10 +477,11 @@ describe("shell proxy", () => {
   });
 
   test("missing command surfaces as tool error", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeTool(tools, "shell", {});
@@ -470,10 +491,11 @@ describe("shell proxy", () => {
   });
 
   test("allowShell false refuses without calling run_shell", async () => {
-    const { calls, runTool } = makeRecorder();
+    const { calls, runTool, readRawFile } = makeRecorder();
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile,
       allowShell: false,
       runManageTasks: unusedManageTasks,
     });
@@ -488,6 +510,7 @@ describe("shell proxy", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool,
+      readRawFile: unusedReadRawFile,
       runManageTasks: unusedManageTasks,
     });
     const result = await invokeTool(tools, "shell", { command: "ls" });
@@ -512,6 +535,7 @@ describe("update_plan proxy", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks,
     });
     const result = await invokeTool(tools, "update_plan", {
@@ -547,6 +571,7 @@ describe("update_plan proxy", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks,
     });
     const result = await invokeTool(tools, "update_plan", {
@@ -562,6 +587,7 @@ describe("update_plan proxy", () => {
     const tools = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "unused" }),
+      readRawFile: unusedReadRawFile,
       runManageTasks,
     });
     const result = await invokeTool(tools, "update_plan", {});
