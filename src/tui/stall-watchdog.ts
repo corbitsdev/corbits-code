@@ -34,17 +34,22 @@ export interface ShouldAbortForStallArgs {
 // several hundred characters equal p repeated.
 //
 // A period below this is more likely a short structural tic (indentation, a
-// repeated bullet or table-cell divider) than a looping phrase. Chosen well
-// under the ~140-char period of the captured incident's two-sentence cycle,
-// with headroom for shorter degenerate loops (a single repeated sentence).
-const REPETITION_MIN_PERIOD = 24;
+// repeated bullet or table-cell divider) than a looping phrase. Live loops
+// repeat units as short as 10 chars ("Groaning. " emitted ~1,363 times), so
+// the floor sits at 8 — short structural tics that survive it (a "- item\n"
+// bullet is 7 chars) fall below, and the ones at or above it are filtered by
+// the distinct-chars floor and the raised repeat bar instead. Still well
+// under the ~140-char period of the captured incident's two-sentence cycle.
+const REPETITION_MIN_PERIOD = 8;
 // How many exact repeats of the period are required before it counts as a
-// loop rather than a coincidence. Verified against real non-degenerate
-// repetition: a 6-row markdown table separator (period ~51 chars, 6 exact
-// repeats) and 3 identical code lines (period ~60 chars, 3 exact repeats)
-// both land under this bar and are not flagged; the captured incident's
-// sentence pair comfortably clears it well before the stream ends.
-const REPETITION_MIN_REPEATS = 8;
+// loop rather than a coincidence. Raised 3x in step with the 3x-lower period
+// floor so the minimum exactly-periodic span stays at 192 chars (was 24*8,
+// now 8*24). Verified against real non-degenerate repetition: a 6-row
+// markdown table separator (period ~51 chars, 6 exact repeats) and 3
+// identical code lines (period ~60 chars, 3 exact repeats) both land far
+// under this bar and are not flagged; a genuine degenerate loop repeats
+// hundreds of times, so it still clears the bar long before the stream ends.
+const REPETITION_MIN_REPEATS = 24;
 // Hard ceiling on the period search regardless of buffer size, purely to cap
 // worst-case work per check — token-level degeneration loops on a phrase or
 // two, never on multi-paragraph spans.
