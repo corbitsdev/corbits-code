@@ -1,7 +1,7 @@
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField, PluginKind } from "./manifest.js";
 
-export type PluginDescriptor = {
+export interface PluginDescriptor {
   id: string;
   name: string;
   kind?: PluginKind;
@@ -17,12 +17,12 @@ export type PluginDescriptor = {
   needsTrust?: boolean;
   /** True for a trusted path-origin plugin, whose global grant can be withdrawn. */
   canRevokeTrust?: boolean;
-};
+}
 
-export type VerifyResult = { ok: boolean; message: string };
-export type AddPathResult = { ok: boolean; message: string; id?: string };
+export interface VerifyResult { ok: boolean; message: string }
+export interface AddPathResult { ok: boolean; message: string; id?: string }
 
-export type PluginsAdmin = {
+export interface PluginsAdmin {
   list: () => PluginDescriptor[];
   getConfig: () => Record<string, PluginConfig>;
   getWebOverride: () => string | undefined;
@@ -37,4 +37,4 @@ export type PluginsAdmin = {
   addPath: (path: string) => Promise<AddPathResult>;
   // Withdraw the global trust grant for a path-origin plugin and disable it.
   revokeTrust: (id: string) => Promise<VerifyResult>;
-};
+}

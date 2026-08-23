@@ -36,8 +36,8 @@ process.env.DO_NOT_TRACK = "1";
 const rg = spawnSync("rg", ["--version"], { stdio: "ignore" });
 if (rg.error !== undefined || rg.status !== 0) {
   throw new Error(
-    "ripgrep (rg) is required to run the test suite: the grep/search tools have "
-      + "a ripgrep path and a fallback path, and without rg only the fallback is "
-      + "exercised. Install it (brew install ripgrep / apt-get install ripgrep).",
+    "ripgrep (rg) is required to run the test suite: the grep/search tools have " +
+      "a ripgrep path and a fallback path, and without rg only the fallback is " +
+      "exercised. Install it (brew install ripgrep / apt-get install ripgrep).",
   );
 }

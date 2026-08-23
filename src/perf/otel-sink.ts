@@ -29,7 +29,7 @@ const EXPORT_TIMEOUT_MS = 3000;
 /** OTLP span kind: INTERNAL (1). */
 const SPAN_KIND_INTERNAL = 1;
 
-export type FlushToOtelOptions = {
+export interface FlushToOtelOptions {
   /** Injectable fetch for tests. Defaults to global fetch. */
   fetchFn?: typeof fetch;
   /**
@@ -41,7 +41,7 @@ export type FlushToOtelOptions = {
   nowMonoNs?: () => bigint;
   /** Fixed trace id for deterministic tests (32 hex chars). */
   traceId?: string;
-};
+}
 
 export type FlushPerfToOtelOptions = FlushToOtelOptions & {
   /** Spans to export; when omitted, caller supplies via getSpans. */
@@ -52,14 +52,11 @@ export type FlushPerfToOtelOptions = FlushToOtelOptions & {
 
 /** OTLP JSON attribute value (subset we emit). */
 export type OtlpAnyValue =
-  | { stringValue: string }
-  | { intValue: string }
-  | { doubleValue: number }
-  | { boolValue: boolean };
+  { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean };
 
-export type OtlpKeyValue = { key: string; value: OtlpAnyValue };
+export interface OtlpKeyValue { key: string; value: OtlpAnyValue }
 
-export type OtlpSpan = {
+export interface OtlpSpan {
   traceId: string;
   spanId: string;
   parentSpanId?: string;
@@ -69,17 +66,17 @@ export type OtlpSpan = {
   endTimeUnixNano: string;
   attributes: OtlpKeyValue[];
   status: { code: number };
-};
+}
 
-export type OtlpExportPayload = {
-  resourceSpans: Array<{
+export interface OtlpExportPayload {
+  resourceSpans: {
     resource: { attributes: OtlpKeyValue[] };
-    scopeSpans: Array<{
+    scopeSpans: {
       scope: { name: string; version: string };
       spans: OtlpSpan[];
-    }>;
-  }>;
-};
+    }[];
+  }[];
+}
 
 function defaultWallAnchor(): { monoNs: bigint; unixNs: bigint } {
   return {
@@ -89,10 +86,7 @@ function defaultWallAnchor(): { monoNs: bigint; unixNs: bigint } {
 }
 
 /** Convert monotonic ns to unix epoch ns using a shared wall/mono anchor. */
-export function monoToUnixNano(
-  monoNs: bigint,
-  anchor: { monoNs: bigint; unixNs: bigint },
-): bigint {
+export function monoToUnixNano(monoNs: bigint, anchor: { monoNs: bigint; unixNs: bigint }): bigint {
   return anchor.unixNs + (monoNs - anchor.monoNs);
 }
 
@@ -118,9 +112,7 @@ export function otlpTracesUrl(endpoint: string): string {
   return `${base}/v1/traces`;
 }
 
-export function tagsToOtlpAttributes(
-  tags: PerfSpan["tags"] | undefined,
-): OtlpKeyValue[] {
+export function tagsToOtlpAttributes(tags: PerfSpan["tags"] | undefined): OtlpKeyValue[] {
   // Defense in depth: re-sanitize even though start/end/mark already did.
   const safe = sanitizeTags(tags as Record<string, unknown> | undefined);
   if (safe === undefined) return [];

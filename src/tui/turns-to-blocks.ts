@@ -3,14 +3,21 @@ import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@int
 import type { Task } from "../agent/tasks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
-type PlanBlockStep = { file: string; action: string; reason?: string };
+interface PlanBlockStep { file: string; action: string; reason?: string }
 
 export type ContentBlockData =
   | { type: "user"; content: string }
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
   | { type: "tool_call"; callId?: string; name: string; arguments: string; startedAt?: number }
-  | { type: "tool_result"; callId: string; name: string; content: string; isError: boolean; finishedAt?: number }
+  | {
+      type: "tool_result";
+      callId: string;
+      name: string;
+      content: string;
+      isError: boolean;
+      finishedAt?: number;
+    }
   | { type: "reply"; content: string }
   | { type: "plan"; steps: PlanBlockStep[] }
   | { type: "view"; node: ViewNode }
@@ -40,7 +47,8 @@ function capWithOmissionSuffix(
   // string would slice through the first marker.
   const separator = anchor === "tail" ? "\n\n" : "";
   const budget = maxChars - marker.length - separator.length;
-  const kept = anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
+  const kept =
+    anchor === "tail" ? content.slice(content.length - budget) : content.slice(0, budget);
   return anchor === "tail" ? `${marker}${separator}${kept}` : `${kept}${marker}`;
 }
 
@@ -49,7 +57,11 @@ export function capStoredToolResultContent(content: string): string {
 }
 
 export function capStoredToolArguments(argumentsText: string): string {
-  return capWithOmissionSuffix(argumentsText, MAX_STORED_TOOL_ARGUMENT_CHARS, "stored tool arguments");
+  return capWithOmissionSuffix(
+    argumentsText,
+    MAX_STORED_TOOL_ARGUMENT_CHARS,
+    "stored tool arguments",
+  );
 }
 
 function textFromBlocks(blocks: RuntimeContentBlock[]): string {
@@ -118,7 +130,8 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     const call = blocks[i];
     if (call?.type !== "tool_call" || call.name !== "manage_tasks") continue;
     indicesToRemove.add(i);
-    const resultIndex = call.callId !== undefined ? callIdToResultIndex.get(call.callId) : undefined;
+    const resultIndex =
+      call.callId !== undefined ? callIdToResultIndex.get(call.callId) : undefined;
     if (resultIndex !== undefined) indicesToRemove.add(resultIndex);
   }
 
@@ -135,7 +148,7 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
     let steps: PlanBlockStep[] = [];
     try {
       const parsed = JSON.parse(call.arguments) as {
-        steps?: Array<{ file: string; action: string; reason?: string }>;
+        steps?: { file: string; action: string; reason?: string }[];
       };
       if (Array.isArray(parsed.steps)) {
         steps = parsed.steps.map((s) => ({
@@ -159,9 +172,9 @@ function finalizeResumeToolBlocks(blocks: ContentBlockData[]): ContentBlockData[
 
 export const RESUME_TRANSCRIPT_BLOCK_LIMIT = 2000;
 
-type TurnsToContentBlocksOptions = {
+interface TurnsToContentBlocksOptions {
   maxBlocks?: number;
-};
+}
 
 function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
   const out: ContentBlockData[] = [];

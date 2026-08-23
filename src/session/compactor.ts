@@ -12,7 +12,13 @@
 // The persisted run history is always kept complete in the context store.
 // Only the inference-facing context is curated here.
 
-import type { ConversationTurn, Compactor, StrategyContext, StrategyResult, StrategyBlob } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  Compactor,
+  StrategyContext,
+  StrategyResult,
+  StrategyBlob,
+} from "@intx/types/runtime";
 import { ageImageBlocks } from "./attachment-store.js";
 
 // ---------------------------------------------------------------------------
@@ -24,13 +30,13 @@ export type TaskBoundary =
   | { kind: "new_task"; reason: string }
   | { kind: "unclear"; reason: string };
 
-export type SessionMetadata = {
+export interface SessionMetadata {
   turnCount: number;
   currentTaskLabel: string | undefined;
   lastTaskSummary: string | undefined;
   minutesElapsed: number;
   toolCallCount: number;
-};
+}
 
 // The classifier is a two-tier approach:
 //   Tier 1 — deterministic heuristics (fast, no LLM cost)
@@ -69,11 +75,7 @@ export async function classifyTaskBoundary(
   }
 
   // Tier 1: continuation signals (short follow-ups, answers to questions)
-  if (
-    trimmed.length < 40 &&
-    metadata.turnCount > 0 &&
-    metadata.currentTaskLabel !== undefined
-  ) {
+  if (trimmed.length < 40 && metadata.turnCount > 0 && metadata.currentTaskLabel !== undefined) {
     // Short messages on an established task are almost certainly continuations.
     return { kind: "same_task", reason: "short continuation message" };
   }
@@ -133,7 +135,7 @@ export const CONTEXT_ENVELOPE_SECTIONS = [
   "unresolved-errors",
 ] as const;
 
-export type ContextEnvelope = {
+export interface ContextEnvelope {
   /** Label for the current active task, e.g. "Fix login bug" */
   activeTask?: string;
   /** Compacted summary of prior completed tasks */
@@ -146,7 +148,7 @@ export type ContextEnvelope = {
   fileReferences?: string[];
   /** Any unresolved errors from the current task */
   unresolvedErrors?: string[];
-};
+}
 
 /**
  * Build the context-envelope text that gets placed between the system prompt
@@ -170,22 +172,12 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 
   sections.push(`Recent turns shown: ${envelope.recentTurns}`);
 
-  if (
-    envelope.fileReferences !== undefined &&
-    envelope.fileReferences.length > 0
-  ) {
-    sections.push(
-      `Files referenced: ${envelope.fileReferences.join(", ")}`,
-    );
+  if (envelope.fileReferences !== undefined && envelope.fileReferences.length > 0) {
+    sections.push(`Files referenced: ${envelope.fileReferences.join(", ")}`);
   }
 
-  if (
-    envelope.unresolvedErrors !== undefined &&
-    envelope.unresolvedErrors.length > 0
-  ) {
-    sections.push(
-      `Unresolved errors:\n${envelope.unresolvedErrors.join("\n")}`,
-    );
+  if (envelope.unresolvedErrors !== undefined && envelope.unresolvedErrors.length > 0) {
+    sections.push(`Unresolved errors:\n${envelope.unresolvedErrors.join("\n")}`);
   }
 
   sections.push("---");
@@ -196,7 +188,7 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 // Compactor
 // ---------------------------------------------------------------------------
 
-export type CompactorConfig = {
+export interface CompactorConfig {
   keepRecentTurns: number;
   summaryMaxChars: number;
   summarize?: (turns: ConversationTurn[]) => Promise<string>;
@@ -204,7 +196,7 @@ export type CompactorConfig = {
   // errors) before the summary stub. Pulled from the end of the older set
   // so the most-recent anchors survive.
   maxAnchorTurns: number;
-};
+}
 
 // Recent turns kept verbatim by both real pruning-compactor registrations
 // (the main session and sub-agents). Exported so callers that need to know
@@ -232,7 +224,7 @@ const ANCHOR_SCORE_THRESHOLD = 5;
 const READ_TOOLS = new Set(["read_file"]);
 
 // Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
-type ToolCallInfo = {
+interface ToolCallInfo {
   name: string;
   /** Display path for stubs (always the raw path arg when present). */
   pathArg?: string;
@@ -242,14 +234,14 @@ type ToolCallInfo = {
    * file do not hollow each other.
    */
   readKey?: string;
-};
+}
 
-type PathRead = {
+interface PathRead {
   callId: string;
   /** Monotonic order across the turn list; higher = later in the session. */
   order: number;
   isError: boolean;
-};
+}
 
 function scalarArg(value: unknown): string {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -262,9 +254,7 @@ function scalarArg(value: unknown): string {
  * Identity is path alone for full-file reads; path+offset+limit when either
  * range arg is present so partial reads don't supersede each other.
  */
-function readIdentityFromArguments(
-  raw: unknown,
-): { path: string; readKey: string } | undefined {
+function readIdentityFromArguments(raw: unknown): { path: string; readKey: string } | undefined {
   let args: unknown = raw ?? {};
   if (typeof args === "string") {
     try {
@@ -280,9 +270,7 @@ function readIdentityFromArguments(
   const offsetPart = scalarArg(rec["offset"]);
   const limitPart = scalarArg(rec["limit"]);
   const readKey =
-    offsetPart === "" && limitPart === ""
-      ? path
-      : `${path}\0${offsetPart}\0${limitPart}`;
+    offsetPart === "" && limitPart === "" ? path : `${path}\0${offsetPart}\0${limitPart}`;
   return { path, readKey };
 }
 
@@ -360,7 +348,7 @@ function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Se
 // Locate the turn index of each tool_call and its matching tool_result. In this
 // runtime a call lives on one turn and its result on the following turn, so the
 // two halves of a pair can straddle a keep/summarize boundary.
-type PairLocation = { callIdx?: number; resultIdx?: number };
+interface PairLocation { callIdx?: number; resultIdx?: number }
 function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   const pairs = new Map<string, PairLocation>();
   turns.forEach((turn, idx) => {
@@ -397,12 +385,12 @@ function anchorScore(turn: ConversationTurn): number {
 // initiating task; it must survive compaction so the agent never loses what
 // it was asked to do, even when it falls far outside the recent window.
 function firstUserTurnIndex(turns: ConversationTurn[]): number {
-  return turns.findIndex(
-    (t) => t.role === "user" && t.content.some((b) => b.type === "text"),
-  );
+  return turns.findIndex((t) => t.role === "user" && t.content.some((b) => b.type === "text"));
 }
 
-function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
+function resultContentSize(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+): number {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
 }
 
@@ -415,10 +403,9 @@ function buildResultStub(
   const size = resultContentSize(block);
   if (info?.pathArg !== undefined) {
     const path = info.pathArg;
-    const spillHint =
-      path.startsWith("tool-output://")
-        ? " Re-read with read_file offset/limit or grep on that URI."
-        : "";
+    const spillHint = path.startsWith("tool-output://")
+      ? " Re-read with read_file offset/limit or grep on that URI."
+      : "";
     return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
   }
   return `[${name} — ${size} chars, omitted]`;
@@ -523,9 +510,7 @@ function coalesceAdjacentTextTurns(turns: ConversationTurn[]): ConversationTurn[
   return out;
 }
 
-export function createPruningCompactor(
-  config: Partial<CompactorConfig> = {},
-): Compactor {
+export function createPruningCompactor(config: Partial<CompactorConfig> = {}): Compactor {
   const cfg = { ...DEFAULT_COMPACTOR_CONFIG, ...config };
 
   return {
@@ -591,8 +576,10 @@ export function createPruningCompactor(
       const isKept = (idx: number): boolean => idx >= keepFrom || anchorIndices.has(idx);
       for (const { callIdx, resultIdx } of pairs.values()) {
         if (callIdx === undefined || resultIdx === undefined) continue;
-        if (isKept(callIdx) && !isKept(resultIdx) && resultIdx < keepFrom) anchorIndices.add(resultIdx);
-        else if (isKept(resultIdx) && !isKept(callIdx) && callIdx < keepFrom) anchorIndices.add(callIdx);
+        if (isKept(callIdx) && !isKept(resultIdx) && resultIdx < keepFrom)
+          anchorIndices.add(resultIdx);
+        else if (isKept(resultIdx) && !isKept(callIdx) && callIdx < keepFrom)
+          anchorIndices.add(callIdx);
       }
 
       // Ascending original order keeps the concatenated [anchors, recent]
@@ -607,9 +594,10 @@ export function createPruningCompactor(
       const pathToReads = buildPathToReads([...anchorTurns, ...recentTurns], callIndex);
       const supersededReads = supersededReadCallIds(pathToReads);
 
-      const summary = cfg.summarize !== undefined
-        ? await cfg.summarize(summarizedTurns)
-        : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
+      const summary =
+        cfg.summarize !== undefined
+          ? await cfg.summarize(summarizedTurns)
+          : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
 
       // A user-role turn survives every adapter unchanged. A system-role turn
       // does not: the Anthropic builder drops mid-conversation system turns
@@ -783,11 +771,9 @@ export async function buildLLMTurnSummary(
  * Build the current-plan text from a plan steps array.
  */
 export function formatPlan(
-  steps: Array<{ file: string; action: string; reason?: string }>,
+  steps: { file: string; action: string; reason?: string }[],
 ): string {
   return steps
-    .map(
-      (s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`,
-    )
+    .map((s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`)
     .join("\n");
 }

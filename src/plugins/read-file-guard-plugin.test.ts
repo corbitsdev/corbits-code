@@ -175,7 +175,10 @@ describe("readFileGuardPlugin", () => {
     content: "FALLBACK",
   });
 
-  function run(call: ToolCall, blobReader?: ReturnType<typeof createBlobReader>): Promise<ToolResult> {
+  function run(
+    call: ToolCall,
+    blobReader?: ReturnType<typeof createBlobReader>,
+  ): Promise<ToolResult> {
     const plugin = readFileGuardPlugin(dir, blobReader !== undefined ? { blobReader } : {});
     return plugin.middleware!(fallback)(call, neverAbort());
   }

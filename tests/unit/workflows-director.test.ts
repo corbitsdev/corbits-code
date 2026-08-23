@@ -52,25 +52,23 @@ const flow: Workflow = {
 
 const emptyCaps: CapabilityMap = new Map();
 
-function inferActions(
-  result: ReactorAction | ReactorAction[],
-): Array<{
+function inferActions(result: ReactorAction | ReactorAction[]): {
   type: "infer";
   options?: {
     systemPrompt?: string;
     tools?: { name: string }[];
     ephemeralTurns?: { role: string; content: unknown }[];
   };
-}> {
+}[] {
   const arr = Array.isArray(result) ? result : [result];
-  return arr.filter((a) => a.type === "infer") as Array<{
+  return arr.filter((a) => a.type === "infer") as {
     type: "infer";
     options?: {
       systemPrompt?: string;
       tools?: { name: string }[];
       ephemeralTurns?: { role: string; content: unknown }[];
     };
-  }>;
+  }[];
 }
 
 function ephemeralNudgeText(result: ReactorAction | ReactorAction[]): string {
@@ -81,7 +79,10 @@ function ephemeralNudgeText(result: ReactorAction | ReactorAction[]): string {
       const content = t.content;
       if (!Array.isArray(content)) return [];
       return content
-        .filter((p): p is { type: "text"; text: string } => typeof p === "object" && p !== null && (p as { type?: string }).type === "text")
+        .filter(
+          (p): p is { type: "text"; text: string } =>
+            typeof p === "object" && p !== null && (p as { type?: string }).type === "text",
+        )
         .map((p) => p.text);
     })
     .join("\n");
@@ -91,9 +92,15 @@ test("the active step directive is injected into the inferred system prompt", as
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE PROMPT", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE PROMPT", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
 
-  const event: ReactorInboundEvent = { type: "message.received", message: { role: "user", content: "go" } };
+  const event: ReactorInboundEvent = {
+    type: "message.received",
+    message: { role: "user", content: "go" },
+  };
   const result = await director.decide(event, state, makeCapabilities());
 
   const infers = inferActions(result);
@@ -109,7 +116,10 @@ test("an advance_workflow tool call advances the runtime through the director", 
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
   const caps = makeCapabilities();
 
   const turn: ReactorInboundEvent = {
@@ -138,7 +148,12 @@ function hasInfer(result: ReactorAction | ReactorAction[]): boolean {
 function textTurn(text: string): ReactorInboundEvent {
   return {
     type: "inference.done",
-    turn: { role: "assistant", content: [{ type: "text", text }], model: "test-model", timestamp: 0 },
+    turn: {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      model: "test-model",
+      timestamp: 0,
+    },
     usage,
     source: { id: "t", provider: "openai", model: "test-model" },
   };
@@ -153,7 +168,10 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
   const caps = makeCapabilities();
 
   // Simulate a text-only inference turn (no tool calls).
@@ -180,7 +198,12 @@ function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent
     turn: {
       role: "assistant",
       content: [
-        { type: "tool_call", id: "mt", name: "manage_tasks", arguments: { action: "create", tasks: [{ id: "t1", title: "work", status }] } },
+        {
+          type: "tool_call",
+          id: "mt",
+          name: "manage_tasks",
+          arguments: { action: "create", tasks: [{ id: "t1", title: "work", status }] },
+        },
       ],
       model: "test-model",
       timestamp: 0,
@@ -206,7 +229,10 @@ test("a content-free workflow turn with open tasks nudges toward advance_workflo
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
   const caps = makeCapabilities();
 
   await director.decide(manageTasksTurn("doing"), state, caps);
@@ -229,7 +255,10 @@ test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", as
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
   const caps = makeCapabilities();
 
   await director.decide(manageTasksTurn("doing"), state, caps);
@@ -247,7 +276,10 @@ test("auto-continuation falls back after 3 consecutive text-only turns", async (
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
-  const director = createChatDirector("BASE", [], { onTasksChange: () => {}, workflowCoordinator: coordinator });
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
   const caps = makeCapabilities();
 
   await director.decide(textTurn("text 1"), state, caps);

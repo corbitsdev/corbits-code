@@ -20,7 +20,7 @@ afterEach(() => {
   resetFeedbackStateForTests();
 });
 
-type Dispatched = { name: string; args: string };
+interface Dispatched { name: string; args: string }
 
 function harness(options?: {
   isFeedbackCapturePending?: () => boolean;
@@ -105,7 +105,6 @@ describe("composer submit handler", () => {
       onFeedbackText: (text) => {
         feedbackTexts.push(text);
         return "Thanks — feedback sent.";
-
       },
     });
     armFeedbackCapture();
@@ -203,7 +202,10 @@ describe("telemetryStartupNotice", () => {
 
   test("stays silent once the notice has been shown", () => {
     expect(
-      telemetryStartupNotice({ ...firstRun, telemetry: { ...firstRun.telemetry, noticeShown: true } }, {}),
+      telemetryStartupNotice(
+        { ...firstRun, telemetry: { ...firstRun.telemetry, noticeShown: true } },
+        {},
+      ),
     ).toBeUndefined();
   });
 });
@@ -218,10 +220,11 @@ describe("image attachment submits", () => {
   };
 
   function attachmentHarness() {
-    const sends: Array<{ text: string; attachments?: readonly PendingImageAttachment[] }> = [];
+    const sends: { text: string; attachments?: readonly PendingImageAttachment[] }[] = [];
     const submit = createSubmitHandler({
       dispatchCommand: () => {},
-      sendPrompt: (text, attachments) => sends.push({ text, ...(attachments ? { attachments } : {}) }),
+      sendPrompt: (text, attachments) =>
+        sends.push({ text, ...(attachments ? { attachments } : {}) }),
     });
     return { submit, sends };
   }

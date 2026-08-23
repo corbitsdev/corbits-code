@@ -32,7 +32,7 @@ async function mkdtemp(): Promise<string> {
 
 describe("loadDataOnlyAgentPlugin", () => {
   test("returns null when there are no *.md files (neither in agents/ nor at root)", async () => {
-    const dir = await makePlugin({ "README": "hi", "notes.txt": "no" });
+    const dir = await makePlugin({ README: "hi", "notes.txt": "no" });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "x" });
     expect(plugin).toBeNull();
   });
@@ -101,8 +101,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("Claude Code tools[] allowlist is aliased to Corbits Code tool names", async () => {
     const dir = await makePlugin({
-      "agents/scout.md":
-        "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
+      "agents/scout.md": "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -119,8 +118,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("Claude Code disallowedTools produces exclude mode", async () => {
     const dir = await makePlugin({
-      "agents/w.md":
-        "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
+      "agents/w.md": "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -133,7 +131,7 @@ describe("loadDataOnlyAgentPlugin", () => {
   test("OpenCode nested permission with wildcard deny becomes allowlist", async () => {
     const dir = await makePlugin({
       "agents/r.md":
-        "---\nname: r\npermission:\n  tool:\n    \"*\": deny\n    read: allow\n    grep: allow\n---\nbody\n",
+        '---\nname: r\npermission:\n  tool:\n    "*": deny\n    read: allow\n    grep: allow\n---\nbody\n',
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -145,8 +143,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("OpenCode legacy tools: {read: true, bash: false} mixed picks shorter", async () => {
     const dir = await makePlugin({
-      "agents/m.md":
-        "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
+      "agents/m.md": "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -182,7 +179,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
-      inference?: { mode?: string; order: { provider: string; model: string; reasoningEffort?: string }[] };
+      inference?: {
+        mode?: string;
+        order: { provider: string; model: string; reasoningEffort?: string }[];
+      };
     };
     expect(agent.inference).toBeDefined();
     expect(agent.inference!.mode).toBe("prefer");

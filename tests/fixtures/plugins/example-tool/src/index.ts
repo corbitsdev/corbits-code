@@ -3,13 +3,13 @@
 // slice of the ToolPlugin contract it needs rather than importing core types, so
 // the same pattern works for an out-of-tree plugin.
 
-type ToolCall = { id: string; name: string; arguments: Record<string, unknown> };
-type ToolResult = { callId: string; content: unknown; isError?: boolean };
-type ExtraTool = {
+interface ToolCall { id: string; name: string; arguments: Record<string, unknown> }
+interface ToolResult { callId: string; content: unknown; isError?: boolean }
+interface ExtraTool {
   definition: { name: string; description: string; inputSchema: Record<string, unknown> };
   handler: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
-};
-type ToolPlugin = { tools: ExtraTool[] };
+}
+interface ToolPlugin { tools: ExtraTool[] }
 
 // Self-description for the loader and the /plugins UI. A tool plugin requires
 // explicit consent before its tools are wired in.

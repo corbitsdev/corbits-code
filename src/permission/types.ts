@@ -14,7 +14,7 @@ export type GrantScope = "session" | "project" | "global" | "provider-model";
 // grants only), restricts the approval to requests originating from that
 // workspace root — a project grant minted in one repo must never auto-allow a
 // queued request from a different repo.
-export type Approval = { tool: string; pattern: string; providerModel?: string; cwd?: string };
+export interface Approval { tool: string; pattern: string; providerModel?: string; cwd?: string }
 
 // One option offered to the operator at approval time. `pattern` is the glob
 // that gets persisted if the operator picks this scope; `null` means "just this
@@ -23,18 +23,18 @@ export type Approval = { tool: string; pattern: string; providerModel?: string; 
 // in-memory behavior.
 // `hint`, when set, is shown to the operator in place of the raw `pattern`
 // (e.g. an MCP tool's human label instead of its mcp__ identifier).
-export type ApprovalScope = {
+export interface ApprovalScope {
   id: string;
   label: string;
   pattern: string | null;
   hint?: string;
   grant?: GrantScope;
-};
+}
 
 // A request surfaced to the operator for one consequential action. For shell
 // this is the full command the model asked to run (security still splits the
 // chain under the hood); for a file tool it is the target path.
-export type PermissionRequest = {
+export interface PermissionRequest {
   tool: string;
   action: string;
   subject: string;
@@ -52,11 +52,11 @@ export type PermissionRequest = {
   // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
   // text, never model-authored.
   notice?: string;
-};
+}
 
 // The operator's answer. `allow` gates the action; `persist`, when present, is
 // the scope to remember for this directory; `message`, when present, is an
 // operator-supplied explanation surfaced in the tool result.
-export type ApprovalOutcome = { allow: boolean; persist?: ApprovalScope; message?: string };
+export interface ApprovalOutcome { allow: boolean; persist?: ApprovalScope; message?: string }
 
 export type RequestApproval = (request: PermissionRequest) => Promise<ApprovalOutcome>;

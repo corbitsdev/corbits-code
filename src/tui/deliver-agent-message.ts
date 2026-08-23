@@ -4,11 +4,11 @@
  * here must be surfaced — a swallowed error here means the transcript claims
  * delivery for a message that never reached the agent.
  */
-export type DeliverAgentMessageDeps = {
+export interface DeliverAgentMessageDeps {
   getFatalBuildError: () => Error | null;
   deliverToLiveAgent: () => void;
   onDeliverFailure: (message: string) => void;
-};
+}
 
 export function deliverAgentMessage(deps: DeliverAgentMessageDeps): void {
   const fatal = deps.getFatalBuildError();

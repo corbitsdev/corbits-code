@@ -52,10 +52,7 @@ import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
-import type {
-  ApprovalOutcome,
-  PermissionRequest,
-} from "../permission/types.js";
+import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
@@ -97,10 +94,7 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
-import {
-  createPluginLoadDiagnostics,
-  emitPluginWarningSummary,
-} from "../plugins/diagnostics.js";
+import { createPluginLoadDiagnostics, emitPluginWarningSummary } from "../plugins/diagnostics.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -120,17 +114,15 @@ export function formatCaughtError(err: unknown): string {
  * (`loadSessionChatPrompt` + advertised session tools). Any other closed-fleet
  * id uses the package prompt and allowlist. Worker effort/nudge are not applied.
  */
-export type ExecDirectorOverlay = {
+export interface ExecDirectorOverlay {
   /** Package system prompt; omitted on the skywalker default path. */
   systemPrompt?: string;
   /** `pkg.tools.allow` (task stripped when `maySpawn` is false). */
   advertisedAllow?: readonly string[];
   mountTask: boolean;
-};
+}
 
-export function resolveExecDirectorOverlay(
-  director: DirectorId | undefined,
-): ExecDirectorOverlay {
+export function resolveExecDirectorOverlay(director: DirectorId | undefined): ExecDirectorOverlay {
   if (director === undefined || director === "skywalker") {
     return { mountTask: true };
   }
@@ -187,7 +179,7 @@ function operatorTaskMessage(task: string): InboundMessage {
   };
 }
 
-export type ExecResult = {
+export interface ExecResult {
   exitCode: number;
   sessionId: string;
   text: string;
@@ -208,8 +200,7 @@ export type ExecResult = {
   /** Provider/model the config resolved for this run. */
   provider?: string;
   model?: string;
-};
-
+}
 
 /**
  * Product non-TUI agent path (`corbits exec "prompt"`).
@@ -241,7 +232,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model: config.model,
     };
   }
-
 
   const sessionId = config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
@@ -281,8 +271,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
   };
 
-
-
   await persist("running");
 
   try {
@@ -296,13 +284,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
     );
 
-    let projectTrust = await loadProjectTrust(config.cwd);
-    const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+    const projectTrust = await loadProjectTrust(config.cwd);
+    const isProjectPluginTrusted = (pluginPath: string) =>
+      isPluginTrusted(projectTrust, pluginPath);
     // One-shot migration only when the path-trust file does not exist yet.
     // Headless exec has no frame to corrupt, so a skipped marketplace member
     // writes straight to stderr here — an explicit choice at this call site,
     // not `expandPluginPath` falling back to it on its own.
-    let pathTrust = await migratePathTrustFromPluginPaths(
+    const pathTrust = await migratePathTrustFromPluginPaths(
       config.settings?.pluginPaths ?? [],
       (p) =>
         expandExistingPluginMembers(p, config.cwd, (skip: ExpandPluginPathSkip) => {
@@ -311,7 +300,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       undefined,
       { onMigrated: reportPathTrustMigration },
     );
-    const isRegisteredPathTrusted = (pluginPath: string) => isPathPluginTrusted(pathTrust, pluginPath);
+    const isRegisteredPathTrusted = (pluginPath: string) =>
+      isPathPluginTrusted(pathTrust, pluginPath);
     const pluginLoadDiag = createPluginLoadDiagnostics();
     const pluginModules = await discoverSessionPlugins({
       cwd: config.cwd,
@@ -419,8 +409,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       requestMcpTrust: async (server) => {
         if (!interactive) return false;
         const result = await promptOperator(
-          `Trust local MCP server "${server.name}" for this project?`
-            + (server.command !== undefined
+          `Trust local MCP server "${server.name}" for this project?` +
+            (server.command !== undefined
               ? `\nCommand: ${server.command}`
               : server.url !== undefined
                 ? `\nURL: ${server.url}`
@@ -477,29 +467,33 @@ export async function runExec(config: Config): Promise<ExecResult> {
       id: `${ID_PREFIX}/chat`,
       configSchema: type({}),
       factory: (_cfg, _env, agentCtx) => {
-        const d = createChatDirector(agentCtx.systemPrompt, computeAdvertised([...agentCtx.toolDefinitions]), {
-          onActivateTools: (names) => {
-            if (!activatedToolNames.activate(names)) return;
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
-            );
+        const d = createChatDirector(
+          agentCtx.systemPrompt,
+          computeAdvertised([...agentCtx.toolDefinitions]),
+          {
+            onActivateTools: (names) => {
+              if (!activatedToolNames.activate(names)) return;
+              directorHolder.instance?.updateToolDefinitions(
+                computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
+              );
+            },
+            inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
+            totalTimeoutMs: config.totalTimeoutMs,
+            // Exec mode has no live task panel or task stdout output today (unlike
+            // the TUI's chrome zone) — debug logging is the closest match to how
+            // this mode already surfaces other in-session state changes.
+            onTasksChange: (tasks) => {
+              logger.debug("tasks updated: {tasks}", {
+                tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+              });
+            },
+            requestContinuation: () => {
+              // Compaction governor self-delivers after compact so the loop re-enters.
+              currentAgent?.deliver(buildCompactionContinuationMessage());
+            },
+            provider: { providerName: config.providerName, model: config.model },
           },
-          inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
-          totalTimeoutMs: config.totalTimeoutMs,
-          // Exec mode has no live task panel or task stdout output today (unlike
-          // the TUI's chrome zone) — debug logging is the closest match to how
-          // this mode already surfaces other in-session state changes.
-          onTasksChange: (tasks) => {
-            logger.debug("tasks updated: {tasks}", {
-              tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
-            });
-          },
-          requestContinuation: () => {
-            // Compaction governor self-delivers after compact so the loop re-enters.
-            currentAgent?.deliver(buildCompactionContinuationMessage());
-          },
-          provider: { providerName: config.providerName, model: config.model },
-        });
+        );
         directorHolder.instance = d;
         return d;
       },
@@ -542,8 +536,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       buildSessionSourcesFromConfig(config, sessionId);
 
     const initialBundle = buildSessionSources();
-    let liveSources = initialBundle.sources;
-    let liveDefaultSource = initialBundle.defaultSource;
+    const liveSources = initialBundle.sources;
+    const liveDefaultSource = initialBundle.defaultSource;
 
     const buildInitialSourceFallback = (): InferenceSource =>
       initialCodexProfile !== undefined
@@ -627,9 +621,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // picks the transforms up from there.
         deps: {
           ...inferenceDeps,
-          contextTransforms: [
-            createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
-          ],
+          contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
         },
         audit: noopAuditStore(),
         authorize: permissiveAuthorize(),
@@ -806,8 +798,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
       const message =
-        runError
-        ?? (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");
+        runError ??
+        (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");
       stderr.write(`Error: ${message}\n`);
       const persistStatus = summaryStatus === "cancelled" ? "cancelled" : "failed";
       await persist(persistStatus, { error: message });
@@ -839,7 +831,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
-
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error("exec failed: {error}", { error: message });

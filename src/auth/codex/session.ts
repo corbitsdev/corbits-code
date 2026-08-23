@@ -23,7 +23,7 @@ export class CodexAuthError extends Error {
 // chatgpt-account-id header. Returned together so callers need a single load,
 // not a token fetch followed by a separate profile read (which could observe a
 // token and account id from two different points in a concurrent refresh).
-export type CodexAccess = { access: string; accountId?: string | undefined };
+export interface CodexAccess { access: string; accountId?: string | undefined }
 
 const session = createTokenSession<CodexTokens, CodexAccess>({
   skewMs: CODEX_REFRESH_SKEW_MS,

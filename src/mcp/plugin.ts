@@ -32,9 +32,12 @@ export function mcpClientToAgentTools(client: MCPClient, gate: PermissionGate): 
           const content = await client.call(tool.name, call.arguments, signal);
           return { callId: call.id, content: sanitizeMcpResultContent(content) };
         } catch (err) {
-          return { callId: call.id, content: err instanceof Error ? err.message : String(err), isError: true };
+          return {
+            callId: call.id,
+            content: err instanceof Error ? err.message : String(err),
+            isError: true,
+          };
         }
       }),
   }));
 }
-

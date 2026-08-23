@@ -1,7 +1,4 @@
-import {
-  type BuiltRequest,
-  type ProviderAdapter,
-} from "@intx/inference";
+import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAIAdapter } from "@intx/inference/providers";
 
 // The stock OpenAI adapter builds the request body from a fixed set of fields
@@ -36,14 +33,21 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
     // the case where filteredContent is non-empty; the API rejects such turns
     // with HTTP 400. Fast-path: only allocate when a bad turn is actually found.
     const needsSanitize = messages.some(
-      (msg) => msg.role === "assistant" && !msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
+      (msg) =>
+        msg.role === "assistant" &&
+        !msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
     );
     const sanitized = needsSanitize
-      ? messages.filter((msg) => msg.role !== "assistant" || msg.content.some((b) => b.type === "text" || b.type === "tool_call"))
+      ? messages.filter(
+          (msg) =>
+            msg.role !== "assistant" ||
+            msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
+        )
       : messages;
     const built = base.buildRequest(sanitized, model, options);
     const providerOptions = options.providerOptions;
-    const hasProviderOptions = providerOptions !== undefined && Object.keys(providerOptions).length > 0;
+    const hasProviderOptions =
+      providerOptions !== undefined && Object.keys(providerOptions).length > 0;
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
     // whereas the base adapter emits it for any model with thinking enabled.
     const stripReasoning = model.toLowerCase().includes("deepseek");
@@ -53,7 +57,8 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
     if (hasProviderOptions) Object.assign(body, providerOptions);
     if (stripReasoning && Array.isArray(body["messages"])) {
       for (const msg of body["messages"]) {
-        if (msg !== null && typeof msg === "object") delete (msg as Record<string, unknown>)["reasoning_content"];
+        if (msg !== null && typeof msg === "object")
+          delete (msg as Record<string, unknown>)["reasoning_content"];
       }
     }
     const merged: BuiltRequest = { ...built, body: JSON.stringify(body) };
@@ -86,7 +91,9 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
         }
         if (patched) data = JSON.stringify(parsed);
       }
-    } catch { /* not JSON — pass through */ }
+    } catch {
+      /* not JSON — pass through */
+    }
     return base.parseResponse(data);
   };
 

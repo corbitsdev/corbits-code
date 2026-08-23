@@ -32,7 +32,7 @@ export function approvalToGrantRule(approval: Approval, index: number): GrantRul
 // subdirectory). Built once per gate from its closed-over resolvedCwd and
 // rootsProvider and threaded through — never accept one built anywhere else,
 // or "same project" quietly stops meaning "same gate's project."
-export type GrantWorkspace = { resolvedCwd: string; roots: readonly string[] };
+export interface GrantWorkspace { resolvedCwd: string; roots: readonly string[] }
 
 // A project-scoped grant (Approval.cwd set) is confined to the session that
 // minted it: it may replay only for a request whose cwd is that same session
@@ -81,14 +81,14 @@ export function grantScopeMatches(
   );
 }
 
-export type EvaluateApprovalsInput = {
+export interface EvaluateApprovalsInput {
   tool: string;
   subject: string;
   approvals: readonly Approval[];
   activeProviderModel?: string | undefined;
   requestCwd?: string | undefined;
   workspace: GrantWorkspace;
-};
+}
 
 // Grant-store evaluation via @intx/authz. Filters provider-model and cwd via
 // grantScopeMatches, then asks evaluateGrants for the highest-specificity
@@ -97,7 +97,9 @@ export type EvaluateApprovalsInput = {
 // never lost.
 export async function evaluateApprovals(input: EvaluateApprovalsInput): Promise<boolean> {
   const { tool, subject, approvals, activeProviderModel, requestCwd, workspace } = input;
-  const scoped = approvals.filter((a) => grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace));
+  const scoped = approvals.filter((a) =>
+    grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
+  );
   if (scoped.length === 0) return false;
 
   for (const a of scoped) {

@@ -15,7 +15,7 @@ import {
   setRunState,
   type QueueItem,
   type QueueKind,
-} from "./session-queue.js"
+} from "./session-queue.js";
 import {
   appendStreamRow,
   applyShellInterrupt,
@@ -31,15 +31,11 @@ import {
   truncateStreamRows,
   userRowText,
   type AppShell,
-} from "./shell.js"
-import { rampAnimating } from "./ramp.js"
-import { onTurnBoundary } from "../agent/reactor-events.js"
-import {
-  resolveRampPhase,
-  resolveTurnLabel,
-  sendFailureText,
-} from "./session-chrome.js"
-import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js"
+} from "./shell.js";
+import { rampAnimating } from "./ramp.js";
+import { onTurnBoundary } from "../agent/reactor-events.js";
+import { resolveRampPhase, resolveTurnLabel, sendFailureText } from "./session-chrome.js";
+import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js";
 import {
   applyStallRecovery,
   repetitionRecoveryMessage,
@@ -50,7 +46,7 @@ import {
   STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
-} from "./stall-watchdog.js"
+} from "./stall-watchdog.js";
 import {
   clearQuotaWait,
   initialTurnState,
@@ -60,26 +56,22 @@ import {
   turnStateOnInterrupt,
   turnStateOnSubmit,
   type TurnState,
-} from "./turn-state.js"
-import type { PendingImageAttachment } from "./image-attachments.js"
-import { toolCallRow } from "./diff.js"
-import { toolResultRow } from "./mcp-view.js"
-import {
-  canCoalesceCall,
-  coalesceCallRows,
-  mergeToolRows,
-} from "./tool-rows.js"
-import type { StreamRow } from "./stream.js"
-import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js"
+} from "./turn-state.js";
+import type { PendingImageAttachment } from "./image-attachments.js";
+import { toolCallRow } from "./diff.js";
+import { toolResultRow } from "./mcp-view.js";
+import { canCoalesceCall, coalesceCallRows, mergeToolRows } from "./tool-rows.js";
+import type { StreamRow } from "./stream.js";
+import { advanceRevealChars, flattenReasoningText, type Thought } from "./thinking.js";
 import {
   agentProgress,
   clockLabel,
   fleetProgress,
   type AgentProgressSession,
-} from "./agent-progress.js"
+} from "./agent-progress.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
-const TASK_TOOL_NAME = "task"
+const TASK_TOOL_NAME = "task";
 
 /**
  * Tool name the task checklist is written through. Its calls paint no
@@ -87,10 +79,10 @@ const TASK_TOOL_NAME = "task"
  * and a row per call renders the same work twice on one screen — once as a
  * panel that updates in place, and again as scrollback that never does.
  */
-const MANAGE_TASKS_TOOL_NAME = "manage_tasks"
+const MANAGE_TASKS_TOOL_NAME = "manage_tasks";
 
 /** A sub-agent session as `syncAgentProgress` needs it: identified, and live-readable. */
-export type TaskProgressSession = AgentProgressSession & { readonly id: string }
+export type TaskProgressSession = AgentProgressSession & { readonly id: string };
 import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
@@ -99,13 +91,13 @@ import {
   type BridgeInboundEvent,
   type ReactorLikeEvent,
   type StreamMapContext,
-} from "./stream-event-map.js"
+} from "./stream-event-map.js";
 
 /** Re-export map types so existing `from "./runtime-bridge"` imports keep working. */
-export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext }
+export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext };
 
 /** Outbound actions the UI asks the session runtime to perform. */
-export type SessionPort = {
+export interface SessionPort {
   /**
    * Classify a composer submit without side effects. Local-only lines (slash
    * commands, armed multi-turn /feedback text) must never enter the mid-run
@@ -114,21 +106,18 @@ export type SessionPort = {
   classifySubmit?: (
     text: string,
     attachments?: readonly PendingImageAttachment[],
-  ) => "agent" | "local" | "empty"
+  ) => "agent" | "local" | "empty";
   /** Idle prompt submit — deliver now. */
-  sendImmediate: (
-    text: string,
-    attachments?: readonly PendingImageAttachment[],
-  ) => void
+  sendImmediate: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
   /** Mid-run queue or steer accepted by the shell. */
-  enqueue: (text: string, kind: QueueKind) => void
+  enqueue: (text: string, kind: QueueKind) => void;
   /** Hard interrupt current run. */
-  interrupt: () => void
+  interrupt: () => void;
   /** Queue item drained at a tool boundary (or idle). */
-  deliver: (item: QueueItem) => void
+  deliver: (item: QueueItem) => void;
 }
 
-export type SessionPortHandlers = Partial<SessionPort>
+export type SessionPortHandlers = Partial<SessionPort>;
 
 /**
  * Timer wiring for the quota auto-retry and stall watchdog.
@@ -136,22 +125,22 @@ export type SessionPortHandlers = Partial<SessionPort>
  * Everything is injectable so tests drive the clock instead of waiting on it:
  * `schedule` returns its own cancel, and `now` is the only time source.
  */
-export type TurnMonitorOptions = {
-  readonly now?: () => number
+export interface TurnMonitorOptions {
+  readonly now?: () => number;
   /**
    * Poll period for the retry countdown and the stall check. Default 250 ms.
    * While something is animating the monitor ticks faster than this; see
    * `ANIMATION_TICK_MS`.
    */
-  readonly tickMs?: number
-  readonly stallTimeoutMs?: number
+  readonly tickMs?: number;
+  readonly stallTimeoutMs?: number;
   /** Silence after which the run says it looks stuck. Default 90 s. */
-  readonly stallNoticeMs?: number
+  readonly stallNoticeMs?: number;
   /** Registers the periodic tick; returns an unsubscribe. */
-  readonly schedule?: (tick: () => void, intervalMs: number) => () => void
+  readonly schedule?: (tick: () => void, intervalMs: number) => () => void;
 }
 
-const DEFAULT_TICK_MS = 250
+const DEFAULT_TICK_MS = 250;
 
 /**
  * Poll period while something on this clock is animating.
@@ -162,47 +151,47 @@ const DEFAULT_TICK_MS = 250
  * is the coarsest cadence at which both read as motion, and it costs nothing
  * when idle because the monitor stops entirely then.
  */
-const ANIMATION_TICK_MS = 80
+const ANIMATION_TICK_MS = 80;
 
 function defaultSchedule(tick: () => void, intervalMs: number): () => void {
-  const handle = setInterval(tick, intervalMs)
+  const handle = setInterval(tick, intervalMs);
   // The monitor must never be the reason the process stays alive.
-  handle.unref?.()
+  handle.unref?.();
   return () => {
-    clearInterval(handle)
-  }
+    clearInterval(handle);
+  };
 }
 
-export type SessionBridge = {
+export interface SessionBridge {
   /** Apply a canonical or reactor-like event to the shell. */
-  handle: (event: BridgeInboundEvent | ReactorLikeEvent) => void
+  handle: (event: BridgeInboundEvent | ReactorLikeEvent) => void;
   /** Replay a fixture sequence. */
-  play: (events: readonly (BridgeInboundEvent | ReactorLikeEvent)[]) => void
+  play: (events: readonly (BridgeInboundEvent | ReactorLikeEvent)[]) => void;
   /** Operator paths — shell keys go through the same logic via exclusive hooks. */
   submit: (
     text: string,
     kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
-  ) => void
-  interrupt: () => void
+  ) => void;
+  interrupt: () => void;
   /**
    * A permission or operator gate was raised — queued or already displayed.
    * Blocks the turn (and exempts it from the stall watchdog) until a matching
    * `gateClosed` call. Multiple outstanding gates nest correctly.
    */
-  gateOpened: () => void
+  gateOpened: () => void;
   /** A previously raised gate resolved. */
-  gateClosed: () => void
-  dispose: () => void
+  gateClosed: () => void;
+  dispose: () => void;
   /** Current derived turn phase (progress label, stall clock, quota window). */
-  readonly turn: TurnState
-  readonly shell: AppShell
+  readonly turn: TurnState;
+  readonly shell: AppShell;
   /**
    * Refresh outstanding `task` rows with each worker's live progress. The
    * caller supplies the sessions (from `SubAgentSessionStore.listForStrip()`
    * or similar) on whatever cadence it already polls at.
    */
-  syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void
+  syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -210,49 +199,45 @@ const NOOP_PORT: SessionPort = {
   enqueue: () => {},
   interrupt: () => {},
   deliver: () => {},
-}
+};
 
 export type PortCall =
   | { readonly op: "sendImmediate"; readonly text: string }
   | { readonly op: "enqueue"; readonly text: string; readonly kind: QueueKind }
   | { readonly op: "interrupt" }
-  | { readonly op: "deliver"; readonly item: QueueItem }
+  | { readonly op: "deliver"; readonly item: QueueItem };
 
 export function createRecordingPort(opts?: {
-  classifySubmit?: SessionPort["classifySubmit"]
+  classifySubmit?: SessionPort["classifySubmit"];
 }): SessionPort & {
-  readonly calls: readonly PortCall[]
-  clear: () => void
+  readonly calls: readonly PortCall[];
+  clear: () => void;
 } {
-  const calls: PortCall[] = []
+  const calls: PortCall[] = [];
   return {
     get calls() {
-      return calls
+      return calls;
     },
     clear: () => {
-      calls.length = 0
+      calls.length = 0;
     },
-    ...(opts?.classifySubmit !== undefined
-      ? { classifySubmit: opts.classifySubmit }
-      : {}),
+    ...(opts?.classifySubmit !== undefined ? { classifySubmit: opts.classifySubmit } : {}),
     sendImmediate: (text) => {
-      calls.push({ op: "sendImmediate", text })
+      calls.push({ op: "sendImmediate", text });
     },
     enqueue: (text, kind) => {
-      calls.push({ op: "enqueue", text, kind })
+      calls.push({ op: "enqueue", text, kind });
     },
     interrupt: () => {
-      calls.push({ op: "interrupt" })
+      calls.push({ op: "interrupt" });
     },
     deliver: (item) => {
-      calls.push({ op: "deliver", item })
+      calls.push({ op: "deliver", item });
     },
-  }
+  };
 }
 
-function isBridgeInbound(event: {
-  type: string
-}): event is BridgeInboundEvent {
+function isBridgeInbound(event: { type: string }): event is BridgeInboundEvent {
   switch (event.type) {
     case "user":
     case "assistant":
@@ -264,9 +249,9 @@ function isBridgeInbound(event: {
     case "run":
     case "tool.boundary":
     case "error":
-      return true
+      return true;
     default:
-      return false
+      return false;
   }
 }
 
@@ -274,142 +259,138 @@ function isBridgeInbound(event: {
  * Map a reactor-like event into zero or more canonical bridge events.
  * Stateless (fixture-friendly). Live sessions use a StreamMapContext via handle.
  */
-export function mapReactorLike(
-  event: ReactorLikeEvent,
-): readonly BridgeInboundEvent[] {
-  return mapReactorLikeImpl(event)
+export function mapReactorLike(event: ReactorLikeEvent): readonly BridgeInboundEvent[] {
+  return mapReactorLikeImpl(event);
 }
 
 function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
   switch (event.type) {
     case "user":
-      return { role: "user", text: event.text }
+      return { role: "user", text: event.text };
     case "assistant":
-      return { role: "assistant", text: event.text }
+      return { role: "assistant", text: event.text };
     case "system":
-      return { role: "system", text: event.text }
+      return { role: "system", text: event.text };
     case "error":
-      return { role: "system", text: sendFailureText(event.message), meta: "error" }
+      return { role: "system", text: sendFailureText(event.message), meta: "error" };
     default:
-      return null
+      return null;
   }
 }
 
 /** Streaming row kinds the bridge grows in place, one row per message. */
-type OpenRowKind = "assistant" | "thinking"
+type OpenRowKind = "assistant" | "thinking";
 
 /** The transcript row deltas are currently appending to. */
-type OpenStreamRow = {
-  readonly kind: OpenRowKind
-  readonly index: number
+interface OpenStreamRow {
+  readonly kind: OpenRowKind;
+  readonly index: number;
   /** Clock the row opened at, so settled reasoning can report how long it took. */
-  readonly startedAt: number
-  text: string
+  readonly startedAt: number;
+  text: string;
   /**
    * Bounded-rate reveal position for a "thinking" row's wrapped preview.
    * Unused for "assistant" rows, which paint their full markdown body as it
    * grows.
    */
-  revealChars: number
+  revealChars: number;
   /** Clock `revealChars` was last advanced from. */
-  revealAt: number
+  revealAt: number;
   /**
    * Reasoning time this row already carried before the model came back to
    * think again, so a folded row reports the turn's thinking, not the last
    * fragment's.
    */
-  readonly elapsedBefore: number
+  readonly elapsedBefore: number;
   /**
    * Reopened row: the turn already thought once here, and this row sits above
    * the tool rows that followed. It grows in its settled form rather than
    * scrolling — a line crawling in the middle of the transcript reads as
    * something moving that the operator did not touch.
    */
-  readonly folded: boolean
+  readonly folded: boolean;
 }
 
 /** The one reasoning row a turn owns, once the turn has thought at all. */
-type TurnThinking = {
-  readonly index: number
-  readonly text: string
-  readonly ms: number
+interface TurnThinking {
+  readonly index: number;
+  readonly text: string;
+  readonly ms: number;
 }
 
 /** Blank line between the fragments a turn thought at different moments. */
-const THINKING_FRAGMENT_SEPARATOR = "\n\n"
+const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
-type BridgeBag = {
-  port: SessionPort
-  openRow: OpenStreamRow | null
+interface BridgeBag {
+  port: SessionPort;
+  openRow: OpenStreamRow | null;
   /**
    * Prompts already echoed locally. The runtime replays each one as
    * `message.received`; without this the transcript shows the message twice.
    */
-  pendingEchoes: string[]
+  pendingEchoes: string[];
   /** callId→name / delta bookkeeping for production-shaped events. */
-  mapCtx: StreamMapContext
-  disposed: boolean
-  turn: TurnState
+  mapCtx: StreamMapContext;
+  disposed: boolean;
+  turn: TurnState;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
-  lastSentMessage: string
+  lastSentMessage: string;
   /** One auto-retry per rate-limit window. */
-  quotaFired: boolean
-  now: () => number
+  quotaFired: boolean;
+  now: () => number;
   /** Transcript row each in-flight call occupies, so its result can resolve it. */
-  toolRows: Map<string, number>
+  toolRows: Map<string, number>;
   /**
    * When each in-flight ordinary tool call started, so its row can carry a
    * live elapsed clock instead of sitting on a static pending mark for the
    * length of a slow call — the one case a healthy turn reads as dead.
    */
-  toolCallStartedAt: Map<string, number>
+  toolCallStartedAt: Map<string, number>;
   /** Row of the newest in-flight call, for results that carry no call id. */
-  lastToolRow: number
+  lastToolRow: number;
   /**
    * callIds of outstanding `task` calls — a subset of `toolRows`' keys. Kept
    * separate so `syncAgentProgress` never has to walk every in-flight tool to
    * find the handful that are sub-agent dispatches.
    */
-  taskCallIds: Set<string>
+  taskCallIds: Set<string>;
   /**
    * Last sub-agent session list the host synced. Retained rather than consumed
    * and dropped because the status ticker recomputes fleet state at paint time
    * on the animation tick, not only when a worker happens to emit an event.
    */
-  agentSessions: readonly TaskProgressSession[]
+  agentSessions: readonly TaskProgressSession[];
   /**
    * callIds whose call painted no row because the work belongs to a panel
    * (`manage_tasks`). Tracked so the matching result is dropped rather than
    * landing unpaired.
    */
-  panelOnlyCallIds: Set<string>
+  panelOnlyCallIds: Set<string>;
   /**
    * Row index where the inference attempt in progress began, or null when no
    * boundary is armed. The mapper decides when to mark, clear and roll back;
    * the row index is the bridge's to keep.
    */
-  attemptRow: number | null
+  attemptRow: number | null;
   /**
    * Reasoning row of the turn in progress, or null before it thinks. Mid-turn
    * thinking folds back into it instead of opening a row between tool calls:
    * a turn is one run of work, and reasoning that interleaves breaks the run
    * into fragments that each read as half a sentence.
    */
-  turnThinking: TurnThinking | null
+  turnThinking: TurnThinking | null;
 }
 
-const bridges = new WeakMap<AppShell, BridgeBag>()
+const bridges = new WeakMap<AppShell, BridgeBag>();
 
 function resolvePort(handlers?: SessionPortHandlers): SessionPort {
   return {
-    ...(handlers?.classifySubmit !== undefined
-      ? { classifySubmit: handlers.classifySubmit }
-      : {}),
+    ...(handlers?.classifySubmit !== undefined ? { classifySubmit: handlers.classifySubmit } : {}),
     sendImmediate: handlers?.sendImmediate ?? NOOP_PORT.sendImmediate,
     enqueue: handlers?.enqueue ?? NOOP_PORT.enqueue,
     interrupt: handlers?.interrupt ?? NOOP_PORT.interrupt,
     deliver: handlers?.deliver ?? NOOP_PORT.deliver,
-  }
+  };
 }
 
 /**
@@ -417,16 +398,16 @@ function resolvePort(handlers?: SessionPortHandlers): SessionPort {
  * `message.received` word that note differently, so echoes match on content.
  */
 function promptContent(text: string): string {
-  const note = text.indexOf("\n[")
-  return (note === -1 ? text : text.slice(0, note)).trim()
+  const note = text.indexOf("\n[");
+  return (note === -1 ? text : text.slice(0, note)).trim();
 }
 
 /** True when this inbound user message is one the shell already painted. */
 function consumeEcho(bag: BridgeBag, text: string): boolean {
-  const index = bag.pendingEchoes.indexOf(promptContent(text))
-  if (index === -1) return false
-  bag.pendingEchoes.splice(index, 1)
-  return true
+  const index = bag.pendingEchoes.indexOf(promptContent(text));
+  if (index === -1) return false;
+  bag.pendingEchoes.splice(index, 1);
+  return true;
 }
 
 function openRowContent(
@@ -436,7 +417,7 @@ function openRowContent(
   thought?: Thought,
   revealChars?: number,
 ): StreamRow {
-  if (kind === "assistant") return { role: "assistant", text, streaming }
+  if (kind === "assistant") return { role: "assistant", text, streaming };
   return {
     role: "system",
     text,
@@ -444,12 +425,12 @@ function openRowContent(
     streaming,
     ...(thought !== undefined ? { thought } : {}),
     ...(revealChars !== undefined ? { revealChars } : {}),
-  }
+  };
 }
 
 /** Total reasoning an open thinking row stands for, earlier fragments included. */
 function thoughtOf(bag: BridgeBag, open: OpenStreamRow): Thought {
-  return { ms: open.elapsedBefore + Math.max(0, bag.now() - open.startedAt) }
+  return { ms: open.elapsedBefore + Math.max(0, bag.now() - open.startedAt) };
 }
 
 /** Repaint a folded reasoning row: settled in shape, still growing in text. */
@@ -458,44 +439,39 @@ function paintFoldedRow(shell: AppShell, bag: BridgeBag, open: OpenStreamRow): v
     shell,
     open.index,
     openRowContent(open.kind, open.text, false, thoughtOf(bag, open)),
-  )
+  );
 }
 
 /** Finalize the open streaming row: it stops growing and stops being unstable. */
 function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
-  const open = bag.openRow
-  if (open === null) return
-  bag.openRow = null
+  const open = bag.openRow;
+  if (open === null) return;
+  bag.openRow = null;
   // Reasoning stops scrolling and keeps its opening line; the elapsed time and
   // the full chain of thought stay on the row, behind the expand key.
-  const thought = open.kind === "thinking" ? thoughtOf(bag, open) : undefined
+  const thought = open.kind === "thinking" ? thoughtOf(bag, open) : undefined;
   if (thought !== undefined) {
-    bag.turnThinking = { index: open.index, text: open.text, ms: thought.ms }
+    bag.turnThinking = { index: open.index, text: open.text, ms: thought.ms };
   }
-  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought))
+  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, false, thought));
 }
 
 /**
  * Grow the open row of this kind, or start one. Deltas never append a row of
  * their own — the message is a single row whose body is repainted as it fills.
  */
-function growOpenRow(
-  shell: AppShell,
-  bag: BridgeBag,
-  kind: OpenRowKind,
-  text: string,
-): void {
-  const open = bag.openRow
+function growOpenRow(shell: AppShell, bag: BridgeBag, kind: OpenRowKind, text: string): void {
+  const open = bag.openRow;
   if (open !== null && open.kind === kind) {
-    open.text += text
-    if (open.folded) paintFoldedRow(shell, bag, open)
-    else if (kind === "thinking") advanceOpenReveal(shell, open, bag.now())
-    else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true))
-    return
+    open.text += text;
+    if (open.folded) paintFoldedRow(shell, bag, open);
+    else if (kind === "thinking") advanceOpenReveal(shell, open, bag.now());
+    else replaceStreamRowAt(shell, open.index, openRowContent(kind, open.text, true));
+    return;
   }
-  closeOpenRow(shell, bag)
-  const now = bag.now()
-  const folded = kind === "thinking" ? bag.turnThinking : null
+  closeOpenRow(shell, bag);
+  const now = bag.now();
+  const folded = kind === "thinking" ? bag.turnThinking : null;
   if (folded !== null) {
     bag.openRow = {
       kind,
@@ -506,11 +482,11 @@ function growOpenRow(
       revealAt: now,
       elapsedBefore: folded.ms,
       folded: true,
-    }
-    paintFoldedRow(shell, bag, bag.openRow)
-    return
+    };
+    paintFoldedRow(shell, bag, bag.openRow);
+    return;
   }
-  const index = streamRowCount(shell)
+  const index = streamRowCount(shell);
   bag.openRow = {
     kind,
     index,
@@ -520,8 +496,11 @@ function growOpenRow(
     revealAt: now,
     elapsedBefore: 0,
     folded: false,
-  }
-  appendStreamRow(shell, openRowContent(kind, text, true, undefined, kind === "thinking" ? 0 : undefined))
+  };
+  appendStreamRow(
+    shell,
+    openRowContent(kind, text, true, undefined, kind === "thinking" ? 0 : undefined),
+  );
 }
 
 /**
@@ -533,13 +512,17 @@ function growOpenRow(
 function advanceOpenReveal(shell: AppShell, open: OpenStreamRow, nowMs: number): void {
   // A folded row is settled text above the turn's tool rows; it has no scroll
   // line to advance.
-  if (open.folded) return
-  const available = flattenReasoningText(open.text).length
-  const revealed = advanceRevealChars(open.revealChars, available, nowMs - open.revealAt)
-  open.revealAt = nowMs
-  if (revealed === open.revealChars) return
-  open.revealChars = revealed
-  replaceStreamRowAt(shell, open.index, openRowContent(open.kind, open.text, true, undefined, revealed))
+  if (open.folded) return;
+  const available = flattenReasoningText(open.text).length;
+  const revealed = advanceRevealChars(open.revealChars, available, nowMs - open.revealAt);
+  open.revealAt = nowMs;
+  if (revealed === open.revealChars) return;
+  open.revealChars = revealed;
+  replaceStreamRowAt(
+    shell,
+    open.index,
+    openRowContent(open.kind, open.text, true, undefined, revealed),
+  );
 }
 
 /**
@@ -556,35 +539,35 @@ function applyToolCall(
     // Remembered so the matching result is dropped too — suppressing only the
     // call would leave its result to land as an unpaired row. Checklist lives
     // on the task panel; Task dispatches paint live transcript rows instead.
-    if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId)
-    return
+    if (event.callId !== undefined) bag.panelOnlyCallIds.add(event.callId);
+    return;
   }
   const row = toolCallRow({
     name: event.name,
     ...(event.detail !== undefined ? { arguments: event.detail } : {}),
-  })
-  const count = streamRowCount(shell)
-  const tail = streamRowAt(shell, count - 1)
-  const index = canCoalesceCall(tail, row) ? count - 1 : count
+  });
+  const count = streamRowCount(shell);
+  const tail = streamRowAt(shell, count - 1);
+  const index = canCoalesceCall(tail, row) ? count - 1 : count;
   if (tail !== undefined && index < count) {
-    replaceStreamRowAt(shell, index, coalesceCallRows(tail, row))
+    replaceStreamRowAt(shell, index, coalesceCallRows(tail, row));
   } else {
-    appendStreamRow(shell, row)
+    appendStreamRow(shell, row);
   }
   if (event.callId !== undefined) {
-    bag.toolRows.set(event.callId, index)
+    bag.toolRows.set(event.callId, index);
     // A diff call's row already carries a "+n/-n" stat — that is the fact
     // worth keeping, not an elapsed clock, so only ordinary calls (no stat of
     // their own) pick up the live timer.
     if (row.stat === undefined) {
-      bag.toolCallStartedAt.set(event.callId, bag.now())
+      bag.toolCallStartedAt.set(event.callId, bag.now());
     }
   }
   if (event.callId !== undefined && event.name === TASK_TOOL_NAME) {
-    bag.taskCallIds.add(event.callId)
+    bag.taskCallIds.add(event.callId);
   }
-  bag.lastToolRow = index
-  shell.inFlightTool = { name: event.name, startedAt: bag.now() }
+  bag.lastToolRow = index;
+  shell.inFlightTool = { name: event.name, startedAt: bag.now() };
 }
 
 /**
@@ -597,33 +580,31 @@ function applyToolResult(
   bag: BridgeBag,
   event: Extract<BridgeInboundEvent, { type: "tool_result" }>,
 ): void {
-  if (event.callId !== undefined && bag.panelOnlyCallIds.delete(event.callId)) return
+  if (event.callId !== undefined && bag.panelOnlyCallIds.delete(event.callId)) return;
   const result = toolResultRow({
     name: event.name,
     content: event.detail ?? (event.isError ? "error" : "ok"),
     isError: event.isError === true,
-  })
-  const tracked =
-    event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined
+  });
+  const tracked = event.callId !== undefined ? bag.toolRows.get(event.callId) : undefined;
   // The elapsed clock was scaffolding for the wait, not a fact about the
   // call — clear it before the merge so it never crowds out the answer's own
   // addendum (e.g. "3 lines") the way a diff's own +/- count is allowed to.
-  const clockOwned =
-    event.callId !== undefined && bag.toolCallStartedAt.has(event.callId)
+  const clockOwned = event.callId !== undefined && bag.toolCallStartedAt.has(event.callId);
   if (event.callId !== undefined) {
-    bag.toolRows.delete(event.callId)
-    bag.toolCallStartedAt.delete(event.callId)
-    bag.taskCallIds.delete(event.callId)
+    bag.toolRows.delete(event.callId);
+    bag.toolCallStartedAt.delete(event.callId);
+    bag.taskCallIds.delete(event.callId);
   }
-  if (bag.toolRows.size === 0) shell.inFlightTool = null
-  const index = tracked ?? bag.lastToolRow
-  const rawCall = streamRowAt(shell, index)
-  const call = clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall
+  if (bag.toolRows.size === 0) shell.inFlightTool = null;
+  const index = tracked ?? bag.lastToolRow;
+  const rawCall = streamRowAt(shell, index);
+  const call = clockOwned && rawCall !== undefined ? omitStat(rawCall) : rawCall;
   if (call === undefined || call.pending !== true) {
-    appendStreamRow(shell, result)
-    return
+    appendStreamRow(shell, result);
+    return;
   }
-  replaceStreamRowAt(shell, index, mergeToolRows(call, result))
+  replaceStreamRowAt(shell, index, mergeToolRows(call, result));
 }
 
 /**
@@ -639,35 +620,35 @@ function syncAgentProgress(
   sessions: readonly TaskProgressSession[],
   nowMs: number,
 ): void {
-  if (bag.taskCallIds.size === 0) return
+  if (bag.taskCallIds.size === 0) return;
   for (const callId of bag.taskCallIds) {
-    const index = bag.toolRows.get(callId)
+    const index = bag.toolRows.get(callId);
     if (index === undefined) {
-      bag.taskCallIds.delete(callId)
-      continue
+      bag.taskCallIds.delete(callId);
+      continue;
     }
-    const row = streamRowAt(shell, index)
+    const row = streamRowAt(shell, index);
     if (row === undefined || row.pending !== true) {
-      bag.taskCallIds.delete(callId)
-      continue
+      bag.taskCallIds.delete(callId);
+      continue;
     }
-    const session = sessions.find((s) => s.id === callId)
-    if (session === undefined) continue
-    const progress = agentProgress(session, nowMs)
-    if (progress === null) continue
-    if (row.stat === progress.stat && row.agentWorking === progress.working) continue
+    const session = sessions.find((s) => s.id === callId);
+    if (session === undefined) continue;
+    const progress = agentProgress(session, nowMs);
+    if (progress === null) continue;
+    if (row.stat === progress.stat && row.agentWorking === progress.working) continue;
     replaceStreamRowAt(shell, index, {
       ...row,
       stat: progress.stat,
       agentWorking: progress.working,
-    })
+    });
   }
 }
 
 /** Drop `stat` entirely rather than set it `undefined` (exactOptionalPropertyTypes). */
 function omitStat(row: StreamRow): StreamRow {
-  const { stat: _stat, ...rest } = row
-  return rest
+  const { stat: _stat, ...rest } = row;
+  return rest;
 }
 
 /**
@@ -679,22 +660,22 @@ function omitStat(row: StreamRow): StreamRow {
  * hung turn once that stretches past a few seconds.
  */
 function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
-  if (bag.toolCallStartedAt.size === 0) return
+  if (bag.toolCallStartedAt.size === 0) return;
   for (const [callId, startedAt] of bag.toolCallStartedAt) {
-    if (bag.taskCallIds.has(callId)) continue
-    const index = bag.toolRows.get(callId)
+    if (bag.taskCallIds.has(callId)) continue;
+    const index = bag.toolRows.get(callId);
     if (index === undefined) {
-      bag.toolCallStartedAt.delete(callId)
-      continue
+      bag.toolCallStartedAt.delete(callId);
+      continue;
     }
-    const row = streamRowAt(shell, index)
+    const row = streamRowAt(shell, index);
     if (row === undefined || row.pending !== true) {
-      bag.toolCallStartedAt.delete(callId)
-      continue
+      bag.toolCallStartedAt.delete(callId);
+      continue;
     }
-    const stat = clockLabel(nowMs - startedAt)
-    if (row.stat === stat) continue
-    replaceStreamRowAt(shell, index, { ...row, stat })
+    const stat = clockLabel(nowMs - startedAt);
+    if (row.stat === stat) continue;
+    replaceStreamRowAt(shell, index, { ...row, stat });
   }
 }
 
@@ -704,40 +685,40 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
  * to resolve, and a rolled-back reasoning row is no longer there to fold into.
  */
 function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
-  const boundary = bag.attemptRow
-  bag.attemptRow = null
-  if (boundary === null || boundary >= streamRowCount(shell)) return
-  truncateStreamRows(shell, boundary)
+  const boundary = bag.attemptRow;
+  bag.attemptRow = null;
+  if (boundary === null || boundary >= streamRowCount(shell)) return;
+  truncateStreamRows(shell, boundary);
   for (const [callId, index] of [...bag.toolRows]) {
     if (index >= boundary) {
-      bag.toolRows.delete(callId)
-      bag.toolCallStartedAt.delete(callId)
-      bag.taskCallIds.delete(callId)
+      bag.toolRows.delete(callId);
+      bag.toolCallStartedAt.delete(callId);
+      bag.taskCallIds.delete(callId);
     }
   }
-  if (bag.lastToolRow >= boundary) bag.lastToolRow = -1
+  if (bag.lastToolRow >= boundary) bag.lastToolRow = -1;
   if (bag.turnThinking !== null && bag.turnThinking.index >= boundary) {
-    bag.turnThinking = null
+    bag.turnThinking = null;
   }
-  paintChrome(shell)
+  paintChrome(shell);
 }
 
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
   for (;;) {
-    const { state, item } = drainOne(shell.session)
-    if (!item) break
-    shell.session = state
+    const { state, item } = drainOne(shell.session);
+    if (!item) break;
+    shell.session = state;
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
       // Distinct from the still-pending "steer"/"queue" tag — this row is
       // being handed to the run right now. Follow-ups must not say steering.
       meta: item.kind === "steer" ? "steering" : "following-up",
-    })
-    bag.pendingEchoes.push(item.text.trim())
-    bag.port.deliver(item)
+    });
+    bag.pendingEchoes.push(item.text.trim());
+    bag.port.deliver(item);
   }
-  paintChrome(shell)
+  paintChrome(shell);
 }
 
 /**
@@ -747,87 +728,83 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
  */
 function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   for (;;) {
-    const { state, item } = drainOne(shell.session, "steer")
-    if (!item) break
-    shell.session = state
+    const { state, item } = drainOne(shell.session, "steer");
+    if (!item) break;
+    shell.session = state;
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
       meta: "steering",
-    })
-    bag.pendingEchoes.push(item.text.trim())
-    bag.port.deliver(item)
+    });
+    bag.pendingEchoes.push(item.text.trim());
+    bag.port.deliver(item);
   }
-  paintChrome(shell)
+  paintChrome(shell);
 }
 
-function applyInbound(
-  shell: AppShell,
-  bag: BridgeBag,
-  event: BridgeInboundEvent,
-): void {
-  if (bag.disposed) return
+function applyInbound(shell: AppShell, bag: BridgeBag, event: BridgeInboundEvent): void {
+  if (bag.disposed) return;
 
   if (event.type === "assistant.delta") {
-    growOpenRow(shell, bag, "assistant", event.text)
-    return
+    growOpenRow(shell, bag, "assistant", event.text);
+    return;
   }
 
   if (event.type === "thinking.delta") {
-    growOpenRow(shell, bag, "thinking", event.text)
-    return
+    growOpenRow(shell, bag, "thinking", event.text);
+    return;
   }
 
-  closeOpenRow(shell, bag)
+  closeOpenRow(shell, bag);
 
   if (event.type === "attempt") {
-    if (event.action === "mark") bag.attemptRow = streamRowCount(shell)
-    else if (event.action === "clear") bag.attemptRow = null
-    else rollbackAttempt(shell, bag)
-    return
+    if (event.action === "mark") bag.attemptRow = streamRowCount(shell);
+    else if (event.action === "clear") bag.attemptRow = null;
+    else rollbackAttempt(shell, bag);
+    return;
   }
 
   // A new turn gets a new reasoning row; only within one turn does thinking
   // fold back into the row it already owns.
-  if (event.type === "user") bag.turnThinking = null
+  if (event.type === "user") bag.turnThinking = null;
 
-  if (event.type === "user" && consumeEcho(bag, event.text)) return
+  if (event.type === "user" && consumeEcho(bag, event.text)) return;
 
   if (event.type === "run") {
     if (event.state === "idle") {
-      bag.turnThinking = null
-      shell.inFlightTool = null
+      bag.turnThinking = null;
+      shell.inFlightTool = null;
     }
-    shell.session = setRunState(shell.session, event.state)
-    paintChrome(shell)
+    shell.session = setRunState(shell.session, event.state);
+    paintChrome(shell);
     if (event.state === "idle") {
       // Full drain: soft steers first, then follow-ups (drainOrder).
-      drainAtBoundary(shell, bag)
+      drainAtBoundary(shell, bag);
     }
-    return
+    return;
   }
 
   if (event.type === "tool.boundary") {
     // Soft steer only — follow-ups wait until the run goes idle.
-    drainSteersAtBoundary(shell, bag)
-    return
+    drainSteersAtBoundary(shell, bag);
+    return;
   }
 
   if (event.type === "tool_call") {
-    applyToolCall(shell, bag, event)
-    paintChrome(shell)
-    return
+    applyToolCall(shell, bag, event);
+    paintChrome(shell);
+    return;
   }
 
   if (event.type === "tool_result") {
-    applyToolResult(shell, bag, event)
-    paintChrome(shell)
-    return
+    applyToolResult(shell, bag, event);
+    paintChrome(shell);
+    return;
   }
 
-  const row = rowFromInbound(event)
-  if (row) appendStreamRow(shell, row)
-  paintChrome(shell)
+  const row = rowFromInbound(event);
+  if (row) appendStreamRow(shell, row);
+  paintChrome(shell);
 }
 
 /**
@@ -839,14 +816,14 @@ export function attachSessionBridge(
   handlers?: SessionPortHandlers,
   monitor?: TurnMonitorOptions,
 ): SessionBridge {
-  const existing = bridges.get(shell)
+  const existing = bridges.get(shell);
   if (existing) {
-    existing.disposed = true
+    existing.disposed = true;
   }
 
-  const now = monitor?.now ?? (() => Date.now())
-  const stallTimeoutMs = monitor?.stallTimeoutMs ?? STALL_TIMEOUT_MS
-  const stallNoticeMs = monitor?.stallNoticeMs ?? STALL_NOTICE_MS
+  const now = monitor?.now ?? (() => Date.now());
+  const stallTimeoutMs = monitor?.stallTimeoutMs ?? STALL_TIMEOUT_MS;
+  const stallNoticeMs = monitor?.stallNoticeMs ?? STALL_NOTICE_MS;
 
   const bag: BridgeBag = {
     port: resolvePort(handlers),
@@ -866,32 +843,32 @@ export function attachSessionBridge(
     panelOnlyCallIds: new Set(),
     attemptRow: null,
     turnThinking: null,
-  }
-  bridges.set(shell, bag)
+  };
+  bridges.set(shell, bag);
 
-  const frozenTickMs = monitor?.tickMs ?? DEFAULT_TICK_MS
-  const animationTickMs = Math.min(frozenTickMs, ANIMATION_TICK_MS)
+  const frozenTickMs = monitor?.tickMs ?? DEFAULT_TICK_MS;
+  const animationTickMs = Math.min(frozenTickMs, ANIMATION_TICK_MS);
 
   /**
    * Current cadence, or null while the monitor is stopped. Every paint resolves
    * this, so the loop speeds up on the frame a turn starts animating and stops
    * on the frame it settles — one timer, never two.
    */
-  let cadenceMs: number | null = null
-  let stopTick: (() => void) | undefined
-  const schedule = monitor?.schedule ?? defaultSchedule
+  let cadenceMs: number | null = null;
+  let stopTick: (() => void) | undefined;
+  const schedule = monitor?.schedule ?? defaultSchedule;
 
   const applyCadence = (next: number | null): void => {
-    if (monitor === undefined || cadenceMs === next) return
-    stopTick?.()
-    stopTick = undefined
-    cadenceMs = next
+    if (monitor === undefined || cadenceMs === next) return;
+    stopTick?.();
+    stopTick = undefined;
+    cadenceMs = next;
     if (next !== null) {
       stopTick = schedule(() => {
-        tick()
-      }, next)
+        tick();
+      }, next);
     }
-  }
+  };
 
   /**
    * The watchdog's inputs for the current turn. Built here rather than at each
@@ -909,7 +886,7 @@ export function attachSessionBridge(
     activeToolCalls: bag.turn.activeToolCalls,
     stallNoticeMs,
     repeating: bag.turn.repeating,
-  })
+  });
 
   /**
    * How long the turn has been stalled, measured from the moment silence
@@ -923,39 +900,39 @@ export function attachSessionBridge(
    * the new silence, so a second stall in a long session bursts again.
    */
   const stalledForMs = (nowMs: number, isStalled: boolean): number | null =>
-    isStalled ? nowMs - bag.turn.lastActivityAt - stallNoticeMs : null
+    isStalled ? nowMs - bag.turn.lastActivityAt - stallNoticeMs : null;
 
   const paintPhaseAt = (nowMs: number, isStalled: boolean): void => {
-    const turn = bag.turn
+    const turn = bag.turn;
     // The stall notice is a live diagnosis, not a sticky banner: it has to
     // set *and* clear on every paint — including handle() — because the
     // cadence timer is cancelled the moment the turn settles. If we only
     // touched it from tick(), a tool.done → inference.done burst that lands
     // before the next tick would leave the banner up forever.
-    const level = stallLevel(stallArgsFor(nowMs))
+    const level = stallLevel(stallArgsFor(nowMs));
     if (level === "notice") {
-      setStatusFlash(shell, STALL_NOTICE_MESSAGE)
+      setStatusFlash(shell, STALL_NOTICE_MESSAGE);
     } else if (shell.statusFlash === STALL_NOTICE_MESSAGE) {
-      setStatusFlash(shell, null)
+      setStatusFlash(shell, null);
     }
     // The landing mark rides this same re-entry: it animates through the
     // draw/fill loop while a turn is live and holds its filled frame otherwise.
-    paintLanding(shell, nowMs, turn.isProcessing)
+    paintLanding(shell, nowMs, turn.isProcessing);
     // The reveal position rides the same re-entry as the ramp and landing
     // mark: it needs to keep crawling through already-arrived text even when
     // no new delta has landed this tick.
     if (bag.openRow !== null && bag.openRow.kind === "thinking") {
-      advanceOpenReveal(shell, bag.openRow, nowMs)
+      advanceOpenReveal(shell, bag.openRow, nowMs);
     }
-    syncToolElapsed(shell, bag, nowMs)
+    syncToolElapsed(shell, bag, nowMs);
     const input = {
       isProcessing: turn.isProcessing,
       status: turn.status,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
-    }
-    const fleet = fleetProgress(bag.agentSessions, nowMs)
-    const label = resolveTurnLabel(input, isStalled, fleet)
+    };
+    const fleet = fleetProgress(bag.agentSessions, nowMs);
+    const label = resolveTurnLabel(input, isStalled, fleet);
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.
@@ -965,28 +942,26 @@ export function attachSessionBridge(
         phase: null,
         rampPhase: null,
         stalledForMs: null,
-      })
+      });
       // Nothing animates and nothing is being waited on, so the loop stops
       // rather than repainting an unchanging frame forever. The next event
       // re-enters here and re-arms it.
-      applyCadence(bag.turn.quota !== null ? frozenTickMs : null)
-      return
+      applyCadence(bag.turn.quota !== null ? frozenTickMs : null);
+      return;
     }
-    const rampPhase = resolveRampPhase(input, isStalled, fleet)
-    const stalledFor = stalledForMs(nowMs, rampPhase === "stalled")
+    const rampPhase = resolveRampPhase(input, isStalled, fleet);
+    const stalledFor = stalledForMs(nowMs, rampPhase === "stalled");
     setLockupFrame(shell, {
       nowMs,
       animating: turn.isProcessing,
       phase: label,
       rampPhase,
       stalledForMs: stalledFor,
-    })
+    });
     // A frozen ramp (blocked on a gate, or a stall past its blink burst) still
     // needs the stall and quota clocks, just not animation frames.
-    applyCadence(
-      rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs,
-    )
-  }
+    applyCadence(rampAnimating(rampPhase, stalledFor) ? animationTickMs : frozenTickMs);
+  };
 
   /**
    * The clock is read once here and threaded through everything the frame
@@ -994,21 +969,21 @@ export function attachSessionBridge(
    * opposite sides of a blink boundary and disagree about the same frame.
    */
   const paintPhase = (): void => {
-    const nowMs = now()
-    paintPhaseAt(nowMs, isStalledForDisplay(stallArgsFor(nowMs)))
-  }
+    const nowMs = now();
+    paintPhaseAt(nowMs, isStalledForDisplay(stallArgsFor(nowMs)));
+  };
 
   /** True when this event is what ended the turn. */
   const noteEvent = (event: { type: string; data?: unknown }): boolean => {
-    const before = bag.turn
-    bag.turn = turnStateFromEvent(bag.turn, event, now())
+    const before = bag.turn;
+    bag.turn = turnStateFromEvent(bag.turn, event, now());
     // A fresh rate-limit window re-arms the single auto-retry.
     if (bag.turn.quota !== null && bag.turn.quota !== before.quota) {
-      bag.quotaFired = false
+      bag.quotaFired = false;
     }
-    paintPhase()
-    return before.isProcessing && !bag.turn.isProcessing
-  }
+    paintPhase();
+    return before.isProcessing && !bag.turn.isProcessing;
+  };
 
   /**
    * A settled turn hands the session back to the operator. A chat session's
@@ -1017,86 +992,83 @@ export function attachSessionBridge(
    * prompts — for the rest of the session.
    */
   const settleRun = (): void => {
-    if (shell.session.run === "idle") return
-    shell.session = setRunState(shell.session, "idle")
-    drainAtBoundary(shell, bag)
-  }
+    if (shell.session.run === "idle") return;
+    shell.session = setRunState(shell.session, "idle");
+    drainAtBoundary(shell, bag);
+  };
 
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
-    if (bag.disposed) return
-    const settled = noteEvent(event)
+    if (bag.disposed) return;
+    const settled = noteEvent(event);
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
-      for (const mapped of mapProductionEvent(
-        event as ReactorLikeEvent,
-        bag.mapCtx,
-      )) {
-        applyInbound(shell, bag, mapped)
+      for (const mapped of mapProductionEvent(event as ReactorLikeEvent, bag.mapCtx)) {
+        applyInbound(shell, bag, mapped);
       }
       // inference.done with tool calls still outstanding doesn't settle the
       // turn (see turn-state.ts) — the cycle continues, but a soft-steer
       // boundary still passed. Follow-ups wait for idle.
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
-        drainSteersAtBoundary(shell, bag)
+        drainSteersAtBoundary(shell, bag);
       }
-      if (settled) settleRun()
-      return
+      if (settled) settleRun();
+      return;
     }
     if (isBridgeInbound(event)) {
-      applyInbound(shell, bag, event)
+      applyInbound(shell, bag, event);
     }
-    if (settled) settleRun()
-  }
+    if (settled) settleRun();
+  };
 
   const submit = (
     text: string,
     kind: "queue" | "steer" | "immediate" | "reinject",
     attachments?: readonly PendingImageAttachment[],
   ): void => {
-    if (bag.disposed) return
-    const t = text.trim()
-    const attached = attachments ?? []
+    if (bag.disposed) return;
+    const t = text.trim();
+    const attached = attachments ?? [];
     if (t.length === 0 && attached.length === 0) {
       // Still run host empty handling (e.g. cancel armed /feedback).
       if (bag.port.classifySubmit?.(t, attachments) === "empty") {
-        bag.port.sendImmediate(t, attachments)
+        bag.port.sendImmediate(t, attachments);
       }
-      return
+      return;
     }
 
     // Local-only submits (slash commands, multi-turn /feedback) never mark the
     // session busy and never enter the mid-run queue — they are not agent turns.
-    const classification = bag.port.classifySubmit?.(t, attachments) ?? "agent"
+    const classification = bag.port.classifySubmit?.(t, attachments) ?? "agent";
     if (classification === "empty") {
-      bag.port.sendImmediate(t, attachments)
-      return
+      bag.port.sendImmediate(t, attachments);
+      return;
     }
     if (classification === "local") {
       appendStreamRow(shell, {
         role: "user",
         text: userRowText(t, attached),
-      })
-      bag.port.sendImmediate(t, attachments)
-      paintChrome(shell)
-      return
+      });
+      bag.port.sendImmediate(t, attachments);
+      paintChrome(shell);
+      return;
     }
 
     if (kind === "reinject") {
       // No product chord wires reinject anymore (CL-6290: Alt+Enter is
       // follow-up / kind "queue"). Kept for tests and any direct API callers:
       // stop the run right now, then fall into the immediate-send branch.
-      if (shell.session.run !== "busy") return
-      closeOpenRow(shell, bag)
-      bag.pendingEchoes.length = 0
-      shell.session = interrupt(shell.session)
+      if (shell.session.run !== "busy") return;
+      closeOpenRow(shell, bag);
+      bag.pendingEchoes.length = 0;
+      shell.session = interrupt(shell.session);
       appendStreamRow(shell, {
         role: "system",
         text: "stop — restarting from your message",
         meta: "stop",
-      })
-      bag.port.interrupt()
-      bag.lastSentMessage = ""
-      bag.turn = turnStateOnInterrupt(bag.turn, now())
+      });
+      bag.port.interrupt();
+      bag.lastSentMessage = "";
+      bag.turn = turnStateOnInterrupt(bag.turn, now());
     }
 
     if (kind === "immediate" || kind === "reinject" || shell.session.run === "idle") {
@@ -1104,22 +1076,22 @@ export function attachSessionBridge(
         role: "user",
         text: userRowText(t, attached),
         ...(kind === "reinject" ? { meta: "reinject" } : {}),
-      })
-      bag.pendingEchoes.push(t)
-      bag.port.sendImmediate(t, attachments)
-      shell.session = setRunState(shell.session, "busy")
-      bag.lastSentMessage = t
-      bag.turn = turnStateOnSubmit(bag.turn, now())
-      paintChrome(shell)
-      paintPhase()
-      return
+      });
+      bag.pendingEchoes.push(t);
+      bag.port.sendImmediate(t, attachments);
+      shell.session = setRunState(shell.session, "busy");
+      bag.lastSentMessage = t;
+      bag.turn = turnStateOnSubmit(bag.turn, now());
+      paintChrome(shell);
+      paintPhase();
+      return;
     }
 
     shell.session =
       kind === "steer"
         ? enqueueSteer(shell.session, t, undefined, attachments)
-        : enqueue(shell.session, t, "queue", undefined, attachments)
-    bag.port.enqueue(t, kind)
+        : enqueue(shell.session, t, "queue", undefined, attachments);
+    bag.port.enqueue(t, kind);
     // Show the message itself, not the internal transition ("queue +1 →
     // pending N") — the notice row already carries the depth once, in plain
     // language, so this row's job is making the pending item identifiable.
@@ -1127,27 +1099,27 @@ export function attachSessionBridge(
       role: "user",
       text: userRowText(t, attached),
       meta: kind === "steer" ? "steer" : "queue",
-    })
-    paintChrome(shell)
-  }
+    });
+    paintChrome(shell);
+  };
 
   const doInterrupt = (): void => {
-    if (bag.disposed) return
-    closeOpenRow(shell, bag)
-    bag.pendingEchoes.length = 0
-    applyShellInterrupt(shell)
-    bag.port.interrupt()
+    if (bag.disposed) return;
+    closeOpenRow(shell, bag);
+    bag.pendingEchoes.length = 0;
+    applyShellInterrupt(shell);
+    bag.port.interrupt();
     // The stop settles the turn without necessarily producing an idle event to
     // drain against, so anything the operator had queued would sit there
     // forever. Hand it over here instead: the host serialises it behind the
     // agent rebuild the interrupt just started.
-    drainAtBoundary(shell, bag)
+    drainAtBoundary(shell, bag);
     // Clearing the last prompt is what stops the quota loop from replaying a
     // turn the operator (or the watchdog) deliberately stopped.
-    bag.lastSentMessage = ""
-    bag.turn = turnStateOnInterrupt(bag.turn, now())
-    paintPhase()
-  }
+    bag.lastSentMessage = "";
+    bag.turn = turnStateOnInterrupt(bag.turn, now());
+    paintPhase();
+  };
 
   /**
    * A permission or operator gate was raised — queued or already on screen,
@@ -1156,22 +1128,22 @@ export function attachSessionBridge(
    * overlay exempts the turn from the stall watchdog just as an open one does.
    */
   const gateOpened = (): void => {
-    if (bag.disposed) return
-    bag.turn = turnStateGateOpened(bag.turn)
-    paintPhase()
-  }
+    if (bag.disposed) return;
+    bag.turn = turnStateGateOpened(bag.turn);
+    paintPhase();
+  };
 
   const gateClosed = (): void => {
-    if (bag.disposed) return
-    bag.turn = turnStateGateClosed(bag.turn, now())
-    paintPhase()
-  }
+    if (bag.disposed) return;
+    bag.turn = turnStateGateClosed(bag.turn, now());
+    paintPhase();
+  };
 
   const tick = (): void => {
-    if (bag.disposed) return
-    const nowMs = now()
+    if (bag.disposed) return;
+    const nowMs = now();
 
-    const quota = bag.turn.quota
+    const quota = bag.turn.quota;
     if (
       shouldAutoRetryQuota({
         quotaError: quota,
@@ -1180,20 +1152,20 @@ export function attachSessionBridge(
         lastSentMessage: bag.lastSentMessage,
       })
     ) {
-      bag.quotaFired = true
-      const replay = bag.lastSentMessage
-      bag.turn = clearQuotaWait(bag.turn)
-      setStatusFlash(shell, "rate limit cleared — resubmitting")
-      submit(replay, "immediate")
-      return
+      bag.quotaFired = true;
+      const replay = bag.lastSentMessage;
+      bag.turn = clearQuotaWait(bag.turn);
+      setStatusFlash(shell, "rate limit cleared — resubmitting");
+      submit(replay, "immediate");
+      return;
     }
 
     if (quota !== null) {
       setStatusFlash(
         shell,
         `rate limited — retrying in ${quotaWaitSeconds(quota.retryAt, nowMs)}s`,
-      )
-      return
+      );
+      return;
     }
 
     // Content-based, not time-based: a repeating line means the model is
@@ -1208,66 +1180,65 @@ export function attachSessionBridge(
     // guard would no longer mean "the turn is actually live" and could fire
     // on an already-settled turn — recheck this alongside any such change.
     if (bag.turn.status === "running" && bag.turn.repeating) {
-      const repeatedTokens =
-        bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0)
+      const repeatedTokens = bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
       applyStallRecovery(
         { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
         repetitionRecoveryMessage(repeatedTokens),
-      )
-      return
+      );
+      return;
     }
 
-    const stallArgs = stallArgsFor(nowMs)
+    const stallArgs = stallArgsFor(nowMs);
 
     if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery(
         { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
         STALL_RECOVERY_MESSAGE,
-      )
-      return
+      );
+      return;
     }
 
     // Same "is this stalled at all" question `paintPhase` asks above — call
     // the one definition (`isStalledForDisplay`) rather than re-deriving it
     // from `stallLevel`'s result, so the two call sites can never disagree.
-    paintPhaseAt(nowMs, isStalledForDisplay(stallArgs))
-  }
+    paintPhaseAt(nowMs, isStalledForDisplay(stallArgs));
+  };
 
   setShellBridgeHooks(shell, {
     onSubmit: (text, kind, attachments) => {
-      submit(text, kind, attachments)
+      submit(text, kind, attachments);
     },
     onInterrupt: () => {
-      doInterrupt()
+      doInterrupt();
     },
     exclusive: true,
-  })
+  });
 
   return {
     shell,
     handle,
     play: (events) => {
-      for (const e of events) handle(e)
+      for (const e of events) handle(e);
     },
     submit,
     interrupt: doInterrupt,
     gateOpened,
     gateClosed,
     get turn() {
-      return bag.turn
+      return bag.turn;
     },
     syncAgentProgress: (sessions) => {
-      if (bag.disposed) return
-      bag.agentSessions = sessions
-      syncAgentProgress(shell, bag, sessions, now())
+      if (bag.disposed) return;
+      bag.agentSessions = sessions;
+      syncAgentProgress(shell, bag, sessions, now());
     },
     dispose: () => {
-      bag.disposed = true
-      applyCadence(null)
-      clearShellBridgeHooks(shell)
-      bridges.delete(shell)
+      bag.disposed = true;
+      applyCadence(null);
+      clearShellBridgeHooks(shell);
+      bridges.delete(shell);
     },
-  }
+  };
 }
 
 /** Sample fixture: busy run with tools, queue drain at boundary. */
@@ -1299,4 +1270,4 @@ export const FIXTURE_BUSY_SESSION: readonly ReactorLikeEvent[] = [
     data: { token: "Done — two top-level docs." },
   },
   { type: "reactor.done", data: {} },
-]
+];

@@ -15,7 +15,9 @@ const mockStrategyCtx: StrategyContext = {
   trigger: "test",
 };
 
-function makeTurn(overrides: Partial<ConversationTurn> & { role: ConversationTurn["role"] }): ConversationTurn {
+function makeTurn(
+  overrides: Partial<ConversationTurn> & { role: ConversationTurn["role"] },
+): ConversationTurn {
   return {
     content: [{ type: "text", text: "" }],
     timestamp: Date.now(),
@@ -126,7 +128,11 @@ describe("createPruningCompactor", () => {
 
 describe("createPruningCompactor — initiating task preservation", () => {
   test("keeps the initiating task verbatim even when it is far outside the recent window", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const goal = "GOAL: migrate the auth module to opaque tokens";
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: goal }] }),
@@ -136,7 +142,9 @@ describe("createPruningCompactor — initiating task preservation", () => {
     }
     // A later user turn would win the single anchor slot on recency alone;
     // the initiating task must still survive.
-    turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "also handle refresh" }] }));
+    turns.push(
+      makeTurn({ role: "user", content: [{ type: "text", text: "also handle refresh" }] }),
+    );
     turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }));
     turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }));
 
@@ -175,12 +183,29 @@ describe("createPruningCompactor — initiating task preservation", () => {
   });
 
   test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 3, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      maxAnchorTurns: 3,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
-      makeTurn({ role: "assistant", content: [{ type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } }] }),
-      makeTurn({ role: "user", content: [{ type: "tool_result", callId: "c1", content: [{ type: "text", text: "edited" }] }] }),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "reasoning that gets summarized" }] }),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } },
+        ],
+      }),
+      makeTurn({
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "c1", content: [{ type: "text", text: "edited" }] },
+        ],
+      }),
+      makeTurn({
+        role: "assistant",
+        content: [{ type: "text", text: "reasoning that gets summarized" }],
+      }),
       makeTurn({ role: "user", content: [{ type: "text", text: "the recent ask" }] }),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
@@ -188,24 +213,32 @@ describe("createPruningCompactor — initiating task preservation", () => {
     // to the recent user turn; coalescing must still alternate.
     expect(hasConsecutiveSameRole(result.output)).toBe(false);
     // The tool_result stays paired with its tool_call.
-    const callTurnIdx = result.output.findIndex((t) => t.content.some((b) => b.type === "tool_call" && b.id === "c1"));
+    const callTurnIdx = result.output.findIndex((t) =>
+      t.content.some((b) => b.type === "tool_call" && b.id === "c1"),
+    );
     const resultTurn = result.output[callTurnIdx + 1];
-    expect(resultTurn?.content.some((b) => b.type === "tool_result" && b.callId === "c1")).toBe(true);
+    expect(resultTurn?.content.some((b) => b.type === "tool_result" && b.callId === "c1")).toBe(
+      true,
+    );
   });
 });
 
 describe("createPruningCompactor — image aging", () => {
-  const imageBlock = { type: "image" as const, source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" } };
+  const imageBlock = {
+    type: "image" as const,
+    source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" },
+  };
 
   test("strips image bytes from an anchored (aged) turn but keeps its text", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        content: [
-          { type: "text", text: "here's a screenshot of the bug" },
-          imageBlock,
-        ],
+        content: [{ type: "text", text: "here's a screenshot of the bug" }, imageBlock],
       }),
     ];
     for (let i = 0; i < 8; i++) {
@@ -241,7 +274,10 @@ describe("createPruningCompactor — image aging", () => {
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "old 1" }] }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "old 2" }] }),
-      makeTurn({ role: "user", content: [{ type: "text", text: "here's a screenshot" }, imageBlock] }),
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "here's a screenshot" }, imageBlock],
+      }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "looking at it" }] }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
     ];
@@ -258,10 +294,7 @@ describe("createPruningCompactor — image aging", () => {
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        content: [
-          { type: "text", text: "old screenshot" },
-          imageBlock,
-        ],
+        content: [{ type: "text", text: "old screenshot" }, imageBlock],
       }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "noted" }] }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
@@ -283,11 +316,18 @@ describe("createPruningCompactor — image aging", () => {
   });
 
   test("records the number of turns aged out in the transform record", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "task" }, imageBlock] }),
       ...Array.from({ length: 6 }, (_, i) =>
-        makeTurn({ role: i % 2 === 0 ? "assistant" : "user", content: [{ type: "text", text: `t${i}` }] }),
+        makeTurn({
+          role: i % 2 === 0 ? "assistant" : "user",
+          content: [{ type: "text", text: `t${i}` }],
+        }),
       ),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
@@ -344,7 +384,9 @@ describe("formatPlan", () => {
       { file: "src/bar.ts", action: "read", reason: "Verify the fix" },
     ];
     const result = formatPlan(steps);
-    expect(result).toBe("1. src/foo.ts — edit (Fix the bug)\n2. src/bar.ts — read (Verify the fix)");
+    expect(result).toBe(
+      "1. src/foo.ts — edit (Fix the bug)\n2. src/bar.ts — read (Verify the fix)",
+    );
   });
 });
 
@@ -477,7 +519,11 @@ describe("buildTurnSummary via createPruningCompactor", () => {
       makeTurn({
         role: "user",
         content: [
-          { type: "tool_result", callId: "c1", content: [{ type: "text", text: "file contents here" }] },
+          {
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "file contents here" }],
+          },
         ],
       }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),

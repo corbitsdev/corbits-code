@@ -1,7 +1,7 @@
 import { highlightCode } from "./syntax-highlight.js";
 import { wrapRanges, stringWidth } from "./view/height.js";
 
-export type StyledSegment = {
+export interface StyledSegment {
   text: string;
   bold?: boolean;
   italic?: boolean;
@@ -21,7 +21,7 @@ export type StyledSegment = {
   // segment of a pending tool row; the event log animates such rows with a live
   // spinner and elapsed clock instead of painting a static line.
   toolRunningSince?: number;
-};
+}
 
 // Inline-markdown matchers. Hoisted to module scope so they are not re-created
 // per loop iteration. All are anchored and stateless (no /g, /y) — safe to share.
@@ -191,7 +191,7 @@ const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
 
-type FencedBlock = { lines: StyledSegment[][]; consumed: number };
+interface FencedBlock { lines: StyledSegment[][]; consumed: number }
 
 // Always paint the gutter, including on blank body lines. Skipping empty lines
 // left disconnected bar fragments (a floating language cap, gaps mid-block, a
@@ -201,7 +201,10 @@ function codeGutterPrefix(line: StyledSegment[]): StyledSegment[] {
 }
 
 function fencedCap(label: string): StyledSegment[] {
-  return [{ text: "╭ ", dim: true, codeFence: true }, { text: label, dim: true, codeFence: true }];
+  return [
+    { text: "╭ ", dim: true, codeFence: true },
+    { text: label, dim: true, codeFence: true },
+  ];
 }
 
 function fencedFoot(): StyledSegment[] {
@@ -344,10 +347,10 @@ export function parseMarkdown(text: string, width = Infinity): StyledSegment[][]
   return lines;
 }
 
-type ParsedTable = {
+interface ParsedTable {
   lines: StyledSegment[][];
   consumed: number;
-};
+}
 
 // Internal separators only (no outer frame), matching how opencode/Glamour draw
 // tables: a unicode bar between columns and a header rule of box-drawing dashes.
@@ -466,7 +469,10 @@ function fitColumnWidths(naturalWidths: number[], targetContent: number): number
   while (overflow > 0) {
     let widest = -1;
     for (let col = 0; col < widths.length; col++) {
-      if ((widths[col] ?? 0) > MIN_COL_WIDTH && (widest < 0 || (widths[col] ?? 0) > (widths[widest] ?? 0))) {
+      if (
+        (widths[col] ?? 0) > MIN_COL_WIDTH &&
+        (widest < 0 || (widths[col] ?? 0) > (widths[widest] ?? 0))
+      ) {
         widest = col;
       }
     }
@@ -530,8 +536,12 @@ const DESCRIPTOR_VALUE_HEADERS = new Set(["role", "description", "summary", "det
 function isDescriptorTable(cells: StyledSegment[][][]): boolean {
   const headers = cells[0];
   if (headers === undefined || headers.length !== 2 || cells.length < 2) return false;
-  const keyHeader = renderedText(headers[0] ?? []).trim().toLowerCase();
-  const valueHeader = renderedText(headers[1] ?? []).trim().toLowerCase();
+  const keyHeader = renderedText(headers[0] ?? [])
+    .trim()
+    .toLowerCase();
+  const valueHeader = renderedText(headers[1] ?? [])
+    .trim()
+    .toLowerCase();
   return DESCRIPTOR_KEY_HEADERS.has(keyHeader) && DESCRIPTOR_VALUE_HEADERS.has(valueHeader);
 }
 

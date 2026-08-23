@@ -4,12 +4,12 @@ import type { SemanticRole } from "./semantic-theme.js";
 import { isMcpToolName, humanizeMcpTool } from "../mcp/tool-name.js";
 import { formatMcpResult } from "./mcp-result-format.js";
 
-export type ToolArgSummary = {
+export interface ToolArgSummary {
   summary: string;
   full: string;
-};
+}
 
-export type ToolCallDescriptor = {
+export interface ToolCallDescriptor {
   // Human-facing tool name — never the raw snake_case identifier.
   display: string;
   // Semantic colour role for the action (writes read as additions, deletions
@@ -19,7 +19,7 @@ export type ToolCallDescriptor = {
   full: string;
   // run_shell is rendered leanly: the command is the headline, not a loud tag.
   isShell: boolean;
-};
+}
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
   read_file: "Read",
@@ -160,11 +160,11 @@ export function describeToolCall(toolName: string, rawArgs: string): ToolCallDes
   };
 }
 
-export type ToolResultSummary = {
+export interface ToolResultSummary {
   preview: string;
   full: string;
   isJSONDocument: boolean;
-};
+}
 
 const ARG_VALUE_MAX = 48;
 
@@ -271,9 +271,7 @@ export function summarizeToolArgs(toolName: string, rawArgs: string): ToolArgSum
   const summary = entries
     .map(([key, value]) => `${key}: ${abbreviate(scalarToString(value), ARG_VALUE_MAX)}`)
     .join(", ");
-  const full = entries
-    .map(([key, value]) => `${key}: ${scalarToString(value)}`)
-    .join("\n");
+  const full = entries.map(([key, value]) => `${key}: ${scalarToString(value)}`).join("\n");
   return { summary, full };
 }
 
@@ -323,7 +321,14 @@ export function mergedToolCollapsedPreview(
   const { preview: outcomePreview } = summarizeToolResult(toolName, rawResult);
 
   if (isError) {
-    const err = abbreviate(rawResult.split("\n").map((l) => l.trim()).filter(Boolean).join(" "), 72);
+    const err = abbreviate(
+      rawResult
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join(" "),
+      72,
+    );
     if (argSummary.length > 0) return `${humanizeToolName(toolName)} ${argSummary} — ${err}`;
     return err.length > 0 ? err : "error";
   }
@@ -567,7 +572,7 @@ export function summarizeToolResult(toolName: string, rawResult: string): ToolRe
     case "run_shell": {
       // Success returns raw output; failure is prefixed "exit code N\n<output>".
       const fail = content.match(/^exit code (\d+)\n([\s\S]*)$/);
-      const output = fail ? fail[2] ?? "" : content;
+      const output = fail ? (fail[2] ?? "") : content;
       const firstLine = output.split("\n").find((line) => line.trim().length > 0) ?? "";
       const lineCount = countLines(output);
       const more = lineCount > 1 ? ` (+${lineCount - 1} more lines)` : "";

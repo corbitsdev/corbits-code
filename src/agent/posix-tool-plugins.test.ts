@@ -443,10 +443,12 @@ describe("buildCorePosixToolPlugins", () => {
     // redundant with it.
     const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
     const shortCircuitingPlugin: ToolPlugin = {
-      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: secretShapedContent,
-      }),
+      middleware:
+        () =>
+        async (call: ToolCall): Promise<ToolResult> => ({
+          callId: call.id,
+          content: secretShapedContent,
+        }),
     };
 
     const gate = createPermissionGate({
@@ -461,8 +463,13 @@ describe("buildCorePosixToolPlugins", () => {
     plugins[ripgrepIndex] = shortCircuitingPlugin;
 
     const composed = composeMiddleware(
-      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
-      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+      plugins
+        .map((plugin) => plugin.middleware)
+        .filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({
+        callId: call.id,
+        content: "unreachable: short-circuiting plugin never delegates",
+      }),
     );
 
     const result = await composed(
@@ -492,10 +499,12 @@ describe("buildCorePosixToolPlugins", () => {
     const straddlingSecret = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, cap lands mid-key
     const secretShapedContent = `${padding}${straddlingSecret}`;
     const shortCircuitingPlugin: ToolPlugin = {
-      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: secretShapedContent,
-      }),
+      middleware:
+        () =>
+        async (call: ToolCall): Promise<ToolResult> => ({
+          callId: call.id,
+          content: secretShapedContent,
+        }),
     };
 
     const gate = createPermissionGate({
@@ -510,8 +519,13 @@ describe("buildCorePosixToolPlugins", () => {
     plugins[ripgrepIndex] = shortCircuitingPlugin;
 
     const composed = composeMiddleware(
-      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
-      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+      plugins
+        .map((plugin) => plugin.middleware)
+        .filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({
+        callId: call.id,
+        content: "unreachable: short-circuiting plugin never delegates",
+      }),
     );
 
     const result = await composed(

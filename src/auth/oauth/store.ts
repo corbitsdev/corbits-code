@@ -9,20 +9,20 @@ import { SETTINGS_DIR_NAME } from "../../branding.js";
 // and the directory 0o700. Writes go through a temp file + rename so a concurrent
 // reader never observes a torn file.
 
-export type BaseTokens = {
+export interface BaseTokens {
   access: string;
   refresh: string;
   expiresAt: number;
-};
+}
 
-export type AuthProfile<TTokens extends BaseTokens> = {
+export interface AuthProfile<TTokens extends BaseTokens> {
   name: string;
   tokens: TTokens;
   // Epoch milliseconds the profile was first authorized; informational.
   createdAt: number;
-};
+}
 
-export type AuthStore<TTokens extends BaseTokens> = {
+export interface AuthStore<TTokens extends BaseTokens> {
   authPath: (home?: string) => string;
   listProfiles: (home?: string) => Promise<AuthProfile<TTokens>[]>;
   loadProfile: (name: string, home?: string) => Promise<AuthProfile<TTokens> | undefined>;
@@ -31,17 +31,17 @@ export type AuthStore<TTokens extends BaseTokens> = {
   // Remove one profile, or all profiles when `name` is undefined. Returns the
   // names removed.
   removeProfile: (name: string | undefined, home?: string) => Promise<string[]>;
-};
+}
 
-export type AuthStoreOptions<TTokens extends BaseTokens> = {
+export interface AuthStoreOptions<TTokens extends BaseTokens> {
   // Filename under ~/.corbits/ (e.g. "codex-auth.json").
   filename: string;
   isTokens: (value: unknown) => value is TTokens;
-};
+}
 
-type AuthFile<TTokens extends BaseTokens> = {
+interface AuthFile<TTokens extends BaseTokens> {
   profiles: Record<string, AuthProfile<TTokens>>;
-};
+}
 
 function isProfile<TTokens extends BaseTokens>(
   value: unknown,
@@ -55,14 +55,20 @@ function isProfile<TTokens extends BaseTokens>(
 export function createAuthStore<TTokens extends BaseTokens>(
   options: AuthStoreOptions<TTokens>,
 ): AuthStore<TTokens> {
-  const authPath = (home: string = homedir()): string => join(home, SETTINGS_DIR_NAME, options.filename);
+  const authPath = (home: string = homedir()): string =>
+    join(home, SETTINGS_DIR_NAME, options.filename);
 
   async function readAuthFile(home: string): Promise<AuthFile<TTokens>> {
     let raw: string;
     try {
       raw = await readFile(authPath(home), "utf8");
     } catch (err) {
-      if (typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "ENOENT") {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code?: unknown }).code === "ENOENT"
+      ) {
         return { profiles: {} };
       }
       throw err;
@@ -104,7 +110,10 @@ export function createAuthStore<TTokens extends BaseTokens>(
       const file = await readAuthFile(home);
       return Object.values(file.profiles).sort((a, b) => a.name.localeCompare(b.name));
     },
-    async loadProfile(name: string, home: string = homedir()): Promise<AuthProfile<TTokens> | undefined> {
+    async loadProfile(
+      name: string,
+      home: string = homedir(),
+    ): Promise<AuthProfile<TTokens> | undefined> {
       const file = await readAuthFile(home);
       return file.profiles[name];
     },

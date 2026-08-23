@@ -27,7 +27,7 @@ import { splitFrontmatter } from "./frontmatter.js";
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-type LoadedBody = { description: string; body: string; argumentHint?: string };
+interface LoadedBody { description: string; body: string; argumentHint?: string }
 
 // Replace `$ARGUMENTS` (Claude Code / OpenCode convention) with the args string.
 function interpolate(body: string, args: string): string {
@@ -35,7 +35,10 @@ function interpolate(body: string, args: string): string {
 }
 
 function firstLineDescription(body: string, fallback: string): string {
-  const line = body.split(/\r?\n/).map((l) => l.trim()).find((l) => l.length > 0);
+  const line = body
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
   if (line === undefined) return fallback;
   return line.length > 80 ? `${line.slice(0, 77)}...` : line;
 }
@@ -63,17 +66,16 @@ function buildFlatCommand(name: string, loaded: LoadedBody): CommandDefinition {
   const def: CommandDefinition = {
     name,
     description: loaded.description,
-    handler: (args: string): CommandResult => ({ type: "send", text: interpolate(loaded.body, args) }),
+    handler: (args: string): CommandResult => ({
+      type: "send",
+      text: interpolate(loaded.body, args),
+    }),
   };
   if (loaded.argumentHint !== undefined) def.argumentHint = loaded.argumentHint;
   return def;
 }
 
-
-function buildNamespacedCommand(
-  ns: string,
-  subs: Map<string, LoadedBody>,
-): CommandDefinition {
+function buildNamespacedCommand(ns: string, subs: Map<string, LoadedBody>): CommandDefinition {
   const subcommands: SubcommandDefinition[] = [...subs.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, loaded]) => ({ name, description: loaded.description }));

@@ -77,7 +77,9 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.primaryIntent).toBe(
       "Orchestrate; DIY tiny/bounded product edits; spawn for substantial work",
     );
-    expect(skywalkerPackage.outOfLane).toContain("substantial multi-file product work without spawning");
+    expect(skywalkerPackage.outOfLane).toContain(
+      "substantial multi-file product work without spawning",
+    );
     expect(skywalkerPackage.outOfLane).toContain("catch-all worker");
     expect(skywalkerPackage.outOfLane).toContain(
       "searching the repo yourself after a worker stops without finishing",

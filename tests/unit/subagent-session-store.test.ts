@@ -56,10 +56,7 @@ describe("createSubAgentSessionStore", () => {
 
     store.appendEvent("s-2", event("inference.text.delta", { token: "Hello " }));
     store.appendEvent("s-2", event("inference.text.delta", { token: "world" }));
-    store.appendEvent(
-      "s-2",
-      event("inference.tool_call.start", { name: "grep", callId: "c1" }),
-    );
+    store.appendEvent("s-2", event("inference.tool_call.start", { name: "grep", callId: "c1" }));
     store.appendEvent(
       "s-2",
       event("inference.tool_call.delta", { argumentFragment: '{"pattern":' }),
@@ -167,7 +164,10 @@ describe("createSubAgentSessionStore", () => {
     // A running session is never pruned by the completed bound.
     store.start({ description: "live", agentId: "w", brief: "b" });
 
-    const ids = store.list().map((s) => s.id).sort();
+    const ids = store
+      .list()
+      .map((s) => s.id)
+      .sort();
     // s-1 pruned; s-2, s-3 completed retained; s-4 running.
     expect(ids).toEqual(["s-2", "s-3", "s-4"]);
     expect(store.get("s-1")).toBeUndefined();
@@ -396,8 +396,12 @@ describe("createTaskTool session recording", () => {
         return "should not complete";
       },
     });
-    const out = await call(tool, { description: "stuck looper", prompt: "spin", intent: "explore" });
-    expect(out).toContain('cancelled by operator');
+    const out = await call(tool, {
+      description: "stuck looper",
+      prompt: "spin",
+      intent: "explore",
+    });
+    expect(out).toContain("cancelled by operator");
     expect(sawAbort).toBe(true);
     const session = store.list()[0];
     expect(session?.status).toBe("cancelled");
@@ -426,7 +430,11 @@ describe("createTaskTool session recording", () => {
         return "nope";
       },
     });
-    const out = await call(tool, { description: "parent stop child", prompt: "x", intent: "explore" }, parent.signal);
+    const out = await call(
+      tool,
+      { description: "parent stop child", prompt: "x", intent: "explore" },
+      parent.signal,
+    );
     expect(out).toContain("cancelled by operator");
     expect(store.list()[0]?.status).toBe("cancelled");
   });

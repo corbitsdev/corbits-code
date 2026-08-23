@@ -1,6 +1,12 @@
 import type { ToolCall } from "@intx/types/runtime";
 import { isAbsolute, resolve } from "node:path";
-import type { Approval, ApprovalOutcome, GrantScope, PermissionRequest, RequestApproval } from "./types.js";
+import type {
+  Approval,
+  ApprovalOutcome,
+  GrantScope,
+  PermissionRequest,
+  RequestApproval,
+} from "./types.js";
 import {
   classifyTool,
   buildRequests,
@@ -20,10 +26,7 @@ import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } 
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
-import {
-  matchesWritePathAllowlist,
-  writePathDeniedReason,
-} from "./write-path-policy.js";
+import { matchesWritePathAllowlist, writePathDeniedReason } from "./write-path-policy.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -73,7 +76,9 @@ function hasExactFullCommandGrant(
   // storing a run_shell pattern).
   const normalized = stripCommentLines(fullCommand).trim();
   return approvals.some(
-    (a) => a.pattern === normalized && grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
+    (a) =>
+      a.pattern === normalized &&
+      grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
   );
 }
 
@@ -82,7 +87,7 @@ function hasExactFullCommandGrant(
 // what a grant would otherwise cover. Shared by evaluate() (which also needs
 // to know *which* guard tripped, to drive the anySecret behavior below) and
 // preGrantGuardReason (which only needs to know whether one tripped).
-type SegmentGuard = { kind: "secret" | "restricted" };
+interface SegmentGuard { kind: "secret" | "restricted" }
 
 // `cwd`/`rootsProvider`, when both supplied, let a contained or
 // permitted-sibling `git worktree add/remove` destination (see
@@ -150,7 +155,9 @@ export function preGrantGuardReason(
   // Prefer the request's process cwd when present so reconciliation uses the
   // same relative-path anchor evaluate() used when the prompt was raised.
   const restricted =
-    request.cwd !== undefined ? bindRestrictedToProcessCwd(isRestricted, request.cwd) : isRestricted;
+    request.cwd !== undefined
+      ? bindRestrictedToProcessCwd(isRestricted, request.cwd)
+      : isRestricted;
   for (const segment of segments) {
     const guard = segmentGuard(segment, restricted, request.cwd, rootsProvider);
     if (guard !== undefined) {
@@ -177,7 +184,8 @@ export function isRequestCoveredByGrant(
   workspace: GrantWorkspace,
   rootsProvider?: RootsProvider,
 ): boolean {
-  if (!grantScopeMatches(approval, request.tool, activeProviderModel, request.cwd, workspace)) return false;
+  if (!grantScopeMatches(approval, request.tool, activeProviderModel, request.cwd, workspace))
+    return false;
   if (request.tool !== "run_shell") {
     return matchesPattern(request.subject, approval.pattern);
   }
@@ -208,7 +216,7 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "task",
 ]);
 
-export type PermissionGateOptions = {
+export interface PermissionGateOptions {
   // Approvals already remembered for this directory. Used only to SEED the gate;
   // the gate copies them and owns its in-memory list, so the caller's array is
   // never mutated and two gates never cross-contaminate through a shared array.
@@ -261,9 +269,9 @@ export type PermissionGateOptions = {
   // than read from the process-wide handle so a gate built without one is
   // silent by construction.
   telemetry?: Telemetry;
-};
+}
 
-export type PermissionGate = {
+export interface PermissionGate {
   evaluate: (call: ToolCall) => Promise<GateVerdict>;
   // The gate's current in-memory approvals, including any granted this session.
   getApprovals: () => readonly Approval[];
@@ -303,7 +311,7 @@ export type PermissionGate = {
   preApprove: (tool: string, pattern: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
-};
+}
 
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
@@ -342,7 +350,9 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // existence, so every stored run_shell pattern is already in the same
     // normalized space hasExactFullCommandGrant matches against.
     const pattern =
-      tool === "run_shell" ? stripCommentLines(outcome.persist.pattern).trim() : outcome.persist.pattern;
+      tool === "run_shell"
+        ? stripCommentLines(outcome.persist.pattern).trim()
+        : outcome.persist.pattern;
     const approval: Approval =
       grant === "provider-model" && activeProviderModel !== undefined
         ? { tool, pattern, providerModel: activeProviderModel }
@@ -356,7 +366,14 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       persist?.(approval, grant);
     }
     options.onGrant?.(approval, (request) =>
-      isRequestCoveredByGrant(request, approval, activeProviderModel, isRestricted, grantWorkspace(), rootsProvider),
+      isRequestCoveredByGrant(
+        request,
+        approval,
+        activeProviderModel,
+        isRestricted,
+        grantWorkspace(),
+        rootsProvider,
+      ),
     );
   };
 
@@ -409,7 +426,11 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { allowed: true };
     }
-    if (!restricted && !shellReferencesSecret && isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)) {
+    if (
+      !restricted &&
+      !shellReferencesSecret &&
+      isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)
+    ) {
       return { allowed: true };
     }
     if (auto) {

@@ -7,7 +7,7 @@ import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 /** Wall-clock budget for a single tool `run()` invocation (outer guard). */
-export type ToolWatchdogConfig = {
+export interface ToolWatchdogConfig {
   defaultMs?: number;
   maxMs?: number;
   /**
@@ -24,7 +24,7 @@ export type ToolWatchdogConfig = {
    * changes the bound, it never leaves it unarmed.
    */
   mcpTimeoutMs?: number;
-};
+}
 
 // Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
 // is unset. Live forensics (CL-6895) showed multi-minute MCP calls that were
@@ -158,12 +158,12 @@ export function withTimeout(
  */
 export type PauseToken = number;
 
-export type PauseableTimeout = {
+export interface PauseableTimeout {
   signal: AbortSignal;
   dispose: () => void;
   pause: () => PauseToken;
   resume: (token: PauseToken) => void;
-};
+}
 
 /** Chain parent cancel without arming a run-duration timer. */
 function withParentAbort(signal: AbortSignal): PauseableTimeout {
@@ -292,15 +292,15 @@ export function withPauseableTimeout(
  * one entry per budget in the enclosing chain, each keyed to that budget's
  * own generation.
  */
-export type ChainedPauseToken = { own: PauseToken; enclosing?: ChainedPauseToken };
+export interface ChainedPauseToken { own: PauseToken; enclosing?: ChainedPauseToken }
 
 /** Per-tool budget handle visible to permission-gate code via ALS. */
-export type ToolApprovalBudget = {
+export interface ToolApprovalBudget {
   signal: AbortSignal;
   pause: () => ChainedPauseToken;
   resume: (token: ChainedPauseToken) => void;
   waitForApproval: boolean;
-};
+}
 
 const toolApprovalBudgetAls = new AsyncLocalStorage<ToolApprovalBudget>();
 
@@ -376,7 +376,7 @@ export async function preferExecuteSalvageAfterAbort(
   return undefined;
 }
 
-export type ToolExecutionWatchdogOptions = {
+export interface ToolExecutionWatchdogOptions {
   /** Override the post-abort salvage grace (tests); defaults to TOOL_EXECUTION_SALVAGE_GRACE_MS. */
   salvageGraceMs?: number;
   /**
@@ -384,7 +384,7 @@ export type ToolExecutionWatchdogOptions = {
    * the setting (resolveWaitForApproval); there is no default here.
    */
   waitForApproval: boolean;
-};
+}
 
 /**
  * Runs `execute` under a race against `parentSignal` and, when `timeoutMs` is

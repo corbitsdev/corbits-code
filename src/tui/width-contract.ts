@@ -14,30 +14,27 @@
  * to remove.
  */
 
-import { resolveRenderLib, type WidthMethod } from "@opentui/core"
+import { resolveRenderLib, type WidthMethod } from "@opentui/core";
 
-import { stringWidth, WIDTH_PROBE } from "./view/height.js"
+import { stringWidth, WIDTH_PROBE } from "./view/height.js";
 
-export type WidthContractReport = {
-  readonly agrees: boolean
-  readonly probe: string
-  readonly ours: number
-  readonly renderer: number
-  readonly widthMethod: WidthMethod
+export interface WidthContractReport {
+  readonly agrees: boolean;
+  readonly probe: string;
+  readonly ours: number;
+  readonly renderer: number;
+  readonly widthMethod: WidthMethod;
 }
 
 /** Width OpenTUI's own table assigns `text`, or null when it cannot encode it. */
-export function measureRendererWidth(
-  text: string,
-  widthMethod: WidthMethod,
-): number | null {
-  const lib = resolveRenderLib()
-  const encoded = lib.encodeUnicode(text, widthMethod)
-  if (encoded === null) return null
+export function measureRendererWidth(text: string, widthMethod: WidthMethod): number | null {
+  const lib = resolveRenderLib();
+  const encoded = lib.encodeUnicode(text, widthMethod);
+  if (encoded === null) return null;
   try {
-    return encoded.data.reduce((n, cell) => n + cell.width, 0)
+    return encoded.data.reduce((n, cell) => n + cell.width, 0);
   } finally {
-    lib.freeUnicode(encoded)
+    lib.freeUnicode(encoded);
   }
 }
 
@@ -50,24 +47,24 @@ export function checkWidthContract(
   widthMethod: WidthMethod,
   measure: (text: string, method: WidthMethod) => number | null = measureRendererWidth,
 ): WidthContractReport {
-  const ours = stringWidth(WIDTH_PROBE)
-  const renderer = measure(WIDTH_PROBE, widthMethod)
+  const ours = stringWidth(WIDTH_PROBE);
+  const renderer = measure(WIDTH_PROBE, widthMethod);
   return {
     agrees: renderer === null || renderer === ours,
     probe: WIDTH_PROBE,
     ours,
     renderer: renderer ?? ours,
     widthMethod,
-  }
+  };
 }
 
 /** Operator-facing wording for a failed check. Empty when the check passed. */
 export function widthContractNotice(report: WidthContractReport): string {
-  if (report.agrees) return ""
+  if (report.agrees) return "";
   return (
     `Terminal width mismatch: this terminal's ${report.widthMethod} table measures ` +
     `the layout probe at ${report.renderer} columns, the shell assumes ${report.ours}. ` +
     "Borders and truncation may be off by a column; set your terminal to treat " +
     "ambiguous-width characters as single-width."
-  )
+  );
 }

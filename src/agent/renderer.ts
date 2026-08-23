@@ -4,9 +4,9 @@ import { createFaremeter, formatCost } from "../cost/faremeter.js";
 import type { PricingCache } from "../cost/pricing-fetcher.js";
 import { inferenceErrorMessage } from "../inference-error-message.js";
 
-export type Renderer = {
+export interface Renderer {
   render(event: ReactorEmittedEvent): void;
-};
+}
 
 const DIM = "\x1b[2m";
 const AMBER = "\x1b[38;5;214m";
@@ -45,7 +45,13 @@ function miniDiff(oldStr: string, newStr: string): string {
 
 function formatOp(name: string): string {
   if (SILENT_TOOLS.has(name)) {
-    return name === "read_file" ? "reading" : name === "list_dir" ? "listing" : name === "search_files" ? "searching" : "grepping";
+    return name === "read_file"
+      ? "reading"
+      : name === "list_dir"
+        ? "listing"
+        : name === "search_files"
+          ? "searching"
+          : "grepping";
   }
   if (name === "run_shell") return "running";
   if (name === "write_file") return "writing";
@@ -54,23 +60,30 @@ function formatOp(name: string): string {
   return name;
 }
 
-export function createRenderer(startedAt: number, modelId?: string, pricingCache?: PricingCache | null): Renderer {
+export function createRenderer(
+  startedAt: number,
+  modelId?: string,
+  pricingCache?: PricingCache | null,
+): Renderer {
   let currentOp = "";
   let currentArg = "";
   let turnCount = 0;
   const pendingArgs = new Map<string, Record<string, unknown>>();
   const pendingNames = new Map<string, string>();
   let pendingSubmitSummary: string | undefined;
-  const faremeter = createFaremeter(modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null });
+  const faremeter = createFaremeter(
+    modelId === undefined ? {} : { modelId, pricingCache: pricingCache ?? null },
+  );
 
   function elapsedSecs(): number {
     return Math.floor((Date.now() - startedAt) / 1000);
   }
 
   function writeStatusBar(): void {
-    const opText = currentOp.length > 0
-      ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
-      : "";
+    const opText =
+      currentOp.length > 0
+        ? `${AMBER}${currentOp}${currentArg ? " " + currentArg : ""}${RESET}`
+        : "";
     const bar = `${DIM}interchange  ·  turn ${turnCount}  ·  ${formatCost(faremeter.getTotalCost())}  ·  ${RESET}${opText}${DIM}  ·  ${elapsedSecs()}s${RESET}\r`;
     process.stderr.write(bar);
   }
@@ -78,7 +91,9 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
   function writeWriteBlock(path: string, content: string): void {
     const lineCount = content.split("\n").length;
     const delta = `${GREEN}+${lineCount}${RESET}`;
-    process.stdout.write(`${verb("write")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n\n`);
+    process.stdout.write(
+      `${verb("write")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n\n`,
+    );
   }
 
   function writeEditBlock(path: string, oldStr: string, newStr: string): void {
@@ -86,15 +101,21 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
     const added = newStr ? newStr.split("\n").length : 0;
     const delta = `${GREEN}+${added}${RESET} ${RED}-${removed}${RESET}`;
     const diff = miniDiff(oldStr ?? "", newStr ?? "");
-    process.stdout.write(`${verb("edit")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n${diff}\n\n`);
+    process.stdout.write(
+      `${verb("edit")}${path}${DIM}${" ".repeat(Math.max(1, 44 - path.length))}${RESET}${delta}\n${diff}\n\n`,
+    );
   }
 
   function writeShellBlock(command: string, output: string, isError: boolean): void {
     const status = isError ? `${RED}✗${RESET}` : `${GREEN}✓${RESET}`;
     if (isError) {
-      process.stdout.write(`${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n        ${output}\n\n`);
+      process.stdout.write(
+        `${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n        ${output}\n\n`,
+      );
     } else {
-      process.stdout.write(`${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n\n`);
+      process.stdout.write(
+        `${verb("shell")}${command}${DIM}${" ".repeat(Math.max(1, 44 - command.length))}${RESET}${status}\n\n`,
+      );
     }
   }
 
@@ -113,9 +134,10 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
       case "inference.tool_call.start": {
         const name = String(e.data?.name ?? "");
         currentOp = formatOp(name);
-        currentArg = name === "read_file" || name === "list_dir" || name === "search_files" || name === "grep"
-          ? String((e.data as Record<string, unknown>).callId ?? "")
-          : "";
+        currentArg =
+          name === "read_file" || name === "list_dir" || name === "search_files" || name === "grep"
+            ? String((e.data as Record<string, unknown>).callId ?? "")
+            : "";
         break;
       }
 
@@ -140,7 +162,13 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
       }
 
       case "inference.usage": {
-        const usage = (e.data?.usage ?? {}) as { input: number; output: number; cacheRead: number; cacheWrite: number; thinking: number };
+        const usage = (e.data?.usage ?? {}) as {
+          input: number;
+          output: number;
+          cacheRead: number;
+          cacheWrite: number;
+          thinking: number;
+        };
         faremeter.addUsage(usage);
         break;
       }
@@ -200,13 +228,9 @@ export function createRenderer(startedAt: number, modelId?: string, pricingCache
             ? inferenceErrorMessage({
                 category: err.category,
                 message: rawMessage,
-                ...(typeof err.statusCode === "number"
-                  ? { statusCode: err.statusCode }
-                  : {}),
+                ...(typeof err.statusCode === "number" ? { statusCode: err.statusCode } : {}),
                 ...(err.raw !== undefined ? { raw: err.raw } : {}),
-                ...(typeof err.providerId === "string"
-                  ? { providerId: err.providerId }
-                  : {}),
+                ...(typeof err.providerId === "string" ? { providerId: err.providerId } : {}),
               })
             : rawMessage;
         writeErrorBlock(message);

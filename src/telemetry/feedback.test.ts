@@ -23,9 +23,9 @@ const noopFetch = (async () => new Response("{}", { status: 200 })) as unknown a
 
 function captureSpy(): {
   telemetry: Telemetry;
-  events: Array<{ event: string; properties: Record<string, unknown> }>;
+  events: { event: string; properties: Record<string, unknown> }[];
 } {
-  const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
+  const events: { event: string; properties: Record<string, unknown> }[] = [];
   // Ambient off, intentional on — the critical /feedback contract.
   const telemetry = createTelemetry({
     settings: {

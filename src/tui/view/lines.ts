@@ -36,7 +36,11 @@ function cellWidth(node: ViewNode, palette: ViewPalette): number {
 }
 
 // Pad a cell's segments to a target display width (left/right/center).
-function padSegments(segments: StyledLine, width: number, align: "left" | "right" | "center" = "left"): StyledLine {
+function padSegments(
+  segments: StyledLine,
+  width: number,
+  align: "left" | "right" | "center" = "left",
+): StyledLine {
   const current = segments.reduce((n, s) => n + s.text.length, 0);
   if (current >= width) return segments.map((s) => ({ ...s, text: truncate(s.text, width) })); // crude per-seg, good enough
   const remain = width - current;
@@ -94,7 +98,10 @@ export function viewToLines(
     }
 
     case "box": {
-      const innerWidth = Math.max(4, available - (node.border ? 2 : 0) - (node.padding ? 2 : 0) * 2);
+      const innerWidth = Math.max(
+        4,
+        available - (node.border ? 2 : 0) - (node.padding ? 2 : 0) * 2,
+      );
       const inner = node.children.flatMap((c) => viewToLines(c, innerWidth + PAD, palette));
       if (!node.border && !node.padding) return inner;
       const out: StyledLine[] = [];
@@ -126,7 +133,7 @@ export function viewToLines(
       }
 
       // Simple drop-right if too wide (port of allocate heuristic)
-      let widths = [...natural];
+      const widths = [...natural];
       let cols = node.columns ?? [];
       const total = () => widths.reduce((n, w) => n + w, 0) + GAP * Math.max(0, widths.length - 1);
       while (total() > available && widths.length > 1) {
@@ -135,7 +142,8 @@ export function viewToLines(
       }
       if (widths.length === 1 && widths[0]! > available) widths[0] = available;
       const leftover = available - total();
-      if (leftover > 0 && widths.length > 0) widths[widths.length - 1] = widths[widths.length - 1]! + leftover;
+      if (leftover > 0 && widths.length > 0)
+        widths[widths.length - 1] = widths[widths.length - 1]! + leftover;
 
       const lines: StyledLine[] = [];
       for (const r of allRows) {

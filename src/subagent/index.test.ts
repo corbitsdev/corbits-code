@@ -55,9 +55,6 @@ import type {
   ReactorState,
 } from "@intx/types/runtime";
 
-
-
-
 const testPermissionGate = createPermissionGate({
   approvals: [],
   interactive: false,
@@ -77,10 +74,7 @@ async function callTask(
 ): Promise<string> {
   // createTaskTool returns a full-handler AgentTool (call + signal → ToolResult).
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
-  const result = await tool.handler(
-    { id: "call-1", name: "task", arguments: args },
-    signal,
-  );
+  const result = await tool.handler({ id: "call-1", name: "task", arguments: args }, signal);
   return typeof result.content === "string" ? result.content : JSON.stringify(result.content);
 }
 
@@ -157,8 +151,12 @@ describe("sub-agent teardown", () => {
 describe("sub-agent stop helpers", () => {
   test("default turn budget is tight enough to bound runaway cost", () => {
     expect(DEFAULT_SUBAGENT_MAX_TURNS).toBe(30);
-    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(true);
-    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(false);
+    expect(subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS, DEFAULT_SUBAGENT_MAX_TURNS)).toBe(
+      true,
+    );
+    expect(
+      subAgentTurnLimitExceeded(DEFAULT_SUBAGENT_MAX_TURNS - 1, DEFAULT_SUBAGENT_MAX_TURNS),
+    ).toBe(false);
   });
 
   test("no-progress trips at the default repeat limit", () => {
@@ -651,12 +649,12 @@ describe("sub-agent stop helpers", () => {
   test("nextToolCallStreak increments on identical fingerprints and resets on change", () => {
     let streak = nextToolCallStreak(
       { lastFingerprint: undefined, consecutiveIdentical: 0 },
-      "read_file:{\"path\":\"a.ts\"}",
+      'read_file:{"path":"a.ts"}',
     );
     expect(streak.consecutiveIdentical).toBe(1);
-    streak = nextToolCallStreak(streak, "read_file:{\"path\":\"a.ts\"}");
+    streak = nextToolCallStreak(streak, 'read_file:{"path":"a.ts"}');
     expect(streak.consecutiveIdentical).toBe(2);
-    streak = nextToolCallStreak(streak, "read_file:{\"path\":\"b.ts\"}");
+    streak = nextToolCallStreak(streak, 'read_file:{"path":"b.ts"}');
     expect(streak.consecutiveIdentical).toBe(1);
     streak = nextToolCallStreak(streak, null);
     expect(streak).toEqual({ lastFingerprint: undefined, consecutiveIdentical: 0 });
@@ -848,21 +846,19 @@ describe("sub-agent stop helpers", () => {
   test("resolveSubAgentCatchOutcome always salvages a deadline hit, even with zero output", () => {
     // Zero-output edge case: no tool calls, no partial text, but an opt-in
     // deadline fired. It must not fall through to a bare rethrow.
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: true, hadProgress: false }),
-    ).toBe("salvage-deadline");
+    expect(resolveSubAgentCatchOutcome({ deadlineHit: true, hadProgress: false })).toBe(
+      "salvage-deadline",
+    );
   });
 
   test("resolveSubAgentCatchOutcome salvages a mid-run operator cancel that made progress", () => {
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: true }),
-    ).toBe("salvage-cancelled");
+    expect(resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: true })).toBe(
+      "salvage-cancelled",
+    );
   });
 
   test("resolveSubAgentCatchOutcome rethrows a pre-progress operator cancel", () => {
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false }),
-    ).toBe("rethrow");
+    expect(resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false })).toBe("rethrow");
   });
 
   test("resolveSubAgentCatchOutcome salvages a repetition abort even with zero progress", () => {
@@ -880,7 +876,7 @@ describe("sub-agent stop helpers", () => {
     const parsed = parseSubAgentReport(report);
     expect(parsed.summary).toContain("degenerate repetition");
     expect(parsed.findings).toContain("dig footer/chrome");
-        expect(parsed.blockers).toContain("will be refused");
+    expect(parsed.blockers).toContain("will be refused");
     expect(parsed.blockers).toContain("not maxTurns alone");
     const hinted = appendSubAgentParentHints(report);
     expect(hinted).toContain("Do not re-dispatch the identical brief");
@@ -915,7 +911,11 @@ describe("sub-agent stop helpers", () => {
     } as unknown as Parameters<typeof partialTextFromEvent>[0]);
     expect(wrong).toBeNull();
 
-    expect(partialTextFromEvent({ type: "tool.start", seq: 1, data: {} } as Parameters<typeof partialTextFromEvent>[0])).toBeNull();
+    expect(
+      partialTextFromEvent({ type: "tool.start", seq: 1, data: {} } as Parameters<
+        typeof partialTextFromEvent
+      >[0]),
+    ).toBeNull();
   });
 
   test("subAgentToolName reads tool.start data.call.name", () => {
@@ -935,7 +935,6 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 });
-
 
 describe("thrash edge cases", () => {
   const read = (path: string, extra: Record<string, unknown> = {}) => ({
@@ -1036,7 +1035,7 @@ describe("SubAgentDirector report-forced wiring", () => {
   }
 
   function makeInferenceDoneEvent(
-    toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>,
+    toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
   ): ReactorInboundEvent {
     return {
       type: "inference.done",
@@ -1075,7 +1074,9 @@ describe("SubAgentDirector report-forced wiring", () => {
     const capabilities = makeCapabilities();
 
     // Turn 1: model calls a tool while report-forced's window is active.
-    const doneEvent = makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]);
+    const doneEvent = makeInferenceDoneEvent([
+      { id: "tc-1", name: "read_file", args: { path: "a.ts" } },
+    ]);
     const turn1 = actionsArray(await director.decide(doneEvent, mockState, capabilities));
 
     // A tool_use turn must be followed by tool_result — report-forced must
@@ -1091,8 +1092,9 @@ describe("SubAgentDirector report-forced wiring", () => {
     const infer = turn2.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> })
-      ?.ephemeralTurns;
+    const ephemeralTurns = (
+      infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
+    )?.ephemeralTurns;
     expect(ephemeralTurns).toBeDefined();
     expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("turn budget");
   });
@@ -1110,13 +1112,18 @@ describe("SubAgentDirector report-forced wiring", () => {
 
     // Turn 2 (post-nudge): model calls another tool, well clear of the
     // single report-forced window: the follow-up infer must be a plain infer.
-    const turn2Done = makeInferenceDoneEvent([{ id: "tc-2", name: "read_file", args: { path: "b.ts" } }]);
+    const turn2Done = makeInferenceDoneEvent([
+      { id: "tc-2", name: "read_file", args: { path: "b.ts" } },
+    ]);
     await director.decide(turn2Done, mockState, capabilities);
-    const turn3 = actionsArray(await director.decide(makeToolDoneEvent("tc-2"), mockState, capabilities));
+    const turn3 = actionsArray(
+      await director.decide(makeToolDoneEvent("tc-2"), mockState, capabilities),
+    );
     const infer = turn3.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)
+      ?.ephemeralTurns;
     expect(ephemeralTurns).toBeUndefined();
   });
 });
@@ -1142,7 +1149,7 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
   }
 
   function makeInferenceDoneEvent(
-    toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>,
+    toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
   ): ReactorInboundEvent {
     return {
       type: "inference.done",
@@ -1180,7 +1187,16 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
    */
   test("soft re-read injects implement wording once, then hard thrash still stops", async () => {
     // requireEdit=true → implement wording
-    const director = new SubAgentDirector("system", [], undefined, 30, 2, undefined, Date.now, true);
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      2,
+      undefined,
+      Date.now,
+      true,
+    );
     const capabilities = makeCapabilities();
 
     // Turns 1–3: three reads of the same path (still under soft min tools).
@@ -1205,9 +1221,7 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
     }
 
     // 5th grep: total tools = 8, soft re-read should arm.
-    const softDone = makeInferenceDoneEvent([
-      { id: "g5", name: "grep", args: { pattern: "p5" } },
-    ]);
+    const softDone = makeInferenceDoneEvent([{ id: "g5", name: "grep", args: { pattern: "p5" } }]);
     const softTurn = actionsArray(await director.decide(softDone, mockState, capabilities));
     // Soft is not a stop — tools still execute.
     expect(softTurn.find((a) => a.type === "execute_tools")).toBeDefined();
@@ -1220,7 +1234,7 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
     expect(softInfer).toBeDefined();
     if (softInfer === undefined || softInfer.type !== "infer") throw new Error("expected infer");
     const softEphemeral = (
-      softInfer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
+      softInfer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
     )?.ephemeralTurns;
     expect(softEphemeral?.[0]?.content?.[0]?.text).toContain("Edit a file");
     expect(softEphemeral?.[0]?.content?.[0]?.text).not.toContain("Expand Findings");
@@ -1272,7 +1286,7 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
     const text = (
-      infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
+      infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
     )?.ephemeralTurns?.[0]?.content?.[0]?.text;
     expect(text).toContain("Expand Findings");
     expect(text).not.toContain("Edit a file");
@@ -1352,7 +1366,10 @@ describe("SubAgentDirector stall management", () => {
   }
 
   function toolDoneEvent(callId: string): ReactorInboundEvent {
-    return { type: "tool.done", result: { callId, content: "ok" } } as unknown as ReactorInboundEvent;
+    return {
+      type: "tool.done",
+      result: { callId, content: "ok" },
+    } as unknown as ReactorInboundEvent;
   }
 
   function stallPing(): ReactorInboundEvent {
@@ -1375,7 +1392,10 @@ describe("SubAgentDirector stall management", () => {
     const actions = actionsArray(await director.decide(stallPing(), mockState, capabilities));
     expect(actions.some((a) => a.type === "reply")).toBe(false);
     const infer = actions.find((a) => a.type === "infer");
-    const options = infer?.type === "infer" ? (infer.options as { ephemeralTurns?: unknown[] } | undefined) : undefined;
+    const options =
+      infer?.type === "infer"
+        ? (infer.options as { ephemeralTurns?: unknown[] } | undefined)
+        : undefined;
     expect(options?.ephemeralTurns).toBeUndefined();
   });
 
@@ -1392,8 +1412,9 @@ describe("SubAgentDirector stall management", () => {
     const infer = actions.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (infer.options as { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> })
-      ?.ephemeralTurns;
+    const ephemeralTurns = (
+      infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
+    )?.ephemeralTurns;
     expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("background");
   });
 
@@ -1439,7 +1460,8 @@ describe("SubAgentDirector stall management", () => {
     const infer = actions.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
+    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)
+      ?.ephemeralTurns;
     // A fresh first stall nudges again rather than immediately escalating.
     expect(ephemeralTurns).toBeDefined();
   });
@@ -1563,7 +1585,11 @@ describe("createTaskTool", () => {
     let captured: RunSubAgentParams | undefined;
     const settings = {
       providers: {
-        "profile-p": { baseURL: "http://profile", apiKey: "k", models: ["profile-model", "pinned-model"] },
+        "profile-p": {
+          baseURL: "http://profile",
+          apiKey: "k",
+          models: ["profile-model", "pinned-model"],
+        },
       },
     };
     const tool = createTaskTool({
@@ -1734,18 +1760,24 @@ describe("createTaskTool", () => {
       run: async () => forcedStopReport("turn-budget", "partial"),
     });
 
-    const result = await callTask(tool, { description: "Budget", prompt: "Work", intent: "explore" });
+    const result = await callTask(tool, {
+      description: "Budget",
+      prompt: "Work",
+      intent: "explore",
+    });
 
     expect(result).toContain("turn budget");
     expect(result).toContain("Turn budget reached");
   });
 
   test("forwards sandbox deps (permission gate and inherited MCP tools) to runSubAgent", async () => {
-    const inherited = [{
-      definition: { name: "mcp__srv__tool", description: "Test MCP tool", inputSchema: {} },
-      kind: "string" as const,
-      handler: async () => "ok",
-    }];
+    const inherited = [
+      {
+        definition: { name: "mcp__srv__tool", description: "Test MCP tool", inputSchema: {} },
+        kind: "string" as const,
+        handler: async () => "ok",
+      },
+    ];
     let captured: RunSubAgentParams | undefined;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
@@ -1819,7 +1851,11 @@ describe("createTaskTool", () => {
         return forcedStopReport("cancelled", "partial from tools");
       },
     });
-    const out = await callTask(tool, { description: "signal", prompt: "x", intent: "explore" }, parent.signal);
+    const out = await callTask(
+      tool,
+      { description: "signal", prompt: "x", intent: "explore" },
+      parent.signal,
+    );
     expect(linkedAbort).toBe(true);
     expect(captured?.signal?.aborted).toBe(true);
     expect(out).toContain("cancelled");
@@ -1861,7 +1897,11 @@ describe("createTaskTool", () => {
         throw err;
       },
     });
-    const out = await callTask(tool, { description: "pre-progress", prompt: "x", intent: "explore" });
+    const out = await callTask(tool, {
+      description: "pre-progress",
+      prompt: "x",
+      intent: "explore",
+    });
     expect(out).toContain("cancelled by operator");
     expect(out).not.toContain("## Summary");
   });
@@ -1961,7 +2001,11 @@ describe("createTaskTool", () => {
     });
     const runner = createDynamicToolRunner([task], { defaultMs: 10_000 });
     const pending = runner.run(
-      { id: "int-1", name: "task", arguments: { description: "race", prompt: "x", intent: "explore" } },
+      {
+        id: "int-1",
+        name: "task",
+        arguments: { description: "race", prompt: "x", intent: "explore" },
+      },
       parent.signal,
     );
     await new Promise((r) => setTimeout(r, 15));
@@ -2107,7 +2151,9 @@ describe("buildDispatchBrief typed spawn contract", () => {
     expect(full).toContain("## Report shape");
     expect(full).toContain("Focus Findings on: files and pass counts");
     // Success criteria section precedes Suggested checklist.
-    expect(full.indexOf("## Success criteria")).toBeLessThan(full.indexOf("## Suggested checklist"));
+    expect(full.indexOf("## Success criteria")).toBeLessThan(
+      full.indexOf("## Suggested checklist"),
+    );
   });
 
   test("omits Intent / Success criteria / Do not / report_focus when unset (back-compat)", () => {
@@ -2202,7 +2248,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(second.dispatchCount).toBe(2);
   });
 
-    test("successful complete resets retry budget; thrash hard-block is sticky", () => {
+  test("successful complete resets retry budget; thrash hard-block is sticky", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "ok job" });
     expect(ledger.admit(fp).ok).toBe(true);
@@ -2242,11 +2288,17 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(classifyBriefSalvage(forcedStopReport("never-edited", "x"))).toBe("never-edited");
     expect(classifyBriefSalvage(forcedStopReport("no-ship", "x"))).toBe("no-ship");
     expect(classifyBriefSalvage(forcedStopReport("turn-budget", "x"))).toBe("turn-budget");
-    expect(classifyBriefSalvage("## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n")).toBeNull();
+    expect(
+      classifyBriefSalvage(
+        "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n",
+      ),
+    ).toBeNull();
   });
 
   test("classifyBriefSalvage maps incomplete-report salvage", () => {
-    expect(classifyBriefSalvage(forcedStopReport("incomplete-report", "x"))).toBe("incomplete-report");
+    expect(classifyBriefSalvage(forcedStopReport("incomplete-report", "x"))).toBe(
+      "incomplete-report",
+    );
   });
 
   test("turn-budget parent hint flips after re-dispatch threshold", () => {
@@ -2261,7 +2313,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(third).toContain(TURN_BUDGET_STOP_PARENT_HINT.slice(1, 40));
   });
 
-    test("createTaskTool refuses identical re-dispatch after thrash salvage", async () => {
+  test("createTaskTool refuses identical re-dispatch after thrash salvage", async () => {
     const thrash = forcedStopReport("thrash", "Re-read pressure");
     let runs = 0;
     const sessions = createSubAgentSessionStore();
@@ -2336,8 +2388,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
 
   test("createTaskTool success resets turn-budget retry budget", async () => {
     const budget = forcedStopReport("turn-budget", "partial");
-    const ok =
-      "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n";
+    const ok = "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n";
     let runs = 0;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,

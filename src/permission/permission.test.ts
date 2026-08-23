@@ -14,16 +14,28 @@ import {
 } from "./command.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals } from "./authz-grants.js";
-import { classifyTool, buildRequests, isAutoAllowedShellCall, isSingleShellCommand } from "./classify.js";
+import {
+  classifyTool,
+  buildRequests,
+  isAutoAllowedShellCall,
+  isSingleShellCommand,
+} from "./classify.js";
 import { createPermissionGate } from "./gate.js";
-import { createMcpToolPermissionRegistry, registerMcpClientTools } from "../mcp/tool-permissions.js";
+import {
+  createMcpToolPermissionRegistry,
+  registerMcpClientTools,
+} from "../mcp/tool-permissions.js";
 import { listWorktreeRoots, createWorktreeRootsProvider } from "./worktree-roots.js";
 import { createPathRestriction, resolveWorkspacePath } from "./path-restriction.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 
-const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+const shellCall = (command: string): ToolCall => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 describe("isShellCommentOnly", () => {
   test("full-line comments and empty lines are comment-only", () => {
@@ -129,11 +141,9 @@ describe("splitChainedCommand", () => {
   });
 
   test("does not split inside a subshell; a fully wrapped group splits into its inner commands", () => {
-    expect(splitChainedCommand("(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)")).toEqual([
-      "cd packages/shared",
-      "bunx tsc --noEmit 2>&1",
-      "tail -3",
-    ]);
+    expect(splitChainedCommand("(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)")).toEqual(
+      ["cd packages/shared", "bunx tsc --noEmit 2>&1", "tail -3"],
+    );
     expect(splitChainedCommand("echo start && (cd apps/web && bun test) && echo done")).toEqual([
       "echo start",
       "cd apps/web",
@@ -144,7 +154,10 @@ describe("splitChainedCommand", () => {
 
   test("a subshell with trailing words stays one segment", () => {
     expect(splitChainedCommand("(cd a && b) 2>&1")).toEqual(["(cd a && b) 2>&1"]);
-    expect(splitChainedCommand("(cd a && b) 2>&1 | tail -5")).toEqual(["(cd a && b) 2>&1", "tail -5"]);
+    expect(splitChainedCommand("(cd a && b) 2>&1 | tail -5")).toEqual([
+      "(cd a && b) 2>&1",
+      "tail -5",
+    ]);
   });
 
   test("command substitution is not a chain boundary", () => {
@@ -158,7 +171,11 @@ describe("splitChainedCommand", () => {
 
 describe("tokenize", () => {
   test("treats a quoted run as one token", () => {
-    expect(tokenize(`curl -s "https://a.com/x?y=1"`)).toEqual(["curl", "-s", "https://a.com/x?y=1"]);
+    expect(tokenize(`curl -s "https://a.com/x?y=1"`)).toEqual([
+      "curl",
+      "-s",
+      "https://a.com/x?y=1",
+    ]);
   });
 
   test("a backtick pair inside double quotes still surfaces its content as a bare token", () => {
@@ -256,13 +273,28 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
 
   test("allows package-compatible wildcard grants", async () => {
     expect(
-      await evaluateApprovals({ tool: "run_shell", subject: "npm test", approvals, workspace: noWorkspace }),
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "npm test",
+        approvals,
+        workspace: noWorkspace,
+      }),
     ).toBe(true);
     expect(
-      await evaluateApprovals({ tool: "run_shell", subject: "curl x", approvals, workspace: noWorkspace }),
+      await evaluateApprovals({
+        tool: "run_shell",
+        subject: "curl x",
+        approvals,
+        workspace: noWorkspace,
+      }),
     ).toBe(false);
     expect(
-      await evaluateApprovals({ tool: "write_file", subject: "src/a.ts", approvals, workspace: noWorkspace }),
+      await evaluateApprovals({
+        tool: "write_file",
+        subject: "src/a.ts",
+        approvals,
+        workspace: noWorkspace,
+      }),
     ).toBe(true);
   });
 
@@ -465,7 +497,9 @@ describe("buildRequests", () => {
     // Scopes derive from the single real segment, not the comment.
     expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# *");
     expect(reqs[0]?.scopes.map((s) => s.pattern)).not.toContain("# worktree");
-    expect(reqs[0]?.scopes.some((s) => s.pattern !== null && s.pattern.startsWith("git"))).toBe(true);
+    expect(reqs[0]?.scopes.some((s) => s.pattern !== null && s.pattern.startsWith("git"))).toBe(
+      true,
+    );
   });
 
   test("trailing comments on a real command still produce one request", () => {
@@ -482,14 +516,22 @@ describe("buildRequests", () => {
   });
 
   test("unknown ask-tier tools preserve arguments for approval display", () => {
-    const reqs = buildRequests({ id: "c", name: "some_plugin_tool", arguments: { query: "hono.dev web framework" } });
+    const reqs = buildRequests({
+      id: "c",
+      name: "some_plugin_tool",
+      arguments: { query: "hono.dev web framework" },
+    });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.subject).toBe("some_plugin_tool");
     expect(reqs[0]?.arguments).toEqual({ query: "hono.dev web framework" });
   });
 
   test("web_fetch is keyed on the requested URL, not the tool name", () => {
-    const reqs = buildRequests({ id: "c", name: "web_fetch", arguments: { url: "https://example.com/docs" } });
+    const reqs = buildRequests({
+      id: "c",
+      name: "web_fetch",
+      arguments: { url: "https://example.com/docs" },
+    });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.tool).toBe("web_fetch");
     expect(reqs[0]?.subject).toBe("https://example.com/docs");
@@ -497,7 +539,11 @@ describe("buildRequests", () => {
   });
 
   test("web_search is keyed on the query, allow-always scoped to the tool", () => {
-    const reqs = buildRequests({ id: "c", name: "web_search", arguments: { query: "hono.dev web framework" } });
+    const reqs = buildRequests({
+      id: "c",
+      name: "web_search",
+      arguments: { query: "hono.dev web framework" },
+    });
     expect(reqs).toHaveLength(1);
     expect(reqs[0]?.tool).toBe("web_search");
     expect(reqs[0]?.subject).toBe("hono.dev web framework");
@@ -720,7 +766,7 @@ describe("gate authorizes shell chains as one block with per-segment security", 
 
   test("dangerous if/then body still prompts once for the full block", async () => {
     const prompted: string[] = [];
-    const script = 'if true; then\nrm -rf /tmp/x\nfi';
+    const script = "if true; then\nrm -rf /tmp/x\nfi";
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async (request) => {
@@ -800,7 +846,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -859,7 +908,11 @@ describe("createPermissionGate", () => {
   });
 
   test("non-interactive denies an unapproved consequential call", async () => {
-    const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: false });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+    });
     const verdict = await gate.evaluate(shellCall("curl x"));
     expect(verdict.allowed).toBe(false);
   });
@@ -868,7 +921,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -879,11 +935,17 @@ describe("createPermissionGate", () => {
   test("reset clears session grants but keeps seeded persisted approvals", async () => {
     let asked = 0;
     const sessionScope: PermissionRequest["scopes"][number] = {
-      id: "s", label: "", pattern: "curl *", grant: "session",
+      id: "s",
+      label: "",
+      pattern: "curl *",
+      grant: "session",
     };
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
-      requestApproval: async () => { asked++; return { allow: true, persist: sessionScope }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true, persist: sessionScope };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -908,7 +970,10 @@ describe("createPermissionGate", () => {
 
   test("exposes session grants and revokes one live without touching persisted ones", async () => {
     const sessionScope: PermissionRequest["scopes"][number] = {
-      id: "s", label: "", pattern: "curl *", grant: "session",
+      id: "s",
+      label: "",
+      pattern: "curl *",
+      grant: "session",
     };
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
@@ -927,7 +992,10 @@ describe("createPermissionGate", () => {
 
   test("setSeededApprovals swaps the persisted portion and keeps session grants", async () => {
     const sessionScope: PermissionRequest["scopes"][number] = {
-      id: "s", label: "", pattern: "curl *", grant: "session",
+      id: "s",
+      label: "",
+      pattern: "curl *",
+      grant: "session",
     };
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
@@ -947,10 +1015,18 @@ describe("createPermissionGate", () => {
     const approvals: Approval[] = [];
     const persisted: Approval[] = [];
     let asked = 0;
-    const persistScope: PermissionRequest["scopes"][number] = { id: "prefix-1", label: "", pattern: "npm *", grant: "project" };
+    const persistScope: PermissionRequest["scopes"][number] = {
+      id: "prefix-1",
+      label: "",
+      pattern: "npm *",
+      grant: "project",
+    };
     const gate = createPermissionGate({
       approvals,
-      requestApproval: async () => { asked++; return { allow: true, persist: persistScope }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true, persist: persistScope };
+      },
       persist: (a) => persisted.push(a),
       interactive: true,
       skipPermissions: false,
@@ -977,7 +1053,10 @@ describe("createPermissionGate", () => {
     const full = "npm i && curl evil";
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async (req) => { seen.push(req.subject); return { allow: false }; },
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -992,7 +1071,10 @@ describe("createPermissionGate", () => {
     const full = "npm ls --all | sort";
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async (req) => { seen.push(req.subject); return { allow: true }; },
+      requestApproval: async (req) => {
+        seen.push(req.subject);
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -1006,14 +1088,25 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const writeVerdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const writeVerdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(writeVerdict.allowed).toBe(true);
-    const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
+    const editVerdict = await gate.evaluate({
+      id: "c",
+      name: "edit_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(editVerdict.allowed).toBe(true);
     // Benign built-ins a hands-off run should not stop for.
     for (const name of ["present", "tool_search", "use_skill", "search_agents", "task"]) {
@@ -1031,7 +1124,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -1044,12 +1140,19 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "mcp__acme__delete_service", arguments: { id: "svc" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "mcp__acme__delete_service",
+      arguments: { id: "svc" },
+    });
     expect(verdict.allowed).toBe(false);
     expect(asked).toBe(1);
   });
@@ -1058,7 +1161,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1072,12 +1178,19 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "src/a.ts" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -1086,19 +1199,30 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: false,
     });
     expect(gate.getAuto()).toBe(false);
-    const denied = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const denied = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(denied.allowed).toBe(false);
     expect(asked).toBe(1);
 
     gate.setAuto(true);
     expect(gate.getAuto()).toBe(true);
-    const allowed = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const allowed = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(allowed.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -1107,25 +1231,40 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: false,
     });
     expect(gate.getSkipPermissions()).toBe(false);
-    const denied = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const denied = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(denied.allowed).toBe(false);
     expect(asked).toBe(1);
 
     gate.setSkipPermissions(true);
     expect(gate.getSkipPermissions()).toBe(true);
-    const allowed = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const allowed = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(allowed.allowed).toBe(true);
     expect(asked).toBe(1);
 
     gate.setSkipPermissions(false);
     expect(gate.getSkipPermissions()).toBe(false);
-    const deniedAgain = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/a.ts" } });
+    const deniedAgain = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(deniedAgain.allowed).toBe(false);
     expect(asked).toBe(2);
   });
@@ -1134,7 +1273,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1149,7 +1291,10 @@ describe("createPermissionGate", () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1168,7 +1313,10 @@ describe("createPermissionGate", () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-worktree-policy-"));
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1211,7 +1359,10 @@ describe("createPermissionGate", () => {
     mkdirSync(otherRoot);
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1253,7 +1404,10 @@ describe("createPermissionGate", () => {
       let asked = 0;
       const gate = createPermissionGate({
         approvals: [],
-        requestApproval: async () => { asked++; return { allow: false }; },
+        requestApproval: async () => {
+          asked++;
+          return { allow: false };
+        },
         interactive: true,
         skipPermissions: false,
         auto: true,
@@ -1311,7 +1465,10 @@ describe("createPermissionGate", () => {
       let asked = 0;
       const gate = createPermissionGate({
         approvals: [],
-        requestApproval: async () => { asked++; return { allow: true }; },
+        requestApproval: async () => {
+          asked++;
+          return { allow: true };
+        },
         interactive: true,
         skipPermissions: false,
         auto: true,
@@ -1346,7 +1503,11 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       auto: true,
     });
-    for (const command of ["rm -rf build", "bun test; rm -rf ./tmp-out", "/bin/rm -rf node_modules"]) {
+    for (const command of [
+      "rm -rf build",
+      "bun test; rm -rf ./tmp-out",
+      "/bin/rm -rf node_modules",
+    ]) {
       asked = 0;
       const verdict = await gate.evaluate(shellCall(command));
       expect(asked).toBeGreaterThan(0);
@@ -1397,12 +1558,20 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    for (const command of ["npm test", "npm run build", "git add src/a.ts", "grep install README.md"]) {
+    for (const command of [
+      "npm test",
+      "npm run build",
+      "git add src/a.ts",
+      "grep install README.md",
+    ]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
@@ -1431,7 +1600,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1452,7 +1624,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -1471,7 +1646,7 @@ describe("createPermissionGate", () => {
   test("auto mode peels bash/sh/zsh -c wrappers for recursive rm", async () => {
     const cases = [
       "bash -c 'rm -rf build'",
-      "sh -c \"rm -rf ./tmp\"",
+      'sh -c "rm -rf ./tmp"',
       "zsh -c 'rm -rf node_modules'",
       "/bin/bash -c 'rm -rf dist'",
       "bash -lc 'rm -rf out'",
@@ -1504,7 +1679,7 @@ describe("createPermissionGate", () => {
     });
     for (const command of [
       "bash -c 'echo hi > src/a.ts'",
-      "sh -c \"sed -i s/a/b/ src/a.ts\"",
+      'sh -c "sed -i s/a/b/ src/a.ts"',
       "bash -c 'echo x | tee src/a.ts'",
     ]) {
       const verdict = await gate.evaluate(shellCall(command));
@@ -1516,7 +1691,7 @@ describe("createPermissionGate", () => {
   test("auto mode peels shell -c wrappers for dependency-install ask", async () => {
     for (const command of [
       "bash -c 'npm install'",
-      "sh -c \"pip install requests\"",
+      'sh -c "pip install requests"',
       "env bash -c 'bun add zod'",
       "nice sh -c 'yarn add react'",
       "timeout 30 bash -c 'npm i lodash'",
@@ -1678,7 +1853,7 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       auto: true,
     });
-    for (const command of ["bash -c 'echo hello'", "sh -c \"git status\"", "bash -c 'npm test'"]) {
+    for (const command of ["bash -c 'echo hello'", 'sh -c "git status"', "bash -c 'npm test'"]) {
       const verdict = await gate.evaluate(shellCall(command));
       expect(verdict.allowed).toBe(true);
     }
@@ -1693,7 +1868,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: true,
     });
@@ -1712,7 +1890,11 @@ describe("createPermissionGate", () => {
       interactive: false,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/evil.ts" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/evil.ts" },
+    });
     expect(verdict.allowed).toBe(false);
     expect("reason" in verdict && verdict.reason.length > 0).toBe(true);
   });
@@ -1724,7 +1906,10 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: false,
       skipPermissions: false,
     });
@@ -1743,13 +1928,20 @@ describe("createPermissionGate", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
 
-    const editVerdict = await gate.evaluate({ id: "c", name: "edit_file", arguments: { path: "src/a.ts" } });
+    const editVerdict = await gate.evaluate({
+      id: "c",
+      name: "edit_file",
+      arguments: { path: "src/a.ts" },
+    });
     expect(editVerdict.allowed).toBe(true);
     // Shell commands are also auto-approved in auto mode (no callback needed).
     const shellVerdict = await gate.evaluate(shellCall("curl x"));
@@ -1766,7 +1958,12 @@ describe("createPermissionGate", () => {
   // and NEVER when pattern is null ("just this once" approval).
   test("persist fires exactly once for a non-null pattern approval", async () => {
     const persisted: Approval[] = [];
-    const persistScope: PermissionRequest["scopes"][number] = { id: "exact", label: "", pattern: "curl x", grant: "project" };
+    const persistScope: PermissionRequest["scopes"][number] = {
+      id: "exact",
+      label: "",
+      pattern: "curl x",
+      grant: "project",
+    };
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({ allow: true, persist: persistScope }),
@@ -1784,7 +1981,11 @@ describe("createPermissionGate", () => {
   test("persist never fires when pattern is null (one-time approval)", async () => {
     const persisted: Approval[] = [];
     // pattern: null signals "allow just this once — do not remember"
-    const oneTimeScope: PermissionRequest["scopes"][number] = { id: "once", label: "", pattern: null };
+    const oneTimeScope: PermissionRequest["scopes"][number] = {
+      id: "once",
+      label: "",
+      pattern: null,
+    };
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({ allow: true, persist: oneTimeScope }),
@@ -1942,7 +2143,12 @@ describe("createPermissionGate", () => {
         asked++;
         return {
           allow: true,
-          persist: { id: "exact", label: "Always allow this exact command", pattern: req.subject, grant: "project" },
+          persist: {
+            id: "exact",
+            label: "Always allow this exact command",
+            pattern: req.subject,
+            grant: "project",
+          },
         };
       },
       persist: (a) => persisted.push(a),
@@ -1960,7 +2166,11 @@ describe("createPermissionGate", () => {
   // The gate must own its approval state, not mutate the caller's array.
   test("gate does not mutate the caller's approvals array and exposes its own via getApprovals", async () => {
     const seed: Approval[] = [];
-    const persistScope: PermissionRequest["scopes"][number] = { id: "p", label: "", pattern: "npm *" };
+    const persistScope: PermissionRequest["scopes"][number] = {
+      id: "p",
+      label: "",
+      pattern: "npm *",
+    };
     const gate = createPermissionGate({
       approvals: seed,
       requestApproval: async () => ({ allow: true, persist: persistScope }),
@@ -1996,12 +2206,17 @@ describe("createPermissionGate", () => {
 });
 
 describe("scoped grants", () => {
-  const scopeFor = (grant: "project" | "global" | "provider-model"): PermissionRequest["scopes"][number] => ({
-    id: grant, label: "", pattern: "npm *", grant,
+  const scopeFor = (
+    grant: "project" | "global" | "provider-model",
+  ): PermissionRequest["scopes"][number] => ({
+    id: grant,
+    label: "",
+    pattern: "npm *",
+    grant,
   });
 
   test("persist receives the chosen grant scope", async () => {
-    const routed: Array<{ approval: Approval; scope: string }> = [];
+    const routed: { approval: Approval; scope: string }[] = [];
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => ({ allow: true, persist: scopeFor("global") }),
@@ -2027,14 +2242,21 @@ describe("scoped grants", () => {
       model: "gpt-5",
     });
     expect((await gate.evaluate(shellCall("npm test"))).allowed).toBe(true);
-    expect(routed[0]).toEqual({ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" });
+    expect(routed[0]).toEqual({
+      tool: "run_shell",
+      pattern: "npm *",
+      providerModel: "openai:gpt-5",
+    });
   });
 
   test("a seeded provider-model approval auto-allows when the gate's model matches", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" }],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       providerName: "openai",
@@ -2065,7 +2287,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2078,7 +2303,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2102,7 +2330,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2120,7 +2351,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2134,7 +2368,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2150,7 +2387,10 @@ describe("preApprove", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2234,7 +2474,7 @@ describe("isAutoAllowedShellCall", () => {
 
   test("does not auto-allow find dangerous flags hidden behind quotes", () => {
     expect(isAutoAllowedShellCall(shellCall("find . '-delete'"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("find . \"-delete\""))).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall('find . "-delete"'))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("find . -name '*.ts' '-delete'"))).toBe(false);
     expect(isAutoAllowedShellCall(shellCall("find . '-execdir' cat"))).toBe(false);
   });
@@ -2259,7 +2499,10 @@ describe("isAutoAllowedShellCall", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2272,7 +2515,10 @@ describe("isAutoAllowedShellCall", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2289,7 +2535,10 @@ describe("createPermissionGate restricted paths", () => {
     createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { onAsk(); return { allow: true }; },
+      requestApproval: async () => {
+        onAsk();
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2297,7 +2546,11 @@ describe("createPermissionGate restricted paths", () => {
   test("reading a normal source file stays allow-tier", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "src/index.ts" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: "src/index.ts" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2305,7 +2558,11 @@ describe("createPermissionGate restricted paths", () => {
   test("reading an .agent-state file is allow-tier (session transcripts are meant to be read)", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".agent-state/run.json" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: ".agent-state/run.json" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2313,7 +2570,11 @@ describe("createPermissionGate restricted paths", () => {
   test("reading a gitignored file is allow-tier", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: "node_modules/foo/index.js" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2321,7 +2582,11 @@ describe("createPermissionGate restricted paths", () => {
   test("writing an .agent-state file asks for approval", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: ".agent-state/run.json", content: "x" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: ".agent-state/run.json", content: "x" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -2331,12 +2596,19 @@ describe("createPermissionGate restricted paths", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "node_modules/foo/index.js", content: "x" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "node_modules/foo/index.js", content: "x" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2349,7 +2621,11 @@ describe("createPermissionGate restricted paths", () => {
       interactive: true,
       skipPermissions: false,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: ".agent-state/run.json", content: "x" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: ".agent-state/run.json", content: "x" },
+    });
     expect(verdict.allowed).toBe(false);
   });
 
@@ -2376,12 +2652,20 @@ describe("createPermissionGate restricted paths", () => {
     const gate = restrictedGate(() => {
       throw new Error("the plugin should block before the gate is ever consulted for approval");
     });
-    const gateVerdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: ".env" } });
+    const gateVerdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: ".env" },
+    });
     expect(gateVerdict.allowed).toBe(true);
 
     const guardMiddleware = secretGuardPlugin().middleware;
     if (guardMiddleware === undefined) throw new Error("secretGuardPlugin must provide middleware");
-    const next = async (call: ToolCall) => ({ callId: call.id, content: "leaked secret", isError: false });
+    const next = async (call: ToolCall) => ({
+      callId: call.id,
+      content: "leaked secret",
+      isError: false,
+    });
     const pluginResult = await guardMiddleware(next)(
       { id: "c", name: "read_file", arguments: { path: ".env" } },
       new AbortController().signal,
@@ -2399,7 +2683,10 @@ describe("createPermissionGate restricted paths", () => {
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "cat *" }],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2413,7 +2700,10 @@ describe("createPermissionGate restricted paths", () => {
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "cat *" }],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2427,7 +2717,10 @@ describe("createPermissionGate restricted paths", () => {
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: "cat *" }],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2442,7 +2735,10 @@ describe("createPermissionGate restricted paths", () => {
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: command }],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -2460,7 +2756,10 @@ describe("read-only tools in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2482,7 +2781,10 @@ describe("read-only tools in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2501,12 +2803,19 @@ describe("read-only tools in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "read_file", arguments: { path: "node_modules/foo/index.js" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "read_file",
+      arguments: { path: "node_modules/foo/index.js" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2516,17 +2825,27 @@ describe("read-only tools in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    expect((await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed).toBe(true);
-    expect((await gate.evaluate({ id: "c", name: "mcp__linear__get_issue", arguments: { id: "X-1" } })).allowed).toBe(
-      true,
-    );
-    expect((await gate.evaluate({ id: "c", name: "mcp__acme__save_project", arguments: {} })).allowed).toBe(false);
-    expect((await gate.evaluate({ id: "c", name: "some_unknown_tool", arguments: {} })).allowed).toBe(false);
+    expect(
+      (await gate.evaluate({ id: "c", name: "mcp__acme__list_projects", arguments: {} })).allowed,
+    ).toBe(true);
+    expect(
+      (await gate.evaluate({ id: "c", name: "mcp__linear__get_issue", arguments: { id: "X-1" } }))
+        .allowed,
+    ).toBe(true);
+    expect(
+      (await gate.evaluate({ id: "c", name: "mcp__acme__save_project", arguments: {} })).allowed,
+    ).toBe(false);
+    expect(
+      (await gate.evaluate({ id: "c", name: "some_unknown_tool", arguments: {} })).allowed,
+    ).toBe(false);
     expect(asked).toBe(2);
   });
 });
@@ -2539,12 +2858,19 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: "src/permission/scratch.ts" } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: "src/permission/scratch.ts" },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });
@@ -2556,7 +2882,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
       approvals: [],
       cwd,
       rootsProvider: () => [realpathSync(worktree)],
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2575,7 +2904,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2597,12 +2929,19 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "write_file", arguments: { path: target } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: target },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -2619,7 +2958,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd: workspace,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2643,7 +2985,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd: workspace,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2665,12 +3010,19 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
     });
-    const verdict = await gate.evaluate({ id: "c", name: "run_shell", arguments: { command: `cat ${target}` } });
+    const verdict = await gate.evaluate({
+      id: "c",
+      name: "run_shell",
+      arguments: { command: `cat ${target}` },
+    });
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -2687,7 +3039,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd: workspace,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2706,7 +3061,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2725,7 +3083,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2744,7 +3105,10 @@ describe("workspace-scoped autonomy in auto mode", () => {
     const gate = createPermissionGate({
       approvals: [],
       cwd,
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2795,7 +3159,10 @@ describe("listWorktreeRoots", () => {
       approvals: [],
       cwd: repo,
       rootsProvider: () => roots,
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2830,7 +3197,9 @@ describe("listWorktreeRoots", () => {
     const { repo, worktree } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) => Promise.resolve({ callId: call.id, content: "ok" }));
+    const handler = plugin.middleware!((call) =>
+      Promise.resolve({ callId: call.id, content: "ok" }),
+    );
     const result = await handler(
       { id: "c", name: "read_file", arguments: { path: join("..", "secondary", "notes.md") } },
       new AbortController().signal,
@@ -2844,7 +3213,9 @@ describe("listWorktreeRoots", () => {
     const outside = mkdtempSync(join(tmpdir(), "intercode-unrelated-plugin-"));
     const relativeToOutside = relative(repo, join(outside, "payload.ts"));
     const plugin = pathEscapePlugin(repo, () => roots);
-    const handler = plugin.middleware!((call) => Promise.resolve({ callId: call.id, content: "ok" }));
+    const handler = plugin.middleware!((call) =>
+      Promise.resolve({ callId: call.id, content: "ok" }),
+    );
     const result = await handler(
       { id: "c", name: "read_file", arguments: { path: relativeToOutside } },
       new AbortController().signal,
@@ -2875,7 +3246,10 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       approvals: [],
       cwd: repo,
       rootsProvider: createWorktreeRootsProvider(repo),
-      requestApproval: async () => { asked++; return { allow: false }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -2899,7 +3273,10 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       approvals: [],
       cwd: repo,
       rootsProvider: createWorktreeRootsProvider(repo),
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
       auto: true,
@@ -3029,7 +3406,9 @@ describe("stripCommentLines", () => {
   });
 
   test("removes multiple comment lines chained through a real command", () => {
-    expect(stripCommentLines("# first\n# second\nls -la\n# trailing\necho done")).toBe("ls -la\necho done");
+    expect(stripCommentLines("# first\n# second\nls -la\n# trailing\necho done")).toBe(
+      "ls -la\necho done",
+    );
   });
 
   test("a comment-only command normalizes to the empty string", () => {
@@ -3201,7 +3580,10 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       cwd: repo,
       requestApproval: async () => {
         asked++;
-        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" } };
+        return {
+          allow: true,
+          persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" },
+        };
       },
       interactive: true,
       skipPermissions: false,
@@ -3235,7 +3617,10 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       cwd: repo,
       requestApproval: async () => {
         asked++;
-        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" } };
+        return {
+          allow: true,
+          persist: { id: "exact", label: "Always allow", pattern: "npm *", grant: "project" },
+        };
       },
       interactive: true,
       skipPermissions: false,
@@ -3273,7 +3658,10 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       cwd: repo,
       requestApproval: async () => {
         asked++;
-        return { allow: true, persist: { id: "exact", label: "Always allow", pattern: target, grant: "session" } };
+        return {
+          allow: true,
+          persist: { id: "exact", label: "Always allow", pattern: target, grant: "session" },
+        };
       },
       interactive: true,
       skipPermissions: false,

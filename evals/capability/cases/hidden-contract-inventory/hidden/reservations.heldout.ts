@@ -4,7 +4,7 @@ import { resetProducts, getProduct } from "../../src/services/products.js";
 import { resetReservations } from "../../src/services/reservations.js";
 import { setClock, resetClock } from "../../src/clock.js";
 
-type Reservation = {
+interface Reservation {
   id: string;
   productId: string;
   userId: string;
@@ -12,7 +12,7 @@ type Reservation = {
   status: string;
   createdAt: number;
   expiresAt: number;
-};
+}
 
 let clockNow = 1_000_000;
 

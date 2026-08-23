@@ -34,6 +34,12 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+      // Staged adoption: the codebase predates these two rules and carries
+      // ~1200 pre-existing violations, almost all in tests and TUI plumbing.
+      // Warning keeps them visible without making the CI gate unachievable;
+      // they graduate to "error" once the backlog is cleared.
+      "@typescript-eslint/no-non-null-assertion": "warn",
+      "@typescript-eslint/no-empty-function": "warn",
     },
   },
 );

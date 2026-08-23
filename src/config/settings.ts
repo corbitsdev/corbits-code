@@ -6,7 +6,11 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 
 import { SETTINGS_DIR_NAME } from "../branding.js";
-import { REASONING_EFFORTS, isReasoningEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import {
+  REASONING_EFFORTS,
+  isReasoningEffort,
+  type ReasoningEffort,
+} from "../provider/reasoning-effort.js";
 import type { SessionMode } from "./session-mode.js";
 import { resolveDefaultModel } from "./providers.js";
 import {
@@ -19,7 +23,7 @@ import {
 // it. `models` is always an array so single-model and multi-model providers are
 // handled uniformly; `defaultModel` (or the first entry) is used when no model
 // is selected.
-export type ProviderSettings = {
+export interface ProviderSettings {
   name?: string;
   baseURL: string;
   // Optional for keyless local providers (e.g. Ollama) that require no
@@ -54,16 +58,16 @@ export type ProviderSettings = {
   // already-working setup as unverified. Only paths that persist a
   // credential without testing it write `false` explicitly.
   verified?: boolean;
-};
+}
 
 // Provider+model identity used by the models-first picker (recent / favorites).
-export type ModelRef = { provider: string; model: string };
+export interface ModelRef { provider: string; model: string }
 
 export const DEFAULT_RECENT_MODELS_STORED = 10;
 export const DEFAULT_RECENT_MODELS_SHOWN = 5;
 
 // Global settings: the set of providers plus which one to use by default.
-export type Settings = {
+export interface Settings {
   defaultProvider?: string;
   providers: Record<string, ProviderSettings>;
   mcpServers?: MCPServerConfig[];
@@ -172,7 +176,7 @@ export type Settings = {
   showPromptCost?: boolean;
   // User-global YOLO default; `/yolo` writes it.
   dangerouslySkipPermissions?: boolean;
-};
+}
 
 function modelRefKey(ref: ModelRef): string {
   return `${ref.provider}\0${ref.model}`;
@@ -185,9 +189,7 @@ export function pushRecentModel(
   max: number = DEFAULT_RECENT_MODELS_STORED,
 ): Settings {
   const next: ModelRef = { provider: ref.provider, model: ref.model };
-  const rest = (settings.recentModels ?? []).filter(
-    (r) => modelRefKey(r) !== modelRefKey(next),
-  );
+  const rest = (settings.recentModels ?? []).filter((r) => modelRefKey(r) !== modelRefKey(next));
   return {
     ...settings,
     recentModels: [next, ...rest].slice(0, Math.max(0, max)),
@@ -202,9 +204,7 @@ export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings
   const has = current.some((r) => modelRefKey(r) === key);
   return {
     ...settings,
-    favoriteModels: has
-      ? current.filter((r) => modelRefKey(r) !== key)
-      : [...current, next],
+    favoriteModels: has ? current.filter((r) => modelRefKey(r) !== key) : [...current, next],
   };
 }
 
@@ -255,7 +255,9 @@ export function shellTimeoutFromSettings(
 // produces a config, since MCP timeouts are armed unconditionally.
 export function toolWatchdogFromSettings(
   settings?: Settings | null,
-): { defaultMs?: number; maxMs?: number; waitForApproval?: boolean; mcpTimeoutMs?: number } | undefined {
+):
+  | { defaultMs?: number; maxMs?: number; waitForApproval?: boolean; mcpTimeoutMs?: number }
+  | undefined {
   const tools = settings?.tools;
   const mcpTimeoutMs = settings?.mcp?.timeoutMs;
   const hasTimeout = tools?.timeoutMs !== undefined || tools?.maxTimeoutMs !== undefined;
@@ -293,9 +295,7 @@ export function resolveDefaultSubAgentMaxTurns(settings?: Settings | null): numb
   return clampSubAgentMaxTurns(settings.subagentMaxTurns);
 }
 
-export type TaskMaxTurnsValidation =
-  | { ok: true; value: number }
-  | { ok: false; message: string };
+export type TaskMaxTurnsValidation = { ok: true; value: number } | { ok: false; message: string };
 
 export function validateTaskMaxTurns(value: number): TaskMaxTurnsValidation {
   if (!Number.isFinite(value) || !Number.isInteger(value)) {
@@ -328,31 +328,31 @@ export function resolveSubAgentMaxTurns(input: {
   return resolveDefaultSubAgentMaxTurns(input.settings);
 }
 
-export type PluginConfig = {
+export interface PluginConfig {
   enabled?: boolean;
   // One-time consent for a tool plugin (kind "tool"). Its tools add in-process
   // capabilities to the agent, so they are only wired in once the user has
   // consented in the /plugins UI. Ignored for other kinds.
   consented?: boolean;
   credentials?: Record<string, string>;
-};
+}
 
 // An MCP server is reached one of two ways. A stdio server is launched as a
 // subprocess (`command` + `args`). An http server is a remote Streamable-HTTP
 // endpoint (`url`) that corbits connects to directly and authorizes via OAuth.
 // `type` defaults to "stdio" when `command` is set and "http" when only `url` is.
-export type MCPServerConfig = {
+export interface MCPServerConfig {
   name: string;
   type?: "stdio" | "http";
   command?: string;
   args?: string[];
   env?: Record<string, string>;
   url?: string;
-};
+}
 
 // Per-repo override. Selection only for provider/model, but may also declare
 // MCP servers to connect at session start.
-export type LocalSettings = {
+export interface LocalSettings {
   provider?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
@@ -362,18 +362,18 @@ export type LocalSettings = {
   // addition to the process's own inherited environment). Configuration
   // instead of a shell command that mutates the environment mid-session.
   env?: Record<string, string>;
-};
+}
 
 // The provider fields the runtime consumes, identical to what the env vars used
 // to supply directly.
-export type ResolvedProvider = {
+export interface ResolvedProvider {
   apiKey: string;
   baseURL: string;
   model: string;
   providerName: string;
   keyless?: boolean;
   verified?: boolean;
-};
+}
 
 const CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 
@@ -452,7 +452,13 @@ const SettingsSchema = type({
   // Accepted and ignored so the file still loads, then dropped on next save.
   "tiers?": "unknown",
   "workflowProfiles?": type({ "[string]": type({ "[string]": "string" }) }),
-  "plugins?": type({ "[string]": type({ "enabled?": "boolean", "consented?": "boolean", "credentials?": type({ "[string]": "string" }) }) }),
+  "plugins?": type({
+    "[string]": type({
+      "enabled?": "boolean",
+      "consented?": "boolean",
+      "credentials?": type({ "[string]": "string" }),
+    }),
+  }),
   "pluginPaths?": "string[]",
   "hooks?": type({ "[string]": type({ enabled: "boolean" }) }),
   "discoverClaudePlugins?": "boolean",
@@ -526,12 +532,7 @@ export function isSettings(value: unknown): value is Settings {
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
   if (s.subagentMaxTurns !== undefined) {
     const n = s.subagentMaxTurns;
-    if (
-      typeof n !== "number" ||
-      !Number.isInteger(n) ||
-      n < 1 ||
-      n > MAX_SUBAGENT_MAX_TURNS_CAP
-    ) {
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_SUBAGENT_MAX_TURNS_CAP) {
       return false;
     }
   }
@@ -789,7 +790,9 @@ export async function loadSettings(path: string): Promise<Settings | null> {
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
     showPromptCost: s.showPromptCost !== undefined ? Boolean(s.showPromptCost) : undefined,
     dangerouslySkipPermissions:
-      s.dangerouslySkipPermissions !== undefined ? Boolean(s.dangerouslySkipPermissions) : undefined,
+      s.dangerouslySkipPermissions !== undefined
+        ? Boolean(s.dangerouslySkipPermissions)
+        : undefined,
   };
   const settings: Settings = {
     providers: s.providers as Settings["providers"],
@@ -816,17 +819,17 @@ export async function loadSettings(path: string): Promise<Settings | null> {
 }
 
 /** Diagnostic produced when settings fail open instead of crashing startup. */
-export type SettingsLoadDiagnostic = {
+export interface SettingsLoadDiagnostic {
   path: string;
   message: string;
   /** Actionable recommendation for the user. */
   fix: string;
-};
+}
 
-export type LocalSettingsLoadResult = {
+export interface LocalSettingsLoadResult {
   settings: LocalSettings | null;
   diagnostics: SettingsLoadDiagnostic[];
-};
+}
 
 const LOCAL_ALLOWED_KEYS = new Set<string>(LOCAL_SETTINGS_OPTIONAL_KEYS);
 const LOCAL_CREDENTIAL_KEYS = new Set([
@@ -1112,14 +1115,14 @@ export async function saveLocalSettings(path: string, local: LocalSettings): Pro
   await rename(tmp, path);
 }
 
-export type ResolveInput = {
+export interface ResolveInput {
   // Provider definitions, from the --config file when given, otherwise global.
   settings: Settings | null;
   // Per-repo selection override.
   local: LocalSettings | null;
   // Highest-priority selection from CLI flags.
   cli: { provider?: string; model?: string };
-};
+}
 
 // Resolve the active provider. Precedence per field (highest first):
 //   providerName: --provider > local > settings.defaultProvider > sole provider
@@ -1138,8 +1141,7 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     throw new Error(`Provider "${cli.provider}" not found in settings (available: ${available}).`);
   }
 
-  const providerName =
-    cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
+  const providerName = cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
 
   const selected = providerName !== undefined ? providers[providerName] : undefined;
 
@@ -1199,11 +1201,11 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 import type { InferenceSpec } from "../agent/profile-types.js";
 
 // A resolved inference leg, with reasoningEffort threaded through.
-export type ResolvedInference = {
+export interface ResolvedInference {
   provider: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
-};
+}
 
 // True when the configured providers actually expose this provider+model.
 function isLegViable(leg: { provider: string; model: string }, settings: Settings): boolean {
