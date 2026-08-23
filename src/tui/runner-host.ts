@@ -307,12 +307,25 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     });
   };
   pushCostContext();
-  // Every completed inference turn changes both cost and context usage;
-  // nothing else needs a fresher read than that.
+  // Completed turns update cost/context; inference.start also refreshes so a
+  // post-compact estimate (synced in decide before the infer) paints before
+  // the next inference.done arrives with provider usage.
   const onCostEvent = (event: { type: string }): void => {
-    if (onTurnBoundary(event)) pushCostContext();
+    if (onTurnBoundary(event) || event.type === "inference.start") pushCostContext();
   };
   deps.eventEmitter.on("event", onCostEvent);
+
+  // Wipe the meter immediately on /clear|/new. refreshCostContext would re-read
+  // the still-occupied sink and restore the stale percent before rotation
+  // finishes.
+  const onSessionClear = (): void => {
+    setPromptCostContext(host.shell, {
+      contextPercentUsed: null,
+      costLabel: null,
+      contextIsEstimate: false,
+    });
+  };
+  deps.eventEmitter.on("session.clear", onSessionClear);
 
   const stopBranchWatch = watchGitBranch({
     cwd,
@@ -328,6 +341,7 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const dispose = (): void => {
     stopBranchWatch();
     deps.eventEmitter.off("event", onCostEvent);
+    deps.eventEmitter.off("session.clear", onSessionClear);
     unsubscribeChrome?.();
     clearShellExitHandler(host.shell);
     host.dispose();

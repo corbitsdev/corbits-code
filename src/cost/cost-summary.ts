@@ -53,6 +53,15 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
   };
 }
 
+// Zero-turn sessions (fresh launch, post-/clear, post-/new) have no occupancy
+// to report. Hide the meter rather than showing 0% or the new director's
+// system-prompt/tool-schema overhead as if it were live usage. Cost totals
+// stay untouched.
+export function maskContextMeterWhenNoTurns(summary: CostSummary, turnCount: number): CostSummary {
+  if (turnCount > 0) return summary;
+  return { ...summary, contextPercentUsed: null, contextIsEstimate: false };
+}
+
 export interface StatusBarCostSegments {
   costLabel?: string;
   contextLabel: string;
