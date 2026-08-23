@@ -141,8 +141,11 @@ describe("fleetDigest", () => {
 
 describe("forced-stop reasons", () => {
   test("a lane finished by a forced stop announces the reason, not a bare done", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" }), lane({ id: "docs" })], T0)
-      .watch;
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
     const { updates } = observeFleet(
       seeded,
       [
@@ -159,8 +162,11 @@ describe("forced-stop reasons", () => {
   });
 
   test("a cancelled lane carries its recorded reason", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" }), lane({ id: "docs" })], T0)
-      .watch;
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
     const { updates } = observeFleet(
       seeded,
       [

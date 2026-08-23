@@ -282,8 +282,7 @@ export function createSubAgentSessionStore(
     session.lastActivityAt = now();
     clearToolCalls(session);
     session.error = reason;
-    session.stopReason =
-      reason === DEFAULT_CANCEL_REASON ? "cancelled" : `cancelled — ${reason}`;
+    session.stopReason = reason === DEFAULT_CANCEL_REASON ? "cancelled" : `cancelled — ${reason}`;
     pushEntry(session, {
       kind: "report",
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
