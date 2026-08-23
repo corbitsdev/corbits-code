@@ -8,10 +8,14 @@
  * spread across real progress from four reads in a loop (CL-6936).
  *
  * The state this module accumulates is consumed by evaluateSubAgentStop's
- * requireEdit / requireEvidence checks, not by a stop of its own.
+ * requireEdit / requireEvidence checks, not by a stop of its own. Reads and
+ * writes performed through run_shell count as evidence there (CL-6937) — the
+ * prompt prohibits shell file work, but a prompt violation deserves a
+ * correction, not a verdict that the work never happened.
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+import { classifyShellFileEvidence } from "./shell-evidence.js";
 
 /** Tunable thresholds for force-report detection. */
 export interface ThrashConfig {
@@ -51,6 +55,7 @@ export interface ThrashToolCallBlock {
 
 const READ_TOOLS = new Set(["read_file"]);
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
+const SHELL_TOOL = "run_shell";
 
 function parseArgs(raw: unknown): Record<string, unknown> {
   let args: unknown = raw ?? {};
@@ -121,6 +126,23 @@ export function nextThrashState(
       if (readCounts === null) readCounts = new Map(prev.readCounts);
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
+    } else if (name === SHELL_TOOL) {
+      // Shell file work is evidence too, or a worker that edits with sed -i
+      // salvages as never-edited and is then refused re-dispatch (CL-6937).
+      const command = args.command;
+      if (typeof command === "string" && command.length > 0) {
+        const evidence = classifyShellFileEvidence(command);
+        if (evidence.reads.length > 0) {
+          if (readCounts === null) readCounts = new Map(prev.readCounts);
+          for (const key of evidence.reads) {
+            readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
+          }
+        }
+        if (evidence.writes.length > 0) {
+          if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
+          for (const key of evidence.writes) editedPaths.add(key);
+        }
+      }
     } else if (isProductMutationTool(name)) {
       const paths = productMutationPaths(name, args);
       if (paths.length > 0) {
