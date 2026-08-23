@@ -78,6 +78,7 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     behaviors: over.behaviors ?? null,
     providerFallback: over.providerFallback ?? null,
     diagnostics: over.diagnostics ?? null,
+    effort: over.effort ?? null,
   };
 }
 
@@ -326,6 +327,41 @@ describe("parseMatrix", () => {
   test("fills omitted cell side from --provider/--model defaults", () => {
     const v = parseMatrix("xai:", { model: "grok-4.5" });
     expect(v[0]).toEqual({ id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" });
+  });
+
+  test("parses a third colon segment as effort", () => {
+    const v = parseMatrix("xai/thegreataxios:grok-4.6:xhigh", {});
+    expect(v[0]).toEqual({
+      id: "xai/thegreataxios:grok-4.6",
+      provider: "xai/thegreataxios",
+      model: "grok-4.6",
+      effort: "xhigh",
+    });
+  });
+
+  test("labeled cell can also carry an effort segment", () => {
+    const v = parseMatrix("fast=xai:grok-4.6:high", {});
+    expect(v[0]).toEqual({ id: "fast", provider: "xai", model: "grok-4.6", effort: "high" });
+  });
+
+  test("a trailing segment that is not a real effort literal falls through to the model", () => {
+    // "grok-4.6:not-an-effort" has no valid effort literal in the third slot,
+    // so the whole thing after the first colon is the model id.
+    const v = parseMatrix("xai:grok-4.6:not-an-effort", {});
+    expect(v[0]!.provider).toBe("xai");
+    expect(v[0]!.model).toBe("grok-4.6:not-an-effort");
+    expect(v[0]!.effort).toBeUndefined();
+  });
+
+  test("--effort fallback applies to a cell that doesn't specify its own", () => {
+    const v = parseMatrix("xai:grok-4.6,openai:gpt-5", { effort: "medium" });
+    expect(v[0]!.effort).toBe("medium");
+    expect(v[1]!.effort).toBe("medium");
+  });
+
+  test("a cell's own effort wins over the --effort fallback", () => {
+    const v = parseMatrix("xai:grok-4.6:high", { effort: "medium" });
+    expect(v[0]!.effort).toBe("high");
   });
 });
 
