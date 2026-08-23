@@ -3,34 +3,29 @@
  * Pure content builders + open helpers on the shared list/focus/geometry kit.
  */
 
-import type {
-  AppShell,
-  ItemDescription,
-  OverlaySelection,
-  PrimaryOverlayKind,
-} from "./shell.js"
-import type { KeyEvent } from "@opentui/core"
-import { wrapOverlayText } from "./overlay-body.js"
-import { openListOverlay } from "./shell.js"
+import type { AppShell, ItemDescription, OverlaySelection, PrimaryOverlayKind } from "./shell.js";
+import type { KeyEvent } from "@opentui/core";
+import { wrapOverlayText } from "./overlay-body.js";
+import { openListOverlay } from "./shell.js";
 
-export type { OverlaySelection, PrimaryOverlayKind }
+export type { OverlaySelection, PrimaryOverlayKind };
 
 /** Fixture: 30 permission options (acceptance scenario 2). */
 export function makePermissionItems(count = 30): readonly string[] {
-  const n = Math.max(1, Math.floor(count))
+  const n = Math.max(1, Math.floor(count));
   return Array.from({ length: n }, (_, i) => {
-    if (i === 0) return "Allow once"
-    if (i === 1) return "Allow session"
-    if (i === 2) return "Always allow this tool"
-    if (i === 3) return "Deny"
-    return `Allow tool call #${i - 3}`
-  })
+    if (i === 0) return "Allow once";
+    if (i === 1) return "Allow session";
+    if (i === 2) return "Always allow this tool";
+    if (i === 3) return "Deny";
+    return `Allow tool call #${i - 3}`;
+  });
 }
 
 /** Fixture: long operator question + many choices (acceptance scenario 3). */
 export function makeOperatorQuestion(): {
-  readonly body: string
-  readonly choices: readonly string[]
+  readonly body: string;
+  readonly choices: readonly string[];
 } {
   const body = [
     "The agent wants to run a destructive command on the working tree.",
@@ -39,7 +34,7 @@ export function makeOperatorQuestion(): {
     "Proposed: git reset --hard origin/main && rm -rf node_modules",
     "Files at risk: 128 modified, 12 untracked.",
     "Continue only if you accept discarding local work.",
-  ].join("\n")
+  ].join("\n");
   const choices = [
     "Cancel — keep working tree",
     "Allow this once",
@@ -49,8 +44,8 @@ export function makeOperatorQuestion(): {
     "Ask again later",
     "Switch to dry-run",
     "Abort agent run",
-  ]
-  return { body, choices }
+  ];
+  return { body, choices };
 }
 
 /** Fixture: model/provider picker list. */
@@ -66,45 +61,38 @@ export function makeModelPickerItems(): readonly string[] {
     "ollama-llama3.3 * [local]",
     "o3 * [codex]",
     "o4-mini * [codex]",
-  ]
+  ];
 }
 
 /** Wrap overlay body text to terminal width on word boundaries (no paint). */
-export function wrapOverlayBody(
-  text: string,
-  width: number,
-  maxLines = 8,
-): readonly string[] {
-  return wrapOverlayText(text, width, maxLines)
+export function wrapOverlayBody(text: string, width: number, maxLines = 8): readonly string[] {
+  return wrapOverlayText(text, width, maxLines);
 }
 
-export type OpenPermissionsOpts = {
-  readonly items?: readonly string[]
+export interface OpenPermissionsOpts {
+  readonly items?: readonly string[];
   /** Stable ids aligned with `items` (e.g. ApprovalScope.id). */
-  readonly itemIds?: readonly string[]
-  readonly activeIndex?: number
+  readonly itemIds?: readonly string[];
+  readonly activeIndex?: number;
   /** Formatted approval context painted above the choices. */
-  readonly body?: string
+  readonly body?: string;
   /** Per-open accept; host binds resolve(ApprovalOutcome). */
-  readonly onAccept?: (selection: OverlaySelection) => void
+  readonly onAccept?: (selection: OverlaySelection) => void;
   /** Per-open expand/collapse of collapsed command payloads. */
-  readonly onToggleExpand?: () => void
+  readonly onToggleExpand?: () => void;
   /** Per-open Esc/dismiss; host binds resolve(ApprovalOutcome) so Esc denies instead of hanging. */
-  readonly onCancel?: () => void
+  readonly onCancel?: () => void;
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled permission does not replay into the
    * transcript; callers with no such policy (e.g. the standalone demo)
    * get the default echo so their choice still leaves a trace.
    */
-  readonly echoChoice?: boolean
+  readonly echoChoice?: boolean;
 }
 
-export function openPermissionsOverlay(
-  shell: AppShell,
-  opts?: OpenPermissionsOpts,
-): void {
-  const items = opts?.items ?? makePermissionItems(30)
+export function openPermissionsOverlay(shell: AppShell, opts?: OpenPermissionsOpts): void {
+  const items = opts?.items ?? makePermissionItems(30);
   openListOverlay(shell, {
     kind: "permissions",
     title: "permissions",
@@ -113,33 +101,31 @@ export function openPermissionsOverlay(
     frameId: "overlay-permissions",
     ...(opts?.body !== undefined ? { body: opts.body } : {}),
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onToggleExpand !== undefined
-      ? { onToggleExpand: opts.onToggleExpand }
-      : {}),
+    ...(opts?.onToggleExpand !== undefined ? { onToggleExpand: opts.onToggleExpand } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
     ...(opts?.echoChoice !== undefined ? { echoChoice: opts.echoChoice } : {}),
-  })
+  });
 }
 
-export type OpenOperatorOpts = {
-  readonly body?: string
-  readonly choices?: readonly string[]
-  readonly itemIds?: readonly string[]
-  readonly activeIndex?: number
+export interface OpenOperatorOpts {
+  readonly body?: string;
+  readonly choices?: readonly string[];
+  readonly itemIds?: readonly string[];
+  readonly activeIndex?: number;
   /** Per-open accept; host binds OperatorResult mapping. */
-  readonly onAccept?: (selection: OverlaySelection) => void
+  readonly onAccept?: (selection: OverlaySelection) => void;
   /** Per-open free-text answer; host binds the custom OperatorResult. */
-  readonly onTextAnswer?: (text: string) => void
+  readonly onTextAnswer?: (text: string) => void;
   /** Per-open Esc/dismiss; host binds resolve(cancel) so Esc cancels instead of hanging. */
-  readonly onCancel?: () => void
+  readonly onCancel?: () => void;
   /**
    * Suppress the generic accept/answer echo for this open. Decision gates
    * pass `false` so a settled operator question does not replay into the
    * transcript; callers with no such policy (e.g. the standalone demo)
    * get the default echo so their choice still leaves a trace.
    */
-  readonly echoChoice?: boolean
+  readonly echoChoice?: boolean;
 }
 
 /**
@@ -148,16 +134,13 @@ export type OpenOperatorOpts = {
  * offering "Enter choose" against an empty list.
  */
 const NO_WAY_TO_ANSWER =
-  "No options were offered and this question takes no typed answer. Press Esc to cancel it."
+  "No options were offered and this question takes no typed answer. Press Esc to cancel it.";
 
-export function openOperatorOverlay(
-  shell: AppShell,
-  opts?: OpenOperatorOpts,
-): void {
-  const fixture = makeOperatorQuestion()
-  const choices = opts?.choices ?? fixture.choices
-  const body = opts?.body ?? fixture.body
-  const stranded = choices.length === 0 && opts?.onTextAnswer === undefined
+export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): void {
+  const fixture = makeOperatorQuestion();
+  const choices = opts?.choices ?? fixture.choices;
+  const body = opts?.body ?? fixture.body;
+  const stranded = choices.length === 0 && opts?.onTextAnswer === undefined;
   openListOverlay(shell, {
     kind: "operator",
     title: "operator question",
@@ -167,42 +150,37 @@ export function openOperatorOverlay(
     frameId: "overlay-operator",
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-    ...(opts?.onTextAnswer !== undefined
-      ? { onTextAnswer: opts.onTextAnswer }
-      : {}),
+    ...(opts?.onTextAnswer !== undefined ? { onTextAnswer: opts.onTextAnswer } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
     ...(opts?.echoChoice !== undefined ? { echoChoice: opts.echoChoice } : {}),
-  })
+  });
 }
 
-export type OpenModelPickerOpts = {
-  readonly items?: readonly string[]
+export interface OpenModelPickerOpts {
+  readonly items?: readonly string[];
   /** Stable model/provider ids aligned with `items`. */
-  readonly itemIds?: readonly string[]
-  readonly activeIndex?: number
+  readonly itemIds?: readonly string[];
+  readonly activeIndex?: number;
   /** Per-open accept; host binds model switch. */
-  readonly onAccept?: (selection: OverlaySelection) => void
+  readonly onAccept?: (selection: OverlaySelection) => void;
   /** Description-zone source, keyed by the focused row's id. */
-  readonly describe?: (itemId: string) => ItemDescription | null
+  readonly describe?: (itemId: string) => ItemDescription | null;
   /** Bare-key claim on the focused row (e.g. Alt+F to toggle favorite). */
-  readonly onAction?: (itemId: string, key: KeyEvent) => boolean
+  readonly onAction?: (itemId: string, key: KeyEvent) => boolean;
   /** Per-open Esc/dismiss. */
-  readonly onCancel?: () => void
+  readonly onCancel?: () => void;
   /**
    * Claim printable keys for a `>` filter row so the flat model list narrows
    * as you type. Off by default so other list overlays keep j/k.
    */
-  readonly typeToFilter?: boolean
+  readonly typeToFilter?: boolean;
   /** Advertise Alt+A in the footer — only when the caller wired the handler. */
-  readonly addProviderHint?: boolean
+  readonly addProviderHint?: boolean;
   /** Advertise Alt+D in the footer — only when the caller wired the handler. */
-  readonly setDefaultHint?: boolean
+  readonly setDefaultHint?: boolean;
 }
 
-export function openModelPickerOverlay(
-  shell: AppShell,
-  opts?: OpenModelPickerOpts,
-): void {
+export function openModelPickerOverlay(shell: AppShell, opts?: OpenModelPickerOpts): void {
   openListOverlay(shell, {
     kind: "model_picker",
     title: "model / provider",
@@ -214,36 +192,27 @@ export function openModelPickerOverlay(
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
     ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
-    ...(opts?.typeToFilter !== undefined
-      ? { typeToFilter: opts.typeToFilter }
-      : {}),
-    ...(opts?.addProviderHint !== undefined
-      ? { addProviderHint: opts.addProviderHint }
-      : {}),
-    ...(opts?.setDefaultHint !== undefined
-      ? { setDefaultHint: opts.setDefaultHint }
-      : {}),
-  })
+    ...(opts?.typeToFilter !== undefined ? { typeToFilter: opts.typeToFilter } : {}),
+    ...(opts?.addProviderHint !== undefined ? { addProviderHint: opts.addProviderHint } : {}),
+    ...(opts?.setDefaultHint !== undefined ? { setDefaultHint: opts.setDefaultHint } : {}),
+  });
 }
 
-export type OpenAddProviderOpts = {
-  readonly items?: readonly string[]
+export interface OpenAddProviderOpts {
+  readonly items?: readonly string[];
   /** Stable provider ids aligned with `items`. */
-  readonly itemIds?: readonly string[]
-  readonly activeIndex?: number
+  readonly itemIds?: readonly string[];
+  readonly activeIndex?: number;
   /** Per-open accept; host runs the connect flow for the chosen provider. */
-  readonly onAccept?: (selection: OverlaySelection) => void
+  readonly onAccept?: (selection: OverlaySelection) => void;
   /** Description-zone source, keyed by the focused row's id. */
-  readonly describe?: (itemId: string) => ItemDescription | null
+  readonly describe?: (itemId: string) => ItemDescription | null;
   /** Per-open Esc/dismiss — the caller returns to the model list. */
-  readonly onCancel?: () => void
+  readonly onCancel?: () => void;
 }
 
 /** Alt+A from the model picker: every first-class provider kind, no already-connected filtering. */
-export function openAddProviderOverlay(
-  shell: AppShell,
-  opts?: OpenAddProviderOpts,
-): void {
+export function openAddProviderOverlay(shell: AppShell, opts?: OpenAddProviderOpts): void {
   openListOverlay(shell, {
     kind: "add_provider",
     title: "add provider",
@@ -254,6 +223,5 @@ export function openAddProviderOverlay(
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
-  })
+  });
 }
-

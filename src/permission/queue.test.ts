@@ -1,9 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import {
-  createPermissionRequestQueue,
-  wirePermissionGrantReconciliation,
-} from "./queue.js";
+import { createPermissionRequestQueue, wirePermissionGrantReconciliation } from "./queue.js";
 import { isRequestCoveredByGrant } from "./gate.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
@@ -23,13 +20,15 @@ function request(overrides: Partial<PermissionRequest> = {}): PermissionRequest 
 // Mirrors the predicate PermissionGateOptions.onGrant hands callers: coverage
 // judged with the gate's own path restriction and project workspace, not
 // ones re-derived here.
-function coversFor(approval: Approval, activeProviderModel?: string): (r: PermissionRequest) => boolean {
+function coversFor(
+  approval: Approval,
+  activeProviderModel?: string,
+): (r: PermissionRequest) => boolean {
   const cwd = process.cwd();
   const rootsProvider = createWorktreeRootsProvider(cwd);
   const isRestricted = createPathRestriction(cwd, rootsProvider).isRestricted;
   const workspace = { resolvedCwd: cwd, roots: rootsProvider() };
-  return (r) =>
-    isRequestCoveredByGrant(r, approval, activeProviderModel, isRestricted, workspace);
+  return (r) => isRequestCoveredByGrant(r, approval, activeProviderModel, isRestricted, workspace);
 }
 
 describe("createPermissionRequestQueue", () => {
@@ -76,9 +75,8 @@ describe("createPermissionRequestQueue", () => {
     const queue = createPermissionRequestQueue();
     const outcomes: ApprovalOutcome[] = [];
     const cwd = process.cwd();
-    queue.enqueue(
-      request({ subject: "bun install", cwd: `${cwd}/other-repo` }),
-      (o) => outcomes.push(o),
+    queue.enqueue(request({ subject: "bun install", cwd: `${cwd}/other-repo` }), (o) =>
+      outcomes.push(o),
     );
 
     const covers = coversFor({ tool: "run_shell", pattern: "bun install", cwd });

@@ -136,7 +136,9 @@ describe("resolveProvider", () => {
 
   test("falls back to the first model when no defaultModel", () => {
     const settings: Settings = {
-      providers: { only: { baseURL: "https://o/v1", apiKey: "o-key", models: ["first", "second"] } },
+      providers: {
+        only: { baseURL: "https://o/v1", apiKey: "o-key", models: ["first", "second"] },
+      },
     };
     const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.model).toBe("first");
@@ -377,9 +379,7 @@ describe("healOpenCodeGoProviders", () => {
     };
     expect(healOpenCodeGoProviders(settings)).toEqual([]);
     expect(settings.providers["go-proxy"]?.opencodeGo).toBeUndefined();
-    expect(settings.providers["go-proxy"]?.baseURL).toBe(
-      "https://go.internal.example/zen/go/v1",
-    );
+    expect(settings.providers["go-proxy"]?.baseURL).toBe("https://go.internal.example/zen/go/v1");
   });
 });
 
@@ -609,7 +609,9 @@ describe("loaders", () => {
       const loaded = await loadSettings(path);
       expect(loaded?.workflowProfiles).toEqual({ fast: { implement: "m" } });
       expect(loaded?.web).toBe("exa");
-      expect(loaded?.plugins).toEqual({ exa: { enabled: true, credentials: { apiKey: "exa-key" } } });
+      expect(loaded?.plugins).toEqual({
+        exa: { enabled: true, credentials: { apiKey: "exa-key" } },
+      });
       expect(loaded?.pluginPaths).toEqual(["/abs/plugins/exa", "./local-plugin"]);
       expect(loaded?.discoverClaudePlugins).toBe(true);
     } finally {
@@ -635,7 +637,9 @@ describe("loaders", () => {
       const result = await loadLocalSettingsResult(path);
       expect(result.settings).toEqual({ provider: "a", model: "m1" });
       expect(result.diagnostics.length).toBeGreaterThan(0);
-      expect(result.diagnostics.some((d) => /credential|apiKey|unknown/i.test(d.message))).toBe(true);
+      expect(result.diagnostics.some((d) => /credential|apiKey|unknown/i.test(d.message))).toBe(
+        true,
+      );
       expect(result.diagnostics.every((d) => d.fix.length > 0)).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -940,9 +944,7 @@ describe("subagentMaxTurns", () => {
     const settings = { providers: {}, subagentMaxTurns: 40 };
     expect(resolveSubAgentMaxTurns({ settings })).toBe(40);
     expect(resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55 })).toBe(55);
-    expect(
-      resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55, taskMaxTurns: 70 }),
-    ).toBe(70);
+    expect(resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55, taskMaxTurns: 70 })).toBe(70);
   });
 
   test("clampSubAgentMaxTurns enforces floor and cap", () => {
@@ -1035,7 +1037,11 @@ describe("saveLocalSettings", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      await saveLocalSettings(path, { provider: "firepass", model: "fp-small", reasoningEffort: "high" });
+      await saveLocalSettings(path, {
+        provider: "firepass",
+        model: "fp-small",
+        reasoningEffort: "high",
+      });
       expect(await loadLocalSettings(path)).toEqual({
         provider: "firepass",
         model: "fp-small",
@@ -1123,8 +1129,18 @@ describe("recent and favorite model helpers", () => {
     const s: Settings = {
       defaultProvider: "a",
       providers: {
-        a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"], defaultModel: "a-model" },
-        b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model", "b-other"], defaultModel: "b-model" },
+        a: {
+          baseURL: "https://a/v1",
+          apiKey: "a-key",
+          models: ["a-model"],
+          defaultModel: "a-model",
+        },
+        b: {
+          baseURL: "https://b/v1",
+          apiKey: "b-key",
+          models: ["b-model", "b-other"],
+          defaultModel: "b-model",
+        },
       },
       recentModels: [{ provider: "a", model: "a-model" }],
       favoriteModels: [{ provider: "b", model: "b-model" }],

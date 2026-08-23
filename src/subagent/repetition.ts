@@ -9,7 +9,7 @@
  */
 
 /** Tunable thresholds for the trailing-window repetition check. */
-export type RepetitionConfig = {
+export interface RepetitionConfig {
   /** Smallest normalized window (chars) considered a loop unit. */
   windowMinChars: number;
   /** Consecutive repeats of the window required to trigger. */
@@ -27,7 +27,7 @@ export type RepetitionConfig = {
    * the long, prose-shaped ones. Ignored when normalizeDigits is false.
    */
   maxFoldedPeriodChars?: number;
-};
+}
 
 // windowMinChars * repeatThreshold = 128 chars of exactly periodic text —
 // far beyond anything legitimate prose or code produces by accident.
@@ -65,11 +65,11 @@ export const DEFAULT_THINKING_REPETITION_CONFIG: RepetitionConfig = {
   maxFoldedPeriodChars: 16,
 };
 
-export type RepetitionHit = {
+export interface RepetitionHit {
   /** The normalized window that repeats. */
   window: string;
   repeats: number;
-};
+}
 
 // Whitespace runs collapse so wrapping and indentation differences do not
 // break periodicity. Digits are deliberately NOT normalized: tables, numbered

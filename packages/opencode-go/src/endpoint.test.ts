@@ -276,12 +276,8 @@ describe("isOpenCodeGoURL", () => {
   });
 
   test("rejects query-only embeds and path proxies", () => {
-    expect(
-      isOpenCodeGoURL("https://evil.com/?redirect=https://opencode.ai/zen/go/v1"),
-    ).toBe(false);
-    expect(
-      isOpenCodeGoURL("https://evil.com/proxy/opencode.ai/zen/go/v1"),
-    ).toBe(false);
+    expect(isOpenCodeGoURL("https://evil.com/?redirect=https://opencode.ai/zen/go/v1")).toBe(false);
+    expect(isOpenCodeGoURL("https://evil.com/proxy/opencode.ai/zen/go/v1")).toBe(false);
     expect(isOpenCodeGoURL("not a url but mentions opencode.ai/zen/go")).toBe(false);
     expect(isOpenCodeGoURL(undefined)).toBe(false);
     expect(isOpenCodeGoURL("")).toBe(false);

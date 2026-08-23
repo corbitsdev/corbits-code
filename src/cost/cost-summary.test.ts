@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
 import { setModelContextWindows } from "../provider/context-window.js";
-import { buildCostSummary, formatCostCommandOutput, formatStatusBarSegments } from "./cost-summary.js";
+import {
+  buildCostSummary,
+  formatCostCommandOutput,
+  formatStatusBarSegments,
+} from "./cost-summary.js";
 import type { CostSummaryInput } from "./cost-summary.js";
 
 afterEach(() => setModelContextWindows(undefined));
@@ -42,7 +46,10 @@ describe("buildCostSummary", () => {
   });
 
   it("hides cost for a coding-plan base URL", () => {
-    const summary = buildCostSummary({ ...baseInput, baseURL: "https://api.z.ai/api/coding/paas/v4" });
+    const summary = buildCostSummary({
+      ...baseInput,
+      baseURL: "https://api.z.ai/api/coding/paas/v4",
+    });
     expect(summary.costHiddenReason).toBe("coding-plan");
   });
 
@@ -108,7 +115,10 @@ describe("formatCostCommandOutput", () => {
   });
 
   it("reports the reason cost is hidden for a coding-plan endpoint", () => {
-    const summary = buildCostSummary({ ...baseInput, baseURL: "https://api.z.ai/api/coding/paas/v4" });
+    const summary = buildCostSummary({
+      ...baseInput,
+      baseURL: "https://api.z.ai/api/coding/paas/v4",
+    });
     expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (coding-plan endpoint)");
   });
 

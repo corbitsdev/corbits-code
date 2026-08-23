@@ -40,7 +40,7 @@ test("color256 returns the ANSI-256 index for each role", () => {
 });
 
 test("every role maps to a valid ANSI-256 index", () => {
-  for (const role of Object.keys(palette) as Array<keyof typeof palette>) {
+  for (const role of Object.keys(palette) as (keyof typeof palette)[]) {
     const idx = color256(role);
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(idx).toBeLessThanOrEqual(255);
@@ -48,7 +48,7 @@ test("every role maps to a valid ANSI-256 index", () => {
 });
 
 test("every role exposes a six-digit hex value", () => {
-  for (const role of Object.keys(palette) as Array<keyof typeof palette>) {
+  for (const role of Object.keys(palette) as (keyof typeof palette)[]) {
     expect(color(role)).toMatch(/^#[0-9a-fA-F]{6}$/);
   }
 });

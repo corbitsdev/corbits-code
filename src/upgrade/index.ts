@@ -10,16 +10,12 @@
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 
-import {
-  compareVersions,
-  parseVersionString,
-} from "../changelog/index.js";
+import { compareVersions, parseVersionString } from "../changelog/index.js";
 import { COMMAND_NAME, PRODUCT_NAME } from "../branding.js";
 import pkg from "../../package.json" with { type: "json" };
 
 /** Public releases page (human-facing). */
-export const RELEASES_URL =
-  "https://github.com/corbitsdev/corbits-code/releases";
+export const RELEASES_URL = "https://github.com/corbitsdev/corbits-code/releases";
 
 /** GitHub API endpoint for the latest published release. */
 export const RELEASES_LATEST_API =
@@ -34,19 +30,14 @@ export const DEB_PACKAGE = "corbits";
 /** Bound the network probe so a hung API cannot stall the session. */
 export const UPGRADE_FETCH_TIMEOUT_MS = 4_000;
 
-export type InstallMethod =
-  | "homebrew"
-  | "deb"
-  | "binary"
-  | "source"
-  | "unknown";
+export type InstallMethod = "homebrew" | "deb" | "binary" | "source" | "unknown";
 
-export type UpgradeNotice = {
+export interface UpgradeNotice {
   readonly current: string;
   readonly latest: string;
   readonly method: InstallMethod;
   readonly message: string;
-};
+}
 
 export type UpgradeCheckResult =
   | { readonly kind: "available"; readonly notice: UpgradeNotice }
@@ -54,7 +45,7 @@ export type UpgradeCheckResult =
   | { readonly kind: "skipped"; readonly reason: string };
 
 /** Inputs for install-method detection — injectable for tests. */
-export type InstallProbe = {
+export interface InstallProbe {
   readonly execPath: string;
   readonly argv: readonly string[];
   readonly platform: NodeJS.Platform;
@@ -62,16 +53,16 @@ export type InstallProbe = {
   readonly resolvedPath?: string;
   readonly pathExists?: (path: string) => boolean;
   readonly env?: NodeJS.ProcessEnv;
-};
+}
 
 export type FetchLatestVersion = () => Promise<string | null>;
 
-export type UpgradeCheckOptions = {
+export interface UpgradeCheckOptions {
   readonly currentVersion?: string;
   readonly method?: InstallMethod;
   readonly probe?: InstallProbe;
   readonly fetchLatest?: FetchLatestVersion;
-};
+}
 
 function normalizeVersion(raw: string): string | null {
   const parsed = parseVersionString(raw);
@@ -109,10 +100,7 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   const execBase = basename(probe.execPath).toLowerCase();
 
   // Definite Homebrew formula install (Cellar layout).
-  if (
-    markers.includes("/cellar/corbits-code/")
-    || markers.includes("/cellar/corbits/")
-  ) {
+  if (markers.includes("/cellar/corbits-code/") || markers.includes("/cellar/corbits/")) {
     return "homebrew";
   }
 
@@ -124,10 +112,10 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   }
   const entry = probe.argv[1] ?? "";
   if (
-    entry.endsWith(".ts")
-    || entry.endsWith(".tsx")
-    || entry.endsWith("/dist/index.js")
-    || entry.endsWith("\\dist\\index.js")
+    entry.endsWith(".ts") ||
+    entry.endsWith(".tsx") ||
+    entry.endsWith("/dist/index.js") ||
+    entry.endsWith("\\dist\\index.js")
   ) {
     return "source";
   }
@@ -135,16 +123,16 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   // Debian package installs the binary at /usr/bin/corbits and drops dpkg metadata.
   if (probe.platform === "linux") {
     if (
-      exists(`/var/lib/dpkg/info/${DEB_PACKAGE}.list`)
-      || exists(`/var/lib/dpkg/info/${DEB_PACKAGE}.md5sums`)
+      exists(`/var/lib/dpkg/info/${DEB_PACKAGE}.list`) ||
+      exists(`/var/lib/dpkg/info/${DEB_PACKAGE}.md5sums`)
     ) {
       return "deb";
     }
     if (
-      (probe.execPath === `/usr/bin/${DEB_PACKAGE}`
-        || probe.resolvedPath === `/usr/bin/${DEB_PACKAGE}`
-        || (execBase === DEB_PACKAGE && markers.includes("/usr/bin/")))
-      && exists(`/usr/share/doc/${DEB_PACKAGE}`)
+      (probe.execPath === `/usr/bin/${DEB_PACKAGE}` ||
+        probe.resolvedPath === `/usr/bin/${DEB_PACKAGE}` ||
+        (execBase === DEB_PACKAGE && markers.includes("/usr/bin/"))) &&
+      exists(`/usr/share/doc/${DEB_PACKAGE}`)
     ) {
       return "deb";
     }
@@ -154,9 +142,9 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   if (execBase === COMMAND_NAME || execBase === `${COMMAND_NAME}.exe`) {
     const brewPrefix = env.HOMEBREW_PREFIX ?? env.HOMEBREW_CELLAR;
     if (
-      typeof brewPrefix === "string"
-      && brewPrefix.length > 0
-      && markers.includes(brewPrefix.toLowerCase())
+      typeof brewPrefix === "string" &&
+      brewPrefix.length > 0 &&
+      markers.includes(brewPrefix.toLowerCase())
     ) {
       return "homebrew";
     }
@@ -166,10 +154,7 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   }
 
   // Standalone compiled binary (GitHub release tarball or local `build:bin`).
-  if (
-    execBase === COMMAND_NAME
-    || execBase === `${COMMAND_NAME}.exe`
-  ) {
+  if (execBase === COMMAND_NAME || execBase === `${COMMAND_NAME}.exe`) {
     return "binary";
   }
 
@@ -249,15 +234,13 @@ export async function checkForUpgrade(
 ): Promise<UpgradeCheckResult> {
   try {
     const currentRaw =
-      options.currentVersion
-      ?? (typeof pkg.version === "string" ? pkg.version : "0.0.0");
+      options.currentVersion ?? (typeof pkg.version === "string" ? pkg.version : "0.0.0");
     const current = normalizeVersion(currentRaw);
     if (current === null) {
       return { kind: "skipped", reason: "unparseable current version" };
     }
 
-    const fetchLatest =
-      options.fetchLatest ?? (() => fetchLatestReleaseVersion());
+    const fetchLatest = options.fetchLatest ?? (() => fetchLatestReleaseVersion());
     const latest = await fetchLatest();
     if (latest === null) {
       return { kind: "skipped", reason: "latest version unavailable" };
@@ -271,9 +254,7 @@ export async function checkForUpgrade(
       return { kind: "current" };
     }
 
-    const method =
-      options.method
-      ?? detectInstallMethod(options.probe ?? defaultProbe());
+    const method = options.method ?? detectInstallMethod(options.probe ?? defaultProbe());
     const message = formatUpgradeMessage({ current, latest, method });
     return {
       kind: "available",
