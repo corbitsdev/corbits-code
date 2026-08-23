@@ -367,7 +367,7 @@ describe("createTaskTool session recording", () => {
       sessions: store,
       run: async (params) => {
         // Simulate a long-running child that only exits when the operator cancels.
-        await new Promise<void>((resolve, reject) => {
+        await new Promise<void>((_resolve, reject) => {
           const signal = params.signal;
           if (signal === undefined) {
             reject(new Error("expected signal"));

@@ -37,7 +37,7 @@ describe("log sink during a live TUI session", () => {
 
     try {
       await withTestRenderer(async (h) => {
-        const shell = createAppShell(h.renderer, { cwd: "/workspace/corbits-code" });
+        createAppShell(h.renderer, { cwd: "/workspace/corbits-code" });
         await h.renderOnce();
 
         const before = h.captureCharFrame();

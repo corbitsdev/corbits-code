@@ -32,7 +32,10 @@ const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;
 
 type TruncReason = "lines" | "bytes" | "scan";
 
-interface BoundedRead { content: string; isError?: boolean }
+interface BoundedRead {
+  content: string;
+  isError?: boolean;
+}
 
 export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;

@@ -27,7 +27,11 @@ import { splitFrontmatter } from "./frontmatter.js";
 
 const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-interface LoadedBody { description: string; body: string; argumentHint?: string }
+interface LoadedBody {
+  description: string;
+  body: string;
+  argumentHint?: string;
+}
 
 // Replace `$ARGUMENTS` (Claude Code / OpenCode convention) with the args string.
 function interpolate(body: string, args: string): string {

@@ -7,7 +7,6 @@
  */
 
 import {
-  badgeCount,
   drainOne,
   enqueue,
   enqueueSteer,

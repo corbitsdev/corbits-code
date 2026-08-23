@@ -14,7 +14,9 @@ interface AgentProfile {
   systemPromptRole?: string;
 }
 
-interface AgentPlugin { agents: AgentProfile[] }
+interface AgentPlugin {
+  agents: AgentProfile[];
+}
 
 // Self-description for the loader and the /plugins UI. An agent plugin is gated
 // by enable only (no consent) — profiles are configuration data, not code.

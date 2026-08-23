@@ -61,7 +61,10 @@ export interface ProviderSettings {
 }
 
 // Provider+model identity used by the models-first picker (recent / favorites).
-export interface ModelRef { provider: string; model: string }
+export interface ModelRef {
+  provider: string;
+  model: string;
+}
 
 export const DEFAULT_RECENT_MODELS_STORED = 10;
 export const DEFAULT_RECENT_MODELS_SHOWN = 5;
@@ -522,10 +525,6 @@ const LocalSettingsSchema = type({
   "+": "reject",
 });
 
-function isProviderSettings(value: unknown): value is ProviderSettings {
-  return ProviderSettingsSchema.allows(value);
-}
-
 export function isSettings(value: unknown): value is Settings {
   if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
@@ -580,7 +579,7 @@ export function normalizeMcpServers(value: unknown): MCPServerConfig[] | undefin
   if (Array.isArray(value)) {
     if (!value.every(isMCPServerConfigWithKey)) return undefined;
     return value.map((v) => {
-      const entry = v as Record<string, unknown>;
+      const entry = v as unknown as Record<string, unknown>;
       return normalizeMcpEntry(entry.name as string, entry);
     });
   }
@@ -738,7 +737,7 @@ export async function loadSettings(path: string): Promise<Settings | null> {
       `Invalid settings schema in ${path}: expected { providers: { <name>: { baseURL, apiKey, models: [...] } } }`,
     );
   }
-  const s = parsed as Record<string, unknown>;
+  const s = parsed as unknown as Record<string, unknown>;
   // These keys were removed when plugins moved to discovery; they are now
   // silently dropped on the next save. Warn so a user who relied on them knows
   // to re-enable the equivalent plugins in /plugins instead of losing the

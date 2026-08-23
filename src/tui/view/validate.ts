@@ -27,7 +27,9 @@ function checkTone(v: unknown, path: string): true | { ok: false; error: string 
   return fail(path, `invalid tone "${String(v)}"`);
 }
 
-interface Counter { nodes: number }
+interface Counter {
+  nodes: number;
+}
 
 function validateNode(
   value: unknown,

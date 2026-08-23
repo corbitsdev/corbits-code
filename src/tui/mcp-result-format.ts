@@ -23,7 +23,10 @@ function asString(value: unknown): string | null {
   return null;
 }
 
-export interface McpRecords { items: Record<string, unknown>[]; label: string }
+export interface McpRecords {
+  items: Record<string, unknown>[];
+  label: string;
+}
 
 // Pull out the array-of-records an MCP result is "about", if any: a bare array of
 // objects, or the single array-valued key of a list wrapper. Returns null when

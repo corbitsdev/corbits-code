@@ -5,7 +5,10 @@ import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
 const FALLBACK_SKILL_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"] as const;
 
-export interface SkillSummary { name: string; description: string }
+export interface SkillSummary {
+  name: string;
+  description: string;
+}
 
 export interface ResolveSkillBodyOptions {
   /**

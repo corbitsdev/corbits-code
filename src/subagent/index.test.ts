@@ -1285,9 +1285,8 @@ describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
     const infer = afterSoft.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
-    const text = (
-      infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
-    )?.ephemeralTurns?.[0]?.content?.[0]?.text;
+    const text = (infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] })
+      ?.ephemeralTurns?.[0]?.content?.[0]?.text;
     expect(text).toContain("Expand Findings");
     expect(text).not.toContain("Edit a file");
   });

@@ -54,7 +54,10 @@ export type FlushPerfToOtelOptions = FlushToOtelOptions & {
 export type OtlpAnyValue =
   { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean };
 
-export interface OtlpKeyValue { key: string; value: OtlpAnyValue }
+export interface OtlpKeyValue {
+  key: string;
+  value: OtlpAnyValue;
+}
 
 export interface OtlpSpan {
   traceId: string;

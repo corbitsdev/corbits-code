@@ -34,7 +34,6 @@ import {
   persistSkipPermissionsDefault,
   pushRecentModel,
   saveGlobalSettings,
-  saveLocalSettings,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
   markLastChangelogVersion,
@@ -93,7 +92,6 @@ import {
   registerCommandPlugins,
   registerWorkflowPlugins,
   isEnabledCommandPlugin,
-  isPluginModuleEnabled,
   enablePluginConfig,
 } from "../plugins/register.js";
 import {
@@ -119,7 +117,7 @@ import {
 import { activateHeldTelemetry, telemetryFirstRunPending } from "../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
 import { captureSlashCommand } from "../telemetry/product-events.js";
-import { getTelemetry, liveTelemetry, setTelemetry } from "../telemetry/singleton.js";
+import { getTelemetry, liveTelemetry } from "../telemetry/singleton.js";
 import { createTelemetryToggleHandler } from "../telemetry/toggle.js";
 
 import { loadStartupChangelogMarkdown, stampVersionAfterStartup } from "../changelog/index.js";
@@ -154,7 +152,7 @@ import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
 import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js";
-import { loadAgentProfiles, type AgentProfile } from "../agent/profiles.js";
+import { loadAgentProfiles } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
@@ -1179,11 +1177,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // `.agents`/`.claude`/`.codex/skills` that discoverSkills/resolveSkillBody check.
     const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginConfig);
 
-    // Enabled plugin names, listed in the top-of-scrollback banner alongside skills.
-    const activePlugins = executablePlugins()
-      .filter((m) => isPluginModuleEnabled(m, pluginConfig))
-      .map((m) => m.manifest!.name ?? m.manifest!.id);
-
     const shellTimeout = shellTimeoutFromSettings(config.settings);
     // Mutable so Settings → waitForApproval takes effect on the next tool call
     // without rebuilding the toolset.
@@ -1285,7 +1278,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       },
     });
 
-    const { systemPrompt, skills } = await loadSessionChatPrompt({
+    const { systemPrompt } = await loadSessionChatPrompt({
       cwd: config.cwd,
       skillDirs,
       ...(config.systemPromptExtensions !== undefined
@@ -1879,7 +1872,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // a --config launch from stamping project-config contents into the global file.
     const trueGlobalSettingsPath = globalSettingsPath();
     const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
-    const globallyOnboarded = globalSettingsForOnboarding?.onboarded === true;
 
     // Consent by proceeding (see telemetry/first-run.ts): on a first run the
     // singleton is a held no-op and the passive banner below is the
@@ -2050,21 +2042,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     let listedGrants: readonly ScopedApproval[] = [];
 
     const localSettingsFile = localSettingsPath(config.cwd);
-    // Same fail-open shape as persistGlobalSettings, against the per-repo file.
-    const persistLocalSettings = async (
-      what: string,
-      apply: (base: LocalSettings) => LocalSettings,
-    ): Promise<void> => {
-      const base = await loadLocalSettingsWriteBase(localSettingsFile);
-      if (base === null) {
-        tuiLogger.warn("Skipping {what} write: unreadable local settings at {path}", {
-          what,
-          path: localSettingsFile,
-        });
-        return;
-      }
-      await saveLocalSettings(localSettingsFile, apply(base));
-    };
 
     const applyCommandResult = (result: CommandResult): void => {
       switch (result.type) {

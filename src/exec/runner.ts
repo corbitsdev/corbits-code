@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output, stderr } from "node:process";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
 import {
   defineAgent,
   defineTool,

@@ -771,7 +771,7 @@ export function isCollapsibleRow(row: StreamRow): boolean {
  * starts on the first column. Writer identity is a block-level header, not a
  * per-row prefix — see `blockLabel`.
  */
-export function streamRowGutter(row: StreamRow, layout: RowLayout): PaintedStreamLine {
+export function streamRowGutter(row: StreamRow, _layout: RowLayout): PaintedStreamLine {
   const fg = rowFg(row);
   if (row.role === "tool") return { content: toolPrefix(row), fg };
   const meta =

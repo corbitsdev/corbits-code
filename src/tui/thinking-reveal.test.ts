@@ -96,7 +96,6 @@ describe("thinkingLivePreviewLines with a reveal position", () => {
         const chars = advanceRevealChars(0, sample.length, ms, rate);
         return thinkingLivePreviewLines(sample, 30, chars);
       });
-      // eslint-disable-next-line no-console
       console.log(`rate=${rate}/s`, frames);
     }
     expect(true).toBe(true);

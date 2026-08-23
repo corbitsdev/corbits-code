@@ -14,7 +14,12 @@ export type GrantScope = "session" | "project" | "global" | "provider-model";
 // grants only), restricts the approval to requests originating from that
 // workspace root — a project grant minted in one repo must never auto-allow a
 // queued request from a different repo.
-export interface Approval { tool: string; pattern: string; providerModel?: string; cwd?: string }
+export interface Approval {
+  tool: string;
+  pattern: string;
+  providerModel?: string;
+  cwd?: string;
+}
 
 // One option offered to the operator at approval time. `pattern` is the glob
 // that gets persisted if the operator picks this scope; `null` means "just this
@@ -57,6 +62,10 @@ export interface PermissionRequest {
 // The operator's answer. `allow` gates the action; `persist`, when present, is
 // the scope to remember for this directory; `message`, when present, is an
 // operator-supplied explanation surfaced in the tool result.
-export interface ApprovalOutcome { allow: boolean; persist?: ApprovalScope; message?: string }
+export interface ApprovalOutcome {
+  allow: boolean;
+  persist?: ApprovalScope;
+  message?: string;
+}
 
 export type RequestApproval = (request: PermissionRequest) => Promise<ApprovalOutcome>;

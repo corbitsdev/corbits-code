@@ -37,7 +37,11 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 // to the corbits manifest: `name` becomes `id`+`name`; `kind` is inferred from
 // the plugin's contents (agents present -> "agent", else "command") since a
 // native root `manifest.json`, when present, is always preferred and authoritative.
-interface ClaudePluginManifest { id: string; name: string; description?: string }
+interface ClaudePluginManifest {
+  id: string;
+  name: string;
+  description?: string;
+}
 
 async function readClaudePluginManifestFile(path: string): Promise<ClaudePluginManifest | null> {
   try {

@@ -234,7 +234,7 @@ describe("settings surface", () => {
             { id: "linear", name: "linear", enabled: false, credentials: [], credentialValues: {} },
             { id: "exa", name: "exa", enabled: true, credentials: [], credentialValues: {} },
           ],
-          setEnabled: () => {},
+          setEnabled: () => Promise.resolve(undefined),
         } as unknown as PluginsSurfaceDeps,
       };
       openCommandSurface(shell, "plugins", deps);
@@ -322,6 +322,7 @@ describe("plugins surface", () => {
             })),
           setEnabled: (id: string, enabled: boolean) => {
             state.set(id, enabled);
+            return Promise.resolve(undefined);
           },
         } as unknown as PluginsSurfaceDeps,
       };
@@ -384,10 +385,12 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
     setEnabled: (id, enabled) => {
       calls.setEnabled.push({ id, enabled });
       entry = { ...entry, enabled };
+      return Promise.resolve(undefined);
     },
     saveCredentials: (id, credentials) => {
       calls.saveCredentials.push({ id, credentials });
       entry = { ...entry, credentialValues: credentials };
+      return Promise.resolve();
     },
     verify: (id, credentials) => {
       calls.verify.push({ id, credentials });
@@ -401,6 +404,7 @@ function pluginActionDeps(overrides?: Partial<PluginEntry>): {
     currentWebProvider: () => undefined,
     setWebProvider: (id) => {
       calls.setWebProvider.push(id);
+      return Promise.resolve();
     },
   };
   const deps: CommandSurfaceDeps = { notify: (t) => notes.push(t), plugins };
@@ -530,6 +534,7 @@ describe("hooks surface", () => {
             })),
           setEnabled: (id, enabled) => {
             state.set(id, enabled);
+            return Promise.resolve();
           },
         },
       };

@@ -32,7 +32,10 @@ export function approvalToGrantRule(approval: Approval, index: number): GrantRul
 // subdirectory). Built once per gate from its closed-over resolvedCwd and
 // rootsProvider and threaded through — never accept one built anywhere else,
 // or "same project" quietly stops meaning "same gate's project."
-export interface GrantWorkspace { resolvedCwd: string; roots: readonly string[] }
+export interface GrantWorkspace {
+  resolvedCwd: string;
+  roots: readonly string[];
+}
 
 // A project-scoped grant (Approval.cwd set) is confined to the session that
 // minted it: it may replay only for a request whose cwd is that same session

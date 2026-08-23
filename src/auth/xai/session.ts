@@ -15,7 +15,9 @@ export class XaiAuthError extends Error {
   }
 }
 
-export interface XaiAccess { access: string }
+export interface XaiAccess {
+  access: string;
+}
 
 // The grok proxy wants the caller's user id in the x-grok-user-id header. The
 // access token is a JWT whose `sub` claim is that id; decode it rather than

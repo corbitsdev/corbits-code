@@ -232,7 +232,10 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   return lines.filter((line, i) => line.text.trim().length > 0 || i === 0);
 }
 
-export interface CollapsedPayload { placeholder: string; lines: string[] }
+export interface CollapsedPayload {
+  placeholder: string;
+  lines: string[];
+}
 
 export interface CollapsedSegment {
   // The segment with each qualifying payload (a heredoc body, or a quoted

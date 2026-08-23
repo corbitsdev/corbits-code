@@ -139,7 +139,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
         return removed;
       }
       if (file.profiles[name] === undefined) return [];
-      delete file.profiles[name];
+      Reflect.deleteProperty(file.profiles, name);
       await writeAuthFile(file, home);
       return [name];
     },

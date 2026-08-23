@@ -20,7 +20,10 @@ import { DIFF_FG, type StreamRow } from "./stream.js";
 import { toolArgsView } from "./tool-args.js";
 
 export type DiffRowKind = "add" | "del" | "context";
-export interface DiffRow { readonly kind: DiffRowKind; readonly text: string }
+export interface DiffRow {
+  readonly kind: DiffRowKind;
+  readonly text: string;
+}
 
 /** One painted span of a diff line. */
 export interface DiffSegment {

@@ -23,7 +23,11 @@ export interface BuildSourceContext {
 
 // A resolved provider+model, with optional reasoningEffort — the unit both
 // the primary source and its backups are built from.
-export interface ProviderRef { provider: string; model: string; reasoningEffort?: ReasoningEffort }
+export interface ProviderRef {
+  provider: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+}
 
 function refKey(ref: ProviderRef): string {
   return `${ref.provider}\0${ref.model}`;
@@ -56,7 +60,7 @@ function catalogEntry(
   return catalog.find((e) => e.name === provider);
 }
 
-function maxTokensFor(settings: Settings | undefined, provider: string, model: string): number {
+function maxTokensFor(settings: Settings | undefined, provider: string, _model: string): number {
   const cw = settings?.providers[provider]?.contextWindow;
   if (typeof cw === "number" && cw > 0) return cw;
   return SOURCE_MAX_TOKENS;

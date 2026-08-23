@@ -22,7 +22,7 @@ import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.j
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import { evaluateApprovals, grantScopeMatches, type GrantWorkspace } from "./authz-grants.js";
-import { splitChainedCommand, tokenize, isShellCommentOnly, stripCommentLines } from "./command.js";
+import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./command.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
@@ -87,7 +87,9 @@ function hasExactFullCommandGrant(
 // what a grant would otherwise cover. Shared by evaluate() (which also needs
 // to know *which* guard tripped, to drive the anySecret behavior below) and
 // preGrantGuardReason (which only needs to know whether one tripped).
-interface SegmentGuard { kind: "secret" | "restricted" }
+interface SegmentGuard {
+  kind: "secret" | "restricted";
+}
 
 // `cwd`/`rootsProvider`, when both supplied, let a contained or
 // permitted-sibling `git worktree add/remove` destination (see

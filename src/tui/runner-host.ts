@@ -8,7 +8,7 @@
  */
 
 import type { EventEmitter } from "node:events";
-import type { CliRenderer, KeyEvent } from "@opentui/core";
+import type { CliRenderer } from "@opentui/core";
 
 import type { SubAgentSession, SubAgentTranscriptEntry } from "../subagent/session-store.js";
 import { commandItemsFromRegistry, type RegistryCommandSource } from "./command-catalog.js";

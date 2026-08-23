@@ -292,7 +292,10 @@ function quotaFromInferenceError(data: unknown, nowMs: number): QuotaWait | null
   return { retryAfterMs, retryAt: nowMs + retryAfterMs };
 }
 
-interface CallIdentity { readonly id?: string; readonly name?: string }
+interface CallIdentity {
+  readonly id?: string;
+  readonly name?: string;
+}
 
 // Both flat streamed shapes (`{ callId?, name? }`) and the nested tool.start
 // shape (`{ call: { id?, callId?, name? } }`) are parsed here so every call
