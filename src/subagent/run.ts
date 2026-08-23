@@ -39,6 +39,15 @@ import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import {
+  allowDeleteFromCapabilities,
+  allowShellFromCapabilities,
+  createCodexToolProxies,
+  type CodexRunManageTasks,
+  type CodexRunTool,
+} from "../agent/codex-tool-proxies.js";
+
+import { isCodexProviderName } from "../config/codex-providers.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
@@ -326,6 +335,48 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       tools = [...tools, ...inherited];
     }
 
+    // Codex apply_patch proxy: mount after posix+web(+mcp), before capability
+    // filter, so implement/docs allowlists can keep it when Codex. allowDelete
+    // follows whether delete_file is in the leaf capability include list (docs
+    // omits it; implement includes it).
+    const runTool: CodexRunTool = async (name, args) => {
+      const result = await posixTools.run(
+        { id: "codex-proxy", name, arguments: args },
+        new AbortController().signal,
+      );
+      return {
+        content:
+          typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+        ...(result.isError === true ? { isError: true } : {}),
+      };
+    };
+    // manage_tasks is not a posix tool — task state here is owned by the
+    // director observing manage_tasks tool_calls in the model's own output,
+    // not by this handler's return value (see applyManageTasksToolCall in
+    // director.ts). This handler only validates, so update_plan's proxy shares
+    // it rather than forwarding through posixTools (which has no manage_tasks
+    // handler to forward to).
+    const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
+      const parsed = parseManageTasksArgs(rawArgs);
+      if (parsed === null) {
+        return {
+          content: "Error: manage_tasks requires action ('create' or 'update').",
+          isError: true,
+        };
+      }
+      return { content: "Tasks updated." };
+    };
+    tools = [
+      ...tools,
+      ...createCodexToolProxies({
+        isCodex: isCodexProviderName(params.provider.providerName),
+        runTool,
+        runManageTasks,
+        allowDelete: allowDeleteFromCapabilities(params.capabilities),
+        allowShell: allowShellFromCapabilities(params.capabilities),
+      }),
+    ];
+
     if (params.capabilities !== undefined) {
       tools = applyCapabilityFilter(tools, params.capabilities);
     }
@@ -338,11 +389,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       stringTool({
         definition: manageTasksDefinition,
         handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-          const parsed = parseManageTasksArgs(rawArgs);
-          if (parsed === null) {
-            return "Error: manage_tasks requires action ('create' or 'update').";
-          }
-          return "Tasks updated.";
+          const result = await runManageTasks(rawArgs);
+          return result.content;
         },
       }),
     ];

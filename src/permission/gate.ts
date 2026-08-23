@@ -27,6 +27,11 @@ import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { matchesWritePathAllowlist, writePathDeniedReason } from "./write-path-policy.js";
+import {
+  isProductMutationTool,
+  productMutationPaths,
+  PRODUCT_MUTATION_TOOLS,
+} from "../agent/product-mutation-tools.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -207,9 +212,7 @@ export function isRequestCoveredByGrant(
 // classifyTool. Everything else — ask_operator, unknown built-ins, mutating MCP —
 // falls through to prompt.
 const AUTO_ALLOWED_TOOLS = new Set([
-  "write_file",
-  "edit_file",
-  "delete_file",
+  ...PRODUCT_MUTATION_TOOLS,
   "manage_tasks",
   "present",
   "tool_search",
@@ -393,19 +396,23 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     if (
       subAgentIdentity?.writePaths !== undefined &&
       subAgentIdentity.writePaths.length > 0 &&
-      (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file")
+      isProductMutationTool(call.name)
     ) {
-      const path =
-        typeof call.arguments === "object" &&
-        call.arguments !== null &&
-        typeof (call.arguments as { path?: unknown }).path === "string"
-          ? (call.arguments as { path: string }).path
-          : "";
-      if (!matchesWritePathAllowlist(path, subAgentIdentity.writePaths, effectiveCwd)) {
+      const paths = productMutationPaths(call.name, call.arguments);
+      // Fail-closed: no extractable subject is the same as an empty path deny.
+      if (paths.length === 0) {
         return {
           allowed: false,
-          reason: writePathDeniedReason(path, subAgentIdentity.writePaths),
+          reason: writePathDeniedReason("", subAgentIdentity.writePaths),
         };
+      }
+      for (const path of paths) {
+        if (!matchesWritePathAllowlist(path, subAgentIdentity.writePaths, effectiveCwd)) {
+          return {
+            allowed: false,
+            reason: writePathDeniedReason(path, subAgentIdentity.writePaths),
+          };
+        }
       }
     }
 

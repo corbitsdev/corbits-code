@@ -45,6 +45,11 @@ import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-searc
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
+import {
+  createCodexToolProxies,
+  type CodexRunManageTasks,
+  type CodexRunTool,
+} from "./codex-tool-proxies.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -130,6 +135,13 @@ export interface AgentToolsetArgs {
     // sharing this session's cwd. See src/subagent/worktree.ts.
     useWorktree?: boolean;
   };
+  /**
+   * When true, mount Codex-only tool proxies (apply_patch, shell, update_plan)
+   * into baseTools. Primary then strips apply_patch so DIY stays on
+   * write_file/edit_file/delete_file; shell and update_plan stay mounted.
+   * Leaves keep apply_patch when their allowlist includes it.
+   */
+  isCodex?: boolean;
 }
 
 // Per-server connection state surfaced to the TUI.
@@ -203,6 +215,37 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   });
 
+  // Codex apply_patch proxy forwards ops through posixTools.run so permission
+  // plugins (gate, path policy, etc.) still apply — same call shape as
+  // posix-tool-plugins.test.ts.
+  const runTool: CodexRunTool = async (name, args) => {
+    const result = await posixTools.run(
+      { id: "codex-proxy", name, arguments: args },
+      new AbortController().signal,
+    );
+    return {
+      content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+      ...(result.isError === true ? { isError: true } : {}),
+    };
+  };
+
+  // manage_tasks is not a posix tool — task state is owned by the director,
+  // which derives it from the manage_tasks tool_call it observes in the
+  // model's own output (see applyManageTasksToolCall in director.ts), not
+  // from this handler's return value. This handler only validates, so
+  // update_plan's proxy shares it rather than forwarding through posixTools
+  // (which has no manage_tasks handler to forward to).
+  const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
+    const parsed = parseManageTasksArgs(rawArgs);
+    if (parsed === null) {
+      return {
+        content: "Error: manage_tasks requires action ('create' or 'update').",
+        isError: true,
+      };
+    }
+    return { content: "Tasks updated." };
+  };
+
   // Align the advertised run_shell timeout with shell-guard's resolved default.
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
@@ -256,11 +299,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     stringTool({
       definition: manageTasksDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const parsed = parseManageTasksArgs(rawArgs);
-        if (parsed === null) {
-          return "Error: manage_tasks requires action ('create' or 'update').";
-        }
-        return "Tasks updated.";
+        const result = await runManageTasks(rawArgs);
+        return result.content;
       },
     }),
     stringTool({
@@ -339,8 +379,17 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
+  // Codex apply_patch mounts when isCodex; primary strips it so Corbits DIY
+  // stays on write_file/edit_file/delete_file. Leaves keep it via BUILD/DOCS allowlists.
+  baseTools.push(
+    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool, runManageTasks }),
+  );
+
+  const primaryTools = baseTools.filter((tool) => tool.definition.name !== "apply_patch");
+
+  const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerHolder.current = dynamicRunner;
+
   const connectedClients: MCPClient[] = [];
 
   const connectMCP = async (
