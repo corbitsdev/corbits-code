@@ -1,8 +1,9 @@
-import { lstat, realpath, unlink } from "node:fs/promises";
+import { lstat, readFile, realpath, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { type } from "arktype";
 import type { ExtraTool, ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { formatChangeDiff } from "./change-diff.js";
 
 const DeleteFileArgs = type({ path: "string>0" });
 
@@ -80,8 +81,21 @@ export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions =
             `${args.path} is a directory; delete_file only deletes files`,
           );
         }
+        // Best-effort content capture before removal, so the result can show
+        // what was deleted (bounded, same as edit/write diffs). A failed read
+        // (binary, permissions) never blocks the delete itself.
+        let before: string | undefined;
+        try {
+          before = await readFile(target, "utf8");
+        } catch {
+          // Unreadable or binary; delete proceeds without a diff.
+        }
+
         await unlink(target);
-        return { callId: call.id, content: `Deleted file: ${args.path}` };
+        const diff = before === undefined ? undefined : formatChangeDiff(args.path, before, "");
+        const content =
+          diff === undefined ? `Deleted file: ${args.path}` : `Deleted file: ${args.path}\n\n${diff}`;
+        return { callId: call.id, content };
       } catch (error) {
         if (errorCode(error) === "ENOENT") {
           return {
