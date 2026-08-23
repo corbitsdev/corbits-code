@@ -1319,6 +1319,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         { providerName: config.providerName, model: config.model },
       );
 
+    const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+    const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
+
+    // Refresh the pinned Codex instructions without blocking TUI startup. Every
+    // deliver below awaits settlement, so the first request never races the
+    // refresh: codex-responses-adapter places the instructions at the top of
+    // every request body, and an in-memory swap after inference #1 would change
+    // the whole prefix and forfeit the provider prompt cache mid-session.
+    // Best-effort, same as exec boot: on failure the session runs on
+    // cached/bundled instructions.
+    const codexInstructionsRefreshed: Promise<void> =
+      initialCodexProfile === undefined
+        ? Promise.resolve()
+        : refreshCodexInstructions().catch((err: unknown) => {
+            tuiLogger.warn("Codex instructions refresh failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
     // Reload, interrupt, compaction continuation, and proxy deliver share one queue
     // so a rebuild never races an in-flight deliver.
     const sessionOps = createSessionOperationQueue();
@@ -1327,8 +1346,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // The shell already popped the queue item and painted it as delivered
         // by the time this runs, so a failed rebuild must be surfaced here —
         // otherwise the message silently never reaches the agent.
-        deliverAgentMessage({
+        await deliverAgentMessage({
           getFatalBuildError: () => fatalBuildError,
+          ready: codexInstructionsRefreshed,
           deliverToLiveAgent,
           onDeliverFailure: systemNotice,
         });
@@ -1381,16 +1401,6 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     // When the session starts on a Codex profile, seed the agent with a Responses
     // source (account id pulled from the resolved catalog entry, session id from
     // the run) rather than the OpenAI-compatible one.
-    const initialCodexProfile = codexProfileFromProviderName(config.providerName);
-    const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
-    if (initialCodexProfile !== undefined) {
-      void refreshCodexInstructions().catch((err: unknown) => {
-        // Best-effort; agent still starts with cached/default instructions.
-        tuiLogger.warn("Codex instructions refresh failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
     const initialCodexAccountId = config.providers.find(
       (p) => p.name === config.providerName,
     )?.codexAccountId;
