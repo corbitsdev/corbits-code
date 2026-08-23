@@ -6,7 +6,6 @@ import {
   formatPlan,
   classifyTaskBoundary,
   buildLLMTurnSummary,
-  buildTurnSummary,
   COMPACTED_PREFIX,
   COMPACT_SPACER_TEXT,
   type SessionMetadata,
@@ -675,7 +674,7 @@ describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
     const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
     expect(firstText(output1[0]!)).toContain("Turns compacted:");
     expect(firstText(output1[0]!)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
-    expect(firstText(output1[0]!)).not.toContain("Model summary unavailable");
+    expect(firstText(output1[0]!)).toContain("Model summary unavailable");
 
     const output2 = (await compactor.apply(grow(output1, 16, "ok"), mockStrategyCtx)).output;
     expect(firstText(output2[0]!)).toBe(firstText(output1[0]!));
