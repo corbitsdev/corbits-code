@@ -1,9 +1,9 @@
 /**
  * Parent-side re-dispatch caps for task briefs (CL-4343 + CL-5203).
  *
- * Leaf stops already salvage thrash / no-progress / turn-budget / etc. This
+ * Leaf stops already salvage no-progress / turn-budget / etc. This
  * module tracks how often the *parent* re-spawns the same brief so:
- * - thrash-class salvages hard-block an identical re-dispatch for the rest of
+ * - hard-block-class salvages refuse an identical re-dispatch for the rest of
  *   the parent chat session (sticky until the fingerprint changes)
  * - turn-budget salvage flips from "raise maxTurns" to "stop" after enough
  *   same-brief dispatches without a successful complete
@@ -12,9 +12,9 @@
  */
 
 import type { TaskIntent } from "./report.js";
-import { parseSubAgentReport } from "./report.js";
 import {
   isDeadlineSubAgentReport,
+  isForcedStopSubAgentReport,
   isNeverActedSubAgentReport,
   isNeverEditedSubAgentReport,
   isNoProgressSubAgentReport,
@@ -66,20 +66,17 @@ export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSal
 
 /** True when the worker returned a stall salvage report. */
 export function isStalledSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("long silence");
+  return isForcedStopSubAgentReport(report, "stalled");
 }
 
 /** True when the worker returned a cancel salvage report. */
 export function isCancelledSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("cancelled");
+  return isForcedStopSubAgentReport(report, "cancelled");
 }
 
 /** True when the worker returned an incomplete-report salvage (narration, no envelope). */
 export function isIncompleteReportSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("narrated instead of writing a report envelope");
+  return isForcedStopSubAgentReport(report, "incomplete-report");
 }
 
 /**

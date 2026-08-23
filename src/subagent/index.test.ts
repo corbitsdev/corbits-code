@@ -2235,6 +2235,39 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     );
   });
 
+  test("CL-6704: a successful Summary containing forced-stop phrases is not classified as a salvage", () => {
+    const noProgressPhrase = formatSubAgentReport({
+      summary: "Investigated the flaky test; root cause is a race, not no progress on our side.",
+      findings: "Fixed the race in retry logic.",
+      blockers: "None",
+      paths: "src/retry.ts",
+    });
+    expect(classifyBriefSalvage(noProgressPhrase)).toBeNull();
+
+    const cancelledPhrase = formatSubAgentReport({
+      summary: "Implemented the cancelled-order refund flow end to end.",
+      findings: "Added refund handler and tests.",
+      blockers: "None",
+      paths: "src/refunds.ts",
+    });
+    expect(classifyBriefSalvage(cancelledPhrase)).toBeNull();
+
+    const longSilencePhrase = formatSubAgentReport({
+      summary: "Reduced UI flicker with a long silence period before re-render.",
+      findings: "Debounced the re-render.",
+      blockers: "None",
+      paths: "src/ui.ts",
+    });
+    expect(classifyBriefSalvage(longSilencePhrase)).toBeNull();
+  });
+
+  test("CL-6704: true forced-stop Summary strings still classify as their salvage kind", () => {
+    expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
+    expect(classifyBriefSalvage(forcedStopReport("cancelled", "x"))).toBe("cancelled");
+    expect(classifyBriefSalvage(forcedStopReport("stalled", "x"))).toBe("stalled");
+    expect(classifyBriefSalvage(forcedStopReport("deadline", "x"))).toBe("deadline");
+  });
+
   test("turn-budget parent hint flips after re-dispatch threshold", () => {
     const report = forcedStopReport("turn-budget", "partial");
     const first = appendSubAgentParentHints(report, { dispatchCount: 1 });
