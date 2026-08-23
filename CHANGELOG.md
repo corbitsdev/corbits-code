@@ -40,6 +40,21 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   unset; values must still be integers ≥1. `task(maxTurns)`, profile
   `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
 
+### Internal
+
+- **`inference.error` partials keep the provider error.** `partial.jsonl`
+  records for `inference-error` now include `error` (`category`, `message`,
+  `statusCode` when present) even when the cycle streamed no text.
+- **Exec `turnsUsed` follows the run-sink.** Mid-run and terminal `run.json`
+  snapshots use `getTurnCount()` the same way the TUI does, instead of
+  writing the initial zero until send finishes.
+
+### Docs
+
+- **`latest` is a symlink, not a session.** Naive globs of a project
+  sessions directory double-count unless they skip `latest` (`listSessions`
+  already does).
+
 ## [0.2.104] - 2026-08-23
 
 ### TUI
