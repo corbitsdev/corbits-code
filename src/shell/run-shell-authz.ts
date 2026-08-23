@@ -125,8 +125,8 @@ const STDIN_READERS = new Set(["cat", "tac", "nl", "rev", "head", "tail", "sort"
 // value-taking only for `head` and `tail`; for the other stdin readers the same
 // letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
 // following token there would wrongly drop a real file operand.
-const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
-const GREP_VALUE_FLAGS = new Set(["-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file"]);
+export const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
+export const GREP_VALUE_FLAGS = new Set(["-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file"]);
 
 // The head of each pipeline (the stage before the first `|`) is the only stage
 // that reads the terminal's stdin; later stages read the pipe. A naive regex
@@ -182,7 +182,7 @@ function pipelineHeads(command: string): string[] {
 // classification (classifiers use other paths). A naive whitespace split
 // miscounts operands when a pattern or path contains spaces inside quotes
 // (e.g. `grep 'a b'` has one operand, not two).
-function tokenizeSegment(segment: string): string[] {
+export function tokenizeSegment(segment: string): string[] {
   const tokens = tokenize(segment);
   let i = 0;
   while (i < tokens.length && ENV_ASSIGNMENT.test(tokens[i]!)) i++;
@@ -316,7 +316,7 @@ function isDangerousTarget(token: string): boolean {
   return false;
 }
 
-function programBasename(token: string): string {
+export function programBasename(token: string): string {
   const bare = token.replace(/['"]/g, "");
   const slash = bare.lastIndexOf("/");
   return slash >= 0 ? bare.slice(slash + 1) : bare;

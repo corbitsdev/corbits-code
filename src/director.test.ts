@@ -363,6 +363,44 @@ describe("chatDirector compaction", () => {
     expect(compactActions).toEqual([
       { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
     ]);
+    // Idle empty compact schedules a second continuation so decide can adopt
+    // the shrunk turns for the meter without starting a new inference.
+    expect(continuations).toBe(2);
+  });
+
+  test("idle empty compact makes the post-compact estimate authoritative without inferring", async () => {
+    const director = createChatDirector("", [], {
+      onTasksChange: () => {},
+      requestContinuation: () => {},
+    });
+    const largeTurns = Array.from(
+      { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
+      (_, i) => ({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: "x".repeat(200) }],
+        timestamp: i,
+      }),
+    );
+    const longState = { turns: largeTurns } as unknown as ReactorState;
+
+    await director.decide(textInferenceDone(999_999), longState, mockCapabilities);
+    expect(director.getContextEstimate().isEstimate).toBe(false);
+    const before = director.getContextEstimate().tokens;
+
+    await director.decide(messageReceived(""), longState, mockCapabilities);
+
+    // Simulate the reactor having compacted, then the meter-sync continuation.
+    const shrunkTurns = largeTurns.slice(-3);
+    const shrunkState = { turns: shrunkTurns } as unknown as ReactorState;
+    const afterActions = actionsArray(
+      await director.decide(messageReceived(""), shrunkState, mockCapabilities),
+    );
+    expect(afterActions.some((a) => a.type === "infer")).toBe(false);
+    expect(afterActions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
+
+    const estimate = director.getContextEstimate();
+    expect(estimate.isEstimate).toBe(true);
+    expect(estimate.tokens).toBeLessThan(before);
   });
 
   // One turn past createPruningCompactor's own no-op floor (session/compactor.ts).

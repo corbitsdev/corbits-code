@@ -257,13 +257,20 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   return opts;
 }
 
+// exactOptionalPropertyTypes forbids passing an explicit `undefined` for an
+// optional field, so build the fallback object with the key present only
+// when the CLI option was actually given.
+function providerModelFallback(opts: CliOptions): { provider?: string; model?: string } {
+  return {
+    ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+    ...(opts.model !== undefined ? { model: opts.model } : {}),
+  };
+}
+
 function requireExplicitModelPair(opts: CliOptions): void {
   const matrix = opts.matrix?.trim();
   if (matrix !== undefined && matrix.length > 0) {
-    parseMatrix(matrix, {
-      provider: opts.provider,
-      model: opts.model,
-    });
+    parseMatrix(matrix, providerModelFallback(opts));
     return;
   }
   if (!opts.provider && !opts.model) {
@@ -705,8 +712,8 @@ async function runCase(
     const resolvedProvider = execResult.provider ?? config.providerName ?? labels.provider;
     const resolvedModel = execResult.model ?? config.model ?? labels.model;
     providerFallback = detectProviderFallback({
-      requestedProvider: requested.provider,
-      requestedModel: requested.model,
+      ...(requested.provider !== undefined ? { requestedProvider: requested.provider } : {}),
+      ...(requested.model !== undefined ? { requestedModel: requested.model } : {}),
       resolvedProvider,
       resolvedModel,
     });
@@ -852,10 +859,7 @@ async function main(): Promise<number> {
   }
   const all = await loadEvalCases(CASES_ROOT);
   const selected = filterCases(all, opts.caseSelector);
-  const variants = parseMatrix(opts.matrix, {
-    provider: opts.provider,
-    model: opts.model,
-  });
+  const variants = parseMatrix(opts.matrix, providerModelFallback(opts));
   const plan = expandMatrix(selected, variants);
 
   console.log(

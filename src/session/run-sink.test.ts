@@ -87,6 +87,31 @@ describe("createRunSink", () => {
     });
   });
 
+  test("onTurnBoundarySnapshot reads getTurnCount after the turn, not the initial zero", () => {
+    // Exec persist now snapshots from this callback (same as TUI). A closed-over
+    // turnsUsed: 0 would write run.json as still-zero mid-run.
+    const snapshots: number[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+      onTurnBoundarySnapshot: () => {
+        snapshots.push(runSink.getTurnCount());
+      },
+    });
+
+    expect(runSink.getTurnCount()).toBe(0);
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
+
+    expect(snapshots).toEqual([1]);
+    expect(runSink.getTurnCount()).toBe(1);
+  });
+
   test("reports the in-flight turn to onTurnFailed when a turn errors instead of completing", () => {
     const failures: { turnIndex: number; error: string }[] = [];
     const runSink = createRunSink({

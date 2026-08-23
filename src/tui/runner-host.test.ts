@@ -441,6 +441,106 @@ describe("bottom border cost run", () => {
       harness.destroy();
     }
   });
+
+  test("session.clear paints the context meter unknown immediately", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const emitter = new EventEmitter();
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: emitter,
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      // Stale occupancy — refreshCostContext would re-paint this if clear
+      // re-read before rotation finished.
+      readCostSummary: () => fakeCostSummary(),
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+      expect(host.shell.costContext).not.toBeNull();
+
+      emitter.emit("session.clear");
+
+      expect(host.shell.costContext).toBeNull();
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("inference.start refreshes the cost meter from the live summary", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const emitter = new EventEmitter();
+    let percent = 10;
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: emitter,
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => ({ ...fakeCostSummary(), contextPercentUsed: percent }),
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+
+      percent = 42;
+      emitter.emit("event", { type: "inference.start" });
+
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("42%");
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("connector.reply refreshes the cost meter after idle compact meter-sync", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const emitter = new EventEmitter();
+    let percent = 90;
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: emitter,
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => ({ ...fakeCostSummary(), contextPercentUsed: percent }),
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
+
+      percent = 12;
+      emitter.emit("event", { type: "connector.reply", data: { content: "" } });
+
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("12%");
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("90%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
 });
 
 /** Resolves true when the host exited, false when it is still alive. */

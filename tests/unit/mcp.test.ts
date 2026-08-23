@@ -166,6 +166,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
 
     expect(capturedName).toBe("do_thing");
     expect(capturedArgs).toEqual({ x: 1 });
+    if (typeof result === "string") throw new Error("expected structured ToolResult");
     expect(result.content).toBe("done");
     expect(result.isError).toBeUndefined();
   });
@@ -187,6 +188,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       new AbortController().signal,
     );
 
+    if (typeof result === "string") throw new Error("expected structured ToolResult");
     expect(result.isError).toBe(true);
     expect(result.content).toBe("server error");
   });
@@ -210,6 +212,7 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       new AbortController().signal,
     );
     expect(asked).toBe(1);
+    if (typeof result === "string") throw new Error("expected structured ToolResult");
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Blocked by permission policy");
   });
