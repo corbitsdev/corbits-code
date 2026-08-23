@@ -21,7 +21,7 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream"
-import { thinkingLivePreviewLines, thinkingSettledLine } from "./thinking"
+import { thinkingLivePreviewLines, thinkingSettledLine, LIVE_THINKING_MAX_LINES } from "./thinking"
 import { describeView, toolArgsView } from "./tool-args"
 
 const WIDE: RowLayout = { width: 96, multiAgent: false }
@@ -171,7 +171,7 @@ describe("reasoning collapses to a short wrapped preview", () => {
   test("while thinking it wraps a short preview instead of sideways-scrolling", () => {
     const painted = lines({ role: "system", meta: "thinking", text, streaming: true })
     expect(painted.length).toBeGreaterThanOrEqual(1)
-    expect(painted.length).toBeLessThanOrEqual(3)
+    expect(painted.length).toBeLessThanOrEqual(LIVE_THINKING_MAX_LINES)
     // Inset and dim is the whole of reasoning's chrome; it carries no rail.
     expect(painted.every((line) => !line.includes("┆"))).toBe(true)
     expect(painted.join("\n")).toContain("one commit")
