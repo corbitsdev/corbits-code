@@ -10,7 +10,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   BoundedShellOutput,
-  DEFAULT_SHELL_TIMEOUT_MS,
   MAX_SHELL_OUTPUT_BYTES,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
@@ -32,8 +31,18 @@ describe("runGuardedShell", () => {
     expect(output).toContain("hello");
   });
 
-  test("defaults to a 15s timeout", () => {
-    expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(15_000);
+  test("omitted timeout does not arm a timer", async () => {
+    const start = Date.now();
+    const { exitCode, timedOut, output } = await runGuardedShell(
+      { command: "sleep 0.25; echo done" },
+      neverAbort(),
+    );
+    expect(timedOut).toBe(false);
+    expect(exitCode).toBe(0);
+    expect(output).toContain("done");
+    // Completes without a timeout flag; under a 15s default this would also
+    // pass for a short sleep — pair with resolveShellTimeoutMs coverage.
+    expect(Date.now() - start).toBeLessThan(5_000);
   });
 
   test("merges settings.env into the spawn environment on top of process.env", async () => {
@@ -146,37 +155,75 @@ describe("runGuardedShell", () => {
 });
 
 describe("resolveShellTimeoutMs", () => {
-  test("omitted timeout uses the 15s default", () => {
-    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS)).toBe(15_000);
-    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS, undefined)).toBe(
-      DEFAULT_SHELL_TIMEOUT_MS,
-    );
+  test("omitted timeout with no default is undefined (no timer)", () => {
+    expect(resolveShellTimeoutMs(undefined, undefined)).toBeUndefined();
+    expect(resolveShellTimeoutMs(undefined, undefined, undefined)).toBeUndefined();
   });
 
-  test("non-positive requested timeout falls back to default", () => {
-    expect(resolveShellTimeoutMs(0, DEFAULT_SHELL_TIMEOUT_MS)).toBe(DEFAULT_SHELL_TIMEOUT_MS);
-    expect(resolveShellTimeoutMs(-1, DEFAULT_SHELL_TIMEOUT_MS)).toBe(DEFAULT_SHELL_TIMEOUT_MS);
+  test("maxMs alone does not invent a timeout", () => {
+    expect(resolveShellTimeoutMs(undefined, undefined, 100)).toBeUndefined();
+    expect(resolveShellTimeoutMs(undefined, undefined, 600_000)).toBeUndefined();
+  });
+
+  test("non-positive requested timeout falls back to default when set", () => {
+    expect(resolveShellTimeoutMs(0, 15_000)).toBe(15_000);
+    expect(resolveShellTimeoutMs(-1, 15_000)).toBe(15_000);
+  });
+
+  test("non-positive requested with no default is undefined", () => {
+    expect(resolveShellTimeoutMs(0, undefined)).toBeUndefined();
+    expect(resolveShellTimeoutMs(-1, undefined)).toBeUndefined();
   });
 
   test("requested timeout well above 10 minutes is not clamped when maxMs is omitted", () => {
-    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS)).toBe(5_400_000);
-    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS, undefined)).toBe(5_400_000);
-    expect(resolveShellTimeoutMs(900_000, DEFAULT_SHELL_TIMEOUT_MS)).toBe(900_000);
+    expect(resolveShellTimeoutMs(5_400_000, undefined)).toBe(5_400_000);
+    expect(resolveShellTimeoutMs(5_400_000, undefined, undefined)).toBe(5_400_000);
+    expect(resolveShellTimeoutMs(900_000, 15_000)).toBe(900_000);
   });
 
-  test("configured maxMs still clamps", () => {
-    expect(resolveShellTimeoutMs(900_000, DEFAULT_SHELL_TIMEOUT_MS, 100)).toBe(100);
-    expect(resolveShellTimeoutMs(5_400_000, DEFAULT_SHELL_TIMEOUT_MS, 600_000)).toBe(600_000);
-    expect(resolveShellTimeoutMs(undefined, DEFAULT_SHELL_TIMEOUT_MS, 100)).toBe(100);
+  test("configured maxMs still clamps a resolved timeout", () => {
+    expect(resolveShellTimeoutMs(900_000, undefined, 100)).toBe(100);
+    expect(resolveShellTimeoutMs(5_400_000, 15_000, 600_000)).toBe(600_000);
+    expect(resolveShellTimeoutMs(undefined, 15_000, 100)).toBe(100);
   });
 
   test("requested below maxMs is unchanged", () => {
-    expect(resolveShellTimeoutMs(1_000, DEFAULT_SHELL_TIMEOUT_MS, 600_000)).toBe(1_000);
+    expect(resolveShellTimeoutMs(1_000, undefined, 600_000)).toBe(1_000);
+  });
+
+  test("settings defaultMs applies when request is omitted", () => {
+    expect(resolveShellTimeoutMs(undefined, 90)).toBe(90);
   });
 });
 
 describe("advertiseShellGuardTimeout", () => {
-  test("rewrites run_shell timeout default to match the guard", () => {
+  test("rewrites run_shell timeout description when a settings default is set", () => {
+    const rewritten = advertiseShellGuardTimeout(
+      {
+        name: "run_shell",
+        description: "Execute a shell command",
+        inputSchema: {
+          type: "object",
+          properties: {
+            command: { type: "string" },
+            timeout: {
+              type: "number",
+              description: "Timeout in milliseconds (default: 30000)",
+            },
+          },
+          required: ["command"],
+        },
+      },
+      120_000,
+    );
+    const timeout = (
+      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+    )["timeout"];
+    expect(timeout?.description).toContain("120000");
+    expect(timeout?.description).not.toContain("30000");
+  });
+
+  test("advertises no default when settings default is unset", () => {
     const rewritten = advertiseShellGuardTimeout({
       name: "run_shell",
       description: "Execute a shell command",
@@ -195,8 +242,9 @@ describe("advertiseShellGuardTimeout", () => {
     const timeout = (
       rewritten.inputSchema["properties"] as Record<string, { description: string }>
     )["timeout"];
-    expect(timeout?.description).toContain(String(DEFAULT_SHELL_TIMEOUT_MS));
+    expect(timeout?.description).toMatch(/no default|omit/i);
     expect(timeout?.description).not.toContain("30000");
+    expect(timeout?.description).not.toContain("15000");
   });
 
   test("leaves other tools unchanged", () => {
@@ -268,6 +316,26 @@ describe("shellGuardPlugin", () => {
       neverAbort(),
     );
     expect(result.content).toMatch(/timed out after 90ms/);
+  });
+
+  test("omitted timeout with no settings default does not time out", async () => {
+    const handler = shellGuardPlugin(process.cwd()).middleware!(fallback);
+    const result = await handler(
+      { id: "c2d", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
+      neverAbort(),
+    );
+    expect(result.content).toContain("ok");
+    expect(String(result.content)).not.toMatch(/timed out/);
+  });
+
+  test("maxMs alone does not invent a timeout when the model omits timeout", async () => {
+    const handler = shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware!(fallback);
+    const result = await handler(
+      { id: "c2e", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
+      neverAbort(),
+    );
+    expect(result.content).toContain("ok");
+    expect(String(result.content)).not.toMatch(/timed out/);
   });
 
   test("passes non-shell tools through", async () => {

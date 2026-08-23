@@ -53,7 +53,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("Spawn build");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
-  expect(facts).toContain("15s timeout");
+  expect(facts).toContain("no default timeout");
   expect(facts).toContain("find, rg, and grep -r");
   expect(facts).toMatch(/OOM the host/);
   expect(facts).toMatch(/Prefer the bounded grep\/search_files tools/);
