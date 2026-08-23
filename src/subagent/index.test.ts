@@ -47,8 +47,6 @@ import {
 } from "./index.js";
 
 import { type } from "arktype";
-import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
-import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type {
   ReactorAction,
   ReactorCapabilities,
@@ -311,26 +309,21 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
-  test("shouldRequireEvidence is armed for CritiqueDirector prompt", () => {
-    expect(
-      shouldRequireEvidence({
-        systemPromptRole: formatDirectorSystemPrompt(DIRECTOR_REGISTRY.critique),
-      }),
-    ).toBe(true);
-    expect(
-      shouldRequireEvidence({
-        systemPromptRole: DIRECTOR_REGISTRY.critique.systemPrompt,
-      }),
-    ).toBe(true);
+  test("shouldRequireEvidence is armed for the critique director id", () => {
+    expect(shouldRequireEvidence({ directorId: "critique" })).toBe(true);
   });
 
   test("shouldRequireEvidence is off for greybeard even with intent=review", () => {
     expect(
       shouldRequireEvidence({
         intent: "review",
-        systemPromptRole: formatDirectorSystemPrompt(DIRECTOR_REGISTRY.greybeard),
+        directorId: "greybeard",
       }),
     ).toBe(false);
+  });
+
+  test("shouldRequireEvidence is off when no directorId is resolved", () => {
+    expect(shouldRequireEvidence({ intent: "review" })).toBe(false);
   });
 
   test("evaluateSubAgentStop does not complete a review/critique with empty readCounts even with a full envelope", () => {

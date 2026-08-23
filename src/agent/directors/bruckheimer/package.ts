@@ -30,5 +30,5 @@ Read the product as a person using it: can a new user get through the first nine
 
 OUT OF LANE: implementing features, architecture sign-off, code review severity theater, fleet orchestration. Route those via Blockers to build, greybeard, critique, or skywalker.
 
-Report: Summary, Findings (product shape + discovery), Blockers, Paths.`,
+Findings: product shape and discovery, not implementation notes.`,
 };

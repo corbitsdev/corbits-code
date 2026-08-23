@@ -736,6 +736,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
+            ...(resolvedDirectorId !== undefined ? { directorId: resolvedDirectorId } : {}),
             ...(writePaths !== undefined ? { writePaths } : {}),
             ...(orchestrator ? { orchestrator: true, nestedDispatch: nestedDispatch! } : {}),
             maxTurns: resolvedMaxTurns,
