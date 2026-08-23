@@ -1121,6 +1121,42 @@ describe("SubAgentDirector report-forced wiring", () => {
     return Array.isArray(result) ? result : [result];
   }
 
+  test("stops and nudges are recorded with their measured value and threshold (CL-6938)", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 3);
+    const capabilities = makeCapabilities();
+    const recorded: { id: string; class: string; value?: number; threshold?: number }[] = [];
+    director.observeInterventions((event) => {
+      recorded.push({
+        id: event.id,
+        class: event.class,
+        ...(event.measurement !== undefined
+          ? {
+              value: event.measurement.value,
+              ...(event.measurement.threshold !== undefined
+                ? { threshold: event.measurement.threshold }
+                : {}),
+            }
+          : {}),
+      });
+    });
+
+    // Turn 1 of 3 fires report-forced (a nudge); repeating one identical call
+    // to the repeat limit then fires no-progress (a stop).
+    for (let i = 0; i < 6; i++) {
+      await director.decide(
+        makeInferenceDoneEvent([{ id: "r1", name: "read_file", args: { path: "a.ts" } }]),
+        mockState,
+        capabilities,
+      );
+    }
+
+    const nudge = recorded.find((r) => r.id === "report-forced");
+    expect(nudge?.class).toBe("nudge");
+    const stop = recorded.find((r) => r.id === "no-progress");
+    expect(stop?.class).toBe("stop");
+    expect(stop?.value).toBeGreaterThanOrEqual(stop?.threshold ?? 0);
+  });
+
   // maxTurns=3, forceReportWithin (default 2) → report-forced fires exactly
   // at turnsCompleted===1, leaving turns 2 and 3 for turn-budget to remain
   // reachable (regression for the report-forced turn-budget blocker).
