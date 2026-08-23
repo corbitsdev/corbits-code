@@ -131,9 +131,11 @@ export interface Settings {
   // back to whatever the user's main session is currently using so the agent
   // still runs; "none" treats it as a hard error and the profile fails to load.
   agentModelFallback?: "active" | "none";
-  // Shell command timeouts. `timeoutMs` is the default applied when the model
-  // does not pass a per-command timeout; `maxTimeoutMs` caps any per-command
-  // override so a single command cannot wait effectively unbounded.
+  // Shell command timeouts. `timeoutMs` is the optional default applied when the
+  // model does not pass a per-command timeout (unset = no default timeout, match
+  // Pi). `maxTimeoutMs` clamps a resolved timeout only — it alone does not invent
+  // one. A single command with neither settings default nor a per-call timeout
+  // runs until exit, abort, or the outer tool watchdog (when configured).
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
   // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
   //
@@ -240,7 +242,7 @@ export function listFavoriteModels(settings: Settings): ModelRef[] {
 }
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
-// Returns undefined when unset so the plugin applies its own defaults.
+// Returns undefined when unset so the plugin arms no default timeout.
 export function shellTimeoutFromSettings(
   settings?: Settings | null,
 ): { defaultMs?: number; maxMs?: number } | undefined {

@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Plugins
+
+- **`run_shell` no longer defaults to a 15s timeout.** Omitted timeout arms no
+  timer (match Pi). Pass a per-call `timeout`, or set `shell.timeoutMs` in
+  settings, to bound a command. `shell.maxTimeoutMs` still clamps a resolved
+  timeout and does not invent one on its own. Abort and the output-byte cap are
+  unchanged.
+
 ### Sub-agents
 
 - **Sub-agent `maxTurns` no longer hard-caps at 100.** Default remains 30 when
@@ -20,6 +28,7 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
 
 ## [0.2.104] - 2026-08-23
+
 ### TUI
 
 - **Taller live chain-of-thought preview.** Parent reasoning still paints
