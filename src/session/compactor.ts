@@ -12,8 +12,15 @@
 // The persisted run history is always kept complete in the context store.
 // Only the inference-facing context is curated here.
 
-import type { ConversationTurn, Compactor, StrategyContext, StrategyResult, StrategyBlob } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  Compactor,
+  StrategyContext,
+  StrategyResult,
+  StrategyBlob,
+} from "@intx/types/runtime";
 import { ageImageBlocks } from "./attachment-store.js";
+import type { SummaryContext } from "./summarizer.js";
 
 // ---------------------------------------------------------------------------
 // Task boundary decision
@@ -69,11 +76,7 @@ export async function classifyTaskBoundary(
   }
 
   // Tier 1: continuation signals (short follow-ups, answers to questions)
-  if (
-    trimmed.length < 40 &&
-    metadata.turnCount > 0 &&
-    metadata.currentTaskLabel !== undefined
-  ) {
+  if (trimmed.length < 40 && metadata.turnCount > 0 && metadata.currentTaskLabel !== undefined) {
     // Short messages on an established task are almost certainly continuations.
     return { kind: "same_task", reason: "short continuation message" };
   }
@@ -170,22 +173,12 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 
   sections.push(`Recent turns shown: ${envelope.recentTurns}`);
 
-  if (
-    envelope.fileReferences !== undefined &&
-    envelope.fileReferences.length > 0
-  ) {
-    sections.push(
-      `Files referenced: ${envelope.fileReferences.join(", ")}`,
-    );
+  if (envelope.fileReferences !== undefined && envelope.fileReferences.length > 0) {
+    sections.push(`Files referenced: ${envelope.fileReferences.join(", ")}`);
   }
 
-  if (
-    envelope.unresolvedErrors !== undefined &&
-    envelope.unresolvedErrors.length > 0
-  ) {
-    sections.push(
-      `Unresolved errors:\n${envelope.unresolvedErrors.join("\n")}`,
-    );
+  if (envelope.unresolvedErrors !== undefined && envelope.unresolvedErrors.length > 0) {
+    sections.push(`Unresolved errors:\n${envelope.unresolvedErrors.join("\n")}`);
   }
 
   sections.push("---");
@@ -199,10 +192,16 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 export type CompactorConfig = {
   keepRecentTurns: number;
   summaryMaxChars: number;
-  summarize?: (turns: ConversationTurn[]) => Promise<string>;
-  // Max older turns to pull forward as anchors (file edits, task updates,
-  // errors) before the summary stub. Pulled from the end of the older set
-  // so the most-recent anchors survive.
+  summarize?: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
+  /**
+   * Read at compaction time and passed to `summarize` so the summary can
+   * carry live workflow state (which workflow/step was active when the
+   * compacted turns were dropped).
+   */
+  summaryContext?: () => SummaryContext | undefined;
+  // Max older turns to pull forward as anchors (file edits, task updates)
+  // before the summary stub. Selected from the end of the older set so the
+  // most-recent anchors survive; pair partners count against the cap too.
   maxAnchorTurns: number;
 };
 
@@ -230,6 +229,18 @@ const ANCHOR_SCORE_THRESHOLD = 5;
 
 // Tool names whose results are path-keyed for re-read dedup during compaction.
 const READ_TOOLS = new Set(["read_file"]);
+
+// Replayable query tools deduped by full-argument identity: a later identical
+// grep/search_files/list_dir call reflects newer workspace state, so an older
+// identical result is stale the same way an older read_file body is.
+// run_shell is deliberately excluded — the same command is not idempotent
+// (builds, tests, mutations), so an older run_shell result can be the only
+// record of a genuinely distinct outcome.
+const QUERY_TOOLS = new Set(["grep", "search_files", "list_dir"]);
+
+function isReplayableResultTool(name: string): boolean {
+  return READ_TOOLS.has(name) || QUERY_TOOLS.has(name);
+}
 
 // Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
 type ToolCallInfo = {
@@ -262,9 +273,7 @@ function scalarArg(value: unknown): string {
  * Identity is path alone for full-file reads; path+offset+limit when either
  * range arg is present so partial reads don't supersede each other.
  */
-function readIdentityFromArguments(
-  raw: unknown,
-): { path: string; readKey: string } | undefined {
+function readIdentityFromArguments(raw: unknown): { path: string; readKey: string } | undefined {
   let args: unknown = raw ?? {};
   if (typeof args === "string") {
     try {
@@ -280,10 +289,39 @@ function readIdentityFromArguments(
   const offsetPart = scalarArg(rec["offset"]);
   const limitPart = scalarArg(rec["limit"]);
   const readKey =
-    offsetPart === "" && limitPart === ""
-      ? path
-      : `${path}\0${offsetPart}\0${limitPart}`;
+    offsetPart === "" && limitPart === "" ? path : `${path}\0${offsetPart}\0${limitPart}`;
   return { path, readKey };
+}
+
+// Deterministic key for structurally equal arguments regardless of key order.
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    const entries = Object.keys(rec)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(rec[k])}`);
+    return `{${entries.join(",")}}`;
+  }
+  const scalar = JSON.stringify(value);
+  return scalar === undefined ? "undefined" : scalar;
+}
+
+/**
+ * Dedup identity for a query tool call: tool name + canonicalized arguments.
+ * Only byte-identical (modulo key order) calls share a key, so a grep for a
+ * different pattern or a list of a different directory never supersedes.
+ */
+function queryIdentityFromArguments(name: string, raw: unknown): string | undefined {
+  let args: unknown = raw ?? {};
+  if (typeof args === "string") {
+    try {
+      args = JSON.parse(args) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  return `${name}\0${stableStringify(args)}`;
 }
 
 // callId → tool name/path for readable stubs. Inverse of path-to-reads.
@@ -298,6 +336,10 @@ function buildCallIndex(turns: readonly ConversationTurn[]): Map<string, ToolCal
         info.pathArg = identity.path;
         info.readKey = identity.readKey;
       }
+      if (QUERY_TOOLS.has(block.name)) {
+        const queryKey = queryIdentityFromArguments(block.name, block.arguments);
+        if (queryKey !== undefined) info.readKey = queryKey;
+      }
       index.set(block.id, info);
     }
   }
@@ -305,9 +347,10 @@ function buildCallIndex(turns: readonly ConversationTurn[]): Map<string, ToolCal
 }
 
 /**
- * Read-identity → every read_file result that matched it, in session order.
- * Groups repeated full-file (or same-range) reads so older successful results
- * can be stubbed when a later identical read survives compaction.
+ * Read-identity → every replayable read/query result that matched it, in
+ * session order. Groups repeated full-file (or same-range) reads and repeated
+ * identical query calls so older successful results can be stubbed when a
+ * later identical call survives compaction.
  *
  * Callers must pass only turns that survive compaction (anchors + recent).
  * Computing supersession over the full transcript would hollow a kept older
@@ -324,7 +367,8 @@ function buildPathToReads(
     for (const block of turn.content) {
       if (block.type !== "tool_result") continue;
       const info = callIndex.get(block.callId);
-      if (info === undefined || !READ_TOOLS.has(info.name) || info.readKey === undefined) continue;
+      if (info === undefined || !isReplayableResultTool(info.name) || info.readKey === undefined)
+        continue;
       const entry: PathRead = {
         callId: block.callId,
         order: order++,
@@ -339,10 +383,10 @@ function buildPathToReads(
 }
 
 /**
- * Call ids of successful read_file results that are superseded by a later
- * successful read of the same identity (path, or path+offset+limit). Error
- * results never appear here — they stay verbatim so the model still sees the
- * failure.
+ * Call ids of successful read/query results that are superseded by a later
+ * successful call of the same identity (path or path+offset+limit for reads,
+ * full canonical arguments for query tools). Error results never appear here —
+ * they stay verbatim so the model still sees the failure.
  */
 function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Set<string> {
   const superseded = new Set<string>();
@@ -379,30 +423,143 @@ function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   return pairs;
 }
 
-// Score a turn by its anchor importance. Turns that write files, update
-// tasks, or contain errors are load-bearing regardless of age.
-function anchorScore(turn: ConversationTurn): number {
+// Errored results score BELOW the anchor threshold on purpose: a lone failure
+// is context for the summary, not an anchor. Scoring errors at or above the
+// threshold preserved every iteration of a failing-edit retry loop verbatim
+// past the summary boundary, crowding the kept context with the loop while
+// the substance was summarized away. Two distinct errors on one turn still
+// clear the threshold.
+const ERRORED_RESULT_SCORE = 3;
+
+// Whitespace-collapsed error-text prefix length compared when deciding two
+// errored results are the same failure repeating. Long enough to separate
+// distinct errors, short enough that trailing variable detail (line numbers,
+// retry counters) does not defeat the collapse.
+const ERROR_SIGNATURE_PREFIX_CHARS = 120;
+
+type ToolResultBlock = Extract<ConversationTurn["content"][number], { type: "tool_result" }>;
+
+function erroredResultSignature(
+  block: ToolResultBlock,
+  callIndex: ReadonlyMap<string, ToolCallInfo>,
+): string {
+  const info = callIndex.get(block.callId);
+  const name = info === undefined ? "" : info.name;
+  const text = block.content
+    .flatMap((c) => (c.type === "text" ? [c.text] : []))
+    .join("")
+    .replace(/\s+/g, " ")
+    .slice(0, ERROR_SIGNATURE_PREFIX_CHARS);
+  return `${name}\0${text}`;
+}
+
+/**
+ * Call ids of errored results whose (tool name, error-text prefix) signature
+ * recurs on a later turn in the same set. Every occurrence but the last is
+ * returned, collapsing a retry loop's repeats to one representative — the
+ * most recent failure, which is the state the agent must resume from.
+ */
+function repeatedErroredResultCallIds(
+  turns: readonly ConversationTurn[],
+  callIndex: ReadonlyMap<string, ToolCallInfo>,
+): Set<string> {
+  const lastSeen = new Map<string, string>();
+  const repeated = new Set<string>();
+  for (const turn of turns) {
+    for (const block of turn.content) {
+      if (block.type !== "tool_result" || block.isError !== true) continue;
+      const signature = erroredResultSignature(block, callIndex);
+      const previous = lastSeen.get(signature);
+      if (previous !== undefined) repeated.add(previous);
+      lastSeen.set(signature, block.callId);
+    }
+  }
+  return repeated;
+}
+
+// Score a turn by its anchor importance. Turns that write files or update
+// tasks are load-bearing regardless of age. Errored results whose failure
+// signature repeats later contribute nothing — only the last occurrence of a
+// recurring error counts (see repeatedErroredResultCallIds).
+function anchorScore(turn: ConversationTurn, suppressedErrorCallIds: ReadonlySet<string>): number {
   let score = 0;
   for (const block of turn.content) {
     if (block.type === "tool_call") {
       if (block.name === "edit_file" || block.name === "write_file") score += 10;
       else if (block.name === "manage_tasks") score += 7;
     }
-    if (block.type === "tool_result" && block.isError === true) score += 5;
+    if (
+      block.type === "tool_result" &&
+      block.isError === true &&
+      !suppressedErrorCallIds.has(block.callId)
+    ) {
+      score += ERRORED_RESULT_SCORE;
+    }
   }
   return score;
+}
+
+// Turn index → pair-partner turn indices, derived from the pair index, so
+// closure walks touch each pair once instead of rescanning all pairs per step.
+function buildPartnerIndex(pairs: ReadonlyMap<string, PairLocation>): Map<number, number[]> {
+  const partners = new Map<number, number[]>();
+  const link = (a: number, b: number): void => {
+    const list = partners.get(a);
+    if (list === undefined) partners.set(a, [b]);
+    else list.push(b);
+  };
+  for (const { callIdx, resultIdx } of pairs.values()) {
+    if (callIdx === undefined || resultIdx === undefined || callIdx === resultIdx) continue;
+    link(callIdx, resultIdx);
+    link(resultIdx, callIdx);
+  }
+  return partners;
+}
+
+/**
+ * Older-region turn indices a candidate anchor drags along: itself plus its
+ * tool_call/tool_result partners, transitively, minus turns already kept
+ * (recent window or previously anchored). Selecting anchors closure-at-a-time
+ * is what lets maxAnchorTurns bound the total pull: a pair is either taken
+ * whole or not at all, so no partner ever needs an over-budget rescue.
+ */
+function pairClosure(
+  start: number,
+  partnerIndex: ReadonlyMap<number, number[]>,
+  keepFrom: number,
+  kept: ReadonlySet<number>,
+): Set<number> {
+  const closure = new Set<number>();
+  const queue = [start];
+  while (queue.length > 0) {
+    const idx = queue.pop();
+    if (idx === undefined || idx >= keepFrom || kept.has(idx) || closure.has(idx)) continue;
+    closure.add(idx);
+    const partners = partnerIndex.get(idx);
+    if (partners !== undefined) queue.push(...partners);
+  }
+  return closure;
+}
+
+function addPairClosure(
+  start: number,
+  partnerIndex: ReadonlyMap<number, number[]>,
+  keepFrom: number,
+  kept: Set<number>,
+): void {
+  for (const idx of pairClosure(start, partnerIndex, keepFrom, kept)) kept.add(idx);
 }
 
 // Index of the first turn carrying the user's own words. This is the
 // initiating task; it must survive compaction so the agent never loses what
 // it was asked to do, even when it falls far outside the recent window.
 function firstUserTurnIndex(turns: ConversationTurn[]): number {
-  return turns.findIndex(
-    (t) => t.role === "user" && t.content.some((b) => b.type === "text"),
-  );
+  return turns.findIndex((t) => t.role === "user" && t.content.some((b) => b.type === "text"));
 }
 
-function resultContentSize(block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>): number {
+function resultContentSize(
+  block: Extract<ConversationTurn["content"][number], { type: "tool_result" }>,
+): number {
   return block.content.reduce((sum, c) => sum + (c.type === "text" ? c.text.length : 0), 0);
 }
 
@@ -415,10 +572,9 @@ function buildResultStub(
   const size = resultContentSize(block);
   if (info?.pathArg !== undefined) {
     const path = info.pathArg;
-    const spillHint =
-      path.startsWith("tool-output://")
-        ? " Re-read with read_file offset/limit or grep on that URI."
-        : "";
+    const spillHint = path.startsWith("tool-output://")
+      ? " Re-read with read_file offset/limit or grep on that URI."
+      : "";
     return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
   }
   return `[${name} — ${size} chars, omitted]`;
@@ -523,14 +679,12 @@ function coalesceAdjacentTextTurns(turns: ConversationTurn[]): ConversationTurn[
   return out;
 }
 
-export function createPruningCompactor(
-  config: Partial<CompactorConfig> = {},
-): Compactor {
+export function createPruningCompactor(config: Partial<CompactorConfig> = {}): Compactor {
   const cfg = { ...DEFAULT_COMPACTOR_CONFIG, ...config };
 
   return {
     name: "pruning-compactor",
-    version: "1.3.1",
+    version: "1.4.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -565,35 +719,54 @@ export function createPruningCompactor(
       const recentTurns = aged.turns.slice(keepFrom);
       const olderTurns = aged.turns.slice(0, keepFrom);
 
-      // Pull high-importance turns forward regardless of age. Take from the
-      // tail of the older set so the most recent anchors survive.
-      const scoredOlder = olderTurns.map((t, i) => ({ turn: t, index: i, score: anchorScore(t) }));
-      const anchorIndices = new Set(
-        scoredOlder
-          .filter(({ score }) => score >= ANCHOR_SCORE_THRESHOLD)
-          .slice(-cfg.maxAnchorTurns)
-          .map(({ index }) => index),
-      );
+      const pairs = buildPairIndex(aged.turns);
+      const partnerIndex = buildPartnerIndex(pairs);
+
+      // Repeated identical errors collapse to their last occurrence before
+      // scoring, so a failing retry loop contributes one representative
+      // instead of scoring every iteration.
+      const repeatedErrors = repeatedErroredResultCallIds(olderTurns, callIndex);
+      const scoredOlder = olderTurns.map((t, i) => ({
+        index: i,
+        score: anchorScore(t, repeatedErrors),
+      }));
+
+      // Keep tool_call/tool_result pairs together across the keep/summarize
+      // boundary: a surviving turn whose partner is summarized leaves a
+      // dangling tool_call or an orphaned tool_result, which the inference
+      // layer rejects. Partners of recent-window turns are mandatory pulls
+      // and are counted against maxAnchorTurns first, so the cap bounds the
+      // total turns pulled forward past the summary.
+      const anchorIndices = new Set<number>();
+      for (const { callIdx, resultIdx } of pairs.values()) {
+        if (callIdx === undefined || resultIdx === undefined) continue;
+        if (callIdx >= keepFrom && resultIdx < keepFrom)
+          addPairClosure(resultIdx, partnerIndex, keepFrom, anchorIndices);
+        else if (resultIdx >= keepFrom && callIdx < keepFrom)
+          addPairClosure(callIdx, partnerIndex, keepFrom, anchorIndices);
+      }
+
+      // Pull high-importance turns forward regardless of age, most recent
+      // first so the freshest anchors survive. Each candidate is taken with
+      // its pair partners, whole closure or not at all, and only while the
+      // combined pull stays within maxAnchorTurns.
+      let anchorBudget = Math.max(0, cfg.maxAnchorTurns - anchorIndices.size);
+      for (let i = scoredOlder.length - 1; i >= 0; i--) {
+        const candidate = scoredOlder[i];
+        if (candidate === undefined) continue;
+        if (candidate.score < ANCHOR_SCORE_THRESHOLD || anchorIndices.has(candidate.index))
+          continue;
+        const closure = pairClosure(candidate.index, partnerIndex, keepFrom, anchorIndices);
+        if (closure.size > anchorBudget) continue;
+        for (const idx of closure) anchorIndices.add(idx);
+        anchorBudget -= closure.size;
+      }
 
       // Always keep the initiating task verbatim, outside the maxAnchorTurns
       // cap. Losing the oldest user turn is how the agent forgets what it was
       // asked to do; correctness outranks the size target here.
       const initiatingIdx = firstUserTurnIndex(olderTurns);
-      if (initiatingIdx >= 0) anchorIndices.add(initiatingIdx);
-
-      // Keep tool_call/tool_result pairs together across the keep/summarize
-      // boundary. A turn that survives (anchored, or in the recent window) whose
-      // partner would be summarized leaves a dangling tool_call or an orphaned
-      // tool_result, which the inference layer rejects. Pull the older partner
-      // forward as an anchor so the surviving sequence stays well-formed.
-      // Pairing wins over maxAnchorTurns: correctness outranks the size target.
-      const pairs = buildPairIndex(aged.turns);
-      const isKept = (idx: number): boolean => idx >= keepFrom || anchorIndices.has(idx);
-      for (const { callIdx, resultIdx } of pairs.values()) {
-        if (callIdx === undefined || resultIdx === undefined) continue;
-        if (isKept(callIdx) && !isKept(resultIdx) && resultIdx < keepFrom) anchorIndices.add(resultIdx);
-        else if (isKept(resultIdx) && !isKept(callIdx) && callIdx < keepFrom) anchorIndices.add(callIdx);
-      }
+      if (initiatingIdx >= 0) addPairClosure(initiatingIdx, partnerIndex, keepFrom, anchorIndices);
 
       // Ascending original order keeps the concatenated [anchors, recent]
       // sequence globally index-ordered, so every result still follows its call.
@@ -607,9 +780,10 @@ export function createPruningCompactor(
       const pathToReads = buildPathToReads([...anchorTurns, ...recentTurns], callIndex);
       const supersededReads = supersededReadCallIds(pathToReads);
 
-      const summary = cfg.summarize !== undefined
-        ? await cfg.summarize(summarizedTurns)
-        : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
+      const summary =
+        cfg.summarize !== undefined
+          ? await cfg.summarize(summarizedTurns, cfg.summaryContext?.())
+          : buildTurnSummary(summarizedTurns, cfg.summaryMaxChars, anchorTurns.length);
 
       // A user-role turn survives every adapter unchanged. A system-role turn
       // does not: the Anthropic builder drops mid-conversation system turns
@@ -654,6 +828,7 @@ export function createPruningCompactor(
             summaryLength: summary.length,
             agedImageCount: aged.agedImageCount,
             supersededReadCount: supersededReads.size,
+            repeatedErrorCount: repeatedErrors.size,
           },
         },
         ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
@@ -786,8 +961,6 @@ export function formatPlan(
   steps: Array<{ file: string; action: string; reason?: string }>,
 ): string {
   return steps
-    .map(
-      (s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`,
-    )
+    .map((s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`)
     .join("\n");
 }

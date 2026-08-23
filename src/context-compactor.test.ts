@@ -15,7 +15,9 @@ const mockStrategyCtx: StrategyContext = {
   trigger: "test",
 };
 
-function makeTurn(overrides: Partial<ConversationTurn> & { role: ConversationTurn["role"] }): ConversationTurn {
+function makeTurn(
+  overrides: Partial<ConversationTurn> & { role: ConversationTurn["role"] },
+): ConversationTurn {
   return {
     content: [{ type: "text", text: "" }],
     timestamp: Date.now(),
@@ -126,7 +128,11 @@ describe("createPruningCompactor", () => {
 
 describe("createPruningCompactor — initiating task preservation", () => {
   test("keeps the initiating task verbatim even when it is far outside the recent window", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const goal = "GOAL: migrate the auth module to opaque tokens";
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: goal }] }),
@@ -136,7 +142,9 @@ describe("createPruningCompactor — initiating task preservation", () => {
     }
     // A later user turn would win the single anchor slot on recency alone;
     // the initiating task must still survive.
-    turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "also handle refresh" }] }));
+    turns.push(
+      makeTurn({ role: "user", content: [{ type: "text", text: "also handle refresh" }] }),
+    );
     turns.push(makeTurn({ role: "assistant", content: [{ type: "text", text: "recent reply" }] }));
     turns.push(makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }));
 
@@ -175,12 +183,29 @@ describe("createPruningCompactor — initiating task preservation", () => {
   });
 
   test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 3, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      maxAnchorTurns: 3,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
-      makeTurn({ role: "assistant", content: [{ type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } }] }),
-      makeTurn({ role: "user", content: [{ type: "tool_result", callId: "c1", content: [{ type: "text", text: "edited" }] }] }),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "reasoning that gets summarized" }] }),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } },
+        ],
+      }),
+      makeTurn({
+        role: "user",
+        content: [
+          { type: "tool_result", callId: "c1", content: [{ type: "text", text: "edited" }] },
+        ],
+      }),
+      makeTurn({
+        role: "assistant",
+        content: [{ type: "text", text: "reasoning that gets summarized" }],
+      }),
       makeTurn({ role: "user", content: [{ type: "text", text: "the recent ask" }] }),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
@@ -188,24 +213,32 @@ describe("createPruningCompactor — initiating task preservation", () => {
     // to the recent user turn; coalescing must still alternate.
     expect(hasConsecutiveSameRole(result.output)).toBe(false);
     // The tool_result stays paired with its tool_call.
-    const callTurnIdx = result.output.findIndex((t) => t.content.some((b) => b.type === "tool_call" && b.id === "c1"));
+    const callTurnIdx = result.output.findIndex((t) =>
+      t.content.some((b) => b.type === "tool_call" && b.id === "c1"),
+    );
     const resultTurn = result.output[callTurnIdx + 1];
-    expect(resultTurn?.content.some((b) => b.type === "tool_result" && b.callId === "c1")).toBe(true);
+    expect(resultTurn?.content.some((b) => b.type === "tool_result" && b.callId === "c1")).toBe(
+      true,
+    );
   });
 });
 
 describe("createPruningCompactor — image aging", () => {
-  const imageBlock = { type: "image" as const, source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" } };
+  const imageBlock = {
+    type: "image" as const,
+    source: { kind: "base64" as const, mimeType: "image/png", data: "iVBORw0KGgo=" },
+  };
 
   test("strips image bytes from an anchored (aged) turn but keeps its text", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 2, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        content: [
-          { type: "text", text: "here's a screenshot of the bug" },
-          imageBlock,
-        ],
+        content: [{ type: "text", text: "here's a screenshot of the bug" }, imageBlock],
       }),
     ];
     for (let i = 0; i < 8; i++) {
@@ -241,7 +274,10 @@ describe("createPruningCompactor — image aging", () => {
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "old 1" }] }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "old 2" }] }),
-      makeTurn({ role: "user", content: [{ type: "text", text: "here's a screenshot" }, imageBlock] }),
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "here's a screenshot" }, imageBlock],
+      }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "looking at it" }] }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
     ];
@@ -258,10 +294,7 @@ describe("createPruningCompactor — image aging", () => {
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        content: [
-          { type: "text", text: "old screenshot" },
-          imageBlock,
-        ],
+        content: [{ type: "text", text: "old screenshot" }, imageBlock],
       }),
       makeTurn({ role: "assistant", content: [{ type: "text", text: "noted" }] }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
@@ -283,15 +316,251 @@ describe("createPruningCompactor — image aging", () => {
   });
 
   test("records the number of turns aged out in the transform record", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 1, maxAnchorTurns: 1, summaryMaxChars: 500 });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      maxAnchorTurns: 1,
+      summaryMaxChars: 500,
+    });
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "task" }, imageBlock] }),
       ...Array.from({ length: 6 }, (_, i) =>
-        makeTurn({ role: i % 2 === 0 ? "assistant" : "user", content: [{ type: "text", text: `t${i}` }] }),
+        makeTurn({
+          role: i % 2 === 0 ? "assistant" : "user",
+          content: [{ type: "text", text: `t${i}` }],
+        }),
       ),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(result.record.decisions["agedImageCount"]).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("createPruningCompactor — error anchoring (CL-6906)", () => {
+  function assistantErrorCall(id: string, name: string): ConversationTurn {
+    return makeTurn({
+      role: "assistant",
+      content: [{ type: "tool_call", id, name, arguments: {} }],
+    });
+  }
+  function errorResult(callId: string, text: string): ConversationTurn {
+    return makeTurn({
+      role: "user",
+      content: [{ type: "tool_result", callId, content: [{ type: "text", text }], isError: true }],
+    });
+  }
+  function padding(n: number, prefix: string): ConversationTurn[] {
+    return Array.from({ length: n }, (_, i) =>
+      makeTurn({
+        role: i % 2 === 0 ? "assistant" : "user",
+        content: [{ type: "text", text: `${prefix}${i}` }],
+      }),
+    );
+  }
+
+  test("a lone errored tool_result no longer anchors on its own", async () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      ...padding(3, "before"),
+      assistantErrorCall("e1", "run_shell"),
+      errorResult("e1", "Error: exit code 1 " + "x".repeat(100)),
+      ...padding(8, "after"),
+    ];
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 8,
+      summaryMaxChars: 2000,
+    });
+    const { output } = await compactor.apply(turns, mockStrategyCtx);
+    // The lone error's own turn score (3) sits below the anchor threshold (5),
+    // so its body must not survive verbatim outside the recent window.
+    const survivedVerbatim = output.some((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "e1"),
+    );
+    expect(survivedVerbatim).toBe(false);
+  });
+
+  test("two distinct errors on one turn still clear the anchor threshold", async () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      ...padding(3, "before"),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "d1", name: "run_shell", arguments: {} },
+          { type: "tool_call", id: "d2", name: "grep", arguments: {} },
+        ],
+      }),
+      makeTurn({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId: "d1",
+            content: [{ type: "text", text: "Error: build failed" }],
+            isError: true,
+          },
+          {
+            type: "tool_result",
+            callId: "d2",
+            content: [{ type: "text", text: "Error: no matches found" }],
+            isError: true,
+          },
+        ],
+      }),
+      ...padding(8, "after"),
+    ];
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 8,
+      summaryMaxChars: 2000,
+    });
+    const { output } = await compactor.apply(turns, mockStrategyCtx);
+    const kept = output.find((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "d1"),
+    );
+    expect(kept).toBeDefined();
+    expect(kept?.content.some((b) => b.type === "tool_result" && b.callId === "d2")).toBe(true);
+  });
+
+  test("repeated identical errors collapse to one representative before anchor selection", async () => {
+    // "old" repeats the same (tool, error-text) signature that recurs again
+    // later ("recur"); combined with a distinct error on the same turn, the
+    // uncollapsed score (3 + 3 = 6) would clear the threshold, but the
+    // collapsed score (0 + 3 = 3) must not.
+    const sharedErrorText = "Error: type mismatch on line 12, expected string";
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      ...padding(3, "before"),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "old", name: "edit_file_check", arguments: {} },
+          { type: "tool_call", id: "uniq", name: "grep", arguments: {} },
+        ],
+      }),
+      makeTurn({
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId: "old",
+            content: [{ type: "text", text: sharedErrorText }],
+            isError: true,
+          },
+          {
+            type: "tool_result",
+            callId: "uniq",
+            content: [{ type: "text", text: "Error: distinct failure here" }],
+            isError: true,
+          },
+        ],
+      }),
+      ...padding(4, "mid"),
+      assistantErrorCall("recur", "edit_file_check"),
+      errorResult("recur", sharedErrorText),
+      ...padding(8, "after"),
+    ];
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns: 8,
+      summaryMaxChars: 2000,
+    });
+    const { output, record } = await compactor.apply(turns, mockStrategyCtx);
+    expect(record.decisions["repeatedErrorCount"]).toBe(1);
+    // The combined turn's score drops below threshold once "old" is
+    // collapsed, so neither of its results survives verbatim.
+    const oldSurvived = output.some((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "old"),
+    );
+    const uniqSurvived = output.some((t) =>
+      t.content.some((b) => b.type === "tool_result" && b.callId === "uniq"),
+    );
+    expect(oldSurvived).toBe(false);
+    expect(uniqSurvived).toBe(false);
+  });
+});
+
+describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)", () => {
+  test("bounds the total scored-anchor pull even when many high-score pairs are scattered through history", async () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+    ];
+    // 10 edit_file call/result pairs, well separated from each other and from
+    // the recent window, each independently clearing the anchor threshold.
+    for (let i = 0; i < 10; i++) {
+      turns.push(
+        makeTurn({
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: `edit${i}`,
+              name: "edit_file",
+              arguments: { path: `f${i}.ts` },
+            },
+          ],
+        }),
+        makeTurn({
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              callId: `edit${i}`,
+              content: [{ type: "text", text: `edited f${i}.ts` }],
+            },
+          ],
+        }),
+        makeTurn({ role: "assistant", content: [{ type: "text", text: `note ${i}` }] }),
+        makeTurn({ role: "user", content: [{ type: "text", text: `ask ${i}` }] }),
+      );
+    }
+    for (let i = 0; i < 6; i++) {
+      turns.push(
+        makeTurn({
+          role: i % 2 === 0 ? "assistant" : "user",
+          content: [{ type: "text", text: `recent${i}` }],
+        }),
+      );
+    }
+
+    const maxAnchorTurns = 4;
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      maxAnchorTurns,
+      summaryMaxChars: 2000,
+    });
+    const { record } = await compactor.apply(turns, mockStrategyCtx);
+    // The initiating task (1 turn, no partners) is kept outside the cap; the
+    // scored/pair-partner pull must stay within maxAnchorTurns.
+    const anchorTurnCount = record.decisions["anchorTurnCount"] as number;
+    expect(anchorTurnCount - 1).toBeLessThanOrEqual(maxAnchorTurns);
+    // With a budget of 4 and each edit pair costing 2 (call + result), exactly
+    // two pairs (the most recent two) fit; a third would overshoot and must
+    // be rejected as a whole, not split.
+    expect(anchorTurnCount).toBe(1 + 4);
+  });
+});
+
+describe("createPruningCompactor — summarize receives the workflow context (CL-6906)", () => {
+  test("passes cfg.summaryContext() through to summarize as the second argument", async () => {
+    let capturedCtx: unknown = "not called";
+    const workflowCtx = { workflow: { name: "build", stepIndex: 2, total: 7 } };
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      summaryMaxChars: 500,
+      summaryContext: () => workflowCtx,
+      summarize: async (_turns, ctx) => {
+        capturedCtx = ctx;
+        return "summary text";
+      },
+    });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+    await compactor.apply(turns, mockStrategyCtx);
+    expect(capturedCtx).toBe(workflowCtx);
   });
 });
 
@@ -344,7 +613,9 @@ describe("formatPlan", () => {
       { file: "src/bar.ts", action: "read", reason: "Verify the fix" },
     ];
     const result = formatPlan(steps);
-    expect(result).toBe("1. src/foo.ts — edit (Fix the bug)\n2. src/bar.ts — read (Verify the fix)");
+    expect(result).toBe(
+      "1. src/foo.ts — edit (Fix the bug)\n2. src/bar.ts — read (Verify the fix)",
+    );
   });
 });
 
@@ -477,7 +748,11 @@ describe("buildTurnSummary via createPruningCompactor", () => {
       makeTurn({
         role: "user",
         content: [
-          { type: "tool_result", callId: "c1", content: [{ type: "text", text: "file contents here" }] },
+          {
+            type: "tool_result",
+            callId: "c1",
+            content: [{ type: "text", text: "file contents here" }],
+          },
         ],
       }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),

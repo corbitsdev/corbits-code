@@ -9,8 +9,13 @@
 
 import { runInference, type Dependencies } from "@intx/inference";
 import { createDefaultDependencies } from "@intx/inference/providers";
+import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { detectRepetition } from "../subagent/repetition.js";
 import { buildTurnSummary } from "./compactor.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 
 // What the agent was doing when compaction fired. Lets the summary preserve
 // the workflow contract ("we are at step 3/7 of /build") rather than dropping
@@ -70,7 +75,13 @@ export function condenseTurns(turns: ConversationTurn[]): string {
         if (turn.role === "user") {
           userMessages.push(block.text.slice(0, 400));
         } else if (turn.role === "assistant" && block.text.length > 0) {
-          assistantSnippets.push(block.text.slice(0, 300));
+          // Compaction often fires mid-degeneration, when the tail of the
+          // history is the model looping one phrase. Seeding the summary from
+          // those turns hands the looped text to the summarizer verbatim, so
+          // repetition-flagged turns are dropped from the excerpt entirely.
+          if (detectRepetition(block.text) === null) {
+            assistantSnippets.push(block.text.slice(0, 300));
+          }
         }
       }
       if (block.type === "tool_call") {
@@ -87,8 +98,18 @@ export function condenseTurns(turns: ConversationTurn[]): string {
   const sections: Array<string | null> = [
     `Turns dropped: ${turns.length}`,
     toolNames.size > 0 ? `Tools used: ${[...toolNames].sort().join(", ")}` : null,
-    files.size > 0 ? `Files touched:\n${[...files].slice(0, 40).map((f) => `- ${f}`).join("\n")}` : null,
-    links.size > 0 ? `Links/identifiers:\n${[...links].slice(0, 30).map((l) => `- ${l}`).join("\n")}` : null,
+    files.size > 0
+      ? `Files touched:\n${[...files]
+          .slice(0, 40)
+          .map((f) => `- ${f}`)
+          .join("\n")}`
+      : null,
+    links.size > 0
+      ? `Links/identifiers:\n${[...links]
+          .slice(0, 30)
+          .map((l) => `- ${l}`)
+          .join("\n")}`
+      : null,
     userMessages.length > 0
       ? `User messages (most recent last):\n${userMessages.slice(-6).join("\n---\n")}`
       : null,
@@ -119,10 +140,7 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
 }
 
 /** Build the user-content prompt for the summary call. Pure and testable. */
-export function buildSummaryPrompt(
-  turns: ConversationTurn[],
-  ctx?: SummaryContext,
-): string {
+export function buildSummaryPrompt(turns: ConversationTurn[], ctx?: SummaryContext): string {
   return `${workflowPreamble(ctx)}Session excerpt:\n\n${condenseTurns(turns)}`;
 }
 
@@ -183,18 +201,35 @@ export function createModelSummarizer(
   const maxChars = options.maxChars ?? 4000;
 
   return async (turns, ctx) => {
-    const fallback = (): string => buildTurnSummary(turns, maxChars);
+    // The marker tells the model (and anyone reading a transcript) that the
+    // compacted region is a lossy stats stub, not a real handoff summary.
+    const fallback = (reason: string): string =>
+      `[Model summary unavailable (${reason}); deterministic fallback]\n${buildTurnSummary(turns, maxChars)}`;
     try {
       const promptTurns: ConversationTurn[] = [
-        { role: "system", content: [{ type: "text", text: SYSTEM_INSTRUCTION }], timestamp: turns[0]?.timestamp ?? 0 },
-        { role: "user", content: [{ type: "text", text: buildSummaryPrompt(turns, ctx) }], timestamp: 0 },
+        {
+          role: "system",
+          content: [{ type: "text", text: SYSTEM_INSTRUCTION }],
+          timestamp: turns[0]?.timestamp ?? 0,
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: buildSummaryPrompt(turns, ctx) }],
+          timestamp: 0,
+        },
       ];
       const signal = options.getSignal?.() ?? new AbortController().signal;
       const text = await complete(promptTurns, options.getSource(), signal);
-      if (text.length === 0) return fallback();
+      if (text.length === 0) {
+        logger.warn("compaction summary call returned empty text; using deterministic fallback");
+        return fallback("empty model output");
+      }
       return text.length > maxChars ? text.slice(0, maxChars) : text;
-    } catch {
-      return fallback();
+    } catch (error) {
+      logger.warn("compaction summary call failed; using deterministic fallback: {error}", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallback("summary call failed");
     }
   };
 }
