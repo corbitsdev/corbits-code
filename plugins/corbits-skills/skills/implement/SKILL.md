@@ -1,13 +1,15 @@
 ---
 name: implement
-description: Disciplined per-commit workflow — Skywalker spawns greybeard, implement, intern/tester, critique.
+description: Disciplined per-commit workflow — Skywalker spawns greybeard, build, intern/tester, critique.
 ---
 
 # Implement
 
-You are Skywalker. This skill is a per-commit spawn recipe. You orchestrate specialists; you do not implement.
+You are Skywalker. This skill is a per-commit spawn recipe for substantial landings.
 
-Primary never writes product files. Spawn workers. Wait for reports. Decide the next spawn from those reports.
+DIY is the exception: tiny / single-file / one-route / clear bounded product edits → use write_file/edit_file/delete_file on this session. Do not load this loop for that work.
+
+Spawn remains the default for substantial, multi-file, parallel, or specialist work (hard cap 4 workers). When this recipe runs, spawn workers. Wait for reports. Decide the next spawn from those reports.
 
 ## Prerequisites
 
@@ -24,7 +26,7 @@ Track commit-sized units with `manage_tasks`. One item per unit that will become
 
 ## Per-commit spawn loop
 
-For each unit, run these steps in order. Do not skip. Do not write, edit, or delete product files yourself.
+For each unit, run these steps in order. Do not skip. When this loop is running, do not DIY the unit — spawn build.
 
 ### 1. Review — greybeard
 
@@ -36,18 +38,18 @@ Send:
 - Design decisions and trade-offs
 - Uncertainties
 
-Adjust the plan from the report, then spawn implement. Greybeard is for approach, not execution.
+Adjust the plan from the report, then spawn build. Greybeard is for approach, not execution.
 
 ### 2. Implement
 
-`task(agent="implement")` with a typed brief:
+`task(agent="build")` with a typed brief:
 
 - `intent`
 - `success_criteria`
 - `do_not`
 - `report_focus`
 
-**Bug fixes:** tell implement to start from a failing test — write the repro, confirm it fails, then fix, then confirm it passes. If the test does not fail first, the bug is not understood.
+**Bug fixes:** tell build to start from a failing test — write the repro, confirm it fails, then fix, then confirm it passes. If the test does not fail first, the bug is not understood.
 
 **Features:** tests ship with the change. The test asserts the new behavior, not merely that the process did not crash.
 
@@ -60,21 +62,20 @@ Keep scope to this unit. Additional work becomes a later `manage_tasks` item, no
 - `intern` — mechanical full pipeline
 - `tester` — suite / repro
 
-Do not move forward with a broken build. If failures come from this unit, re-dispatch implement. If they are pre-existing and unrelated, report Blockers and stop. Do not substitute a partial compile for the full gate.
+Do not move forward with a broken build. If failures come from this unit, re-dispatch build. If they are pre-existing and unrelated, report Blockers and stop. Do not substitute a partial compile for the full gate.
 
 ### 4. Critique
 
 `task(agent="critique")` on the diff. Include the intent agreed with greybeard so critique evaluates plan vs execution, not only surface quality. Limit findings to this unit; pre-existing issues in touched files are out of scope unless they block the gate.
 
-If critique is **blocking**, re-dispatch implement once or twice with those findings in `success_criteria` / `do_not`, then re-run the build gate and critique. After two re-fix rounds, report Blockers — do not loop forever.
+If critique is **blocking**, re-dispatch build once or twice with those findings in `success_criteria` / `do_not`, then re-run the build gate and critique. After two re-fix rounds, report Blockers — do not loop forever.
 
 When critique is clean (or remaining findings are acknowledged judgment calls), mark the unit done and start the next.
 
 ## Hard rules
 
-- Skywalker MUST NOT write/edit/delete product files.
-- Do not do the coding yourself.
-- Spawn with `task(agent="greybeard")`, `task(agent="implement")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
+- Tiny / single-file / one-route / clear bounded edits: DIY with write_file/edit_file/delete_file. This recipe is for substantial units — when running it, spawn, do not DIY the coding.
+- Spawn with `task(agent="greybeard")`, `task(agent="build")`, `task(agent="intern")` or `task(agent="tester")`, and `task(agent="critique")`.
 - Track only with `manage_tasks`.
 - Do not shortcut the loop. Skipping greybeard “because this is simple” or skipping critique “because the build passed” defeats the recipe.
 - Build must pass before treating a unit as done.

@@ -147,6 +147,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       otel: { endpoint: "http://localhost:4318", serviceName: "corbits-test" },
       recentModels: [{ provider: "p", model: "m" }],
       favoriteModels: [{ provider: "p", model: "m" }],
+      dangerouslySkipPermissions: true,
     };
     await writeFile(globalPath, JSON.stringify(fixture));
     const loaded = await loadSettings(globalPath);

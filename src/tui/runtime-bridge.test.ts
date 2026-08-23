@@ -944,6 +944,101 @@ describe("syncAgentProgress", () => {
   })
 })
 
+describe("in-flight tool row elapsed time", () => {
+  test("an ordinary pending call's row grows a live clock, then loses it to the answer", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        let nowMs = 0
+        let tick: (() => void) | undefined
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn
+            return () => {
+              tick = undefined
+            }
+          },
+        })
+        try {
+          bridge.handle({ type: "inference.start", data: {} })
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "c1", arguments: "sleep 30" },
+          })
+          const index = streamRowCount(shell) - 1
+          expect(shell.streamLog[index]!.stat).toBeUndefined()
+
+          nowMs = 65_000
+          tick?.()
+          expect(shell.streamLog[index]!.stat).toBe("1:05")
+
+          bridge.handle({
+            type: "tool.done",
+            data: { result: { callId: "c1", name: "run_shell", content: "ok", isError: false } },
+          })
+          // The elapsed clock was scaffolding for the wait, not a fact worth
+          // keeping — the answer's own addendum takes the row over.
+          expect(shell.streamLog[index]!.stat).not.toBe("1:05")
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+
+  test("a diff call keeps its own +/- stat instead of an elapsed clock", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        })
+        let nowMs = 0
+        let tick: (() => void) | undefined
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn
+            return () => {
+              tick = undefined
+            }
+          },
+        })
+        try {
+          bridge.handle({ type: "inference.start", data: {} })
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "write_file",
+              callId: "c1",
+              arguments: JSON.stringify({ path: "a.txt", content: "hi\n" }),
+            },
+          })
+          const index = streamRowCount(shell) - 1
+          const before = shell.streamLog[index]!.stat
+          expect(before).toContain("+")
+
+          nowMs = 65_000
+          tick?.()
+          expect(shell.streamLog[index]!.stat).toBe(before)
+        } finally {
+          bridge.dispose()
+          shell.dispose()
+        }
+      },
+      { width: 80, height: 24 },
+    )
+  })
+})
+
 describe("task checklist calls stay out of the transcript", () => {
   test("a manage_tasks call and its result paint no rows", async () => {
     await withTestRenderer(

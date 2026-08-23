@@ -4,7 +4,7 @@ import type { AgentProfile } from "../agent/profiles.js";
 import { AgentProfileSchema } from "../agent/profiles.js";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
-import { isPluginEnabled } from "./register.js";
+import { isPluginModuleEnabled } from "./register.js";
 import {
   pluginWarningSink,
   type PluginLoadDiagnostics,
@@ -34,7 +34,12 @@ function resolveAgentProfileWarningHandler(
 // validated against the AgentProfileSchema so a malformed entry is skipped
 // rather than crashing the sub-agent dispatcher. Enabled-only gating (no
 // consent) is sufficient: an agent profile is configuration data (tier,
-// capabilities, role prompt), not in-process code execution.
+// capabilities, role prompt), not in-process code execution. Gating uses
+// isPluginModuleEnabled (same as skills), so a first-party repo plugin with
+// manifest.defaultEnabled loads its profiles without an explicit settings
+// entry. This differs from tool plugins (isToolPluginActive), which require
+// explicit enabled+consented in settings even for repo plugins, because a
+// tool plugin runs in-process code rather than declaring configuration data.
 //
 // Warnings fire whenever a profile is rejected so JS-plugin authors get the
 // same feedback loop data-only plugin authors already enjoy. Pass `diagnostics`
@@ -49,7 +54,7 @@ export async function resolveAgentPluginProfiles(
   for (const mod of modules) {
     if (mod.manifest?.kind !== "agent") continue;
     if (mod.agentPlugin === undefined) continue;
-    if (!isPluginEnabled(config, mod.manifest.id)) continue;
+    if (!isPluginModuleEnabled(mod, config)) continue;
 
     const rawAgents = mod.agentPlugin.agents;
     if (!Array.isArray(rawAgents)) continue;

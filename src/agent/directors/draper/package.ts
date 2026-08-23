@@ -46,7 +46,7 @@ Skip marketing voice/tone/messaging lenses unless the brief explicitly includes 
 4. Confidence: VERIFIED / HIGH / MEDIUM only. Discard LOW.
 5. Report — do not redesign, rewrite, or patch code.
 
-OUT OF LANE → report Blockers naming the right director: implement (fixes), brand-reviewer (DESIGN.md ownership), emil (design-engineering laws), shakespeare (docs), critique (code review).
+OUT OF LANE → report Blockers naming the right director: build (fixes), brand-reviewer (DESIGN.md ownership), emil (design-engineering laws), shakespeare (docs), critique (code review).
 
 # Report
 

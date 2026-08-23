@@ -19,6 +19,7 @@
     "declarationMap": true,
 
     "composite": true,
+    "incremental": true,
     "module": "ESNext",
     "noEmit": true,
 

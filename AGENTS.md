@@ -38,10 +38,10 @@ When refactoring replaces an old path, delete the old one. No back-compat shims,
 ## Build & Validation
 
 ```bash
-bun run typecheck
-bun run build
-bun run test
+bun run check
 ```
+
+`bun run check` is the single pre-PR gate: it runs `lint`, `typecheck`, `build`, and `test`, in that order, matching CI.
 
 Run the full suite before declaring any task complete. Do not substitute individual targets. If a failure is pre-existing and unrelated to your change, say so explicitly.
 

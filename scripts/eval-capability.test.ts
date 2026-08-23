@@ -1,15 +1,55 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { initEvalGitRepo, parseArgs } from "./eval-capability.ts";
+import { initEvalGitRepo, mapPool, parseArgs, buildEvalDiagnostics } from "./eval-capability.ts";
+import type { Config } from "../src/config/index.ts";
 
 const execFileAsync = promisify(execFile);
 
+function sampleConfig(over: Partial<Config> = {}): Config {
+  return {
+    configured: true,
+    apiKey: "key",
+    baseURL: "https://example.test",
+    model: "gpt-5",
+    providerName: "openai",
+    cwd: process.cwd(),
+    task: "do it",
+    force: true,
+    dangerouslySkipPermissions: true,
+    skipPermissionsFromSettings: false,
+    auto: false,
+    command: "exec",
+    globalSettingsPath: "/dev/null",
+    providers: [],
+    sessionId: "sess-1",
+    ...over,
+  } as Config;
+}
+
 describe("parseArgs", () => {
+  const savedConcurrency = process.env.CORBITS_EVAL_CONCURRENCY;
+
+  const restoreConcurrency = (): void => {
+    if (savedConcurrency === undefined) {
+      delete process.env.CORBITS_EVAL_CONCURRENCY;
+    } else {
+      process.env.CORBITS_EVAL_CONCURRENCY = savedConcurrency;
+    }
+  };
+
+  afterEach(() => {
+    restoreConcurrency();
+  });
+
+  beforeEach(() => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+  });
+
   test("--help does not require provider or model", () => {
     const opts = parseArgs(["--help"]);
     expect(opts.help).toBe(true);
@@ -61,6 +101,94 @@ describe("parseArgs", () => {
     expect(pair.provider).toBe("foo");
     expect(pair.model).toBe("bar");
   });
+
+  test("defaults concurrency to 1", () => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.concurrency).toBe(1);
+  });
+
+  test("--concurrency 4 is accepted", () => {
+    delete process.env.CORBITS_EVAL_CONCURRENCY;
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "4"]);
+    expect(opts.concurrency).toBe(4);
+  });
+
+  test("invalid --concurrency values throw", () => {
+    const pair = ["--provider", "foo", "--model", "bar"] as const;
+    expect(() => parseArgs([...pair, "--concurrency", "0"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "-1"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "1.5"])).toThrow(/positive integer/);
+    expect(() => parseArgs([...pair, "--concurrency", "foo"])).toThrow(/positive integer/);
+  });
+
+  test("CORBITS_EVAL_CONCURRENCY sets the default", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "3";
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.concurrency).toBe(3);
+  });
+
+  test("--concurrency overrides CORBITS_EVAL_CONCURRENCY", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "8";
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--concurrency", "2"]);
+    expect(opts.concurrency).toBe(2);
+  });
+
+  test("invalid CORBITS_EVAL_CONCURRENCY throws", () => {
+    process.env.CORBITS_EVAL_CONCURRENCY = "0";
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar"])).toThrow(
+      /CORBITS_EVAL_CONCURRENCY must be a positive integer/,
+    );
+  });
+
+  test("--director build is parsed", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--director", "build"]);
+    expect(opts.director).toBe("build");
+  });
+
+  test("omitted --director stays undefined", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar"]);
+    expect(opts.director).toBeUndefined();
+  });
+
+  test("--director without a value throws", () => {
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--director"])).toThrow(
+      "--director requires a value",
+    );
+  });
+});
+
+describe("mapPool", () => {
+  test("N overlapping jobs with concurrency N finish in ~one job duration", async () => {
+    const jobMs = 80;
+    const n = 4;
+    const start = Date.now();
+    const results = await mapPool([0, 1, 2, 3], n, async (item) => {
+      await new Promise((r) => setTimeout(r, jobMs));
+      return item;
+    });
+    const elapsed = Date.now() - start;
+    expect(results).toEqual([0, 1, 2, 3]);
+    expect(elapsed).toBeLessThan(jobMs * 2);
+    expect(elapsed).toBeGreaterThanOrEqual(jobMs - 20);
+  });
+
+  test("preserves input order when later items finish first", async () => {
+    const results = await mapPool([1, 2, 3], 3, async (item) => {
+      await new Promise((r) => setTimeout(r, (4 - item) * 30));
+      return item;
+    });
+    expect(results).toEqual([1, 2, 3]);
+  });
+
+  test("empty input returns an empty array", async () => {
+    expect(await mapPool([], 4, async (item) => item)).toEqual([]);
+  });
+
+  test("rejects non-positive concurrency", async () => {
+    await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(/positive integer/);
+  });
+
 });
 
 describe("initEvalGitRepo", () => {
@@ -124,5 +252,32 @@ describe("initEvalGitRepo", () => {
       restoreGitConfigGlobal();
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("buildEvalDiagnostics", () => {
+  test("non-Codex provider gets a null instructions hash and the default orchestrator tool list", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "openai" }));
+    expect(diagnostics.codexInstructionsHash).toBeNull();
+    expect(diagnostics.advertisedTools).toContain("read_file");
+    expect(diagnostics.advertisedTools).toContain("run_shell");
+    expect(diagnostics.reasoningEffort).toBeNull();
+  });
+
+  test("Codex provider gets a non-null instructions hash", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ providerName: "codex/default" }));
+    expect(diagnostics.codexInstructionsHash).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  test("echoes back the configured reasoning effort", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ reasoningEffort: "high" }));
+    expect(diagnostics.reasoningEffort).toBe("high");
+  });
+
+  test("--director build reports the director's own advertised allowlist", async () => {
+    const diagnostics = await buildEvalDiagnostics(sampleConfig({ director: "build" }));
+    expect(diagnostics.advertisedTools).not.toEqual(
+      (await buildEvalDiagnostics(sampleConfig({}))).advertisedTools,
+    );
   });
 });

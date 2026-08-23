@@ -213,7 +213,7 @@ test("closed director resolves without profiles loaded", async () => {
   const result = await callHandler(tool, {
     description: "ship",
     prompt: "implement the fix",
-    agent: "implement",
+    agent: "build",
   });
   expect(result).toContain("ok");
   expect(received?.systemPromptRole).toBeDefined();
@@ -305,7 +305,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
   const denied = await callHandler(tool, {
     description: "ship code",
     prompt: "implement the feature",
-    agent: "implement",
+    agent: "build",
   });
   expect(denied).toContain("Error:");
   expect(denied).toContain("allowlist");

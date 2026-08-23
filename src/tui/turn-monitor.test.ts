@@ -326,11 +326,57 @@ describe("stall watchdog", () => {
     })
   })
 
-  test("aborts and flashes after the stall timeout", async () => {
+  test("clears the notice once activity resumes, rather than leaving it up", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)
       try {
         t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(500)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+
+        // The model starts producing again — the notice must not linger past
+        // the silence it was reporting. handle() itself has to take it down;
+        // waiting for the next tick leaves a window where the turn can settle
+        // and cancel the cadence, which would strand the banner forever.
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } })
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("clears the notice when the turn settles before the next tick", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(500)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+
+        t.bridge.handle({ type: "inference.done", data: {} })
+        // Cadence is cancelled on settle. The notice has to already be gone.
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("aborts and flashes once a mid-stream hang crosses the stall timeout", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        // Tokens actually started flowing, then everything went silent —
+        // the one shape auto-abort still acts on.
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } })
         t.port.clear()
 
         t.advance(500)
@@ -346,6 +392,83 @@ describe("stall watchdog", () => {
         t.advance(10_000)
         t.tick()
         expect(t.port.calls).toHaveLength(1)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  // CL-5640: a healthy wait for the model to start its next reply — right
+  // after submit, or right after the last outstanding tool call resolves —
+  // must never be auto-aborted just because the parent stream is quiet. Only
+  // a stream that had already started producing tokens and then went dead
+  // (covered above) earns the abort; this shape gets the notice at most.
+  test("a long-but-healthy wait right after submit is never auto-aborted, only noticed", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        // No delta ever arrives — the model is just slow to start — held
+        // far past the stall timeout.
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("a long-but-healthy wait right after a tool batch resolves is never auto-aborted", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "bash", callId: "c1" },
+        })
+        t.bridge.handle({
+          type: "tool.done",
+          data: { result: { callId: "c1" } },
+        })
+        t.port.clear()
+
+        // The last outstanding call resolved; the model just takes a long
+        // while to start its next reply. Held far past the stall timeout.
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  // CL-5640: live sub-agent progress must keep the parent stream's silence
+  // exempt from abort even though the parent's own `task` call is the only
+  // thing in `activeToolCalls` — a future change to task-lifecycle handling
+  // must not silently drop this exemption.
+  test("live sub-agent progress under an outstanding task call is never auto-aborted", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "task", callId: "c1" },
+        })
+        t.port.clear()
+
+        // The parent stream stays quiet while the sub-agent works — far past
+        // the stall timeout.
+        t.advance(20 * 60_000)
+        t.tick()
+        expect(t.port.calls).toEqual([])
       } finally {
         t.bridge.dispose()
       }

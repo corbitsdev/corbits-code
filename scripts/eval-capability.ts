@@ -14,9 +14,15 @@ import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { loadConfig } from "../src/config/index.js";
-import { runExec } from "../src/exec/runner.js";
+import { loadConfig, type Config } from "../src/config/index.js";
+import { runExec, resolveExecDirectorOverlay } from "../src/exec/runner.js";
 import { SETTINGS_DIR_NAME } from "../src/branding.js";
+import { codexProfileFromProviderName } from "../src/config/codex-providers.js";
+import { codexInstructionsHash } from "../src/auth/codex/instructions.js";
+import { advertisedToolNamesForSessionMode } from "../src/agent/tool-search.js";
+import { detectLanguageServerAvailable } from "../src/agent/lsp-availability.js";
+import { resolveSessionMode } from "../src/config/session-mode.js";
+import { loadLocalSettings, localSettingsPath } from "../src/config/settings.js";
 import {
   loadEvalCases,
   filterCases,
@@ -41,6 +47,7 @@ import {
   type EvalVariant,
   type EvalTokenUsage,
   type ProviderFallbackInfo,
+  type EvalDiagnostics,
 } from "../evals/capability/lib.js";
 import {
   deriveBehaviorMetrics,
@@ -68,6 +75,8 @@ type CliOptions = {
   verifyTimeoutMs: number;
   /** Runs per case×variant cell (gate runs use 5; freeze runs use 3). */
   repeats: number;
+  /** Independent case×variant×repeat cells in parallel (default 1). */
+  concurrency: number;
   dryRun: boolean;
   help: boolean;
   /**
@@ -75,6 +84,11 @@ type CliOptions = {
    * differs from what was requested, instead of hard-failing.
    */
   allowProviderFallback: boolean;
+  /**
+   * Exec overlay: run the product path as this closed-fleet director.
+   * Eval/CI override, not single-agent mode. Omitted = skywalker default.
+   */
+  director?: string;
 };
 
 function printUsage(): void {
@@ -93,11 +107,56 @@ function printUsage(): void {
   --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
+  --concurrency <n>     Independent cells in parallel (default 1, env CORBITS_EVAL_CONCURRENCY)
   --dry-run             List cases × variants only (still requires --provider/--model or --matrix)
   --allow-provider-fallback  Allow resolved provider/model to differ from
                              what was requested (default: hard-fail)
+  --director <id>       Exec overlay: run as this director (default: skywalker).
+                        Eval/CI override, not single-agent mode
   -h, --help            Show help
 `);
+}
+
+function parsePositiveInteger(raw: string, label: string): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return n;
+}
+
+function defaultConcurrency(): number {
+  const raw = process.env.CORBITS_EVAL_CONCURRENCY;
+  if (raw === undefined || raw === "") return 1;
+  return parsePositiveInteger(raw, "CORBITS_EVAL_CONCURRENCY");
+}
+
+/**
+ * Run `mapper` over `items` with at most `concurrency` in flight.
+ * Results stay in input order even when later items finish first.
+ */
+export async function mapPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("concurrency must be a positive integer");
+  }
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index]!, index);
+    }
+  };
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
@@ -105,6 +164,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     caseSelector: "all",
     skipPermissions: true,
     repeats: 1,
+    concurrency: defaultConcurrency(),
     dryRun: false,
     help: false,
     allowProviderFallback: false,
@@ -175,11 +235,17 @@ export function parseArgs(argv: readonly string[]): CliOptions {
         opts.repeats = n;
         break;
       }
+      case "--concurrency":
+        opts.concurrency = parsePositiveInteger(next(), "--concurrency");
+        break;
       case "--dry-run":
         opts.dryRun = true;
         break;
       case "--allow-provider-fallback":
         opts.allowProviderFallback = true;
+        break;
+      case "--director":
+        opts.director = next();
         break;
       default:
         throw new Error(`Unknown argument: ${a}`);
@@ -472,6 +538,34 @@ async function resolveVariantLabels(
   };
 }
 
+/**
+ * Per-cell diagnostics for debugging eval failures: which Codex instructions
+ * text was pinned, which built-in tools the model was offered, and the
+ * requested reasoning effort. Reuses the exec runner's own resolution
+ * (resolveSessionMode, resolveExecDirectorOverlay) rather than forking the
+ * logic, so a --director overlay or a non-default session mode here reports
+ * the same advertised list exec actually runs with.
+ *
+ * reasoningEffort echoes the configured value, not the provider's internal
+ * default when unset — accepted as-is per review.
+ */
+export async function buildEvalDiagnostics(config: Config): Promise<EvalDiagnostics> {
+  const codexProfile = codexProfileFromProviderName(config.providerName);
+  const localSettings = await loadLocalSettings(localSettingsPath(config.cwd)).catch(() => null);
+  const sessionMode = resolveSessionMode(config.settings, localSettings) ?? "orchestrator";
+  const overlay = resolveExecDirectorOverlay(config.director);
+  const advertisedTools =
+    overlay.advertisedAllow ??
+    advertisedToolNamesForSessionMode(sessionMode, {
+      languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+    });
+  return {
+    codexInstructionsHash: codexProfile !== undefined ? codexInstructionsHash() : null,
+    advertisedTools,
+    reasoningEffort: config.reasoningEffort ?? null,
+  };
+}
+
 function failResult(
   caseDef: EvalCase,
   variant: EvalVariant,
@@ -509,6 +603,7 @@ function failResult(
     repeat,
     behaviors: null,
     providerFallback: null,
+    diagnostics: null,
     ...partial,
   };
 }
@@ -559,6 +654,7 @@ async function runCase(
     if (opts.configPath !== undefined) argv.push("--config", opts.configPath);
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
     argv.push("--force");
+    if (opts.director !== undefined) argv.push("--director", opts.director);
 
     const maxTurns = opts.maxTurnsOverride ?? caseDef.maxTurns ?? null;
     // maxTurns is a soft post-run budget (case fails if exceeded). It does not
@@ -573,6 +669,7 @@ async function runCase(
       );
     }
 
+    const diagnostics = await buildEvalDiagnostics(config);
     const agentStarted = Date.now();
     // runExec runs the agent in-process (no child, unlike verify.sh below), so
     // the fixture origin must reach it via process.env directly for the
@@ -710,6 +807,7 @@ async function runCase(
       repeat,
       behaviors,
       providerFallback,
+      diagnostics,
       textPreview,
     };
   } catch (err) {
@@ -771,6 +869,7 @@ async function main(): Promise<number> {
   }
 
   console.log(`Repeats per cell: ${opts.repeats}`);
+  console.log(`Concurrency: ${opts.concurrency}`);
 
   if (opts.dryRun) {
     console.log("dry-run: no inference");
@@ -781,14 +880,15 @@ async function main(): Promise<number> {
   }
 
   const startedAt = new Date().toISOString();
-  const results: CaseResult[] = [];
-
+  const cells: Array<{ caseDef: EvalCase; variant: EvalVariant; repeat: number }> = [];
   for (const { caseDef, variant } of plan) {
     for (let repeat = 0; repeat < opts.repeats; repeat++) {
-      const result = await runCase(caseDef, variant, opts, repeat);
-      results.push(result);
+      cells.push({ caseDef, variant, repeat });
     }
   }
+  const results = await mapPool(cells, opts.concurrency, ({ caseDef, variant, repeat }) =>
+    runCase(caseDef, variant, opts, repeat),
+  );
 
   const finishedAt = new Date().toISOString();
   const totals = summarizeRun(results);

@@ -1,8 +1,8 @@
 import type { DirectorPackage } from "../types.js";
-import { IMPLEMENT_TOOLS } from "../tool-sets.js";
+import { BUILD_TOOLS } from "../tool-sets.js";
 
-export const implementPackage: DirectorPackage = {
-  id: "implement",
+export const buildDirectorPackage: DirectorPackage = {
+  id: "build",
   primaryIntent: "Ship product code with tests to satisfy the brief",
   outOfLane: [
     "architecture gates",
@@ -13,12 +13,12 @@ export const implementPackage: DirectorPackage = {
   ],
   description: "Implementation leaf — edit, verify, report",
   optionalSkills: ["style", "philosophy", "typescript"],
-  tools: { allow: IMPLEMENT_TOOLS },
+  tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 60 },
   report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "implement",
-  systemPrompt: `You are ImplementDirector, a specialist in Corbits Code.
+  systemPrompt: `You are BuildDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: implement the brief in product code. Edit, verify, report.
 You are not a reviewer, not an orchestrator, not a doc-only planner.

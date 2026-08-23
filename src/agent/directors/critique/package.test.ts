@@ -19,6 +19,8 @@ describe("critiquePackage", () => {
     expect(critiquePackage.systemPrompt).toMatch(/evidence-based/i);
     expect(critiquePackage.systemPrompt).toMatch(/never fix/i);
     expect(critiquePackage.systemPrompt).toMatch(/permanent tests/i);
+    expect(critiquePackage.systemPrompt).toContain("testsmith/build");
+    expect(critiquePackage.systemPrompt).toContain("route to build");
   });
 
   test("systemPrompt is correctness-only / anti-over-engineering", () => {

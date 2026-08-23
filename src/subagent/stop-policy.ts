@@ -18,8 +18,14 @@ import {
   parseSubAgentReport,
 } from "./report.js";
 
-/** Consecutive identical tool-call fingerprints before a leaf is forced to stop. */
-export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 2;
+// Consecutive identical tool-call fingerprints before a leaf is forced to
+// stop. Mirrors IDENTICAL_REPEAT_MIN below (the director-level period-1
+// thrash threshold): the same forensic scan found zero occurrences of even
+// two consecutive identical fingerprints in local trace history, and CL-5611
+// found the previous 4-repeat hard pause false-positived on legitimate
+// polling (rerunning a flaky test, polling a build) — hence a threshold set
+// above 4, not at 2.
+export const DEFAULT_SUBAGENT_REPEAT_LIMIT = 5;
 
 // Minimum gap kept between an opt-in internal deadline and the outer
 // tool-execution watchdog, so there is time left for the salvage report to
@@ -32,15 +38,20 @@ export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
  * maxTurns + operator cancel are the primary bounds; callers pass deadlineMs
  * only when they want an extra wall-clock stop.
  *
+ * When the outer watchdog is omitted (undefined), the requested deadline is
+ * kept — an absent settings timeout must not clamp a 5-hour (or any) explicit
+ * deadline down to a hidden default.
+ *
  * Returns undefined (do not arm) when the outer watchdog is at or below the
  * salvage margin — an internal deadline would otherwise race or exceed outer
  * and leave no room to return a salvage report.
  */
 export function resolveSubAgentDeadlineMs(
   requestedMs: number,
-  outerWatchdogMs: number,
+  outerWatchdogMs: number | undefined,
 ): number | undefined {
   const requested = Math.max(1, Math.floor(requestedMs));
+  if (outerWatchdogMs === undefined) return requested;
   if (outerWatchdogMs <= SUBAGENT_DEADLINE_MARGIN_MS) return undefined;
   // Ceiling must never exceed outer − margin (and stays ≥ 1 once outer > margin).
   const ceiling = Math.max(1, outerWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
@@ -206,7 +217,9 @@ export function detectToolFingerprintThrash(
 // narration-sensitive counter. Model-emitted text does not reset this
 // counter; only a genuine user/operator message does (see director.ts). That
 // is deliberate: this answers "how long since the operator last saw a real
-// checkpoint," not "is the model narrating."
+// checkpoint," not "is the model narrating." (CL-5893: a successful leaf
+// task completion also resets it, bounded by MAX_LEAF_PROGRESS_BACKSTOP_RESETS
+// below — see director.ts.)
 //
 // Because narration no longer resets it, reaching this threshold does not
 // hard-pause on its own — it only fires a nudge asking for a progress
@@ -233,6 +246,16 @@ export function detectToolFingerprintThrash(
 // legitimate long autonomous stretches, or if turns-since-user-message is
 // ever actually measured.
 export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
+
+// CL-5893: cap on how many times a successful leaf task completion may
+// re-arm the backstop interval before a genuine operator message is
+// required. Without a cap, a loop of trivial always-succeeding leaf tasks
+// would reset the backstop forever and never force an operator checkpoint.
+// At 5 resets (~500 turns of headroom before this bound, vs. the plain
+// 100-turn threshold) a runaway trivial-success loop still nudges then
+// pauses, while genuine fleet-heavy work gets meaningfully more room than
+// the unbounded reset before this cap existed.
+export const MAX_LEAF_PROGRESS_BACKSTOP_RESETS = 5;
 
 /** True once turns-since-last-user-message reaches the backstop threshold. */
 export function detectTurnsSinceUserMessageBackstop(turnsSinceUserMessage: number): boolean {

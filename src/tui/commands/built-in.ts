@@ -188,10 +188,10 @@ export function registerBuiltInCommands(): void {
     },
   });
 
-  // Mid-session twin of --dangerously-skip-permissions.
+  // Persist as user-global default, not session-only.
   registerCommand({
     name: "yolo",
-    description: "Skip permission prompts for this session",
+    description: "Skip permission prompts (persists as the default)",
     argumentHint: "[on|off|toggle]",
     subcommands: [
       { name: "on", description: "Enable skip-permissions" },
@@ -217,10 +217,13 @@ export function registerBuiltInCommands(): void {
       if (next) {
         return {
           type: "message",
-          text: "Yolo mode on — permission prompts skipped.",
+          text: "Yolo mode on — permission prompts skipped. Saved as the default.",
         };
       }
-      return { type: "message", text: "Yolo mode off — permission prompts restored." };
+      return {
+        type: "message",
+        text: "Yolo mode off — permission prompts restored. Saved as the default.",
+      };
     },
   });
 

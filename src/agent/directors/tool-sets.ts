@@ -17,12 +17,12 @@ export const READ_TOOLS = [
 ] as const;
 
 /**
- * Implement: read + full file mutation. `shell` and `update_plan` are Codex
+ * Build: read + full file mutation. `shell` and `update_plan` are Codex
  * proxy names (createCodexToolProxies) for `run_shell` / the plan tool; both
- * are listed here so Codex implement leaves keep the proxies after the
+ * are listed here so Codex build leaves keep the proxies after the
  * capability filter, same rationale as `apply_patch` below.
  */
-export const IMPLEMENT_TOOLS = [
+export const BUILD_TOOLS = [
   ...READ_TOOLS,
   "write_file",
   "edit_file",
@@ -63,4 +63,12 @@ export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
   "search_agents",
   "task",
+] as const;
+
+/** Skywalker primary: orchestrator surface plus product writes for DIY tiny work. */
+export const SKYWALKER_TOOLS = [
+  ...ORCHESTRATOR_TOOLS,
+  "write_file",
+  "edit_file",
+  "delete_file",
 ] as const;

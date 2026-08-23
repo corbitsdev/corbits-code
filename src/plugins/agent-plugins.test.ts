@@ -95,4 +95,34 @@ describe("resolveAgentPluginProfiles", () => {
     const profiles = await resolveAgentPluginProfiles([mod], config);
     expect(profiles[0]!.source).toBe("claude");
   });
+
+  // Gating uses isPluginModuleEnabled (same as skills), not the bare
+  // isPluginEnabled (settings-only) that tool plugins use for consent-gating.
+  test("loads profiles from a repo plugin with defaultEnabled and no settings entry", async () => {
+    const mod: PluginModule = {
+      manifest: { id: "p1", name: "p1", kind: "agent", defaultEnabled: true },
+      agentPlugin: { agents: [validProfile] },
+      origin: "repo",
+    };
+    const profiles = await resolveAgentPluginProfiles([mod], {});
+    expect(profiles.map((p) => p.id)).toEqual(["explorer"]);
+  });
+
+  test("does not load profiles from a non-repo plugin with defaultEnabled and no settings entry", async () => {
+    const mod: PluginModule = {
+      manifest: { id: "p1", name: "p1", kind: "agent", defaultEnabled: true },
+      agentPlugin: { agents: [validProfile] },
+      origin: "user",
+    };
+    expect(await resolveAgentPluginProfiles([mod], {})).toEqual([]);
+  });
+
+  test("explicit enabled: false overrides repo defaultEnabled", async () => {
+    const mod: PluginModule = {
+      manifest: { id: "p1", name: "p1", kind: "agent", defaultEnabled: true },
+      agentPlugin: { agents: [validProfile] },
+      origin: "repo",
+    };
+    expect(await resolveAgentPluginProfiles([mod], { p1: { enabled: false } })).toEqual([]);
+  });
 });

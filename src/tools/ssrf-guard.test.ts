@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { checkUrlForSsrf, isPrivateAddress } from "./ssrf-guard.js";
+import { runWithEvalHttpEnv } from "./eval-http-env.js";
 
 describe("isPrivateAddress", () => {
   test("rejects loopback", () => {
@@ -64,5 +65,13 @@ describe("checkUrlForSsrf", () => {
       if (prior === undefined) delete process.env.EVAL_HTTP_URL;
       else process.env.EVAL_HTTP_URL = prior;
     }
+  });
+  test("allows the eval fixture URL from the ALS overlay without writing process.env", async () => {
+    await runWithEvalHttpEnv({ EVAL_HTTP_URL: "http://127.0.0.1:54321/" }, async () => {
+      const allowed = await checkUrlForSsrf("http://127.0.0.1:54321/");
+      expect(allowed.ok).toBe(true);
+      const other = await checkUrlForSsrf("http://127.0.0.1:1/");
+      expect(other.ok).toBe(false);
+    });
   });
 });

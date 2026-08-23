@@ -3,7 +3,7 @@
 
 export const DIRECTOR_IDS = [
   "skywalker",
-  "implement",
+  "build",
   "explore",
   "plan",
   "intern",

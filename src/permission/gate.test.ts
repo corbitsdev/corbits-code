@@ -219,3 +219,41 @@ describe("director writePaths authz on evaluate", () => {
     expect(verdict.allowed).toBe(true);
   });
 });
+
+// CL-5638: an Always-allow grant minted for `git worktree *` must cover a later
+// worktree command whose destination is a sibling directory the operator has
+// already implicitly approved under that pattern, without a second prompt.
+describe("standing grant covers a later git worktree command (CL-5638)", () => {
+  const root = mkdtempSync(join(tmpdir(), "gate-worktree-grant-"));
+  const sessionCwd = join(root, "main");
+  const git = (args: string[], cwd: string) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  mkdirSync(sessionCwd);
+  git(["init", "-q"], sessionCwd);
+  git(["config", "user.email", "t@example.com"], sessionCwd);
+  git(["config", "user.name", "t"], sessionCwd);
+  writeFileSync(join(sessionCwd, "seed.txt"), "seed\n");
+  git(["add", "."], sessionCwd);
+  git(["commit", "-qm", "seed"], sessionCwd);
+
+  test("second sibling worktree add is not re-prompted after Always-allow", async () => {
+    let prompts = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      cwd: sessionCwd,
+      requestApproval: async () => {
+        prompts += 1;
+        return { allow: true, persist: { id: "always", label: "Always allow", pattern: "git worktree *", grant: "project" } };
+      },
+    });
+
+    const first = await gate.evaluate(shellCall("git worktree add ../sibling-a -b br-a"));
+    expect(first.allowed).toBe(true);
+    expect(prompts).toBe(1);
+
+    const second = await gate.evaluate(shellCall("git worktree add ../sibling-b -b br-b"));
+    expect(second.allowed).toBe(true);
+    expect(prompts).toBe(1);
+  });
+});

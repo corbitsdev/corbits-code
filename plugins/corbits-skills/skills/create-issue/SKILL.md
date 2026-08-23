@@ -21,7 +21,7 @@ Pick the tracker before drafting. Do not skip this.
    - GitLab
    - Linear (enable MCP)
    - Other
-   Then persist the choice: spawn `task(agent="implement")` with a tiny brief that appends `Preferred issue tracker: <name>` to `.corbits/MEMORY.md` only. Primary cannot write product files; shell writes are blocked. Do not ask implement to touch anything else.
+   Then persist the choice: DIY with write_file/edit_file — append `Preferred issue tracker: <name>` to `.corbits/MEMORY.md` only. Path tools are the DIY surface; shell writes stay denied. Do not touch anything else.
 4. **GitHub** → create with `gh issue create` (title + body) via `run_shell`. If `gh` is missing, tell the operator to install GitHub CLI (`gh`) and stop. Do not invent an HTTP client.
 5. **GitLab** → create with `glab issue create` (title + body) via `run_shell` similarly. If `glab` is missing, tell the operator and stop.
 6. **Linear without MCP** → stop and tell the operator to enable Linear MCP. Do not invent a Linear REST client.

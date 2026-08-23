@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildBifrostSource, buildOpenAISource, buildXaiSource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import { DIRECTOR_IDS } from "./agent/directors/types.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
 import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
@@ -181,6 +182,63 @@ describe("loadConfig", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  test("parses exec --director build", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["exec", "--cwd", cwd, "--director", "build", "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.director).toBe("build");
+      expect(config.task).toBe("ship it");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("omits director as undefined (skywalker default)", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.director).toBeUndefined();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("unknown --director id errors listing DIRECTOR_IDS", async () => {
+    await expect(
+      loadConfig(["exec", "--director", "nope", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(new RegExp(`Unknown director "nope".*${DIRECTOR_IDS.join(", ")}`));
+  });
+
+  test("--director implement is unknown and lists closed-fleet ids including build", async () => {
+    await expect(
+      loadConfig(["exec", "--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`));
+    expect(DIRECTOR_IDS).toContain("build");
+    expect(DIRECTOR_IDS).not.toContain("implement");
+  });
+
+  test("--director without a value errors", async () => {
+    await expect(loadConfig(["exec", "--director"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      "--director requires a value",
+    );
+  });
+
+  test("--director without exec/run is rejected", async () => {
+    await expect(
+      loadConfig(["--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--director is only available in exec mode");
   });
 
   test("resume --pick opens the session picker without requiring prior sessions", async () => {
@@ -433,6 +491,7 @@ describe("loadConfig", () => {
         globalSettingsPath: globalPath,
       });
       expect(config.dangerouslySkipPermissions).toBe(false);
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -447,8 +506,162 @@ describe("loadConfig", () => {
         { globalSettingsPath: globalPath },
       );
       expect(config.dangerouslySkipPermissions).toBe(true);
+      // Came from the CLI flag, not the persisted default — no startup notice.
+      expect(config.skipPermissionsFromSettings).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      // Origin is the persisted default, not this invocation's flag — the
+      // startup notice should fire.
+      expect(config.skipPermissionsFromSettings).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("settings dangerouslySkipPermissions false without the CLI flag stays false", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: false,
+        }),
+      );
+      const config = await loadConfig(["--cwd", cwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.dangerouslySkipPermissions).toBe(false);
+      expect(config.skipPermissionsFromSettings).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: false,
+        }),
+      );
+      const config = await loadConfig(
+        ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
+        { globalSettingsPath: globalPath },
+      );
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      // CLI flag wins over settings — no notice is warranted here.
+      expect(config.skipPermissionsFromSettings).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("exec inherits persisted skip-permissions without the CLI flag", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = join(cwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
+        globalSettingsPath: globalPath,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      expect(config.skipPermissionsFromSettings).toBe(true);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("persisted skip-permissions default applies regardless of cwd (machine-wide scope)", async () => {
+    // The global settings file is machine-wide: a session opened against a
+    // completely different cwd still inherits the same default. This is the
+    // exact silent-everywhere behavior the startup notice exists to surface.
+    const globalCwd = await emptyCwd();
+    const otherCwd = await emptyCwd();
+    try {
+      const globalPath = join(globalCwd, "global.json");
+      await writeFile(
+        globalPath,
+        JSON.stringify({
+          defaultProvider: "fireworks",
+          providers: {
+            fireworks: {
+              baseURL: "https://api.fireworks.ai/inference",
+              apiKey: "test-key",
+              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
+            },
+          },
+          dangerouslySkipPermissions: true,
+        }),
+      );
+      const config = await loadConfig(["--cwd", otherCwd, "do something"], {
+        globalSettingsPath: globalPath,
+      });
+      expect(config.cwd).toBe(otherCwd);
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      expect(config.skipPermissionsFromSettings).toBe(true);
+    } finally {
+      await rm(globalCwd, { recursive: true, force: true });
+      await rm(otherCwd, { recursive: true, force: true });
     }
   });
 

@@ -29,7 +29,7 @@ Be pedantic on purpose: naming drift, comment rot, type escape hatches, boundary
 
 Do not apply fixes. Do not write, edit, or delete product files. Do not spawn agents. Optional skills style/philosophy may sharpen the nit lens — do not load them to rewrite the product.
 
-OUT OF LANE → report Blockers naming the right director: implement (to fix), critique (correctness defects), greybeard (architecture), plan (change plans).
+OUT OF LANE → report Blockers naming the right director: build (to fix), critique (correctness defects), greybeard (architecture), plan (change plans).
 
 Report: Summary, Findings (ranked nits + evidence), Blockers, Paths.`,
 };

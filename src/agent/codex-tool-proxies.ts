@@ -217,11 +217,7 @@ function createApplyPatchProxy(runTool: CodexRunTool, allowDelete: boolean): Age
   });
 }
 
-async function applyOp(
-  op: PatchOp,
-  runTool: CodexRunTool,
-  allowDelete: boolean,
-): Promise<string> {
+async function applyOp(op: PatchOp, runTool: CodexRunTool, allowDelete: boolean): Promise<string> {
   if (op.type === "add") {
     return requireOk(
       await runTool("write_file", { path: op.path, content: op.content }),
@@ -274,10 +270,7 @@ async function applyOp(
   return writeMsg;
 }
 
-function requireOk(
-  result: { content: string; isError?: boolean },
-  label: string,
-): string {
+function requireOk(result: { content: string; isError?: boolean }, label: string): string {
   if (result.isError === true) {
     throw new Error(`${label} failed: ${result.content}`);
   }
@@ -305,7 +298,7 @@ export const shellDefinition: ToolDefinition = {
     properties: {
       command: {
         description:
-          "The command to run, as a shell string or an argv array (e.g. [\"bash\",\"-lc\",\"ls\"]).",
+          'The command to run, as a shell string or an argv array (e.g. ["bash","-lc","ls"]).',
       },
       workdir: { type: "string", description: "Working directory for the command." },
       timeout_ms: { type: "number", description: "Timeout in milliseconds." },
@@ -350,9 +343,7 @@ function createShellProxy(runTool: CodexRunTool, allowShell: boolean): AgentTool
         throw new Error("Error: shell requires a command (string or string[]).");
       }
       if (!allowShell) {
-        throw new Error(
-          "shell: not allowed for this agent (run_shell capability missing).",
-        );
+        throw new Error("shell: not allowed for this agent (run_shell capability missing).");
       }
       const args: Record<string, unknown> = { command: normalizeShellCommand(parsed.command) };
       if (parsed.workdir !== undefined) args.cwd = parsed.workdir;
@@ -413,9 +404,7 @@ function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = UpdatePlanArgs(rawArgs);
       if (parsed instanceof type.errors) {
-        throw new Error(
-          "Error: update_plan requires a plan array of { step, status }.",
-        );
+        throw new Error("Error: update_plan requires a plan array of { step, status }.");
       }
       // manage_tasks has no "cancelled" equivalent in Codex's plan shape
       // (pending/in_progress/completed) — this proxy never produces it, so a
@@ -427,10 +416,7 @@ function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
         title: item.step,
         status: codexPlanStatusToTaskStatus(item.status),
       }));
-      return requireOk(
-        await runManageTasks({ action: "create", tasks }),
-        "update_plan",
-      );
+      return requireOk(await runManageTasks({ action: "create", tasks }), "update_plan");
     },
   });
 }

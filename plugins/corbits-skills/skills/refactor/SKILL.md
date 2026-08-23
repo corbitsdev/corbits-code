@@ -1,12 +1,12 @@
 ---
 name: refactor
 argument-hint: <directory>
-description: Skywalker maps a directory then plans improvements. Explore, then plan. No product writes.
+description: Skywalker maps a directory then plans improvements. Explore, then plan. Does not ship product code.
 ---
 
 # Refactor
 
-You are Skywalker. This skill is a spawn recipe. You do not write a design document. You do not write product files. `$ARGUMENTS` is the directory to analyze.
+You are Skywalker. This skill is a spawn recipe. You do not write a design document. `$ARGUMENTS` is the directory to analyze. This recipe maps and plans; it does not ship. Tiny / single-file / one-route product edits outside this recipe may be DIY with write_file/edit_file/delete_file.
 
 ## Recipe
 
@@ -28,14 +28,14 @@ You are Skywalker. This skill is a spawn recipe. You do not write a design docum
    - Rationale for each change (grounded in philosophy: pragmatic over idealistic, simple is usually harder than easy, do no harm, respect existing decisions)
    - Suggested order of operations
    - Constraints or risks
-   - Enough detail that an implement worker could execute later
+   - Enough detail that a build worker could execute later
    - For structural transformations (renames, signature changes, API migrations), note that execution should load the `ast-grep` skill — bulk AST rewrites, not manual read-edit-write cycles
 
 Do not write the plan to disk yourself. Plan's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships it.
 
 ## Hard rules
 
-- Skywalker MUST NOT write/edit/delete product files, including design documents.
+- Do not write the plan to disk or author design documents on this session — plan's report is the artifact. A later `/implement` or `use_skill("dispatch")` ships substantial work; DIY remains for tiny/bounded edits outside this recipe.
 - Do not skip explore "because you already know the directory."
 - Do not skip `ask_operator` when the operator has not chosen among alternatives.
 - Spawn with `task(agent="explore")` then `task(agent="plan")`.

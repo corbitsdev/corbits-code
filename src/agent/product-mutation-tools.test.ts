@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import { PRIMARY_DENIED_PRODUCT_TOOLS } from "./tool-search.js";
 import {
   PRODUCT_MUTATION_TOOLS,
   isProductMutationTool,
@@ -18,8 +17,7 @@ describe("PRODUCT_MUTATION_TOOLS", () => {
     ]);
   });
 
-  test("primary deny membership shares the same set", () => {
-    expect([...PRIMARY_DENIED_PRODUCT_TOOLS]).toEqual([...PRODUCT_MUTATION_TOOLS]);
+  test("isProductMutationTool recognizes apply_patch and rejects reads", () => {
     expect(isProductMutationTool("apply_patch")).toBe(true);
     expect(isProductMutationTool("read_file")).toBe(false);
   });
@@ -34,10 +32,7 @@ describe("PRODUCT_MUTATION_TOOLS", () => {
 +new
 *** End Patch
 `;
-    expect(productMutationPaths("apply_patch", { input })).toEqual([
-      "hello.txt",
-      "src/app.py",
-    ]);
+    expect(productMutationPaths("apply_patch", { input })).toEqual(["hello.txt", "src/app.py"]);
   });
 
   test("productMutationPaths returns [] for malformed apply_patch input", () => {

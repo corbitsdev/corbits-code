@@ -9,7 +9,6 @@ import {
   coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
-  PRIMARY_DENIED_PRODUCT_TOOLS,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -83,17 +82,13 @@ describe("createToolIndex", () => {
     expect(coreToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).not.toContain("present");
   });
 
-  test("primary CORE and CATALOG omit product mutation tools", () => {
-    for (const name of ["write_file", "edit_file", "delete_file", "apply_patch"] as const) {
-      expect(CORE_TOOL_NAMES).not.toContain(name);
+  test("primary CORE includes product mutation tools; CATALOG does not duplicate them", () => {
+    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+      expect(CORE_TOOL_NAMES).toContain(name);
       expect(CATALOG_TOOL_NAMES).not.toContain(name);
     }
-    expect(PRIMARY_DENIED_PRODUCT_TOOLS).toEqual([
-      "write_file",
-      "edit_file",
-      "delete_file",
-      "apply_patch",
-    ]);
+    expect(CORE_TOOL_NAMES).not.toContain("apply_patch");
+    expect(CATALOG_TOOL_NAMES).not.toContain("apply_patch");
   });
 
   test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {
@@ -198,8 +193,8 @@ describe("advertisedTools", () => {
     const names = advertisedTools(registry).map((d) => d.name);
     expect(names).toContain("read_file");
     expect(names).toContain("grep");
-    // write_file is not in primary CATALOG — product mutations are leaf-only.
-    expect(names).not.toContain("write_file");
+    // write_file is in CORE so the primary can DIY tiny/bounded edits.
+    expect(names).toContain("write_file");
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 
