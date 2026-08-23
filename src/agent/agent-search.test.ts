@@ -79,9 +79,7 @@ describe("formatAgentSearchResults", () => {
   });
 
   test("omits body section when systemPromptRole is absent", () => {
-    const text = formatAgentSearchResults([
-      { id: "no-body", description: "Metadata only" },
-    ]);
+    const text = formatAgentSearchResults([{ id: "no-body", description: "Metadata only" }]);
     expect(text).toContain("### no-body");
     expect(text).toContain("Metadata only");
     expect(text).not.toContain("System prompt / body:");
@@ -141,10 +139,7 @@ describe("createSearchAgentsTool", () => {
       },
     ]);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler(
-      { query: "emil product" },
-      new AbortController().signal,
-    );
+    const text = await tool.handler({ query: "emil product" }, new AbortController().signal);
     expect(text).toContain("emil");
     expect(text).toContain("System prompt / body:");
     expect(text).toContain(body);

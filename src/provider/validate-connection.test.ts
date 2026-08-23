@@ -17,7 +17,10 @@ test("resolves ok when the models endpoint responds ok", async () => {
     return new Response(JSON.stringify({ data: [] }), { status: 200 });
   }) as unknown as typeof fetch;
 
-  const result = await validateProviderConnection({ baseURL: "https://api.example.com/v1/", apiKey: "sk-key" });
+  const result = await validateProviderConnection({
+    baseURL: "https://api.example.com/v1/",
+    apiKey: "sk-key",
+  });
 
   expect(result.ok).toBe(true);
   expect(requestedURL).toBe("https://api.example.com/v1/models");
@@ -27,7 +30,8 @@ test("resolves ok when the models endpoint responds ok", async () => {
 test("omits the Authorization header for keyless providers", async () => {
   let sawAuthHeader = false;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-    sawAuthHeader = "Authorization" in ((init?.headers as Record<string, string> | undefined) ?? {});
+    sawAuthHeader =
+      "Authorization" in ((init?.headers as Record<string, string> | undefined) ?? {});
     return new Response("{}", { status: 200 });
   }) as unknown as typeof fetch;
 
@@ -39,9 +43,15 @@ test("omits the Authorization header for keyless providers", async () => {
 
 test("fails with status detail on a non-ok response", async () => {
   globalThis.fetch = (async () =>
-    new Response("invalid api key", { status: 401, statusText: "Unauthorized" })) as unknown as typeof fetch;
+    new Response("invalid api key", {
+      status: 401,
+      statusText: "Unauthorized",
+    })) as unknown as typeof fetch;
 
-  const result = await validateProviderConnection({ baseURL: "https://api.example.com/v1", apiKey: "bad" });
+  const result = await validateProviderConnection({
+    baseURL: "https://api.example.com/v1",
+    apiKey: "bad",
+  });
 
   expect(result.ok).toBe(false);
   if (!result.ok) {
@@ -82,7 +92,10 @@ test("times out against a blackholed host instead of hanging", async () => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
     })) as unknown as typeof fetch;
 
-  const result = await validateProviderConnection({ baseURL: "https://blackhole.example.com/v1", timeoutMs: 25 });
+  const result = await validateProviderConnection({
+    baseURL: "https://blackhole.example.com/v1",
+    timeoutMs: 25,
+  });
 
   expect(result.ok).toBe(false);
   if (!result.ok) {

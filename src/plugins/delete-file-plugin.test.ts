@@ -53,7 +53,10 @@ describe("deleteFilePlugin", () => {
   test("reports an absent file as a successful no-op", async () => {
     const result = await handler()(call("missing.txt"), new AbortController().signal);
 
-    expect(result).toEqual({ callId: "delete-call", content: "File already absent: missing.txt (no action needed)" });
+    expect(result).toEqual({
+      callId: "delete-call",
+      content: "File already absent: missing.txt (no action needed)",
+    });
   });
 
   test("refuses to delete directories", async () => {
@@ -158,7 +161,9 @@ describe("deleteFilePlugin", () => {
     await chmod(cwd, 0o700);
 
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toMatch(/EACCES|EPERM|permission denied|operation not permitted/i);
+    expect(String(result.content)).toMatch(
+      /EACCES|EPERM|permission denied|operation not permitted/i,
+    );
     expect(await exists(path)).toBe(true);
   });
 });

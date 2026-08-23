@@ -18,7 +18,6 @@ function sentMessagesPath(cwd: string, sessionId: string, home?: string): string
   return join(sessionDir(cwd, sessionId, home), "sent-messages.ndjson");
 }
 
-
 const sentMessage = type("string");
 
 export async function loadSentMessages(
@@ -60,4 +59,3 @@ export async function appendSentMessage(
   if (trimmed.length === 0) return;
   await appendFile(sentMessagesPath(cwd, sessionId, home), JSON.stringify(trimmed) + "\n");
 }
-

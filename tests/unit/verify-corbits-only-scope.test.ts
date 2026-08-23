@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 const repoRoot = join(import.meta.dirname, "../..");
 const scopeScript = join(repoRoot, "scripts/verify-corbits-only-scope.sh");
 
-async function runScopeScript(cwd: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+async function runScopeScript(
+  cwd: string,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn(["bash", scopeScript], {
     cwd,
     stdout: "pipe",
@@ -22,9 +24,11 @@ async function runScopeScript(cwd: string): Promise<{ exitCode: number; stdout: 
 
 async function initGitRepo(dir: string): Promise<void> {
   const run = (args: string[]) =>
-    Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" }).exited.then((code) => {
-      if (code !== 0) throw new Error(`git ${args.join(" ")} failed with ${code}`);
-    });
+    Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" }).exited.then(
+      (code) => {
+        if (code !== 0) throw new Error(`git ${args.join(" ")} failed with ${code}`);
+      },
+    );
   await run(["init"]);
   await run(["config", "user.email", "scope-test@example.com"]);
   await run(["config", "user.name", "scope-test"]);

@@ -2,11 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  saveState,
-  loadState,
-  type RunState,
-} from "./session/state.js";
+import { saveState, loadState, type RunState } from "./session/state.js";
 import { sessionDir } from "./session/index.js";
 
 const SESSION_ID = "test-session-001";

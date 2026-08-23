@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  matchesWritePathAllowlist,
-  writePathDeniedReason,
-} from "./write-path-policy.js";
+import { matchesWritePathAllowlist, writePathDeniedReason } from "./write-path-policy.js";
 
 const cwd = resolve("/tmp/write-path-policy-fixture");
 
@@ -54,9 +51,7 @@ describe("matchesWritePathAllowlist", () => {
     expect(matchesWritePathAllowlist(outside, ["PRODUCT.md"], cwd)).toBe(false);
     expect(matchesWritePathAllowlist(outside, ["**/PRODUCT.md"], cwd)).toBe(false);
     // A sibling of cwd (shared /tmp parent) still denied.
-    expect(
-      matchesWritePathAllowlist("../sibling/PRODUCT.md", ["PRODUCT.md"], cwd),
-    ).toBe(false);
+    expect(matchesWritePathAllowlist("../sibling/PRODUCT.md", ["PRODUCT.md"], cwd)).toBe(false);
   });
 });
 
@@ -73,9 +68,7 @@ describe("matchesWritePathAllowlist with a symlinked cwd", () => {
       const symlinkedCwd = linkDir; // lexically distinct from `real`
       const canonicalSubject = join(real, "docs", "a.md"); // already realpathed
 
-      expect(
-        matchesWritePathAllowlist(canonicalSubject, ["docs/*"], symlinkedCwd),
-      ).toBe(true);
+      expect(matchesWritePathAllowlist(canonicalSubject, ["docs/*"], symlinkedCwd)).toBe(true);
 
       // A genuinely outside path is still denied.
       const outsideReal = mkdtempSync(join(realpathSync(tmpdir()), "write-path-outside-"));

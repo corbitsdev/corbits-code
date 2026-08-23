@@ -13,58 +13,57 @@
  * a boundary — rather than sliced blind at the column.
  */
 
-import { middleEllipsis } from "./command-display.js"
-import { prefixIndexForWidth, stringWidth } from "./view/height.js"
-import { UI } from "./theme.js"
+import { middleEllipsis } from "./command-display.js";
+import { prefixIndexForWidth, stringWidth } from "./view/height.js";
+import { UI } from "./theme.js";
 
 /** House ordered-dither ramp, sparsest-first, leading the header. */
-export const DECISION_DITHER = "░▒▓"
+export const DECISION_DITHER = "░▒▓";
 
 /** Marker on the active choice. Solid: the densest cell of the same ramp. */
-export const DECISION_ACTIVE_MARK = "█"
+export const DECISION_ACTIVE_MARK = "█";
 
 /**
  * Display rows every choice occupies, wrapped or not. One: the choices are a
  * single list, and a blank row between them reads as unrelated statements.
  */
-export const DECISION_CHOICE_ROWS = 1
+export const DECISION_CHOICE_ROWS = 1;
 
 /** Narrowest line this module will shape text into. */
-const MIN_WRAP_WIDTH = 4
+const MIN_WRAP_WIDTH = 4;
 
-const HEADER_PREFIX = `${DECISION_DITHER} `
-const CHOICE_INDENT = "  "
+const HEADER_PREFIX = `${DECISION_DITHER} `;
+const CHOICE_INDENT = "  ";
 
 /** Hanging indent on a wrapped continuation row. */
-const CONTINUATION = "  "
+const CONTINUATION = "  ";
 
 /**
  * Break points inside an over-long token, best first. A path separator wins
  * because a reader already parses it as a boundary; the second tier catches
  * URLs and flag-ish identifiers before falling back to a blind cut.
  */
-const PREFERRED_BREAKS = ["/", "\\"] as const
-const FALLBACK_BREAKS = ["-", "_", ".", ":", "=", "&", "?"] as const
+const PREFERRED_BREAKS = ["/", "\\"] as const;
+const FALLBACK_BREAKS = ["-", "_", ".", ":", "=", "&", "?"] as const;
 
 function splitLongToken(token: string, width: number): [string, string] {
-  const limit = Math.max(1, Math.floor(width))
+  const limit = Math.max(1, Math.floor(width));
   // The cut is a column budget, so the search window is the code-unit index
   // where that budget runs out — not the budget itself.
-  const window = prefixIndexForWidth(token, limit)
+  const window = prefixIndexForWidth(token, limit);
   for (const candidates of [PREFERRED_BREAKS, FALLBACK_BREAKS]) {
-    let best = -1
+    let best = -1;
     for (const ch of candidates) {
-      const idx = token.lastIndexOf(ch, Math.max(0, window - 1))
-      if (idx > best) best = idx
+      const idx = token.lastIndexOf(ch, Math.max(0, window - 1));
+      if (idx > best) best = idx;
     }
     // Keep the separator on the leading half, and require at least one
     // character before it so every break makes progress.
-    if (best >= 1) return [token.slice(0, best + 1), token.slice(best + 1)]
+    if (best >= 1) return [token.slice(0, best + 1), token.slice(best + 1)];
   }
   // A single glyph wider than the whole budget still has to make progress.
-  const cut =
-    window > 0 ? window : String.fromCodePoint(token.codePointAt(0) ?? 32).length
-  return [token.slice(0, cut), token.slice(cut)]
+  const cut = window > 0 ? window : String.fromCodePoint(token.codePointAt(0) ?? 32).length;
+  return [token.slice(0, cut), token.slice(cut)];
 }
 
 /**
@@ -73,71 +72,67 @@ function splitLongToken(token: string, width: number): [string, string] {
  * stay visually attached to their placeholder.
  */
 export function wrapWords(text: string, width: number): string[] {
-  const w = Math.max(MIN_WRAP_WIDTH, Math.floor(width))
-  const trimmed = text.trim()
-  if (trimmed.length === 0) return [""]
+  const w = Math.max(MIN_WRAP_WIDTH, Math.floor(width));
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return [""];
 
-  const indent = text.slice(0, text.length - text.trimStart().length)
-  const usable = (pad: string): string => (stringWidth(pad) > w - 2 ? "" : pad)
+  const indent = text.slice(0, text.length - text.trimStart().length);
+  const usable = (pad: string): string => (stringWidth(pad) > w - 2 ? "" : pad);
 
-  const out: string[] = []
-  let pad = usable(indent)
-  let line = ""
+  const out: string[] = [];
+  let pad = usable(indent);
+  let line = "";
   const flush = (): void => {
-    out.push(pad + line)
-    line = ""
-    pad = usable(indent)
-  }
+    out.push(pad + line);
+    line = "";
+    pad = usable(indent);
+  };
 
   for (const raw of trimmed.split(/\s+/)) {
-    let word = raw
+    let word = raw;
     for (;;) {
-      const lineWidth = stringWidth(line)
-      const room = w - stringWidth(pad) - (lineWidth > 0 ? lineWidth + 1 : 0)
+      const lineWidth = stringWidth(line);
+      const room = w - stringWidth(pad) - (lineWidth > 0 ? lineWidth + 1 : 0);
       if (stringWidth(word) <= room) {
-        line = line.length > 0 ? `${line} ${word}` : word
-        break
+        line = line.length > 0 ? `${line} ${word}` : word;
+        break;
       }
       if (line.length > 0) {
-        flush()
-        continue
+        flush();
+        continue;
       }
-      const [head, rest] = splitLongToken(word, w - stringWidth(pad))
-      line = head
-      flush()
-      word = rest
+      const [head, rest] = splitLongToken(word, w - stringWidth(pad));
+      line = head;
+      flush();
+      word = rest;
     }
   }
-  if (line.length > 0) out.push(pad + line)
-  return out.length > 0 ? out : [""]
+  if (line.length > 0) out.push(pad + line);
+  return out.length > 0 ? out : [""];
 }
 
 /** Wrap a multi-line block, preserving blank lines, capped at `maxLines`. */
-export function wrapOverlayText(
-  text: string,
-  width: number,
-  maxLines: number,
-): string[] {
-  const cap = Math.max(1, Math.floor(maxLines))
-  const out: string[] = []
+export function wrapOverlayText(text: string, width: number, maxLines: number): string[] {
+  const cap = Math.max(1, Math.floor(maxLines));
+  const out: string[] = [];
   for (const raw of text.split("\n")) {
-    if (out.length >= cap) break
+    if (out.length >= cap) break;
     if (raw.trim().length === 0) {
-      out.push("")
-      continue
+      out.push("");
+      continue;
     }
     for (const line of wrapWords(raw, width)) {
-      if (out.length >= cap) break
-      out.push(line)
+      if (out.length >= cap) break;
+      out.push(line);
     }
   }
-  return out.slice(0, cap)
+  return out.slice(0, cap);
 }
 
 /** A shaped overlay row: painted content plus the palette role it wears. */
-export type OverlayBodyRow = {
-  readonly text: string
-  readonly fg: string
+export interface OverlayBodyRow {
+  readonly text: string;
+  readonly fg: string;
 }
 
 /**
@@ -157,55 +152,55 @@ export function composeDecisionBody(
   width: number,
   contextLines: number,
 ): OverlayBodyRow[] {
-  const budget = Math.max(1, Math.floor(contextLines))
-  const lines = text.split("\n")
-  const headIndex = lines.findIndex((l) => l.trim().length > 0)
-  if (headIndex < 0) return []
+  const budget = Math.max(1, Math.floor(contextLines));
+  const lines = text.split("\n");
+  const headIndex = lines.findIndex((l) => l.trim().length > 0);
+  if (headIndex < 0) return [];
 
-  const rows: OverlayBodyRow[] = []
-  const prefixWidth = stringWidth(HEADER_PREFIX)
-  const headerWidth = width - prefixWidth
-  const header = wrapWords(lines[headIndex] ?? "", headerWidth)
+  const rows: OverlayBodyRow[] = [];
+  const prefixWidth = stringWidth(HEADER_PREFIX);
+  const headerWidth = width - prefixWidth;
+  const header = wrapWords(lines[headIndex] ?? "", headerWidth);
   header.forEach((line, i) => {
     rows.push({
       text: i === 0 ? `${HEADER_PREFIX}${line}` : `${" ".repeat(prefixWidth)}${line}`,
       fg: UI.action,
-    })
-  })
+    });
+  });
 
-  const rest = lines.slice(headIndex + 1).filter((l) => l.trim().length > 0)
+  const rest = lines.slice(headIndex + 1).filter((l) => l.trim().length > 0);
   if (rest.length > 0) {
-    rows.push({ text: "", fg: UI.textDim })
+    rows.push({ text: "", fg: UI.textDim });
     // Continuation rows are indented so a wrapped chain segment can never be
     // mistaken for a further segment of the command being approved.
     const wrapped = rest.map((line) =>
       wrapWords(line, width - CONTINUATION.length).map((part, i) =>
         i === 0 ? part : `${CONTINUATION}${part}`,
       ),
-    )
-    const flat = wrapped.flat()
+    );
+    const flat = wrapped.flat();
     // The last source line carries the notice and the expand affordance. When
     // the budget cannot hold everything, that line keeps a row rather than
     // being the first thing dropped — losing it would hide from the operator
     // that there is more to inspect before approving.
-    const truncated = flat.length > budget && rest.length > 1 && budget >= 3
-    const tail = truncated ? (wrapped[wrapped.length - 1]?.[0] ?? null) : null
-    const head = flat.slice(0, tail === null ? budget : budget - 2)
-    for (const line of head) rows.push({ text: line, fg: UI.text })
+    const truncated = flat.length > budget && rest.length > 1 && budget >= 3;
+    const tail = truncated ? (wrapped[wrapped.length - 1]?.[0] ?? null) : null;
+    const head = flat.slice(0, tail === null ? budget : budget - 2);
+    for (const line of head) rows.push({ text: line, fg: UI.text });
     if (tail !== null) {
       // Elided rows are announced, never silently dropped: a chain segment that
       // fell off the bottom must still be visibly missing, and the transcript
       // holds the whole subject untruncated.
-      const hidden = flat.length - head.length - 1
+      const hidden = flat.length - head.length - 1;
       rows.push({
         text: `${DECISION_DITHER} ${hidden} more ${hidden === 1 ? "line" : "lines"} · full text in transcript`,
         fg: UI.inFlight,
-      })
-      rows.push({ text: tail, fg: UI.textDim })
+      });
+      rows.push({ text: tail, fg: UI.textDim });
     }
   }
-  rows.push({ text: "", fg: UI.textDim })
-  return rows
+  rows.push({ text: "", fg: UI.textDim });
+  return rows;
 }
 
 /**
@@ -218,13 +213,13 @@ export function decisionChoiceRows(
   active: boolean,
   width: number,
 ): OverlayBodyRow[] {
-  const fg = active ? UI.text : UI.textDim
-  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT))
-  const text = stringWidth(label) > inner ? middleEllipsis(label, inner) : label
+  const fg = active ? UI.text : UI.textDim;
+  const inner = Math.max(1, width - stringWidth(CHOICE_INDENT));
+  const text = stringWidth(label) > inner ? middleEllipsis(label, inner) : label;
   return [
     {
       text: `${active ? `${DECISION_ACTIVE_MARK} ` : CHOICE_INDENT}${text}`,
       fg,
     },
-  ]
+  ];
 }

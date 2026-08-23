@@ -141,13 +141,13 @@ export function groupChainSegmentsForDisplay(command: string): string[] {
   return segments;
 }
 
-export type VerbatimLine = {
+export interface VerbatimLine {
   text: string;
   // True only for a genuine full-line shell comment: never for heredoc body
   // lines or for a line the shell joins onto the previous one via a
   // backslash-newline continuation (where a leading # is executable payload).
   isComment: boolean;
-};
+}
 
 // Split an already-control-stripped command into the lines the verbatim block
 // renders. A top-level LF is a genuine command separator and becomes a real
@@ -166,8 +166,7 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   let continued = false;
 
   const push = (): void => {
-    const isComment =
-      heredocMarker === null && !continued && current.trimStart().startsWith("#");
+    const isComment = heredocMarker === null && !continued && current.trimStart().startsWith("#");
     lines.push({ text: current, isComment });
     current = "";
     continued = false;
@@ -233,9 +232,12 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   return lines.filter((line, i) => line.text.trim().length > 0 || i === 0);
 }
 
-export type CollapsedPayload = { placeholder: string; lines: string[] };
+export interface CollapsedPayload {
+  placeholder: string;
+  lines: string[];
+}
 
-export type CollapsedSegment = {
+export interface CollapsedSegment {
   // The segment with each qualifying payload (a heredoc body, or a quoted
   // string spanning multiple lines) replaced by a short "<label, N lines>"
   // placeholder. A segment returned by groupChainSegmentsForDisplay is
@@ -246,7 +248,7 @@ export type CollapsedSegment = {
   // The full text of each collapsed payload, in placeholder order, shown when
   // the operator expands via Alt+E.
   payloads: CollapsedPayload[];
-};
+}
 
 // Picks a short, human label for a collapsed quoted payload by looking at the
 // flag token immediately before it (`-m`/`--message`/`-F` read as a commit
@@ -480,12 +482,12 @@ export function middleEllipsis(text: string, max: number): string {
   return `${sliceToWidth(text, head)}…${sliceTailToWidth(text, keep - head)}`;
 }
 
-export type CommandDisplay = {
+export interface CommandDisplay {
   readonly lines: readonly string[];
   // How many payloads were replaced by a placeholder. Zero when nothing was
   // collapsed, which is what tells the caller whether to offer the expand key.
   readonly payloadCount: number;
-};
+}
 
 // A payload line is rendered through verbatimCommandLines so a bare CR inside
 // it shows as a visible ↵ instead of repainting the row the operator is

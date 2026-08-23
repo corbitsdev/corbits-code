@@ -105,7 +105,6 @@ describe("session-store snapshot caching", () => {
   });
 });
 
-
 describe("outstanding tool clock", () => {
   // A worker inside one long tool call emits nothing until the result lands.
   // Without a start clock for that call, silence is indistinguishable from a
@@ -185,7 +184,6 @@ describe("outstanding tool clock", () => {
     });
   });
 });
-
 
 describe("parallel tool calls", () => {
   const toolStart = (callId: string, name: string) =>
