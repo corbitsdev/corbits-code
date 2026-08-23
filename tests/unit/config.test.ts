@@ -1,16 +1,10 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import * as nodeOs from "node:os";
-
-// Bun mutates the imported namespace object in place when a module is
-// mocked, so `nodeOs` itself is not safe to hold onto across a mock.module
-// call -- capture a shallow copy now, before anything mocks node:os, so the
-// snapshot below still reads "real" after the mock/restore round-trip.
-const realNodeOs = { ...nodeOs };
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
 import { resetPricingMetadataRefreshForTests } from "../../src/cost/pricing-metadata.js";
+import { withMockedModuleDuring } from "../helpers/mock-module.js";
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
@@ -237,22 +231,23 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
     // parameter — so the only way to point it at a synthetic auth store
     // without touching the real one is to stub node:os for the duration of
     // this call.
-    mock.module("node:os", () => ({ ...realNodeOs, homedir: () => fakeHome }));
-    try {
-      const { impl } = offlineFetch();
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
-        { pricing: { fetchImpl: impl } },
-      );
+    await withMockedModuleDuring(
+      import.meta.resolve("node:os"),
+      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      async () => {
+        const { impl } = offlineFetch();
+        const config = await loadConfig(
+          ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
+          { pricing: { fetchImpl: impl } },
+        );
 
-      expect(config.configured).toBe(true);
-      if (config.configured) {
-        expect(config.providerName).toBe("xai/synthetic");
-        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
-      }
-    } finally {
-      mock.module("node:os", () => realNodeOs);
-    }
+        expect(config.configured).toBe(true);
+        if (config.configured) {
+          expect(config.providerName).toBe("xai/synthetic");
+          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+        }
+      },
+    );
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });

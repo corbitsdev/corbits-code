@@ -1,4 +1,5 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 // getValidCodexToken/getValidXaiToken hit the real home-level auth store and
 // refresh endpoints; stub the session layer so this test only exercises the
@@ -6,22 +7,20 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 // (tests/unit/codex-session.test.ts) import the real modules directly, so the
 // mocks must be torn down after this file's tests run rather than leaking
 // into the rest of the bun test process.
-const realCodexSession = { ...(await import("./codex/session.js")) };
-const realXaiSession = { ...(await import("./xai/session.js")) };
-
-mock.module("./codex/session.js", () => ({
-  ...realCodexSession,
-  getValidCodexToken: async () => ({ access: "codex-token", accountId: "acct-1" }),
-}));
-mock.module("./xai/session.js", () => ({
-  ...realXaiSession,
-  getValidXaiToken: async () => ({ access: "xai-token" }),
-}));
-
-afterAll(() => {
-  mock.module("./codex/session.js", () => realCodexSession);
-  mock.module("./xai/session.js", () => realXaiSession);
-});
+await withMockedModule(
+  import.meta.resolve("./codex/session.js"),
+  (real: typeof import("./codex/session.js")) => ({
+    ...real,
+    getValidCodexToken: async () => ({ access: "codex-token", accountId: "acct-1" }),
+  }),
+);
+await withMockedModule(
+  import.meta.resolve("./xai/session.js"),
+  (real: typeof import("./xai/session.js")) => ({
+    ...real,
+    getValidXaiToken: async () => ({ access: "xai-token" }),
+  }),
+);
 
 const { checkOAuthProviderScope } = await import("./oauth-scope-check.js");
 
