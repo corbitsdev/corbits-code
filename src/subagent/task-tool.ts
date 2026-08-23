@@ -33,7 +33,7 @@ import {
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
-import type { SubAgentSessionStore } from "./session-store.js";
+import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { appendSubAgentParentHints } from "./stop-policy.js";
 import {
@@ -756,8 +756,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             if (session !== undefined && deps.sessions?.get(session.id)?.status === "running") {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
+            // Prefer the store's recorded reason (strip cancel writes it there
+            // before aborting); fall back to the abort signal's reason.
+            const reason =
+              (session !== undefined ? deps.sessions?.get(session.id)?.error : undefined) ??
+              cancelReason(childCtl.signal);
             return await finishWithWorktree(
-              taskToolResult(call.id, cancelledSubAgentMessage(description)),
+              taskToolResult(call.id, cancelledSubAgentMessage(description, reason)),
             );
           }
           subagentStatus = "failed";
@@ -793,9 +798,13 @@ function cancelReason(signal: AbortSignal): string {
   const reason = signal.reason;
   if (typeof reason === "string" && reason.length > 0) return reason;
   if (reason instanceof Error && reason.message.length > 0) return reason.message;
-  return "Cancelled by operator";
+  return DEFAULT_CANCEL_REASON;
 }
 
-function cancelledSubAgentMessage(description: string): string {
-  return `Sub-agent "${description}" cancelled by operator.`;
+function cancelledSubAgentMessage(description: string, reason?: string): string {
+  const base = `Sub-agent "${description}" cancelled by operator.`;
+  // Only a non-default reason adds signal ("Session cleared", a stop cause…).
+  return reason !== undefined && reason !== DEFAULT_CANCEL_REASON
+    ? `${base} Stopped: cancelled — ${reason}`
+    : base;
 }
