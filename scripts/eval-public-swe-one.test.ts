@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseArgs } from "./eval-public-swe-one.ts";
+import { parseArgs } from "./eval-public-swe-one.js";
 
 describe("parseArgs", () => {
   test("--help does not require provider or model", () => {
