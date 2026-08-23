@@ -8,7 +8,6 @@ import type { TurnContext } from "../session/hooks.js";
 import { noteLastTurnTraceId } from "./feedback.js";
 import type { AiErrorKind, AiSpanKind, Telemetry } from "./index.js";
 
-
 // PostHog reports latency in seconds as a float; the runtime measures every
 // duration in milliseconds. Reporting milliseconds under the seconds-typed
 // property inflates every latency by 1000x and still renders plausibly.
@@ -56,13 +55,13 @@ export function classifyErrorKind(message: string): AiErrorKind {
   return "inference_failed";
 }
 
-export type EmitAiObservabilityOptions = {
+export interface EmitAiObservabilityOptions {
   // The runtime's per-session id, which scopes the trace id.
   sessionId: string;
   // Name of the tool that spawns a sub-agent, used to classify that call's
   // span kind as "subagent_call" instead of the generic "tool_call".
   subagentToolName: string;
-};
+}
 
 // Called once per completed turn. Emits one $ai_generation for the model
 // call, then one $ai_span per tool call in the turn, all sharing the turn's
@@ -116,12 +115,12 @@ export function emitAiObservability(
 // The canonical provider kind and model id a turn ran against. Never the
 // sourceId: that is the free-text label the user typed in onboarding or
 // settings.
-export type TurnSource = {
+export interface TurnSource {
   provider: string;
   model: string;
-};
+}
 
-export type EmitAiTurnFailureOptions = {
+export interface EmitAiTurnFailureOptions {
   sessionId: string;
   turnIndex: number;
   // The failed turn has no TurnContext to read its source from, so the caller
@@ -130,7 +129,7 @@ export type EmitAiTurnFailureOptions = {
   source: TurnSource;
   // The raw provider message, classified here and never forwarded.
   error: string;
-};
+}
 
 // Called when a turn ends without ever completing, which is where
 // observability earns its keep and where a completion-only emitter is
@@ -146,7 +145,7 @@ export function emitAiTurnFailure(telemetry: Telemetry, options: EmitAiTurnFailu
   });
 }
 
-export type CreateTurnObserverOptions = {
+export interface CreateTurnObserverOptions {
   // Read per emission because the TUI replaces the telemetry handle when the
   // user toggles the setting mid-session.
   telemetry: () => Telemetry;
@@ -158,7 +157,7 @@ export type CreateTurnObserverOptions = {
   // available attribution for a turn that failed before producing one.
   getSource: () => TurnSource;
   subagentToolName: string;
-};
+}
 
 // Binds the emitters to the live session and source, giving the run sink two
 // plain callbacks and keeping the "read it now, do not capture it" rule in

@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 
 import { generateSessionId, initSessionDir } from "./index.js";
 import { appendSentMessage } from "./sent-messages.js";
-import { isGenericSessionTask, resolveSessionLabel, truncateSessionLabel } from "./session-label.js";
+import {
+  isGenericSessionTask,
+  resolveSessionLabel,
+  truncateSessionLabel,
+} from "./session-label.js";
 
 let cwd = "";
 let home = "";

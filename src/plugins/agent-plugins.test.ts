@@ -68,10 +68,7 @@ describe("resolveAgentPluginProfiles", () => {
     const b = agentModule("p2", [
       { id: "reviewer", description: "Code reviewer", systemPromptRole: "You review code." },
     ]);
-    const profiles = await resolveAgentPluginProfiles(
-      [a.mod, b.mod],
-      { ...a.config, ...b.config },
-    );
+    const profiles = await resolveAgentPluginProfiles([a.mod, b.mod], { ...a.config, ...b.config });
     expect(profiles.map((p) => p.id).sort()).toEqual(["explorer", "reviewer"]);
   });
 

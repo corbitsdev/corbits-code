@@ -6,7 +6,7 @@ import { detectModelFamily, type ModelFamily } from "../subagent/provider-family
  * the provider/model — directors stay generic and branch on data, never on
  * per-family subclasses.
  */
-export type ModelFamilyPolicy = {
+export interface ModelFamilyPolicy {
   family: ModelFamily;
   /**
    * Consecutive tool-only assistant turns (tool calls, no text) before the
@@ -24,7 +24,7 @@ export type ModelFamilyPolicy = {
   subAgentStallTimeoutMs: number;
   /** Grok's finish-bias residual (withhold from orchestrators; see provider-family.ts). */
   applyGrokFinishBias: boolean;
-};
+}
 
 const DEFAULT_WRAP_UP_NUDGE_TEXT =
   "You have made several consecutive tool calls without any explanation. " +
@@ -67,7 +67,6 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   subAgentStallTimeoutMs: DEFAULT_POLICY.subAgentStallTimeoutMs,
   applyGrokFinishBias: true,
 };
-
 
 // Kimi (Moonshot) detection ships now so callers can branch on family, but
 // thresholds are provisional: we have no eval characterization yet for how

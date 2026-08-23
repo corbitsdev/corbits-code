@@ -11,22 +11,22 @@ env kill switches (see Intentional feedback below).
 
 Each event carries a small set of properties:
 
-| Event | When | Properties |
-|---|---|---|
-| `cli_start` | Once per used session (see First-run disclosure) | (none beyond common properties) |
-| `session_end` | When a TUI session finishes | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason` |
-| `$ai_generation` | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens` |
-| `$ai_span` | Once per top-level tool call in a completed turn | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error` |
-| `slash_command` | A slash command is dispatched (shared product-event path) | `command_name` |
-| `skill_used` | `use_skill` loads a skill that resolved | (none beyond common properties) |
-| `plugin_loaded` | A plugin is discovered and loaded at startup | `origin` |
-| `subagent_start` | A `task` dispatch begins | `agent_name` |
-| `subagent_end` | A `task` dispatch finishes | `agent_name`, `status`, `duration_ms` |
-| `permission_prompt` | An approval prompt is answered (or abandoned) | `decision`, `permission_kind` |
-| `compaction` | The compactor actually folds turns away | `mode`, `duration_ms`, `turns_before`, `turns_after` |
-| `crash` | A fatal error reaches the process-level handler | `kind`, `error_class` |
-| `auth_failure` | A provider rejects the stored credentials | `auth_provider` |
-| `survey sent` | User submits intentional feedback via `/feedback` | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id` |
+| Event               | When                                                                             | Properties                                                                                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli_start`         | Once per used session (see First-run disclosure)                                 | (none beyond common properties)                                                                                                                                                                                            |
+| `session_end`       | When a TUI session finishes                                                      | `status`, `turn_count`, `duration_ms`, `session_mode`, `exit_reason`                                                                                                                                                       |
+| `$ai_generation`    | Once per turn — on completion, and once for a turn that ends in an error instead | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens` |
+| `$ai_span`          | Once per top-level tool call in a completed turn                                 | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error`                                                                                                                                            |
+| `slash_command`     | A slash command is dispatched (shared product-event path)                        | `command_name`                                                                                                                                                                                                             |
+| `skill_used`        | `use_skill` loads a skill that resolved                                          | (none beyond common properties)                                                                                                                                                                                            |
+| `plugin_loaded`     | A plugin is discovered and loaded at startup                                     | `origin`                                                                                                                                                                                                                   |
+| `subagent_start`    | A `task` dispatch begins                                                         | `agent_name`                                                                                                                                                                                                               |
+| `subagent_end`      | A `task` dispatch finishes                                                       | `agent_name`, `status`, `duration_ms`                                                                                                                                                                                      |
+| `permission_prompt` | An approval prompt is answered (or abandoned)                                    | `decision`, `permission_kind`                                                                                                                                                                                              |
+| `compaction`        | The compactor actually folds turns away                                          | `mode`, `duration_ms`, `turns_before`, `turns_after`                                                                                                                                                                       |
+| `crash`             | A fatal error reaches the process-level handler                                  | `kind`, `error_class`                                                                                                                                                                                                      |
+| `auth_failure`      | A provider rejects the stored credentials                                        | `auth_provider`                                                                                                                                                                                                            |
+| `survey sent`       | User submits intentional feedback via `/feedback`                                | `$survey_id`, `$survey_response`, `$survey_questions`, `turn_trace_id`                                                                                                                                                     |
 
 `compaction` is deliberately silent on the runs where the compactor decides
 there is nothing to compact — an event that also fires on no-ops makes its own

@@ -91,7 +91,10 @@ describe("splitChainedCommand redirect and background fragments", () => {
   });
 
   test("splits on a genuine background operator without stranding a fragment", () => {
-    expect(splitChainedCommand("bun run build & echo done")).toEqual(["bun run build", "echo done"]);
+    expect(splitChainedCommand("bun run build & echo done")).toEqual([
+      "bun run build",
+      "echo done",
+    ]);
   });
 
   test("keeps a heredoc body intact rather than fragmenting it", () => {
