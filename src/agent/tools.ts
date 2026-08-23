@@ -50,6 +50,7 @@ import {
   type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
+import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -384,7 +385,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // Codex apply_patch mounts when isCodex; primary strips it so Corbits DIY
   // stays on write_file/edit_file/delete_file. Leaves keep it via BUILD/DOCS allowlists.
   baseTools.push(
-    ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool, runManageTasks }),
+    ...createCodexToolProxies({
+      isCodex: args.isCodex === true,
+      runTool,
+      readRawFile: createCodexReadRawFile(cwd),
+      runManageTasks,
+    }),
   );
 
   const primaryTools = baseTools.filter((tool) => tool.definition.name !== "apply_patch");
