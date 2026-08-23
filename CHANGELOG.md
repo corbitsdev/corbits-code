@@ -13,6 +13,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### TUI
+
+- **Taller live chain-of-thought preview.** Parent reasoning still paints
+  through the existing thinking row (one fold per turn, settle-to-opener +
+  expand) — no separate mid-turn stream lane. The hard-capped live wrap rises
+  from 3 to 10 inset lines (`LIVE_THINKING_MAX_LINES`) so mid-turn CoT is
+  glanceable; reveal rate stays 28 chars/sec. Sub-agent Task-row thinking is
+  unchanged. Assistant mid-turn text continues to grow the open streaming
+  assistant row from `inference.text.delta`.
+
 ### Fixed
 
 - **Codex Responses no longer sends `reasoning.summary: "auto"`.** ChatGPT
