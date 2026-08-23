@@ -143,14 +143,14 @@ If the worktree directory was already deleted: `git worktree prune`.
 
 ## Linear MCP tool reference
 
-| Action | Tool |
-|---|---|
-| Fetch issue | `mcp__linear__get_issue` |
-| Get branch name | `mcp__linear__get_issue` (`branchName`) |
-| Update status / checkboxes | `mcp__linear__save_issue` |
-| Add comment | `mcp__linear__save_comment` |
-| Attach file | `mcp__linear__prepare_attachment_upload` → intern PUT → `mcp__linear__create_attachment_from_upload` |
-| List teams | `mcp__linear__list_teams` |
+| Action                     | Tool                                                                                                 |
+| -------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Fetch issue                | `mcp__linear__get_issue`                                                                             |
+| Get branch name            | `mcp__linear__get_issue` (`branchName`)                                                              |
+| Update status / checkboxes | `mcp__linear__save_issue`                                                                            |
+| Add comment                | `mcp__linear__save_comment`                                                                          |
+| Attach file                | `mcp__linear__prepare_attachment_upload` → intern PUT → `mcp__linear__create_attachment_from_upload` |
+| List teams                 | `mcp__linear__list_teams`                                                                            |
 
 ## Hard rules
 

@@ -33,6 +33,7 @@ For each unit, run these steps in order. Do not skip. When this loop is running,
 `task(agent="greybeard")` on the approach before any code is written.
 
 Send:
+
 - What will change and why
 - Files expected
 - Design decisions and trade-offs
@@ -85,6 +86,9 @@ When critique is clean (or remaining findings are acknowledged judgment calls), 
 When the requested units are done (or blocked), synthesize for the operator:
 
 ## Summary
+
 ## Findings
+
 ## Blockers
+
 ## Paths

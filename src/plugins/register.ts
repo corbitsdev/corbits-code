@@ -23,8 +23,8 @@ export function isPluginModuleEnabled(
   if (enabled === true) return true;
   if (enabled === false) return false;
   return (
-    (mod.origin === "repo" && mod.manifest?.defaultEnabled === true)
-    || mod.shadowedRepoDefaultEnabled === true
+    (mod.origin === "repo" && mod.manifest?.defaultEnabled === true) ||
+    mod.shadowedRepoDefaultEnabled === true
   );
 }
 
@@ -39,7 +39,10 @@ export function enablePluginConfig(
   return { ...config, [id]: { ...prev, enabled: true } };
 }
 
-export function isEnabledCommandPlugin(mod: PluginModule, config: Record<string, PluginConfig>): boolean {
+export function isEnabledCommandPlugin(
+  mod: PluginModule,
+  config: Record<string, PluginConfig>,
+): boolean {
   if (mod.commandPlugin === undefined) return false;
   const kind = mod.manifest?.kind;
   // command/workflow plugins own their slash commands; agent plugins may also
@@ -51,7 +54,10 @@ export function isEnabledCommandPlugin(mod: PluginModule, config: Record<string,
   );
 }
 
-export function isEnabledWorkflowPlugin(mod: PluginModule, config: Record<string, PluginConfig>): boolean {
+export function isEnabledWorkflowPlugin(
+  mod: PluginModule,
+  config: Record<string, PluginConfig>,
+): boolean {
   return (
     mod.manifest?.kind === "workflow" &&
     mod.workflowPlugin !== undefined &&

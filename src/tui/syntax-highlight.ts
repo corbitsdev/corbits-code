@@ -11,22 +11,29 @@ import { color, type SemanticRole } from "./semantic-theme.js";
 // the whole attribute so those sub-scopes route to the right role.
 function roleForClass(cls: string): SemanticRole | undefined {
   if (cls.includes("comment") || cls.includes("quote")) return "syntaxComment";
-  if (cls.includes("string") || cls.includes("regexp") || cls.includes("char") || cls.includes("symbol")) {
+  if (
+    cls.includes("string") ||
+    cls.includes("regexp") ||
+    cls.includes("char") ||
+    cls.includes("symbol")
+  ) {
     return "syntaxString";
   }
   if (cls.includes("number")) return "syntaxNumber";
   if (cls.includes("function")) return "syntaxFunction";
-  if (cls.includes("class") || cls.includes("type") || cls.includes("built_in")) return "syntaxType";
-  if (cls.includes("keyword") || cls.includes("literal") || cls.includes("meta")) return "syntaxKeyword";
+  if (cls.includes("class") || cls.includes("type") || cls.includes("built_in"))
+    return "syntaxType";
+  if (cls.includes("keyword") || cls.includes("literal") || cls.includes("meta"))
+    return "syntaxKeyword";
   if (cls.includes("operator")) return "syntaxOperator";
   if (cls.includes("punctuation")) return "syntaxPunctuation";
   if (
-    cls.includes("variable")
-    || cls.includes("attr")
-    || cls.includes("property")
-    || cls.includes("params")
-    || cls.includes("title")
-    || cls.includes("selector")
+    cls.includes("variable") ||
+    cls.includes("attr") ||
+    cls.includes("property") ||
+    cls.includes("params") ||
+    cls.includes("title") ||
+    cls.includes("selector")
   ) {
     return "syntaxVariable";
   }
@@ -46,7 +53,10 @@ function decodeEntities(text: string): string {
   return text.replace(/&(#x27|#39|amp|lt|gt|quot);/g, (_, name: string) => ENTITIES[name] ?? _);
 }
 
-type Token = { text: string; role: SemanticRole | undefined };
+interface Token {
+  text: string;
+  role: SemanticRole | undefined;
+}
 
 // hljs output is a well-formed subset of HTML: text, entities, and `<span
 // class="...">` wrappers that may nest. Walk it once, keeping a stack of the
@@ -120,8 +130,13 @@ function cached(key: string, compute: () => StyledSegment[][]): StyledSegment[][
 // fall back to plain muted code. `width` participates in the cache key so cached
 // output never leaks across a resize even though highlighting itself is
 // width-independent.
-export function highlightCode(code: string, language: string | undefined, width: number): StyledSegment[][] {
-  const lang = language !== undefined && hljs.getLanguage(language) !== undefined ? language : undefined;
+export function highlightCode(
+  code: string,
+  language: string | undefined,
+  width: number,
+): StyledSegment[][] {
+  const lang =
+    language !== undefined && hljs.getLanguage(language) !== undefined ? language : undefined;
   const key = `${width}\x1f${lang ?? ""}\x1f${code}`;
   return cached(key, () => {
     if (lang === undefined) return plainLines(code);

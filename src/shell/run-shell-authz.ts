@@ -21,8 +21,7 @@ const cmd = (name: string): RegExp => new RegExp(`${CMD}${name}\\b`);
 // neither carries piped data to the following stage — matched as explicit
 // two-character operators so a lone `|` inside them is not mistaken for the
 // single-pipe case.
-const CMD_HEAD =
-  String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
+const CMD_HEAD = String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
 
 const cmdHead = (name: string): RegExp => new RegExp(`${CMD_HEAD}${name}\\b`);
 
@@ -57,7 +56,7 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // (`bash -c 'while :; do'`, `perl -e 'fork while fork'`), so they run on
   // the original subject — command-position matchers neutralize separators
   // inside quotes and would otherwise miss the `;` these patterns need.
-  /:\(\)\s*\{\s*:\|:\&\s*\};/,
+  /:\(\)\s*\{\s*:\|:&\s*\};/,
   // Piping a network download straight into a shell (through any wrappers).
   new RegExp(String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`),
   // Privilege escalation and shell replacement, only in command position.
@@ -104,14 +103,10 @@ const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
 // piped pager (`… | less`) is caught as well as a bare one.
 const NEVER_TERMINATING_PATTERNS: RegExp[] = [
   // `tail -f` / `-F` follow a file forever (flag alone or clustered).
-  new RegExp(
-    String.raw`${CMD}tail\b[^\n|;]*?\s-[A-Za-z]*[fF][A-Za-z]*\b`,
-  ),
+  new RegExp(String.raw`${CMD}tail\b[^\n|;]*?\s-[A-Za-z]*[fF][A-Za-z]*\b`),
   // GNU long form `--follow` / `--follow=name` never matches the clustered
   // short-flag pattern above, so match it explicitly.
-  new RegExp(
-    String.raw`${CMD}tail\b[^\n|;]*?\s--follow\b`,
-  ),
+  new RegExp(String.raw`${CMD}tail\b[^\n|;]*?\s--follow\b`),
   cmd("watch"),
   cmd("top"),
   cmd("htop"),
@@ -123,17 +118,7 @@ const NEVER_TERMINATING_PATTERNS: RegExp[] = [
 // file (and not downstream of a pipe) they block on a terminal that never
 // arrives. `git log | tail` is fine (tail reads the pipe); `tail -n 50 file.log`
 // is fine (it has a file); a bare `tail`, `cat`, or `grep pattern` is not.
-const STDIN_READERS = new Set([
-  "cat",
-  "tac",
-  "nl",
-  "rev",
-  "head",
-  "tail",
-  "sort",
-  "uniq",
-  "wc",
-]);
+const STDIN_READERS = new Set(["cat", "tac", "nl", "rev", "head", "tail", "sort", "uniq", "wc"]);
 
 // Short flags that consume the following token as their value, so the value is
 // not mistaken for a file operand (e.g. the `50` in `tail -n 50`). These are
@@ -141,16 +126,7 @@ const STDIN_READERS = new Set([
 // letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
 // following token there would wrongly drop a real file operand.
 const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
-const GREP_VALUE_FLAGS = new Set([
-  "-e",
-  "-f",
-  "-m",
-  "-A",
-  "-B",
-  "-C",
-  "--regexp",
-  "--file",
-]);
+const GREP_VALUE_FLAGS = new Set(["-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file"]);
 
 // The head of each pipeline (the stage before the first `|`) is the only stage
 // that reads the terminal's stdin; later stages read the pipe. A naive regex
@@ -279,9 +255,7 @@ const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
 // before the deny patterns run. Only the executable token is rewritten, so
 // redirect targets and later arguments are left intact.
 const NORMALIZE_COMMAND_POSITION = new RegExp(
-  String.raw`(^|[\n;&|(` +
-    "`" +
-    String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
+  String.raw`(^|[\n;&|(` + "`" + String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
   "g",
 );
 
@@ -332,7 +306,11 @@ function isDangerousTarget(token: string): boolean {
   if (/^\$HOME\b/.test(t)) return true;
   if (/^~\//.test(t)) return true;
   if (/^\/\*/.test(t)) return true;
-  if (/^\/(etc|usr|bin|sbin|var|sys|dev|lib|boot|root|home|opt|Applications|System|Library|Users)(\/|$)/.test(t)) {
+  if (
+    /^\/(etc|usr|bin|sbin|var|sys|dev|lib|boot|root|home|opt|Applications|System|Library|Users)(\/|$)/.test(
+      t,
+    )
+  ) {
     return true;
   }
   return false;
@@ -355,10 +333,7 @@ function isOpaquePayload(payload: string): boolean {
   return false;
 }
 
-type PeelOutcome =
-  | { kind: "inner"; command: string }
-  | { kind: "opaque" }
-  | { kind: "none" };
+type PeelOutcome = { kind: "inner"; command: string } | { kind: "opaque" } | { kind: "none" };
 
 // Tokens that survive rejoining without quotes. Anything else is re-quoted so
 // a payload token that originally carried quotes (e.g. the argument of a
@@ -480,10 +455,10 @@ const ENV_VALUE_FLAGS = new Set([
 
 function isEnvValueEqualsFlag(t: string): boolean {
   return (
-    t.startsWith("--unset=")
-    || t.startsWith("--chdir=")
-    || t.startsWith("--argv0=")
-    || t.startsWith("--file=")
+    t.startsWith("--unset=") ||
+    t.startsWith("--chdir=") ||
+    t.startsWith("--argv0=") ||
+    t.startsWith("--file=")
   );
 }
 
@@ -568,11 +543,7 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
 // real program, not just the assignment fragment that -S consumed.
 // Empty/opaque payloads with a trailing utility still execute that utility
 // (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
-function finishEnvSplitPayload(
-  payload: string,
-  tokens: string[],
-  restStart: number,
-): PeelOutcome {
+function finishEnvSplitPayload(payload: string, tokens: string[], restStart: number): PeelOutcome {
   const rest = tokens.slice(restStart);
   let raw: string | null;
   if (isOpaquePayload(payload)) {
@@ -722,7 +693,14 @@ function peelOnce(segment: string): PeelOutcome {
         }
         if (t.startsWith("-") && t !== "-") {
           // Flags that take a value: -k / --kill-after / -s / --signal.
-          if (t === "-k" || t === "--kill-after" || t === "-s" || t === "--signal" || t.startsWith("--kill-after=") || t.startsWith("--signal=")) {
+          if (
+            t === "-k" ||
+            t === "--kill-after" ||
+            t === "-s" ||
+            t === "--signal" ||
+            t.startsWith("--kill-after=") ||
+            t.startsWith("--signal=")
+          ) {
             i++;
             if (!t.includes("=") && i < tokens.length && !tokens[i]!.startsWith("-")) i++;
             continue;
@@ -770,12 +748,12 @@ function peelOnce(segment: string): PeelOutcome {
   return { kind: "none" };
 }
 
-export type ShellExpandResult = {
+export interface ShellExpandResult {
   /** Original command plus every successfully peeled inner payload. */
   subjects: string[];
   /** True when a wrapper was present but its payload could not be inspected. */
   opaque: boolean;
-};
+}
 
 // Expand a shell command into subjects the auto-shell policy, hard-deny, and
 // recursive-rm checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs
@@ -886,7 +864,7 @@ function skipQuotedSpans(command: string): string {
   // is a `"paren"` frame so its `)` does not restore quote. A depth counter that
   // only restores at 0 treats the `"` after inner `"$(...)"` as an opener and
   // blanks sibling eval.
-  const substStack: Array<'"' | "'" | undefined | "paren"> = [];
+  const substStack: ('"' | "'" | undefined | "paren")[] = [];
   let inBacktick = false;
 
   const enterSubst = (): void => {
@@ -994,10 +972,7 @@ function isOpenEndedSearch(command: string): boolean {
 // so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
 // the real program inside a quoted payload. Normalize each subject so path-
 // qualified binaries still match command-position patterns.
-function subjectsHit(
-  command: string,
-  pred: (normalizedSubject: string) => boolean,
-): boolean {
+function subjectsHit(command: string, pred: (normalizedSubject: string) => boolean): boolean {
   const { subjects } = expandShellSubjects(command);
   if (subjects.some((subject) => pred(normalizeCommand(subject)))) return true;
   const normalized = normalizeCommand(command);
