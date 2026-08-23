@@ -1,13 +1,13 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test";
 
-import { createHarness } from "./harness.js"
-import { runListModal } from "./list-modal.js"
+import { createHarness } from "./harness.js";
+import { runListModal } from "./list-modal.js";
 
 async function mountModal(): Promise<{
-  choice: Promise<string | null>
-  harness: Awaited<ReturnType<typeof createHarness>>
+  choice: Promise<string | null>;
+  harness: Awaited<ReturnType<typeof createHarness>>;
 }> {
-  const harness = await createHarness({ width: 80, height: 24 })
+  const harness = await createHarness({ width: 80, height: 24 });
   const choice = runListModal({
     title: "resume session",
     options: [
@@ -15,44 +15,44 @@ async function mountModal(): Promise<{
       { id: "s-2", label: "Second session" },
     ],
     createRenderer: async () => harness.renderer,
-  })
-  await harness.renderOnce()
-  return { choice, harness }
+  });
+  await harness.renderOnce();
+  return { choice, harness };
 }
 
 describe("runListModal", () => {
   test("resolves the id of the accepted row", async () => {
-    const { choice, harness } = await mountModal()
-    harness.pressKey("Enter")
-    expect(await choice).toBe("s-1")
-  })
+    const { choice, harness } = await mountModal();
+    harness.pressKey("Enter");
+    expect(await choice).toBe("s-1");
+  });
 
   test("arrow navigation selects the next row", async () => {
-    const { choice, harness } = await mountModal()
-    harness.pressKey("ARROW_DOWN")
-    harness.pressKey("Enter")
-    expect(await choice).toBe("s-2")
-  })
+    const { choice, harness } = await mountModal();
+    harness.pressKey("ARROW_DOWN");
+    harness.pressKey("Enter");
+    expect(await choice).toBe("s-2");
+  });
 
   test("Escape resolves null", async () => {
-    const { choice, harness } = await mountModal()
-    harness.pressKey("Escape")
-    expect(await choice).toBeNull()
-  })
+    const { choice, harness } = await mountModal();
+    harness.pressKey("Escape");
+    expect(await choice).toBeNull();
+  });
 
   test("Ctrl+C resolves null", async () => {
-    const { choice, harness } = await mountModal()
-    harness.pressKey("Ctrl+C")
-    expect(await choice).toBeNull()
-  })
+    const { choice, harness } = await mountModal();
+    harness.pressKey("Ctrl+C");
+    expect(await choice).toBeNull();
+  });
 
   test("paints the heading and the option labels", async () => {
-    const { choice, harness } = await mountModal()
-    await harness.renderOnce()
-    const frame = harness.captureCharFrame()
-    expect(frame).toContain("First session")
-    expect(frame).toContain("Second session")
-    harness.pressKey("Escape")
-    await choice
-  })
-})
+    const { choice, harness } = await mountModal();
+    await harness.renderOnce();
+    const frame = harness.captureCharFrame();
+    expect(frame).toContain("First session");
+    expect(frame).toContain("Second session");
+    harness.pressKey("Escape");
+    await choice;
+  });
+});

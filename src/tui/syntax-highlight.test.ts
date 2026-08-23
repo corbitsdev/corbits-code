@@ -32,7 +32,10 @@ describe("highlightCode", () => {
 
   test("decodes HTML entities back to their source characters", () => {
     const lines = highlightCode("const ok = a > b && c < d;", "javascript", 80);
-    const rendered = lines.flat().map((s) => s.text).join("");
+    const rendered = lines
+      .flat()
+      .map((s) => s.text)
+      .join("");
     expect(rendered).toContain(">");
     expect(rendered).toContain("<");
     expect(rendered).toContain("&&");

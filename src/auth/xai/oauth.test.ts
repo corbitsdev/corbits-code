@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { XAI_CLIENT_ID, XAI_REDIRECT_URI, XAI_TOKEN_URL, XAI_TOKEN_TIMEOUT_MS } from "./constants.js";
+import {
+  XAI_CLIENT_ID,
+  XAI_REDIRECT_URI,
+  XAI_TOKEN_URL,
+  XAI_TOKEN_TIMEOUT_MS,
+} from "./constants.js";
 import { buildAuthorizeUrl, exchangeCode, refreshTokens, tokensFromResponse } from "./oauth.js";
 
 const originalFetch = globalThis.fetch;
@@ -11,7 +16,9 @@ afterEach(() => {
 
 describe("xAI OAuth", () => {
   test("builds a PKCE authorize URL", () => {
-    const url = new URL(buildAuthorizeUrl({ verifier: "verifier", challenge: "challenge", method: "S256" }, "state"));
+    const url = new URL(
+      buildAuthorizeUrl({ verifier: "verifier", challenge: "challenge", method: "S256" }, "state"),
+    );
     expect(url.origin + url.pathname).toBe("https://auth.x.ai/oauth2/authorize");
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("client_id")).toBe(XAI_CLIENT_ID);
@@ -28,10 +35,18 @@ describe("xAI OAuth", () => {
       expect(String(input)).toBe(XAI_TOKEN_URL);
       expect(init?.method).toBe("POST");
       body = String(init?.body ?? "");
-      return new Response(JSON.stringify({ access_token: "access", refresh_token: "refresh", expires_in: 10, id_token: "id" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          access_token: "access",
+          refresh_token: "refresh",
+          expires_in: 10,
+          id_token: "id",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     }) as unknown as typeof fetch;
 
     await expect(exchangeCode("code", "verifier", 1000)).resolves.toEqual({

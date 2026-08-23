@@ -20,7 +20,7 @@ export function processOrder(order: unknown): string {
   const picked = pickKeys(merged, ["id", "email", "items", "total"]);
   const safe = omitKeys(picked, ["password"]);
   const validated = validateEmail(safe.email) ? safe : null;
-  if (!validated) return "{\"error\":\"invalid email\"}";
+  if (!validated) return '{"error":"invalid email"}';
   const total = clamp(validated.total, 0, 10000);
   const formatted = formatCurrency(total);
   const date = formatDate(new Date());

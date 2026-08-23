@@ -14,7 +14,10 @@ test("loadPluginEntry returns null for a non-existent path", async () => {
 });
 
 test("loadPluginsFromPaths resolves relative paths against cwd and skips bad ones", async () => {
-  const mods = await loadPluginsFromPaths(["tests/fixtures/plugins/exa", "does-not-exist"], process.cwd());
+  const mods = await loadPluginsFromPaths(
+    ["tests/fixtures/plugins/exa", "does-not-exist"],
+    process.cwd(),
+  );
   expect(mods.map((m) => m.manifest?.id)).toEqual(["exa"]);
 });
 
@@ -29,19 +32,31 @@ test("manifest requires a kind", () => {
 });
 
 test("manifest parses optional defaultEnabled", () => {
-  expect(parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: true })).toEqual({
+  expect(
+    parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: true }),
+  ).toEqual({
     id: "x",
     name: "X",
     kind: "command",
     defaultEnabled: true,
   });
-  expect(parsePluginManifest({ id: "x", name: "X", kind: "command" })?.defaultEnabled).toBeUndefined();
-  expect(parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: "yes" })).toBeNull();
+  expect(
+    parsePluginManifest({ id: "x", name: "X", kind: "command" })?.defaultEnabled,
+  ).toBeUndefined();
+  expect(
+    parsePluginManifest({ id: "x", name: "X", kind: "command", defaultEnabled: "yes" }),
+  ).toBeNull();
 });
 
 test("dedupePluginModules keeps the last module per id (path > user > repo)", () => {
-  const repo: PluginModule = { manifest: { id: "dup", name: "Repo", kind: "command" }, commandPlugin: { commands: [] } };
-  const user: PluginModule = { manifest: { id: "dup", name: "User", kind: "command" }, commandPlugin: { commands: [] } };
+  const repo: PluginModule = {
+    manifest: { id: "dup", name: "Repo", kind: "command" },
+    commandPlugin: { commands: [] },
+  };
+  const user: PluginModule = {
+    manifest: { id: "dup", name: "User", kind: "command" },
+    commandPlugin: { commands: [] },
+  };
   const other: PluginModule = { manifest: { id: "other", name: "Other", kind: "web" } };
   const noManifest: PluginModule = { commandPlugin: { commands: [] } };
   const out = dedupePluginModules([repo, other, user, noManifest]);

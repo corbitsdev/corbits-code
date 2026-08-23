@@ -52,11 +52,11 @@ real public issue?**
 
 ## vs competitors
 
-| Claim | Fair? |
-| --- | --- |
-| Corbits@Grok patch on instance X | Yes (this smoke) |
-| % resolved on SWE-bench Lite | Only after official Docker eval on a frozen instance list |
-| vs Claude Code on TB2 | Harbor adapter (not this script) |
+| Claim                            | Fair?                                                     |
+| -------------------------------- | --------------------------------------------------------- |
+| Corbits@Grok patch on instance X | Yes (this smoke)                                          |
+| % resolved on SWE-bench Lite     | Only after official Docker eval on a frozen instance list |
+| vs Claude Code on TB2            | Harbor adapter (not this script)                          |
 
 ## Related
 

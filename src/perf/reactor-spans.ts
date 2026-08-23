@@ -22,10 +22,7 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { end, start } from "./index.js";
-import {
-  getActiveTurnId,
-  setActiveTurnId,
-} from "./active-turn.js";
+import { getActiveTurnId, setActiveTurnId } from "./active-turn.js";
 
 /** Content-bearing events that end TTFT and open the stream phase. */
 const FIRST_TOKEN_TYPES: ReadonlySet<string> = new Set([
@@ -44,12 +41,12 @@ const FIRST_TOKEN_TYPES: ReadonlySet<string> = new Set([
   "inference.thinking.redacted",
 ]);
 
-export type PerfReactorObserver = {
+export interface PerfReactorObserver {
   observe(event: ReactorEmittedEvent): void;
   reset(): void;
   /** Opaque PerfTrace id of the open turn span, or null when no turn is open. */
   currentTurnId(): string | null;
-};
+}
 
 /**
  * Process-wide open-turn id from the most recently active reactor observer.
@@ -60,7 +57,7 @@ export function currentTurnId(): string | null {
   return getActiveTurnId();
 }
 
-type ObserverState = {
+interface ObserverState {
   turnId: string | null;
   inferenceId: string | null;
   ttftId: string | null;
@@ -69,7 +66,7 @@ type ObserverState = {
   pendingTools: number;
   /** Open tool spans keyed by callId. */
   openTools: Map<string, string>;
-};
+}
 
 function emptyState(): ObserverState {
   return {
@@ -85,7 +82,7 @@ function emptyState(): ObserverState {
 function toolCallCount(event: ReactorEmittedEvent): number {
   if (!onTurnBoundary(event)) return 0;
   const data = event.data as {
-    turn?: { content?: ReadonlyArray<{ type: string }> };
+    turn?: { content?: readonly { type: string }[] };
   };
   const content = data.turn?.content;
   if (content === undefined) return 0;

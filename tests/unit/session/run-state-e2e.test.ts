@@ -57,7 +57,14 @@ describe("run.json turn-boundary snapshots — end to end", () => {
         hookManager: noopHookManager,
         onTurnBoundarySnapshot: () => {
           observed.push(runSink.getTurnCount());
-          writes.push(saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home));
+          writes.push(
+            saveState(
+              cwd,
+              sessionId,
+              baseState({ status: "running" }, runSink.getTurnCount()),
+              home,
+            ),
+          );
         },
       });
 
@@ -99,7 +106,14 @@ describe("run.json turn-boundary snapshots — end to end", () => {
         emitter: new EventEmitter(),
         hookManager: noopHookManager,
         onTurnBoundarySnapshot: () => {
-          writes.push(saveState(cwd, sessionId, baseState({ status: "running" }, runSink.getTurnCount()), home));
+          writes.push(
+            saveState(
+              cwd,
+              sessionId,
+              baseState({ status: "running" }, runSink.getTurnCount()),
+              home,
+            ),
+          );
         },
       });
 
