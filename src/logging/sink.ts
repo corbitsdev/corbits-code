@@ -11,13 +11,13 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 // dependency here. The real type is strictly wider than this — if LogTape
 // ever renames or narrows one of these fields, nothing here will catch the
 // drift, so keep this in sync by hand if @intx/log's pinned version moves.
-type LogRecord = {
+interface LogRecord {
   readonly category: readonly string[];
   readonly level: string;
   readonly message: readonly unknown[];
   readonly timestamp: number;
   readonly properties: Record<string, unknown>;
-};
+}
 
 export function corbitsLogFilePath(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "logs", "corbits.log");

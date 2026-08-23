@@ -13,18 +13,15 @@
  * copy must not rebrand other providers as Codex.
  */
 
-export type CodexUsageLimitError = {
+export interface CodexUsageLimitError {
   readonly code: string;
   readonly message: string;
   readonly planType?: string;
   readonly resetsInSeconds?: number;
-};
+}
 
 /** Exact codes observed / expected from the Codex ChatGPT backend. */
-const USAGE_LIMIT_CODES = new Set([
-  "usage_limit_reached",
-  "usage_limit_exceeded",
-]);
+const USAGE_LIMIT_CODES = new Set(["usage_limit_reached", "usage_limit_exceeded"]);
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
@@ -90,7 +87,8 @@ export function parseCodexUsageLimitError(raw: unknown): CodexUsageLimitError | 
         ? node["planType"]
         : undefined;
 
-  const resetsRaw = node["resets_in_seconds"] ?? node["resetsInSeconds"] ?? node["reset_after_seconds"];
+  const resetsRaw =
+    node["resets_in_seconds"] ?? node["resetsInSeconds"] ?? node["reset_after_seconds"];
   const resetsInSeconds =
     typeof resetsRaw === "number" && Number.isFinite(resetsRaw) && resetsRaw >= 0
       ? Math.floor(resetsRaw)
@@ -125,10 +123,10 @@ export function formatResetETA(seconds: number): string {
   return h > 0 ? `~${String(d)}d ${String(h)}h` : `~${String(d)}d`;
 }
 
-export type FormatCodexUsageLimitOpts = {
+export interface FormatCodexUsageLimitOpts {
   /** Active Codex profile name (from `codex/<profile>` provider id) when known. */
   readonly profile?: string;
-};
+}
 
 /**
  * Operator-facing one-liner: which plan/profile hit the wall, when it resets,

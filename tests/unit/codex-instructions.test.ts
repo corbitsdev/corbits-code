@@ -8,7 +8,9 @@ describe("isValidCodexPrompt", () => {
   });
 
   test("rejects a CDN error page", () => {
-    expect(isValidCodexPrompt("<!DOCTYPE html><html><body>429 Too Many Requests</body></html>")).toBe(false);
+    expect(
+      isValidCodexPrompt("<!DOCTYPE html><html><body>429 Too Many Requests</body></html>"),
+    ).toBe(false);
   });
 
   test("rejects an empty or too-short body", () => {

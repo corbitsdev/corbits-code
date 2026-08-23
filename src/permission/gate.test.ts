@@ -9,7 +9,11 @@ import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
 import type { Approval, PermissionRequest } from "./types.js";
 
-const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+const shellCall = (command: string): ToolCall => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 // Every guard evaluate() applies before a grant is ever consulted, keyed to
 // a command that trips it. isRequestCoveredByGrant must refuse to cover each
@@ -61,7 +65,10 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
       };
       const grant: Approval = { tool: "run_shell", pattern: command };
       expect(
-        isRequestCoveredByGrant(request, grant, undefined, isRestricted, { resolvedCwd: cwd, roots: [] }),
+        isRequestCoveredByGrant(request, grant, undefined, isRestricted, {
+          resolvedCwd: cwd,
+          roots: [],
+        }),
       ).toBe(false);
     });
 
@@ -88,7 +95,10 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
     expect(preGrantGuardReason(request, isRestricted)).toBeUndefined();
     const grant: Approval = { tool: "run_shell", pattern: "npm test" };
     expect(
-      isRequestCoveredByGrant(request, grant, undefined, isRestricted, { resolvedCwd: cwd, roots: [] }),
+      isRequestCoveredByGrant(request, grant, undefined, isRestricted, {
+        resolvedCwd: cwd,
+        roots: [],
+      }),
     ).toBe(true);
   });
 });
@@ -244,7 +254,15 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
       cwd: sessionCwd,
       requestApproval: async () => {
         prompts += 1;
-        return { allow: true, persist: { id: "always", label: "Always allow", pattern: "git worktree *", grant: "project" } };
+        return {
+          allow: true,
+          persist: {
+            id: "always",
+            label: "Always allow",
+            pattern: "git worktree *",
+            grant: "project",
+          },
+        };
       },
     });
 

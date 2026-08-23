@@ -38,7 +38,7 @@ export function appendActivitySummary(reply: string, toolNames: readonly string[
 // free-form blob as optional color. Optional goals seed a checklist hint
 // (manage_tasks on the child owns the real list). Typed spawn fields
 // (intent / success_criteria / do_not / report_focus) are rendered only when set.
-export type DispatchBrief = {
+export interface DispatchBrief {
   description: string;
   prompt: string;
   context?: string;
@@ -47,15 +47,10 @@ export type DispatchBrief = {
   successCriteria?: readonly string[];
   doNot?: readonly string[];
   reportFocus?: string;
-};
+}
 
 export function buildDispatchBrief(brief: DispatchBrief): string {
-  const parts: string[] = [
-    `# Dispatch brief: ${brief.description}`,
-    "",
-    "## Goal",
-    brief.prompt,
-  ];
+  const parts: string[] = [`# Dispatch brief: ${brief.description}`, "", "## Goal", brief.prompt];
   if (brief.context !== undefined && brief.context.trim().length > 0) {
     parts.push("", "## Context", brief.context.trim());
   }
@@ -73,11 +68,7 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
     );
   }
   if (brief.doNot !== undefined && brief.doNot.length > 0) {
-    parts.push(
-      "",
-      "## Do not",
-      ...brief.doNot.map((d, i) => `${i + 1}. ${d}`),
-    );
+    parts.push("", "## Do not", ...brief.doNot.map((d, i) => `${i + 1}. ${d}`));
   }
   if (brief.goals !== undefined && brief.goals.length > 0) {
     parts.push(
@@ -102,7 +93,9 @@ const REPORT_ENVELOPE_HEADINGS = ["Summary", "Findings", "Blockers", "Paths"] as
 
 /** True iff `text` has all four report headings (`^##\s+Name\s*$` per line, case-insensitive). */
 export function hasReportEnvelope(text: string): boolean {
-  return REPORT_ENVELOPE_HEADINGS.every((name) => new RegExp(`^##\\s+${name}\\s*$`, "im").test(text));
+  return REPORT_ENVELOPE_HEADINGS.every((name) =>
+    new RegExp(`^##\\s+${name}\\s*$`, "im").test(text),
+  );
 }
 
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
@@ -114,18 +107,36 @@ export function demoteNestedReportHeadings(text: string): string {
 // Normalize a worker's final text into the structured report envelope. Missing
 // sections fall back so a partial or free-form reply still returns something
 // useful to the parent instead of a raw dump.
-export type SubAgentReport = {
+export interface SubAgentReport {
   summary: string;
   findings: string;
   blockers: string;
   paths: string;
-};
+  /**
+   * Machine-readable termination reason for a forced stop (e.g.
+   * `repetition — window "Groaning. " × 1363`). Rendered as a dedicated
+   * `Stopped:` line above the envelope; absent on successful completes.
+   */
+  stopped?: string;
+}
+
+const STOPPED_LINE_RE = /^Stopped:\s*(.+)$/m;
+
+/** Machine-readable stop reason from a report's `Stopped:` line, or null. */
+export function stopReasonFromReport(report: string): string | null {
+  return parseSubAgentReport(report).stopped ?? null;
+}
 
 export function parseSubAgentReport(reply: string): SubAgentReport {
   const text = reply.trim();
   const sections: Record<string, string> = {};
   const headingRe = /^##\s+(Summary|Findings|Blockers|Paths)\s*$/gim;
   const matches = [...text.matchAll(headingRe)];
+  // Only the preamble (before the first heading) can carry the report's own
+  // Stopped: line — a nested forced-stop report quoted under Findings must
+  // not be read as this report's reason.
+  const preamble = matches.length > 0 ? text.slice(0, matches[0]?.index ?? 0) : "";
+  const stopped = STOPPED_LINE_RE.exec(preamble)?.[1]?.trim();
   if (matches.length === 0) {
     return {
       summary: text.length > 0 ? text : "Sub-agent finished without a textual result.",
@@ -146,11 +157,16 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
     findings: sections.findings ?? "",
     blockers: sections.blockers ?? "",
     paths: sections.paths ?? "",
+    ...(stopped !== undefined && stopped.length > 0 ? { stopped } : {}),
   };
 }
 
 export function formatSubAgentReport(report: SubAgentReport): string {
-  const lines: string[] = ["## Summary", report.summary.length > 0 ? report.summary : "(no summary)"];
+  const lines: string[] = [];
+  if (report.stopped !== undefined && report.stopped.length > 0) {
+    lines.push(`Stopped: ${report.stopped}`, "");
+  }
+  lines.push("## Summary", report.summary.length > 0 ? report.summary : "(no summary)");
   if (report.findings.length > 0) {
     lines.push("", "## Findings", report.findings);
   }

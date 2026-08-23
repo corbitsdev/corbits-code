@@ -38,7 +38,12 @@ describe("formatCodexUsage", () => {
   });
 
   test("omits windows that are absent", () => {
-    const usage: CodexUsage = { planType: "pro", allowed: true, limitReached: false, hasCredits: true };
+    const usage: CodexUsage = {
+      planType: "pro",
+      allowed: true,
+      limitReached: false,
+      hasCredits: true,
+    };
     expect(formatCodexUsage(usage)).toBe("Codex (pro) — active");
   });
 });

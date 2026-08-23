@@ -14,16 +14,12 @@ test("setAgentSourceUnlessClosed swallows AgentClosedError", () => {
   const setSource = mock(() => {
     throw new AgentClosedError();
   });
-  expect(() =>
-    setAgentSourceUnlessClosed({ setSource } as never, SOURCE as never),
-  ).not.toThrow();
+  expect(() => setAgentSourceUnlessClosed({ setSource } as never, SOURCE as never)).not.toThrow();
 });
 
 test("setAgentSourceUnlessClosed rethrows unexpected errors", () => {
   const setSource = mock(() => {
     throw new Error("boom");
   });
-  expect(() =>
-    setAgentSourceUnlessClosed({ setSource } as never, SOURCE as never),
-  ).toThrow("boom");
+  expect(() => setAgentSourceUnlessClosed({ setSource } as never, SOURCE as never)).toThrow("boom");
 });

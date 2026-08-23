@@ -1,8 +1,8 @@
-export type PromptActionBarModelLabelInput = {
+export interface PromptActionBarModelLabelInput {
   profile?: string;
   model?: string;
   effort?: string;
-};
+}
 
 /** Right-aligned muted label above the prompt: `profile · model · effort` with omitted empty segments. */
 export function composePromptActionBarModelLabel(

@@ -20,12 +20,12 @@ import type { RootsProvider } from "./worktree-roots.js";
 
 export type AutoShellEffect = "deny" | "ask";
 
-export type AutoShellRule = {
+export interface AutoShellRule {
   name: string;
   effect: AutoShellEffect;
   reason: string;
   patterns: RegExp[];
-};
+}
 
 // The start of the command, or immediately after a shell separator / subshell
 // or brace-group open, optionally preceded by NAME=value env assignments — so a
@@ -411,7 +411,10 @@ export function safeWorktreeCommand(
 }
 
 // Prefer deny over ask when multiple expanded subjects match different effects.
-function preferRule(a: AutoShellRule | undefined, b: AutoShellRule | undefined): AutoShellRule | undefined {
+function preferRule(
+  a: AutoShellRule | undefined,
+  b: AutoShellRule | undefined,
+): AutoShellRule | undefined {
   if (a === undefined) return b;
   if (b === undefined) return a;
   if (a.effect === "deny") return a;
@@ -474,7 +477,8 @@ export function autoShellRuleForCall(
   }
 
   for (const subject of subjects) {
-    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === false) return WORKTREE_ASK_RULE;
+    if (safeWorktreeCommand(subject, isRestricted, cwd, rootsProvider) === false)
+      return WORKTREE_ASK_RULE;
   }
 
   if (matched !== undefined) return matched;

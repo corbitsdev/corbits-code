@@ -18,11 +18,11 @@ const AMBIENT_TERMINAL_VARS = ["COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSIO
 const AMBIENT_HARNESS_VARS = ["EVAL_HTTP_URL"];
 
 for (const key of [...AMBIENT_TERMINAL_VARS, ...AMBIENT_HARNESS_VARS]) {
-  delete process.env[key];
+  Reflect.deleteProperty(process.env, key);
 }
 
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith("CORBITS_")) delete process.env[key];
+  if (key.startsWith("CORBITS_")) Reflect.deleteProperty(process.env, key);
 }
 
 // No test may export telemetry or write an installationId into a real global
@@ -36,8 +36,8 @@ process.env.DO_NOT_TRACK = "1";
 const rg = spawnSync("rg", ["--version"], { stdio: "ignore" });
 if (rg.error !== undefined || rg.status !== 0) {
   throw new Error(
-    "ripgrep (rg) is required to run the test suite: the grep/search tools have "
-      + "a ripgrep path and a fallback path, and without rg only the fallback is "
-      + "exercised. Install it (brew install ripgrep / apt-get install ripgrep).",
+    "ripgrep (rg) is required to run the test suite: the grep/search tools have " +
+      "a ripgrep path and a fallback path, and without rg only the fallback is " +
+      "exercised. Install it (brew install ripgrep / apt-get install ripgrep).",
   );
 }

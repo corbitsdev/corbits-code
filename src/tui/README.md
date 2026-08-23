@@ -4,26 +4,29 @@ Shipping OpenTUI shell and co-located TUI modules. Pure TypeScript and Solid sur
 
 ## Modules
 
-| Path | Role |
-|---|---|
-| `geometry/` | Pure zone registry + `resolveGeometry` |
-| `focus/` | Focus tree + scroll lease state machine |
-| `list-viewport.ts` | Pure list windowing kit |
-| `chrome-state.ts` | Live task/agents → `setChromeZones` lines |
-| `shell.ts` | App shell frame (`createAppShell`) — OpenTUI **core class** API |
+| Path               | Role                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| `geometry/`        | Pure zone registry + `resolveGeometry`                          |
+| `focus/`           | Focus tree + scroll lease state machine                         |
+| `list-viewport.ts` | Pure list windowing kit                                         |
+| `chrome-state.ts`  | Live task/agents → `setChromeZones` lines                       |
+| `shell.ts`         | App shell frame (`createAppShell`) — OpenTUI **core class** API |
 
 ## Live chrome zones
 
 Product host owns task / subagent state and pushes snapshots (event or poll):
 
 ```ts
-import { formatChromeZones, setChromeZones } from "./index"
+import { formatChromeZones, setChromeZones } from "./index";
 
 // On task/subagent change:
-setChromeZones(shell, formatChromeZones({
-  task: { title: "wire host", status: "doing", remaining: 1 },
-  agents: [{ agentId: "explore", description: "map callers", status: "running" }],
-}))
+setChromeZones(
+  shell,
+  formatChromeZones({
+    task: { title: "wire host", status: "doing", remaining: 1 },
+    agents: [{ agentId: "explore", description: "map callers", status: "running" }],
+  }),
+);
 // null lines hide the zone; geometry measures heights (never guessed here).
 ```
 
@@ -37,21 +40,21 @@ import {
   appendStreamRow,
   enterSubagentObserve,
   leaveSubagentObserve,
-} from "./shell"
+} from "./shell";
 
 enterSubagentObserve(shell, {
   sessionId: child.id,
   agentId: child.agentId,
   description: child.description,
   lines: childRows, // live seed from store
-})
+});
 // Child deltas while observing:
-appendObserveStreamRow(shell, { role: "assistant", text: "…" })
+appendObserveStreamRow(shell, { role: "assistant", text: "…" });
 // Parent reactor events still use appendStreamRow — they land on the parent
 // snapshot and reappear on leave (not mixed into the child view).
-appendStreamRow(shell, parentRow)
+appendStreamRow(shell, parentRow);
 // Esc or:
-leaveSubagentObserve(shell)
+leaveSubagentObserve(shell);
 ```
 
 Demo/fixture path (`makeObserveFixture`) is unchanged for `v` / palette observe.
@@ -59,11 +62,11 @@ Demo/fixture path (`makeObserveFixture`) is unchanged for `v` / palette observe.
 ## App shell
 
 ```ts
-import { createAppShell, appendTranscript } from "./shell"
+import { createAppShell, appendTranscript } from "./shell";
 
 // renderer from createCliRenderer() or createTestRenderer()
-const shell = createAppShell(renderer, { title: "corbits" })
-appendTranscript(shell, "hello")
+const shell = createAppShell(renderer, { title: "corbits" });
+appendTranscript(shell, "hello");
 // Tab toggles prompt ↔ transcript focus via focus module
 // stickyScroll follows bottom until operator scrolls up (FOLLOW / PINNED)
 ```

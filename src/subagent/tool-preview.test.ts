@@ -3,9 +3,9 @@ import { TOOL_PREVIEW_MAX, toolCallPreview } from "./tool-preview";
 
 describe("toolCallPreview", () => {
   test("a shell call's subject is the command, not the tool name", () => {
-    expect(
-      toolCallPreview("run_shell", JSON.stringify({ command: "bun test ./src" })),
-    ).toBe("bun test ./src");
+    expect(toolCallPreview("run_shell", JSON.stringify({ command: "bun test ./src" }))).toBe(
+      "bun test ./src",
+    );
   });
 
   test("a file tool's subject is the path", () => {
@@ -58,10 +58,7 @@ describe("toolCallPreview", () => {
 
   test("newlines collapse to a single-line subject", () => {
     expect(
-      toolCallPreview(
-        "run_shell",
-        JSON.stringify({ command: "bun test\n  --filter agent" }),
-      ),
+      toolCallPreview("run_shell", JSON.stringify({ command: "bun test\n  --filter agent" })),
     ).toBe("bun test --filter agent");
   });
 

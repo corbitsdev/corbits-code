@@ -38,7 +38,7 @@ export const DUMP_SPAN_KEYS = [
   "tags",
 ] as const;
 
-export type DumpSpan = {
+export interface DumpSpan {
   id: string;
   name: SpanName;
   parentId?: string;
@@ -48,9 +48,9 @@ export type DumpSpan = {
   /** Present and true when the span was still open at dump time. */
   open?: true;
   tags?: PerfTags;
-};
+}
 
-export type PerfDump = {
+export interface PerfDump {
   version: typeof DUMP_VERSION;
   sessionId: string;
   /** ISO-8601 wall clock when the dump was written (not span time). */
@@ -63,14 +63,14 @@ export type PerfDump = {
     session: SessionTotals;
   };
   spans: DumpSpan[];
-};
+}
 
-export type DumpOptions = {
+export interface DumpOptions {
   /** Directory that already holds (or will hold) session artifacts. */
   dir: string;
   /** Opaque session id — used only in the filename and dump header. */
   sessionId: string;
-};
+}
 
 // Session ids in the product are opaque short strings; reject path traversal.
 const SAFE_SESSION_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -113,7 +113,11 @@ export function serializeSpan(span: PerfSpan): DumpSpan {
 }
 
 /** Build the dump document without touching the filesystem. */
-export function buildDump(spans: readonly PerfSpan[], sessionId: string, writtenAt: string): PerfDump {
+export function buildDump(
+  spans: readonly PerfSpan[],
+  sessionId: string,
+  writtenAt: string,
+): PerfDump {
   assertSafeSessionId(sessionId);
   const serialized = spans.map(serializeSpan);
   let openCount = 0;
@@ -139,10 +143,7 @@ export function buildDump(spans: readonly PerfSpan[], sessionId: string, written
  * Write `perftrace-{sessionId}.json` under `opts.dir`.
  * Returns the absolute-or-relative path written.
  */
-export async function dumpSpans(
-  spans: readonly PerfSpan[],
-  opts: DumpOptions,
-): Promise<string> {
+export async function dumpSpans(spans: readonly PerfSpan[], opts: DumpOptions): Promise<string> {
   assertSafeSessionId(opts.sessionId);
   const dump = buildDump(spans, opts.sessionId, new Date().toISOString());
   const filePath = join(opts.dir, `perftrace-${opts.sessionId}.json`);
