@@ -41,6 +41,7 @@ import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "./compactor.js";
+import type { SummaryContext } from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 
 // ---------------------------------------------------------------------------
@@ -264,7 +265,8 @@ const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 
 export interface SessionPruningCompactorArgs {
   compactionMode: "llm" | "pruning";
-  summarize: (turns: ConversationTurn[]) => Promise<string>;
+  summarize: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
+  summaryContext?: () => SummaryContext | undefined;
   telemetry?: Telemetry;
 }
 
@@ -274,6 +276,7 @@ export function createSessionPruningCompactor(args: SessionPruningCompactorArgs)
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     ...(args.compactionMode !== "pruning" ? { summarize: args.summarize } : {}),
+    ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
   });
   const telemetry = args.telemetry ?? NOOP_TELEMETRY;
   return {

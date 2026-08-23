@@ -9,8 +9,13 @@
 
 import { runInference, type Dependencies } from "@intx/inference";
 import { createDefaultDependencies } from "@intx/inference/providers";
+import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { detectRepetition } from "../subagent/repetition.js";
 import { buildTurnSummary } from "./compactor.js";
+
+const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 
 // What the agent was doing when compaction fired. Lets the summary preserve
 // the workflow contract ("we are at step 3/7 of /build") rather than dropping
@@ -70,7 +75,13 @@ export function condenseTurns(turns: ConversationTurn[]): string {
         if (turn.role === "user") {
           userMessages.push(block.text.slice(0, 400));
         } else if (turn.role === "assistant" && block.text.length > 0) {
-          assistantSnippets.push(block.text.slice(0, 300));
+          // Compaction often fires mid-degeneration, when the tail of the
+          // history is the model looping one phrase. Seeding the summary from
+          // those turns hands the looped text to the summarizer verbatim, so
+          // repetition-flagged turns are dropped from the excerpt entirely.
+          if (detectRepetition(block.text) === null) {
+            assistantSnippets.push(block.text.slice(0, 300));
+          }
         }
       }
       if (block.type === "tool_call") {
@@ -190,7 +201,10 @@ export function createModelSummarizer(
   const maxChars = options.maxChars ?? 4000;
 
   return async (turns, ctx) => {
-    const fallback = (): string => buildTurnSummary(turns, maxChars);
+    // The marker tells the model (and anyone reading a transcript) that the
+    // compacted region is a lossy stats stub, not a real handoff summary.
+    const fallback = (reason: string): string =>
+      `[Model summary unavailable (${reason}); deterministic fallback]\n${buildTurnSummary(turns, maxChars)}`;
     try {
       const promptTurns: ConversationTurn[] = [
         {
@@ -206,10 +220,16 @@ export function createModelSummarizer(
       ];
       const signal = options.getSignal?.() ?? new AbortController().signal;
       const text = await complete(promptTurns, options.getSource(), signal);
-      if (text.length === 0) return fallback();
+      if (text.length === 0) {
+        logger.warn("compaction summary call returned empty text; using deterministic fallback");
+        return fallback("empty model output");
+      }
       return text.length > maxChars ? text.slice(0, maxChars) : text;
-    } catch {
-      return fallback();
+    } catch (error) {
+      logger.warn("compaction summary call failed; using deterministic fallback: {error}", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return fallback("summary call failed");
     }
   };
 }

@@ -238,7 +238,7 @@ import {
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
-import { createModelSummarizer } from "../session/summarizer.js";
+import { createModelSummarizer, type SummaryContext } from "../session/summarizer.js";
 import { COMMAND_NAME, ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import { deliverAgentMessage } from "./deliver-agent-message.js";
 
@@ -1457,28 +1457,23 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Compaction summarizer: produces a structured, workflow-aware handoff via a
     // one-shot call on the live model, falling back to the deterministic summary
-    // on any failure. The workflow context is read at call time so a compaction
-    // mid-/build or mid-/plan preserves which step we are on.
+    // on any failure. Workflow state is read at compaction time so a pass
+    // mid-/build or mid-/plan still names the active step.
     const compactionSummarize = createModelSummarizer({
       getSource: () => liveSource,
       deps: inferenceDeps,
     });
-    const summarizeForCompaction = (
-      turns: Parameters<typeof compactionSummarize>[0],
-    ): Promise<string> => {
+    const summaryContext = (): SummaryContext | undefined => {
       const status = workflowController.status();
-      return compactionSummarize(turns, {
-        ...(status.active
-          ? {
-              workflow: {
-                ...(status.name !== undefined ? { name: status.name } : {}),
-                stepLabel: status.label,
-                stepIndex: status.stepIndex,
-                total: status.total,
-              },
-            }
-          : {}),
-      });
+      if (!status.active) return undefined;
+      return {
+        workflow: {
+          ...(status.name !== undefined ? { name: status.name } : {}),
+          stepLabel: status.label,
+          stepIndex: status.stepIndex,
+          total: status.total,
+        },
+      };
     };
 
     // Mutable reference so the compaction summarize callback reads the live mode
@@ -1510,7 +1505,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         compactors: {
           "pruning-compactor": createSessionPruningCompactor({
             compactionMode: liveCompactionMode,
-            summarize: summarizeForCompaction,
+            summarize: compactionSummarize,
+            summaryContext,
             telemetry: liveTelemetry,
           }),
         },
