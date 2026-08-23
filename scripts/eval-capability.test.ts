@@ -91,6 +91,22 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--matrix", ":grok-4.5"])).toThrow(/both provider and model/);
   });
 
+  test("--effort accepts a canonical literal", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--effort", "high"]);
+    expect(opts.effort).toBe("high");
+  });
+
+  test("--effort rejects an unknown literal", () => {
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--effort", "bogus"])).toThrow(
+      /--effort must be one of/,
+    );
+  });
+
+  test("--matrix cell can carry its own effort as a third segment", () => {
+    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-4.6:xhigh"]);
+    expect(opts.matrix).toBe("xai/thegreataxios:grok-4.6:xhigh");
+  });
+
   test("parsed defaults never equal xai/thegreataxios", () => {
     const help = parseArgs(["--help"]);
     const pair = parseArgs(["--provider", "foo", "--model", "bar"]);
