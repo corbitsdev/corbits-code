@@ -6,11 +6,20 @@
  */
 export interface DeliverAgentMessageDeps {
   getFatalBuildError: () => Error | null;
+  /**
+   * Settles before any delivery. Gates the session's first request on startup
+   * work that must not race request building — the Codex instructions refresh:
+   * a late in-memory swap would change the request prefix and forfeit the
+   * provider prompt cache for the rest of the session. Must never reject
+   * (callers attach their own fallback handling).
+   */
+  ready?: Promise<void>;
   deliverToLiveAgent: () => void;
   onDeliverFailure: (message: string) => void;
 }
 
-export function deliverAgentMessage(deps: DeliverAgentMessageDeps): void {
+export async function deliverAgentMessage(deps: DeliverAgentMessageDeps): Promise<void> {
+  if (deps.ready !== undefined) await deps.ready;
   const fatal = deps.getFatalBuildError();
   if (fatal !== null) {
     deps.onDeliverFailure(`Message not delivered: ${fatal.message}`);
