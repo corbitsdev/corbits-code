@@ -15,6 +15,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **Context estimate syncs incrementally on append.** `syncFromTurns` keys
+  prefix turns by object identity and estimates only the new suffix. A rewrite,
+  shrink, or middle-turn identity break still fully recomputes so image-aging
+  cannot leave a stale total.
+
 - **Compaction keeps scored work, not retry loops.** Errored tool results are no
   longer auto-pinned; identical errors collapse to one representative. Anchors
   are scored (writes, successful task completions, plan updates) and pair

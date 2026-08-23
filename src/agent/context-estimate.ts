@@ -72,12 +72,18 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
   }
 }
 
+function estimateTurnTokens(turn: ConversationTurn): number {
+  let total = 0;
+  for (const block of turn.content) {
+    total += estimateContentBlockTokens(block);
+  }
+  return total;
+}
+
 export function estimateContextTokens(turns: readonly ConversationTurn[]): number {
   let total = 0;
   for (const turn of turns ?? []) {
-    for (const block of turn.content) {
-      total += estimateContentBlockTokens(block);
-    }
+    total += estimateTurnTokens(turn);
   }
   return total;
 }
@@ -98,20 +104,42 @@ export function estimateOverheadTokens(
   return estimateTokensFromChars(chars);
 }
 
-// Mutable running estimate. Callers re-sync from the full turn list after each
-// append so compaction rewrites and tool results stay accurate without
-// incremental add/subtract bookkeeping. `overheadTokens` is fixed per session
-// (system prompt + tool schemas do not change turn to turn) and is folded into
-// every sync so the total tracks what actually goes out on the wire.
+// Mutable running estimate. Mid-cycle callers keep calling `syncFromTurns` so
+// tool results and image-aging stay visible before the next inference.done.
+// Prefix turns are keyed by object identity (===), not content: an append that
+// keeps every prior ref adds only the suffix; a shrink or any prefix identity
+// break fully recomputes. Length + last-turn alone is not enough — aging can
+// replace a middle turn and leave the last ref in place. Callers may push onto
+// the same array, so the cache snapshots refs rather than holding the array.
 export type ContextEstimate = ReturnType<typeof createContextEstimate>;
 
 export function createContextEstimate(overheadTokens = 0) {
   let tokens = overheadTokens;
   let turnCount = 0;
+  let cachedTurns: ConversationTurn[] = [];
+
+  function prefixRefsMatch(turns: readonly ConversationTurn[]): boolean {
+    for (let i = 0; i < cachedTurns.length; i++) {
+      if (turns[i] !== cachedTurns[i]) return false;
+    }
+    return true;
+  }
 
   function syncFromTurns(turns: readonly ConversationTurn[]): number {
-    tokens = overheadTokens + estimateContextTokens(turns);
+    if (turns.length === cachedTurns.length && prefixRefsMatch(turns)) {
+      return tokens;
+    }
+
+    if (turns.length > cachedTurns.length && prefixRefsMatch(turns)) {
+      for (const turn of turns.slice(cachedTurns.length)) {
+        tokens += estimateTurnTokens(turn);
+      }
+    } else {
+      tokens = overheadTokens + estimateContextTokens(turns);
+    }
+
     turnCount = turns.length;
+    cachedTurns = turns.slice();
     return tokens;
   }
 
