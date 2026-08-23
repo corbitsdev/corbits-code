@@ -197,8 +197,8 @@ describe("permission.grant channel", () => {
   })
 })
 
-describe("agents chrome (zone off — transcript Task rows own live lanes)", () => {
-  test("setChrome with running agents does not paint an agents zone", async () => {
+describe("agents chrome (live strip above the prompt)", () => {
+  test("setChrome with running agents paints the agents zone", async () => {
     const { host, frame, cleanup } = await mountHeadless({
       chrome: {
         agents: [
@@ -208,24 +208,23 @@ describe("agents chrome (zone off — transcript Task rows own live lanes)", () 
             status: "running",
             currentToolName: "grep",
             currentToolStartedAt: null,
+            startedAt: Date.now() - 5_000,
+            lastActivityAt: Date.now(),
           },
         ],
       },
     })
     try {
-      // Fleet board chrome is off: live lane status rides transcript Task rows,
-      // not a dedicated agents zone. Injecting agents into chrome must not paint
-      // them into the frame or the transcript.
       const painted = await frame()
-      expect(painted).not.toContain("map callers")
-      expect(painted).not.toContain("grep")
+      expect(painted).toContain("map callers")
+      expect(painted).toContain("explore")
       expect(host.shell.streamLog).toEqual([])
     } finally {
       cleanup()
     }
   })
 
-  test("a later chrome push still leaves the agents zone empty", async () => {
+  test("a later chrome push paints the agents zone", async () => {
     const { host, frame, cleanup } = await mountHeadless()
     try {
       host.setChrome({
@@ -236,12 +235,14 @@ describe("agents chrome (zone off — transcript Task rows own live lanes)", () 
             status: "running",
             currentToolName: "grep",
             currentToolStartedAt: null,
+            startedAt: Date.now() - 5_000,
+            lastActivityAt: Date.now(),
           },
         ],
       })
       const painted = await frame()
-      expect(painted).not.toContain("map callers")
-      expect(painted).not.toContain("grep")
+      expect(painted).toContain("map callers")
+      expect(painted).toContain("explore")
     } finally {
       cleanup()
     }
