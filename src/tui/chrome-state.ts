@@ -50,7 +50,7 @@ import type { ChromeZoneContent } from "./shell.js";
 export const AGENTS_PANEL_LINGER_MS = 4_000;
 
 /** Subagent row shape for the agents chrome panel (store-agnostic). */
-export type ChromeAgentSession = {
+export interface ChromeAgentSession {
   readonly agentId: string;
   readonly description: string;
   readonly status: "running" | "done" | "failed" | "cancelled";
@@ -72,29 +72,29 @@ export type ChromeAgentSession = {
    * window on the strip (`AGENTS_PANEL_LINGER_MS`); absent → no linger paint.
    */
   readonly finishedAt?: number;
-};
+}
 
 /** Lightweight task row: title + status, as written by the task tool. */
-export type ChromeTaskRow = {
+export interface ChromeTaskRow {
   readonly title: string;
   readonly status: "todo" | "doing" | "done" | "cancelled";
-};
+}
 
 /**
  * One rendered task-panel row. `status` is null for a non-task row (the
  * "+N more" trailer, or a bare-string task input with no structured status)
  * so the renderer knows not to paint a status marker for it.
  */
-export type TaskPanelRow = {
+export interface TaskPanelRow {
   readonly label: string;
   readonly status: "todo" | "doing" | "done" | "cancelled" | null;
-};
+}
 
 /**
  * Full live chrome snapshot. Missing / null fields hide that zone.
  * Prefer pushing a complete snapshot on every update.
  */
-export type ChromeLiveState = {
+export interface ChromeLiveState {
   /**
    * Task list: the structured rows the task tool writes. Distinct from
    * `agents` — a task is a unit of work with a status, not an executor.
@@ -110,7 +110,7 @@ export type ChromeLiveState = {
     readonly agentId: string;
     readonly description: string;
   } | null;
-};
+}
 
 /**
  * One rendered agents-panel row. `stalled` is a fact the formatter already
@@ -119,7 +119,7 @@ export type ChromeLiveState = {
  * marker, agentId + description) is the part the renderer may ellipsize under
  * width pressure; `tail` (clock/tool) must never be trimmed away.
  */
-export type AgentPanelRow = {
+export interface AgentPanelRow {
   readonly label: string;
   readonly tail: string;
   readonly stalled: boolean;
@@ -133,7 +133,7 @@ export type AgentPanelRow = {
    * terminal linger uses done/error/dim. Absent ⇒ treat as live running.
    */
   readonly status?: "running" | "done" | "failed" | "cancelled";
-};
+}
 
 /**
  * Board paint order for main's `LaneState` vocabulary — trouble first so an
@@ -143,12 +143,12 @@ export type AgentPanelRow = {
 const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"];
 
 /** Always-populated result for setChromeZones (null = hide zone). */
-export type FormattedChromeZones = {
+export interface FormattedChromeZones {
   /** One row per rendered task-panel line (null = hide zone, zero rows). */
   readonly task: readonly TaskPanelRow[] | null;
   /** One row per rendered agents-panel line (null = hide zone, zero rows). */
   readonly agents: readonly AgentPanelRow[] | null;
-};
+}
 
 /**
  * Format structured live state into chrome zone rows for setChromeZones.
@@ -479,16 +479,16 @@ export function annotateAgentTools(
 // ---------------------------------------------------------------------------
 
 /** manage_tasks / Task-shaped row (title + status). */
-export type ChromeSessionTask = {
+export interface ChromeSessionTask {
   readonly title: string;
   readonly status: "todo" | "doing" | "done" | "cancelled";
-};
+}
 
 /**
  * SubAgentSession-shaped strip row. `agentId` preferred; falls back to `id`
  * when the store only exposes a session id.
  */
-export type ChromeSessionAgent = {
+export interface ChromeSessionAgent {
   readonly agentId?: string;
   readonly id?: string;
   readonly description: string;
@@ -499,16 +499,16 @@ export type ChromeSessionAgent = {
   readonly startedAt?: number;
   readonly lastActivityAt?: number;
   readonly finishedAt?: number;
-};
+}
 
 /**
  * Live session bags the product host already holds. Missing fields omit zones.
  */
-export type ChromeSessionInput = {
+export interface ChromeSessionInput {
   readonly tasks?: readonly ChromeSessionTask[] | null;
   readonly agents?: readonly ChromeSessionAgent[] | null;
   readonly observe?: ChromeLiveState["observe"];
-};
+}
 
 /**
  * Map real session shapes (tasks / subagent store) into ChromeLiveState for
