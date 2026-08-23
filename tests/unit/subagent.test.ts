@@ -742,7 +742,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "p",
@@ -779,7 +781,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "p",
@@ -811,7 +815,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "p",
@@ -852,7 +858,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider: { ...provider, reasoningEffort: "high" },
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "p",
@@ -883,7 +891,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider: { ...provider, reasoningEffort: "high" },
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "p",
@@ -912,7 +922,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider: { ...provider, reasoningEffort: "low" },
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [
         {
           id: "orch",
@@ -947,7 +959,9 @@ describe("createTaskTool profile resolution", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.ctx",
       provider,
-      settings: baseSettings as unknown as NonNullable<Parameters<typeof createTaskTool>[0]["settings"]>,
+      settings: baseSettings as unknown as NonNullable<
+        Parameters<typeof createTaskTool>[0]["settings"]
+      >,
       profiles: [{ id: "karen", systemPromptRole: "You are karen.", orchestrator: true }],
       run: async (params) => {
         received = params;
