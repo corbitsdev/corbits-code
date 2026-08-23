@@ -60,6 +60,10 @@ function percentile(sorted: readonly number[], p: number): number {
 interface Bucket {
   count: number;
   byFamily: Map<string, number>;
+  // Exact model id (CL-6775) — coarser than byFamily, which groups e.g. every
+  // grok model under "grok". Answers "which model loops most", not just
+  // "which family".
+  byModel: Map<string, number>;
   values: number[];
   thresholds: Set<number>;
   editedWork: number;
@@ -70,6 +74,7 @@ function emptyBucket(): Bucket {
   return {
     count: 0,
     byFamily: new Map(),
+    byModel: new Map(),
     values: [],
     thresholds: new Set(),
     editedWork: 0,
@@ -121,6 +126,8 @@ for (const file of files) {
     bucket.count++;
     const family = record.family ?? record.model ?? "unknown";
     bucket.byFamily.set(family, (bucket.byFamily.get(family) ?? 0) + 1);
+    const model = record.model ?? "unknown";
+    bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + 1);
     if (record.measurement !== undefined) {
       bucket.values.push(record.measurement.value);
       if (record.measurement.threshold !== undefined) {
@@ -167,6 +174,35 @@ for (const [key, bucket] of rows) {
     .map(([family, count]) => `${family}=${count}`)
     .join(" ");
   console.log(`${key.padEnd(33)} ${families}`);
+}
+
+// CL-6775: streamed degenerate-repetition aborts (mid-stream, not a turn-level
+// stop) get their own model breakdown — "repetition-<detector>" ids, one row
+// per model, so "which model loops most" reads off directly. This is a count,
+// not a rate normalized by dispatch volume: the log's outcome records (total
+// completed dispatches) are written from the parent side without a model tag,
+// so a per-model denominator is not yet tracked — see the PR description.
+const repetitionRows = rows.filter(([key]) => key.includes("/repetition-"));
+if (repetitionRows.length > 0) {
+  const totalsByModel = new Map<string, number>();
+  for (const [, bucket] of repetitionRows) {
+    for (const [model, count] of bucket.byModel) {
+      totalsByModel.set(model, (totalsByModel.get(model) ?? 0) + count);
+    }
+  }
+  console.log("\nrepetition aborts by model (mid-stream degenerate-repetition, all detectors)");
+  const modelRows = [...totalsByModel.entries()].sort((a, b) => b[1] - a[1]);
+  for (const [model, count] of modelRows) {
+    console.log(`${model.padEnd(33)} ${count}`);
+  }
+  console.log("\nrepetition aborts by model, per detector");
+  for (const [key, bucket] of repetitionRows) {
+    const models = [...bucket.byModel.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([model, count]) => `${model}=${count}`)
+      .join(" ");
+    console.log(`${key.padEnd(33)} ${models}`);
+  }
 }
 
 console.log(
