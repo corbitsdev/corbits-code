@@ -27,7 +27,10 @@ describe("comment normalization x exact full-command grants", () => {
     const gate = gateWith(async (req) => {
       prompts++;
       const exact = req.scopes.find((s) => s.id === "exact");
-      return { allow: true, persist: { pattern: exact?.pattern ?? null, grant: "session" } };
+      return {
+        allow: true,
+        ...(exact !== undefined ? { persist: { ...exact, grant: "session" as const } } : {}),
+      };
     });
     const withComment = "# build then test\ngit fetch origin && git rebase origin/main";
     expect((await gate.evaluate(call(withComment))).allowed).toBe(true);
