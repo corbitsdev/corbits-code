@@ -13,7 +13,11 @@ export async function gateToolCall(
 ): Promise<ToolResult> {
   const verdict = await gate.evaluate(call);
   if (!verdict.allowed) {
-    return { callId: call.id, content: `Blocked by permission policy: ${verdict.reason}`, isError: true };
+    return {
+      callId: call.id,
+      content: `Blocked by permission policy: ${verdict.reason}`,
+      isError: true,
+    };
   }
   return next(call, signal);
 }

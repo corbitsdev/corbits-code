@@ -17,13 +17,13 @@ must not import project-local plugins until the operator trusts that absolute
 path in that working directory. Explicit path plugins are different: they are
 registered in global settings (`pluginPaths`), so consent is global once granted.
 
-| Origin | Path | Auto-trusted? | Trust store |
-|---|---|---|---|
-| `repo` | Product-shipped `plugins/` next to the source root, `dist/plugins`, or `dirname(execPath)/plugins` — never session cwd | Yes | — |
-| `user` | `~/.corbits/plugins/` | Yes (user home) | — |
-| `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) | — |
-| `project` | `<cwd>/.corbits/plugins/` | **No** — per working directory | `~/.corbits/trust/<cwd-hash>.json` |
-| `path` | `settings.pluginPaths` entries (add-by-path) | **No** until granted once | `~/.corbits/trust/path-plugins.json` (global) |
+| Origin          | Path                                                                                                                          | Auto-trusted?                                                     | Trust store                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| `repo`          | Product-shipped `plugins/` next to the source root, `dist/plugins`, or `dirname(execPath)/plugins` — never session cwd        | Yes                                                               | —                                             |
+| `user`          | `~/.corbits/plugins/`                                                                                                         | Yes (user home)                                                   | —                                             |
+| `user` (Claude) | Absolute `installPath` under `~/.claude/plugins/` from `installed_plugins.json` when `settings.discoverClaudePlugins` is true | Yes (user home; still disabled until enable; data-only load only) | —                                             |
+| `project`       | `<cwd>/.corbits/plugins/`                                                                                                     | **No** — per working directory                                    | `~/.corbits/trust/<cwd-hash>.json`            |
+| `path`          | `settings.pluginPaths` entries (add-by-path)                                                                                  | **No** until granted once                                         | `~/.corbits/trust/path-plugins.json` (global) |
 
 Untrusted `project` / `path` plugins are discovered as **metadata-only**: the
 loader reads `manifest.json` (or equivalent) but does **not** `import()` the
@@ -39,7 +39,7 @@ plugin is still metadata-only.
 
 - **Path-keyed, no content binding.** A grant is the lexically resolved
   absolute path, deliberately without `realpath` and without any hash of the
-  plugin's contents. The grant covers the *location*, machine-wide: whatever
+  plugin's contents. The grant covers the _location_, machine-wide: whatever
   code sits at that path (including after a symlink retarget or an update in
   place) runs once trusted. This matches the consent model — the user vouches
   for a directory they registered, not for a snapshot of its bytes — and keeps
@@ -77,7 +77,6 @@ per-cwd trust file (fingerprints) and fail closed when non-interactive
 (`corbits exec`); the global path-plugin store described here is separate and
 never gates MCP.
 
-
 ## Goals
 
 - One contract a plugin author learns once, regardless of what the plugin does.
@@ -90,18 +89,18 @@ never gates MCP.
 
 Five mechanisms, three loading models, one manifest that only governs one kind.
 
-| Mechanism | Entry contract | Loads via | Config | Manifest | UI |
-|---|---|---|---|---|---|
-| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin` | wired in `src/tui/runner.ts` / `tools.ts` | — | no | no |
-| WorkflowPlugin | `plugin` / default | `settings.workflowPlugins: string[]` → `loadWorkflowPlugins` | specifier array | no | no |
-| AgentPlugin | `plugin` / default | `settings.agentPlugins: string[]` → `loadAgentPlugins` | specifier array | no | no |
-| CommandPlugin | `commandPlugin` | directory discovery | discovery only | no | no |
-| Web provider | `createWebProvider` + `manifest` | discovery + `pluginPaths` | `settings.plugins` / `settings.web` | **yes** | **`/plugins`** |
+| Mechanism                        | Entry contract                   | Loads via                                                    | Config                              | Manifest | UI             |
+| -------------------------------- | -------------------------------- | ------------------------------------------------------------ | ----------------------------------- | -------- | -------------- |
+| ToolPlugin (`@intx/tools-posix`) | `ToolPlugin`                     | wired in `src/tui/runner.ts` / `tools.ts`                    | —                                   | no       | no             |
+| WorkflowPlugin                   | `plugin` / default               | `settings.workflowPlugins: string[]` → `loadWorkflowPlugins` | specifier array                     | no       | no             |
+| AgentPlugin                      | `plugin` / default               | `settings.agentPlugins: string[]` → `loadAgentPlugins`       | specifier array                     | no       | no             |
+| CommandPlugin                    | `commandPlugin`                  | directory discovery                                          | discovery only                      | no       | no             |
+| Web provider                     | `createWebProvider` + `manifest` | discovery + `pluginPaths`                                    | `settings.plugins` / `settings.web` | **yes**  | **`/plugins`** |
 
 Concrete problems, with file references:
 
 1. **Two unrelated loading models.** Workflow/agent load from settings
-   *specifier arrays*; command/web load from *directory discovery* (plus the new
+   _specifier arrays_; command/web load from _directory discovery_ (plus the new
    `pluginPaths`). Same concept, two code paths.
 2. **A dead path.** `src/plugins/loader.ts` captures `workflowPlugin` from a
    discovered module, but `src/tui/runner.ts` only registers `commandPlugin`
@@ -113,7 +112,7 @@ Concrete problems, with file references:
    work began (`settings.plugins`, `settings.web`, `/plugins`).
 5. **ToolPlugin — the richest extension point — is not user-installable.**
 
-Net: what exists is a *web-provider plugin system*, not *the* plugin system.
+Net: what exists is a _web-provider plugin system_, not _the_ plugin system.
 
 ## Target design
 
@@ -126,9 +125,9 @@ The taxonomy is deliberately small — **`web | command | workflow | tool | agen
 export type PluginKind = "web" | "command" | "workflow" | "tool" | "agent";
 
 export type PluginManifest = {
-  id: string;                 // stable, unique (e.g. "exa")
-  name: string;               // display ("Exa Search")
-  kind: PluginKind;           // routes registration
+  id: string; // stable, unique (e.g. "exa")
+  name: string; // display ("Exa Search")
+  kind: PluginKind; // routes registration
   description?: string;
   credentials?: PluginCredentialField[]; // collected + stored per id
 };
@@ -140,13 +139,13 @@ Workflow recipe names are **not** registered as top-level `/scope` slashes; an i
 
 The kind-specific export is the implementation hook:
 
-| kind | export | wired into | purpose |
-|---|---|---|---|
-| `web` | `createWebProvider(credentials)` | web_search/web_fetch backend | override the web tools (a specialized tool override) |
-| `command` | `commandPlugin` | slash-command registry | slash commands |
+| kind       | export                                      | wired into                                 | purpose                                                     |
+| ---------- | ------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------- |
+| `web`      | `createWebProvider(credentials)`            | web_search/web_fetch backend               | override the web tools (a specialized tool override)        |
+| `command`  | `commandPlugin`                             | slash-command registry                     | slash commands                                              |
 | `workflow` | `workflowPlugin` + optional `commandPlugin` | workflow registry + slash-command registry | named workflow recipes behind an integration command prefix |
-| `tool` | `toolPlugin` (factory) | posix toolset | add new agent tools (highest trust) |
-| `agent` | `agentPlugin` | sub-agent profiles | contribute `task`-dispatchable agent profiles |
+| `tool`     | `toolPlugin` (factory)                      | posix toolset                              | add new agent tools (highest trust)                         |
+| `agent`    | `agentPlugin`                               | sub-agent profiles                         | contribute `task`-dispatchable agent profiles               |
 
 A module with no valid manifest is ignored (not silently half-loaded).
 
@@ -192,10 +191,10 @@ web `collectWebPlugins` call. One place to read, one place to extend.
 {
   "plugins": {
     "exa": { "enabled": true, "credentials": { "apiKey": "..." } },
-    "my-workflow": { "enabled": false }
+    "my-workflow": { "enabled": false },
   },
   "pluginPaths": ["/abs/path/to/plugin"],
-  "web": "exa"          // kind-selector: which web plugin is active
+  "web": "exa", // kind-selector: which web plugin is active
 }
 ```
 
@@ -344,14 +343,14 @@ shape.
 
 #### Supported marketplace `source` forms
 
-| Form | Allowed? | Notes |
-|------|----------|--------|
-| `./plugins/<name>` | Yes | Under the marketplace root |
+| Form                                                             | Allowed?                               | Notes                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./plugins/<name>`                                               | Yes                                    | Under the marketplace root                                                                                                                                                                                                                                                                                                      |
 | `../agents/<name>` (and deeper relatives under the contain root) | Yes, when still under the contain root | **Claude installs:** contain root is `~/.claude/plugins` (so `../agents/x` from a marketplace under that tree is allowed). **Path / `pluginPaths` marketplaces:** contain root is the **parent** of the marketplace directory — any relative that resolves under that parent tree is allowed (multi-level, not one-level-only). |
-| Absolute path (`/…`, `C:\…`) | No | Rejected; reported as skip reason `absolute` |
-| Relative escape outside the contain root | No | Rejected; reported as skip reason `outside-contain-root` |
-| Symlink under the contain root that realpaths outside it | No | Existing candidates and the contain root are `realpath`'d before the final contain check (same idea as `list_dir`); lexical-only paths that do not exist yet keep the lexical check |
-| Missing on-disk path | No | Reported as skip reason `missing`; other members still load |
+| Absolute path (`/…`, `C:\…`)                                     | No                                     | Rejected; reported as skip reason `absolute`                                                                                                                                                                                                                                                                                    |
+| Relative escape outside the contain root                         | No                                     | Rejected; reported as skip reason `outside-contain-root`                                                                                                                                                                                                                                                                        |
+| Symlink under the contain root that realpaths outside it         | No                                     | Existing candidates and the contain root are `realpath`'d before the final contain check (same idea as `list_dir`); lexical-only paths that do not exist yet keep the lexical check                                                                                                                                             |
+| Missing on-disk path                                             | No                                     | Reported as skip reason `missing`; other members still load                                                                                                                                                                                                                                                                     |
 
 Skipped sources are never silent: `expandPluginPath` reports every skip (default:
 stderr; Claude discovery also accepts `onExpandSkip` for tests/callers; path /

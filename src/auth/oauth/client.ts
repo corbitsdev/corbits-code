@@ -5,7 +5,7 @@ import type { BaseTokens } from "./store.js";
 
 // Provider-agnostic OAuth client config. Endpoints, client id, scopes, and
 // timeouts stay provider-owned; this module owns the shared request shape.
-export type OAuthClientConfig = {
+export interface OAuthClientConfig {
   clientId: string;
   authorizeUrl: string;
   tokenUrl: string;
@@ -16,7 +16,7 @@ export type OAuthClientConfig = {
   tokenTimeoutMs: number;
   // Product label used in error messages ("Codex", "xAI", …).
   label: string;
-};
+}
 
 // Build the authorization URL the user opens to grant access. The challenge
 // binds this request to the PKCE verifier held locally; `state` is the CSRF
@@ -100,7 +100,9 @@ export async function postToken(
   // fires; its message ("The operation timed out") is what callers report.
   const json = TokenResponseSchema(await res.json());
   if (json instanceof type.errors) {
-    throw new Error(`${config.label} token endpoint returned an unexpected payload: ${json.summary}`);
+    throw new Error(
+      `${config.label} token endpoint returned an unexpected payload: ${json.summary}`,
+    );
   }
   return json;
 }

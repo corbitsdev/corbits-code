@@ -9,7 +9,7 @@
 import type { PerfSpan, SpanName } from "./index.js";
 
 /** Per-phase aggregate: total wall under that name, count, and percentiles. */
-export type PhaseSummary = {
+export interface PhaseSummary {
   name: SpanName;
   count: number;
   /** Spans still open (no endNs) — excluded from duration stats. */
@@ -17,10 +17,10 @@ export type PhaseSummary = {
   totalNs: number;
   p50Ns: number;
   p95Ns: number;
-};
+}
 
 /** One turn and the nested inference / tool / TTFT / stream cost under it. */
-export type TurnSummary = {
+export interface TurnSummary {
   turnId: string;
   /** Wall time of the turn span itself; 0 when still open. */
   turnNs: number;
@@ -30,10 +30,10 @@ export type TurnSummary = {
   ttftNs: number;
   streamNs: number;
   toolCount: number;
-};
+}
 
 /** Session-wide sums and TTFT vs stream split. */
-export type SessionTotals = {
+export interface SessionTotals {
   turnCount: number;
   completedTurnCount: number;
   totalTurnNs: number;
@@ -49,7 +49,7 @@ export type SessionTotals = {
   ttftShare: number;
   /** Share of (ttft + stream) spent streaming after first token. */
   streamShare: number;
-};
+}
 
 /** Completed duration in ns, or undefined when the span is still open. */
 export function spanDurationNs(span: PerfSpan): number | undefined {
@@ -73,10 +73,7 @@ function percentileNearestRank(sortedAsc: readonly number[], p: number): number 
  * but not to totalNs or percentiles.
  */
 export function rollupByPhase(spans: readonly PerfSpan[]): PhaseSummary[] {
-  const byName = new Map<
-    SpanName,
-    { durations: number[]; openCount: number; count: number }
-  >();
+  const byName = new Map<SpanName, { durations: number[]; openCount: number; count: number }>();
 
   for (const span of spans) {
     let bucket = byName.get(span.name);

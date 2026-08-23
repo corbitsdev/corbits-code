@@ -22,12 +22,12 @@ export function telemetryFirstRunPending(
   return resolveTelemetryEnabled(settings, env) && settings?.telemetry?.noticeShown !== true;
 }
 
-export type FirstRunDeps = {
+export interface FirstRunDeps {
   loadSettings: (path: string) => Promise<Settings | null>;
   markTelemetryNoticeShown: (path: string) => Promise<void>;
   createTelemetry: (options: CreateTelemetryOptions) => Telemetry;
   setTelemetry: (telemetry: Telemetry) => void;
-};
+}
 
 const defaultDeps: FirstRunDeps = {
   loadSettings,

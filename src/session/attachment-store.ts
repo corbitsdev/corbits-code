@@ -13,10 +13,10 @@ import {
   parseAgedImageMarker,
 } from "./attachment-uri.js";
 
-export type AgeImageResult = {
+export interface AgeImageResult {
   turn: ConversationTurn;
   blobs: StrategyBlob[];
-};
+}
 
 /**
  * Replace base64 image blocks with a rehydratable attachment marker and emit

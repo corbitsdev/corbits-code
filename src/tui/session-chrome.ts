@@ -5,25 +5,19 @@
  * duplicating the state machine that produces it.
  */
 
-import type { Telemetry } from "../telemetry/index.js"
-import type { FleetProgress } from "./agent-progress.js"
-import type { RampPhase } from "./ramp.js"
+import type { Telemetry } from "../telemetry/index.js";
+import type { FleetProgress } from "./agent-progress.js";
+import type { RampPhase } from "./ramp.js";
 
 /** Agent lifecycle status the progress label reads (mirrors the stream state). */
 export type TurnStatus =
-  | "idle"
-  | "running"
-  | "done"
-  | "failed"
-  | "blocked"
-  | "stopping"
-  | "stopped"
+  "idle" | "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
 
-export type TurnLabelInput = {
-  readonly isProcessing: boolean
-  readonly status: TurnStatus
-  readonly currentToolName: string | null
-  readonly streamingType: "text" | "thinking" | "tool" | null
+export interface TurnLabelInput {
+  readonly isProcessing: boolean;
+  readonly status: TurnStatus;
+  readonly currentToolName: string | null;
+  readonly streamingType: "text" | "thinking" | "tool" | null;
 }
 
 /**
@@ -42,9 +36,9 @@ export const ACTIVITY_STATES = [
   "waiting",
   "stalled",
   "stopping",
-] as const
+] as const;
 
-export type ActivityState = (typeof ACTIVITY_STATES)[number]
+export type ActivityState = (typeof ACTIVITY_STATES)[number];
 
 /**
  * Execution → activity-state mapping, kept in this one place with an
@@ -70,11 +64,11 @@ const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
   search_agents: "researching",
   ask_operator: "waiting",
   submit_output: "working",
-}
+};
 
 function activityStateForTool(name: string | null): ActivityState {
-  if (name === null) return "working"
-  return TOOL_ACTIVITY_STATES[name] ?? "working"
+  if (name === null) return "working";
+  return TOOL_ACTIVITY_STATES[name] ?? "working";
 }
 
 /**
@@ -94,22 +88,22 @@ export function resolveTurnLabel(
   isStalled: boolean,
   fleet: FleetProgress | null,
 ): ActivityState | undefined {
-  if (!input.isProcessing) return undefined
-  if (input.status === "blocked") return "waiting"
+  if (!input.isProcessing) return undefined;
+  if (input.status === "blocked") return "waiting";
   if (input.status === "stopping" || input.status === "stopped") {
-    return "stopping"
+    return "stopping";
   }
   // Live fleet means the session is working — recovery is silent. Never paint
   // "stalled" for the operator; the orchestrator keeps lanes moving.
   if (fleet !== null && fleet.running > 0) {
-    return "working"
+    return "working";
   }
   // Parent silence is still work-in-progress from the operator's POV; nudge
   // paths handle recovery without renaming the ticker.
-  void isStalled
-  if (input.currentToolName !== null) return activityStateForTool(input.currentToolName)
-  if (input.streamingType === "thinking") return "thinking"
-  return "working"
+  void isStalled;
+  if (input.currentToolName !== null) return activityStateForTool(input.currentToolName);
+  if (input.streamingType === "thinking") return "thinking";
+  return "working";
 }
 
 /**
@@ -123,45 +117,45 @@ export function resolveRampPhase(
   isStalled: boolean,
   fleet: FleetProgress | null,
 ): RampPhase {
-  if (input.status === "blocked") return "blocked"
-  if (input.status === "done") return "done"
+  if (input.status === "blocked") return "blocked";
+  if (input.status === "done") return "done";
   // Operator chrome never enters the stalled ramp: fleet or parent silence is
   // still "working" while recovery runs under the hood.
   if (fleet !== null && fleet.running > 0) {
-    return "working"
+    return "working";
   }
-  void isStalled
-  return "working"
+  void isStalled;
+  return "working";
 }
 
-export type SendFailureKind = "abort" | "auth" | "error"
+export type SendFailureKind = "abort" | "auth" | "error";
 
 /** First-party auth_provider values only — never free-text provider labels. */
-export type AuthProviderId = "codex" | "xai" | "anthropic" | "other"
+export type AuthProviderId = "codex" | "xai" | "anthropic" | "other";
 
-export type ClassifiedSendFailure = {
-  readonly kind: SendFailureKind
-  readonly authProvider: AuthProviderId | null
+export interface ClassifiedSendFailure {
+  readonly kind: SendFailureKind;
+  readonly authProvider: AuthProviderId | null;
 }
 
 // Phrase matchers for message-only classification (stream carries bare strings).
 // Codex/xAI constructors always emit the profile phrases below.
-const CODEX_AUTH_MESSAGE = /\bcodex profile\b/i
-const XAI_AUTH_MESSAGE = /\bxai profile\b/i
+const CODEX_AUTH_MESSAGE = /\bcodex profile\b/i;
+const XAI_AUTH_MESSAGE = /\bxai profile\b/i;
 // Anthropic API-key rejections: authentication_error type, invalid x-api-key,
 // or invalid api key phrasing in 401 bodies.
 const ANTHROPIC_AUTH_MESSAGE =
-  /\b(?:anthropic|claude)\b.*\b(?:auth|unauthorized|api[\s_-]?key|x-api-key)\b|\bauthentication_error\b|\binvalid[\s_-]?x?-?api[\s_-]?key\b/i
+  /\b(?:anthropic|claude)\b.*\b(?:auth|unauthorized|api[\s_-]?key|x-api-key)\b|\bauthentication_error\b|\binvalid[\s_-]?x?-?api[\s_-]?key\b/i;
 // Generic credential rejection when the provider cannot be named safely.
 const GENERIC_AUTH_MESSAGE =
-  /\b(?:401|403)\b|\bunauthorized\b|\binvalid[\s_-]?api[\s_-]?key\b|\bauthentication\b.*\bfail/i
+  /\b(?:401|403)\b|\bunauthorized\b|\binvalid[\s_-]?api[\s_-]?key\b|\bauthentication\b.*\bfail/i;
 
 function authProviderFromMessage(message: string): AuthProviderId | null {
-  if (CODEX_AUTH_MESSAGE.test(message)) return "codex"
-  if (XAI_AUTH_MESSAGE.test(message)) return "xai"
-  if (ANTHROPIC_AUTH_MESSAGE.test(message)) return "anthropic"
-  if (GENERIC_AUTH_MESSAGE.test(message)) return "other"
-  return null
+  if (CODEX_AUTH_MESSAGE.test(message)) return "codex";
+  if (XAI_AUTH_MESSAGE.test(message)) return "xai";
+  if (ANTHROPIC_AUTH_MESSAGE.test(message)) return "anthropic";
+  if (GENERIC_AUTH_MESSAGE.test(message)) return "other";
+  return null;
 }
 
 /** Classify agent.send() rejection so the TUI can settle UI state consistently. */
@@ -171,33 +165,30 @@ export function classifyAgentSendFailure(
   isCodexAuth: (e: unknown) => boolean,
   isXaiAuth: (e: unknown) => boolean,
 ): ClassifiedSendFailure {
-  if (aborted) return { kind: "abort", authProvider: null }
-  if (isCodexAuth(err)) return { kind: "auth", authProvider: "codex" }
-  if (isXaiAuth(err)) return { kind: "auth", authProvider: "xai" }
-  const message = err instanceof Error ? err.message : String(err)
-  const authProvider = authProviderFromMessage(message)
-  if (authProvider !== null) return { kind: "auth", authProvider }
-  return { kind: "error", authProvider: null }
+  if (aborted) return { kind: "abort", authProvider: null };
+  if (isCodexAuth(err)) return { kind: "auth", authProvider: "codex" };
+  if (isXaiAuth(err)) return { kind: "auth", authProvider: "xai" };
+  const message = err instanceof Error ? err.message : String(err);
+  const authProvider = authProviderFromMessage(message);
+  if (authProvider !== null) return { kind: "auth", authProvider };
+  return { kind: "error", authProvider: null };
 }
 
 export function shouldSettleUiAfterSendFailure(kind: SendFailureKind): boolean {
-  return kind === "auth" || kind === "error"
+  return kind === "auth" || kind === "error";
 }
 
 /** Report which provider rejected the stored credentials; silent otherwise. */
-export function captureAuthFailure(
-  telemetry: Telemetry,
-  failure: ClassifiedSendFailure,
-): void {
-  if (failure.kind !== "auth" || failure.authProvider === null) return
-  telemetry.capture("auth_failure", { auth_provider: failure.authProvider })
+export function captureAuthFailure(telemetry: Telemetry, failure: ClassifiedSendFailure): void {
+  if (failure.kind !== "auth" || failure.authProvider === null) return;
+  telemetry.capture("auth_failure", { auth_provider: failure.authProvider });
 }
 
 /** Same classification as `classifyAgentSendFailure`, from the message alone. */
 export function classifySendFailureMessage(message: string): ClassifiedSendFailure {
-  const authProvider = authProviderFromMessage(message)
-  if (authProvider !== null) return { kind: "auth", authProvider }
-  return { kind: "error", authProvider: null }
+  const authProvider = authProviderFromMessage(message);
+  if (authProvider !== null) return { kind: "auth", authProvider };
+  return { kind: "error", authProvider: null };
 }
 
 const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
@@ -205,7 +196,7 @@ const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
   xai: "your x.ai sign-in expired — /model to sign in again",
   anthropic: "your anthropic api key was rejected — /model to update credentials",
   other: "provider credentials were rejected — /model to sign in again",
-}
+};
 
 /**
  * Transcript body for a failed send. A recognised failure says what happened
@@ -213,9 +204,9 @@ const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
  * the only detail the operator has.
  */
 export function sendFailureText(message: string): string {
-  const failure = classifySendFailureMessage(message)
+  const failure = classifySendFailureMessage(message);
   if (failure.kind === "auth" && failure.authProvider !== null) {
-    return AUTH_FAILURE_TEXT[failure.authProvider]
+    return AUTH_FAILURE_TEXT[failure.authProvider];
   }
-  return message
+  return message;
 }

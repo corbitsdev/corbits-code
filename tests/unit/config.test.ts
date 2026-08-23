@@ -220,7 +220,11 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
         profiles: {
           synthetic: {
             name: "synthetic",
-            tokens: { access: "test-access-token", refresh: "test-refresh", expiresAt: Date.now() + 3_600_000 },
+            tokens: {
+              access: "test-access-token",
+              refresh: "test-refresh",
+              expiresAt: Date.now() + 3_600_000,
+            },
             createdAt: Date.now(),
           },
         },
