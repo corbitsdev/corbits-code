@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { appendCycleText, createCycleTextRecorder, CYCLE_TEXT_CAP_CHARS, PARTIAL_FILE } from "./stream-journal.js";
+import {
+  appendCycleText,
+  createCycleTextRecorder,
+  CYCLE_TEXT_CAP_CHARS,
+  PARTIAL_FILE,
+} from "./stream-journal.js";
 
 let dir: string;
 
@@ -26,7 +31,7 @@ function thinkingDelta(token: string): ReactorEmittedEvent {
 }
 
 async function readPartialRecords(): Promise<
-  Array<{ reason: string; text: string; thinkingText?: string; thinkingChars?: number }>
+  { reason: string; text: string; thinkingText?: string; thinkingChars?: number }[]
 > {
   const raw = await readFile(join(dir, PARTIAL_FILE), "utf8");
   return raw
@@ -98,7 +103,7 @@ describe("createCycleTextRecorder", () => {
     expect(records[0]?.text).toBe("dead cycle text");
   });
 
-  test("events after dispose are ignored and a second dispose returns \"\" writing nothing", async () => {
+  test('events after dispose are ignored and a second dispose returns "" writing nothing', async () => {
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("first"));
     await recorder.dispose("exit");

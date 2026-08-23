@@ -2,12 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type ChangelogEntry = {
+export interface ChangelogEntry {
   major: number;
   minor: number;
   patch: number;
   content: string;
-};
+}
 
 export function entryVersion(entry: ChangelogEntry): string {
   return `${entry.major}.${entry.minor}.${entry.patch}`;
@@ -74,7 +74,10 @@ export function compareVersions(a: ChangelogEntry, b: ChangelogEntry): number {
 }
 
 export function parseVersionString(version: string): ChangelogEntry | null {
-  const match = version.trim().replace(/^v/i, "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  const match = version
+    .trim()
+    .replace(/^v/i, "")
+    .match(/^(\d+)\.(\d+)\.(\d+)/);
   if (match === null) return null;
   return {
     major: Number.parseInt(match[1]!, 10),
@@ -94,11 +97,11 @@ export function getNewEntries(entries: ChangelogEntry[], lastVersion: string): C
 export const DEFAULT_STARTUP_ENTRY_LIMIT = 3;
 export const DEFAULT_STARTUP_MARKDOWN_BYTES = 64 * 1024;
 
-export type StartupChangelogResult = {
+export interface StartupChangelogResult {
   markdown: string;
   truncated: boolean;
   versions: string[];
-};
+}
 
 /**
  * Bound automatic startup markdown: newest-first, at most `maxEntries` sections,
@@ -152,7 +155,11 @@ export function formatStartupChangelog(
     markdown = cut.replace(/\uFFFD$/, "").trimEnd();
     truncated = true;
   }
-  return { markdown, truncated, versions: kept.length > 0 ? versions.slice(0, kept.length) : versions };
+  return {
+    markdown,
+    truncated,
+    versions: kept.length > 0 ? versions.slice(0, kept.length) : versions,
+  };
 }
 
 export type ChangelogDisplayDecision =

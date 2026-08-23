@@ -8,11 +8,9 @@
  * surfaces stay testable without a live runner.
  */
 
-import type { KeyEvent } from "@opentui/core"
-
-import { formatPluginWarningsSummary } from "../plugins/diagnostics.js"
-import { maskEcho, maskSecret } from "./provider-setup.js"
-import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js"
+import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
+import { maskEcho, maskSecret } from "./provider-setup.js";
+import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
 import {
   closeInsetOverlay,
   openHelpOverlay,
@@ -22,225 +20,219 @@ import {
   type AppShell,
   type ItemDescription,
   type OverlaySelection,
-} from "./shell.js"
+} from "./shell.js";
 
 /** A remembered approval, flattened for display and revocation by id. */
-export type GrantEntry = {
-  readonly id: string
-  readonly scopeLabel: string
-  readonly tool: string
-  readonly pattern: string
-  readonly providerModel?: string
+export interface GrantEntry {
+  readonly id: string;
+  readonly scopeLabel: string;
+  readonly tool: string;
+  readonly pattern: string;
+  readonly providerModel?: string;
 }
 
 /** One credential field a plugin's manifest asks for (mirrors PluginCredentialField). */
-export type PluginCredentialFieldEntry = {
-  readonly key: string
-  readonly label: string
-  readonly description?: string
-  readonly secret?: boolean
+export interface PluginCredentialFieldEntry {
+  readonly key: string;
+  readonly label: string;
+  readonly description?: string;
+  readonly secret?: boolean;
 }
 
 /** A discovered plugin with its live enablement, trust, and credential state. */
-export type PluginEntry = {
-  readonly id: string
-  readonly name: string
-  readonly kind?: string
-  readonly description?: string
-  readonly enabled: boolean
-  readonly needsTrust?: boolean
-  readonly canRevokeTrust?: boolean
-  readonly credentials: readonly PluginCredentialFieldEntry[]
-  readonly credentialValues: Readonly<Record<string, string>>
-  readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[]
+export interface PluginEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly kind?: string;
+  readonly description?: string;
+  readonly enabled: boolean;
+  readonly needsTrust?: boolean;
+  readonly canRevokeTrust?: boolean;
+  readonly credentials: readonly PluginCredentialFieldEntry[];
+  readonly credentialValues: Readonly<Record<string, string>>;
+  readonly agentProfiles?: readonly { readonly id: string; readonly description?: string }[];
   /** Absolute path an untrusted path-origin plugin was discovered at. */
-  readonly originPath?: string
+  readonly originPath?: string;
   /**
    * Standing load warnings attributable to this plugin (skill misses named by
    * agent id, failed tool starts, …). Surfaced in the row hint and description.
    */
-  readonly warnings?: readonly string[]
+  readonly warnings?: readonly string[];
 }
 
 /** Result of a verify/addPath admin action, reported via `deps.notify`. */
-export type PluginActionResult = { readonly ok: boolean; readonly message: string }
+export interface PluginActionResult {
+  readonly ok: boolean;
+  readonly message: string;
+}
 
 /** A web-search candidate the plugins surface can hand to `setWebProvider`. */
-export type WebProviderChoice = { readonly id: string; readonly name: string }
+export interface WebProviderChoice {
+  readonly id: string;
+  readonly name: string;
+}
 
-export type CompactionMode = "llm" | "pruning"
+export type CompactionMode = "llm" | "pruning";
 
 /** Live values behind the settings surface, re-read on every open. */
-export type SettingsSnapshot = {
-  readonly compactionMode: CompactionMode
-  readonly waitForApproval: boolean
-  readonly telemetryEnabled: boolean
-  readonly showPromptCost: boolean
+export interface SettingsSnapshot {
+  readonly compactionMode: CompactionMode;
+  readonly waitForApproval: boolean;
+  readonly telemetryEnabled: boolean;
+  readonly showPromptCost: boolean;
 }
 
-export type PermissionsSurfaceDeps = {
-  readonly list: () => Promise<readonly GrantEntry[]>
-  readonly revoke: (id: string) => Promise<void>
+export interface PermissionsSurfaceDeps {
+  readonly list: () => Promise<readonly GrantEntry[]>;
+  readonly revoke: (id: string) => Promise<void>;
 }
 
-export type PluginsSurfaceDeps = {
-  readonly list: () => readonly PluginEntry[]
+export interface PluginsSurfaceDeps {
+  readonly list: () => readonly PluginEntry[];
   // A trust-grant load can surface skill-miss and similar warnings; the
   // optional message is shown via `deps.notify` at the call site.
-  readonly setEnabled: (
-    id: string,
-    enabled: boolean,
-  ) => Promise<{ message?: string } | void> | void
+  readonly setEnabled: (id: string, enabled: boolean) => Promise<{ message?: string } | undefined>;
   /** Persists credential values for the plugin (does not enable/verify it). */
-  readonly saveCredentials: (
-    id: string,
-    credentials: Record<string, string>,
-  ) => Promise<void> | void
-  readonly verify: (
-    id: string,
-    credentials: Record<string, string>,
-  ) => Promise<PluginActionResult>
-  readonly addPath: (path: string) => Promise<PluginActionResult>
-  readonly webProviders: () => readonly WebProviderChoice[]
-  readonly currentWebProvider: () => string | undefined
-  readonly setWebProvider: (id: string | undefined) => Promise<void> | void
+  readonly saveCredentials: (id: string, credentials: Record<string, string>) => Promise<void>;
+  readonly verify: (id: string, credentials: Record<string, string>) => Promise<PluginActionResult>;
+  readonly addPath: (path: string) => Promise<PluginActionResult>;
+  readonly webProviders: () => readonly WebProviderChoice[];
+  readonly currentWebProvider: () => string | undefined;
+  readonly setWebProvider: (id: string | undefined) => Promise<void>;
   /**
    * Standing session-level load warnings (or the full set when attribution is
    * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
    * runner, not this surface.
    */
-  readonly loadWarnings?: () => readonly string[]
+  readonly loadWarnings?: () => readonly string[];
 }
 
 /** Discovered lifecycle hook, live enablement, and enough to describe what it runs. */
-export type HookEntry = {
-  readonly id: string
-  readonly name: string
-  readonly type: "typescript" | "shell"
-  readonly path: string
-  readonly enabled: boolean
+export interface HookEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly type: "typescript" | "shell";
+  readonly path: string;
+  readonly enabled: boolean;
   /** What the hook fires on, from a cheap static check — see runner wiring. */
-  readonly runsOn: string
+  readonly runsOn: string;
 }
 
-export type HooksSurfaceDeps = {
-  readonly list: () => readonly HookEntry[]
-  readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void
+export interface HooksSurfaceDeps {
+  readonly list: () => readonly HookEntry[];
+  readonly setEnabled: (id: string, enabled: boolean) => Promise<void>;
 }
 
 /** A configured MCP server and its live connection state. */
-export type McpEntry = {
-  readonly name: string
-  readonly state: "connecting" | "connected" | "needs-auth" | "failed"
+export interface McpEntry {
+  readonly name: string;
+  readonly state: "connecting" | "connected" | "needs-auth" | "failed";
   /** Tool count once connected. */
-  readonly toolCount?: number
+  readonly toolCount?: number;
   /** Authorization URL while `needs-auth`. */
-  readonly authURL?: string
+  readonly authURL?: string;
   /** Failure reason while `failed`. */
-  readonly error?: string
+  readonly error?: string;
 }
 
-export type McpSurfaceDeps = {
-  readonly list: () => readonly McpEntry[]
+export interface McpSurfaceDeps {
+  readonly list: () => readonly McpEntry[];
   /** Open the server's authorization URL in the operator's browser. */
-  readonly openAuthURL: (url: string) => void
+  readonly openAuthURL: (url: string) => void;
 }
 
 /** Live summary for the settings surface's hooks row (owned by another surface). */
-export type HooksSurfaceSummary = {
-  readonly discovered: number
-  readonly off: number
+export interface HooksSurfaceSummary {
+  readonly discovered: number;
+  readonly off: number;
 }
 
-export type SettingsSurfaceDeps = {
-  readonly read: () => SettingsSnapshot
-  readonly setCompactionMode: (mode: CompactionMode) => void
-  readonly setWaitForApproval: (value: boolean) => void
-  readonly setTelemetryEnabled: (value: boolean) => void
-  readonly setShowPromptCost: (value: boolean) => void
+export interface SettingsSurfaceDeps {
+  readonly read: () => SettingsSnapshot;
+  readonly setCompactionMode: (mode: CompactionMode) => void;
+  readonly setWaitForApproval: (value: boolean) => void;
+  readonly setTelemetryEnabled: (value: boolean) => void;
+  readonly setShowPromptCost: (value: boolean) => void;
   /** Live counts for the hooks row summary. Omitted while hooks discovery is unbuilt. */
-  readonly hooksSummary?: () => HooksSurfaceSummary
+  readonly hooksSummary?: () => HooksSurfaceSummary;
   /** Opens the hooks surface. Omitted while it is unbuilt (row still shows, Enter no-ops). */
-  readonly openHooks?: () => void
+  readonly openHooks?: () => void;
 }
 
-export type CommandSurfaceDeps = {
-  readonly permissions?: PermissionsSurfaceDeps
-  readonly plugins?: PluginsSurfaceDeps
-  readonly hooks?: HooksSurfaceDeps
-  readonly mcp?: McpSurfaceDeps
-  readonly settings?: SettingsSurfaceDeps
+export interface CommandSurfaceDeps {
+  readonly permissions?: PermissionsSurfaceDeps;
+  readonly plugins?: PluginsSurfaceDeps;
+  readonly hooks?: HooksSurfaceDeps;
+  readonly mcp?: McpSurfaceDeps;
+  readonly settings?: SettingsSurfaceDeps;
   /** Opens the host's model/provider picker (owned by the product host). */
-  readonly openModels?: () => void
+  readonly openModels?: () => void;
   /** Fallback channel for surfaces with no live data source. */
-  readonly notify: (text: string) => void
+  readonly notify: (text: string) => void;
 }
 
 /** Surface a command result can ask for. */
 export type CommandSurfaceKind =
-  | "help"
-  | "settings"
-  | "permissions"
-  | "plugins"
-  | "hooks"
-  | "mcp"
-  | "models"
+  "help" | "settings" | "permissions" | "plugins" | "hooks" | "mcp" | "models";
 
-const CLOSE_ID = "__close__"
-const BACK_ID = "__back__"
+const CLOSE_ID = "__close__";
+const BACK_ID = "__back__";
 /** Synthetic `/plugins` row for standing load warnings (not a plugin id). */
-const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__"
+const PLUGIN_LOAD_WARNINGS_ID = "__plugin_load_warnings__";
 
 export function grantRowLabel(entry: GrantEntry): string {
-  const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : ""
-  return `${entry.scopeLabel} · ${entry.tool} ${entry.pattern}${suffix}`
+  const suffix = entry.providerModel !== undefined ? ` (${entry.providerModel})` : "";
+  return `${entry.scopeLabel} · ${entry.tool} ${entry.pattern}${suffix}`;
 }
 
 function pluginMissingCredential(entry: PluginEntry): boolean {
-  return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0)
+  return entry.credentials.some((f) => (entry.credentialValues[f.key] ?? "").length === 0);
 }
 
 function pluginHasWarnings(entry: PluginEntry): boolean {
-  return (entry.warnings?.length ?? 0) > 0
+  return (entry.warnings?.length ?? 0) > 0;
 }
 
 export function pluginRowLabel(entry: PluginEntry): string {
-  const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled"
+  const state = entry.needsTrust === true ? "untrusted" : entry.enabled ? "enabled" : "disabled";
   const blocker =
     entry.needsTrust !== true && !entry.enabled && pluginMissingCredential(entry)
       ? "needs api key"
       : pluginHasWarnings(entry)
         ? "has warnings"
-        : entry.kind
-  return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`
+        : entry.kind;
+  return blocker ? `${entry.name} — ${state} — ${blocker}` : `${entry.name} — ${state}`;
 }
 
 /** Description-zone content for the focused plugin row. */
 function pluginDescription(entry: PluginEntry): ItemDescription {
-  const what = entry.description ?? `${entry.kind ?? "plugin"} plugin.`
+  const what = entry.description ?? `${entry.kind ?? "plugin"} plugin.`;
   if (entry.needsTrust === true) {
     const where =
       entry.originPath !== undefined
         ? `Loaded from ${entry.originPath} — outside this workspace. `
-        : ""
-    return { what, impact: `${where}Trusting it runs its code in this session. Press Alt+T.`, tone: "consequence" }
+        : "";
+    return {
+      what,
+      impact: `${where}Trusting it runs its code in this session. Press Alt+T.`,
+      tone: "consequence",
+    };
   }
   if (!entry.enabled && pluginMissingCredential(entry)) {
-    return { what, impact: "Needs an API key before it can be enabled — press Alt+C." }
+    return { what, impact: "Needs an API key before it can be enabled — press Alt+C." };
   }
   if (pluginHasWarnings(entry) && entry.warnings !== undefined) {
-    const summary =
-      formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ")
-    return { what, impact: summary, tone: "consequence" }
+    const summary = formatPluginWarningsSummary(entry.warnings) ?? entry.warnings.join("; ");
+    return { what, impact: summary, tone: "consequence" };
   }
-  return { what }
+  return { what };
 }
 
 function payload(entries: readonly ResidualCatalogEntry[]): {
-  items: readonly string[]
-  itemIds: readonly string[]
+  items: readonly string[];
+  itemIds: readonly string[];
 } {
-  return { items: entries.map((e) => e.label), itemIds: entries.map((e) => e.id) }
+  return { items: entries.map((e) => e.label), itemIds: entries.map((e) => e.id) };
 }
 
 function selectedId(
@@ -250,26 +242,26 @@ function selectedId(
   return residualIdFromSelection(
     selection,
     entries.map((e) => e.id),
-  )
+  );
 }
 
 /** One option in a cycled field, as drawn inline: `label` bracketed when active. */
-type CycleOption<T extends string> = { readonly id: T; readonly label: string }
+interface CycleOption<T extends string> {
+  readonly id: T;
+  readonly label: string;
+}
 
 /** Render a cycled field's current state: `label  ‹ label ›  label`. */
-function cycleField<T extends string>(
-  options: readonly CycleOption<T>[],
-  activeId: T,
-): string {
-  return options.map((o) => (o.id === activeId ? `‹ ${o.label} ›` : o.label)).join("  ")
+function cycleField<T extends string>(options: readonly CycleOption<T>[], activeId: T): string {
+  return options.map((o) => (o.id === activeId ? `‹ ${o.label} ›` : o.label)).join("  ");
 }
 
 /** Step `current` to the next/previous option in `options`, wrapping. */
 function cycleValue<T>(options: readonly T[], current: T, direction: -1 | 1): T {
-  const idx = options.indexOf(current)
-  const base = idx < 0 ? 0 : idx
-  const next = options[(base + direction + options.length) % options.length]
-  return next ?? current
+  const idx = options.indexOf(current);
+  const base = idx < 0 ? 0 : idx;
+  const next = options[(base + direction + options.length) % options.length];
+  return next ?? current;
 }
 
 /** The active option's plain label — the value an accept echo should report, not the row's painted display string. */
@@ -277,27 +269,27 @@ function activeOptionLabel<T extends string>(
   options: readonly CycleOption<T>[],
   activeId: T,
 ): string {
-  return options.find((o) => o.id === activeId)?.label ?? activeId
+  return options.find((o) => o.id === activeId)?.label ?? activeId;
 }
 
 const COMPACTION_OPTIONS: readonly CycleOption<CompactionMode>[] = [
   { id: "llm", label: "summarize" },
   { id: "pruning", label: "drop" },
-]
+];
 const ON_OFF_OPTIONS: readonly CycleOption<"on" | "off">[] = [
   { id: "on", label: "on" },
   { id: "off", label: "off" },
-]
-const SETTINGS_NAME_WIDTH = 16
+];
+const SETTINGS_NAME_WIDTH = 16;
 
 /** One inline-cycled settings row: label, live value, description, and its cycle step. */
-type SettingsCycleRow = {
-  readonly id: string
-  readonly value: string
+interface SettingsCycleRow {
+  readonly id: string;
+  readonly value: string;
   /** Plain value the row currently holds, for the accept echo — not the painted `value` string. */
-  readonly chosenLabel: string
-  readonly describe: ItemDescription
-  readonly cycle: (direction: -1 | 1) => void
+  readonly chosenLabel: string;
+  readonly describe: ItemDescription;
+  readonly cycle: (direction: -1 | 1) => void;
 }
 
 /** Cycled rows shown above the divider, in mockup order. */
@@ -312,13 +304,16 @@ function settingsCycleRows(
       chosenLabel: activeOptionLabel(COMPACTION_OPTIONS, snapshot.compactionMode),
       describe: {
         what: "how the transcript is trimmed once the context fills.",
-        impact:
-          "summarize (default) costs a call; drop is free but strips output too.",
+        impact: "summarize (default) costs a call; drop is free but strips output too.",
         tone: "consequence",
       },
       cycle: (dir) =>
         settings.setCompactionMode(
-          cycleValue(COMPACTION_OPTIONS.map((o) => o.id), snapshot.compactionMode, dir),
+          cycleValue(
+            COMPACTION_OPTIONS.map((o) => o.id),
+            snapshot.compactionMode,
+            dir,
+          ),
         ),
     },
     {
@@ -327,7 +322,8 @@ function settingsCycleRows(
       chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.waitForApproval ? "on" : "off"),
       describe: {
         what: "whether a tool's time budget pauses while waiting on your approval.",
-        impact: "off counts the wait against the tool's timeout, so a slow approval can time it out.",
+        impact:
+          "off counts the wait against the tool's timeout, so a slow approval can time it out.",
         tone: "consequence",
       },
       cycle: () => settings.setWaitForApproval(!snapshot.waitForApproval),
@@ -350,18 +346,19 @@ function settingsCycleRows(
       chosenLabel: activeOptionLabel(ON_OFF_OPTIONS, snapshot.showPromptCost ? "on" : "off"),
       describe: {
         what: "shows the session's spend in the prompt border, next to the context percentage.",
-        impact: "it's a running total that draws the eye every time it changes — off by default; /cost still gives the full breakdown on demand.",
+        impact:
+          "it's a running total that draws the eye every time it changes — off by default; /cost still gives the full breakdown on demand.",
       },
       cycle: () => settings.setShowPromptCost(!snapshot.showPromptCost),
     },
-  ]
+  ];
 }
 
 /** One navigation row: opens a full sub-surface instead of cycling in place. */
-type SettingsNavRow = {
-  readonly id: string
-  readonly value: string
-  readonly describe: ItemDescription
+interface SettingsNavRow {
+  readonly id: string;
+  readonly value: string;
+  readonly describe: ItemDescription;
 }
 
 /**
@@ -372,12 +369,12 @@ type SettingsNavRow = {
  * assert on `shell.overlayKind` depend on that.
  */
 function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
-  const rows: SettingsNavRow[] = []
+  const rows: SettingsNavRow[] = [];
   if (deps.plugins) {
-    const entries = deps.plugins.list()
-    const enabled = entries.filter((e) => e.enabled).length
-    const needsKey = entries.filter((e) => e.needsTrust === true).length
-    const suffix = needsKey > 0 ? ` · ${needsKey} needs a key` : ""
+    const entries = deps.plugins.list();
+    const enabled = entries.filter((e) => e.enabled).length;
+    const needsKey = entries.filter((e) => e.needsTrust === true).length;
+    const suffix = needsKey > 0 ? ` · ${needsKey} needs a key` : "";
     rows.push({
       id: "plugins",
       value: `${"plugins".padEnd(SETTINGS_NAME_WIDTH)}${enabled} enabled${suffix}`,
@@ -386,11 +383,11 @@ function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
         impact: "disabling a plugin removes its tools and commands immediately.",
         tone: "consequence",
       },
-    })
+    });
   }
   if (deps.settings?.hooksSummary) {
-    const summary = deps.settings.hooksSummary()
-    const suffix = summary.off > 0 ? ` · ${summary.off} off` : ""
+    const summary = deps.settings.hooksSummary();
+    const suffix = summary.off > 0 ? ` · ${summary.off} off` : "";
     rows.push({
       id: "hooks",
       value: `${"hooks".padEnd(SETTINGS_NAME_WIDTH)}${summary.discovered} discovered${suffix}`,
@@ -398,9 +395,9 @@ function settingsSyncNavRows(deps: CommandSurfaceDeps): SettingsNavRow[] {
         what: "lifecycle hooks discovered for this session.",
         impact: "a hook that is off does not run, even when its trigger fires.",
       },
-    })
+    });
   }
-  return rows
+  return rows;
 }
 
 function permissionsNavRow(count: number): SettingsNavRow {
@@ -411,7 +408,7 @@ function permissionsNavRow(count: number): SettingsNavRow {
       what: "remembered tool approvals from earlier in this session.",
       impact: "revoking one means the next matching tool call asks again.",
     },
-  }
+  };
 }
 
 /** Render the menu from a fully-resolved row set — the part every open path shares. */
@@ -425,23 +422,23 @@ function renderSettingsMenu(
   // against the just-written value; closing first forces a real reopen (a
   // second open of the same primary kind while one is showing is a no-op)
   // while the captured index keeps the cursor where the operator left it.
-  const activeIndex = shell.overlayList?.activeIndex ?? 0
-  closeInsetOverlay(shell)
-  const snapshot = settings.read()
-  const cycleRows = settingsCycleRows(snapshot, settings)
-  const byId = new Map<string, SettingsCycleRow>(cycleRows.map((r) => [r.id, r]))
+  const activeIndex = shell.overlayList?.activeIndex ?? 0;
+  closeInsetOverlay(shell);
+  const snapshot = settings.read();
+  const cycleRows = settingsCycleRows(snapshot, settings);
+  const byId = new Map<string, SettingsCycleRow>(cycleRows.map((r) => [r.id, r]));
   const descById = new Map<string, ItemDescription>([
     ...cycleRows.map((r) => [r.id, r.describe] as const),
     ...navRows.map((r) => [r.id, r.describe] as const),
-  ])
-  const ids = [...cycleRows.map((r) => r.id), ...navRows.map((r) => r.id)]
-  const items = [...cycleRows.map((r) => r.value), ...navRows.map((r) => r.value)]
+  ]);
+  const ids = [...cycleRows.map((r) => r.id), ...navRows.map((r) => r.id)];
+  const items = [...cycleRows.map((r) => r.value), ...navRows.map((r) => r.value)];
   // Nav rows (permissions, plugins, hooks) open a sub-surface rather than
   // holding a value of their own, so they carry no echo value.
   const values: readonly (string | undefined)[] = [
     ...cycleRows.map((r) => r.chosenLabel),
     ...navRows.map(() => undefined),
-  ]
+  ];
 
   openSettingsOverlay(shell, {
     items,
@@ -450,33 +447,33 @@ function renderSettingsMenu(
     activeIndex: Math.min(activeIndex, Math.max(0, items.length - 1)),
     describe: (id) => descById.get(id) ?? null,
     onCycle: (id, direction) => {
-      const row = byId.get(id)
-      if (!row) return
-      row.cycle(direction)
-      openSettingsSurface(shell, deps)
+      const row = byId.get(id);
+      if (!row) return;
+      row.cycle(direction);
+      openSettingsSurface(shell, deps);
     },
     onAccept: (selection) => {
-      const id = residualIdFromSelection(selection, ids)
+      const id = residualIdFromSelection(selection, ids);
       switch (id) {
         case "permissions":
-          openPermissionsSurface(shell, deps)
-          return
+          openPermissionsSurface(shell, deps);
+          return;
         case "plugins":
-          openPluginsSurface(shell, deps)
-          return
+          openPluginsSurface(shell, deps);
+          return;
         case "hooks":
           if (deps.settings?.openHooks) {
-            deps.settings.openHooks()
-            return
+            deps.settings.openHooks();
+            return;
           }
-          deps.notify("Hooks administration is not available in this session.")
-          openSettingsSurface(shell, deps)
-          return
+          deps.notify("Hooks administration is not available in this session.");
+          openSettingsSurface(shell, deps);
+          return;
         default:
-          return
+          return;
       }
     },
-  })
+  });
 }
 
 /**
@@ -487,72 +484,72 @@ function renderSettingsMenu(
  * inspects the shell (no permissions admin wired) sees it painted.
  */
 export function openSettingsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const settings = deps.settings
+  const settings = deps.settings;
   if (settings === undefined) {
-    deps.notify("Settings are not available in this session.")
-    return
+    deps.notify("Settings are not available in this session.");
+    return;
   }
   if (deps.permissions === undefined) {
-    renderSettingsMenu(shell, deps, settings, settingsSyncNavRows(deps))
-    return
+    renderSettingsMenu(shell, deps, settings, settingsSyncNavRows(deps));
+    return;
   }
   void deps.permissions.list().then((entries) => {
     renderSettingsMenu(shell, deps, settings, [
       permissionsNavRow(entries.length),
       ...settingsSyncNavRows(deps),
-    ])
-  })
+    ]);
+  });
 }
 
 /** Remembered approvals; Enter revokes the highlighted grant. */
 export function openPermissionsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const permissions = deps.permissions
+  const permissions = deps.permissions;
   if (permissions === undefined) {
-    deps.notify("Permission administration is not available in this session.")
-    return
+    deps.notify("Permission administration is not available in this session.");
+    return;
   }
   void permissions.list().then(
     (entries) => {
-      closeInsetOverlay(shell)
+      closeInsetOverlay(shell);
       const rows: ResidualCatalogEntry[] = entries.map((e) => ({
         id: e.id,
         label: grantRowLabel(e),
-      }))
+      }));
       if (rows.length === 0) {
         rows.push({
           id: CLOSE_ID,
           label: "No remembered approvals — grants you accept appear here",
-        })
+        });
       }
-      rows.push({ id: BACK_ID, label: "Back to settings" })
+      rows.push({ id: BACK_ID, label: "Back to settings" });
       openListOverlay(shell, {
         kind: "permissions",
         title: "permissions · Enter revokes",
         frameId: "overlay-permissions",
         ...payload(rows),
         onAccept: (selection) => {
-          const id = selectedId(selection, rows)
-          if (id === undefined || id === CLOSE_ID) return
+          const id = selectedId(selection, rows);
+          if (id === undefined || id === CLOSE_ID) return;
           if (id === BACK_ID) {
-            openSettingsSurface(shell, deps)
-            return
+            openSettingsSurface(shell, deps);
+            return;
           }
           void permissions.revoke(id).then(
             () => openPermissionsSurface(shell, deps),
             (err: unknown) => deps.notify(`Revoke failed: ${errorText(err)}`),
-          )
+          );
         },
-      })
+      });
     },
     (err: unknown) => deps.notify(`Could not read remembered approvals: ${errorText(err)}`),
-  )
+  );
 }
 
 /** Live edit state for the open credentials pane. */
-type CredentialPaneState = {
-  values: Record<string, string>
-  editing: number | null
-  buffer: string
+interface CredentialPaneState {
+  values: Record<string, string>;
+  editing: number | null;
+  buffer: string;
 }
 
 /** Bullet-render a field's row label: masked live echo while editing, saved summary otherwise. */
@@ -563,11 +560,11 @@ function credentialRowLabel(
   buffer: string,
 ): string {
   if (isEditing) {
-    const shown = field.secret === true ? maskEcho(buffer) : buffer
-    return `${field.label}: ${shown}▏`
+    const shown = field.secret === true ? maskEcho(buffer) : buffer;
+    return `${field.label}: ${shown}▏`;
   }
-  if (saved.length === 0) return `${field.label}: (unset)`
-  return `${field.label}: ${field.secret === true ? maskSecret(saved) : saved}`
+  if (saved.length === 0) return `${field.label}: (unset)`;
+  return `${field.label}: ${field.secret === true ? maskSecret(saved) : saved}`;
 }
 
 /**
@@ -584,13 +581,13 @@ function openCredentialsPane(
   entry: PluginEntry,
   state: CredentialPaneState,
 ): void {
-  closeInsetOverlay(shell)
-  const fields = entry.credentials
+  closeInsetOverlay(shell);
+  const fields = entry.credentials;
   const rows: ResidualCatalogEntry[] = fields.map((f, i) => ({
     id: f.key,
     label: credentialRowLabel(f, state.values[f.key] ?? "", state.editing === i, state.buffer),
-  }))
-  rows.push({ id: BACK_ID, label: "Back to plugin" })
+  }));
+  rows.push({ id: BACK_ID, label: "Back to plugin" });
   openListOverlay(shell, {
     kind: "plugin_credentials",
     title: `${entry.name} · credentials`,
@@ -598,41 +595,41 @@ function openCredentialsPane(
     activeIndex: Math.min(state.editing ?? 0, rows.length - 1),
     ...payload(rows),
     describe: (id) => {
-      if (id === BACK_ID) return { what: "Return to the plugin row." }
-      const field = fields.find((f) => f.key === id)
-      if (field === undefined) return null
+      if (id === BACK_ID) return { what: "Return to the plugin row." };
+      const field = fields.find((f) => f.key === id);
+      if (field === undefined) return null;
       return {
         what: field.description ?? field.label,
         impact: "Enter edits this field. s saves. v saves then verifies.",
-      }
+      };
     },
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
+      const id = selectedId(selection, rows);
       if (id === undefined || id === BACK_ID) {
-        openPluginsSurface(shell, deps)
-        return
+        openPluginsSurface(shell, deps);
+        return;
       }
-      const idx = fields.findIndex((f) => f.key === id)
-      if (idx < 0) return
+      const idx = fields.findIndex((f) => f.key === id);
+      if (idx < 0) return;
       if (state.editing === idx) {
-        state.values = { ...state.values, [id]: state.buffer }
-        state.editing = null
-        state.buffer = ""
+        state.values = { ...state.values, [id]: state.buffer };
+        state.editing = null;
+        state.buffer = "";
       } else {
-        state.editing = idx
-        state.buffer = state.values[id] ?? ""
+        state.editing = idx;
+        state.buffer = state.values[id] ?? "";
       }
-      openCredentialsPane(shell, deps, plugins, entry, state)
+      openCredentialsPane(shell, deps, plugins, entry, state);
     },
     onAction: (_id, key) => {
       if (state.editing === null) {
-        if (key.ctrl || key.meta || key.option) return false
+        if (key.ctrl || key.meta || key.option) return false;
         if (key.name === "s") {
           void Promise.resolve(plugins.saveCredentials(entry.id, state.values)).then(
             () => deps.notify(`Saved credentials for ${entry.name}.`),
             (err: unknown) => deps.notify(`Save failed: ${errorText(err)}`),
-          )
-          return true
+          );
+          return true;
         }
         if (key.name === "v") {
           void Promise.resolve(plugins.saveCredentials(entry.id, state.values))
@@ -641,38 +638,38 @@ function openCredentialsPane(
               (result) =>
                 deps.notify(`${entry.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
               (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
-            )
-          return true
+            );
+          return true;
         }
-        return false
+        return false;
       }
       if (key.name === "backspace") {
-        state.buffer = state.buffer.slice(0, -1)
-        openCredentialsPane(shell, deps, plugins, entry, state)
-        return true
+        state.buffer = state.buffer.slice(0, -1);
+        openCredentialsPane(shell, deps, plugins, entry, state);
+        return true;
       }
-      const seq = typeof key.sequence === "string" ? key.sequence : ""
+      const seq = typeof key.sequence === "string" ? key.sequence : "";
       if (seq.length === 1 && seq >= " " && !key.ctrl && !key.meta && !key.option) {
-        state.buffer += seq
-        openCredentialsPane(shell, deps, plugins, entry, state)
-        return true
+        state.buffer += seq;
+        openCredentialsPane(shell, deps, plugins, entry, state);
+        return true;
       }
-      return false
+      return false;
     },
-  })
+  });
 }
 
 /** Single-field free-text prompt, used for "add plugin by path". */
 function openTextPromptPane(
   shell: AppShell,
   opts: {
-    readonly title: string
-    readonly what: string
-    readonly onSubmit: (value: string) => void
+    readonly title: string;
+    readonly what: string;
+    readonly onSubmit: (value: string) => void;
   },
   buffer: { value: string },
 ): void {
-  closeInsetOverlay(shell)
+  closeInsetOverlay(shell);
   openListOverlay(shell, {
     kind: "plugin_credentials",
     title: opts.title,
@@ -682,24 +679,28 @@ function openTextPromptPane(
     describe: () => ({ what: opts.what, impact: "Enter accepts. Esc cancels." }),
     onAccept: () => opts.onSubmit(buffer.value.trim()),
     onAction: (_id, key) => {
-      if (key.ctrl || key.meta || key.option) return false
+      if (key.ctrl || key.meta || key.option) return false;
       if (key.name === "backspace") {
-        buffer.value = buffer.value.slice(0, -1)
-        openTextPromptPane(shell, opts, buffer)
-        return true
+        buffer.value = buffer.value.slice(0, -1);
+        openTextPromptPane(shell, opts, buffer);
+        return true;
       }
-      const seq = typeof key.sequence === "string" ? key.sequence : ""
+      const seq = typeof key.sequence === "string" ? key.sequence : "";
       if (seq.length === 1 && seq >= " ") {
-        buffer.value += seq
-        openTextPromptPane(shell, opts, buffer)
-        return true
+        buffer.value += seq;
+        openTextPromptPane(shell, opts, buffer);
+        return true;
       }
-      return false
+      return false;
     },
-  })
+  });
 }
 
-function openAddPathPane(shell: AppShell, deps: CommandSurfaceDeps, plugins: PluginsSurfaceDeps): void {
+function openAddPathPane(
+  shell: AppShell,
+  deps: CommandSurfaceDeps,
+  plugins: PluginsSurfaceDeps,
+): void {
   openTextPromptPane(
     shell,
     {
@@ -707,20 +708,20 @@ function openAddPathPane(shell: AppShell, deps: CommandSurfaceDeps, plugins: Plu
       what: "Absolute or relative path to a plugin file or directory.",
       onSubmit: (path) => {
         if (path.length === 0) {
-          deps.notify("Enter a path first.")
-          return
+          deps.notify("Enter a path first.");
+          return;
         }
         void plugins.addPath(path).then(
           (result) => {
-            deps.notify(result.message)
-            openPluginsSurface(shell, deps)
+            deps.notify(result.message);
+            openPluginsSurface(shell, deps);
           },
           (err: unknown) => deps.notify(`Add failed: ${errorText(err)}`),
-        )
+        );
       },
     },
     { value: "" },
-  )
+  );
 }
 
 function openWebProviderChooser(
@@ -728,33 +729,33 @@ function openWebProviderChooser(
   deps: CommandSurfaceDeps,
   plugins: PluginsSurfaceDeps,
 ): void {
-  closeInsetOverlay(shell)
-  const providers = plugins.webProviders()
-  const current = plugins.currentWebProvider()
-  const AUTO_ID = "__auto__"
+  closeInsetOverlay(shell);
+  const providers = plugins.webProviders();
+  const current = plugins.currentWebProvider();
+  const AUTO_ID = "__auto__";
   const rows: ResidualCatalogEntry[] = [
     { id: AUTO_ID, label: current === undefined ? "‹ automatic ›" : "automatic" },
     ...providers.map((p) => ({ id: p.id, label: p.id === current ? `‹ ${p.name} ›` : p.name })),
     { id: BACK_ID, label: "Back to plugins" },
-  ]
+  ];
   openListOverlay(shell, {
     kind: "plugins",
     title: "web search provider",
     frameId: "overlay-plugin-web",
     ...payload(rows),
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
+      const id = selectedId(selection, rows);
       if (id === undefined || id === BACK_ID) {
-        openPluginsSurface(shell, deps)
-        return
+        openPluginsSurface(shell, deps);
+        return;
       }
-      const chosen = id === AUTO_ID ? undefined : id
+      const chosen = id === AUTO_ID ? undefined : id;
       void Promise.resolve(plugins.setWebProvider(chosen)).then(
         () => openPluginsSurface(shell, deps),
         (err: unknown) => deps.notify(`Set provider failed: ${errorText(err)}`),
-      )
+      );
     },
-  })
+  });
 }
 
 /**
@@ -763,30 +764,30 @@ function openWebProviderChooser(
  * Alt+W picks the web provider.
  */
 export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const plugins = deps.plugins
+  const plugins = deps.plugins;
   if (plugins === undefined) {
-    deps.notify("Plugin administration is not available in this session.")
-    return
+    deps.notify("Plugin administration is not available in this session.");
+    return;
   }
-  closeInsetOverlay(shell)
-  const entries = plugins.list()
+  closeInsetOverlay(shell);
+  const entries = plugins.list();
   const rows: ResidualCatalogEntry[] = entries.map((e) => ({
     id: e.id,
     label: pluginRowLabel(e),
-  }))
-  const loadWarnings = plugins.loadWarnings?.() ?? []
-  const loadSummary = formatPluginWarningsSummary(loadWarnings)
+  }));
+  const loadWarnings = plugins.loadWarnings?.() ?? [];
+  const loadSummary = formatPluginWarningsSummary(loadWarnings);
   if (loadSummary !== undefined) {
     rows.unshift({
       id: PLUGIN_LOAD_WARNINGS_ID,
       label: loadSummary.replace(/^plugins:\s*/, ""),
-    })
+    });
   }
   if (rows.length === 0) {
-    rows.push({ id: CLOSE_ID, label: "No plugins discovered" })
+    rows.push({ id: CLOSE_ID, label: "No plugins discovered" });
   }
-  rows.push({ id: CLOSE_ID, label: "Close plugins" })
-  const byId = new Map(entries.map((e) => [e.id, e]))
+  rows.push({ id: CLOSE_ID, label: "Close plugins" });
+  const byId = new Map(entries.map((e) => [e.id, e]));
   openListOverlay(shell, {
     kind: "plugins",
     title: "plugins",
@@ -796,30 +797,31 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       if (id === PLUGIN_LOAD_WARNINGS_ID) {
         return {
           what: loadSummary ?? "Plugin load warnings.",
-          impact: "Standing diagnostics from plugin discovery and load. Fix the named skills or plugins, then relaunch.",
+          impact:
+            "Standing diagnostics from plugin discovery and load. Fix the named skills or plugins, then relaunch.",
           tone: "consequence",
-        }
+        };
       }
-      const target = byId.get(id)
-      return target === undefined ? null : pluginDescription(target)
+      const target = byId.get(id);
+      return target === undefined ? null : pluginDescription(target);
     },
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
-      if (id === undefined || id === CLOSE_ID || id === PLUGIN_LOAD_WARNINGS_ID) return
-      const target = byId.get(id)
-      if (target === undefined) return
+      const id = selectedId(selection, rows);
+      if (id === undefined || id === CLOSE_ID || id === PLUGIN_LOAD_WARNINGS_ID) return;
+      const target = byId.get(id);
+      if (target === undefined) return;
       if (target.needsTrust === true) {
-        deps.notify(`${target.name} is untrusted — press Alt+T to trust it before enabling.`)
-        openPluginsSurface(shell, deps)
-        return
+        deps.notify(`${target.name} is untrusted — press Alt+T to trust it before enabling.`);
+        openPluginsSurface(shell, deps);
+        return;
       }
       void Promise.resolve(plugins.setEnabled(target.id, !target.enabled)).then(
         (result) => {
-          if (result?.message !== undefined) deps.notify(result.message)
-          openPluginsSurface(shell, deps)
+          if (result?.message !== undefined) deps.notify(result.message);
+          openPluginsSurface(shell, deps);
         },
         (err: unknown) => deps.notify(`Plugin update failed: ${errorText(err)}`),
-      )
+      );
     },
     onAction: (id, key) => {
       // Alt+<key>, never bare — c/v/t/a/w read as ordinary letters the
@@ -827,141 +829,141 @@ export function openPluginsSurface(shell: AppShell, deps: CommandSurfaceDeps): v
       // collides with the global copy-mode chord: this surface's overlay
       // branch returns before that handler is reached (see shell.ts's
       // top-level onKey), so exactly one of the two can ever fire.
-      if (key.ctrl || !(key.meta || key.option)) return false
-      if (id === PLUGIN_LOAD_WARNINGS_ID) return false
-      const target = byId.get(id)
-      if (target === undefined) return false
-      const name = typeof key.name === "string" ? key.name.toLowerCase() : ""
+      if (key.ctrl || !(key.meta || key.option)) return false;
+      if (id === PLUGIN_LOAD_WARNINGS_ID) return false;
+      const target = byId.get(id);
+      if (target === undefined) return false;
+      const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
       switch (name) {
         case "c":
-          if (target.credentials.length === 0) return false
+          if (target.credentials.length === 0) return false;
           openCredentialsPane(shell, deps, plugins, target, {
             values: { ...target.credentialValues },
             editing: null,
             buffer: "",
-          })
-          return true
+          });
+          return true;
         case "v":
           void plugins.verify(target.id, { ...target.credentialValues }).then(
             (result) =>
               deps.notify(`${target.name}: ${result.ok ? "ok" : "failed"} — ${result.message}`),
             (err: unknown) => deps.notify(`Verify failed: ${errorText(err)}`),
-          )
-          return true
+          );
+          return true;
         case "t":
-          if (target.needsTrust !== true) return false
+          if (target.needsTrust !== true) return false;
           void Promise.resolve(plugins.setEnabled(target.id, true)).then(
             (result) => {
-              if (result?.message !== undefined) deps.notify(result.message)
-              openPluginsSurface(shell, deps)
+              if (result?.message !== undefined) deps.notify(result.message);
+              openPluginsSurface(shell, deps);
             },
             (err: unknown) => deps.notify(`Trust failed: ${errorText(err)}`),
-          )
-          return true
+          );
+          return true;
         case "a":
-          openAddPathPane(shell, deps, plugins)
-          return true
+          openAddPathPane(shell, deps, plugins);
+          return true;
         case "w":
-          openWebProviderChooser(shell, deps, plugins)
-          return true
+          openWebProviderChooser(shell, deps, plugins);
+          return true;
         default:
-          return false
+          return false;
       }
     },
-  })
+  });
 }
 
 function hookRowLabel(entry: HookEntry): string {
-  return `${entry.name} — ${entry.enabled ? "enabled" : "disabled"}`
+  return `${entry.name} — ${entry.enabled ? "enabled" : "disabled"}`;
 }
 
 /** Discovered lifecycle hooks; Enter toggles enablement. */
 export function openHooksSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const hooks = deps.hooks
+  const hooks = deps.hooks;
   if (hooks === undefined) {
-    deps.notify("Hook administration is not available in this session.")
-    return
+    deps.notify("Hook administration is not available in this session.");
+    return;
   }
-  closeInsetOverlay(shell)
-  const entries = hooks.list()
-  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.id, label: hookRowLabel(e) }))
+  closeInsetOverlay(shell);
+  const entries = hooks.list();
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.id, label: hookRowLabel(e) }));
   if (rows.length === 0) {
-    rows.push({ id: CLOSE_ID, label: "No hooks discovered" })
+    rows.push({ id: CLOSE_ID, label: "No hooks discovered" });
   }
-  rows.push({ id: CLOSE_ID, label: "Close hooks" })
-  const byId = new Map(entries.map((e) => [e.id, e]))
+  rows.push({ id: CLOSE_ID, label: "Close hooks" });
+  const byId = new Map(entries.map((e) => [e.id, e]));
   openListOverlay(shell, {
     kind: "hooks",
     title: "hooks",
     frameId: "overlay-hooks",
     ...payload(rows),
     describe: (id) => {
-      const target = byId.get(id)
-      if (target === undefined) return null
+      const target = byId.get(id);
+      if (target === undefined) return null;
       return {
         what: `${target.runsOn} — ${target.path}`,
         impact: target.enabled ? "Enter turns this hook off." : "Enter turns this hook on.",
-      }
+      };
     },
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
-      if (id === undefined || id === CLOSE_ID) return
-      const target = byId.get(id)
-      if (target === undefined) return
+      const id = selectedId(selection, rows);
+      if (id === undefined || id === CLOSE_ID) return;
+      const target = byId.get(id);
+      if (target === undefined) return;
       void Promise.resolve(hooks.setEnabled(target.id, !target.enabled)).then(
         () => openHooksSurface(shell, deps),
         (err: unknown) => deps.notify(`Hook update failed: ${errorText(err)}`),
-      )
+      );
     },
-  })
+  });
 }
 
 export function mcpRowLabel(entry: McpEntry): string {
   switch (entry.state) {
     case "connecting":
-      return `${entry.name} — connecting`
+      return `${entry.name} — connecting`;
     case "connected": {
-      const n = entry.toolCount ?? 0
-      return `${entry.name} — connected · ${n} tool${n === 1 ? "" : "s"}`
+      const n = entry.toolCount ?? 0;
+      return `${entry.name} — connected · ${n} tool${n === 1 ? "" : "s"}`;
     }
     case "needs-auth":
-      return `${entry.name} — needs auth`
+      return `${entry.name} — needs auth`;
     case "failed":
-      return `${entry.name} — failed`
+      return `${entry.name} — failed`;
   }
 }
 
 function mcpDescription(entry: McpEntry): ItemDescription {
   switch (entry.state) {
     case "connecting":
-      return { what: "Connecting — its tools are not dispatchable yet." }
+      return { what: "Connecting — its tools are not dispatchable yet." };
     case "connected":
-      return { what: "Connected. Its tools are reachable through tool_search." }
+      return { what: "Connected. Its tools are reachable through tool_search." };
     case "needs-auth":
       return {
         what: "Authorization has not completed, so this server contributes no tools.",
         impact: "Enter opens the authorization page and copies the link.",
-      }
+      };
     case "failed":
-      return { what: entry.error ?? "Did not connect.", tone: "consequence" }
+      return { what: entry.error ?? "Did not connect.", tone: "consequence" };
   }
 }
 
 /** Configured MCP servers and their live state; Enter authorizes an unauthorized one. */
 export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void {
-  const mcp = deps.mcp
+  const mcp = deps.mcp;
   if (mcp === undefined) {
-    deps.notify("MCP administration is not available in this session.")
-    return
+    deps.notify("MCP administration is not available in this session.");
+    return;
   }
-  closeInsetOverlay(shell)
-  const entries = mcp.list()
-  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.name, label: mcpRowLabel(e) }))
+  closeInsetOverlay(shell);
+  const entries = mcp.list();
+  const rows: ResidualCatalogEntry[] = entries.map((e) => ({ id: e.name, label: mcpRowLabel(e) }));
   if (rows.length === 0) {
-    rows.push({ id: CLOSE_ID, label: "No MCP servers configured" })
+    rows.push({ id: CLOSE_ID, label: "No MCP servers configured" });
   }
-  rows.push({ id: CLOSE_ID, label: "Close mcp" })
-  const byName = new Map(entries.map((e) => [e.name, e]))
+  rows.push({ id: CLOSE_ID, label: "Close mcp" });
+  const byName = new Map(entries.map((e) => [e.name, e]));
   openListOverlay(shell, {
     kind: "mcp",
     title: "mcp",
@@ -971,32 +973,32 @@ export function openMcpSurface(shell: AppShell, deps: CommandSurfaceDeps): void 
     echoChoice: false,
     ...payload(rows),
     describe: (id) => {
-      const target = byName.get(id)
-      return target === undefined ? null : mcpDescription(target)
+      const target = byName.get(id);
+      return target === undefined ? null : mcpDescription(target);
     },
     onAccept: (selection) => {
-      const id = selectedId(selection, rows)
-      if (id === undefined || id === CLOSE_ID) return
-      const target = byName.get(id)
-      const url = target?.authURL
-      if (target === undefined || target.state !== "needs-auth" || url === undefined) return
-      mcp.openAuthURL(url)
+      const id = selectedId(selection, rows);
+      if (id === undefined || id === CLOSE_ID) return;
+      const target = byName.get(id);
+      const url = target?.authURL;
+      if (target === undefined || target.state !== "needs-auth" || url === undefined) return;
+      mcp.openAuthURL(url);
       // The copy is the fallback that makes this work over SSH, where the
       // browser that must receive the redirect is not on this machine.
-      void shell.clipboard.writeText(url)
-      closeInsetOverlay(shell)
+      void shell.clipboard.writeText(url);
+      closeInsetOverlay(shell);
       setStatusFlash(shell, `opening ${target.name} authorization — link copied`, {
         ttlMs: MCP_AUTH_FLASH_MS,
-      })
+      });
     },
-  })
+  });
 }
 
 /** Long enough to notice the browser was asked to open, and why. */
-const MCP_AUTH_FLASH_MS = 6000
+const MCP_AUTH_FLASH_MS = 6000;
 
 function errorText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -1011,26 +1013,26 @@ export function openCommandSurface(
 ): boolean {
   switch (kind) {
     case "help":
-      openHelpOverlay(shell)
-      return true
+      openHelpOverlay(shell);
+      return true;
     case "settings":
-      openSettingsSurface(shell, deps)
-      return true
+      openSettingsSurface(shell, deps);
+      return true;
     case "permissions":
-      openPermissionsSurface(shell, deps)
-      return true
+      openPermissionsSurface(shell, deps);
+      return true;
     case "plugins":
-      openPluginsSurface(shell, deps)
-      return true
+      openPluginsSurface(shell, deps);
+      return true;
     case "hooks":
-      openHooksSurface(shell, deps)
-      return true
+      openHooksSurface(shell, deps);
+      return true;
     case "mcp":
-      openMcpSurface(shell, deps)
-      return true
+      openMcpSurface(shell, deps);
+      return true;
     case "models":
-      if (deps.openModels === undefined) return false
-      deps.openModels()
-      return true
+      if (deps.openModels === undefined) return false;
+      deps.openModels();
+      return true;
   }
 }

@@ -14,7 +14,6 @@ function storePath(cwd: string, sessionId: string, home?: string): string {
   return join(sessionDir(cwd, sessionId, home), "permissions.json");
 }
 
-
 // Persistent project grants live next to the project's settings. The file is
 // gitignored (machine-local), so a teammate who pulls the repo never silently
 // inherits another machine's auto-approvals.
@@ -101,7 +100,10 @@ function chainObjectWrite(
     await rename(tmp, path);
   };
   const chained = (writeChains.get(path) ?? Promise.resolve()).then(run, run);
-  writeChains.set(path, chained.catch(() => undefined));
+  writeChains.set(
+    path,
+    chained.catch(() => undefined),
+  );
   return chained;
 }
 
@@ -112,7 +114,6 @@ export async function loadApprovals(
 ): Promise<Approval[]> {
   return readApprovalsField(storePath(cwd, sessionId, home), "approvals");
 }
-
 
 export async function loadProjectApprovals(cwd: string): Promise<Approval[]> {
   return readApprovalsField(projectStorePath(cwd), "approvals");
@@ -156,14 +157,20 @@ export async function loadProviderModelApprovals(home: string = homedir()): Prom
   }
 }
 
-export async function saveGlobalApproval(approval: Approval, home: string = homedir()): Promise<void> {
+export async function saveGlobalApproval(
+  approval: Approval,
+  home: string = homedir(),
+): Promise<void> {
   return chainObjectWrite(globalStorePath(home), (current) => ({
     ...current,
     approvals: [...parseApprovalList(current.approvals), approval],
   }));
 }
 
-export async function removeGlobalApproval(target: Approval, home: string = homedir()): Promise<void> {
+export async function removeGlobalApproval(
+  target: Approval,
+  home: string = homedir(),
+): Promise<void> {
   return chainObjectWrite(globalStorePath(home), (current) => ({
     ...current,
     approvals: parseApprovalList(current.approvals).filter((a) => !sameApproval(a, target)),

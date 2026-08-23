@@ -14,16 +14,14 @@ export const FEEDBACK_PROMPT =
 
 export const FEEDBACK_THANKS = "Thanks — feedback sent.";
 
-export const FEEDBACK_THANKS_TRUNCATED =
-  "Thanks — feedback sent (truncated to 2000 characters).";
+export const FEEDBACK_THANKS_TRUNCATED = "Thanks — feedback sent (truncated to 2000 characters).";
 
 export const FEEDBACK_EMPTY = "No feedback text provided.";
 
 export const FEEDBACK_BLOCKED =
   "Feedback could not be sent (disabled by environment or missing install identity).";
 
-export const FEEDBACK_UNCONFIGURED =
-  "Feedback is not configured (missing survey id).";
+export const FEEDBACK_UNCONFIGURED = "Feedback is not configured (missing survey id).";
 
 /**
  * Corbits team survey — public routing ids (same trust class as the baked-in
@@ -111,10 +109,7 @@ export function captureFeedback(
     return "unconfigured";
   }
   const truncated = trimmed.length > FEEDBACK_MAX_CHARS;
-  const ok = telemetry.captureIntentional(
-    "survey sent",
-    buildSurveyProperties(trimmed, options),
-  );
+  const ok = telemetry.captureIntentional("survey sent", buildSurveyProperties(trimmed, options));
   if (!ok) return "blocked";
   // Deterministic handoff to PostHog — not part of the agent loop. Flush so
   // the response is not sitting in the ambient batch queue until idle exit.

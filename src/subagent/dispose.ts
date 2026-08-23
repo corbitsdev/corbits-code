@@ -17,7 +17,11 @@ export { abortError };
 export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted === true) return true;
   if (err instanceof Error && err.name === "AbortError") return true;
-  if (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError") {
+  if (
+    typeof DOMException !== "undefined" &&
+    err instanceof DOMException &&
+    err.name === "AbortError"
+  ) {
     return true;
   }
   return false;
@@ -37,17 +41,17 @@ export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
   "Per sub-agent session Corbits Code runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
   "run_shell and ripgrep spawns honor AbortSignal process-group kill but are not tracked in a global registry until shell-guard/ripgrep expose spawn hooks.";
 
-export type SubAgentSpawnSnapshot = {
+export interface SubAgentSpawnSnapshot {
   inFlightToolCalls: number;
   inFlightByTool: Readonly<Record<string, number>>;
-};
+}
 
 const PLUGIN_SPAWN_TRACKED_TOOLS = new Set(["run_shell", "grep", "search_files"]);
 
-export type SubAgentSpawnRegistry = {
+export interface SubAgentSpawnRegistry {
   plugin: ToolPlugin;
   snapshot: () => SubAgentSpawnSnapshot;
-};
+}
 
 /** Middleware plugin: visibility for plugin-layer tool calls that may spawn children. */
 export function createSubAgentSpawnRegistryPlugin(): SubAgentSpawnRegistry {
@@ -86,13 +90,13 @@ export function createSubAgentSpawnRegistryPlugin(): SubAgentSpawnRegistry {
   return { plugin, snapshot };
 }
 
-export type SubAgentSessionDisposeInput = {
+export interface SubAgentSessionDisposeInput {
   signal?: AbortSignal | undefined;
   closeOnAbort?: (() => void) | undefined;
   agent: { close(): Promise<void> } | null;
   streamPromise?: Promise<void> | undefined;
   posixTools: { dispose(): Promise<void> };
-};
+}
 
 /** Idempotent teardown for one sub-agent loop (completion, error, or cancel). */
 export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput): Promise<void> {

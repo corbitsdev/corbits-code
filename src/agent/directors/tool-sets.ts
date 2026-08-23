@@ -17,12 +17,7 @@ export const READ_TOOLS = [
 ] as const;
 
 /** Build: read + full file mutation. */
-export const BUILD_TOOLS = [
-  ...READ_TOOLS,
-  "write_file",
-  "edit_file",
-  "delete_file",
-] as const;
+export const BUILD_TOOLS = [...READ_TOOLS, "write_file", "edit_file", "delete_file"] as const;
 
 /**
  * Docs leaves: read/search/lsp/web + file writes — no run_shell, no delete_file.
@@ -46,11 +41,7 @@ export const REVIEW_TOOLS = [...READ_TOOLS] as const;
 export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir"] as const;
 
 /** Nested orchestrator surface (greybeard / package filter): dispatch only. */
-export const ORCHESTRATOR_TOOLS = [
-  ...READ_TOOLS,
-  "search_agents",
-  "task",
-] as const;
+export const ORCHESTRATOR_TOOLS = [...READ_TOOLS, "search_agents", "task"] as const;
 
 /** Skywalker primary: orchestrator surface plus product writes for DIY tiny work. */
 export const SKYWALKER_TOOLS = [

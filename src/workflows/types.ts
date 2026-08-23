@@ -10,21 +10,21 @@ export type StepStatus = "pending" | "active" | "completed" | "skipped";
 
 // One entry on the runtime call stack. The active frame is the last element;
 // nested sub-workflows push new frames and pop on completion.
-export type WorkflowFrame = {
+export interface WorkflowFrame {
   // Name of the workflow this frame is executing.
   workflow: string;
   // Index of the active step within that workflow's `steps`.
   stepIndex: number;
   // Per-step status, parallel to the workflow's `steps` array.
   statuses: StepStatus[];
-};
+}
 
 // Serializable runtime state, persisted after every step transition so a run
 // can resume mid-recipe (including mid sub-workflow chain).
-export type WorkflowState = {
+export interface WorkflowState {
   stack: WorkflowFrame[];
   completed: boolean;
-};
+}
 
 // Maximum sub-workflow nesting depth. Guards against accidental cycles
 // (build-feature -> code-review -> build-feature -> ...).

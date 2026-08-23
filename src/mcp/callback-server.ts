@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { callbackPageHtml } from "../auth/callback-page.js";
 
-export type CallbackServer = {
+export interface CallbackServer {
   // The redirect_uri to register with the authorization server.
   redirectUrl: string;
   expectState: (state: string) => void;
@@ -10,10 +10,13 @@ export type CallbackServer = {
   // if the signal aborts or the server reports an error.
   waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
-};
+}
 
 type CallbackResult = { code: string } | { error: Error };
-type CallbackWaiter = { resolve: (code: string) => void; reject: (error: Error) => void };
+interface CallbackWaiter {
+  resolve: (code: string) => void;
+  reject: (error: Error) => void;
+}
 
 const CALLBACK_PATH = "/callback";
 
@@ -68,7 +71,8 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
       }),
     );
     if (error !== null) deliver({ error: new Error(`Authorization failed: ${error}`) });
-    else if (code === null) deliver({ error: new Error("Authorization redirect carried no code.") });
+    else if (code === null)
+      deliver({ error: new Error("Authorization redirect carried no code.") });
     else deliver({ code });
   });
 
@@ -101,11 +105,15 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
           return;
         }
         waiter = { resolve, reject };
-        signal.addEventListener("abort", () => {
-          if (waiter === undefined || waiter.resolve !== resolve) return;
-          clearAuthorization();
-          reject(new Error("aborted"));
-        }, { once: true });
+        signal.addEventListener(
+          "abort",
+          () => {
+            if (waiter === undefined || waiter.resolve !== resolve) return;
+            clearAuthorization();
+            reject(new Error("aborted"));
+          },
+          { once: true },
+        );
       }),
     close: () => server.close(),
   };
