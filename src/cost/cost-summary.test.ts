@@ -5,6 +5,7 @@ import {
   buildCostSummary,
   formatCostCommandOutput,
   formatStatusBarSegments,
+  maskContextMeterWhenNoTurns,
 } from "./cost-summary.js";
 import type { CostSummaryInput } from "./cost-summary.js";
 
@@ -61,6 +62,25 @@ describe("buildCostSummary", () => {
   it("shows cost for a normal metered model", () => {
     const summary = buildCostSummary(baseInput);
     expect(summary.costHiddenReason).toBeNull();
+  });
+});
+
+describe("maskContextMeterWhenNoTurns", () => {
+  it("hides the meter on a zero-turn session even when contextTokens are non-zero", () => {
+    const summary = buildCostSummary(baseInput);
+    expect(summary.contextPercentUsed).toBe(50);
+
+    const masked = maskContextMeterWhenNoTurns(summary, 0);
+    expect(masked.contextPercentUsed).toBeNull();
+    expect(masked.contextIsEstimate).toBe(false);
+    // Cost totals stay untouched — only occupancy display is suppressed.
+    expect(masked.totalCost).toBe(summary.totalCost);
+    expect(masked.formattedCost).toBe(summary.formattedCost);
+  });
+
+  it("leaves a session with turns unchanged", () => {
+    const summary = buildCostSummary(baseInput);
+    expect(maskContextMeterWhenNoTurns(summary, 1)).toEqual(summary);
   });
 });
 
