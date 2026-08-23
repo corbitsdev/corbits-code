@@ -8,7 +8,7 @@
  * threshold, so the run loop can abort the cycle instead of streaming forever.
  *
  * Also home to the TUI stall-watchdog's character-level tail-repetition
- * guard (`detectCharRepetition`) — a separate, simpler check consolidated
+ * guard (`detectTailCharLoop`) — a separate, simpler check consolidated
  * here from tui/stall-watchdog.ts so the two repetition detectors live in one
  * module instead of two. It solves the same "is the tail looping" question
  * for a different consumer with different constants; see its own doc comment
@@ -293,7 +293,7 @@ const CHAR_REPETITION_MAX_PERIOD_CAP = 2_000;
 // cycle spans two full sentences, comfortably above it.
 const CHAR_REPETITION_MIN_DISTINCT_CHARS = 8;
 
-export type CharRepetitionCheck = SequencePeriodCheck;
+export type TailCharLoopCheck = SequencePeriodCheck;
 
 /**
  * Whether the tail of `text` is an exact repeat of some short span at least
@@ -315,7 +315,7 @@ export type CharRepetitionCheck = SequencePeriodCheck;
  * see the config comments on each for why neither threshold set may be
  * changed to match the other.
  */
-export function detectCharRepetition(text: string): CharRepetitionCheck {
+export function detectTailCharLoop(text: string): TailCharLoopCheck {
   return detectSequencePeriod(text.split(""), {
     minPeriod: CHAR_REPETITION_MIN_PERIOD,
     maxPeriod: CHAR_REPETITION_MAX_PERIOD_CAP,
