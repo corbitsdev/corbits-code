@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Sub-agents
+
+- **Sub-agent `maxTurns` no longer hard-caps at 100.** Default remains 30 when
+  unset; values must still be integers ≥1. `task(maxTurns)`, profile
+  `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
+
 ### TUI
 
 - **Taller live chain-of-thought preview.** Parent reasoning still paints
