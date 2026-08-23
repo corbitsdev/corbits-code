@@ -133,7 +133,7 @@ describe("grok-responses buildRequest", () => {
     expect(body).not.toHaveProperty("prompt_cache_key");
   });
 
-  test("drops duplicate tool results for a call id", () => {
+  test("keeps the latest tool result for a duplicated call id", () => {
     const turns: ConversationTurn[] = [
       {
         role: "assistant",
@@ -168,7 +168,7 @@ describe("grok-responses buildRequest", () => {
         arguments: JSON.stringify({ path: "a.ts" }),
         call_id: "call-1",
       },
-      { type: "function_call_output", call_id: "call-1", output: "first" },
+      { type: "function_call_output", call_id: "call-1", output: "duplicate" },
     ]);
   });
 });
