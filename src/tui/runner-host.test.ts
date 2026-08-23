@@ -508,6 +508,39 @@ describe("bottom border cost run", () => {
       harness.destroy();
     }
   });
+
+  test("connector.reply refreshes the cost meter after idle compact meter-sync", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const emitter = new EventEmitter();
+    let percent = 90;
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: emitter,
+      send: () => {},
+      interrupt: () => {},
+      providers: {},
+      onModelSelect: () => {},
+      commands: [],
+      onCommand: () => {},
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => {},
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+      readCostSummary: () => ({ ...fakeCostSummary(), contextPercentUsed: percent }),
+    });
+    try {
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
+
+      percent = 12;
+      emitter.emit("event", { type: "connector.reply", data: { content: "" } });
+
+      expect(ruleOf(host.shell.promptBottomRule)).toContain("12%");
+      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("90%");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
 });
 
 /** Resolves true when the host exited, false when it is still alive. */
