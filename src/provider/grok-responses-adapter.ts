@@ -36,11 +36,14 @@ export const GROK_RESPONSES_PROVIDER = "grok-responses";
 export const GROK_USER_ID_OPTION = "grokUserId";
 
 type ResponsesInputContentPart =
-  | { type: "input_text"; text: string }
-  | { type: "input_image"; image_url: string };
+  { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
 
 type ResponsesInputItem =
-  | { type: "message"; role: "user" | "assistant" | "system"; content: string | ResponsesInputContentPart[] }
+  | {
+      type: "message";
+      role: "user" | "assistant" | "system";
+      content: string | ResponsesInputContentPart[];
+    }
   | { type: "function_call"; name: string; arguments: string; call_id: string }
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
@@ -57,7 +60,11 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
 // Map one internal turn to Responses items. Text-only messages keep the string
 // shape grok sends; messages with image blocks switch to Responses content parts
 // so the model receives the actual pixels instead of only a text placeholder.
-function toResponsesItems(turn: ConversationTurn, requestModel: string, requestProvider: string): ResponsesInputItem[] {
+function toResponsesItems(
+  turn: ConversationTurn,
+  requestModel: string,
+  requestProvider: string,
+): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
   const role = turn.role;
   const parts: ResponsesInputContentPart[] = [];
@@ -68,7 +75,9 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string, requestP
     items.push({
       type: "message",
       role,
-      content: hasImage ? [...parts] : parts.map((part) => part.type === "input_text" ? part.text : "").join(""),
+      content: hasImage
+        ? [...parts]
+        : parts.map((part) => (part.type === "input_text" ? part.text : "")).join(""),
     });
     parts.length = 0;
     hasImage = false;
@@ -80,12 +89,18 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string, requestP
     } else if (block.type === "image") {
       if (block.source.kind === "base64") {
         hasImage = true;
-        parts.push({ type: "input_image", image_url: `data:${block.source.mimeType};base64,${block.source.data}` });
+        parts.push({
+          type: "input_image",
+          image_url: `data:${block.source.mimeType};base64,${block.source.data}`,
+        });
       } else if (block.source.kind === "url") {
         hasImage = true;
         parts.push({ type: "input_image", image_url: block.source.url });
       } else {
-        parts.push({ type: "input_text", text: `[Unsupported image reference omitted: ${block.source.reference}]` });
+        parts.push({
+          type: "input_text",
+          text: `[Unsupported image reference omitted: ${block.source.reference}]`,
+        });
       }
     } else if (block.type === "tool_call") {
       flushMessage();
@@ -97,10 +112,23 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string, requestP
       });
     } else if (block.type === "tool_result") {
       flushMessage();
-      items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
-    } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
+      items.push({
+        type: "function_call_output",
+        call_id: block.callId,
+        output: toolResultText(block),
+      });
+    } else if (
+      block.type === "thinking" &&
+      typeof block.signature === "string" &&
+      block.signature.length > 0
+    ) {
       flushMessage();
-      const encryptedContent = signatureForModel(turn, requestModel, requestProvider, block.signature);
+      const encryptedContent = signatureForModel(
+        turn,
+        requestModel,
+        requestProvider,
+        block.signature,
+      );
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
       }
@@ -144,7 +172,9 @@ function buildRequest(
   options: InferenceOptions,
   requestProvider: string,
 ): BuiltRequest {
-  const conversation = dedupeToolOutputs(messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider)));
+  const conversation = dedupeToolOutputs(
+    messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider)),
+  );
   const systemMessage: ResponsesInputItem | undefined =
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }
@@ -191,7 +221,8 @@ function buildRequest(
 export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAdapter {
   const indexer = createResponsesBlockIndexer();
   return {
-    buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
+    buildRequest: (messages, model, options) =>
+      buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
     parseJSONResponse,
   };

@@ -13,12 +13,12 @@ export type RgOutcome =
   | { kind: "error"; message: string }
   | { kind: "partial"; stdout: string; notice?: string };
 
-export type RgCollector = {
+export interface RgCollector {
   /** Returns an outcome once the cap is breached, otherwise undefined. */
   push: (chunk: string) => RgOutcome | undefined;
   close: (code: number | null, stderr: string) => RgOutcome | undefined;
   timeout: (timeoutMs: number) => RgOutcome | undefined;
-};
+}
 
 // Cutting at the cap can land mid-line; drop the trailing fragment so callers
 // never see a half-formed match.

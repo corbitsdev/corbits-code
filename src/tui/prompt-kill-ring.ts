@@ -20,18 +20,21 @@
  * during the OpenTUI cutover.
  */
 
-export const KILL_RING_MAX = 10
+export const KILL_RING_MAX = 10;
 
-export type YankSpan = { start: number; end: number }
+export interface YankSpan {
+  start: number;
+  end: number;
+}
 
-export type KillRing = {
+export interface KillRing {
   /** Killed strings, most recent first. */
-  entries: string[]
+  entries: string[];
   /** Ring entry inserted by the most recent yank; Alt+Y advances it. */
-  yankIndex: number
-  lastAction: "kill-forward" | "kill-backward" | "yank" | "other"
+  yankIndex: number;
+  lastAction: "kill-forward" | "kill-backward" | "yank" | "other";
   /** Buffer span occupied by the last yank; null unless the previous command was a yank. */
-  lastYankSpan: YankSpan | null
+  lastYankSpan: YankSpan | null;
 }
 
 export const emptyKillRing: KillRing = {
@@ -39,12 +42,12 @@ export const emptyKillRing: KillRing = {
   yankIndex: 0,
   lastAction: "other",
   lastYankSpan: null,
-}
+};
 
 /** Any command that is not a kill or yank ends accumulation and rotation. */
 export function breakKillSequence(ring: KillRing): KillRing {
-  if (ring.lastAction === "other" && ring.lastYankSpan === null) return ring
-  return { ...ring, lastAction: "other", lastYankSpan: null }
+  if (ring.lastAction === "other" && ring.lastYankSpan === null) return ring;
+  return { ...ring, lastAction: "other", lastYankSpan: null };
 }
 
 // Consecutive kills grow a single ring entry the way readline does: forward
@@ -55,32 +58,29 @@ export function recordKill(
   text: string,
   direction: "forward" | "backward",
 ): KillRing {
-  if (text.length === 0) return breakKillSequence(ring)
+  if (text.length === 0) return breakKillSequence(ring);
   const accumulating =
     (ring.lastAction === "kill-forward" || ring.lastAction === "kill-backward") &&
-    ring.entries.length > 0
+    ring.entries.length > 0;
   const entries = accumulating
     ? [
         direction === "forward" ? ring.entries[0]! + text : text + ring.entries[0]!,
         ...ring.entries.slice(1),
       ]
-    : [text, ...ring.entries].slice(0, KILL_RING_MAX)
+    : [text, ...ring.entries].slice(0, KILL_RING_MAX);
   return {
     entries,
     yankIndex: 0,
     lastAction: direction === "forward" ? "kill-forward" : "kill-backward",
     lastYankSpan: null,
-  }
+  };
 }
 
 /** Ctrl+Y: text to insert at the cursor, or null when nothing has been killed. */
-export function beginYank(
-  ring: KillRing,
-  cursor: number,
-): { ring: KillRing; text: string } | null {
-  const index = ring.yankIndex < ring.entries.length ? ring.yankIndex : 0
-  const text = ring.entries[index]
-  if (text === undefined) return null
+export function beginYank(ring: KillRing, cursor: number): { ring: KillRing; text: string } | null {
+  const index = ring.yankIndex < ring.entries.length ? ring.yankIndex : 0;
+  const text = ring.entries[index];
+  if (text === undefined) return null;
   return {
     text,
     ring: {
@@ -89,7 +89,7 @@ export function beginYank(
       lastAction: "yank",
       lastYankSpan: { start: cursor, end: cursor + text.length },
     },
-  }
+  };
 }
 
 /**
@@ -99,11 +99,11 @@ export function beginYank(
 export function rotateYank(
   ring: KillRing,
 ): { ring: KillRing; span: YankSpan; text: string } | null {
-  if (ring.lastAction !== "yank" || ring.lastYankSpan === null) return null
-  if (ring.entries.length === 0) return null
-  const nextIndex = (ring.yankIndex + 1) % ring.entries.length
-  const text = ring.entries[nextIndex]!
-  const span = ring.lastYankSpan
+  if (ring.lastAction !== "yank" || ring.lastYankSpan === null) return null;
+  if (ring.entries.length === 0) return null;
+  const nextIndex = (ring.yankIndex + 1) % ring.entries.length;
+  const text = ring.entries[nextIndex]!;
+  const span = ring.lastYankSpan;
   return {
     text,
     span,
@@ -113,7 +113,7 @@ export function rotateYank(
       lastAction: "yank",
       lastYankSpan: { start: span.start, end: span.start + text.length },
     },
-  }
+  };
 }
 
 /**
@@ -122,10 +122,14 @@ export function rotateYank(
  * pre-delete value starting at the pre-delete cursor, sized by however much
  * the buffer shrank.
  */
-export function killedTextForward(beforeValue: string, beforeCursor: number, afterValue: string): string {
-  const removedLen = beforeValue.length - afterValue.length
-  if (removedLen <= 0) return ""
-  return beforeValue.slice(beforeCursor, beforeCursor + removedLen)
+export function killedTextForward(
+  beforeValue: string,
+  beforeCursor: number,
+  afterValue: string,
+): string {
+  const removedLen = beforeValue.length - afterValue.length;
+  if (removedLen <= 0) return "";
+  return beforeValue.slice(beforeCursor, beforeCursor + removedLen);
 }
 
 /**
@@ -133,7 +137,11 @@ export function killedTextForward(beforeValue: string, beforeCursor: number, aft
  * where the deletion started, so the killed text is the slice of the
  * pre-delete value between the new cursor and the old one.
  */
-export function killedTextBackward(beforeValue: string, beforeCursor: number, afterCursor: number): string {
-  if (afterCursor >= beforeCursor) return ""
-  return beforeValue.slice(afterCursor, beforeCursor)
+export function killedTextBackward(
+  beforeValue: string,
+  beforeCursor: number,
+  afterCursor: number,
+): string {
+  if (afterCursor >= beforeCursor) return "";
+  return beforeValue.slice(afterCursor, beforeCursor);
 }

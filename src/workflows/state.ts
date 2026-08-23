@@ -14,7 +14,6 @@ function workflowStatePath(cwd: string, sessionId: string, home?: string): strin
   return join(sessionDir(cwd, sessionId, home), "workflow.json");
 }
 
-
 function isValidWorkflowState(data: unknown): data is WorkflowState {
   if (typeof data !== "object" || data === null) return false;
   const s = data as Record<string, unknown>;
@@ -39,7 +38,9 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
 
 /** Surface a failed workflow.json write instead of dropping it silently. */
 export function warnWorkflowPersistenceFailure(path: string, reason: string): void {
-  process.stderr.write(`${COMMAND_NAME}: failed to persist workflow state at ${path} (${reason})\n`);
+  process.stderr.write(
+    `${COMMAND_NAME}: failed to persist workflow state at ${path} (${reason})\n`,
+  );
 }
 
 export async function saveWorkflowState(
@@ -52,7 +53,10 @@ export async function saveWorkflowState(
   const payload = JSON.stringify(state, null, 2);
   const run = (): Promise<void> => atomicWrite(path, payload);
   const chained = (writeChains.get(path) ?? Promise.resolve()).then(run, run);
-  writeChains.set(path, chained.catch(() => undefined));
+  writeChains.set(
+    path,
+    chained.catch(() => undefined),
+  );
   await chained;
 }
 

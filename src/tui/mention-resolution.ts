@@ -28,8 +28,14 @@ async function summarizeDir(abs: string): Promise<string> {
 
   const dirList = dirNames.join(", ");
   const parts: string[] = [];
-  if (files > 0) parts.push(`${files}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} file${files === 1 ? "" : "s"}`);
-  if (dirs > 0) parts.push(`${dirs}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} subdirector${dirs === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`);
+  if (files > 0)
+    parts.push(
+      `${files}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} file${files === 1 ? "" : "s"}`,
+    );
+  if (dirs > 0)
+    parts.push(
+      `${dirs}${scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES ? "+" : ""} subdirector${dirs === 1 ? "y" : "ies"}${dirList ? ` (${dirList})` : ""}`,
+    );
   return parts.length > 0 ? parts.join(", ") : "empty directory";
 }
 
@@ -42,7 +48,7 @@ async function summarizeDir(abs: string): Promise<string> {
 // own terms, and an @mention grants it no standing there.
 export async function resolveAtMentions(message: string, cwd: string): Promise<string> {
   const pattern = /@("([^"]+)"|(\S+))/g;
-  const mentions: Array<{ full: string; path: string }> = [];
+  const mentions: { full: string; path: string }[] = [];
   let m: RegExpExecArray | null;
   while ((m = pattern.exec(message)) !== null) {
     const path = m[2] ?? m[3] ?? "";
@@ -50,16 +56,22 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
   }
   if (mentions.length === 0) return message;
 
-  const replacements: Array<{ full: string; replacement: string }> = [];
+  const replacements: { full: string; replacement: string }[] = [];
   let totalBytes = 0;
 
   for (const [index, { full, path }] of mentions.entries()) {
     if (index >= MAX_MENTION_COUNT) {
-      replacements.push({ full, replacement: `${full} (blocked: too many @mentions; max ${MAX_MENTION_COUNT})` });
+      replacements.push({
+        full,
+        replacement: `${full} (blocked: too many @mentions; max ${MAX_MENTION_COUNT})`,
+      });
       continue;
     }
     if (path === "~" || path.startsWith("~/")) {
-      replacements.push({ full, replacement: `${full} (blocked: home-relative paths are not supported)` });
+      replacements.push({
+        full,
+        replacement: `${full} (blocked: home-relative paths are not supported)`,
+      });
       continue;
     }
     if (isSensitivePath(path)) {
@@ -86,11 +98,17 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
         continue;
       }
       if (info.size > MAX_MENTION_FILE_BYTES) {
-        replacements.push({ full, replacement: `${full} (blocked: file is too large; max ${MAX_MENTION_FILE_BYTES} bytes)` });
+        replacements.push({
+          full,
+          replacement: `${full} (blocked: file is too large; max ${MAX_MENTION_FILE_BYTES} bytes)`,
+        });
         continue;
       }
       if (totalBytes + info.size > MAX_MENTION_TOTAL_BYTES) {
-        replacements.push({ full, replacement: `${full} (blocked: total @mention content is too large; max ${MAX_MENTION_TOTAL_BYTES} bytes)` });
+        replacements.push({
+          full,
+          replacement: `${full} (blocked: total @mention content is too large; max ${MAX_MENTION_TOTAL_BYTES} bytes)`,
+        });
         continue;
       }
       const content = await readFile(abs, "utf-8");
