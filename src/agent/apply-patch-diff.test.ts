@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
@@ -24,11 +24,14 @@ async function invokeApplyPatch(tools: AgentTool[], input: string) {
   );
 }
 
-async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
+async function makeApplyPatch(
+  cwd: string,
+  options: { skipPermissions?: boolean } = {},
+): Promise<AgentTool[]> {
   const gate = createPermissionGate({
     approvals: [],
     interactive: false,
-    skipPermissions: true,
+    skipPermissions: options.skipPermissions ?? true,
     auto: false,
     cwd,
   });
@@ -51,7 +54,7 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
   return createCodexToolProxies({
     isCodex: true,
     runTool,
-    readRawFile: createCodexReadRawFile(cwd),
+    readRawFile: createCodexReadRawFile(cwd, gate),
     runManageTasks: async () => ({ content: "ok" }),
   });
 }
@@ -145,6 +148,101 @@ describe("apply_patch Update File matches raw content, not read_file's numbered 
       expect(String(result.content)).toContain("+hello");
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("apply_patch Update File refuses reads outside the sanctioned workspace (CL-6966 follow-up)", () => {
+  // Insertion-only hunk (no context to match): the shape that makes an
+  // unauthorized raw read exploitable rather than merely wrong, since it
+  // requires no content match to "succeed" and hands the read content
+  // straight to write_file via Move to.
+  const insertionOnlyMoveInput = (path: string, moveTo: string) =>
+    [
+      "*** Begin Patch",
+      `*** Update File: ${path}`,
+      `*** Move to: ${moveTo}`,
+      "@@",
+      "+",
+      "*** End Patch",
+    ].join("\n");
+
+  test("../ traversal out of the workspace is refused", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-parent-"));
+    const cwd = join(parent, "workspace");
+    await mkdir(cwd);
+    try {
+      await writeFile(join(parent, "victim.txt"), "outside secret\n");
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput("../victim.txt", "leaked.txt"),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/i);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("a symlinked directory leading outside the workspace is refused", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-symlink-"));
+    const cwd = join(parent, "workspace");
+    const outside = join(parent, "outside");
+    await mkdir(cwd);
+    await mkdir(outside);
+    try {
+      await writeFile(join(outside, "victim.txt"), "outside secret\n");
+      await symlink(outside, join(cwd, "escape-link"));
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput("escape-link/victim.txt", "leaked.txt"),
+      );
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/i);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("a secret-guard path (.env) is refused even with skipPermissions", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-secret-"));
+    try {
+      await writeFile(join(cwd, ".env"), "API_KEY=super-secret\n");
+      // skipPermissions: true (yolo) — secret-guard has no bypass, unlike containment.
+      const tools = await makeApplyPatch(cwd, { skipPermissions: true });
+
+      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput(".env", "leaked.txt"));
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file/i);
+      // The secret must never have reached the workspace under a new name.
+      expect(await Bun.file(join(cwd, "leaked.txt")).exists()).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("../ traversal to a secret file is refused (secret-guard applies to relative paths too)", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-secret-parent-"));
+    const cwd = join(parent, "workspace");
+    await mkdir(cwd);
+    try {
+      await writeFile(join(parent, ".env"), "API_KEY=super-secret\n");
+      const tools = await makeApplyPatch(cwd, { skipPermissions: false });
+
+      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput("../.env", "leaked.txt"));
+
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+      expect(await Bun.file(join(cwd, "leaked.txt")).exists()).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
     }
   });
 });

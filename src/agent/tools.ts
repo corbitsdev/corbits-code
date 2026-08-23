@@ -388,7 +388,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     ...createCodexToolProxies({
       isCodex: args.isCodex === true,
       runTool,
-      readRawFile: createCodexReadRawFile(cwd),
+      readRawFile: createCodexReadRawFile(cwd, permissionGate),
       runManageTasks,
     }),
   );
