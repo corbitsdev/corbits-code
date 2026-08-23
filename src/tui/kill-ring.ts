@@ -5,9 +5,12 @@
 
 export const KILL_RING_MAX = 10;
 
-export type YankSpan = { start: number; end: number };
+export interface YankSpan {
+  start: number;
+  end: number;
+}
 
-export type KillRing = {
+export interface KillRing {
   /** Killed strings, most recent first. */
   entries: string[];
   /** Ring entry inserted by the most recent yank; Meta+Y advances it. */
@@ -15,7 +18,7 @@ export type KillRing = {
   lastAction: "kill-forward" | "kill-backward" | "yank" | "other";
   /** Buffer span occupied by the last yank; null unless the previous command was a yank. */
   lastYankSpan: YankSpan | null;
-};
+}
 
 export const emptyKillRing: KillRing = {
   entries: [],
@@ -57,10 +60,7 @@ export function recordKill(
 }
 
 /** C-y: text to insert at the cursor, or null when nothing has been killed. */
-export function beginYank(
-  ring: KillRing,
-  cursor: number,
-): { ring: KillRing; text: string } | null {
+export function beginYank(ring: KillRing, cursor: number): { ring: KillRing; text: string } | null {
   const index = ring.yankIndex < ring.entries.length ? ring.yankIndex : 0;
   const text = ring.entries[index];
   if (text === undefined) return null;

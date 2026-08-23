@@ -1,6 +1,4 @@
-export type GoApiKeyValidation =
-  | { ok: true; apiKey: string }
-  | { ok: false; error: string };
+export type GoApiKeyValidation = { ok: true; apiKey: string } | { ok: false; error: string };
 
 /**
  * Validate a pasted OpenCode Go API key at the boundary.

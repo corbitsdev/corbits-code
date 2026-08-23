@@ -37,23 +37,17 @@ describe("critiquePackage", () => {
 
   test("systemPrompt flags API contract / sync→async as blocking", () => {
     expect(critiquePackage.systemPrompt).toMatch(/API contract check/i);
-    expect(critiquePackage.systemPrompt).toMatch(
-      /blocking when brief specifies signatures/i,
-    );
+    expect(critiquePackage.systemPrompt).toMatch(/blocking when brief specifies signatures/i);
     expect(critiquePackage.systemPrompt).toMatch(/public exports/i);
     expect(critiquePackage.systemPrompt).toMatch(/Sync\s*→\s*async/i);
     expect(critiquePackage.systemPrompt).toMatch(
       /returning Promise when callers expect a plain value/i,
     );
-    expect(critiquePackage.systemPrompt).toMatch(
-      /blocking correctness defect/i,
-    );
+    expect(critiquePackage.systemPrompt).toMatch(/blocking correctness defect/i);
     expect(critiquePackage.systemPrompt).toMatch(
       /parameter order\/optionality\/return-type drift/i,
     );
-    expect(critiquePackage.systemPrompt).toMatch(
-      /Rank these as blocking, not style nits/i,
-    );
+    expect(critiquePackage.systemPrompt).toMatch(/Rank these as blocking, not style nits/i);
   });
 
   test("spawn.maySpawn is false", () => {

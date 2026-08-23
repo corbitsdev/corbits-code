@@ -1,9 +1,8 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
 import { loadState } from "../session/state.js";
-
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
@@ -51,7 +50,6 @@ import {
 
 import {
   globalSettingsPath,
-  loadLocalSettings,
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
   loadSettings,
@@ -95,7 +93,8 @@ export function buildOpenAISource(fields: {
     id: fields.id,
     provider: "openai-compatible",
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
-    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+    apiKey:
+      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
@@ -158,7 +157,8 @@ export function buildCodexSource(fields: {
 }): InferenceSource {
   const providerOptions: Record<string, unknown> = { [CODEX_SESSION_ID_OPTION]: fields.sessionId };
   if (fields.accountId !== undefined) providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
-  if (fields.reasoningEffort !== undefined) providerOptions["reasoning_effort"] = fields.reasoningEffort;
+  if (fields.reasoningEffort !== undefined)
+    providerOptions["reasoning_effort"] = fields.reasoningEffort;
   return {
     id: fields.id,
     provider: CODEX_RESPONSES_PROVIDER,
@@ -187,7 +187,8 @@ export function buildXaiSource(fields: {
     [GROK_SESSION_ID_OPTION]: fields.sessionId,
   };
   if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
-  if (fields.reasoningEffort !== undefined) providerOptions["reasoning_effort"] = fields.reasoningEffort;
+  if (fields.reasoningEffort !== undefined)
+    providerOptions["reasoning_effort"] = fields.reasoningEffort;
   return {
     id: fields.id,
     provider: GROK_RESPONSES_PROVIDER,
@@ -216,7 +217,8 @@ export function buildBifrostSource(fields: {
     id: fields.id,
     provider: BIFROST_PROVIDER,
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
-    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+    apiKey:
+      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
@@ -233,7 +235,8 @@ export function buildAnthropicSource(fields: {
     id: fields.id,
     provider: "anthropic",
     baseURL: fields.baseURL.replace(/\/+$/, ""),
-    apiKey: fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+    apiKey:
+      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS },
   };
@@ -284,7 +287,7 @@ export function buildGoSource(fields: {
   });
 }
 
-export type Config = {
+export interface Config {
   configured: true;
   apiKey: string;
   baseURL: string;
@@ -360,12 +363,12 @@ export type Config = {
    * stripped credentials). Shown on the main TUI so startup never hard-crashes.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
-};
+}
 
 // Returned by loadConfig when no provider is configured and allowUnconfigured is
 // true. Carries enough context for the TUI to launch the onboarding flow instead
 // of exiting. Headless callers must treat this as a fatal error.
-export type UnconfiguredConfig = {
+export interface UnconfiguredConfig {
   configured: false;
   cwd: string;
   task: string;
@@ -386,7 +389,7 @@ export type UnconfiguredConfig = {
    * than disappearing when provider setup fails early.
    */
   settingsDiagnostics?: SettingsLoadDiagnostic[];
-};
+}
 
 /** Printed for `corbits --help` / `-h`. Keep in sync with docs/IMPLEMENTATION.md. */
 export const CLI_HELP_TEXT = `corbits — coding agent CLI
@@ -432,7 +435,7 @@ export class CliHelpError extends Error {
   }
 }
 
-export type LoadConfigOptions = {
+export interface LoadConfigOptions {
   // Override the global settings file location (for tests / non-standard homes).
   globalSettingsPath?: string;
   // Override the home directory used for project-key session roots (tests).
@@ -446,7 +449,7 @@ export type LoadConfigOptions = {
   // here — the default performs a real request to models.dev, and a stray
   // background fetch inside the suite destabilizes timing-sensitive tests.
   pricing?: PricingFetcherOptions;
-};
+}
 
 export async function loadConfig(
   argv: readonly string[],
@@ -499,7 +502,6 @@ export async function loadConfig(
   if (args[0] === "--help" || args[0] === "-h") {
     throw new CliHelpError();
   }
-
 
   let cwd = process.cwd();
   let force = false;
@@ -638,7 +640,10 @@ export async function loadConfig(
   const oauthProviderSettings = { ...codexProviderSettings, ...xaiProviderSettings };
   const settingsForResolution: Settings | null =
     Object.keys(oauthProviderSettings).length > 0
-      ? { ...(settings ?? { providers: {} }), providers: { ...(settings?.providers ?? {}), ...oauthProviderSettings } }
+      ? {
+          ...(settings ?? { providers: {} }),
+          providers: { ...(settings?.providers ?? {}), ...oauthProviderSettings },
+        }
       : settings;
 
   // The per-repo selection file still applies on top of a --config source: that
@@ -653,11 +658,8 @@ export async function loadConfig(
 
   // Apply profile as a fallback layer: profile.model fills in when neither CLI
   // nor local settings specify a model. This sits below local in precedence.
-  const effectiveLocal = local !== null
-    ? local
-    : profile.model !== undefined
-      ? { model: profile.model }
-      : null;
+  const effectiveLocal =
+    local !== null ? local : profile.model !== undefined ? { model: profile.model } : null;
   const profileLocal =
     local !== null && local.model === undefined && profile.model !== undefined
       ? { ...local, model: profile.model }
@@ -705,7 +707,11 @@ export async function loadConfig(
   // with a model that does not accept it; reject it here rather than shipping an
   // effort the model will refuse. Pricing metadata was seeded above from cache.
   if (local?.reasoningEffort !== undefined) {
-    const verdict = validateEffort(resolved.model, local.reasoningEffort, isCodexProviderName(resolved.providerName));
+    const verdict = validateEffort(
+      resolved.model,
+      local.reasoningEffort,
+      isCodexProviderName(resolved.providerName),
+    );
     if (!verdict.ok) {
       throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
     }
@@ -751,14 +757,18 @@ export async function loadConfig(
     ...(resumeMode !== undefined ? { resumeMode, skipInitialTask } : {}),
     ...(resumePicker ? { resumePicker: true } : {}),
     ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
-    ...(settings?.defaultProvider !== undefined ? { globalDefaultProvider: settings.defaultProvider } : {}),
+    ...(settings?.defaultProvider !== undefined
+      ? { globalDefaultProvider: settings.defaultProvider }
+      : {}),
     providers: mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
       : {}),
     ...(profile.maxTurns !== undefined ? { maxTurns: profile.maxTurns } : {}),
-    ...(profile.inactivityTimeoutMs !== undefined ? { inactivityTimeoutMs: profile.inactivityTimeoutMs } : {}),
+    ...(profile.inactivityTimeoutMs !== undefined
+      ? { inactivityTimeoutMs: profile.inactivityTimeoutMs }
+      : {}),
     ...(profile.totalTimeoutMs !== undefined ? { totalTimeoutMs: profile.totalTimeoutMs } : {}),
     ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
     ...(local?.mcpServers !== undefined
@@ -894,9 +904,7 @@ export function buildProviderCatalog(
     {
       name: resolved.providerName,
       baseURL: resolved.baseURL,
-      ...(resolved.keyless === true
-        ? { keyless: true }
-        : { apiKey: resolved.apiKey }),
+      ...(resolved.keyless === true ? { keyless: true } : { apiKey: resolved.apiKey }),
       models: [resolved.model],
     },
   ];
@@ -910,12 +918,11 @@ export function providerCatalogToSettings(
   // OAuth entries are credential-backed by home-level auth stores, not by
   // settings.json. Exclude them so provider edits never persist short-lived
   // access tokens into the settings file.
-  const persistable = catalog.filter((p) => p.codexProfile === undefined && p.xaiProfile === undefined);
+  const persistable = catalog.filter(
+    (p) => p.codexProfile === undefined && p.xaiProfile === undefined,
+  );
   const providers = Object.fromEntries(
-    persistable.map((p): [string, ProviderSettings] => [
-      p.name,
-      catalogEntryAsProviderSettings(p),
-    ]),
+    persistable.map((p): [string, ProviderSettings] => [p.name, catalogEntryAsProviderSettings(p)]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
   // pluginPaths, sessionMode, shell, tools, etc. Only the catalog and

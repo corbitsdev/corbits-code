@@ -43,7 +43,9 @@ describe("createPerfReactorObserver", () => {
 
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(event("inference.text.delta", { token: "Hello", partial: { text: "Hello" } }));
-    obs.observe(event("inference.text.delta", { token: " world", partial: { text: "Hello world" } }));
+    obs.observe(
+      event("inference.text.delta", { token: " world", partial: { text: "Hello world" } }),
+    );
     obs.observe(inferenceDone());
 
     const spans = completed(snapshot());
@@ -79,9 +81,7 @@ describe("createPerfReactorObserver", () => {
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(event("inference.text.delta", { token: "x", partial: { text: "x" } }));
     obs.observe(
-      inferenceDone([
-        { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
-      ]),
+      inferenceDone([{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }]),
     );
     obs.observe(event("tool.start", { call: { id: "call-1", name: "run_shell", arguments: {} } }));
     obs.observe(event("tool.done", { result: { callId: "call-1", content: "ok" } }));
@@ -149,9 +149,7 @@ describe("createPerfReactorObserver", () => {
 
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(
-      inferenceDone([
-        { type: "tool_call", id: "blocked-1", name: "run_shell", arguments: {} },
-      ]),
+      inferenceDone([{ type: "tool_call", id: "blocked-1", name: "run_shell", arguments: {} }]),
     );
     obs.observe(
       event("tool.done", {
@@ -209,9 +207,7 @@ describe("createPerfReactorObserver", () => {
 
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(
-      inferenceDone([
-        { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
-      ]),
+      inferenceDone([{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }]),
     );
     obs.observe(event("tool.start", { call: { id: "call-1", name: "run_shell", arguments: {} } }));
     // Interrupt mid-tool: no tool.done — next inference.start must not nest.
@@ -310,11 +306,7 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     };
 
     feed(event("inference.start", { model: "m" }));
-    feed(
-      inferenceDone([
-        { type: "tool_call", id: "c1", name: "read_file", arguments: {} },
-      ]),
-    );
+    feed(inferenceDone([{ type: "tool_call", id: "c1", name: "read_file", arguments: {} }]));
     expect(completedTurns).toHaveLength(0);
 
     feed(event("tool.start", { call: { id: "c1", name: "read_file", arguments: {} } }));

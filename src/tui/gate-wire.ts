@@ -4,35 +4,23 @@
  * Hosts open overlays with the returned items/itemIds and resolve via these helpers.
  */
 
-import type { EventEmitter } from "node:events"
-import type { OperatorResult } from "../agent/tools.js"
-import { formatCommandForApproval } from "./command-display.js"
-import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js"
-import type {
-  ApprovalOutcome,
-  ApprovalScope,
-  PermissionRequest,
-} from "../permission/types.js"
-import type { AppShell, OverlaySelection } from "./shell.js"
-import {
-  appendStreamRow,
-  closeInsetOverlay,
-  onOverlayClosed,
-  setOverlayBody,
-} from "./shell.js"
-import { EXPAND_KEY } from "./stream.js"
-import type {
-  OperatorGateEvent,
-  PermissionGateEvent,
-} from "./gate-events.js"
+import type { EventEmitter } from "node:events";
+import type { OperatorResult } from "../agent/tools.js";
+import { formatCommandForApproval } from "./command-display.js";
+import { openOperatorOverlay, openPermissionsOverlay } from "./overlays.js";
+import type { ApprovalOutcome, ApprovalScope, PermissionRequest } from "../permission/types.js";
+import type { AppShell, OverlaySelection } from "./shell.js";
+import { appendStreamRow, closeInsetOverlay, onOverlayClosed, setOverlayBody } from "./shell.js";
+import { EXPAND_KEY } from "./stream.js";
+import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
 import {
   createPermissionRequestQueue,
   wirePermissionGrantReconciliation,
-} from "../permission/queue.js"
+} from "../permission/queue.js";
 
 /** Stable sentinel ids for the always-present deny / once rows. */
-export const PERMISSION_DENY_ID = "__deny__" as const
-export const PERMISSION_ONCE_ID = "__once__" as const
+export const PERMISSION_DENY_ID = "__deny__" as const;
+export const PERMISSION_ONCE_ID = "__once__" as const;
 
 /**
  * Expand/collapse chord for collapsed payloads. Scoped to the open permission
@@ -41,53 +29,49 @@ export const PERMISSION_ONCE_ID = "__once__" as const
  * this overlay is open. Shared with the transcript's collapsed rows so the
  * product has one expand idiom.
  */
-export const PERMISSION_EXPAND_KEY = EXPAND_KEY
+export const PERMISSION_EXPAND_KEY = EXPAND_KEY;
 
-export type PermissionGateChoices = {
-  readonly items: readonly string[]
-  readonly itemIds: readonly string[]
+export interface PermissionGateChoices {
+  readonly items: readonly string[];
+  readonly itemIds: readonly string[];
   /** Parallel to items — index into this on accept. */
-  readonly outcomes: readonly ApprovalOutcome[]
+  readonly outcomes: readonly ApprovalOutcome[];
 }
 
-export type GateSelection = {
-  readonly index: number
+export interface GateSelection {
+  readonly index: number;
   /** When present, preferred over index for outcome lookup. */
-  readonly id?: string
+  readonly id?: string;
 }
 
 /**
  * Build permission overlay rows from a live PermissionRequest.
  * Order: Reject → Accept once → request.scopes (label + optional hint).
  */
-export function permissionChoicesFromRequest(
-  request: PermissionRequest,
-): PermissionGateChoices {
-  const items: string[] = []
-  const itemIds: string[] = []
-  const outcomes: ApprovalOutcome[] = []
+export function permissionChoicesFromRequest(request: PermissionRequest): PermissionGateChoices {
+  const items: string[] = [];
+  const itemIds: string[] = [];
+  const outcomes: ApprovalOutcome[] = [];
 
-  items.push("Reject")
-  itemIds.push(PERMISSION_DENY_ID)
-  outcomes.push({ allow: false })
+  items.push("Reject");
+  itemIds.push(PERMISSION_DENY_ID);
+  outcomes.push({ allow: false });
 
-  items.push("Accept once")
-  itemIds.push(PERMISSION_ONCE_ID)
-  outcomes.push({ allow: true })
+  items.push("Accept once");
+  itemIds.push(PERMISSION_ONCE_ID);
+  outcomes.push({ allow: true });
 
   for (const scope of request.scopes) {
-    const label = scope.hint
-      ? `${scope.label} (${scope.hint})`
-      : scope.label
-    items.push(label)
-    itemIds.push(scope.id)
+    const label = scope.hint ? `${scope.label} (${scope.hint})` : scope.label;
+    items.push(label);
+    itemIds.push(scope.id);
     outcomes.push({
       allow: true,
       ...(scope.pattern !== null ? { persist: scope as ApprovalScope } : {}),
-    })
+    });
   }
 
-  return { items, itemIds, outcomes }
+  return { items, itemIds, outcomes };
 }
 
 /**
@@ -99,19 +83,19 @@ export function approvalOutcomeFromSelection(
   selection: GateSelection,
 ): ApprovalOutcome {
   if (selection.id !== undefined) {
-    const byId = choices.itemIds.indexOf(selection.id)
+    const byId = choices.itemIds.indexOf(selection.id);
     if (byId >= 0) {
-      return choices.outcomes[byId] ?? { allow: false }
+      return choices.outcomes[byId] ?? { allow: false };
     }
   }
-  return choices.outcomes[selection.index] ?? { allow: false }
+  return choices.outcomes[selection.index] ?? { allow: false };
 }
 
-export type PermissionBodyOpts = {
+export interface PermissionBodyOpts {
   /** Print collapsed payloads in full under their placeholder. */
-  readonly expanded?: boolean
+  readonly expanded?: boolean;
   /** Append the expand/collapse affordance line (overlay only). */
-  readonly hint?: boolean
+  readonly hint?: boolean;
 }
 
 /**
@@ -126,13 +110,13 @@ export function permissionBodyFromRequest(
 ): string {
   const display = formatCommandForApproval(request.subject, {
     expanded: opts?.expanded === true,
-  })
+  });
   const hint =
     opts?.hint === true && display.payloadCount > 0
       ? opts.expanded === true
         ? `${PERMISSION_EXPAND_KEY} collapse payloads`
         : `${PERMISSION_EXPAND_KEY} expand ${display.payloadCount} collapsed payload${display.payloadCount === 1 ? "" : "s"}`
-      : ""
+      : "";
   return [
     request.tool,
     request.action,
@@ -142,25 +126,23 @@ export function permissionBodyFromRequest(
     hint,
   ]
     .filter((l) => l.length > 0)
-    .join("\n")
+    .join("\n");
 }
 
-export type OperatorGateChoices = {
-  readonly items: readonly string[]
-  readonly itemIds: readonly string[]
+export interface OperatorGateChoices {
+  readonly items: readonly string[];
+  readonly itemIds: readonly string[];
 }
 
 /**
  * Operator options → list rows. itemIds are decimal index strings ("0", "1", …)
  * so hosts can round-trip without a parallel outcomes array.
  */
-export function operatorChoicesFromOptions(
-  options: readonly string[],
-): OperatorGateChoices {
+export function operatorChoicesFromOptions(options: readonly string[]): OperatorGateChoices {
   return {
     items: [...options],
     itemIds: options.map((_, i) => String(i)),
-  }
+  };
 }
 
 /**
@@ -171,30 +153,30 @@ export function operatorResultFromSelection(
   options: readonly string[],
   selection: GateSelection,
 ): OperatorResult {
-  let index = selection.index
+  let index = selection.index;
   if (selection.id !== undefined) {
-    const parsed = Number.parseInt(selection.id, 10)
+    const parsed = Number.parseInt(selection.id, 10);
     if (
       Number.isInteger(parsed) &&
       parsed >= 0 &&
       parsed < options.length &&
       String(parsed) === selection.id
     ) {
-      index = parsed
+      index = parsed;
     }
   }
   if (index < 0 || index >= options.length) {
-    return { kind: "cancel" }
+    return { kind: "cancel" };
   }
-  return { kind: "option", index }
+  return { kind: "option", index };
 }
 
 export function operatorCancelResult(): OperatorResult {
-  return { kind: "cancel" }
+  return { kind: "cancel" };
 }
 
 export function operatorCustomResult(text: string): OperatorResult {
-  return { kind: "custom", text }
+  return { kind: "custom", text };
 }
 
 /**
@@ -204,34 +186,31 @@ export function operatorCustomResult(text: string): OperatorResult {
  * lifecycle (raised, possibly queued, eventually resolved), so it is the one
  * that reports it — callers fold the pair into their own turn state.
  */
-export type GateLifecycleHooks = {
+export interface GateLifecycleHooks {
   /** A gate was raised — queued or opened, whichever comes first. */
-  readonly onGateOpened: () => void
+  readonly onGateOpened: () => void;
   /** A previously raised gate resolved. */
-  readonly onGateClosed: () => void
+  readonly onGateClosed: () => void;
 }
 
 const NOOP_GATE_HOOKS: GateLifecycleHooks = {
   onGateOpened: () => {},
   onGateClosed: () => {},
-}
+};
 
 /**
  * Wrap a gate's `resolve` so `onGateClosed` fires exactly once no matter
  * which of accept / cancel / auto-deny settles it first.
  */
-function onceClosed<T>(
-  onGateClosed: () => void,
-  resolve: (value: T) => void,
-): (value: T) => void {
-  let closed = false
+function onceClosed<T>(onGateClosed: () => void, resolve: (value: T) => void): (value: T) => void {
+  let closed = false;
   return (value) => {
     if (!closed) {
-      closed = true
-      onGateClosed()
+      closed = true;
+      onGateClosed();
     }
-    resolve(value)
-  }
+    resolve(value);
+  };
 }
 
 /**
@@ -247,15 +226,12 @@ export function wireGates(
   // Gates cannot be dropped that way — a lost ask_operator blocks the run with
   // nothing on screen to answer — so a gate that arrives while another overlay
   // is up waits here and opens as soon as the host frees up.
-  const pending: Array<() => void> = []
+  const pending: (() => void)[] = [];
   // Owns queued-approval reconciliation (see src/permission/queue.ts): this
   // host only enqueues requests and renders whatever settle calls the queue
   // hands back — it never decides which grant covers which request.
-  const permissionQueue = createPermissionRequestQueue()
-  const disposeReconciliation = wirePermissionGrantReconciliation(
-    emitter,
-    permissionQueue,
-  )
+  const permissionQueue = createPermissionRequestQueue();
+  const disposeReconciliation = wirePermissionGrantReconciliation(emitter, permissionQueue);
   // Operator gates have no queue module of their own (unlike permission
   // requests, which register with permissionQueue so dispose can drain
   // them) — each one registers its own teardown callback here for the
@@ -266,7 +242,7 @@ export function wireGates(
   // before resolving — a future settle path that forgets this leaks its
   // gate into dispose's teardown sweep after it has already resolved
   // (harmless, since `settled` guards the double-resolve, but wasted work).
-  const operatorTeardowns = new Set<() => void>()
+  const operatorTeardowns = new Set<() => void>();
   // Bumped every time any gate (permission or operator) opens on the shared
   // host. A settle path that only knows "my overlay was opened" cannot tell
   // whether the host has since moved on to a newer one — the shell closes an
@@ -277,45 +253,44 @@ export function wireGates(
   // never rests on remembering shell.ts's close-before-callback ordering at
   // each call site. openHost is the only place an overlay opens, so it is
   // the only place this counter needs to change.
-  let overlayGeneration = 0
+  let overlayGeneration = 0;
 
   function openHost(open: () => void): void {
-    overlayGeneration++
-    open()
+    overlayGeneration++;
+    open();
   }
 
   function openOrQueue(open: () => void): void {
     if (shell.overlayList !== null) {
-      pending.push(open)
-      return
+      pending.push(open);
+      return;
     }
-    openHost(open)
+    openHost(open);
   }
 
   function unqueue(open: () => void): void {
-    const idx = pending.indexOf(open)
-    if (idx >= 0) pending.splice(idx, 1)
+    const idx = pending.indexOf(open);
+    if (idx >= 0) pending.splice(idx, 1);
   }
 
   const disposeClosed = onOverlayClosed(shell, () => {
-    const next = pending.shift()
-    if (next) openHost(next)
-  })
+    const next = pending.shift();
+    if (next) openHost(next);
+  });
 
   function onPermission(ev: PermissionGateEvent): void {
-    hooks.onGateOpened()
-    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
-    const choices = permissionChoicesFromRequest(ev.request)
-    const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true })
+    hooks.onGateOpened();
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
+    const choices = permissionChoicesFromRequest(ev.request);
+    const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true });
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
     // bare key unclaimed.
-    const collapsedAnything =
-      formatCommandForApproval(ev.request.subject).payloadCount > 0
-    let expanded = false
+    const collapsedAnything = formatCommandForApproval(ev.request.subject).payloadCount > 0;
+    let expanded = false;
     // Set only while this gate's own overlay is the one on screen — see
     // overlayGeneration above for why the settle path checks it against the
     // current generation instead of trusting this alone.
-    let openedGeneration: number | undefined
+    let openedGeneration: number | undefined;
 
     // The queue is the single settle guard: once an id is removed (accept,
     // cancel, timeout, abort, or a reconciled grant), a later call is a
@@ -327,25 +302,21 @@ export function wireGates(
     // closeInsetOverlay, which fires onCancel after notifying close
     // listeners) — settle's return value is how a call site tells that
     // reentrant call apart from the original one.
-    const settle = (outcome: ApprovalOutcome): boolean =>
-      permissionQueue.settle(id, outcome)
+    const settle = (outcome: ApprovalOutcome): boolean => permissionQueue.settle(id, outcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
-      clearTimers()
+      clearTimers();
       if (openedGeneration === undefined) {
-        unqueue(open)
+        unqueue(open);
       } else if (openedGeneration === overlayGeneration) {
-        closeInsetOverlay(shell)
+        closeInsetOverlay(shell);
       }
-      resolve(outcome)
-    })
+      resolve(outcome);
+    });
 
     const onToggleExpand = (): void => {
-      expanded = !expanded
-      setOverlayBody(
-        shell,
-        permissionBodyFromRequest(ev.request, { expanded, hint: true }),
-      )
-      if (!expanded) return
+      expanded = !expanded;
+      setOverlayBody(shell, permissionBodyFromRequest(ev.request, { expanded, hint: true }));
+      if (!expanded) return;
       // The overlay body is height-capped by geometry, so the authoritative
       // copy of an expanded payload goes to the scrollable transcript — whole,
       // untruncated. Collapsing must never hide text the operator cannot
@@ -354,15 +325,15 @@ export function wireGates(
         role: "system",
         text: permissionBodyFromRequest(ev.request, { expanded: true }),
         meta: "permission",
-      })
-    }
+      });
+    };
 
     const open = (): void => {
-      openedGeneration = overlayGeneration
+      openedGeneration = overlayGeneration;
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
-          autoDeny(ev.timeoutMessage ?? "approval timed out; request denied")
-        }, ev.timeoutMs)
+          autoDeny(ev.timeoutMessage ?? "approval timed out; request denied");
+        }, ev.timeoutMs);
       }
       openPermissionsOverlay(shell, {
         items: choices.items,
@@ -376,8 +347,8 @@ export function wireGates(
           const gateSelection = {
             index: sel.index,
             ...(sel.id !== undefined ? { id: sel.id } : {}),
-          }
-          settle(approvalOutcomeFromSelection(choices, gateSelection))
+          };
+          settle(approvalOutcomeFromSelection(choices, gateSelection));
         },
         // Esc must settle the awaited promise (as a deny), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
@@ -387,10 +358,10 @@ export function wireGates(
               index: 0,
               id: PERMISSION_DENY_ID,
             }),
-          )
+          );
         },
-      })
-    }
+      });
+    };
 
     // Watchdog abort (tool budget expired / parent run cancelled) and the
     // auto-deny timeout both race an operator who may never answer — each
@@ -405,40 +376,40 @@ export function wireGates(
     // display-dependent — it reflects the tool having already finished or
     // been cancelled, which is true whether or not this gate is on screen —
     // so its listener is registered immediately.
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const clearTimers = (): void => {
-      if (timer !== undefined) clearTimeout(timer)
-      ev.signal?.removeEventListener("abort", onAbort)
-    }
+      if (timer !== undefined) clearTimeout(timer);
+      ev.signal?.removeEventListener("abort", onAbort);
+    };
     const autoDeny = (message: string): void => {
-      settle({ allow: false, message })
-    }
+      settle({ allow: false, message });
+    };
     function onAbort(): void {
-      autoDeny("tool no longer running; permission request denied")
+      autoDeny("tool no longer running; permission request denied");
     }
     if (ev.signal?.aborted === true) {
-      autoDeny("tool no longer running; permission request denied")
-      return
+      autoDeny("tool no longer running; permission request denied");
+      return;
     }
-    ev.signal?.addEventListener("abort", onAbort, { once: true })
+    ev.signal?.addEventListener("abort", onAbort, { once: true });
 
-    openOrQueue(open)
+    openOrQueue(open);
   }
 
   function onOperator(ev: OperatorGateEvent): void {
-    hooks.onGateOpened()
-    const resolve = onceClosed(hooks.onGateClosed, ev.resolve)
-    const choices = operatorChoicesFromOptions(ev.options)
+    hooks.onGateOpened();
+    const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
+    const choices = operatorChoicesFromOptions(ev.options);
     // Guarded the same way as the permission gate: correctness must not rest
     // on callers of closeInsetOverlay remembering to null the cancel hook
     // before dispatching accept — a future accept-via-close path that forgets
     // would otherwise double-resolve this promise.
-    let settled = false
+    let settled = false;
     // Set only while this gate's own overlay is the one on screen — mirrors
     // openedGeneration on the permission path (see its comment above): a
     // settle path that only knows "my overlay was opened" cannot tell
     // whether the host has since moved on to a newer one.
-    let openedGeneration: number | undefined
+    let openedGeneration: number | undefined;
 
     // Mirrors the permission gate: watchdog abort and the auto-deny timeout
     // both race an operator who may never answer, and unlike the permission
@@ -446,18 +417,18 @@ export function wireGates(
     // behind a stuck overlay hung the run forever. The timeout is
     // display-dependent and arms inside `open` (below); abort is not, so its
     // listener is registered immediately.
-    let timer: ReturnType<typeof setTimeout> | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const clearTimers = (): void => {
-      if (timer !== undefined) clearTimeout(timer)
-      ev.signal?.removeEventListener("abort", onAbort)
-    }
+      if (timer !== undefined) clearTimeout(timer);
+      ev.signal?.removeEventListener("abort", onAbort);
+    };
 
     const open = (): void => {
-      openedGeneration = overlayGeneration
+      openedGeneration = overlayGeneration;
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
-          autoCancel()
-        }, ev.timeoutMs)
+          autoCancel();
+        }, ev.timeoutMs);
       }
       openOperatorOverlay(shell, {
         body: ev.question,
@@ -467,25 +438,25 @@ export function wireGates(
         // ask — or the overlay's generic accept echo — into the transcript.
         echoChoice: false,
         onAccept: (sel: OverlaySelection) => {
-          if (settled) return
-          settled = true
-          clearTimers()
-          operatorTeardowns.delete(teardown)
+          if (settled) return;
+          settled = true;
+          clearTimers();
+          operatorTeardowns.delete(teardown);
           resolve(
             operatorResultFromSelection(ev.options, {
               index: sel.index,
               ...(sel.id !== undefined ? { id: sel.id } : {}),
             }),
-          )
+          );
         },
         // The ask_operator contract offers a free-form answer, so the overlay
         // must be able to send one back rather than only an option index.
         onTextAnswer: (text: string) => {
-          if (settled) return
-          settled = true
-          clearTimers()
-          operatorTeardowns.delete(teardown)
-          resolve(operatorCustomResult(text))
+          if (settled) return;
+          settled = true;
+          clearTimers();
+          operatorTeardowns.delete(teardown);
+          resolve(operatorCustomResult(text));
         },
         // Esc must settle the awaited promise (as a cancel), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
@@ -494,61 +465,61 @@ export function wireGates(
         // closeInsetOverlay itself; doing so would reenter this same
         // onCancel (see the permission gate's identical note on `settle`).
         onCancel: () => {
-          if (settled) return
-          settled = true
-          clearTimers()
-          operatorTeardowns.delete(teardown)
-          resolve(operatorCancelResult())
+          if (settled) return;
+          settled = true;
+          clearTimers();
+          operatorTeardowns.delete(teardown);
+          resolve(operatorCancelResult());
         },
-      })
-    }
+      });
+    };
 
     const settleOnce = (result: OperatorResult): void => {
-      if (settled) return
-      settled = true
-      clearTimers()
-      operatorTeardowns.delete(teardown)
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      operatorTeardowns.delete(teardown);
       if (openedGeneration === undefined) {
-        unqueue(open)
+        unqueue(open);
       } else if (openedGeneration === overlayGeneration) {
-        closeInsetOverlay(shell)
+        closeInsetOverlay(shell);
       }
-      resolve(result)
-    }
+      resolve(result);
+    };
     const autoCancel = (): void => {
-      settleOnce(operatorCancelResult())
-    }
+      settleOnce(operatorCancelResult());
+    };
     const teardown = (): void => {
-      autoCancel()
-    }
+      autoCancel();
+    };
     function onAbort(): void {
-      autoCancel()
+      autoCancel();
     }
     if (ev.signal?.aborted === true) {
-      autoCancel()
-      return
+      autoCancel();
+      return;
     }
-    ev.signal?.addEventListener("abort", onAbort, { once: true })
-    operatorTeardowns.add(teardown)
+    ev.signal?.addEventListener("abort", onAbort, { once: true });
+    operatorTeardowns.add(teardown);
 
-    openOrQueue(open)
+    openOrQueue(open);
   }
 
-  emitter.on("permission.gate", onPermission)
-  emitter.on("operator.gate", onOperator)
+  emitter.on("permission.gate", onPermission);
+  emitter.on("operator.gate", onOperator);
 
   return () => {
-    emitter.off("permission.gate", onPermission)
-    emitter.off("operator.gate", onOperator)
-    disposeReconciliation()
-    disposeClosed()
-    pending.length = 0
+    emitter.off("permission.gate", onPermission);
+    emitter.off("operator.gate", onOperator);
+    disposeReconciliation();
+    disposeClosed();
+    pending.length = 0;
     // Deny anything still queued so its awaited evaluate() call never hangs
     // past session teardown.
-    permissionQueue.drain()
+    permissionQueue.drain();
     // Cancel every outstanding operator gate (queued or displayed) so its
     // awaited resolve() never hangs past session teardown either — the
     // permission-side equivalent of the drain() call above.
-    for (const teardown of [...operatorTeardowns]) teardown()
-  }
+    for (const teardown of [...operatorTeardowns]) teardown();
+  };
 }

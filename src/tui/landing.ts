@@ -23,32 +23,27 @@
  * injected clock.
  */
 
-import {
-  StyledText,
-  fg as fgChunk,
-  type CliRenderer,
-  type TextChunk,
-} from "@opentui/core"
-import { BoxRenderable, TextRenderable } from "@opentui/core"
-import pkg from "../../package.json" with { type: "json" }
+import { StyledText, fg as fgChunk, type CliRenderer, type TextChunk } from "@opentui/core";
+import { BoxRenderable, TextRenderable } from "@opentui/core";
+import pkg from "../../package.json" with { type: "json" };
 
-import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js"
-import { renderMark } from "./mark-anim.js"
-import { UI } from "./theme.js"
-import { stringWidth } from "./view/height.js"
+import { MARK_LARGE, MARK_MID, MARK_SMALL, type MarkGrid } from "./mark-shape.js";
+import { renderMark } from "./mark-anim.js";
+import { UI } from "./theme.js";
+import { stringWidth } from "./view/height.js";
 
 /**
  * Left gutter inside the shell's side margin (`resolveSideMargin`, applied to
  * the shell root). One column, matching the transcript's own gutter, so the
  * landing and the first transcript row share a left edge.
  */
-export const LANDING_MARGIN = 1
+export const LANDING_MARGIN = 1;
 
 /** One blank row between the mark and the prompt box. */
-const MARK_GAP_ROWS = 1
+const MARK_GAP_ROWS = 1;
 
 /** Columns of air between the mark's right edge and the hint block. */
-export const LANDING_HERO_GAP = 3
+export const LANDING_HERO_GAP = 3;
 
 /**
  * The running build, read from `package.json` so it cannot drift from what
@@ -56,7 +51,7 @@ export const LANDING_HERO_GAP = 3
  * terminal), not as part of this module's landing composition — see
  * `versionBadgeVisible` and `shell.ts`'s `versionBadge`.
  */
-export const LANDING_VERSION = `v${pkg.version}`
+export const LANDING_VERSION = `v${pkg.version}`;
 
 /**
  * Minimum terminal size the version badge needs before it hides. 16 rows is
@@ -67,11 +62,11 @@ export const LANDING_VERSION = `v${pkg.version}`
  * the transcript residual, not a second reserved chrome row, so the badge's
  * own threshold does not need to clear it.
  */
-export const VERSION_BADGE_MIN_COLUMNS = 60
-export const VERSION_BADGE_MIN_ROWS = 16
+export const VERSION_BADGE_MIN_COLUMNS = 60;
+export const VERSION_BADGE_MIN_ROWS = 16;
 
 export function versionBadgeVisible(columns: number, rows: number): boolean {
-  return columns >= VERSION_BADGE_MIN_COLUMNS && rows >= VERSION_BADGE_MIN_ROWS
+  return columns >= VERSION_BADGE_MIN_COLUMNS && rows >= VERSION_BADGE_MIN_ROWS;
 }
 
 /**
@@ -79,9 +74,9 @@ export function versionBadgeVisible(columns: number, rows: number): boolean {
  * `/` opens) is the other, so this stays a single row rather than growing.
  */
 export const LANDING_HINTS: readonly {
-  readonly key: string
-  readonly rest: string
-}[] = [{ key: "/", rest: "for commands" }]
+  readonly key: string;
+  readonly rest: string;
+}[] = [{ key: "/", rest: "for commands" }];
 
 /**
  * Columns held for the key, so the descriptions beside them start on one
@@ -90,20 +85,19 @@ export const LANDING_HINTS: readonly {
 export const LANDING_KEY_WIDTH = LANDING_HINTS.reduce(
   (widest, hint) => Math.max(widest, hint.key.length),
   0,
-)
+);
 
 /** Air between the key column and the description it labels. */
-const LANDING_KEY_GAP = 2
+const LANDING_KEY_GAP = 2;
 
 /** Columns the hint block needs, its longest line deciding. */
 export const LANDING_HINT_WIDTH = LANDING_HINTS.reduce(
-  (widest, hint) =>
-    Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
+  (widest, hint) => Math.max(widest, LANDING_KEY_WIDTH + LANDING_KEY_GAP + hint.rest.length),
   0,
-)
+);
 
 /** Largest first: the landing takes the best-reading mark its zone can seat. */
-const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL]
+const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL];
 
 /**
  * The mark grid that fits the zone above the prompt box, or null when even the
@@ -113,25 +107,22 @@ const MARK_TIERS: readonly MarkGrid[] = [MARK_LARGE, MARK_MID, MARK_SMALL]
  * one, so both are checked: the mark degrades through the tiers and then
  * disappears, and the prompt box never moves to make room for it.
  */
-export function resolveMarkGrid(
-  aboveRows: number,
-  columns: number,
-): MarkGrid | null {
-  const width = Math.max(0, columns) - LANDING_MARGIN
+export function resolveMarkGrid(aboveRows: number, columns: number): MarkGrid | null {
+  const width = Math.max(0, columns) - LANDING_MARGIN;
   for (const grid of MARK_TIERS) {
-    if (grid.rows + MARK_GAP_ROWS > aboveRows) continue
-    if (grid.cols + LANDING_HERO_GAP + LANDING_HINT_WIDTH > width) continue
-    return grid
+    if (grid.rows + MARK_GAP_ROWS > aboveRows) continue;
+    if (grid.cols + LANDING_HERO_GAP + LANDING_HINT_WIDTH > width) continue;
+    return grid;
   }
-  return null
+  return null;
 }
 
-export type LandingSuggestion = {
+export interface LandingSuggestion {
   /** The key that fills the prompt with this prompt. */
-  readonly key: string
-  readonly label: string
+  readonly key: string;
+  readonly label: string;
   /** Text dropped into the prompt verbatim. */
-  readonly prompt: string
+  readonly prompt: string;
 }
 
 /**
@@ -157,11 +148,11 @@ export const LANDING_SUGGESTIONS: readonly LandingSuggestion[] = [
     prompt:
       "Review my uncommitted changes for correctness, missing tests, and anything that does not match the conventions in this repo.",
   },
-]
+];
 
 /** The suggestion a keypress selects, or null when the key selects nothing. */
 export function landingSuggestionFor(key: string): LandingSuggestion | null {
-  return LANDING_SUGGESTIONS.find((item) => item.key === key) ?? null
+  return LANDING_SUGGESTIONS.find((item) => item.key === key) ?? null;
 }
 
 /**
@@ -172,35 +163,35 @@ export function landingSuggestionFor(key: string): LandingSuggestion | null {
  * so an even split of the transcript zone is what centres the box.
  */
 export function splitLandingRows(transcriptRows: number): {
-  readonly above: number
-  readonly below: number
+  readonly above: number;
+  readonly below: number;
 } {
-  const total = Math.max(0, transcriptRows)
-  const above = Math.floor(total / 2)
-  return { above, below: total - above }
+  const total = Math.max(0, transcriptRows);
+  const above = Math.floor(total / 2);
+  return { above, below: total - above };
 }
 
 /** Greedy word wrap. Long words are left over-long rather than broken. */
 export function wrapLanding(text: string, width: number): readonly string[] {
-  if (width <= 0) return [text]
-  const lines: string[] = []
-  let line = ""
+  if (width <= 0) return [text];
+  const lines: string[] = [];
+  let line = "";
   for (const word of text.split(/\s+/).filter((w) => w.length > 0)) {
-    const candidate = line.length === 0 ? word : `${line} ${word}`
+    const candidate = line.length === 0 ? word : `${line} ${word}`;
     if (stringWidth(candidate) <= width) {
-      line = candidate
-      continue
+      line = candidate;
+      continue;
     }
-    if (line.length > 0) lines.push(line)
-    line = word
+    if (line.length > 0) lines.push(line);
+    line = word;
   }
-  if (line.length > 0) lines.push(line)
-  return lines.length > 0 ? lines : [""]
+  if (line.length > 0) lines.push(line);
+  return lines.length > 0 ? lines : [""];
 }
 
-export type LandingBelowContent = {
-  readonly notice: readonly string[]
-  readonly suggestions: readonly LandingSuggestion[]
+export interface LandingBelowContent {
+  readonly notice: readonly string[];
+  readonly suggestions: readonly LandingSuggestion[];
 }
 
 /**
@@ -208,26 +199,25 @@ export type LandingBelowContent = {
  * suggestions: on a short terminal the starters go, the notice stays.
  */
 export function landingBelowContent(input: {
-  readonly rows: number
+  readonly rows: number;
   /** Content width already inside the shell's side margin. */
-  readonly columns: number
-  readonly telemetryNotice?: string | undefined
+  readonly columns: number;
+  readonly telemetryNotice?: string | undefined;
 }): LandingBelowContent {
-  const width = Math.max(1, input.columns - LANDING_MARGIN)
+  const width = Math.max(1, input.columns - LANDING_MARGIN);
   const notice =
     input.telemetryNotice === undefined || input.telemetryNotice.length === 0
       ? []
-      : wrapLanding(input.telemetryNotice, width)
+      : wrapLanding(input.telemetryNotice, width);
   // One leading blank row, then the notice; the starters add a separating blank
   // row, a header, and one row each.
-  const noticeRows = 1 + notice.length
-  const starterRows = (notice.length === 0 ? 0 : 1) + 1 + LANDING_SUGGESTIONS.length
-  const suggestions =
-    input.rows >= noticeRows + starterRows ? LANDING_SUGGESTIONS : []
-  return { notice, suggestions }
+  const noticeRows = 1 + notice.length;
+  const starterRows = (notice.length === 0 ? 0 : 1) + 1 + LANDING_SUGGESTIONS.length;
+  const suggestions = input.rows >= noticeRows + starterRows ? LANDING_SUGGESTIONS : [];
+  return { notice, suggestions };
 }
 
-const SUGGESTION_HEADER = "try"
+const SUGGESTION_HEADER = "try";
 
 /**
  * Text rows painted below the prompt box, top to bottom.
@@ -245,25 +235,25 @@ export function landingBelowRows(
   content: LandingBelowContent,
   suggestionsVisible = true,
 ): readonly {
-  readonly text: string
-  readonly fg: string
+  readonly text: string;
+  readonly fg: string;
 }[] {
-  const rows: { text: string; fg: string }[] = [{ text: "", fg: UI.textDim }]
-  for (const line of content.notice) rows.push({ text: line, fg: UI.textDim })
+  const rows: { text: string; fg: string }[] = [{ text: "", fg: UI.textDim }];
+  for (const line of content.notice) rows.push({ text: line, fg: UI.textDim });
   if (content.suggestions.length > 0) {
-    if (content.notice.length > 0) rows.push({ text: "", fg: UI.textDim })
+    if (content.notice.length > 0) rows.push({ text: "", fg: UI.textDim });
     rows.push({
       text: suggestionsVisible ? SUGGESTION_HEADER : "",
       fg: UI.textFaint,
-    })
+    });
     for (const item of content.suggestions) {
       rows.push({
         text: suggestionsVisible ? `${item.key}  ${item.label}` : "",
         fg: UI.textDim,
-      })
+      });
     }
   }
-  return rows
+  return rows;
 }
 
 function markChunks(
@@ -274,16 +264,16 @@ function markChunks(
 ): readonly TextChunk[][] {
   return renderMark({ nowMs, still, grid, reducedMotion }).map((row) =>
     row.map((cell) => fgChunk(cell.fg)(cell.char)),
-  )
+  );
 }
 
-export type LandingAbove = {
-  readonly box: BoxRenderable
-  readonly hero: BoxRenderable
-  readonly markColumn: BoxRenderable
-  readonly markRows: readonly TextRenderable[]
+export interface LandingAbove {
+  readonly box: BoxRenderable;
+  readonly hero: BoxRenderable;
+  readonly markColumn: BoxRenderable;
+  readonly markRows: readonly TextRenderable[];
   /** The grid currently painted, or null while the mark is suppressed. */
-  grid: MarkGrid | null
+  grid: MarkGrid | null;
 }
 
 /**
@@ -303,7 +293,7 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
     justifyContent: "flex-end",
     paddingLeft: LANDING_MARGIN,
     backgroundColor: UI.ground,
-  })
+  });
   const hero = new BoxRenderable(ctx, {
     id: "shell-landing-hero",
     width: "100%",
@@ -311,7 +301,7 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
     flexShrink: 0,
     flexDirection: "row",
     backgroundColor: UI.ground,
-  })
+  });
   const markColumn = new BoxRenderable(ctx, {
     id: "shell-landing-mark",
     width: MARK_LARGE.cols,
@@ -319,21 +309,21 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
     flexDirection: "column",
     justifyContent: "flex-end",
     backgroundColor: UI.ground,
-  })
-  const markRows: TextRenderable[] = []
+  });
+  const markRows: TextRenderable[] = [];
   for (let row = 0; row < MARK_LARGE.rows; row++) {
     const line = new TextRenderable(ctx, {
       id: `shell-landing-mark-${row}`,
       height: 1,
       content: "",
       fg: UI.action,
-    })
-    markRows.push(line)
-    markColumn.add(line)
+    });
+    markRows.push(line);
+    markColumn.add(line);
   }
-  hero.add(markColumn)
-  hero.add(createHintBlock(ctx))
-  box.add(hero)
+  hero.add(markColumn);
+  hero.add(createHintBlock(ctx));
+  box.add(hero);
   box.add(
     new TextRenderable(ctx, {
       id: "shell-landing-mark-gap",
@@ -341,17 +331,17 @@ export function createLandingAbove(ctx: CliRenderer): LandingAbove {
       content: "",
       fg: UI.ground,
     }),
-  )
+  );
   const above: LandingAbove = {
     box,
     hero,
     markColumn,
     markRows,
     grid: MARK_SMALL,
-  }
-  fitLandingMark(above, MARK_SMALL)
-  paintLandingMark(above, 0, true)
-  return above
+  };
+  fitLandingMark(above, MARK_SMALL);
+  paintLandingMark(above, 0, true);
+  return above;
 }
 
 /** The two doors, key emphasized and the rest dim. */
@@ -366,11 +356,9 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     justifyContent: "center",
     paddingLeft: LANDING_HERO_GAP,
     backgroundColor: UI.ground,
-  })
+  });
   LANDING_HINTS.forEach((hint, index) => {
-    const gap = " ".repeat(
-      LANDING_KEY_WIDTH - hint.key.length + LANDING_KEY_GAP,
-    )
+    const gap = " ".repeat(LANDING_KEY_WIDTH - hint.key.length + LANDING_KEY_GAP);
     block.add(
       new TextRenderable(ctx, {
         id: `shell-landing-hint-${index}`,
@@ -380,9 +368,9 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
           fgChunk(UI.textDim)(`${gap}${hint.rest}`),
         ]),
       }),
-    )
-  })
-  return block
+    );
+  });
+  return block;
 }
 
 /**
@@ -390,16 +378,16 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
  * hint block stays either way: it is the way off the screen, not decoration.
  */
 export function fitLandingMark(above: LandingAbove, grid: MarkGrid | null): void {
-  above.grid = grid
+  above.grid = grid;
   // With no mark, the hero is exactly the hint block: one row per door.
-  const rows = grid?.rows ?? LANDING_HINTS.length
-  above.hero.height = rows
-  above.markColumn.visible = grid !== null
-  above.markColumn.width = grid?.cols ?? 0
+  const rows = grid?.rows ?? LANDING_HINTS.length;
+  above.hero.height = rows;
+  above.markColumn.visible = grid !== null;
+  above.markColumn.width = grid?.cols ?? 0;
   // Extra rows are hidden from the top so the ridgeline keeps its floor.
   above.markRows.forEach((line, index) => {
-    line.visible = grid !== null && index >= MARK_LARGE.rows - grid.rows
-  })
+    line.visible = grid !== null && index >= MARK_LARGE.rows - grid.rows;
+  });
 }
 
 /**
@@ -414,20 +402,17 @@ export function paintLandingMark(
   still: boolean,
   reducedMotion = false,
 ): void {
-  const grid = above.grid
-  if (grid === null) return
-  const chunks = markChunks(grid, nowMs, still, reducedMotion)
-  const offset = MARK_LARGE.rows - grid.rows
+  const grid = above.grid;
+  if (grid === null) return;
+  const chunks = markChunks(grid, nowMs, still, reducedMotion);
+  const offset = MARK_LARGE.rows - grid.rows;
   above.markRows.forEach((line, index) => {
-    const row = chunks[index - offset]
-    if (row !== undefined) line.content = new StyledText([...row])
-  })
+    const row = chunks[index - offset];
+    if (row !== undefined) line.content = new StyledText([...row]);
+  });
 }
 
-export function createLandingBelow(
-  ctx: CliRenderer,
-  content: LandingBelowContent,
-): BoxRenderable {
+export function createLandingBelow(ctx: CliRenderer, content: LandingBelowContent): BoxRenderable {
   const box = new BoxRenderable(ctx, {
     id: "shell-landing-below",
     width: "100%",
@@ -435,7 +420,7 @@ export function createLandingBelow(
     flexDirection: "column",
     paddingLeft: LANDING_MARGIN,
     backgroundColor: UI.ground,
-  })
+  });
   landingBelowRows(content).forEach((row, index) => {
     box.add(
       new TextRenderable(ctx, {
@@ -444,9 +429,9 @@ export function createLandingBelow(
         content: row.text,
         fg: row.fg,
       }),
-    )
-  })
-  return box
+    );
+  });
+  return box;
 }
 
 /** Repaint the rows below the box for the current suggestion visibility. */
@@ -455,11 +440,11 @@ export function paintLandingBelow(
   content: LandingBelowContent,
   suggestionsVisible: boolean,
 ): void {
-  const rows = landingBelowRows(content, suggestionsVisible)
+  const rows = landingBelowRows(content, suggestionsVisible);
   box.getChildren().forEach((child, index) => {
-    const row = rows[index]
+    const row = rows[index];
     if (row !== undefined && child instanceof TextRenderable) {
-      child.content = row.text
+      child.content = row.text;
     }
-  })
+  });
 }
