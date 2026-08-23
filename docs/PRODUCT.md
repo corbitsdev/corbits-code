@@ -92,7 +92,7 @@ is the direct, explicit resume path.
   - Paths outside the workspace and writes under the session state root still ask; mutating MCP and unknown tools still prompt.
 
 - **Path sandboxing** — Tool path arguments are resolved against the working directory; paths that escape it are blocked unless `--dangerously-skip-permissions` / `/yolo` is on (secret-guard and authz hard denies still apply).
-- **Write verification** — After every write/edit the file is re-read and compared to confirm the change actually landed.
+- **Write verification** — After every write/edit the file is re-read and compared to confirm the change actually landed; the result returned to the model (and shown to the operator) includes a bounded diff of the changed region — `write_file`, `edit_file`, `delete_file`, and each op inside `apply_patch` — so a follow-up `read_file` is never needed just to confirm an edit landed. A whole-file rewrite's diff is truncated (and says so) rather than blowing the result size cap.
 
 ## Slash Commands (TUI)
 

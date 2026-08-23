@@ -46,7 +46,10 @@ describe("deleteFilePlugin", () => {
 
     const result = await handler()(call("old.txt"), new AbortController().signal);
 
-    expect(result).toEqual({ callId: "delete-call", content: "Deleted file: old.txt" });
+    expect(result).toEqual({
+      callId: "delete-call",
+      content: "Deleted file: old.txt\n\n--- old.txt\n+++ old.txt\n@@ -1,1 +1,0 @@\n-old",
+    });
     expect(await exists(path)).toBe(false);
   });
 
@@ -107,7 +110,10 @@ describe("deleteFilePlugin", () => {
 
     const result = await tool.handler(call(path), new AbortController().signal);
 
-    expect(result).toEqual({ callId: "delete-call", content: `Deleted file: ${path}` });
+    expect(result).toEqual({
+      callId: "delete-call",
+      content: `Deleted file: ${path}\n\n--- ${path}\n+++ ${path}\n@@ -1,1 +1,0 @@\n-gone`,
+    });
     expect(await exists(path)).toBe(false);
     await rm(outside, { recursive: true, force: true });
   });
@@ -127,7 +133,10 @@ describe("deleteFilePlugin", () => {
 
     allow = true;
     const result = await tool.handler(call(path), new AbortController().signal);
-    expect(result).toEqual({ callId: "delete-call", content: `Deleted file: ${path}` });
+    expect(result).toEqual({
+      callId: "delete-call",
+      content: `Deleted file: ${path}\n\n--- ${path}\n+++ ${path}\n@@ -1,1 +1,0 @@\n-gone`,
+    });
     expect(await exists(path)).toBe(false);
     await rm(outside, { recursive: true, force: true });
   });
