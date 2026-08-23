@@ -14,9 +14,6 @@ export default tseslint.config(
       "**/scratch/**",
       "node_modules/**",
       "**/node_modules/**",
-      // Intentionally invalid source: the broken-toolchain eval fixture.
-
-      "tests/fixtures/broken-toolchain/**",
     ],
   },
   js.configs.recommended,
