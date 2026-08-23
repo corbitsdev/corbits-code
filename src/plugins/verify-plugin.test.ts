@@ -18,9 +18,7 @@ describe("verifyPlugin", () => {
     const dir = await mkdtemp(join(tmpdir(), "verify-test-"));
     try {
       const plugin = verifyPlugin();
-      const handler = plugin.middleware
-        ? plugin.middleware(makeNextHandler)
-        : makeNextHandler;
+      const handler = plugin.middleware ? plugin.middleware(makeNextHandler) : makeNextHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -46,9 +44,7 @@ describe("verifyPlugin", () => {
         await writeFile(path, "short");
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware
-        ? plugin.middleware(badHandler)
-        : badHandler;
+      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -75,9 +71,7 @@ describe("verifyPlugin", () => {
         await writeFile(path, "XXXX XXXXXX"); // 11 chars, same length as "hello world"
         return { callId: call.id, content: "written" };
       };
-      const handler = plugin.middleware
-        ? plugin.middleware(badHandler)
-        : badHandler;
+      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
 
       const path = join(dir, "test.txt");
       const result = await handler(
@@ -108,9 +102,7 @@ describe("verifyPlugin", () => {
         await writeFile(path, updated);
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware
-        ? plugin.middleware(editHandler)
-        : editHandler;
+      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "hello world");
@@ -137,9 +129,7 @@ describe("verifyPlugin", () => {
         await writeFile(path, "wrong content");
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware
-        ? plugin.middleware(badHandler)
-        : badHandler;
+      const handler = plugin.middleware ? plugin.middleware(badHandler) : badHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "hello world");
@@ -281,9 +271,7 @@ describe("verifyPlugin", () => {
         await writeFile(path, updated);
         return { callId: call.id, content: "edited" };
       };
-      const handler = plugin.middleware
-        ? plugin.middleware(editHandler)
-        : editHandler;
+      const handler = plugin.middleware ? plugin.middleware(editHandler) : editHandler;
 
       const path = join(dir, "test.txt");
       await writeFile(path, "aaa bbb ccc");

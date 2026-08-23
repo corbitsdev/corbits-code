@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
-import {
-  getToolApprovalBudget,
-  runWithToolExecutionWatchdog,
-} from "./tool-execution-watchdog.js";
+import { getToolApprovalBudget, runWithToolExecutionWatchdog } from "./tool-execution-watchdog.js";
 import type { PermissionGateEvent } from "./gate-events.js";
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 
@@ -140,9 +137,12 @@ describe("attachApprovalBudget", () => {
 
   test("has no signal when called outside a tool run", () => {
     let resolved: unknown;
-    const { finish, signal } = attachApprovalBudget<string>((value) => {
-      resolved = value;
-    }, { tool: "ask_operator", kind: "operator" });
+    const { finish, signal } = attachApprovalBudget<string>(
+      (value) => {
+        resolved = value;
+      },
+      { tool: "ask_operator", kind: "operator" },
+    );
     expect(signal).toBeUndefined();
     finish("cancel");
     expect(resolved).toBe("cancel");

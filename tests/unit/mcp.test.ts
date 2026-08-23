@@ -129,7 +129,10 @@ describe("mcpClientToAgentTools (production gated path)", () => {
     const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
     gate.registerMcpClient(client);
     const tools = mcpClientToAgentTools(client, gate);
-    expect(tools.map((t) => t.definition.name)).toEqual(["mcp__acme__list_issues", "mcp__acme__create_issue"]);
+    expect(tools.map((t) => t.definition.name)).toEqual([
+      "mcp__acme__list_issues",
+      "mcp__acme__create_issue",
+    ]);
   });
 
   test("prefixes description with server name", () => {
@@ -262,13 +265,15 @@ describe("normalizeMcpServers", () => {
 
 describe("normalizeMcpServers with http transport", () => {
   test("accepts an http server by url", () => {
-    expect(normalizeMcpServers({ acme: { type: "http", url: "https://mcp.acme.app/mcp" } })).toEqual([
-      { name: "acme", type: "http", url: "https://mcp.acme.app/mcp" },
-    ]);
+    expect(
+      normalizeMcpServers({ acme: { type: "http", url: "https://mcp.acme.app/mcp" } }),
+    ).toEqual([{ name: "acme", type: "http", url: "https://mcp.acme.app/mcp" }]);
   });
 
   test("infers http when only url is given", () => {
-    expect(isLocalSettings({ mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } } })).toBe(true);
+    expect(isLocalSettings({ mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } } })).toBe(
+      true,
+    );
   });
 
   test("rejects an http server with no url", () => {
@@ -309,7 +314,7 @@ describe("OAuth provider", () => {
   test("redirectToAuthorization surfaces the URL instead of opening a browser", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const seen: Array<{ name: string; url: string }> = [];
+      const seen: { name: string; url: string }[] = [];
       const provider = await createOAuthProvider({
         serverName: "acme",
         redirectUrl: "http://127.0.0.1:5599/callback",
@@ -317,7 +322,9 @@ describe("OAuth provider", () => {
         home,
       });
       provider.redirectToAuthorization(new URL("https://acme.app/oauth/authorize?client_id=abc"));
-      expect(seen).toEqual([{ name: "acme", url: "https://acme.app/oauth/authorize?client_id=abc" }]);
+      expect(seen).toEqual([
+        { name: "acme", url: "https://acme.app/oauth/authorize?client_id=abc" },
+      ]);
       expect(provider.redirectUrl).toBe("http://127.0.0.1:5599/callback");
       expect(provider.clientMetadata.redirect_uris).toEqual(["http://127.0.0.1:5599/callback"]);
     } finally {
@@ -328,7 +335,12 @@ describe("OAuth provider", () => {
   test("supplies a stable, non-empty OAuth state parameter", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const provider = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const provider = await createOAuthProvider({
+        serverName: "acme",
+        redirectUrl: "http://127.0.0.1:0/cb",
+        onAuthURL: () => {},
+        home,
+      });
       const first = await provider.state?.();
       expect(first).toBeTruthy();
       expect(await provider.state?.()).toBe(first);
@@ -340,9 +352,19 @@ describe("OAuth provider", () => {
   test("persists tokens so a later provider reads them back", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const first = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const first = await createOAuthProvider({
+        serverName: "acme",
+        redirectUrl: "http://127.0.0.1:0/cb",
+        onAuthURL: () => {},
+        home,
+      });
       await first.saveTokens({ access_token: "abc", token_type: "Bearer" });
-      const second = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
+      const second = await createOAuthProvider({
+        serverName: "acme",
+        redirectUrl: "http://127.0.0.1:0/cb",
+        onAuthURL: () => {},
+        home,
+      });
       expect(second.tokens()).toEqual({ access_token: "abc", token_type: "Bearer" });
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -352,8 +374,17 @@ describe("OAuth provider", () => {
   test("can clear stale authorization before starting a fresh OAuth flow", async () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
-      const provider = await createOAuthProvider({ serverName: "acme", redirectUrl: "http://127.0.0.1:0/cb", onAuthURL: () => {}, home });
-      await provider.saveTokens({ access_token: "abc", refresh_token: "stale", token_type: "Bearer" });
+      const provider = await createOAuthProvider({
+        serverName: "acme",
+        redirectUrl: "http://127.0.0.1:0/cb",
+        onAuthURL: () => {},
+        home,
+      });
+      await provider.saveTokens({
+        access_token: "abc",
+        refresh_token: "stale",
+        token_type: "Bearer",
+      });
       await provider.saveCodeVerifier("old-verifier");
       const oldState = await provider.state?.();
 
@@ -381,7 +412,10 @@ describe("dynamic tool runner", () => {
     runner.addTools([makeTool("mcp__acme__list", "late-result")]);
 
     expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base", "mcp__acme__list"]);
-    const result = await runner.run({ id: "c1", name: "mcp__acme__list", arguments: {} }, new AbortController().signal);
+    const result = await runner.run(
+      { id: "c1", name: "mcp__acme__list", arguments: {} },
+      new AbortController().signal,
+    );
     expect(result.content).toBe("late-result");
   });
 
@@ -392,7 +426,10 @@ describe("dynamic tool runner", () => {
 
   test("returns an error result for an unknown tool", async () => {
     const runner = createDynamicToolRunner([]);
-    const result = await runner.run({ id: "c1", name: "missing", arguments: {} }, new AbortController().signal);
+    const result = await runner.run(
+      { id: "c1", name: "missing", arguments: {} },
+      new AbortController().signal,
+    );
     expect(result.isError).toBe(true);
   });
 });

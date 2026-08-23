@@ -15,10 +15,10 @@ printf '%s%s\\n' '${SHELL_PWD_MARKER}' "$(pwd -P 2>/dev/null || pwd)"
 exit $__ic_ec`;
 }
 
-export type PwdProbeParse = {
+export interface PwdProbeParse {
   output: string;
   finalCwd?: string;
-};
+}
 
 /** Remove the pwd probe line and return the reported directory when present. */
 export function parsePwdProbeOutput(raw: string): PwdProbeParse {
@@ -57,10 +57,7 @@ export function missingShellCwdMessage(cwd: string): string {
 }
 
 /** True when `candidate` resolves to the session root or a subdirectory of it. */
-export function isShellCwdWithinSession(
-  sessionRoot: string,
-  candidate: string,
-): boolean {
+export function isShellCwdWithinSession(sessionRoot: string, candidate: string): boolean {
   const rel = relative(sessionRoot, candidate);
   return rel === "" || !rel.startsWith("..");
 }
@@ -69,11 +66,11 @@ export function shellCwdEscapesSessionMessage(cwd: string): string {
   return `Shell cannot retain working directory outside the session workspace: ${cwd}. Stay within the project tree or use an explicit cwd argument.`;
 }
 
-export type ResolvePerCallShellCwdOptions = {
+export interface ResolvePerCallShellCwdOptions {
   // When true (--dangerously-skip-permissions), accept a cwd outside the session
   // root. Default false keeps the hard session fence.
   allowOutsideSession?: boolean;
-};
+}
 
 /** Resolve a per-call `cwd` argument against the session root (not process.cwd()). */
 export function resolvePerCallShellCwd(
@@ -89,10 +86,7 @@ export function resolvePerCallShellCwd(
   } catch {
     resolved = candidate;
   }
-  if (
-    options.allowOutsideSession !== true &&
-    !isShellCwdWithinSession(root, resolved)
-  ) {
+  if (options.allowOutsideSession !== true && !isShellCwdWithinSession(root, resolved)) {
     throw new Error(shellCwdEscapesSessionMessage(resolved));
   }
   return resolved;

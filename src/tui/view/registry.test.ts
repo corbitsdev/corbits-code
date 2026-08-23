@@ -12,9 +12,18 @@ describe("grid width allocation (via view)", () => {
       type: "grid",
       columns: [{ align: "right" }, { align: "left" }],
       rows: [
-        [{ type: "text", text: "#" }, { type: "text", text: "Name" }],
-        [{ type: "text", text: "1" }, { type: "text", text: "First Item" }],
-        [{ type: "text", text: "2" }, { type: "text", text: "Second Item" }],
+        [
+          { type: "text", text: "#" },
+          { type: "text", text: "Name" },
+        ],
+        [
+          { type: "text", text: "1" },
+          { type: "text", text: "First Item" },
+        ],
+        [
+          { type: "text", text: "2" },
+          { type: "text", text: "Second Item" },
+        ],
       ],
     };
     const lines = frame(node, 80);
@@ -33,7 +42,12 @@ describe("grid width allocation (via view)", () => {
           { type: "text", text: "Status" },
           { type: "text", text: "Priority" },
         ],
-        [{ type: "text", text: "1" }, { type: "text", text: "Item" }, { type: "text", text: "Done" }, { type: "text", text: "High" }],
+        [
+          { type: "text", text: "1" },
+          { type: "text", text: "Item" },
+          { type: "text", text: "Done" },
+          { type: "text", text: "High" },
+        ],
       ],
     };
     const lines = frame(node, 20);

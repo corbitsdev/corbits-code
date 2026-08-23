@@ -4,3 +4,4 @@ vendor/
 scratch/
 node_modules/
 CHANGELOG.md
+tests/fixtures/broken-toolchain/

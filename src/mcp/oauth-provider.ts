@@ -1,18 +1,26 @@
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientInformationFull, OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthClientInformationFull,
+  OAuthClientInformationMixed,
+  OAuthClientMetadata,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { updateAuthState, type MCPAuthState } from "./auth-store.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
-export type OAuthProviderOptions = {
+export interface OAuthProviderOptions {
   serverName: string;
   redirectUrl: string;
   onAuthURL: (serverName: string, authorizationUrl: string) => void;
   onAuthorizationState?: (state: string) => void;
   home?: string;
-};
+}
 export type CorbitsOAuthProvider = OAuthClientProvider & { resetAuthorization(): Promise<void> };
 
-function redirectUrisInclude(info: OAuthClientInformationFull | undefined, redirectUrl: string): boolean {
+function redirectUrisInclude(
+  info: OAuthClientInformationFull | undefined,
+  redirectUrl: string,
+): boolean {
   const uris = info?.redirect_uris;
   if (uris === undefined || uris.length === 0) return true;
   return uris.includes(redirectUrl);
@@ -38,13 +46,19 @@ function replaceStored(stored: MCPAuthState, next: MCPAuthState): void {
   if (next.codeVerifier !== undefined) stored.codeVerifier = next.codeVerifier;
 }
 
-export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<CorbitsOAuthProvider> {
+export async function createOAuthProvider(
+  opts: OAuthProviderOptions,
+): Promise<CorbitsOAuthProvider> {
   // Load + scrub stale DCR under the per-file chain so concurrent providers see
   // the same cleaned state. Mutations always re-read disk; this in-memory mirror
   // only serves the SDK's sync getters (tokens / clientInformation / codeVerifier).
-  const stored: MCPAuthState = await updateAuthState(opts.serverName, (state) => {
-    dropStaleClientRegistration(state, opts.redirectUrl);
-  }, opts.home);
+  const stored: MCPAuthState = await updateAuthState(
+    opts.serverName,
+    (state) => {
+      dropStaleClientRegistration(state, opts.redirectUrl);
+    },
+    opts.home,
+  );
 
   const apply = async (mutator: (state: MCPAuthState) => void): Promise<void> => {
     const next = await updateAuthState(opts.serverName, mutator, opts.home);
@@ -53,21 +67,33 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<C
 
   let oauthState: string | undefined;
   return {
-    get redirectUrl(): string { return opts.redirectUrl; },
+    get redirectUrl(): string {
+      return opts.redirectUrl;
+    },
     state(): string {
       if (oauthState === undefined) oauthState = crypto.randomUUID();
       return oauthState;
     },
     get clientMetadata(): OAuthClientMetadata {
-      return { client_name: MCP_CLIENT_NAME, redirect_uris: [opts.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
+      return {
+        client_name: MCP_CLIENT_NAME,
+        redirect_uris: [opts.redirectUrl],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      };
     },
-    clientInformation(): OAuthClientInformationMixed | undefined { return stored.clientInformation; },
+    clientInformation(): OAuthClientInformationMixed | undefined {
+      return stored.clientInformation;
+    },
     saveClientInformation(info: OAuthClientInformationMixed): Promise<void> {
       return apply((state) => {
         state.clientInformation = info as OAuthClientInformationFull;
       });
     },
-    tokens(): OAuthTokens | undefined { return stored.tokens; },
+    tokens(): OAuthTokens | undefined {
+      return stored.tokens;
+    },
     saveTokens(tokens: OAuthTokens): Promise<void> {
       return apply((state) => {
         state.tokens = tokens;
@@ -84,7 +110,8 @@ export async function createOAuthProvider(opts: OAuthProviderOptions): Promise<C
       });
     },
     codeVerifier(): string {
-      if (stored.codeVerifier === undefined) throw new Error("No PKCE code verifier saved for this authorization.");
+      if (stored.codeVerifier === undefined)
+        throw new Error("No PKCE code verifier saved for this authorization.");
       return stored.codeVerifier;
     },
     resetAuthorization(): Promise<void> {

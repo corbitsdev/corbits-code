@@ -15,14 +15,14 @@ import { buildTurnSummary } from "./compactor.js";
 // What the agent was doing when compaction fired. Lets the summary preserve
 // the workflow contract ("we are at step 3/7 of /build") rather than dropping
 // it into the compacted region.
-export type SummaryContext = {
+export interface SummaryContext {
   workflow?: {
     name?: string;
     stepLabel?: string;
     stepIndex?: number;
     total?: number;
   };
-};
+}
 
 const SYSTEM_INSTRUCTION = [
   "You are compacting the context of an in-progress coding session so the agent",
@@ -84,11 +84,21 @@ export function condenseTurns(turns: ConversationTurn[]): string {
     }
   }
 
-  const sections: Array<string | null> = [
+  const sections: (string | null)[] = [
     `Turns dropped: ${turns.length}`,
     toolNames.size > 0 ? `Tools used: ${[...toolNames].sort().join(", ")}` : null,
-    files.size > 0 ? `Files touched:\n${[...files].slice(0, 40).map((f) => `- ${f}`).join("\n")}` : null,
-    links.size > 0 ? `Links/identifiers:\n${[...links].slice(0, 30).map((l) => `- ${l}`).join("\n")}` : null,
+    files.size > 0
+      ? `Files touched:\n${[...files]
+          .slice(0, 40)
+          .map((f) => `- ${f}`)
+          .join("\n")}`
+      : null,
+    links.size > 0
+      ? `Links/identifiers:\n${[...links]
+          .slice(0, 30)
+          .map((l) => `- ${l}`)
+          .join("\n")}`
+      : null,
     userMessages.length > 0
       ? `User messages (most recent last):\n${userMessages.slice(-6).join("\n---\n")}`
       : null,
@@ -119,10 +129,7 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
 }
 
 /** Build the user-content prompt for the summary call. Pure and testable. */
-export function buildSummaryPrompt(
-  turns: ConversationTurn[],
-  ctx?: SummaryContext,
-): string {
+export function buildSummaryPrompt(turns: ConversationTurn[], ctx?: SummaryContext): string {
   return `${workflowPreamble(ctx)}Session excerpt:\n\n${condenseTurns(turns)}`;
 }
 
@@ -157,7 +164,7 @@ function defaultComplete(deps: Dependencies): CompletionFn {
   };
 }
 
-export type ModelSummarizerOptions = {
+export interface ModelSummarizerOptions {
   /** Returns the source to summarize with — read live so model switches apply. */
   getSource: () => InferenceSource;
   /** Abort signal source; the summary call is cancelled if the session ends. */
@@ -167,7 +174,7 @@ export type ModelSummarizerOptions = {
   deps?: Dependencies;
   /** Cap on the returned summary length. */
   maxChars?: number;
-};
+}
 
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
@@ -186,8 +193,16 @@ export function createModelSummarizer(
     const fallback = (): string => buildTurnSummary(turns, maxChars);
     try {
       const promptTurns: ConversationTurn[] = [
-        { role: "system", content: [{ type: "text", text: SYSTEM_INSTRUCTION }], timestamp: turns[0]?.timestamp ?? 0 },
-        { role: "user", content: [{ type: "text", text: buildSummaryPrompt(turns, ctx) }], timestamp: 0 },
+        {
+          role: "system",
+          content: [{ type: "text", text: SYSTEM_INSTRUCTION }],
+          timestamp: turns[0]?.timestamp ?? 0,
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: buildSummaryPrompt(turns, ctx) }],
+          timestamp: 0,
+        },
       ];
       const signal = options.getSignal?.() ?? new AbortController().signal;
       const text = await complete(promptTurns, options.getSource(), signal);

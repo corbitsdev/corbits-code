@@ -18,7 +18,16 @@ import { composePromptActionBarModelLabel } from "../tui/components/prompt-actio
 
 describe("REASONING_EFFORTS", () => {
   test("is ordered from least to most effort", () => {
-    expect(REASONING_EFFORTS).toEqual(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+    expect(REASONING_EFFORTS).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      "ultra",
+    ]);
   });
 });
 
@@ -38,12 +47,29 @@ describe("supportedEfforts", () => {
   });
 
   test("gpt-5.1 family includes none (disable) and xhigh", () => {
-    expect(supportedEfforts("gpt-5.1")).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("gpt-5.1")).toEqual([
+      "none",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
   });
 
   test("codex provider takes low/medium/high/xhigh, no minimal or none", () => {
-    expect(supportedEfforts("gpt-5.5", undefined, true)).toEqual(["low", "medium", "high", "xhigh"]);
-    expect(supportedEfforts("gpt-5.4-mini", undefined, true)).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(supportedEfforts("gpt-5.5", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+    expect(supportedEfforts("gpt-5.4-mini", undefined, true)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
   });
 
   test("gpt-5.6 family additionally takes max and ultra on the codex backend", () => {
@@ -150,8 +176,12 @@ describe("cycleReasoningEffort", () => {
   });
 
   test("grok leftover minimal cycles the same as unset / high", () => {
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", undefined));
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", "high"));
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(
+      cycleReasoningEffort("grok-4.6", undefined),
+    );
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(
+      cycleReasoningEffort("grok-4.6", "high"),
+    );
     expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe("xhigh");
   });
 

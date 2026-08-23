@@ -48,13 +48,21 @@ test("createFaremeter uses fetched model rates", () => {
 });
 
 test("resolvePricing prices each turn at the live model rate", () => {
-  let pricing = { inputPricePerToken: 0.00001, outputPricePerToken: 0.00002, cacheReadPricePerToken: 0 };
+  let pricing = {
+    inputPricePerToken: 0.00001,
+    outputPricePerToken: 0.00002,
+    cacheReadPricePerToken: 0,
+  };
   const faremeter = createFaremeter({ resolvePricing: () => pricing });
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   expect(faremeter.getTotalCost()).toBe(0.02);
 
   // A mid-session switch to a cheaper model reprices subsequent turns.
-  pricing = { inputPricePerToken: 0.000001, outputPricePerToken: 0.000002, cacheReadPricePerToken: 0 };
+  pricing = {
+    inputPricePerToken: 0.000001,
+    outputPricePerToken: 0.000002,
+    cacheReadPricePerToken: 0,
+  };
   faremeter.addUsage({ input: 1000, output: 500, cacheRead: 0, cacheWrite: 0, thinking: 0 });
   expect(faremeter.getTotalCost()).toBeCloseTo(0.022, 10);
 });
