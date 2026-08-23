@@ -10,13 +10,13 @@
 import type { EventEmitter } from "node:events";
 import type { ApprovalOutcome, PermissionRequest } from "./types.js";
 
-export type QueuedApprovalSummary = {
+export interface QueuedApprovalSummary {
   readonly id: number;
   readonly tool: string;
   readonly agentLabel?: string;
-};
+}
 
-export type PermissionRequestQueue = {
+export interface PermissionRequestQueue {
   /** Register a live request; the returned id is what settle/reconcile key on. */
   enqueue: (request: PermissionRequest, resolve: (outcome: ApprovalOutcome) => void) => number;
   /** Settle one entry (accept, deny, timeout, or abort). False once already settled. */
@@ -32,7 +32,7 @@ export type PermissionRequestQueue = {
   /** Deny and remove everything still queued (session teardown) so no awaited resolve is left hanging. */
   drain: () => void;
   size: () => number;
-};
+}
 
 export function createPermissionRequestQueue(): PermissionRequestQueue {
   const entries = new Map<
@@ -75,10 +75,10 @@ export function createPermissionRequestQueue(): PermissionRequestQueue {
   };
 }
 
-export type PermissionGrantEvent = {
+export interface PermissionGrantEvent {
   readonly approval: { readonly tool: string; readonly pattern: string };
   readonly covers: (request: PermissionRequest) => boolean;
-};
+}
 
 // `covers` is a function, which arktype cannot express in a schema, so this
 // stays a plain runtime guard rather than the usual declarative boundary
@@ -89,7 +89,9 @@ function isPermissionGrantEvent(raw: unknown): raw is PermissionGrantEvent {
   const covers = (raw as Record<string, unknown>).covers;
   if (approval === null || typeof approval !== "object") return false;
   const a = approval as Record<string, unknown>;
-  return typeof a.tool === "string" && typeof a.pattern === "string" && typeof covers === "function";
+  return (
+    typeof a.tool === "string" && typeof a.pattern === "string" && typeof covers === "function"
+  );
 }
 
 /**

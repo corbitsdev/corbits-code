@@ -25,10 +25,7 @@ test("redirect ampersands never split", () => {
 });
 
 test("backslash-newline continuation does not split a display segment", () => {
-  expect(groupChainSegmentsForDisplay("rm x \\\n-rf && echo ok")).toEqual([
-    "rm x -rf",
-    "echo ok",
-  ]);
+  expect(groupChainSegmentsForDisplay("rm x \\\n-rf && echo ok")).toEqual(["rm x -rf", "echo ok"]);
 });
 
 test("heredoc bodies are not enumerated as segments", () => {
@@ -151,7 +148,7 @@ test("collapseSegmentPayloads never collapses a /usr/local/bin/sh -c invocation"
 });
 
 test("collapseSegmentPayloads never collapses python -c code", () => {
-  const segment = 'python -c "import os\nos.system(\'rm -rf /\')"';
+  const segment = "python -c \"import os\nos.system('rm -rf /')\"";
   expect(collapseSegmentPayloads(segment)).toEqual({ display: segment, payloads: [] });
 });
 
@@ -214,7 +211,9 @@ test("collapseSegmentPayloads still collapses a commit message containing a trig
   const segment = 'git commit -m "please source of truth\nfor this change"';
   const { display, payloads } = collapseSegmentPayloads(segment);
   expect(display).toBe("git commit -m <message, 2 lines>");
-  expect(payloads).toEqual([{ placeholder: "<message, 2 lines>", lines: ["please source of truth", "for this change"] }]);
+  expect(payloads).toEqual([
+    { placeholder: "<message, 2 lines>", lines: ["please source of truth", "for this change"] },
+  ]);
 });
 
 test("collapseSegmentPayloads still collapses a quoted argument mentioning env in its text", () => {
@@ -227,7 +226,9 @@ test("collapseSegmentPayloads still collapses a normal long commit-message hered
   const segment = "git commit -F <<'EOF'\nsummary line\nmore detail\nEOF\n";
   const { display, payloads } = collapseSegmentPayloads(segment);
   expect(display).toBe("git commit -F <<'EOF' <heredoc, 2 lines>");
-  expect(payloads).toEqual([{ placeholder: "<heredoc, 2 lines>", lines: ["summary line", "more detail"] }]);
+  expect(payloads).toEqual([
+    { placeholder: "<heredoc, 2 lines>", lines: ["summary line", "more detail"] },
+  ]);
 });
 
 test("collapseSegmentPayloads never collapses a bash heredoc without -c", () => {

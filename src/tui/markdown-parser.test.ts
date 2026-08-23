@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { createMemoizedParseMarkdown, parseMarkdown, type StyledSegment } from "./markdown-parser.js";
+import {
+  createMemoizedParseMarkdown,
+  parseMarkdown,
+  type StyledSegment,
+} from "./markdown-parser.js";
 import { color } from "./semantic-theme.js";
 
 function firstLine(text: string): StyledSegment[] {
@@ -130,7 +134,10 @@ describe("block elements", () => {
 
   test("drops a half-typed closing fence from the streaming tail", () => {
     const lines = parseMarkdown("```js\nconst x = 1;\n``");
-    const rendered = lines.flat().map((s) => s.text).join("");
+    const rendered = lines
+      .flat()
+      .map((s) => s.text)
+      .join("");
     expect(rendered).not.toContain("``");
     expect(rendered).toContain("const");
   });
@@ -440,8 +447,10 @@ describe("multi-line", () => {
 
   test("wide multi-row table shares one column-width set and never exceeds width", () => {
     const header = "| Option | Tradeoff | Notes |\n| --- | --- | --- |\n";
-    const rows = Array.from({ length: 10 }, (_, i) =>
-      `| ${i + 1}. Inline / native scrollback | Leave alt-screen; use terminal scrollback for history | Detail ${i + 1} |\n`,
+    const rows = Array.from(
+      { length: 10 },
+      (_, i) =>
+        `| ${i + 1}. Inline / native scrollback | Leave alt-screen; use terminal scrollback for history | Detail ${i + 1} |\n`,
     ).join("");
     const lines = parseMarkdown(header + rows, 80);
     const texts = lines.map(allText);
@@ -475,9 +484,7 @@ describe("borderless pipe tables the model emits", () => {
   });
 
   test("borderless table with a separator row drops the separator", () => {
-    const lines = parseMarkdown(
-      "Name | Value\n--- | ---\nfoo | bar",
-    );
+    const lines = parseMarkdown("Name | Value\n--- | ---\nfoo | bar");
     expect(lines).toHaveLength(3);
     expect(allText(lines[0] ?? []).trim()).toBe("Name │ Value");
     expect(allText(lines[2] ?? []).trim()).toBe("foo  │ bar");

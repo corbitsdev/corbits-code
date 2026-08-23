@@ -11,13 +11,13 @@ import {
 
 // A discovered plugin that contributes agent tools: a "tool"-kind manifest plus
 // the factory the loader captured.
-export type ToolPluginCandidate = {
+export interface ToolPluginCandidate {
   id: string;
   name: string;
   description?: string;
   credentials: PluginCredentialField[];
   factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>;
-};
+}
 
 export function collectToolPlugins(modules: PluginModule[]): ToolPluginCandidate[] {
   const out: ToolPluginCandidate[] = [];

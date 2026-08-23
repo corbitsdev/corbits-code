@@ -6,16 +6,19 @@ import { createPermissionGate } from "./permission/gate.js";
 import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "./session/compactor.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import type { ExtendedInferenceOptions } from "@intx/inference";
-import type { ReactorState, ReactorCapabilities, ReactorAction, ReactorInboundEvent } from "@intx/types/runtime";
-import {
-  INFERENCE_ABORT_INTERNAL_RECOVERY,
-  INFERENCE_ABORT_USER_STOP,
-} from "./inference-abort.js";
+import type {
+  ReactorState,
+  ReactorCapabilities,
+  ReactorAction,
+  ReactorInboundEvent,
+} from "@intx/types/runtime";
+import { INFERENCE_ABORT_INTERNAL_RECOVERY, INFERENCE_ABORT_USER_STOP } from "./inference-abort.js";
 
 const mockState: ReactorState = {} as unknown as ReactorState;
 
 const mockCapabilities: ReactorCapabilities = {
-  infer: (options) => ({ type: "infer", ...(options !== undefined ? { options } : {}) } as ReactorAction),
+  infer: (options) =>
+    ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
   executeTools: (calls) => ({ type: "execute_tools", calls }),
   suspend: (gate) => ({ type: "suspend", gate }),
   fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
@@ -27,7 +30,9 @@ const mockCapabilities: ReactorCapabilities = {
   done: () => ({ type: "done" }),
 };
 
-function makeInferenceDoneEvent(toolCalls: Array<{ id: string; name: string; args?: Record<string, unknown> }>) {
+function makeInferenceDoneEvent(
+  toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
+) {
   return {
     type: "inference.done",
     turn: {
@@ -65,12 +70,18 @@ function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] 
 }
 
 describe("operator declined tool calls", () => {
-  const declined = "Blocked by permission policy: Operator declined: Run shell command (npm view hono version)";
+  const declined =
+    "Blocked by permission policy: Operator declined: Run shell command (npm view hono version)";
 
   const hasCheckpoint = (actions: ReactorAction[]): boolean =>
-    actions.some((a) => a.type === "checkpoint" && "message" in a && a.message === "operator-declined");
+    actions.some(
+      (a) => a.type === "checkpoint" && "message" in a && a.message === "operator-declined",
+    );
   const hasDeclineReply = (actions: ReactorAction[]): boolean =>
-    actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.");
+    actions.some(
+      (a) =>
+        a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.",
+    );
   const hasInfer = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "infer");
   const hasDone = (actions: ReactorAction[]): boolean => actions.some((a) => a.type === "done");
 
@@ -80,7 +91,9 @@ describe("operator declined tool calls", () => {
   // decline.
   test("chat director surfaces the decline and waits, keeping the reactor alive", async () => {
     const director = createChatDirector("", [], { onTasksChange: () => {} });
-    const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    const actions = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
     expect(hasCheckpoint(actions)).toBe(true);
     expect(hasDeclineReply(actions)).toBe(true);
     // No done(): the TUI must stay alive so the user can send another message.
@@ -90,17 +103,27 @@ describe("operator declined tool calls", () => {
 });
 
 describe("open-task termination guard", () => {
-  const declined = "Blocked by permission policy: Operator declined: Run shell command (rm -rf build)";
+  const declined =
+    "Blocked by permission policy: Operator declined: Run shell command (rm -rf build)";
 
   const manageTasksEvent = (status: "todo" | "doing" | "done") =>
     makeInferenceDoneEvent([
-      { id: "m", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "work", status }] } },
+      {
+        id: "m",
+        name: "manage_tasks",
+        args: { action: "create", tasks: [{ id: "t1", title: "work", status }] },
+      },
     ]);
 
   const textTurn = (): ReactorInboundEvent =>
     ({
       type: "inference.done",
-      turn: { role: "assistant", model: "test", timestamp: 0, content: [{ type: "text", text: "all set" }] },
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "text", text: "all set" }],
+      },
       usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
       source: { model: "test-model" },
     }) as unknown as ReactorInboundEvent;
@@ -152,7 +175,9 @@ describe("open-task termination guard", () => {
 
     const actions = actionsArray(await director.decide(emptyTurn, mockState, mockCapabilities));
     expect(hasReply(actions)).toBe(true);
-    expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(true);
+    expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
+      true,
+    );
     expect(actions.some((a) => a.type === "wait")).toBe(true);
     expect(hasInfer(actions)).toBe(false);
   });
@@ -162,12 +187,21 @@ describe("open-task termination guard", () => {
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
 
     for (let i = 0; i < 2; i++) {
-      const nudged = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+      const nudged = actionsArray(
+        await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+      );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
       expect(nudged.some((a) => a.type === "reply")).toBe(false);
     }
-    const ended = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
-    expect(ended.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
+    const ended = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
+    expect(
+      ended.some(
+        (a) =>
+          a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.",
+      ),
+    ).toBe(true);
     expect(ended.some((a) => a.type === "infer")).toBe(false);
   });
 
@@ -181,8 +215,12 @@ describe("open-task termination guard", () => {
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
 
     // Two content-free terminations spend two of the three nudges.
-    expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
-    expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+    expect(
+      hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities))),
+    ).toBe(true);
+    expect(
+      hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities))),
+    ).toBe(true);
 
     // A no-op shell call (echo) is not a new user turn, so it must not buy
     // back budget.
@@ -205,14 +243,19 @@ describe("open-task termination guard", () => {
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
 
     for (let i = 0; i < 3; i++) {
-      expect(hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities)))).toBe(true);
+      expect(
+        hasInfer(actionsArray(await director.decide(textTurn(), mockState, mockCapabilities))),
+      ).toBe(true);
     }
     const exhausted = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
     expect(hasReply(exhausted)).toBe(true);
 
     // A fresh inbound user message starts a new turn: the budget is restored.
     await director.decide(
-      { type: "message.received", message: { role: "user", content: "keep going" } } as unknown as ReactorInboundEvent,
+      {
+        type: "message.received",
+        message: { role: "user", content: "keep going" },
+      } as unknown as ReactorInboundEvent,
       mockState,
       mockCapabilities,
     );
@@ -227,24 +270,42 @@ describe("open-task termination guard", () => {
     // Spend both of the declined-path nudges, with a successful tool result
     // interleaved after the first. If the successful result reset the budget,
     // a third decline would still re-infer instead of terminating.
-    const first = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    const first = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
     expect(first.some((a) => a.type === "infer")).toBe(true);
 
     // A successful (non-error) tool result in between must not buy back budget.
     await director.decide(makeToolDoneEvent("ok1"), mockState, mockCapabilities);
 
-    const second = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    const second = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
     expect(second.some((a) => a.type === "infer")).toBe(true);
 
-    const third = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
+    const third = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
     expect(third.some((a) => a.type === "infer")).toBe(false);
-    expect(third.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
+    expect(
+      third.some(
+        (a) =>
+          a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.",
+      ),
+    ).toBe(true);
   });
 
   test("a declined tool with no open tasks surfaces the decline immediately", async () => {
     const director = createChatDirector("base", [], { onTasksChange: () => {} });
-    const actions = actionsArray(await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities));
-    expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.")).toBe(true);
+    const actions = actionsArray(
+      await director.decide(makeToolErrorEvent("c", declined), mockState, mockCapabilities),
+    );
+    expect(
+      actions.some(
+        (a) =>
+          a.type === "reply" && "content" in a && a.content === "Tool call rejected by operator.",
+      ),
+    ).toBe(true);
     expect(actions.some((a) => a.type === "infer")).toBe(false);
   });
 });
@@ -282,18 +343,23 @@ describe("chatDirector compaction", () => {
     // One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
     // so the arming check finds a history actually worth compacting.
     const longState = {
-      turns: Array.from(
-        { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
-        () => ({ role: "user", content: [], timestamp: 0 }),
-      ),
+      turns: Array.from({ length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 }, () => ({
+        role: "user",
+        content: [],
+        timestamp: 0,
+      })),
     } as unknown as ReactorState;
 
-    const replyActions = actionsArray(await director.decide(textInferenceDone(999_999), longState, mockCapabilities));
+    const replyActions = actionsArray(
+      await director.decide(textInferenceDone(999_999), longState, mockCapabilities),
+    );
     expect(replyActions.some((a) => a.type === "reply")).toBe(true);
     expect(replyActions.some((a) => a.type === "compact")).toBe(false);
     expect(continuations).toBe(1);
 
-    const compactActions = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
+    const compactActions = actionsArray(
+      await director.decide(messageReceived(""), longState, mockCapabilities),
+    );
     expect(compactActions).toEqual([
       { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
     ]);
@@ -301,10 +367,11 @@ describe("chatDirector compaction", () => {
 
   // One turn past createPruningCompactor's own no-op floor (session/compactor.ts).
   const longState = {
-    turns: Array.from(
-      { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
-      () => ({ role: "user", content: [], timestamp: 0 }),
-    ),
+    turns: Array.from({ length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 }, () => ({
+      role: "user",
+      content: [],
+      timestamp: 0,
+    })),
   } as unknown as ReactorState;
 
   function overThresholdToolTurn(): ReactorInboundEvent {
@@ -329,18 +396,29 @@ describe("chatDirector compaction", () => {
   }
 
   function chatDirectorWithContinuation(onContinuation?: () => void) {
-    return createChatDirector("", [], { onTasksChange: () => {}, requestContinuation: onContinuation ?? (() => {}) });
+    return createChatDirector("", [], {
+      onTasksChange: () => {},
+      requestContinuation: onContinuation ?? (() => {}),
+    });
   }
 
   test("compacts at the tool.done pause once over threshold", async () => {
     const director = chatDirectorWithContinuation();
     await director.decide(overThresholdToolTurn(), longState, mockCapabilities);
-    const actions = actionsArray(await director.decide(makeToolDoneEvent("t1"), longState, mockCapabilities));
-    expect(actions.some((a) => a.type === "compact" && "reason" in a && a.reason === "context-threshold")).toBe(true);
+    const actions = actionsArray(
+      await director.decide(makeToolDoneEvent("t1"), longState, mockCapabilities),
+    );
+    expect(
+      actions.some(
+        (a) => a.type === "compact" && "reason" in a && a.reason === "context-threshold",
+      ),
+    ).toBe(true);
     expect(actions.some((a) => a.type === "infer")).toBe(false);
 
     // The continuation message re-enters inference after the compact cycle.
-    const resumed = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
+    const resumed = actionsArray(
+      await director.decide(messageReceived(""), longState, mockCapabilities),
+    );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
   });
 
@@ -373,7 +451,9 @@ describe("chatDirector compaction", () => {
         raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
       },
     } as unknown as ReactorInboundEvent;
-    const recovered = actionsArray(await director.decide(internalAbort, longState, mockCapabilities));
+    const recovered = actionsArray(
+      await director.decide(internalAbort, longState, mockCapabilities),
+    );
     expect(recovered.some((action) => action.type === "infer")).toBe(true);
 
     const explicitAbort = {
@@ -398,41 +478,59 @@ describe("chatDirector compaction", () => {
 
     const actions = actionsArray(await director.decide(userStopAbort, longState, mockCapabilities));
     expect(actions.some((action) => action.type === "infer")).toBe(false);
-    expect(actions.some((action) => action.type === "checkpoint" && action.message === "inference-recovery")).toBe(false);
+    expect(
+      actions.some(
+        (action) => action.type === "checkpoint" && action.message === "inference-recovery",
+      ),
+    ).toBe(false);
   });
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     let continuations = 0;
     const director = chatDirectorWithContinuation(() => continuations++);
-    const actions = actionsArray(await director.decide(overflowError(), longState, mockCapabilities));
+    const actions = actionsArray(
+      await director.decide(overflowError(), longState, mockCapabilities),
+    );
     expect(actions).toEqual([
       { type: "compact", compactor: "pruning-compactor", reason: "context-overflow" },
     ]);
     expect(continuations).toBe(1);
 
-    const resumed = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
+    const resumed = actionsArray(
+      await director.decide(messageReceived(""), longState, mockCapabilities),
+    );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
   });
 
   test("overflow recovery is bounded so an incompressible history cannot loop forever", async () => {
     const director = chatDirectorWithContinuation();
     for (let i = 0; i < 2; i++) {
-      const actions = actionsArray(await director.decide(overflowError(), longState, mockCapabilities));
+      const actions = actionsArray(
+        await director.decide(overflowError(), longState, mockCapabilities),
+      );
       expect(actions.some((a) => a.type === "compact")).toBe(true);
       await director.decide(messageReceived(""), longState, mockCapabilities);
     }
-    const exhausted = actionsArray(await director.decide(overflowError(), longState, mockCapabilities));
+    const exhausted = actionsArray(
+      await director.decide(overflowError(), longState, mockCapabilities),
+    );
     expect(exhausted.some((a) => a.type === "compact")).toBe(false);
   });
 
   test("chat posture is preserved: an idle turn never terminates the session", async () => {
     const director = chatDirectorWithContinuation();
-    const idle = actionsArray(await director.decide(textInferenceDone(10), longState, mockCapabilities));
+    const idle = actionsArray(
+      await director.decide(textInferenceDone(10), longState, mockCapabilities),
+    );
     expect(idle.some((a) => a.type === "done")).toBe(false);
 
-    const overThreshold = actionsArray(await director.decide(textInferenceDone(999_999), longState, mockCapabilities));
+    const overThreshold = actionsArray(
+      await director.decide(textInferenceDone(999_999), longState, mockCapabilities),
+    );
     expect(overThreshold.some((a) => a.type === "done")).toBe(false);
-    const afterCompact = actionsArray(await director.decide(messageReceived(""), longState, mockCapabilities));
+    const afterCompact = actionsArray(
+      await director.decide(messageReceived(""), longState, mockCapabilities),
+    );
     expect(afterCompact.some((a) => a.type === "done")).toBe(false);
   });
 });
@@ -440,32 +538,60 @@ describe("chatDirector compaction", () => {
 describe("chatDirector LSP auto-activation", () => {
   test("reading a code file activates the lsp tool on success", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], { onTasksChange: () => {}, onActivateTools: (names: string[]) => activated.push(names) });
-    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
+    const director = createChatDirector("", [], {
+      onTasksChange: () => {},
+      onActivateTools: (names: string[]) => activated.push(names),
+    });
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]),
+      mockState,
+      mockCapabilities,
+    );
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
   });
 
   test("editing a code file activates lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], { onTasksChange: () => {}, onActivateTools: (names: string[]) => activated.push(names) });
-    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "edit_file", args: { path: "lib/bar.rs" } }]), mockState, mockCapabilities);
+    const director = createChatDirector("", [], {
+      onTasksChange: () => {},
+      onActivateTools: (names: string[]) => activated.push(names),
+    });
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "edit_file", args: { path: "lib/bar.rs" } }]),
+      mockState,
+      mockCapabilities,
+    );
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([["lsp"]]);
   });
 
   test("a non-code file does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], { onTasksChange: () => {}, onActivateTools: (names: string[]) => activated.push(names) });
-    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "README.md" } }]), mockState, mockCapabilities);
+    const director = createChatDirector("", [], {
+      onTasksChange: () => {},
+      onActivateTools: (names: string[]) => activated.push(names),
+    });
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "README.md" } }]),
+      mockState,
+      mockCapabilities,
+    );
     await director.decide(makeToolDoneEvent("c"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
   });
 
   test("a failed read does not activate lsp", async () => {
     const activated: string[][] = [];
-    const director = createChatDirector("", [], { onTasksChange: () => {}, onActivateTools: (names: string[]) => activated.push(names) });
-    await director.decide(makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]), mockState, mockCapabilities);
+    const director = createChatDirector("", [], {
+      onTasksChange: () => {},
+      onActivateTools: (names: string[]) => activated.push(names),
+    });
+    await director.decide(
+      makeInferenceDoneEvent([{ id: "c", name: "read_file", args: { path: "src/foo.ts" } }]),
+      mockState,
+      mockCapabilities,
+    );
     await director.decide(makeToolErrorEvent("c", "Error: not found"), mockState, mockCapabilities);
     expect(activated).toEqual([]);
   });
@@ -473,12 +599,19 @@ describe("chatDirector LSP auto-activation", () => {
 
 describe("updateToolDefinitions rewrites infer tools", () => {
   const makeMessageReceivedEvent = (content: string) =>
-    ({ type: "message.received", message: { role: "user", content } }) as unknown as ReactorInboundEvent;
+    ({
+      type: "message.received",
+      message: { role: "user", content },
+    }) as unknown as ReactorInboundEvent;
   const capabilitiesWithInferArgs: ReactorCapabilities = {
     ...mockCapabilities,
-    infer: (opts) => ({ type: "infer", options: opts } as unknown as ReactorAction),
+    infer: (opts) => ({ type: "infer", options: opts }) as unknown as ReactorAction,
   };
-  const lateTool = { name: "mcp__acme__list_issues", description: "list", inputSchema: { type: "object" } };
+  const lateTool = {
+    name: "mcp__acme__list_issues",
+    description: "list",
+    inputSchema: { type: "object" },
+  };
   const inferToolNames = (action: Record<string, unknown> | undefined): string[] => {
     const tools = (action?.options as Record<string, unknown> | undefined)?.tools;
     return Array.isArray(tools) ? tools.map((t) => (t as { name: string }).name) : [];
@@ -492,16 +625,23 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   ): Promise<unknown> => {
     const result = await director.decide(event, mockState, capabilitiesWithInferArgs);
     const actions = Array.isArray(result) ? result : [result];
-    return inferTools(actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined);
+    return inferTools(
+      actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined,
+    );
   };
 
   test("a tool registered after construction is advertised on the next inference", async () => {
     const director = createChatDirector("base-prompt", [], { onTasksChange: () => {} });
     director.updateToolDefinitions([lateTool]);
 
-    const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
+    const result = await director.decide(
+      makeMessageReceivedEvent("hello"),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
     const actions = Array.isArray(result) ? result : [result];
-    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    const inferAction = actions.find((a) => a.type === "infer") as
+      Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
@@ -533,9 +673,14 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const director = createChatDirector("base-prompt", [], { onTasksChange: () => {} });
     director.updateToolDefinitions([lateTool]);
 
-    const result = await director.decide(makeMessageReceivedEvent("hello"), mockState, capabilitiesWithInferArgs);
+    const result = await director.decide(
+      makeMessageReceivedEvent("hello"),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
     const actions = Array.isArray(result) ? result : [result];
-    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    const inferAction = actions.find((a) => a.type === "infer") as
+      Record<string, unknown> | undefined;
     expect(inferToolNames(inferAction)).toContain("advance_workflow");
   });
 
@@ -552,7 +697,11 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     };
     const toolset = await createAgentToolset({
       cwd: process.cwd(),
-      permissionGate: createPermissionGate({ approvals: [], interactive: false, skipPermissions: true }),
+      permissionGate: createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+      }),
       onOperatorGate: async () => ({ kind: "cancel" }),
     });
     toolset.dynamicRunner.addTools([
@@ -570,7 +719,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     // Before discovery: the MCP tool is registered (dispatchable) but not wired.
     const before = await firstInferTools(director, makeMessageReceivedEvent("hello"));
-    const beforeNames = (before as Array<{ name: string }>).map((t) => t.name);
+    const beforeNames = (before as { name: string }[]).map((t) => t.name);
     expect(beforeNames).not.toContain("mcp__linear__list_issues");
     const beforeJson = JSON.stringify(before);
 
@@ -580,7 +729,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     director.updateToolDefinitions(computeAdvertised(toolset.dynamicRunner.currentDefinitions()));
 
     const after = await firstInferTools(director, makeMessageReceivedEvent("continue"));
-    const afterTools = after as Array<{ name: string }>;
+    const afterTools = after as { name: string }[];
     const afterNames = afterTools.map((t) => t.name);
     expect(afterNames).toContain("mcp__linear__list_issues");
     // advance_workflow rides along separately (see withCurrentTools), appended
@@ -588,7 +737,9 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     // the fixed built-in prefix, which must survive untouched ahead of the
     // newly appended MCP tool.
     const beforePrefix = beforeNames.filter((n) => n !== "advance_workflow");
-    const afterPrefix = afterNames.filter((n) => n !== "advance_workflow" && n !== "mcp__linear__list_issues");
+    const afterPrefix = afterNames.filter(
+      (n) => n !== "advance_workflow" && n !== "mcp__linear__list_issues",
+    );
     expect(afterPrefix).toEqual(beforePrefix);
     expect(afterNames.indexOf("mcp__linear__list_issues")).toBe(beforePrefix.length);
 
@@ -601,13 +752,22 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   });
 
   test("the new-task path also carries the current tools", async () => {
-    const classifier = async (_msg: string, _meta: SessionMetadata) => ({ kind: "new_task" as const, reason: "pivot" } as TaskBoundary);
-    const director = createChatDirector("base-prompt", [], { onTasksChange: () => {}, taskClassifier: classifier });
+    const classifier = async (_msg: string, _meta: SessionMetadata) =>
+      ({ kind: "new_task" as const, reason: "pivot" }) as TaskBoundary;
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => {},
+      taskClassifier: classifier,
+    });
     director.updateToolDefinitions([lateTool]);
 
-    const result = await director.decide(makeMessageReceivedEvent("new thing"), mockState, capabilitiesWithInferArgs);
+    const result = await director.decide(
+      makeMessageReceivedEvent("new thing"),
+      mockState,
+      capabilitiesWithInferArgs,
+    );
     const actions = Array.isArray(result) ? result : [result];
-    const inferAction = actions.find((a) => a.type === "infer") as Record<string, unknown> | undefined;
+    const inferAction = actions.find((a) => a.type === "infer") as
+      Record<string, unknown> | undefined;
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
@@ -617,7 +777,11 @@ describe("advance_workflow handler", () => {
   const buildToolset = (isWorkflowActive: () => boolean) =>
     createAgentToolset({
       cwd: process.cwd(),
-      permissionGate: createPermissionGate({ approvals: [], interactive: false, skipPermissions: true }),
+      permissionGate: createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+      }),
       onOperatorGate: async () => ({ kind: "cancel" }),
       isWorkflowActive,
     });
@@ -646,13 +810,22 @@ describe("advance_workflow handler", () => {
 describe("transient nudges", () => {
   const manageTasksEvent = (status: "todo" | "doing") =>
     makeInferenceDoneEvent([
-      { id: "mt", name: "manage_tasks", args: { action: "create", tasks: [{ id: "t1", title: "x", status }] } },
+      {
+        id: "mt",
+        name: "manage_tasks",
+        args: { action: "create", tasks: [{ id: "t1", title: "x", status }] },
+      },
     ]);
 
   const textTurn = () =>
     ({
       type: "inference.done",
-      turn: { role: "assistant", model: "test", timestamp: 0, content: [{ type: "text", text: "done" }] },
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "text", text: "done" }],
+      },
       usage: { input: 0, output: 0 },
       source: "test",
     }) as unknown as ReactorInboundEvent;
@@ -667,9 +840,7 @@ describe("transient nudges", () => {
     const options: ExtendedInferenceOptions | undefined =
       infer?.type === "infer" ? infer.options : undefined;
     expect(options?.ephemeralTurns?.length ?? 0).toBeGreaterThan(0);
-    const nudgeText = options?.ephemeralTurns?.[0]?.content?.find(
-      (b) => b.type === "text",
-    );
+    const nudgeText = options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text");
     expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
     expect(options?.systemPrompt).toBeUndefined();
   });
