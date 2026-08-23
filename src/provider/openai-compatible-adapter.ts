@@ -17,6 +17,11 @@ type AdapterSource = Parameters<typeof createOpenAIAdapter>[0];
 
 export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAdapter {
   const base = createOpenAIAdapter(source);
+  // Set by buildRequest for the model the current request targets; only
+  // DeepSeek/NIM streams need the null-delta-field patch below, so every
+  // other provider's frames skip the reparse and hit base.parseResponse
+  // exactly once instead of twice.
+  let needsDeepSeekPatch = false;
 
   const ensureAccept = (req: BuiltRequest): BuiltRequest => {
     const has = req.headers.Accept || req.headers.accept;
@@ -28,29 +33,14 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
   };
 
   const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
-    // Strip assistant turns with no text or tool_call content (e.g. a turn that
-    // produced only thinking blocks). transform.ts should handle this but misses
-    // the case where filteredContent is non-empty; the API rejects such turns
-    // with HTTP 400. Fast-path: only allocate when a bad turn is actually found.
-    const needsSanitize = messages.some(
-      (msg) =>
-        msg.role === "assistant" &&
-        !msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
-    );
-    const sanitized = needsSanitize
-      ? messages.filter(
-          (msg) =>
-            msg.role !== "assistant" ||
-            msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
-        )
-      : messages;
-    const built = base.buildRequest(sanitized, model, options);
+    const built = base.buildRequest(messages, model, options);
     const providerOptions = options.providerOptions;
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
     // DeepSeek returns HTTP 400 if `reasoning_content` appears in input messages,
     // whereas the base adapter emits it for any model with thinking enabled.
     const stripReasoning = model.toLowerCase().includes("deepseek");
+    needsDeepSeekPatch = stripReasoning;
     if (!hasProviderOptions && !stripReasoning) return ensureAccept(built);
 
     const body = JSON.parse(built.body) as Record<string, unknown>;
@@ -70,6 +60,7 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
   // legitimately accept null (content, reasoning_content, etc.) are left alone.
   const NULL_REJECTED_DELTA_FIELDS = new Set(["role", "tool_calls"]);
   const parseResponse: ProviderAdapter["parseResponse"] = (sseData: string) => {
+    if (!needsDeepSeekPatch) return base.parseResponse(sseData);
     let data = sseData;
     try {
       const parsed = JSON.parse(sseData) as Record<string, unknown>;

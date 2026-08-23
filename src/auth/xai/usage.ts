@@ -59,7 +59,7 @@ function parseXaiUsage(payload: unknown): XaiUsage {
   };
 }
 
-async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
+export async function xaiAuthHeaders(profileName: string): Promise<Record<string, string>> {
   const { access } = await getValidXaiToken(profileName);
   const headers: Record<string, string> = {
     authorization: `Bearer ${access}`,

@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
-import { createHarness, type Harness } from "./harness.js";
+import { createHarness as createRawHarness, type Harness } from "./harness.js";
 import {
   addProviderSelectorChoices,
   connectedAccountCount,
@@ -40,6 +40,20 @@ const EMPTY: ProviderFormValues = {
   model: "",
   oauthProfile: "",
 };
+
+// This file mounts a fresh renderer per test; track every one so a single
+// afterEach can free them regardless of which assertion in a test fails.
+const activeHarnesses: Harness[] = [];
+
+async function createHarness(opts: { width: number; height: number }): Promise<Harness> {
+  const harness = await createRawHarness(opts);
+  activeHarnesses.push(harness);
+  return harness;
+}
+
+afterEach(() => {
+  while (activeHarnesses.length > 0) activeHarnesses.pop()!.destroy();
+});
 
 describe("provider setup pure helpers", () => {
   test("only the API key may be left blank", () => {
@@ -1047,23 +1061,19 @@ describe("runProviderSetup paste", () => {
     const { done, harness } = await mountSetup(async (values) => {
       seen = values;
     });
-    try {
-      await pickRow(harness, PROVIDER_IDS, "openai");
-      await flush(harness);
-      harness.pressKey("Enter");
-      await harness.renderOnce();
-      await harness.mockInput.pasteBracketedText(key);
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      harness.pressKey("Enter");
-      await harness.renderOnce();
-      harness.pressKey("Enter");
-      await harness.renderOnce();
-      await done;
-      return { values: seen, frame };
-    } finally {
-      harness.destroy();
-    }
+    await pickRow(harness, PROVIDER_IDS, "openai");
+    await flush(harness);
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    await harness.mockInput.pasteBracketedText(key);
+    await harness.renderOnce();
+    const frame = harness.captureCharFrame();
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    harness.pressKey("Enter");
+    await harness.renderOnce();
+    await done;
+    return { values: seen, frame };
   }
 
   test("a pasted key lands in the field, never echoed in the clear", async () => {

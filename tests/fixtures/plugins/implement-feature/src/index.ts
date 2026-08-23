@@ -1,6 +1,6 @@
 import { implementFeature } from "./workflows/implement-feature.js";
-import type { CommandPlugin } from "../../../src/tui/commands/registry.js";
-import type { WorkflowPlugin } from "../../../src/workflows/definition.js";
+import type { CommandPlugin } from "../../../../../src/tui/commands/registry.js";
+import type { WorkflowPlugin } from "../../../../../src/workflows/definition.js";
 
 export const workflowPlugin: WorkflowPlugin = {
   workflows: [implementFeature],

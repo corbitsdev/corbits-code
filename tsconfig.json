@@ -11,5 +11,48 @@
       "@intx/types/*": ["./vendor/intx-types/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "packages/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "packages/**/*.ts",
+    "tests/**/*.ts",
+    "evals/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  // Excluded: hermetic sandbox repos for the capability eval suite, not real
+  // application code. They own their own package.json and are copied into
+  // per-run eval workdirs rather than imported, and tests/fixtures/buggy-service
+  // deliberately ships a bug as fixture content for an eval case.
+  //
+  // tests/fixtures/crash-run and tests/fixtures/plugins/implement-feature are
+  // NOT listed here on purpose: they import real production modules by
+  // relative path (src/index.ts, src/session/active-run.ts, src/session/state.ts,
+  // src/tui/runner.ts, src/workflows/definition.ts, src/tui/commands/registry.ts)
+  // and tests/integration/crash-finalize.test.ts spawns them as live exercises
+  // of that code. Excluding them would recreate exactly the silent-drift gap
+  // this config change exists to close.
+  "exclude": [
+    "tests/fixtures/broken-toolchain/**",
+    "tests/fixtures/buggy-service/**",
+    "tests/fixtures/cart-service/**",
+    "tests/fixtures/codex-sse/**",
+    "tests/fixtures/demo-comparison/**",
+    "tests/fixtures/env-config-build/**",
+    "tests/fixtures/flaky-baseline/**",
+    "tests/fixtures/flaky-cache/**",
+    "tests/fixtures/inventory-service/**",
+    "tests/fixtures/large-read/**",
+    "tests/fixtures/marketplace/**",
+    "tests/fixtures/multi-file-service/**",
+    "tests/fixtures/multiline-edit/**",
+    "tests/fixtures/plugins/exa/**",
+    "tests/fixtures/plugins/example-agent/**",
+    "tests/fixtures/plugins/example-commands/**",
+    "tests/fixtures/plugins/example-tool/**",
+    "tests/fixtures/rawmode-sigint/**",
+    "tests/fixtures/report-pipeline/**",
+    "tests/fixtures/skill-workspace/**",
+    "tests/fixtures/slow-command/**",
+    "tests/fixtures/web-note/**",
+    "evals/capability/cases/**"
+  ]
 }

@@ -42,6 +42,7 @@ import {
   fingerprintTaskBrief,
   TURN_BUDGET_STOP_AFTER_DISPATCHES,
 } from "./brief-dispatch.js";
+import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { generateSessionId } from "../session/index.js";
@@ -73,7 +74,7 @@ export const TaskToolArgs = type({
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    'Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.',
+    'Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.',
   inputSchema: {
     type: "object",
     properties: {
@@ -245,6 +246,22 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
   // Session-scoped re-dispatch ledger: one per parent task tool instance.
   const briefLedger = createBriefDispatchLedger();
+  // A refused re-dispatch is the sharpest false-positive signal we have: the
+  // parent wanted this brief again and the harness said no on the strength of
+  // an earlier salvage classification (CL-6938). Logged on the parent side
+  // because no leaf run exists to log it.
+  let refusalLog: InterventionSink | null = null;
+  const recordRefusal = (event: Parameters<InterventionSink>[0]): void => {
+    refusalLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    refusalLog(event);
+  };
+  // Every completed dispatch gets an outcome record — the log otherwise
+  // carries shape and run state but never what the run actually produced.
+  let outcomeLog: InterventionSink | null = null;
+  const recordOutcome = (kind: string, dispatchCount: number): void => {
+    outcomeLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    outcomeLog({ id: "dispatch-outcome", class: "outcome", outcome: { kind, dispatchCount } });
+  };
   return tool({
     definition: taskToolDefinition,
     handler: async (call, signal): Promise<ToolResult> => {
@@ -560,6 +577,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       });
       const admission = briefLedger.admit(fingerprint);
       if (!admission.ok) {
+        recordRefusal({
+          id: "re-dispatch-refused",
+          class: "block",
+          detail: admission.message.slice(0, 300),
+        });
         return taskToolResult(call.id, admission.message);
       }
       const dispatchCount = admission.dispatchCount;
@@ -727,6 +749,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
           const salvage = classifyBriefSalvage(result);
           briefLedger.recordOutcome(fingerprint, salvage);
+          recordOutcome(salvage ?? "clean-complete", dispatchCount);
           const hintOptions = {
             dispatchCount,
             turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,

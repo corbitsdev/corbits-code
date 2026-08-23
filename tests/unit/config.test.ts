@@ -154,7 +154,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
     expect(loaded).not.toBeNull();
     for (const key of GLOBAL_SETTINGS_OPTIONAL_KEYS) {
       expect(loaded).toHaveProperty(key);
-      expect((loaded as Record<string, unknown>)[key]).not.toBeUndefined();
+      expect((loaded as unknown as Record<string, unknown>)[key]).not.toBeUndefined();
     }
     // Undefined optionals stay absent (not { foo: undefined }).
     const minimalPath = join(cwd, "minimal.json");

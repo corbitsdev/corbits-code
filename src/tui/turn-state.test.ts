@@ -138,6 +138,49 @@ describe("turnStateFromEvent", () => {
     expect(bothDone.activeToolCalls).toHaveLength(0);
   });
 
+  test("tool.done only sets awaitingResponse once every parallel call has finished", () => {
+    // Regression for CL-5661: with a fan-out of two outstanding calls, the
+    // first tool.done must not claim the turn is idle while the second call
+    // is still running — that falsely tells consumers (stall watchdog,
+    // status chrome) the model is the only thing left to wait on.
+    const running = fold([
+      { type: "inference.start" },
+      { type: "tool.start", data: { call: { id: "call_1", name: "grep" } } },
+      { type: "tool.start", data: { call: { id: "call_2", name: "bash" } } },
+    ]);
+    expect(running.activeToolCalls).toHaveLength(2);
+    expect(running.awaitingResponse).toBe(false);
+
+    const oneDone = turnStateFromEvent(
+      running,
+      { type: "tool.done", data: { result: { callId: "call_1" } } },
+      200,
+    );
+    expect(oneDone.activeToolCalls).toHaveLength(1);
+    expect(oneDone.awaitingResponse).toBe(false);
+
+    const bothDone = turnStateFromEvent(
+      oneDone,
+      { type: "tool.done", data: { result: { callId: "call_2" } } },
+      201,
+    );
+    expect(bothDone.activeToolCalls).toHaveLength(0);
+    expect(bothDone.awaitingResponse).toBe(true);
+  });
+
+  test("a lone tool.done still sets awaitingResponse", () => {
+    const running = fold([
+      { type: "inference.start" },
+      { type: "tool.start", data: { call: { id: "call_1", name: "bash" } } },
+    ]);
+    const done = turnStateFromEvent(
+      running,
+      { type: "tool.done", data: { result: { callId: "call_1" } } },
+      200,
+    );
+    expect(done.awaitingResponse).toBe(true);
+  });
+
   test("a second call to the same tool name does not inherit a finished call's id", () => {
     const firstDone = fold([
       { type: "inference.start" },
