@@ -1,0 +1,9 @@
+{
+  "id": "complex-rename-spread",
+  "tier": "complex",
+  "title": "Rename addNumbers to sumExact across every call site",
+  "fixture": "tests/fixtures/rename-spread",
+  "prompt": "Rename the function addNumbers to sumExact everywhere it appears — definition, imports, call sites, and tests. Do not leave any addNumbers identifier behind. Keep behavior identical. Run bun test and leave it green.",
+  "maxTurns": 25,
+  "verify": "verify.sh"
+}

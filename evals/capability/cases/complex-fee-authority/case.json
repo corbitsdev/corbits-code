@@ -1,0 +1,9 @@
+{
+  "id": "complex-fee-authority",
+  "tier": "complex",
+  "title": "Fix live platform fee amid conflicting decoy docs",
+  "fixture": "tests/fixtures/fee-authority",
+  "prompt": "Checkout totals are wrong. The tests under tests/ are the contract: the live platform fee must be exactly 175 basis points. Find the fee definition the running code actually imports and correct it so bun test passes. Do not change test expectations or EVAL_LOCK comments. Do not hardcode checkout totals. Prefer fixing the authoritative source over rewiring imports to unused modules. Docs and config files in this repo may conflict — trust the tests and the import graph.",
+  "maxTurns": 35,
+  "verify": "verify.sh"
+}

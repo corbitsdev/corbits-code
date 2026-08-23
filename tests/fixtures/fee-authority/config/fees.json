@@ -1,0 +1,5 @@
+{
+  "platform_fee_bps": 200,
+  "currency": "usd",
+  "note": "Canonical fee mirror — keep in sync with production."
+}

@@ -1,0 +1,9 @@
+{
+  "id": "complex-pointer-chase",
+  "tier": "complex",
+  "title": "Follow a multi-hop pointer chain to set the release token",
+  "fixture": "tests/fixtures/pointer-chase",
+  "prompt": "This repo stores the release build token behind a pointer chain. Start at BUILD_POINTER at the repo root and follow every hop until you reach the token file it ultimately names. Set that token file's contents to exactly ok-7f3a (single line, no quotes). Do not invent paths. Do not edit keys/staging.token. Do not modify src/build.ts or any other TypeScript — change only the token file the pointers resolve to. Run bun test and leave it green.",
+  "maxTurns": 25,
+  "verify": "verify.sh"
+}

@@ -1,0 +1,5 @@
+{
+  "name": "fee-authority-fixture",
+  "private": true,
+  "type": "module"
+}

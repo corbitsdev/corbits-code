@@ -1,0 +1,11 @@
+{
+  "id": "freename-list-dir",
+  "tier": "bait",
+  "title": "Discover and call off-wire list_dir via tool_search",
+  "fixture": "tests/fixtures/freename-listing",
+  "prompt": "You are in a small workdir. Your ONLY allowed directory listing tool is list_dir (not run_shell ls/find). 1) If list_dir is not already in your Tools list, call tool_search with query 'list directory'. 2) Then call list_dir on path '.' (the workdir root). 3) Write the names you saw into RESULT.txt using write_file, one per line. Do not use run_shell for listing. Do not invent paths.",
+  "maxTurns": 12,
+  "verify": "verify.sh",
+  "requireTools": ["list_dir"],
+  "bait": { "metric": "repeatedSearchCount", "threshold": 2 }
+}
