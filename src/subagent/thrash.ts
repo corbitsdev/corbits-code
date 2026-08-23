@@ -1,32 +1,20 @@
 /**
- * Pure progressive thrash detection for dispatched workers.
+ * Pure near-budget wrap-up detection plus read/edit bookkeeping for dispatched
+ * workers. Wired into SubAgentDirector via evaluateSubAgentStop.
  *
- * Tracks re-read pressure (same path or same grep) and near-budget tools-only
- * spin. No look-volume quota — unique reads are legal at any count.
- * Wired into SubAgentDirector via evaluateSubAgentStop.
+ * Re-read pressure is deliberately not a stop signal: the fingerprint period
+ * detector in stop-policy.ts catches genuinely repeating read cycles on the
+ * evidence that they repeat, and a raw re-read count cannot tell four reads
+ * spread across real progress from four reads in a loop (CL-6936).
  *
- * Precedence: no-progress > thrash > turn-budget. Soft re-read-nudge and
- * report-forced are one-shot wrap-up / redirect nudges, not stops.
+ * The state this module accumulates is consumed by evaluateSubAgentStop's
+ * requireEdit / requireEvidence checks, not by a stop of its own.
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 
-/** Tunable thresholds for thrash / force-report detection. */
+/** Tunable thresholds for force-report detection. */
 export interface ThrashConfig {
-  /** Same path read this many times triggers hard re-read thrash stop. */
-  reReadLimit: number;
-  /**
-   * Soft re-read pressure threshold (must be < reReadLimit). Crossing it injects
-   * a one-shot mid-run nudge without stopping the leaf; hard thrash still fires
-   * if the leaf keeps re-reading past reReadLimit.
-   */
-  reReadSoftLimit: number;
-  /**
-   * Without a prior edit of the path, re-read pressure also requires at least
-   * this many total tool calls in the run (keeps multi-chunk legitimate reads
-   * and multi-file explore from tripping early).
-   */
-  reReadMinTotalTools: number;
   /**
    * When turnsCompleted equals maxTurns - forceReportWithin and the worker is
    * still issuing tools, inject a one-shot wrap-up nudge.
@@ -34,15 +22,11 @@ export interface ThrashConfig {
   forceReportWithin: number;
 }
 
-/** Conservative defaults: 20 unique single-path reads must not thrash. */
 export const DEFAULT_THRASH_CONFIG: ThrashConfig = {
-  reReadLimit: 4,
-  reReadSoftLimit: 3,
-  reReadMinTotalTools: 8,
   forceReportWithin: 2,
 };
 
-/** Accumulated thrash bookkeeping across turns (immutable snapshots). */
+/** Accumulated read/edit bookkeeping across turns (immutable snapshots). */
 export interface ThrashState {
   readonly readCounts: ReadonlyMap<string, number>;
   readonly editedPaths: ReadonlySet<string>;
@@ -55,13 +39,8 @@ export const EMPTY_THRASH_STATE: ThrashState = {
   totalToolCalls: 0,
 };
 
-/**
- * Thrash-module stop reasons.
- * - "thrash" is a real stop (same-path / same-grep re-read)
- * - "report-forced" is a near-budget wrap-up-nudge signal
- * - "re-read-nudge" is a mid-run redirect (one-shot, not a stop)
- */
-export type ThrashStopReason = "thrash" | "report-forced" | "re-read-nudge";
+/** "report-forced" is a near-budget wrap-up-nudge signal, not a stop. */
+export type ThrashStopReason = "report-forced";
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
 export interface ThrashToolCallBlock {
@@ -105,9 +84,8 @@ function searchKey(name: string, args: Record<string, unknown>): string {
 }
 
 /**
- * Re-read tracking key for a path. Chunked reads (offset/limit set) key by
- * chunk so paging through a large file does not look like re-reading the same
- * span; a whole-file read keys by path alone.
+ * Read-tracking key for a path. Chunked reads (offset/limit set) key by chunk,
+ * a whole-file read keys by path alone.
  */
 function readKey(path: string, args: Record<string, unknown>): string {
   const { offset, limit } = args;
@@ -115,23 +93,10 @@ function readKey(path: string, args: Record<string, unknown>): string {
   return `${path}::${String(offset ?? 0)}:${String(limit ?? "")}`;
 }
 
-/** True when a read-tracking key belongs to the given path (any chunk). */
-function keyBelongsToPath(key: string, path: string): boolean {
-  return key === path || key.startsWith(`${path}::`);
-}
-
-/** Drop every read-count entry (all chunk keys) for a path that was just edited. */
-function decayReadsForPath(readCounts: Map<string, number>, path: string): void {
-  for (const key of readCounts.keys()) {
-    if (keyBelongsToPath(key, path)) readCounts.delete(key);
-  }
-}
-
 /**
- * Advance thrash bookkeeping from one turn's content (or an explicit tool list).
- * Only `tool_call` blocks are counted; path strings are used as given (no resolve).
- * An edit decays prior read pressure on its path — the file changed, so earlier
- * reads no longer count toward re-read thrash.
+ * Advance read/edit bookkeeping from one turn's content (or an explicit tool
+ * list). Only `tool_call` blocks are counted; path strings are used as given
+ * (no resolve).
  */
 export function nextThrashState(
   prev: ThrashState,
@@ -160,11 +125,7 @@ export function nextThrashState(
       const paths = productMutationPaths(name, args);
       if (paths.length > 0) {
         if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
-        if (readCounts === null) readCounts = new Map(prev.readCounts);
-        for (const edited of paths) {
-          editedPaths.add(edited);
-          decayReadsForPath(readCounts, edited);
-        }
+        for (const edited of paths) editedPaths.add(edited);
       }
     }
   }
@@ -178,48 +139,6 @@ export function nextThrashState(
     editedPaths: editedPaths ?? prev.editedPaths,
     totalToolCalls,
   };
-}
-
-/**
- * True when any path's re-read count meets `limit` and total tool volume clears
- * the min-tools gate. Shared by hard thrash and soft re-read-nudge.
- */
-function reReadPressureAt(state: ThrashState, limit: number, minTotalTools: number): boolean {
-  if (state.totalToolCalls < minTotalTools) return false;
-  for (const count of state.readCounts.values()) {
-    if (count >= limit) return true;
-  }
-  return false;
-}
-
-/**
- * True when re-read pressure indicates progressive thrash. Gated on total
- * tool volume regardless of whether the path was edited — an ordinary
- * edit-then-verify loop decays its read count on each edit (see
- * decayReadsForPath) and so rarely reaches reReadLimit at all, but the volume
- * gate is a second line of defense against classifying a low-activity run as
- * thrash from re-read count alone.
- */
-export function thrashFromReRead(
-  state: ThrashState,
-  config: ThrashConfig = DEFAULT_THRASH_CONFIG,
-): boolean {
-  return reReadPressureAt(state, config.reReadLimit, config.reReadMinTotalTools);
-}
-
-/**
- * True when re-read pressure has crossed the soft threshold but not yet hard
- * thrash. Used to inject a one-shot mid-run redirect before the leaf burns
- * the rest of its budget re-reading the same paths.
- */
-export function thrashSoftReRead(
-  state: ThrashState,
-  config: ThrashConfig = DEFAULT_THRASH_CONFIG,
-): boolean {
-  const soft = Math.min(config.reReadSoftLimit, config.reReadLimit - 1);
-  if (soft < 1) return false;
-  if (thrashFromReRead(state, config)) return false;
-  return reReadPressureAt(state, soft, config.reReadMinTotalTools);
 }
 
 /**
@@ -246,24 +165,19 @@ export function thrashForceReport(
 function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
   if (partial === undefined) return DEFAULT_THRASH_CONFIG;
   return {
-    reReadLimit: partial.reReadLimit ?? DEFAULT_THRASH_CONFIG.reReadLimit,
-    reReadSoftLimit: partial.reReadSoftLimit ?? DEFAULT_THRASH_CONFIG.reReadSoftLimit,
-    reReadMinTotalTools: partial.reReadMinTotalTools ?? DEFAULT_THRASH_CONFIG.reReadMinTotalTools,
     forceReportWithin: partial.forceReportWithin ?? DEFAULT_THRASH_CONFIG.forceReportWithin,
   };
 }
 
 /**
- * Pure thrash / force-report / soft re-read decision. Null means keep running
- * (or defer to evaluateSubAgentStop for tool-less / fingerprint / hard budget).
- * "thrash" is a real stop; "report-forced" and "re-read-nudge" are one-shot
- * nudge signals, not stops — the caller injects a nudge and keeps running.
+ * Pure force-report decision. Null means keep running (or defer to
+ * evaluateSubAgentStop for tool-less / fingerprint / hard budget).
+ * "report-forced" is a one-shot nudge signal, not a stop — the caller injects
+ * a wrap-up nudge and keeps running.
  *
- * Only evaluates when hasToolCalls is true — tool-less endings are not thrash.
- * Prefers thrash > report-forced > re-read-nudge.
+ * Only evaluates when hasToolCalls is true.
  */
 export function evaluateThrashStop(input: {
-  state: ThrashState;
   hasToolCalls: boolean;
   turnsCompleted: number;
   maxTurns: number;
@@ -271,10 +185,8 @@ export function evaluateThrashStop(input: {
 }): ThrashStopReason | null {
   if (!input.hasToolCalls) return null;
   const config = resolveConfig(input.config);
-  if (thrashFromReRead(input.state, config)) return "thrash";
   if (thrashForceReport(input.turnsCompleted, input.maxTurns, input.hasToolCalls, config)) {
     return "report-forced";
   }
-  if (thrashSoftReRead(input.state, config)) return "re-read-nudge";
   return null;
 }

@@ -265,10 +265,8 @@ export type SubAgentStopReason =
   | "no-progress"
   | "never-acted"
   | "never-edited"
-  | "thrash"
   | "no-ship"
   | "report-forced"
-  | "re-read-nudge"
   | "incomplete-report"
   | "incomplete-report-stop";
 
@@ -276,12 +274,12 @@ export type SubAgentStopReason =
  * Pure stop decision for leaf workers. Null means keep running tools.
  *
  * Precedence when tools are still firing:
- * no-progress (identical fingerprints) > thrash (re-read pressure) >
- * turn-budget (hard cap). Look volume never hard-stops.
- * "report-forced", "re-read-nudge", "no-ship-nudge", and "incomplete-report"
+ * no-progress (identical fingerprints) > turn-budget (hard cap).
+ * Look volume never hard-stops.
+ * "report-forced", "no-ship-nudge", and "incomplete-report"
  * are not competing stop reasons — they are one-shot signals telling the
  * caller to inject a wrap-up / redirect nudge and keep running; turn-budget
- * and thrash remain reachable afterward. Tool-less turns end as never-acted
+ * remains reachable afterward. Tool-less turns end as never-acted
  * or never-edited when those apply; otherwise a tool-less turn after tools
  * completes only when the assistant text has a four-heading envelope
  * (Summary, Findings, Blockers, Paths). Omitting `lastAssistantText`
@@ -299,7 +297,7 @@ export function evaluateSubAgentStop(input: {
   maxTurns: number;
   consecutiveIdentical: number;
   repeatLimit: number;
-  /** When set, progressive thrash / force-report are evaluated after no-progress. */
+  /** When set, the near-budget force-report nudge is evaluated after no-progress. */
   thrashState?: ThrashState;
   thrashConfig?: Partial<ThrashConfig>;
   /**
@@ -354,11 +352,10 @@ export function evaluateSubAgentStop(input: {
     }
     return "complete";
   }
-  // No-progress is more specific than thrash or the turn budget when both could apply.
+  // No-progress is more specific than the turn budget when both could apply.
   if (subAgentNoProgress(input.consecutiveIdentical, input.repeatLimit)) return "no-progress";
   if (input.thrashState !== undefined) {
     const thrashStop = evaluateThrashStop({
-      state: input.thrashState,
       hasToolCalls: true,
       turnsCompleted: input.turnsCompleted,
       maxTurns: input.maxTurns,
@@ -399,8 +396,8 @@ export function nextToolCallStreak(
 // result is a never-acted salvage report rather than a successful implement.
 // It has no submit_output or ask_operator; consequential tools still go through
 // the parent's permission gate (grants, auto mode, or prompts). Hard stops also
-// fire on identical tool fingerprints (no-progress), progressive re-read thrash,
-// and the hard turn budget so a thrashing leaf cannot burn the full budget
+// fire on identical tool fingerprints (no-progress) and the hard turn budget
+// so a looping leaf cannot burn the full budget
 // with no parent-visible report. Near the budget the leaf gets a one-shot
 // wrap-up nudge (report-forced) rather than a stop, so turn-budget stays
 // reachable for a leaf that is genuinely still making progress.
@@ -433,7 +430,6 @@ export type ForcedStopReason =
   | "never-edited"
   | "cancelled"
   | "deadline"
-  | "thrash"
   | "no-ship"
   | "stalled"
   | "repetition"
@@ -455,47 +451,43 @@ export function forcedStopReport(
   const summary =
     reason === "no-progress"
       ? "Stopped: repeated the same tool calls with no progress."
-      : reason === "thrash"
-        ? "Stopped: progressive thrash (re-read pressure without finishing)."
-        : reason === "no-ship"
-          ? "Stopped: implement intent searched many files without writing any."
-          : reason === "never-acted"
-            ? "Stopped: completed without using any tools."
-            : reason === "never-edited"
-              ? "Stopped: implement intent finished without writing any files."
-              : reason === "cancelled"
-                ? "Stopped: cancelled by operator before finishing."
-                : reason === "deadline"
-                  ? "Stopped: wall-clock deadline reached before finishing."
-                  : reason === "stalled"
-                    ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
-                    : reason === "repetition"
-                      ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
-                      : reason === "incomplete-report"
-                        ? "Stopped: worker narrated instead of writing a report envelope."
-                        : "Turn budget reached before finishing.";
+      : reason === "no-ship"
+        ? "Stopped: implement intent searched many files without writing any."
+        : reason === "never-acted"
+          ? "Stopped: completed without using any tools."
+          : reason === "never-edited"
+            ? "Stopped: implement intent finished without writing any files."
+            : reason === "cancelled"
+              ? "Stopped: cancelled by operator before finishing."
+              : reason === "deadline"
+                ? "Stopped: wall-clock deadline reached before finishing."
+                : reason === "stalled"
+                  ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
+                  : reason === "repetition"
+                    ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
+                    : reason === "incomplete-report"
+                      ? "Stopped: worker narrated instead of writing a report envelope."
+                      : "Turn budget reached before finishing.";
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent must not re-dispatch the identical brief (it will be refused) — tighten success_criteria/do_not or change approach."
-      : reason === "thrash"
-        ? "Re-read pressure (same path after edit, or heavy re-reads amid high tool volume); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a narrower scope, success_criteria, and do_not rather than more turns alone."
-        : reason === "no-ship"
-          ? "Implement searched many files without writing any; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, tighter success_criteria, and do_not. Do not search the repo yourself first."
-          : reason === "never-acted"
-            ? "Worker returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
-            : reason === "never-edited"
-              ? "Worker used tools but never called edit_file/write_file/delete_file under intent=implement; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, or treat findings as unexecuted."
-              : reason === "cancelled"
-                ? "Operator or parent cancelled the worker mid-run; parent may re-dispatch with the partial findings below."
-                : reason === "deadline"
-                  ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
-                  : reason === "stalled"
-                    ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-                    : reason === "repetition"
-                      ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will be refused and would likely loop again — change prompt/intent/success_criteria/do_not/agent, not maxTurns alone."
-                      : reason === "incomplete-report"
-                        ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
-                        : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
+      : reason === "no-ship"
+        ? "Implement searched many files without writing any; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, tighter success_criteria, and do_not. Do not search the repo yourself first."
+        : reason === "never-acted"
+          ? "Worker returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
+          : reason === "never-edited"
+            ? "Worker used tools but never called edit_file/write_file/delete_file under intent=implement; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, or treat findings as unexecuted."
+            : reason === "cancelled"
+              ? "Operator or parent cancelled the worker mid-run; parent may re-dispatch with the partial findings below."
+              : reason === "deadline"
+                ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
+                : reason === "stalled"
+                  ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
+                  : reason === "repetition"
+                    ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will be refused and would likely loop again — change prompt/intent/success_criteria/do_not/agent, not maxTurns alone."
+                    : reason === "incomplete-report"
+                      ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
+                      : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a

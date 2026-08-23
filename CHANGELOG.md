@@ -11,6 +11,19 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Agent
+
+- **Re-read pressure no longer stops a worker.** The `reReadLimit` thrash hard
+  stop and its soft `re-read-nudge` are removed: reading one file four times
+  while editing another, paging a large file, or re-running a grep to verify an
+  edit could all end a healthy worker with a sticky hard block that refused
+  re-dispatch. Fingerprint period detection already catches a genuinely
+  repeating read cycle, on the evidence that it repeats. `src/subagent/thrash.ts`
+  now only tracks read/edit evidence for the `intent=implement` and critique
+  completeness checks, plus the near-budget wrap-up nudge.
+
 ## [0.2.105] - 2026-08-23
 
 ### Agent
