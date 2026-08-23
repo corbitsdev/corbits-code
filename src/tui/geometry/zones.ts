@@ -39,7 +39,7 @@ export interface ZoneDeclaration {
  * degrades to a trailing "+N more" row instead of growing the zone (and
  * therefore the chrome budget) without limit.
  */
-export const AGENTS_PANEL_MAX_VISIBLE = 13;
+export const AGENTS_PANEL_MAX_VISIBLE = 10;
 
 /**
  * Share of the terminal the fleet board may take before it starts hiding
@@ -106,12 +106,11 @@ export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
     alwaysOn: false,
   },
   // Live agents strip under the transcript when present (max = visible lanes +
-  // trailing "+N more" + header slack). Live chrome keeps this zone empty —
-  // fleet status paints as ● Task transcript rows instead.
+  // trailing "+N more"). Auto-paint comes from formatChromeZones → formatAgentsPanel.
   agents: {
     id: "agents",
     min: 0,
-    max: AGENTS_PANEL_MAX_VISIBLE + 2,
+    max: AGENTS_PANEL_MAX_VISIBLE + 1,
     idleDefault: 0,
     alwaysOn: false,
   },
