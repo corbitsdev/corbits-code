@@ -297,9 +297,12 @@ function buildRequest(
   }
   // reasoning_effort rides in providerOptions (same place the OpenAI-compatible
   // path reads it); map it onto the Responses `reasoning.effort` field.
+  // ChatGPT Codex rejects summary:"auto" for gpt-5.6-terra / gpt-5.3-codex
+  // family (HTTP 400; supported: concise | detailed | none). Codex CLI catalog
+  // default_reasoning_summary is none — send effort only (CL-6893).
   const effort = options.providerOptions?.["reasoning_effort"];
   if (typeof effort === "string" && effort !== "none") {
-    body["reasoning"] = { effort, summary: "auto" };
+    body["reasoning"] = { effort };
   }
   if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
 

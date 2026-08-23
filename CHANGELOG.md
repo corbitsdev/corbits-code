@@ -11,6 +11,15 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Fixed
+
+- **Codex Responses no longer sends `reasoning.summary: "auto"`.** ChatGPT
+  Codex rejects that value for gpt-5.6-terra / gpt-5.3-codex family models
+  (HTTP 400 at turn 0). The adapter now sends `{ effort }` only, matching
+  Codex CLI catalog `default_reasoning_summary=none` (CL-6893).
+
 ## [0.2.103] - 2026-08-23
 
 ### TUI

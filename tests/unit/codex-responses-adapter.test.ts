@@ -103,8 +103,26 @@ describe("codex-responses buildRequest", () => {
   test("maps reasoning_effort to the Responses reasoning config", () => {
     const options: InferenceOptions = { providerOptions: { ...baseOptions.providerOptions, reasoning_effort: "high" } };
     const body = JSON.parse(adapter().buildRequest([userTurn("x")], "gpt-5-codex", options).body) as Record<string, unknown>;
-    expect(body["reasoning"]).toEqual({ effort: "high", summary: "auto" });
+    expect(body["reasoning"]).toEqual({ effort: "high" });
   });
+
+  // CL-6893: ChatGPT Codex rejects reasoning.summary "auto" for the gpt-5.6-terra /
+  // gpt-5.3-codex family (HTTP 400). Codex CLI catalog default is none — omit summary
+  // (effort only) so Terra/Luna request bodies never send summary:"auto".
+  test.each(["gpt-5.6-terra", "gpt-5.6-luna"] as const)(
+    "omits reasoning.summary auto for %s (CL-6893)",
+    (model) => {
+      const options: InferenceOptions = {
+        providerOptions: { ...baseOptions.providerOptions, reasoning_effort: "high" },
+      };
+      const body = JSON.parse(adapter().buildRequest([userTurn("x")], model, options).body) as Record<
+        string,
+        unknown
+      >;
+      expect(body["reasoning"]).toEqual({ effort: "high" });
+      expect(body["reasoning"]).not.toHaveProperty("summary");
+    },
+  );
 
   test("roundtrips encrypted reasoning signature from prior assistant turn into Responses reasoning item", () => {
     // Prior turn's assistant content included a thinking block with signature.
