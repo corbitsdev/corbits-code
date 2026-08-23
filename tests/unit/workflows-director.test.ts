@@ -28,7 +28,7 @@ const state: ReactorState = {
 
 function makeCapabilities(): ReactorCapabilities {
   return {
-    infer: (options) => ({ type: "infer", options }),
+    infer: (options) => (options === undefined ? { type: "infer" } : { type: "infer", options }),
     executeTools: () => ({ type: "execute_tools", calls: [] }),
     suspend: (gate) => ({ type: "suspend", gate }),
     fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
@@ -99,7 +99,13 @@ test("the active step directive is injected into the inferred system prompt", as
 
   const event: ReactorInboundEvent = {
     type: "message.received",
-    message: { role: "user", content: "go" },
+    message: {
+      ref: { uid: 1, mailbox: "INBOX" },
+      headers: { from: "user@test", to: ["agent@test"], date: "1970-01-01T00:00:00Z", messageId: "m1" },
+      flags: [],
+      signatureStatus: "missing",
+      content: "go",
+    },
   };
   const result = await director.decide(event, state, makeCapabilities());
 
@@ -131,7 +137,7 @@ test("an advance_workflow tool call advances the runtime through the director", 
       timestamp: 0,
     },
     usage,
-    source: { id: "t", provider: "openai", model: "test-model" },
+    source: { sourceId: "t", provider: "openai", model: "test-model" },
   };
   await director.decide(turn, state, caps);
 
@@ -155,7 +161,7 @@ function textTurn(text: string): ReactorInboundEvent {
       timestamp: 0,
     },
     usage,
-    source: { id: "t", provider: "openai", model: "test-model" },
+    source: { sourceId: "t", provider: "openai", model: "test-model" },
   };
 }
 
@@ -204,7 +210,7 @@ function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent
       timestamp: 0,
     },
     usage,
-    source: { id: "t", provider: "openai", model: "test-model" },
+    source: { sourceId: "t", provider: "openai", model: "test-model" },
   };
 }
 
@@ -213,7 +219,7 @@ function emptyTurn(): ReactorInboundEvent {
     type: "inference.done",
     turn: { role: "assistant", content: [], model: "test-model", timestamp: 0 },
     usage,
-    source: { id: "t", provider: "openai", model: "test-model" },
+    source: { sourceId: "t", provider: "openai", model: "test-model" },
   };
 }
 

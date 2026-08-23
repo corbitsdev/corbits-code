@@ -119,7 +119,7 @@ test("isPluginModuleEnabled: missing settings + repo without flag is off", () =>
 
 test("isPluginModuleEnabled: marketplace/path/user defaultEnabled is ignored", () => {
   const flagged = {
-    manifest: { id: "mkt", name: "mkt", kind: "command", defaultEnabled: true },
+    manifest: { id: "mkt", name: "mkt", kind: "command" as const, defaultEnabled: true },
   };
   expect(isPluginModuleEnabled({ ...flagged, origin: "user" }, {})).toBe(false);
   expect(isPluginModuleEnabled({ ...flagged, origin: "path" }, {})).toBe(false);

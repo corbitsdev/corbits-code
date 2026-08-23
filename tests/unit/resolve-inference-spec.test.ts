@@ -8,9 +8,9 @@ import type { InferenceSpec } from "../../src/agent/profile-types.js";
 
 const baseSettings: Settings = {
   providers: {
-    anthropic: { models: ["claude-sonnet-4", "claude-haiku-4"] },
-    xai: { models: ["grok-4"] },
-    local: { models: [] }, // empty models list = unrestricted
+    anthropic: { baseURL: "https://api.anthropic.com", models: ["claude-sonnet-4", "claude-haiku-4"] },
+    xai: { baseURL: "https://api.x.ai", models: ["grok-4"] },
+    local: { baseURL: "http://localhost:11434", models: [] }, // empty models list = unrestricted
   },
 };
 
