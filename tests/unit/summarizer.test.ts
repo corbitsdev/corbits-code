@@ -16,7 +16,11 @@ const source: InferenceSource = {
 
 function turns(): ConversationTurn[] {
   return [
-    { role: "user", content: [{ type: "text", text: "Fix the login bug, see https://example.com/ticket/42" }], timestamp: 1 },
+    {
+      role: "user",
+      content: [{ type: "text", text: "Fix the login bug, see https://example.com/ticket/42" }],
+      timestamp: 1,
+    },
     {
       role: "assistant",
       content: [
@@ -28,7 +32,9 @@ function turns(): ConversationTurn[] {
     },
     {
       role: "assistant",
-      content: [{ type: "tool_call", id: "c2", name: "edit_file", arguments: { path: "src/session.ts" } }],
+      content: [
+        { type: "tool_call", id: "c2", name: "edit_file", arguments: { path: "src/session.ts" } },
+      ],
       model: "test-model",
       timestamp: 3,
     },
@@ -42,6 +48,22 @@ test("condenseTurns extracts files, tools, and links", () => {
   expect(out).toContain("read_file");
   expect(out).toContain("edit_file");
   expect(out).toContain("https://example.com/ticket/42");
+});
+
+test("condenseTurns drops a degenerate repeated assistant tail from the excerpt (CL-6906)", () => {
+  const loopPhrase = "we need to check whether the cache key already accounts for locale. ";
+  const loopText = loopPhrase.repeat(10);
+  const healthyNote = "Looked at src/auth.ts and found the missing null check.";
+  const degenerateTurns: ConversationTurn[] = [
+    { role: "user", content: [{ type: "text", text: "please continue" }], timestamp: 1 },
+    { role: "assistant", content: [{ type: "text", text: healthyNote }], timestamp: 2 },
+    { role: "assistant", content: [{ type: "text", text: loopText }], timestamp: 3 },
+  ];
+  const out = condenseTurns(degenerateTurns);
+  // The looping tail is dropped entirely rather than handed to the summarizer.
+  expect(out).not.toContain("cache key already accounts for locale");
+  // A healthy assistant note elsewhere in the same drop still survives.
+  expect(out).toContain(healthyNote);
 });
 
 test("buildSummaryPrompt injects active workflow context", () => {
@@ -88,4 +110,35 @@ test("model summarizer falls back when the model returns empty text", async () =
   });
   const result = await summarize(turns());
   expect(result).toContain("Tools called");
+});
+
+test("model summarizer marks a failure fallback as distinguishable from a real summary (CL-6906)", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => {
+      throw new Error("model unreachable");
+    },
+  });
+  const result = await summarize(turns());
+  expect(result).toContain("[Model summary unavailable");
+  expect(result).toContain("summary call failed");
+});
+
+test("model summarizer marks an empty-output fallback as distinguishable from a real summary (CL-6906)", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => "",
+  });
+  const result = await summarize(turns());
+  expect(result).toContain("[Model summary unavailable");
+  expect(result).toContain("empty model output");
+});
+
+test("model summarizer does not mark a real summary with the fallback marker", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => "## What Happened\n- read src/auth.ts",
+  });
+  const result = await summarize(turns());
+  expect(result).not.toContain("[Model summary unavailable");
 });
