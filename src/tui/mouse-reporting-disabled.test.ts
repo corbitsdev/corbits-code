@@ -7,8 +7,9 @@
  * `createCliRenderer` branch runs, and assert on the options it was
  * actually called with.
  */
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { Harness } from "./harness.js";
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 interface CapturedRendererOptions {
   readonly useMouse?: boolean;
@@ -21,33 +22,20 @@ const mountedHarnesses: Harness[] = [];
 // The mock must be registered before anything (including this file's own
 // helpers) does a real `@opentui/core` import, or that import wins the module
 // cache and the mock never takes effect. Every dependency below is loaded
-// with a dynamic `import()` after `mock.module` for that reason.
-//
-// Bun mutates the imported namespace object in place when a module is
-// mocked, so the capture is shallow-copied immediately -- holding onto the
-// live namespace would turn into the mocked exports the moment mock.module
-// below runs, making the afterAll restore below a no-op.
-const realCore = { ...(await import("@opentui/core")) };
-
-mock.module("@opentui/core", () => ({
-  ...realCore,
-  createCliRenderer: async (options: CapturedRendererOptions) => {
-    capturedOptions.push(options);
-    const { createHarness } = await import("./harness.js");
-    const harness = await createHarness({ width: 80, height: 24 });
-    mountedHarnesses.push(harness);
-    return harness.renderer;
-  },
-}));
-
-// `mock.module` replaces the shared module cache for the whole test process,
-// not just this file — every other test that imports `@opentui/core` runs in
-// the same process. Put the real module back once this file is done so a
-// later un-injected `createCliRenderer` caller does not silently get this
-// fake harness renderer instead.
-afterAll(() => {
-  mock.module("@opentui/core", () => realCore);
-});
+// with a dynamic `import()` after the mock is installed for that reason.
+await withMockedModule(
+  import.meta.resolve("@opentui/core"),
+  (real: typeof import("@opentui/core")) => ({
+    ...real,
+    createCliRenderer: async (options: CapturedRendererOptions) => {
+      capturedOptions.push(options);
+      const { createHarness } = await import("./harness.js");
+      const harness = await createHarness({ width: 80, height: 24 });
+      mountedHarnesses.push(harness);
+      return harness.renderer;
+    },
+  }),
+);
 
 afterEach(() => {
   let harness: Harness | undefined;
