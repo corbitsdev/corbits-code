@@ -103,8 +103,8 @@ describe("compaction governor", () => {
     expect(actions?.some((a) => a.type === "infer")).toBe(false);
     expect(continuations).toBe(1);
 
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe(true);
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe(false);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+    expect(governor.resumeAfterCompact(emptyMessage())).toBeNull();
   });
 
   test("stays inert below the threshold or with few turns", () => {
@@ -134,7 +134,7 @@ describe("compaction governor", () => {
   test("recovers from context overflow a bounded number of times", () => {
     const governor = createCompactionGovernor(() => {});
     expect(governor.interceptOverflow(overflowError(), capabilities)).not.toBeNull();
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe(true);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
     expect(governor.interceptOverflow(overflowError(), capabilities)).not.toBeNull();
     expect(governor.interceptOverflow(overflowError(), capabilities)).toBeNull();
 
@@ -162,6 +162,38 @@ describe("compaction governor", () => {
     expect(governor.interceptIdleContinuation(emptyMessage(), capabilities)).toBeNull();
   });
 
+  // Idle compact with an empty continuation previously left postCompactInfer
+  // unset, so resumeAfterCompact never fired and notePostCompact never ran —
+  // the Ctx meter stayed on pre-compact lastTurnUsage until the next user turn.
+  test("idle empty compact syncs the meter after shrink without a following user turn", () => {
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+    const large = turnsOfLength(10, 200);
+    governor.noteInferenceDone(inferenceDone(overThreshold), large);
+    expect(governor.usingEstimate).toBe(false);
+    const before = governor.estimatedTokens;
+
+    governor.noteIdleTurn(inferenceDone(overThreshold), [{ type: "reply", content: "done" }]);
+    expect(continuations).toBe(1);
+
+    const actions = governor.interceptIdleContinuation(emptyMessage(), capabilities);
+    expect(actions).toEqual([
+      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
+    ] as ReactorAction[]);
+    // A second continuation re-enters decide after the compact cycle so the
+    // governor can adopt the shrunk turns — without starting a new inference.
+    expect(continuations).toBe(2);
+
+    const shrunk = turnsOfLength(3, 20);
+    // resumeAfterCompact must arm the meter-only path (not infer) for empty idle.
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+    governor.notePostCompact(shrunk);
+
+    expect(governor.usingEstimate).toBe(true);
+    expect(governor.estimatedTokens).toBeLessThan(before);
+    expect(governor.estimatedTokens).toBe(governor.syncFromTurns(shrunk));
+  });
+
   test("an operator message that races the idle continuation still compacts, then re-infers", () => {
     let continuations = 0;
     const governor = createCompactionGovernor(() => continuations++);
@@ -177,7 +209,7 @@ describe("compaction governor", () => {
     // A second continuation is requested so the operator message gets answered
     // after the compact cycle.
     expect(continuations).toBe(2);
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe(true);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
   });
 
   test("idle turns with follow-up work or under threshold never arm idle compaction", () => {
@@ -335,6 +367,25 @@ describe("compaction governor", () => {
     // Still null: the live estimate is now over threshold, but the last
     // arming decision trusted reported usage, so it is not re-checked here.
     expect(governor.interceptActions(toolDone(), inferAction, capabilities)).toBeNull();
+  });
+
+  test("notePostCompact syncs the shrunk turns and keeps the estimate authoritative until the next inference.done", () => {
+    const governor = createCompactionGovernor(() => {});
+    const large = turnsOfLength(10, 200);
+    governor.noteInferenceDone(inferenceDone(overThreshold), large);
+    expect(governor.usingEstimate).toBe(false);
+    const before = governor.estimatedTokens;
+
+    const shrunk = turnsOfLength(3, 20);
+    governor.notePostCompact(shrunk);
+
+    expect(governor.usingEstimate).toBe(true);
+    expect(governor.estimatedTokens).toBeLessThan(before);
+    expect(governor.estimatedTokens).toBe(governor.syncFromTurns(shrunk));
+
+    // Provider-reported usage on the next turn clears the estimate flag.
+    governor.noteInferenceDone(inferenceDone(1000), shrunk);
+    expect(governor.usingEstimate).toBe(false);
   });
 
   test("does not re-arm after a compact that remains over the high watermark", () => {
