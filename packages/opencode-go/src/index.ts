@@ -21,13 +21,15 @@ export {
 
 export { resolveGoEndpoint, type GoEndpoint } from "./endpoint.js";
 export { validateGoApiKey, type GoApiKeyValidation } from "./auth.js";
-export { fetchGoUsage, formatGoUsage, type GoFetch, type GoUsage, type GoUsageWindow } from "./usage.js";
-export { buildGoCatalogEntry, type GoCatalogEntry } from "./catalog.js";
 export {
-  isOpenCodeGoProvider,
-  isOpenCodeGoProviderId,
-  isOpenCodeGoURL,
-} from "./identity.js";
+  fetchGoUsage,
+  formatGoUsage,
+  type GoFetch,
+  type GoUsage,
+  type GoUsageWindow,
+} from "./usage.js";
+export { buildGoCatalogEntry, type GoCatalogEntry } from "./catalog.js";
+export { isOpenCodeGoProvider, isOpenCodeGoProviderId, isOpenCodeGoURL } from "./identity.js";
 export {
   parseGoAPIError,
   type GoErrorCategory,

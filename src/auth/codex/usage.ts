@@ -13,14 +13,14 @@ import { COMMAND_NAME } from "../../branding.js";
 // each rolling window has been consumed and when it resets. Mirrors the shape
 // of GET /codex/usage.
 
-export type CodexWindow = {
+export interface CodexWindow {
   usedPercent: number;
   windowSeconds: number;
   resetAfterSeconds: number;
   resetAt: number;
-};
+}
 
-export type CodexUsage = {
+export interface CodexUsage {
   planType: string;
   // false when the account is currently over its limit / out of credits.
   allowed: boolean;
@@ -31,7 +31,7 @@ export type CodexUsage = {
   hasCredits: boolean;
   // e.g. "workspace_member_credits_depleted" when limit-reached.
   reachedType?: string;
-};
+}
 
 function num(v: unknown): number {
   return typeof v === "number" ? v : 0;
@@ -49,9 +49,16 @@ function parseWindow(value: unknown): CodexWindow | undefined {
 }
 
 function parseUsage(payload: unknown): CodexUsage {
-  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
-  const rl = (typeof p["rate_limit"] === "object" && p["rate_limit"] !== null ? p["rate_limit"] : {}) as Record<string, unknown>;
-  const credits = (typeof p["credits"] === "object" && p["credits"] !== null ? p["credits"] : {}) as Record<string, unknown>;
+  const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
+  const rl = (
+    typeof p["rate_limit"] === "object" && p["rate_limit"] !== null ? p["rate_limit"] : {}
+  ) as Record<string, unknown>;
+  const credits = (
+    typeof p["credits"] === "object" && p["credits"] !== null ? p["credits"] : {}
+  ) as Record<string, unknown>;
   const reached = p["rate_limit_reached_type"] as Record<string, unknown> | undefined;
   const primary = parseWindow(rl["primary_window"]);
   const secondary = parseWindow(rl["secondary_window"]);
@@ -99,13 +106,21 @@ export async function fetchCodexModels(profileName: string): Promise<string[]> {
   const models = (payload as { models?: unknown })?.models;
   if (!Array.isArray(models)) return [];
   return models
-    .map((m) => (typeof m === "string" ? m : typeof (m as { slug?: unknown })?.slug === "string" ? (m as { slug: string }).slug : undefined))
+    .map((m) =>
+      typeof m === "string"
+        ? m
+        : typeof (m as { slug?: unknown })?.slug === "string"
+          ? (m as { slug: string }).slug
+          : undefined,
+    )
     .filter((s): s is string => s !== undefined);
 }
 
 // Render a compact, dollar-free usage summary for the prepaid plan.
 export function formatCodexUsage(usage: CodexUsage): string {
-  const lines: string[] = [`Codex (${usage.planType}) — ${usage.allowed ? "active" : "limit reached"}`];
+  const lines: string[] = [
+    `Codex (${usage.planType}) — ${usage.allowed ? "active" : "limit reached"}`,
+  ];
   const windowLine = (label: string, w: CodexWindow | undefined): string | undefined => {
     if (w === undefined) return undefined;
     return `${label}: ${String(Math.round(w.usedPercent))}% used · resets in ${formatDuration(w.resetAfterSeconds)}`;
@@ -137,10 +152,14 @@ function windowLabel(windowSeconds: number, fallback: string): string {
 export function formatCodexUsageCompact(usage: CodexUsage): string {
   const parts: string[] = ["Codex"];
   if (usage.primary !== undefined) {
-    parts.push(`${windowLabel(usage.primary.windowSeconds, "5h")} ${String(Math.round(usage.primary.usedPercent))}%`);
+    parts.push(
+      `${windowLabel(usage.primary.windowSeconds, "5h")} ${String(Math.round(usage.primary.usedPercent))}%`,
+    );
   }
   if (usage.secondary !== undefined) {
-    parts.push(`${windowLabel(usage.secondary.windowSeconds, "wk")} ${String(Math.round(usage.secondary.usedPercent))}%`);
+    parts.push(
+      `${windowLabel(usage.secondary.windowSeconds, "wk")} ${String(Math.round(usage.secondary.usedPercent))}%`,
+    );
   }
   if (!usage.allowed) parts.push("(limit reached)");
   return parts.length === 1 ? "Codex" : `${parts[0]} ${parts.slice(1).join(" · ")}`;

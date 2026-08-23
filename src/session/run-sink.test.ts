@@ -32,11 +32,13 @@ describe("createRunSink", () => {
 
     expect(runSink.getTurnCollector()).toBeNull();
 
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
 
     expect(runSink.getTurnCollector()).toBeNull();
   });
@@ -67,14 +69,22 @@ describe("createRunSink", () => {
       hookManager: stubHookManager([]),
     });
 
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
 
     expect(runSink.getTurnCount()).toBe(1);
-    expect(runSink.getTokenUsage()).toEqual({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+    expect(runSink.getTokenUsage()).toEqual({
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      thinking: 0,
+    });
   });
 
   test("reports the in-flight turn to onTurnFailed when a turn errors instead of completing", () => {
@@ -120,11 +130,13 @@ describe("createRunSink", () => {
     });
 
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
     runSink.sink(event("reactor.error", { error: "reactor gave up at shutdown" }));
 
     expect(completions).toEqual([0]);
@@ -178,11 +190,13 @@ describe("createRunSink", () => {
 
     expect(runSink.getTurnCount()).toBe(7);
 
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
 
     expect(runSink.getTurnCount()).toBe(8);
   });
@@ -193,19 +207,35 @@ describe("createRunSink", () => {
       hookManager: stubHookManager([]),
     });
 
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
 
-    expect(runSink.getTokenUsage()).toEqual({ input: 250, output: 30, cacheRead: 5, cacheWrite: 0, thinking: 0 });
-    expect(runSink.getLastTurnUsage()).toEqual({ input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 });
+    expect(runSink.getTokenUsage()).toEqual({
+      input: 250,
+      output: 30,
+      cacheRead: 5,
+      cacheWrite: 0,
+      thinking: 0,
+    });
+    expect(runSink.getLastTurnUsage()).toEqual({
+      input: 150,
+      output: 20,
+      cacheRead: 5,
+      cacheWrite: 0,
+      thinking: 0,
+    });
   });
 
   // Regression: exec finish metrics must not dereference getTurnCollector()
@@ -217,11 +247,13 @@ describe("createRunSink", () => {
       hookManager: stubHookManager([]),
     });
 
-    runSink.sink(event("inference.done", {
-      turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-      usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { provider: "test", model: "test" },
-    }));
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        source: { provider: "test", model: "test" },
+      }),
+    );
 
     const turnCollector = runSink.getTurnCollector();
     expect(turnCollector).toBeNull();

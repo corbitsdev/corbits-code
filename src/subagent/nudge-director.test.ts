@@ -10,10 +10,11 @@ import { SubAgentDirector } from "./nudge-director.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
-  turns: Array.from(
-    { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
-    () => ({ role: "user", content: [], timestamp: 0 }),
-  ),
+  turns: Array.from({ length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 }, () => ({
+    role: "user",
+    content: [],
+    timestamp: 0,
+  })),
 } as unknown as ReactorState;
 
 function capabilities(): ReactorCapabilities {
@@ -88,7 +89,9 @@ function actions(result: ReactorAction | ReactorAction[]): ReactorAction[] {
   return Array.isArray(result) ? result : [result];
 }
 
-function inferAction(result: ReactorAction | ReactorAction[]): Extract<ReactorAction, { type: "infer" }> {
+function inferAction(
+  result: ReactorAction | ReactorAction[],
+): Extract<ReactorAction, { type: "infer" }> {
   const infer = actions(result).find(
     (action): action is Extract<ReactorAction, { type: "infer" }> => action.type === "infer",
   );
@@ -106,8 +109,7 @@ function overflowError(message = "context window exceeded"): ReactorInboundEvent
 
 function ephemeralTexts(infer: Extract<ReactorAction, { type: "infer" }>): string[] | undefined {
   const options = infer.options as
-    | { ephemeralTurns?: Array<{ content: Array<{ text?: string }> }> }
-    | undefined;
+    { ephemeralTurns?: { content: { text?: string }[] }[] } | undefined;
   return options?.ephemeralTurns?.map((turn) => turn.content[0]?.text ?? "");
 }
 
@@ -133,9 +135,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     const caps = capabilities();
 
     await director.decide(inferenceDone(["successful-call"]), state, caps);
-    const infer = inferAction(
-      await director.decide(toolDone("successful-call"), state, caps),
-    );
+    const infer = inferAction(await director.decide(toolDone("successful-call"), state, caps));
 
     expect(ephemeralTexts(infer)).toBeUndefined();
   });
@@ -145,9 +145,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     const caps = capabilities();
 
     await director.decide(inferenceDone(["failed-first", "successful-last"]), state, caps);
-    const firstResult = actions(
-      await director.decide(toolDone("failed-first", true), state, caps),
-    );
+    const firstResult = actions(await director.decide(toolDone("failed-first", true), state, caps));
     expect(firstResult.some((action) => action.type === "infer")).toBe(false);
 
     const texts = ephemeralTexts(
@@ -165,9 +163,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     await director.decide(toolDone("failed-cycle", true), state, caps);
 
     await director.decide(inferenceDone(["later-success"]), state, caps);
-    const infer = inferAction(
-      await director.decide(toolDone("later-success"), state, caps),
-    );
+    const infer = inferAction(await director.decide(toolDone("later-success"), state, caps));
     expect(ephemeralTexts(infer)).toBeUndefined();
   });
 
@@ -194,16 +190,12 @@ describe("SubAgentDirector tool failure recovery", () => {
     ]);
     expect(continuations).toBe(1);
 
-    const resumed = inferAction(
-      await director.decide(messageReceived(""), longState, caps),
-    );
+    const resumed = inferAction(await director.decide(messageReceived(""), longState, caps));
     const resumedTexts = ephemeralTexts(resumed);
     expect(resumedTexts).toHaveLength(1);
     expect(resumedTexts?.[0]).toContain("A tool call failed");
 
-    const later = inferAction(
-      await director.decide(messageReceived(""), longState, caps),
-    );
+    const later = inferAction(await director.decide(messageReceived(""), longState, caps));
     expect(ephemeralTexts(later)).toBeUndefined();
   });
 
@@ -238,7 +230,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     ];
 
     await director.decide(
-      inferenceDone(callIds, 0, (id) => id.startsWith("shared-") ? "shared.ts" : `${id}.ts`),
+      inferenceDone(callIds, 0, (id) => (id.startsWith("shared-") ? "shared.ts" : `${id}.ts`)),
       state,
       caps,
     );
@@ -309,9 +301,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(recovered?.[0]).toContain("A tool call failed");
 
     await director.decide(inferenceDone(["later-success"]), state, caps);
-    const afterSuccess = inferAction(
-      await director.decide(toolDone("later-success"), state, caps),
-    );
+    const afterSuccess = inferAction(await director.decide(toolDone("later-success"), state, caps));
     expect(ephemeralTexts(afterSuccess)).toBeUndefined();
 
     const compact = actions(await director.decide(overflowError(), state, caps));
@@ -387,7 +377,10 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     );
     expect(result.some((action) => action.type === "reply")).toBe(false);
     expect(result.some((action) => action.type === "done")).toBe(false);
-    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report-nudge" });
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
     const texts = ephemeralTexts(inferAction(result));
     expect(texts).toHaveLength(1);
     expect(texts?.[0]).toContain("## Summary");
@@ -419,7 +412,10 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     );
     expect(result.some((action) => action.type === "reply")).toBe(false);
     expect(result.some((action) => action.type === "done")).toBe(false);
-    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-incomplete-report-nudge" });
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
     const texts = ephemeralTexts(inferAction(result));
     expect(texts).toHaveLength(1);
     expect(texts?.[0]).toContain("## Findings");

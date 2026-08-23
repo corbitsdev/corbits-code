@@ -26,10 +26,14 @@ async function syncValue<T>(value: T | Promise<T>): Promise<T> {
 describe("createOAuthProvider", () => {
   test("drops stale DCR client when redirect port changed and no tokens exist", async () => {
     const home = await tempHome();
-    await saveAuthState("linear", {
-      clientInformation: clientInfo(60435),
-      codeVerifier: "old-verifier",
-    }, home);
+    await saveAuthState(
+      "linear",
+      {
+        clientInformation: clientInfo(60435),
+        codeVerifier: "old-verifier",
+      },
+      home,
+    );
 
     const provider = await createOAuthProvider({
       serverName: "linear",
@@ -46,15 +50,19 @@ describe("createOAuthProvider", () => {
 
   test("keeps registered client and tokens when only the loopback port changed", async () => {
     const home = await tempHome();
-    await saveAuthState("linear", {
-      clientInformation: clientInfo(60435),
-      tokens: {
-        access_token: "live",
-        token_type: "bearer",
-        expires_in: 3600,
-        refresh_token: "refresh",
+    await saveAuthState(
+      "linear",
+      {
+        clientInformation: clientInfo(60435),
+        tokens: {
+          access_token: "live",
+          token_type: "bearer",
+          expires_in: 3600,
+          refresh_token: "refresh",
+        },
       },
-    }, home);
+      home,
+    );
 
     const provider = await createOAuthProvider({
       serverName: "linear",
@@ -101,16 +109,20 @@ describe("createOAuthProvider", () => {
 
   test("resetAuthorization clears client when redirect no longer matches registration", async () => {
     const home = await tempHome();
-    await saveAuthState("linear", {
-      clientInformation: clientInfo(60435),
-      tokens: {
-        access_token: "live",
-        token_type: "bearer",
-        expires_in: 1,
-        refresh_token: "r",
+    await saveAuthState(
+      "linear",
+      {
+        clientInformation: clientInfo(60435),
+        tokens: {
+          access_token: "live",
+          token_type: "bearer",
+          expires_in: 1,
+          refresh_token: "r",
+        },
+        codeVerifier: "v",
       },
-      codeVerifier: "v",
-    }, home);
+      home,
+    );
 
     const provider = await createOAuthProvider({
       serverName: "linear",

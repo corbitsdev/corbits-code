@@ -30,8 +30,13 @@ function lateMcpTool() {
 
 function toolDoneContents(events: ReactorEmittedEvent[]): string[] {
   return events
-    .filter((event): event is Extract<ReactorEmittedEvent, { type: "tool.done" }> => event.type === "tool.done")
-    .map((event) => (typeof event.data.result.content === "string" ? event.data.result.content : ""));
+    .filter(
+      (event): event is Extract<ReactorEmittedEvent, { type: "tool.done" }> =>
+        event.type === "tool.done",
+    )
+    .map((event) =>
+      typeof event.data.result.content === "string" ? event.data.result.content : "",
+    );
 }
 
 describe("integration — late MCP dispatch", () => {
@@ -51,9 +56,9 @@ describe("integration — late MCP dispatch", () => {
       session.harness.scenario.replyOnce("anthropic", { text: "listed" });
 
       const { events } = await runUntilDone(session, "list linear issues");
-      expect(toolDoneContents(events).some((content) => content.includes(`unknown tool: ${LATE_MCP}`))).toBe(
-        true,
-      );
+      expect(
+        toolDoneContents(events).some((content) => content.includes(`unknown tool: ${LATE_MCP}`)),
+      ).toBe(true);
     } finally {
       await closeIntegrationSession(session);
     }

@@ -4,11 +4,11 @@
 
 export type GoProtocol = "chat-completions" | "responses" | "messages";
 
-export type GoModel = {
+export interface GoModel {
   id: string;
   name: string;
   protocol: GoProtocol;
-};
+}
 
 export const OPENCODE_GO_MODELS = [
   { id: "grok-4.5", name: "Grok 4.5", protocol: "chat-completions" },

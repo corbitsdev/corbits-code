@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { clearActiveDisposeHost, getActiveDisposeHost, setActiveDisposeHost } from "./active-host.js";
+import {
+  clearActiveDisposeHost,
+  getActiveDisposeHost,
+  setActiveDisposeHost,
+} from "./active-host.js";
 
 describe("active-host", () => {
   afterEach(() => {

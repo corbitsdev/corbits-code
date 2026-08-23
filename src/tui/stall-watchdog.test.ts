@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test";
 
 import {
   applyStallRecovery,
@@ -11,7 +11,7 @@ import {
   STALL_NOTICE_MS,
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
-} from "./stall-watchdog.js"
+} from "./stall-watchdog.js";
 
 describe("shouldAbortForStall", () => {
   // Mid-stream hang: tokens already flowed, then everything went silent —
@@ -26,24 +26,22 @@ describe("shouldAbortForStall", () => {
     isProcessing: true,
     streamingType: "text" as const,
     activeToolCalls: [],
-  }
+  };
 
   test("aborts a mid-stream hang past the timeout", () => {
-    expect(shouldAbortForStall(base)).toBe(true)
-  })
+    expect(shouldAbortForStall(base)).toBe(true);
+  });
 
   test("does not abort before the timeout", () => {
-    expect(shouldAbortForStall({ ...base, nowMs: STALL_TIMEOUT_MS - 1 })).toBe(
-      false,
-    )
-  })
+    expect(shouldAbortForStall({ ...base, nowMs: STALL_TIMEOUT_MS - 1 })).toBe(false);
+  });
 
   test("only running turns are watched", () => {
-    expect(shouldAbortForStall({ ...base, status: "idle" })).toBe(false)
-    expect(shouldAbortForStall({ ...base, status: "blocked" })).toBe(false)
-    expect(shouldAbortForStall({ ...base, status: "done" })).toBe(false)
-    expect(shouldAbortForStall({ ...base, status: "stopping" })).toBe(false)
-  })
+    expect(shouldAbortForStall({ ...base, status: "idle" })).toBe(false);
+    expect(shouldAbortForStall({ ...base, status: "blocked" })).toBe(false);
+    expect(shouldAbortForStall({ ...base, status: "done" })).toBe(false);
+    expect(shouldAbortForStall({ ...base, status: "stopping" })).toBe(false);
+  });
 
   test("a settled turn with nothing in flight is not a stall", () => {
     expect(
@@ -52,25 +50,23 @@ describe("shouldAbortForStall", () => {
         streamingType: null,
         isProcessing: false,
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
   test("mid-thinking silence fires, recent thinking tokens do not", () => {
-    const thinking = { ...base, streamingType: "thinking" as const }
-    expect(shouldAbortForStall(thinking)).toBe(true)
-    expect(
-      shouldAbortForStall({ ...thinking, lastActivityAt: STALL_TIMEOUT_MS - 1 }),
-    ).toBe(false)
-  })
+    const thinking = { ...base, streamingType: "thinking" as const };
+    expect(shouldAbortForStall(thinking)).toBe(true);
+    expect(shouldAbortForStall({ ...thinking, lastActivityAt: STALL_TIMEOUT_MS - 1 })).toBe(false);
+  });
 
   test("mid-stream text hang aborts", () => {
-    expect(shouldAbortForStall(base)).toBe(true)
-  })
+    expect(shouldAbortForStall(base)).toBe(true);
+  });
 
   test("long tool runs are not stalls", () => {
-    expect(shouldAbortForStall({ ...base, streamingType: "tool" })).toBe(false)
-  })
-})
+    expect(shouldAbortForStall({ ...base, streamingType: "tool" })).toBe(false);
+  });
+});
 
 // The other shape silence can take: awaiting the model's next response, with
 // no tokens yet — set right after submit and again the instant the last
@@ -88,67 +84,61 @@ describe("shouldAbortForStall — awaiting the model's next token is never auto-
     isProcessing: true,
     streamingType: null,
     activeToolCalls: [],
-  }
+  };
 
   test("does not abort a run merely awaiting a response, however long", () => {
-    expect(shouldAbortForStall(awaiting)).toBe(false)
-    expect(
-      shouldAbortForStall({ ...awaiting, nowMs: STALL_TIMEOUT_MS * 10 }),
-    ).toBe(false)
-  })
+    expect(shouldAbortForStall(awaiting)).toBe(false);
+    expect(shouldAbortForStall({ ...awaiting, nowMs: STALL_TIMEOUT_MS * 10 })).toBe(false);
+  });
 
   // Mirrors the tool.done handler: the last outstanding call just resolved,
   // awaitingResponse flips true and streamingType resets to null, then the
   // model itself takes a long-but-healthy while to start its next reply.
   test("healthy post-tool-batch wait never auto-aborts", () => {
-    expect(shouldAbortForStall({ ...awaiting, activeToolCalls: [] })).toBe(
-      false,
-    )
-  })
+    expect(shouldAbortForStall({ ...awaiting, activeToolCalls: [] })).toBe(false);
+  });
 
   test("a parallel fan-out with sibling tools still running is not a stall", () => {
-    expect(
-      shouldAbortForStall({ ...awaiting, activeToolCalls: ["call-2"] }),
-    ).toBe(false)
-  })
+    expect(shouldAbortForStall({ ...awaiting, activeToolCalls: ["call-2"] })).toBe(false);
+  });
 
   // Two independent exemptions (a gate open on the operator, a sibling tool
   // call still outstanding) must both keep exempting when combined — neither
   // one's guard may accidentally require the other's condition to also hold.
   test("a gate open and a sibling tool call each exempt alone, and together", () => {
-    const gateOnly = { ...awaiting, status: "blocked" as const }
-    const toolCallOnly = { ...awaiting, activeToolCalls: ["call-2"] }
+    const gateOnly = { ...awaiting, status: "blocked" as const };
+    const toolCallOnly = { ...awaiting, activeToolCalls: ["call-2"] };
     const both = {
       ...awaiting,
       status: "blocked" as const,
       activeToolCalls: ["call-2"],
-    }
+    };
 
-    expect(shouldAbortForStall(gateOnly)).toBe(false)
-    expect(shouldAbortForStall(toolCallOnly)).toBe(false)
-    expect(shouldAbortForStall(both)).toBe(false)
-  })
-})
+    expect(shouldAbortForStall(gateOnly)).toBe(false);
+    expect(shouldAbortForStall(toolCallOnly)).toBe(false);
+    expect(shouldAbortForStall(both)).toBe(false);
+  });
+});
 
 describe("applyStallRecovery", () => {
   test("aborts then notifies with the default message", () => {
-    const calls: string[] = []
+    const calls: string[] = [];
     applyStallRecovery({
       abort: () => calls.push("abort"),
       notify: (m) => calls.push(m),
-    })
-    expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE])
-  })
+    });
+    expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE]);
+  });
 
   test("aborts then notifies with a supplied message", () => {
-    const calls: string[] = []
+    const calls: string[] = [];
     applyStallRecovery(
       { abort: () => calls.push("abort"), notify: (m) => calls.push(m) },
       "custom message",
-    )
-    expect(calls).toEqual(["abort", "custom message"])
-  })
-})
+    );
+    expect(calls).toEqual(["abort", "custom message"]);
+  });
+});
 
 describe("detectRepetition", () => {
   test("finds nothing in fresh, varied output", () => {
@@ -156,69 +146,69 @@ describe("detectRepetition", () => {
       "I'll check the callId emission path first.",
       "Running the search now.",
       "Found three matches across the module.",
-    ].join("\n")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
+    ].join("\n");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
 
   // The captured incident: the two sentences ran together with no line break
   // at all. A line-splitting detector never sees this; the period search
   // does not care where (or whether) the lines break.
   test("flags the captured incident string verbatim, with no newlines", () => {
     const line1 =
-      "I'll verify callId emission and remaining edges, then write the ranked findings."
-    const line2 = "Confirming callId emission, then writing the ranked findings."
-    const text = Array(10).fill(`${line1}${line2}`).join("")
-    const check = detectRepetition(text)
-    expect(check.repeating).toBe(true)
-    expect(check.period).toBe(line1.length + line2.length)
-  })
+      "I'll verify callId emission and remaining edges, then write the ranked findings.";
+    const line2 = "Confirming callId emission, then writing the ranked findings.";
+    const text = Array(10).fill(`${line1}${line2}`).join("");
+    const check = detectRepetition(text);
+    expect(check.repeating).toBe(true);
+    expect(check.period).toBe(line1.length + line2.length);
+  });
 
   test("does not flag the same cycle a handful of times", () => {
     const line1 =
-      "I'll verify callId emission and remaining edges, then write the ranked findings."
-    const line2 = "Confirming callId emission, then writing the ranked findings."
+      "I'll verify callId emission and remaining edges, then write the ranked findings.";
+    const line2 = "Confirming callId emission, then writing the ranked findings.";
     // Fewer than the occurrence threshold: a model can legitimately restate
     // a step once or twice across tool-call cycles without looping.
-    const text = Array(4).fill(`${line1}${line2}`).join("")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
+    const text = Array(4).fill(`${line1}${line2}`).join("");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
 
   test("does not flag a repeated markdown table separator row", () => {
-    const row = "| ---------------------- | ---------------------- |"
-    const text = Array(6).fill(row).join("\n")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
+    const row = "| ---------------------- | ---------------------- |";
+    const text = Array(6).fill(row).join("\n");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
 
   test("does not flag a few identical code lines", () => {
-    const line = "  const result = await fetchData(request, options, context)"
-    const text = Array(3).fill(line).join("\n")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
+    const line = "  const result = await fetchData(request, options, context)";
+    const text = Array(3).fill(line).join("\n");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
 
   test("ignores short recurring fragments", () => {
-    const text = Array(10).fill("ok").join(" ")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
+    const text = Array(10).fill("ok").join(" ");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
 
   // A monochrome run is periodic at every period by construction — the
   // easiest thing to false-trigger on if entropy is not checked.
   test("does not flag a long run of the same character", () => {
-    expect(detectRepetition("x".repeat(500)).repeating).toBe(false)
-  })
+    expect(detectRepetition("x".repeat(500)).repeating).toBe(false);
+  });
 
   test("does not flag a repeated horizontal rule", () => {
-    const text = Array(10).fill("----------------------------").join("\n")
-    expect(detectRepetition(text).repeating).toBe(false)
-  })
-})
+    const text = Array(10).fill("----------------------------").join("\n");
+    expect(detectRepetition(text).repeating).toBe(false);
+  });
+});
 
 describe("repetitionRecoveryMessage", () => {
   test("names degeneration and attributes the looped tokens", () => {
-    const message = repetitionRecoveryMessage(42)
-    expect(message).toContain("repeating itself")
-    expect(message).toContain("42")
-  })
-})
+    const message = repetitionRecoveryMessage(42);
+    expect(message).toContain("repeating itself");
+    expect(message).toContain("42");
+  });
+});
 
 describe("shouldNoticeStall", () => {
   const base = {
@@ -232,49 +222,43 @@ describe("shouldNoticeStall", () => {
     streamingType: null,
     repeating: false,
     activeToolCalls: [],
-  }
+  };
 
   test("a parallel fan-out with sibling tools still running does not notice", () => {
-    expect(
-      shouldNoticeStall({ ...base, activeToolCalls: ["call-2"] }),
-    ).toBe(false)
-  })
+    expect(shouldNoticeStall({ ...base, activeToolCalls: ["call-2"] })).toBe(false);
+  });
 
   test("stays quiet while repeating, even if also silent by the clock", () => {
-    expect(shouldNoticeStall({ ...base, repeating: true })).toBe(false)
-  })
+    expect(shouldNoticeStall({ ...base, repeating: true })).toBe(false);
+  });
 
   test("speaks up long before the abort backstop", () => {
-    expect(STALL_NOTICE_MS).toBeLessThan(STALL_TIMEOUT_MS)
-    expect(shouldNoticeStall(base)).toBe(true)
-    expect(shouldAbortForStall(base)).toBe(false)
-  })
+    expect(STALL_NOTICE_MS).toBeLessThan(STALL_TIMEOUT_MS);
+    expect(shouldNoticeStall(base)).toBe(true);
+    expect(shouldAbortForStall(base)).toBe(false);
+  });
 
   test("stays quiet before the notice threshold", () => {
-    expect(shouldNoticeStall({ ...base, nowMs: STALL_NOTICE_MS - 1 })).toBe(false)
-  })
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_NOTICE_MS - 1 })).toBe(false);
+  });
 
   test("hands over to the abort once a mid-stream hang is aborted", () => {
     const midStream = {
       ...base,
       awaitingResponse: false,
       streamingType: "text" as const,
-    }
-    expect(shouldNoticeStall({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe(
-      false,
-    )
-  })
+    };
+    expect(shouldNoticeStall({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe(false);
+  });
 
   test("a healthy wait for the model's next token keeps noticing rather than handing over to an abort", () => {
     // Unlike the mid-stream case above, this shape never reaches "abort" —
     // see the shouldAbortForStall describe block above — so the notice keeps
     // surfacing indefinitely instead of going silent once the old timeout
     // would have fired.
-    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(true)
-    expect(
-      shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS * 10 }),
-    ).toBe(true)
-  })
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(true);
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe(true);
+  });
 
   test("a long tool run is not stuck", () => {
     expect(
@@ -283,9 +267,9 @@ describe("shouldNoticeStall", () => {
         awaitingResponse: false,
         streamingType: "tool",
       }),
-    ).toBe(false)
-  })
-})
+    ).toBe(false);
+  });
+});
 
 describe("the stall level the indicator reads", () => {
   const base = {
@@ -299,48 +283,38 @@ describe("the stall level the indicator reads", () => {
     streamingType: null,
     activeToolCalls: [],
     repeating: false,
-  }
+  };
 
   test("quiet, notice and abort partition the same silence clock for a mid-stream hang", () => {
-    const midStream = { ...base, awaitingResponse: false, streamingType: "text" as const }
-    expect(stallLevel({ ...midStream, nowMs: STALL_NOTICE_MS - 1 })).toBe(
-      "quiet",
-    )
-    expect(stallLevel({ ...midStream, nowMs: STALL_NOTICE_MS })).toBe("notice")
-    expect(stallLevel({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe("abort")
-  })
+    const midStream = { ...base, awaitingResponse: false, streamingType: "text" as const };
+    expect(stallLevel({ ...midStream, nowMs: STALL_NOTICE_MS - 1 })).toBe("quiet");
+    expect(stallLevel({ ...midStream, nowMs: STALL_NOTICE_MS })).toBe("notice");
+    expect(stallLevel({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe("abort");
+  });
 
   // Awaiting the model's next token (right after submit, or right after a
   // tool batch resolves) never escalates to "abort" — see
   // shouldAbortForStall's dedicated describe block — so this shape stays at
   // "notice" indefinitely instead of handing over.
   test("a healthy wait for the model's next token stays at notice, never abort", () => {
-    expect(stallLevel({ ...base, nowMs: STALL_NOTICE_MS })).toBe("notice")
-    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("notice")
-    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe(
-      "notice",
-    )
-  })
+    expect(stallLevel({ ...base, nowMs: STALL_NOTICE_MS })).toBe("notice");
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("notice");
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe("notice");
+  });
 
   test("the indicator keeps reading stalled across the abort threshold", () => {
     // The notice hands over to the abort so the two never speak at once, but
     // the phase must not flip back to healthy at the exact moment the run is
     // most stuck — that was the whole complaint the indicator answers.
-    const midStream = { ...base, awaitingResponse: false, streamingType: "text" as const }
-    expect(shouldNoticeStall({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe(
-      false,
-    )
-    expect(
-      isStalledForDisplay({ ...midStream, nowMs: STALL_TIMEOUT_MS }),
-    ).toBe(true)
-    expect(
-      isStalledForDisplay({ ...midStream, nowMs: STALL_TIMEOUT_MS * 3 }),
-    ).toBe(true)
-  })
+    const midStream = { ...base, awaitingResponse: false, streamingType: "text" as const };
+    expect(shouldNoticeStall({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe(false);
+    expect(isStalledForDisplay({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe(true);
+    expect(isStalledForDisplay({ ...midStream, nowMs: STALL_TIMEOUT_MS * 3 })).toBe(true);
+  });
 
   test("a repeating run is not a stall on any surface", () => {
-    const looping = { ...base, nowMs: STALL_TIMEOUT_MS, repeating: true }
-    expect(stallLevel(looping)).toBe("quiet")
-    expect(isStalledForDisplay(looping)).toBe(false)
-  })
-})
+    const looping = { ...base, nowMs: STALL_TIMEOUT_MS, repeating: true };
+    expect(stallLevel(looping)).toBe("quiet");
+    expect(isStalledForDisplay(looping)).toBe(false);
+  });
+});

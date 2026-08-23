@@ -257,12 +257,12 @@ function footerLink(url: string, label: string): string {
   return `<span class="sep" aria-hidden="true">·</span><a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
-export type CallbackPage = {
+export interface CallbackPage {
   /** What was being authorized: an MCP server or provider name. */
   readonly subject?: string;
   /** Why it failed. Omit for the success page. */
   readonly error?: string;
-};
+}
 
 /**
  * Render the callback page.
