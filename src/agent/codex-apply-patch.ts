@@ -115,8 +115,7 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
         );
       }
       // Codex-rs: each '+' line contributes text + "\n".
-      const content =
-        contentLines.length === 0 ? "" : contentLines.map((l) => `${l}\n`).join("");
+      const content = contentLines.length === 0 ? "" : contentLines.map((l) => `${l}\n`).join("");
       ops.push({ type: "add", path, content });
       continue;
     }
@@ -147,7 +146,11 @@ export function parseCodexApplyPatch(input: string): ParsedPatch {
           `malformed Update File '${path}': expected hunk ('@@') or next file op, got: ${body[i]}`,
         );
       }
-      ops.push(moveTo === undefined ? { type: "update", path, hunks } : { type: "update", path, moveTo, hunks });
+      ops.push(
+        moveTo === undefined
+          ? { type: "update", path, hunks }
+          : { type: "update", path, moveTo, hunks },
+      );
       continue;
     }
 
@@ -198,9 +201,7 @@ export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
     if (hunk.header !== undefined && hunk.header.length > 0) {
       const idx = findLineFrom(lines, hunk.header, cursor);
       if (idx === -1) {
-        throw new CodexApplyPatchError(
-          `failed to find hunk context header '${hunk.header}'`,
-        );
+        throw new CodexApplyPatchError(`failed to find hunk context header '${hunk.header}'`);
       }
       cursor = idx + 1;
     }
@@ -245,10 +246,7 @@ export function contentFromAddOp(op: PatchAddOp): string {
   return op.content;
 }
 
-function parseHunk(
-  body: string[],
-  start: number,
-): { hunk: PatchHunk; next: number } {
+function parseHunk(body: string[], start: number): { hunk: PatchHunk; next: number } {
   const headerLine = body[start]!;
   let header: string | undefined;
   if (headerLine === "@@") {
@@ -268,9 +266,8 @@ function parseHunk(
     if (raw === END_OF_FILE) {
       i += 1;
       return {
-        hunk: header === undefined
-          ? { lines, endOfFile: true }
-          : { header, lines, endOfFile: true },
+        hunk:
+          header === undefined ? { lines, endOfFile: true } : { header, lines, endOfFile: true },
         next: i,
       };
     }
@@ -305,11 +302,7 @@ function parseHunk(
 }
 
 function isFileOpHeader(line: string): boolean {
-  return (
-    line.startsWith(ADD_FILE) ||
-    line.startsWith(DELETE_FILE) ||
-    line.startsWith(UPDATE_FILE)
-  );
+  return line.startsWith(ADD_FILE) || line.startsWith(DELETE_FILE) || line.startsWith(UPDATE_FILE);
 }
 
 function isHunkStart(line: string): boolean {
@@ -366,9 +359,7 @@ function findSequence(
   if (pattern.length > lines.length) return -1;
 
   const searchStart =
-    endOfFile && lines.length >= pattern.length
-      ? lines.length - pattern.length
-      : from;
+    endOfFile && lines.length >= pattern.length ? lines.length - pattern.length : from;
 
   const tryFrom = (start: number, eq: (a: string, b: string) => boolean): number => {
     for (let i = start; i <= lines.length - pattern.length; i++) {
@@ -385,8 +376,7 @@ function findSequence(
   };
 
   // When eof, try the eof-aligned window first, then fall through from `from`.
-  const starts =
-    endOfFile && searchStart !== from ? [searchStart, from] : [searchStart];
+  const starts = endOfFile && searchStart !== from ? [searchStart, from] : [searchStart];
 
   for (const start of starts) {
     const exact = tryFrom(start, (a, b) => a === b);
