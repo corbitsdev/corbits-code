@@ -387,7 +387,11 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     if (extraTexts.length === 0) return baseTurns;
 
     const parsedExtras = extraTexts.map((text, index) =>
-      parseSegmentTurns(text, index === extraTexts.length - 1),
+      parseSegmentTurns(
+        text,
+        index === extraTexts.length - 1,
+        segmentFileName(TURNS_FILE, index + 1),
+      ),
     );
     const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
 
@@ -466,7 +470,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
         const text = await runGit(dir, ["show", `${hash}:${name}`]);
-        parsedExtras.push(parseSegmentTurns(text, false));
+        parsedExtras.push(parseSegmentTurns(text, false, name));
       }
       const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
       if (keepExtras === 0) return baseTurns;
