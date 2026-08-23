@@ -2,19 +2,19 @@ import type { Tier } from "../permission/classify.js";
 import { isReadOnlyMcpTool, mcpToolName, mcpToolPrefix } from "./tool-name.js";
 
 // Subset of MCP ToolAnnotations used for permission tiering (hints from tools/list).
-export type McpToolAnnotations = {
+export interface McpToolAnnotations {
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
   openWorldHint?: boolean;
   title?: string;
-};
+}
 
-export type McpToolPermissionRegistry = {
+export interface McpToolPermissionRegistry {
   setTier: (agentToolName: string, tier: Tier) => void;
   removeToolsForServer: (serverName: string) => void;
   tierFor: (agentToolName: string) => Tier | undefined;
   clear: () => void;
-};
+}
 
 export function createMcpToolPermissionRegistry(): McpToolPermissionRegistry {
   const tiers = new Map<string, Tier>();
@@ -62,9 +62,12 @@ export function tierFromMcpTool(
 export function registerMcpClientTools(
   registry: McpToolPermissionRegistry,
   serverName: string,
-  tools: ReadonlyArray<{ name: string; annotations?: McpToolAnnotations }>,
+  tools: readonly { name: string; annotations?: McpToolAnnotations }[],
 ): void {
   for (const tool of tools) {
-    registry.setTier(mcpToolName(serverName, tool.name), tierFromMcpTool(tool.annotations, serverName, tool.name));
+    registry.setTier(
+      mcpToolName(serverName, tool.name),
+      tierFromMcpTool(tool.annotations, serverName, tool.name),
+    );
   }
 }

@@ -90,14 +90,14 @@ Do **not** reach for it when:
 Git invokes an editor at several points during a rebase. The two that
 matter for scripting are:
 
-| Editor invocation | Env var | What it edits |
-|---|---|---|
-| Rebase plan ("todo list") | `GIT_SEQUENCE_EDITOR` | The list of `pick`/`reword`/`edit`/`fixup`/`drop`/`squash` lines |
-| Commit message editing | `GIT_EDITOR` | A single commit message file (used for `reword`, `squash` combined messages, and amend-during-edit) |
+| Editor invocation         | Env var               | What it edits                                                                                       |
+| ------------------------- | --------------------- | --------------------------------------------------------------------------------------------------- |
+| Rebase plan ("todo list") | `GIT_SEQUENCE_EDITOR` | The list of `pick`/`reword`/`edit`/`fixup`/`drop`/`squash` lines                                    |
+| Commit message editing    | `GIT_EDITOR`          | A single commit message file (used for `reword`, `squash` combined messages, and amend-during-edit) |
 
 `GIT_EDITOR` also fires for `git rebase --edit-todo` and for conflict-file
 editing when configured. The risk of using `GIT_EDITOR="cp ..."` is exactly
-that it fires for *every* editor invocation in the rebase, not just the
+that it fires for _every_ editor invocation in the rebase, not just the
 one you have in mind. See "Pattern 3" below for safer dispatchers.
 
 `GIT_SEQUENCE_EDITOR` is the killer feature. Almost everything else flows
@@ -201,15 +201,15 @@ git rebase --continue
 
 - During the rebase itself, HEAD is detached. If conflicts arise mid-way,
   you are resolving them on a detached HEAD; that's normal and expected.
-- Do *not* `git checkout` away from a mid-rebase detached HEAD as a way
+- Do _not_ `git checkout` away from a mid-rebase detached HEAD as a way
   to "escape" an unexpected state. Doing so abandons the in-flight
   rebase work — only the reflog can recover what was committed, and
   only within its expiry window. If you want out, `git rebase --abort`
   first.
-- On *successful completion*, passing `<branch-name>` causes git to move
+- On _successful completion_, passing `<branch-name>` causes git to move
   the branch ref forward. Passing `HEAD` does not — you finish on a
   detached HEAD and have to re-attach manually with `git checkout -B
-  my-branch HEAD`.
+my-branch HEAD`.
 
 ### Pattern 2: Script the rebase todo list
 
@@ -229,7 +229,7 @@ The `echo` + `cat` to stderr is cheap insurance: any time you don't see
 the expected change in the printed plan, abort and inspect.
 
 For more complex rewrites, replace the todo wholesale. Note that
-`rebase.missingCommitsCheck=error` (a common safety setting) does *not*
+`rebase.missingCommitsCheck=error` (a common safety setting) does _not_
 reject a wholesale-replace plan that omits commits — it pauses the
 rebase mid-flight with `No commands done` and leaves
 `.git/rebase-merge/` in place. The editor command exits 0 and so does
@@ -278,7 +278,7 @@ the message editor, so the symlink hazard is largely theoretical in the
 common case, but the `printf > "$0"` form costs nothing.
 
 **Scope-of-invocation pitfall.** `GIT_EDITOR="cp ..."` (and a too-broad
-inline editor) fires for *every* editor invocation during the wrapped
+inline editor) fires for _every_ editor invocation during the wrapped
 command, including conflict editors and any other commits' message
 editing. Use it only when you know exactly which one invocation will
 happen. For any rebase where you don't know, use an inline dispatcher
@@ -328,7 +328,7 @@ dispatcher can't tell them apart from `head -1` alone. Either:
 - Use `git rebase -i` with explicit SHAs in the todo and have the
   dispatcher key on the commit currently being reworded by reading
   `git rev-parse HEAD` inside the editor command. During a `reword` action, git
-  cherry-picks the target commit onto the rebase head *before* opening
+  cherry-picks the target commit onto the rebase head _before_ opening
   the editor, so HEAD inside the dispatcher resolves to the target's
   newly-rewritten SHA. The same is true at the editor invocation for
   `edit` (HEAD = the commit you stopped at, before any amend) and at
@@ -364,8 +364,8 @@ mid-history: every commit downstream of the edit gets replayed and may
 conflict.
 
 **Why prefer this over the `fixup! + --autosquash` flow (Pattern 5)?**
-With `edit`, you author the fix against the *target commit's actual
-tree* — what was there at that point in history. With `fixup!`, you
+With `edit`, you author the fix against the _target commit's actual
+tree_ — what was there at that point in history. With `fixup!`, you
 author the change at HEAD's tree (after all intervening commits), and
 `--autosquash` later tries to apply that diff against the much-earlier
 target tree. When the fix touches anything that intervening commits
@@ -382,7 +382,7 @@ Two smaller wins follow from the same property: at the `edit` stop,
 the working tree is exactly the target commit's state. First, no
 accidentally-bundled drive-by changes from HEAD can sneak into your
 amend. Second, you can install dependencies, lint, build, and run
-tests against the *historical* state — verifying the commit actually
+tests against the _historical_ state — verifying the commit actually
 works in the world it lived in. With `fixup!`, your validation only
 ever sees HEAD's tree; the squashed commit is never tested against
 the rewound state where it lands. (Pattern 7's `--exec` mechanizes
@@ -417,7 +417,7 @@ A commit-msg hook that enforces a subject-length limit will reject `fixup!
 <long subject>` even though the squashed result inherits the target's
 compliant message. `--no-verify` on the transient fixup is acceptable
 because the message is discarded at squash time. Note that
-`--no-verify` is a single switch — it disables *both* the commit-msg
+`--no-verify` is a single switch — it disables _both_ the commit-msg
 and pre-commit hook chains; you can't disable one without the other.
 
 **`--no-verify` is NOT acceptable for pre-commit hooks** that run linters,
@@ -438,7 +438,7 @@ pre-commit hook that re-formats files, regenerates code, or stages
 additional files during the hook itself can desync a rebase — git
 replays a commit, the hook rewrites the tree, and the resulting commit
 no longer matches what the rebase plan recorded. When you must rebase
-under such a hook, temporarily disable the *mutating step specifically*
+under such a hook, temporarily disable the _mutating step specifically_
 (uninstall pre-commit, comment out the relevant hook, set the hook's
 documented no-op env var) rather than reaching for blanket
 `--no-verify`, which discards every other pre-commit safety check on
@@ -475,9 +475,9 @@ git commit -m "Subject for group B"
 git rebase --continue
 ```
 
-If the pieces should fold into different *other* commits, name them with
+If the pieces should fold into different _other_ commits, name them with
 the `fixup!` prefix and let a follow-up autosquash route them. The
-`--no-verify` below disables *both* pre-commit and commit-msg hook
+`--no-verify` below disables _both_ pre-commit and commit-msg hook
 chains (the flag can't disable one without the other). It's acceptable
 on these transient fixups because (a) the commit-msg hook would reject
 the `fixup! <long subject>` line that the squash discards anyway, and
@@ -528,7 +528,7 @@ git rebase --update-refs -i origin/main
 ```
 
 Without `--update-refs`, the stacked branches end up pointing at the
-*old*, now-orphaned commits, and you have to reset each one manually
+_old_, now-orphaned commits, and you have to reset each one manually
 against the reflog. Enable globally with `git config rebase.updateRefs
 true` if you work with stacked branches routinely.
 
@@ -558,6 +558,7 @@ decision into the intern brief.
    splits, in-place amends — `ask_operator` when which-commits is a judgment call.
 
 2. **Branch your way back.** Intern:
+
    ```bash
    git branch backup-<branch-name>-pre-rebase
    ```
@@ -592,12 +593,12 @@ decision into the intern brief.
      done
      git checkout -q "$branch"
      ```
-     Note: capture the symbolic branch name *before* the loop (the loop's
+     Note: capture the symbolic branch name _before_ the loop (the loop's
      checkouts leave you on detached HEAD if you don't).
    - Per-commit tests (the same loop with `<test-command>`).
    - Final tree: the project's full build and test command.
    - Even better, fold validation into the rebase itself with `git rebase
-     --exec` (Pattern 7) so the rebase stops at the first broken commit.
+--exec` (Pattern 7) so the rebase stops at the first broken commit.
 
 6. **Delete the backup** once the branch is pushed and the final state is confirmed. Intern:
    ```bash
@@ -627,15 +628,15 @@ becomes:
 
 When you `edit` a commit and modify a hunk that a later commit also
 touches, that later commit may conflict on the same hunk. Note that during
-a rebase, `--ours` and `--theirs` are *inverted* from the normal merge
+a rebase, `--ours` and `--theirs` are _inverted_ from the normal merge
 sense:
 
 - `--ours` = the rebase target (HEAD at the conflict point, which is your
   edited result so far)
 - `--theirs` = the commit being replayed (your in-flight commit's version)
 
-So in both common cases — your edit *includes* the later commit's intent,
-or your edit *supersedes* it — the version you want to keep is in `--ours`
+So in both common cases — your edit _includes_ the later commit's intent,
+or your edit _supersedes_ it — the version you want to keep is in `--ours`
 (HEAD). The conflicting commit is either now a no-op (and git drops it
 automatically when its tree change becomes empty) or partially still
 needed (in which case `git rebase --skip` after deciding deliberately, or
@@ -645,7 +646,7 @@ Resolution decision tree:
 
 - If your edit makes the later commit redundant (its intent is already in
   HEAD): `git checkout --ours <file>` then `git add`. On `git rebase
-  --continue`, git's handling of the now-empty commit is configurable
+--continue`, git's handling of the now-empty commit is configurable
   via `--empty=` (the documented default for the interactive merge
   backend is `stop`, not `drop`). If git stops on the empty commit:
   - Confirm the diff is genuinely empty: `git diff --cached` should be
@@ -653,8 +654,8 @@ Resolution decision tree:
   - `git rebase --skip` to drop with intent, or
   - `git commit --allow-empty` then `git rebase --continue` to preserve
     an empty marker commit if that's what you actually want.
-  Older versions and some configs auto-drop without stopping — be ready
-  for either path.
+    Older versions and some configs auto-drop without stopping — be ready
+    for either path.
 - If the later commit's version is what you actually want (your edit
   was wrong, or your edit accidentally over-included downstream
   content): `git checkout --theirs <file>`. Whether this is "rare"
@@ -674,7 +675,7 @@ manually — don't reach for `--ours`/`--theirs` as a shortcut.
 - **Don't use `--no-verify` to bypass pre-commit hooks** (lint, format,
   tests). The squashed commit inherits the same working tree, so the hook
   failure will resurface. The commit-msg-hook carve-out for `fixup!
-  <long subject>` commits is the only acceptable use; document any other
+<long subject>` commits is the only acceptable use; document any other
   use explicitly.
 - **Don't `git rebase --skip` to dodge a conflict you don't understand.**
   Skip discards the currently-applying commit's intent entirely; any

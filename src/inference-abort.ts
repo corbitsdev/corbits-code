@@ -3,11 +3,11 @@ export const INFERENCE_ABORT_USER_STOP = "user-stop" as const;
 export const INFERENCE_ABORT_INTERNAL_RECOVERY = "internal-recovery" as const;
 
 export type InferenceAbortReason =
-  | typeof INFERENCE_ABORT_USER_STOP
-  | typeof INFERENCE_ABORT_INTERNAL_RECOVERY
-  | string;
+  typeof INFERENCE_ABORT_USER_STOP | typeof INFERENCE_ABORT_INTERNAL_RECOVERY | string;
 
-export type ClassifiedAbortRaw = { origin: InferenceAbortReason };
+export interface ClassifiedAbortRaw {
+  origin: InferenceAbortReason;
+}
 
 export function isInternalRecoveryAbortRaw(raw: unknown): boolean {
   return (
@@ -18,7 +18,10 @@ export function isInternalRecoveryAbortRaw(raw: unknown): boolean {
   );
 }
 
-import { isGatewayOverloadInferenceError, type InferenceErrorLike as GatewayInferenceErrorLike } from "./inference-gateway-error.js";
+import {
+  isGatewayOverloadInferenceError,
+  type InferenceErrorLike as GatewayInferenceErrorLike,
+} from "./inference-gateway-error.js";
 
 export type InferenceErrorLike = GatewayInferenceErrorLike;
 

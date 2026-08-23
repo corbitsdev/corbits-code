@@ -4,10 +4,10 @@ import { runWebFetch, MAX_FETCH_BYTES } from "./web-fetch.js";
 
 let server: Server;
 let baseUrl: string;
-let handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void = (
-  _req,
-  res,
-) => {
+let handler: (
+  req: import("node:http").IncomingMessage,
+  res: import("node:http").ServerResponse,
+) => void = (_req, res) => {
   res.writeHead(200, { "content-type": "text/html" });
   res.end("<html><body><h1>Hello</h1><p>World</p></body></html>");
 };
@@ -16,7 +16,8 @@ beforeEach(async () => {
   server = createServer((req, res) => handler(req, res));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("failed to bind fixture server");
+  if (address === null || typeof address === "string")
+    throw new Error("failed to bind fixture server");
   baseUrl = `http://127.0.0.1:${address.port}`;
   process.env.EVAL_HTTP_URL = `${baseUrl}/`;
 });

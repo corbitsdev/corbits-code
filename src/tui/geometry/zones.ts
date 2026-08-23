@@ -19,7 +19,7 @@ export const ZONE_IDS = [
 
 export type ZoneId = (typeof ZONE_IDS)[number];
 
-export type ZoneDeclaration = {
+export interface ZoneDeclaration {
   readonly id: ZoneId;
   /** Hard minimum rows when the zone is present. */
   readonly min: number;
@@ -32,7 +32,7 @@ export type ZoneDeclaration = {
   readonly idleDefault: number;
   /** Fixed chrome that is always considered unless collapse forces shrink. */
   readonly alwaysOn: boolean;
-};
+}
 
 /**
  * Bound on rendered agent rows in the live agents panel. A large fan-out
@@ -74,7 +74,7 @@ export const TASKS_PANEL_MAX_VISIBLE = 5;
  * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
  * actual heights are assigned by the geometry resolver.
  */
-export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
+export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   progress: { id: "progress", min: 0, max: 2, idleDefault: 0, alwaysOn: false },
   progress_divider: {
     id: "progress_divider",

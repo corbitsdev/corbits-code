@@ -18,14 +18,10 @@
  *   than rewritten at every call site.
  */
 
-import {
-  TextareaRenderable,
-  type CliRenderer,
-  type TextareaOptions,
-} from "@opentui/core"
+import { TextareaRenderable, type CliRenderer, type TextareaOptions } from "@opentui/core";
 
 /** A textarea that answers to the single-line input's `value` contract. */
-export type PromptInput = TextareaRenderable & { value: string }
+export type PromptInput = TextareaRenderable & { value: string };
 
 /**
  * Enter sends the message, so a literal newline needs a chord of its own.
@@ -45,37 +41,31 @@ export const PROMPT_KEY_BINDINGS = [
   { name: "linefeed", action: "newline" },
   { name: "return", action: "submit" },
   { name: "kpenter", action: "submit" },
-] as const satisfies TextareaOptions["keyBindings"]
+] as const satisfies TextareaOptions["keyBindings"];
 
-export type PromptInputOptions = Omit<
-  TextareaOptions,
-  "keyBindings" | "wrapMode" | "initialValue"
->
+export type PromptInputOptions = Omit<TextareaOptions, "keyBindings" | "wrapMode" | "initialValue">;
 
-export function createPromptInput(
-  ctx: CliRenderer,
-  options: PromptInputOptions,
-): PromptInput {
+export function createPromptInput(ctx: CliRenderer, options: PromptInputOptions): PromptInput {
   const area = new TextareaRenderable(ctx, {
     ...options,
     // Soft-wrap on words: a long line uses the rows the box already has rather
     // than scrolling sideways out of view.
     wrapMode: "word",
     keyBindings: [...PROMPT_KEY_BINDINGS],
-  })
+  });
 
   Object.defineProperty(area, "value", {
     get: (): string => area.plainText,
     set: (next: string): void => {
-      if (area.plainText === next) return
-      area.setText(next)
-      area.cursorOffset = next.length
+      if (area.plainText === next) return;
+      area.setText(next);
+      area.cursorOffset = next.length;
     },
     enumerable: true,
     configurable: true,
-  })
+  });
 
-  return area as PromptInput
+  return area as PromptInput;
 }
 
 /**
@@ -87,7 +77,7 @@ export function createPromptInput(
  * which is what decides whether Up/Down moves the caret or recalls history.
  */
 export function promptCaretRow(prompt: PromptInput): number {
-  return prompt.visualCursor.visualRow + prompt.scrollY
+  return prompt.visualCursor.visualRow + prompt.scrollY;
 }
 
 /**
@@ -100,15 +90,15 @@ export function promptCaretRow(prompt: PromptInput): number {
  * against, so sizing and caret placement cannot drift apart.
  */
 export function promptRowCount(prompt: PromptInput): number {
-  return Math.max(1, prompt.lineInfo.lineStartCols.length)
+  return Math.max(1, prompt.lineInfo.lineStartCols.length);
 }
 
 /** Up recalls history only from here; anywhere else it moves the caret up. */
 export function promptCaretAtFirstRow(prompt: PromptInput): boolean {
-  return promptCaretRow(prompt) <= 0
+  return promptCaretRow(prompt) <= 0;
 }
 
 /** Down recalls history only from here; anywhere else it moves the caret down. */
 export function promptCaretAtLastRow(prompt: PromptInput): boolean {
-  return promptCaretRow(prompt) >= promptRowCount(prompt) - 1
+  return promptCaretRow(prompt) >= promptRowCount(prompt) - 1;
 }

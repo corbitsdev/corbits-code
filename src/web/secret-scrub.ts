@@ -7,9 +7,9 @@
 // Patterns that indicate a secret value in text.
 const SECRET_PATTERNS: RegExp[] = [
   // URL query params for common API keys.
-  /api_?key=[a-zA-Z0-9_\-]+/gi,
-  /token=[a-zA-Z0-9_\-]+/gi,
-  /secret=[a-zA-Z0-9_\-]+/gi,
+  /api_?key=[a-zA-Z0-9_-]+/gi,
+  /token=[a-zA-Z0-9_-]+/gi,
+  /secret=[a-zA-Z0-9_-]+/gi,
   // Authorization header Bearer tokens.
   /Authorization:\s*Bearer\s+[a-zA-Z0-9_\-.]+/gi,
   // Basic auth credentials.

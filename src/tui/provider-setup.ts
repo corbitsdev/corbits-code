@@ -18,39 +18,39 @@ import {
   TextRenderable,
   type CliRenderer,
   type KeyEvent,
-} from "@opentui/core"
+} from "@opentui/core";
 
 import {
   FIRST_CLASS_PROVIDERS,
   firstClassPathAsProvider,
   type FirstClassOAuthProvider,
   type FirstClassProviderDef,
-} from "../../packages/first-class-providers/src/index.js"
-import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js"
-import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js"
-import { PRODUCT_NAME } from "../branding.js"
-import { codexProviderName } from "../config/codex-providers.js"
-import { xaiProviderName } from "../config/xai-providers.js"
-import { TELEMETRY_NOTICE } from "../telemetry/index.js"
-import { wrapLines } from "./view/height.js"
-import { resolveSideMargin } from "./geometry/margins.js"
+} from "../../packages/first-class-providers/src/index.js";
+import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
+import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
+import { PRODUCT_NAME } from "../branding.js";
+import { codexProviderName } from "../config/codex-providers.js";
+import { xaiProviderName } from "../config/xai-providers.js";
+import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import { wrapLines } from "./view/height.js";
+import { resolveSideMargin } from "./geometry/margins.js";
 import {
   createListViewport,
   moveActive,
   visibleSlice,
   type ListViewportState,
-} from "./list-viewport.js"
-import { buildModelsFirstCatalog } from "./model-catalog.js"
-import { rampFor, rampLine } from "./ramp.js"
+} from "./list-viewport.js";
+import { buildModelsFirstCatalog } from "./model-catalog.js";
+import { rampFor, rampLine } from "./ramp.js";
 import {
   residualIdFromSelection,
   residualListFromCatalog,
   type ResidualCatalogEntry,
-} from "./residuals.js"
-import { destroySubtree } from "./teardown.js"
-import { UI } from "./theme.js"
+} from "./residuals.js";
+import { destroySubtree } from "./teardown.js";
+import { UI } from "./theme.js";
 
-export type ProviderField = "name" | "baseURL" | "apiKey" | "model"
+export type ProviderField = "name" | "baseURL" | "apiKey" | "model";
 
 /** Placeholder shown in the text input for each free-text step. */
 const PROVIDER_FIELD_HINTS: Record<ProviderField, string> = {
@@ -58,16 +58,16 @@ const PROVIDER_FIELD_HINTS: Record<ProviderField, string> = {
   baseURL: "https://api.openai.com/v1",
   apiKey: "sk-… (blank for keyless/local)",
   model: "gpt-4o",
-}
+};
 
 /** Placeholder for the OAuth account-name step, which edits `oauthProfile`. */
-const OAUTH_PROFILE_HINT = "default, personal, work, …"
+const OAUTH_PROFILE_HINT = "default, personal, work, …";
 
-export type ProviderFormValues = {
-  name: string
-  baseURL: string
-  apiKey: string
-  model: string
+export interface ProviderFormValues {
+  name: string;
+  baseURL: string;
+  apiKey: string;
+  model: string;
   /**
    * Pre-login / pre-key account slug for multi-instance paths (e.g. "personal").
    * Kept apart from `name`, which is only written once the account is settled
@@ -77,32 +77,21 @@ export type ProviderFormValues = {
    * by OAuth and first-class API-key multi-instance connects; Custom still
    * edits `name` free-form.
    */
-  oauthProfile: string
+  oauthProfile: string;
 }
 
 /** One screen of the flow. `provider` and `model` can be pick-lists. */
-export type SetupStep =
-  | "provider"
-  | "name"
-  | "baseURL"
-  | "apiKey"
-  | "model"
-  | "login"
+export type SetupStep = "provider" | "name" | "baseURL" | "apiKey" | "model" | "login";
 
 /** Known-provider path: pick, name the instance, paste key, pick model. */
-export const PRESET_STEPS: readonly SetupStep[] = ["provider", "name", "apiKey", "model"]
+export const PRESET_STEPS: readonly SetupStep[] = ["provider", "name", "apiKey", "model"];
 
 /**
  * Subscription path: pick, name the account (a suggested slug is prefilled;
  * reusing an existing name asks for confirmation before re-authorizing it),
  * sign in through the browser, pick a model.
  */
-export const OAUTH_STEPS: readonly SetupStep[] = [
-  "provider",
-  "name",
-  "login",
-  "model",
-]
+export const OAUTH_STEPS: readonly SetupStep[] = ["provider", "name", "login", "model"];
 
 /** Unknown endpoint: the full manual form, still preceded by the pick-list. */
 export const CUSTOM_STEPS: readonly SetupStep[] = [
@@ -111,7 +100,7 @@ export const CUSTOM_STEPS: readonly SetupStep[] = [
   "baseURL",
   "apiKey",
   "model",
-]
+];
 
 const STEP_LABELS: Record<SetupStep, string> = {
   provider: "provider",
@@ -120,7 +109,7 @@ const STEP_LABELS: Record<SetupStep, string> = {
   apiKey: "api key",
   model: "model",
   login: "sign in",
-}
+};
 
 const STEP_PROMPTS: Record<SetupStep, string> = {
   provider: "pick the provider you have a key or subscription for",
@@ -129,52 +118,52 @@ const STEP_PROMPTS: Record<SetupStep, string> = {
   apiKey: "paste the api key — leave blank for a keyless local endpoint",
   model: "pick the model to start with",
   login: "authorize in the browser — this window waits for you",
-}
+};
 
 /** Instruction for the multi-instance "name" step (OAuth and API-key). */
 function accountNamePrompt(choice: ProviderChoice): string {
   if (choice.oauth != null) {
-    return `name this account — stored as ${choice.oauth}/<name>, and used again if you reconnect it`
+    return `name this account — stored as ${choice.oauth}/<name>, and used again if you reconnect it`;
   }
-  return `name this instance — stored as ${choice.id}/<name>, and used again if you reconnect it`
+  return `name this instance — stored as ${choice.id}/<name>, and used again if you reconnect it`;
 }
 
 // "testing" covers the connection-check call against the entered credentials;
 // "saving" covers the settings write that follows once the test succeeds.
-export type SubmitPhase = "testing" | "saving"
+export type SubmitPhase = "testing" | "saving";
 
 const SUBMIT_PHASE_LABEL: Record<SubmitPhase, string> = {
   testing: "testing connection",
   saving: "writing settings",
-}
+};
 
 /** Catalog id for the manual path. Never written to settings as a name. */
-export const CUSTOM_CHOICE_ID = "custom"
+export const CUSTOM_CHOICE_ID = "custom";
 
 /** Pick-list row that drops the model step back to free text. */
-export const TYPE_MODEL_ID = "__type_model__"
+export const TYPE_MODEL_ID = "__type_model__";
 
 /**
  * A selectable provider. Preset rows carry everything the settings write needs
  * except the key; the custom row carries nothing and opens the manual form.
  */
-export type ProviderChoice = {
-  readonly id: string
-  readonly label: string
-  readonly baseURL: string
-  readonly models: readonly string[]
-  readonly defaultModel: string
-  readonly hint: string
+export interface ProviderChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly baseURL: string;
+  readonly models: readonly string[];
+  readonly defaultModel: string;
+  readonly hint: string;
   /** Anthropic Messages protocol rather than OpenAI-compatible chat. */
-  readonly anthropic: boolean
+  readonly anthropic: boolean;
   /** OpenCode Go subscription routing. */
-  readonly opencodeGo: boolean
-  readonly custom: boolean
+  readonly opencodeGo: boolean;
+  readonly custom: boolean;
   /** Browser sign-in flow to run instead of asking for a key. */
-  readonly oauth: OAuthKind | null
+  readonly oauth: OAuthKind | null;
 }
 
-export type OAuthKind = FirstClassOAuthProvider
+export type OAuthKind = FirstClassOAuthProvider;
 
 /**
  * What a signed-in subscription provider resolves to. The endpoint and model
@@ -184,10 +173,10 @@ export type OAuthKind = FirstClassOAuthProvider
 const OAUTH_SURFACES: Record<
   OAuthKind,
   {
-    readonly baseURL: string
-    readonly models: readonly string[]
-    readonly hint: string
-    readonly providerName: (profile: string) => string
+    readonly baseURL: string;
+    readonly models: readonly string[];
+    readonly hint: string;
+    readonly providerName: (profile: string) => string;
   }
 > = {
   codex: {
@@ -202,22 +191,21 @@ const OAUTH_SURFACES: Record<
     hint: "SuperGrok or X Premium+ subscription",
     providerName: xaiProviderName,
   },
-}
+};
 
 /** Settings/catalog provider name a profile of `kind` is stored under. */
 export function oauthProviderName(kind: OAuthKind, profile: string): string {
-  return OAUTH_SURFACES[kind].providerName(profile)
+  return OAUTH_SURFACES[kind].providerName(profile);
 }
 
 /** Longest slug the name step accepts, after normalization. */
-const OAUTH_PROFILE_MAX_LENGTH = 64
+const OAUTH_PROFILE_MAX_LENGTH = 64;
 
-const OAUTH_PROFILE_CHARS = /^[a-z0-9._-]+$/
-const OAUTH_PROFILE_EDGE_SEPARATOR = /^[._-]|[._-]$/
+const OAUTH_PROFILE_CHARS = /^[a-z0-9._-]+$/;
+const OAUTH_PROFILE_EDGE_SEPARATOR = /^[._-]|[._-]$/;
 
 export type OAuthProfileValidation =
-  | { readonly ok: true; readonly slug: string }
-  | { readonly ok: false; readonly error: string }
+  { readonly ok: true; readonly slug: string } | { readonly ok: false; readonly error: string };
 
 /**
  * Validate and lowercase-normalize an operator-entered account slug. This is
@@ -226,18 +214,21 @@ export type OAuthProfileValidation =
  * "/" here would silently join into the compound catalog name they build.
  */
 export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
-  const slug = raw.trim().toLowerCase()
-  if (slug.length === 0) return { ok: false, error: "name cannot be empty" }
+  const slug = raw.trim().toLowerCase();
+  if (slug.length === 0) return { ok: false, error: "name cannot be empty" };
   if (slug.length > OAUTH_PROFILE_MAX_LENGTH) {
-    return { ok: false, error: `name must be ${String(OAUTH_PROFILE_MAX_LENGTH)} characters or fewer` }
+    return {
+      ok: false,
+      error: `name must be ${String(OAUTH_PROFILE_MAX_LENGTH)} characters or fewer`,
+    };
   }
   if (!OAUTH_PROFILE_CHARS.test(slug)) {
-    return { ok: false, error: "use only lowercase letters, numbers, and . _ -" }
+    return { ok: false, error: "use only lowercase letters, numbers, and . _ -" };
   }
   if (OAUTH_PROFILE_EDGE_SEPARATOR.test(slug)) {
-    return { ok: false, error: "name cannot start or end with . _ or -" }
+    return { ok: false, error: "name cannot start or end with . _ or -" };
   }
-  return { ok: true, slug }
+  return { ok: true, slug };
 }
 
 /**
@@ -246,15 +237,15 @@ export function validateOAuthProfileSlug(raw: string): OAuthProfileValidation {
  * "default" first, then "default-2", "default-3", … on collision.
  */
 export function suggestOAuthProfileSlug(existing: readonly string[]): string {
-  const taken = new Set(existing)
-  if (!taken.has("default")) return "default"
-  let n = 2
-  while (taken.has(`default-${String(n)}`)) n += 1
-  return `default-${String(n)}`
+  const taken = new Set(existing);
+  if (!taken.has("default")) return "default";
+  let n = 2;
+  while (taken.has(`default-${String(n)}`)) n += 1;
+  return `default-${String(n)}`;
 }
 
 /** Fetches the names of already-authorized profiles for a provider kind. */
-export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>
+export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>;
 
 /**
  * Real lister, imported lazily per kind so mounting the surface never touches
@@ -262,21 +253,17 @@ export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>
  */
 const defaultProfileLister: OAuthProfileLister = async (kind) => {
   if (kind === "codex") {
-    const { listCodexProfiles } = await import("../auth/codex/store.js")
-    return (await listCodexProfiles()).map((p) => p.name)
+    const { listCodexProfiles } = await import("../auth/codex/store.js");
+    return (await listCodexProfiles()).map((p) => p.name);
   }
-  const { listXaiProfiles } = await import("../auth/xai/store.js")
-  return (await listXaiProfiles()).map((p) => p.name)
-}
+  const { listXaiProfiles } = await import("../auth/xai/store.js");
+  return (await listXaiProfiles()).map((p) => p.name);
+};
 
-function oauthChoice(
-  id: string,
-  label: string,
-  kind: OAuthKind,
-): ProviderChoice | null {
-  const surface = OAUTH_SURFACES[kind]
-  const defaultModel = surface.models[0]
-  if (defaultModel === undefined) return null
+function oauthChoice(id: string, label: string, kind: OAuthKind): ProviderChoice | null {
+  const surface = OAUTH_SURFACES[kind];
+  const defaultModel = surface.models[0];
+  if (defaultModel === undefined) return null;
   return {
     id,
     label,
@@ -288,7 +275,7 @@ function oauthChoice(
     opencodeGo: false,
     custom: false,
     oauth: kind,
-  }
+  };
 }
 
 const CUSTOM_CHOICE: ProviderChoice = {
@@ -302,13 +289,13 @@ const CUSTOM_CHOICE: ProviderChoice = {
   opencodeGo: false,
   custom: true,
   oauth: null,
-}
+};
 
 function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
-  if (def.auth !== "api-key") return null
-  if (def.baseURL === undefined || def.models === undefined) return null
-  const defaultModel = def.defaultModel ?? def.models[0]
-  if (defaultModel === undefined) return null
+  if (def.auth !== "api-key") return null;
+  if (def.baseURL === undefined || def.models === undefined) return null;
+  const defaultModel = def.defaultModel ?? def.models[0];
+  if (defaultModel === undefined) return null;
   return {
     id: def.id,
     label: def.label,
@@ -320,7 +307,7 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
     opencodeGo: def.opencodeGo === true,
     custom: false,
     oauth: null,
-  }
+  };
 }
 
 /**
@@ -330,7 +317,7 @@ function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
  * first run must be able to start there.
  */
 export function providerChoices(): readonly ProviderChoice[] {
-  const out: ProviderChoice[] = []
+  const out: ProviderChoice[] = [];
   for (const def of FIRST_CLASS_PROVIDERS) {
     if (def.auth === "chooser") {
       for (const path of def.paths ?? []) {
@@ -341,32 +328,32 @@ export function providerChoices(): readonly ProviderChoice[] {
             path.providerId ?? def.id,
             `${def.label} ${path.label}`,
             path.oauth,
-          )
-          if (choice !== null) out.push(choice)
-          continue
+          );
+          if (choice !== null) out.push(choice);
+          continue;
         }
-        if (path.auth !== "api-key") continue
-        const seeded = firstClassPathAsProvider(def, path.id)
-        if (seeded === undefined) continue
-        const choice = choiceFromDef(seeded)
-        if (choice !== null) out.push(choice)
+        if (path.auth !== "api-key") continue;
+        const seeded = firstClassPathAsProvider(def, path.id);
+        if (seeded === undefined) continue;
+        const choice = choiceFromDef(seeded);
+        if (choice !== null) out.push(choice);
       }
-      continue
+      continue;
     }
     if (def.auth === "oauth" && def.oauth !== undefined) {
-      const choice = oauthChoice(def.id, def.label, def.oauth)
-      if (choice !== null) out.push(choice)
-      continue
+      const choice = oauthChoice(def.id, def.label, def.oauth);
+      if (choice !== null) out.push(choice);
+      continue;
     }
-    const choice = choiceFromDef(def)
-    if (choice !== null) out.push(choice)
+    const choice = choiceFromDef(def);
+    if (choice !== null) out.push(choice);
   }
-  out.push(CUSTOM_CHOICE)
-  return out
+  out.push(CUSTOM_CHOICE);
+  return out;
 }
 
 export function providerChoiceById(id: string): ProviderChoice | undefined {
-  return providerChoices().find((c) => c.id === id)
+  return providerChoices().find((c) => c.id === id);
 }
 
 /**
@@ -379,11 +366,9 @@ export function connectedAccountCount(
   choice: ProviderChoice,
   providers: readonly { readonly name: string }[],
 ): number {
-  if (choice.custom) return 0
-  const prefix = `${choice.id}/`
-  return providers.filter(
-    (p) => p.name === choice.id || p.name.startsWith(prefix),
-  ).length
+  if (choice.custom) return 0;
+  const prefix = `${choice.id}/`;
+  return providers.filter((p) => p.name === choice.id || p.name.startsWith(prefix)).length;
 }
 
 /**
@@ -395,16 +380,16 @@ export function instanceSlugsForKind(
   kind: string,
   existingNames: readonly string[],
 ): readonly string[] {
-  const prefix = `${kind}/`
-  const slugs: string[] = []
+  const prefix = `${kind}/`;
+  const slugs: string[] = [];
   for (const name of existingNames) {
-    if (name === kind) slugs.push("default")
+    if (name === kind) slugs.push("default");
     else if (name.startsWith(prefix)) {
-      const slug = name.slice(prefix.length)
-      if (slug.length > 0) slugs.push(slug)
+      const slug = name.slice(prefix.length);
+      if (slug.length > 0) slugs.push(slug);
     }
   }
-  return slugs
+  return slugs;
 }
 
 /**
@@ -417,10 +402,10 @@ export function resolveApiKeyInstanceName(
   slug: string,
   existingNames: readonly string[],
 ): string {
-  const compound = `${kind}/${slug}`
-  if (existingNames.includes(compound)) return compound
-  if (slug === "default" && existingNames.includes(kind)) return kind
-  return compound
+  const compound = `${kind}/${slug}`;
+  if (existingNames.includes(compound)) return compound;
+  if (slug === "default" && existingNames.includes(kind)) return kind;
+  return compound;
 }
 
 /**
@@ -433,17 +418,17 @@ export function addProviderSelectorChoices(
   choices: readonly ProviderChoice[],
   providers: readonly { readonly name: string }[],
 ): readonly {
-  readonly id: string
-  readonly label: string
-  readonly hint: string
-  readonly accountCount: number
+  readonly id: string;
+  readonly label: string;
+  readonly hint: string;
+  readonly accountCount: number;
 }[] {
   return choices.map((choice) => ({
     id: choice.id,
     label: choice.label,
     hint: choice.hint,
     accountCount: connectedAccountCount(choice, providers),
-  }))
+  }));
 }
 
 /** Pick-list rows for the provider step. */
@@ -453,7 +438,7 @@ export function providerChoiceRows(
   return choices.map((c) => ({
     id: c.id,
     label: c.hint.length > 0 ? `${c.label} — ${c.hint}` : c.label,
-  }))
+  }));
 }
 
 /**
@@ -462,9 +447,7 @@ export function providerChoiceRows(
  * billing warnings). A trailing row escapes to free text for a model id the
  * seeded list does not carry yet.
  */
-export function modelChoiceRows(
-  choice: ProviderChoice,
-): readonly ResidualCatalogEntry[] {
+export function modelChoiceRows(choice: ProviderChoice): readonly ResidualCatalogEntry[] {
   const catalog = buildModelsFirstCatalog({
     providers: [
       {
@@ -475,37 +458,37 @@ export function modelChoiceRows(
         opencodeGo: choice.opencodeGo,
       },
     ],
-  })
+  });
   return [
     ...catalog.map((option) => ({
       id: option.id,
       label: option.label,
     })),
     { id: TYPE_MODEL_ID, label: "type a model id instead" },
-  ]
+  ];
 }
 
 /** `provider:model` → `model`, for a row id produced by the model catalog. */
 export function modelFromRowId(providerId: string, rowId: string): string {
-  const prefix = `${providerId}:`
-  return rowId.startsWith(prefix) ? rowId.slice(prefix.length) : rowId
+  const prefix = `${providerId}:`;
+  return rowId.startsWith(prefix) ? rowId.slice(prefix.length) : rowId;
 }
 
 export function stepsFor(choice: ProviderChoice | null): readonly SetupStep[] {
-  if (choice === null) return PRESET_STEPS
-  if (choice.custom) return CUSTOM_STEPS
-  return choice.oauth !== null ? OAUTH_STEPS : PRESET_STEPS
+  if (choice === null) return PRESET_STEPS;
+  if (choice.custom) return CUSTOM_STEPS;
+  return choice.oauth !== null ? OAUTH_STEPS : PRESET_STEPS;
 }
 
-const MASK_CHAR = "●"
-const MASK_CAP = 16
+const MASK_CHAR = "●";
+const MASK_CAP = 16;
 
 /**
  * Bullet-render a secret for the read-only summary rows, capped so a long key
  * does not blow out the row width.
  */
 export function maskSecret(value: string): string {
-  return MASK_CHAR.repeat(Math.min([...value].length, MASK_CAP))
+  return MASK_CHAR.repeat(Math.min([...value].length, MASK_CAP));
 }
 
 /**
@@ -515,12 +498,12 @@ export function maskSecret(value: string): string {
  * back, so a capped echo would silently discard everything past the cap.
  */
 export function maskEcho(value: string): string {
-  return MASK_CHAR.repeat([...value].length)
+  return MASK_CHAR.repeat([...value].length);
 }
 
 /** apiKey is optional — blank means a keyless local provider (e.g. Ollama). */
 export function stepReady(step: SetupStep, value: string): boolean {
-  return step === "apiKey" || value.trim().length > 0
+  return step === "apiKey" || value.trim().length > 0;
 }
 
 /**
@@ -532,17 +515,17 @@ export function stepReady(step: SetupStep, value: string): boolean {
  * truncation, which is why the field is re-typed rather than patched.
  */
 export function secretFromMaskedEdit(secret: string, displayed: string): string {
-  const chars = [...displayed]
-  const typed = chars.filter((c) => c !== MASK_CHAR)
-  const keptLength = chars.length - typed.length
-  return [...secret].slice(0, keptLength).join("") + typed.join("")
+  const chars = [...displayed];
+  const typed = chars.filter((c) => c !== MASK_CHAR);
+  const keptLength = chars.length - typed.length;
+  return [...secret].slice(0, keptLength).join("") + typed.join("");
 }
 
 // The "name" step names a whole provider on the custom path but a single
 // account/instance on multi-instance first-class kinds (OAuth and API-key).
 function stepLabel(step: SetupStep, choice: ProviderChoice | null): string {
-  if (step === "name" && choice !== null && !choice.custom) return "account name"
-  return STEP_LABELS[step]
+  if (step === "name" && choice !== null && !choice.custom) return "account name";
+  return STEP_LABELS[step];
 }
 
 /** `step 2 of 4 · api key` — always says where the operator is and what is left. */
@@ -551,15 +534,15 @@ export function stepHeadline(
   index: number,
   choice: ProviderChoice | null = null,
 ): string {
-  const step = steps[Math.min(Math.max(index, 0), steps.length - 1)]
-  if (step === undefined) return ""
-  return `step ${index + 1} of ${steps.length} · ${stepLabel(step, choice)}`
+  const step = steps[Math.min(Math.max(index, 0), steps.length - 1)];
+  if (step === undefined) return "";
+  return `step ${index + 1} of ${steps.length} · ${stepLabel(step, choice)}`;
 }
 
-export type SummaryRow = {
-  readonly label: string
-  readonly value: string
-  readonly state: "done" | "current" | "pending"
+export interface SummaryRow {
+  readonly label: string;
+  readonly value: string;
+  readonly state: "done" | "current" | "pending";
 }
 
 /** One row per step: settled rows show the value, later rows a dash. */
@@ -570,13 +553,13 @@ export function summaryRows(
   choice: ProviderChoice | null,
 ): readonly SummaryRow[] {
   return steps.map((step, i) => {
-    const state = i < index ? "done" : i === index ? "current" : "pending"
+    const state = i < index ? "done" : i === index ? "current" : "pending";
     return {
       label: stepLabel(step, choice),
       value: state === "done" ? settledValue(step, values, choice) : "—",
       state,
-    }
-  })
+    };
+  });
 }
 
 function settledValue(
@@ -584,195 +567,186 @@ function settledValue(
   values: ProviderFormValues,
   choice: ProviderChoice | null,
 ): string {
-  if (step === "provider") return choice?.label ?? values.name
-  if (step === "login") return values.name.length > 0 ? values.name : "signed in"
+  if (step === "provider") return choice?.label ?? values.name;
+  if (step === "login") return values.name.length > 0 ? values.name : "signed in";
   if (step === "apiKey") {
-    return values.apiKey.length > 0 ? maskSecret(values.apiKey) : "keyless"
+    return values.apiKey.length > 0 ? maskSecret(values.apiKey) : "keyless";
   }
   if (step === "name") {
-    return choice !== null && !choice.custom ? values.oauthProfile : values.name
+    return choice !== null && !choice.custom ? values.oauthProfile : values.name;
   }
-  if (step === "baseURL") return values.baseURL
-  return values.model
+  if (step === "baseURL") return values.baseURL;
+  return values.model;
 }
 
 /** Render a summary row at a fixed label column. */
 export function summaryLine(row: SummaryRow): string {
-  const marker = row.state === "current" ? "›" : " "
-  return `${marker} ${row.label.padEnd(14)}${row.state === "current" ? "" : row.value}`
+  const marker = row.state === "current" ? "›" : " ";
+  return `${marker} ${row.label.padEnd(14)}${row.state === "current" ? "" : row.value}`;
 }
 
 export function summaryColor(row: SummaryRow): string {
-  if (row.state === "done") return UI.done
-  if (row.state === "current") return UI.text
-  return UI.textFaint
+  if (row.state === "done") return UI.done;
+  if (row.state === "current") return UI.text;
+  return UI.textFaint;
 }
 
 /**
  * What the operator should do about a failure. A bare error message leaves a
  * first-run user stuck, so every failure names the field to fix.
  */
-export function failureGuidance(
-  phase: SubmitPhase,
-  choice: ProviderChoice | null,
-): string {
+export function failureGuidance(phase: SubmitPhase, choice: ProviderChoice | null): string {
   if (phase === "saving") {
-    return "settings could not be written — check disk permissions, enter to retry"
+    return "settings could not be written — check disk permissions, enter to retry";
   }
   return choice !== null && !choice.custom
     ? "the key was rejected or unreachable — esc to re-enter it, enter to retry, ctrl+s to save anyway"
-    : "check the base url and key — esc to go back, enter to retry, ctrl+s to save anyway"
+    : "check the base url and key — esc to go back, enter to retry, ctrl+s to save anyway";
 }
 
 /** How long a sign-in may wait on the browser before it gives the screen back. */
-export const LOGIN_TIMEOUT_MS = 3 * 60 * 1000
+export const LOGIN_TIMEOUT_MS = 3 * 60 * 1000;
 
-export const LOGIN_TIMEOUT_MESSAGE = "sign-in timed out"
+export const LOGIN_TIMEOUT_MESSAGE = "sign-in timed out";
 
 /** Set when the operator escapes a sign-in that was still outstanding. */
-export const LOGIN_CANCELLED_MESSAGE = "sign-in cancelled"
+export const LOGIN_CANCELLED_MESSAGE = "sign-in cancelled";
 
 /** What the operator should do about a sign-in that did not complete. */
 export function loginGuidance(): string {
-  return "enter to try signing in again · esc to pick a different provider"
+  return "enter to try signing in again · esc to pick a different provider";
 }
 
 /** What the operator should do after abandoning a sign-in. */
 export function loginCancelGuidance(): string {
-  return "nothing was saved — pick a provider to start over"
+  return "nothing was saved — pick a provider to start over";
 }
 
 /** Status line while the browser round-trip is outstanding. */
-export const LOGIN_WAITING_LABEL = "waiting for browser sign-in"
+export const LOGIN_WAITING_LABEL = "waiting for browser sign-in";
 
-export type SubmitOpts = {
+export interface SubmitOpts {
   // True when the operator chose to save despite a failed connection test —
   // some providers speak chat completions but not /models, so validation
   // cannot be a hard gate.
-  readonly skipValidation: boolean
+  readonly skipValidation: boolean;
   /**
    * Catalog metadata for the picked provider. Absent on the custom path. Lets
    * the caller persist the full seeded model list and the protocol flags the
    * four form values cannot express.
    */
-  readonly preset?: ProviderPreset
+  readonly preset?: ProviderPreset;
   /**
    * Present when the operator signed in rather than pasting a key. The token
    * is already on disk in the auth store by then, so the caller persists the
    * selection only — never a credential.
    */
-  readonly oauth?: OAuthResult
+  readonly oauth?: OAuthResult;
 }
 
-export type OAuthResult = {
-  readonly kind: OAuthKind
-  readonly profile: string
+export interface OAuthResult {
+  readonly kind: OAuthKind;
+  readonly profile: string;
   /** Settings/catalog name the stored profile projects to. */
-  readonly providerName: string
+  readonly providerName: string;
 }
 
-export type ProviderPreset = {
-  readonly id: string
-  readonly models: readonly string[]
-  readonly anthropic: boolean
-  readonly opencodeGo: boolean
+export interface ProviderPreset {
+  readonly id: string;
+  readonly models: readonly string[];
+  readonly anthropic: boolean;
+  readonly opencodeGo: boolean;
 }
 
 export type ProviderSetupSubmit = (
   values: ProviderFormValues,
   setPhase: (phase: SubmitPhase) => void,
   opts: SubmitOpts,
-) => Promise<void>
+) => Promise<void>;
 
 /** A login in flight: where to authorize, when it finished, how to abandon it. */
-export type OAuthLoginStart = {
-  readonly authorizeUrl: string
-  readonly completed: Promise<{ profile: string }>
-  readonly cancel: () => void
+export interface OAuthLoginStart {
+  readonly authorizeUrl: string;
+  readonly completed: Promise<{ profile: string }>;
+  readonly cancel: () => void;
 }
 
 export type OAuthLoginStarter = (input: {
-  readonly kind: OAuthKind
-  readonly profile: string
-  readonly signal: AbortSignal
-}) => Promise<OAuthLoginStart>
+  readonly kind: OAuthKind;
+  readonly profile: string;
+  readonly signal: AbortSignal;
+}) => Promise<OAuthLoginStart>;
 
 /**
  * Real login: PKCE plus a loopback callback server, per provider. Imported
  * lazily so mounting the surface never binds a port in a test that has
  * injected its own starter.
  */
-const defaultLoginStarter: OAuthLoginStarter = async ({
-  kind,
-  profile,
-  signal,
-}) => {
+const defaultLoginStarter: OAuthLoginStarter = async ({ kind, profile, signal }) => {
   if (kind === "codex") {
-    const { startCodexLogin } = await import("../auth/codex/login.js")
-    return startCodexLogin({ profile, signal })
+    const { startCodexLogin } = await import("../auth/codex/login.js");
+    return startCodexLogin({ profile, signal });
   }
-  const { startXaiLogin } = await import("../auth/xai/login.js")
-  return startXaiLogin({ profile, signal })
-}
+  const { startXaiLogin } = await import("../auth/xai/login.js");
+  return startXaiLogin({ profile, signal });
+};
 
-export type ProviderSetupConfig = {
-  readonly onSubmit: ProviderSetupSubmit
+export interface ProviderSetupConfig {
+  readonly onSubmit: ProviderSetupSubmit;
   /**
    * One-time telemetry disclosure. Shown here so a brand-new install sees it
    * on the same launch the first telemetry event fires, not on a later run.
    */
-  readonly showTelemetryNotice: boolean
+  readonly showTelemetryNotice: boolean;
   /** Renderer factory override for headless mounting in tests. */
-  readonly createRenderer?: () => Promise<CliRenderer>
+  readonly createRenderer?: () => Promise<CliRenderer>;
   /** Login driver override so tests need neither a browser nor a port. */
-  readonly startLogin?: OAuthLoginStarter
+  readonly startLogin?: OAuthLoginStarter;
   /** Profile lister override so tests need no auth-store files on disk. */
-  readonly listOAuthProfiles?: OAuthProfileLister
+  readonly listOAuthProfiles?: OAuthProfileLister;
   /** Sign-in deadline override, in milliseconds. */
-  readonly loginTimeoutMs?: number
+  readonly loginTimeoutMs?: number;
   /**
    * Skip the provider pick-list and start directly on that provider's first
    * form step (account name for multi-instance kinds, or the custom name
    * field) — the inline connect path from the model picker's add-provider
    * selector already knows which provider it wants.
    */
-  readonly initialProviderId?: string
+  readonly initialProviderId?: string;
   /**
    * Catalog keys already present in global settings. Used by the API-key
    * multi-instance name step for suggested slugs and collision confirms.
    * OAuth still reads live profiles from the auth store.
    */
-  readonly existingProviderNames?: readonly string[]
+  readonly existingProviderNames?: readonly string[];
 }
 
-const SUMMARY_SLOTS = CUSTOM_STEPS.length
+const SUMMARY_SLOTS = CUSTOM_STEPS.length;
 /** Wrapped rows reserved for the authorize URL and its instruction. */
-const LOGIN_ROWS = 4
+const LOGIN_ROWS = 4;
 // The whole first-class catalog plus the custom row fits without scrolling on a
 // standard terminal: a first run should see every option it could pick.
-const LIST_ROWS_MAX = 10
-const LIST_ROWS_MIN = 3
-const TELEMETRY_ROWS = 3
+const LIST_ROWS_MAX = 10;
+const LIST_ROWS_MIN = 3;
+const TELEMETRY_ROWS = 3;
 /**
  * Input capacity. The renderable defaults to 1000 characters and truncates a
  * longer paste silently, which a first run would read as "paste is broken";
  * long-lived service-account keys and JWT-shaped tokens clear that default.
  */
-const FIELD_MAX_LENGTH = 16_384
+const FIELD_MAX_LENGTH = 16_384;
 /** Ramp animation tick. Fast enough to read as motion at 30fps paint. */
-const RAMP_TICK_MS = 120
+const RAMP_TICK_MS = 120;
 
 /**
  * Mount the setup surface. Resolves true once `onSubmit` completes, false when
  * the operator cancels (Ctrl+C / Ctrl+D) without a successful submit.
  */
-export async function runProviderSetup(
-  config: ProviderSetupConfig,
-): Promise<boolean> {
+export async function runProviderSetup(config: ProviderSetupConfig): Promise<boolean> {
   // A caller-supplied renderer (a headless test harness, or a live session's
   // renderer reused for a mid-session reconnect) is owned by that caller —
   // teardown here must not destroy it out from under them.
-  const externalRenderer = config.createRenderer !== undefined
+  const externalRenderer = config.createRenderer !== undefined;
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
@@ -782,75 +756,75 @@ export async function runProviderSetup(
         // the terminal owns drag-select and its own copy here.
         useMouse: false,
         enableMouseMovement: false,
-      })
+      });
 
-  const choices = providerChoices()
-  const existingProviderNames = config.existingProviderNames ?? []
+  const choices = providerChoices();
+  const existingProviderNames = config.existingProviderNames ?? [];
   const values: ProviderFormValues = {
     name: "",
     baseURL: "",
     apiKey: "",
     model: "",
     oauthProfile: "",
-  }
-  let choice: ProviderChoice | null = null
-  let stepIndex = 0
+  };
+  let choice: ProviderChoice | null = null;
+  let stepIndex = 0;
   // Set when the operator escapes the model pick-list into free text.
-  let typedModel = false
-  let submitting = false
-  let submitPhase: SubmitPhase = "testing"
-  let submitError: string | null = null
-  let saveAnywayOffered = false
-  let rampTimer: ReturnType<typeof setInterval> | null = null
+  let typedModel = false;
+  let submitting = false;
+  let submitPhase: SubmitPhase = "testing";
+  let submitError: string | null = null;
+  let saveAnywayOffered = false;
+  let rampTimer: ReturnType<typeof setInterval> | null = null;
 
-  const startLogin = config.startLogin ?? defaultLoginStarter
-  const listOAuthProfiles = config.listOAuthProfiles ?? defaultProfileLister
-  const loginTimeoutMs = config.loginTimeoutMs ?? LOGIN_TIMEOUT_MS
-  let loginStatus: "idle" | "pending" | "failed" | "done" = "idle"
-  let loginURL: string | null = null
-  let loginError: string | null = null
-  let loginResult: OAuthResult | null = null
-  let loginAbort: AbortController | null = null
-  let loginHandle: OAuthLoginStart | null = null
-  let loginTimer: ReturnType<typeof setTimeout> | null = null
+  const startLogin = config.startLogin ?? defaultLoginStarter;
+  const listOAuthProfiles = config.listOAuthProfiles ?? defaultProfileLister;
+  const loginTimeoutMs = config.loginTimeoutMs ?? LOGIN_TIMEOUT_MS;
+  let loginStatus: "idle" | "pending" | "failed" | "done" = "idle";
+  let loginURL: string | null = null;
+  let loginError: string | null = null;
+  let loginResult: OAuthResult | null = null;
+  let loginAbort: AbortController | null = null;
+  let loginHandle: OAuthLoginStart | null = null;
+  let loginTimer: ReturnType<typeof setTimeout> | null = null;
   // Carried back to the provider step so an abandoned sign-in says so there
   // rather than dropping the operator on a silent list.
-  let loginCancelled = false
+  let loginCancelled = false;
   // Bumped on every start and every abandon, so a late resolution from a
   // cancelled or superseded attempt can never move the screen.
-  let loginAttempt = 0
+  let loginAttempt = 0;
 
   // The OAuth "name" step's own state: an inline error from the last
   // validation, and a pending re-authorize confirmation for a name that
   // collided with an existing profile. `confirmedSlug` is the exact slug the
   // confirmation applies to, so an edit to the field (which invalidates it)
   // is detected by comparison rather than a separate dirty flag.
-  let oauthProfileError: string | null = null
-  let oauthProfileConfirmPending = false
-  let confirmedSlug: string | null = null
+  let oauthProfileError: string | null = null;
+  let oauthProfileConfirmPending = false;
+  let confirmedSlug: string | null = null;
   // Bumped whenever the name step is (re-)entered, so a profile-list fetch
   // left over from a step the operator has since navigated away from can
   // never write into the wrong step's state.
-  let oauthNameAttempt = 0
+  let oauthNameAttempt = 0;
 
   if (config.initialProviderId !== undefined) {
-    const preselected = choices.find((c) => c.id === config.initialProviderId)
+    const preselected = choices.find((c) => c.id === config.initialProviderId);
     if (preselected !== undefined) {
-      choice = preselected
-      stepIndex = 1
-      values.name = preselected.label
-      values.baseURL = preselected.baseURL
-      values.model = preselected.defaultModel
+      choice = preselected;
+      stepIndex = 1;
+      values.name = preselected.label;
+      values.baseURL = preselected.baseURL;
+      values.model = preselected.defaultModel;
     }
   }
 
-  const margin = resolveSideMargin(renderer.width || 80)
+  const margin = resolveSideMargin(renderer.width || 80);
 
-  let listRows: readonly ResidualCatalogEntry[] = providerChoiceRows(choices)
+  let listRows: readonly ResidualCatalogEntry[] = providerChoiceRows(choices);
   let list: ListViewportState = createListViewport({
     count: listRows.length,
     height: listHeight(),
-  })
+  });
 
   function listHeight(): number {
     // This budget is a guess, not a derivation: it runs before `root` is
@@ -862,24 +836,23 @@ export async function runProviderSetup(
     // padding) with slack for a wrapped label; it goes stale if that chrome
     // changes and nothing here will catch it. A shared, derived chrome
     // budget for this and shell.ts's picker is tracked separately.
-    const rows = renderer.height || 24
-    return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14))
+    const rows = renderer.height || 24;
+    return Math.max(LIST_ROWS_MIN, Math.min(LIST_ROWS_MAX, rows - 14));
   }
 
-  const steps = (): readonly SetupStep[] => stepsFor(choice)
-  const currentStep = (): SetupStep =>
-    steps()[stepIndex] ?? ("provider" as SetupStep)
+  const steps = (): readonly SetupStep[] => stepsFor(choice);
+  const currentStep = (): SetupStep => steps()[stepIndex] ?? ("provider" as SetupStep);
   const isListStep = (): boolean => {
-    const step = currentStep()
-    if (step === "provider") return true
-    return step === "model" && choice !== null && !choice.custom && !typedModel
-  }
+    const step = currentStep();
+    if (step === "provider") return true;
+    return step === "model" && choice !== null && !choice.custom && !typedModel;
+  };
   // The "name" step means two different things depending on the path: a
   // free-text provider name (custom) or a multi-instance account slug (OAuth
   // and first-class API-key) with suggestion/collision machinery. Only the
   // latter needs this branch.
   const isAccountNameStep = (): boolean =>
-    currentStep() === "name" && choice !== null && !choice.custom
+    currentStep() === "name" && choice !== null && !choice.custom;
 
   const root = new BoxRenderable(renderer, {
     id: "provider-setup",
@@ -890,7 +863,7 @@ export async function runProviderSetup(
     paddingTop: 1,
     paddingLeft: margin,
     paddingRight: margin,
-  })
+  });
 
   // Every direct child of `root` needs flexShrink: 0, full stop — a plain
   // TextRenderable defaults to shrinkable, and a short terminal makes the
@@ -903,25 +876,25 @@ export async function runProviderSetup(
     content: `${PRODUCT_NAME.toLowerCase()} · setup`,
     fg: UI.inFlightBright,
     flexShrink: 0,
-  })
+  });
   const intro = new TextRenderable(renderer, {
     id: "provider-setup-welcome",
     content: "connect an inference provider — switch later with /model",
     fg: UI.textDim,
     flexShrink: 0,
-  })
+  });
   const step = new TextRenderable(renderer, {
     id: "provider-setup-step",
     content: "",
     fg: UI.action,
     flexShrink: 0,
-  })
+  });
   const instruction = new TextRenderable(renderer, {
     id: "provider-setup-instruction",
     content: "",
     fg: UI.text,
     flexShrink: 0,
-  })
+  });
 
   const summary = new BoxRenderable(renderer, {
     id: "provider-setup-summary",
@@ -930,7 +903,7 @@ export async function runProviderSetup(
     flexShrink: 0,
     paddingTop: 1,
     backgroundColor: UI.ground,
-  })
+  });
   const summarySlots = Array.from(
     { length: SUMMARY_SLOTS },
     (_, i) =>
@@ -939,8 +912,8 @@ export async function runProviderSetup(
         content: "",
         fg: UI.textDim,
       }),
-  )
-  for (const row of summarySlots) summary.add(row)
+  );
+  for (const row of summarySlots) summary.add(row);
 
   const listBox = new BoxRenderable(renderer, {
     id: "provider-setup-list",
@@ -949,7 +922,7 @@ export async function runProviderSetup(
     flexShrink: 0,
     paddingTop: 1,
     backgroundColor: UI.ground,
-  })
+  });
   const listSlots = Array.from(
     { length: LIST_ROWS_MAX },
     (_, i) =>
@@ -958,8 +931,8 @@ export async function runProviderSetup(
         content: "",
         fg: UI.textDim,
       }),
-  )
-  for (const row of listSlots) listBox.add(row)
+  );
+  for (const row of listSlots) listBox.add(row);
 
   const inputFrame = new BoxRenderable(renderer, {
     id: "provider-setup-input-frame",
@@ -972,7 +945,7 @@ export async function runProviderSetup(
     backgroundColor: UI.ground,
     paddingLeft: 1,
     paddingRight: 1,
-  })
+  });
   const input = new InputRenderable(renderer, {
     id: "provider-setup-input",
     width: "100%",
@@ -983,8 +956,8 @@ export async function runProviderSetup(
     textColor: UI.text,
     cursorColor: UI.text,
     placeholderColor: UI.textFaint,
-  })
-  inputFrame.add(input)
+  });
+  inputFrame.add(input);
 
   const loginBox = new BoxRenderable(renderer, {
     id: "provider-setup-login",
@@ -994,7 +967,7 @@ export async function runProviderSetup(
     paddingTop: 1,
     backgroundColor: UI.ground,
     visible: false,
-  })
+  });
   const loginSlots = Array.from(
     { length: LOGIN_ROWS },
     (_, i) =>
@@ -1003,21 +976,21 @@ export async function runProviderSetup(
         content: "",
         fg: UI.textDim,
       }),
-  )
-  for (const row of loginSlots) loginBox.add(row)
+  );
+  for (const row of loginSlots) loginBox.add(row);
 
   const statusLine = new TextRenderable(renderer, {
     id: "provider-setup-status",
     content: "",
     fg: UI.textDim,
     flexShrink: 0,
-  })
+  });
   const guidance = new TextRenderable(renderer, {
     id: "provider-setup-guidance",
     content: "",
     fg: UI.textDim,
     flexShrink: 0,
-  })
+  });
   const telemetry = new BoxRenderable(renderer, {
     id: "provider-setup-telemetry",
     width: "100%",
@@ -1026,7 +999,7 @@ export async function runProviderSetup(
     paddingTop: 1,
     backgroundColor: UI.ground,
     visible: config.showTelemetryNotice,
-  })
+  });
   const telemetrySlots = Array.from(
     { length: TELEMETRY_ROWS },
     (_, i) =>
@@ -1036,15 +1009,15 @@ export async function runProviderSetup(
         // A disclosure, not fine print: body emphasis, above the footer.
         fg: UI.text,
       }),
-  )
-  for (const row of telemetrySlots) telemetry.add(row)
+  );
+  for (const row of telemetrySlots) telemetry.add(row);
   if (config.showTelemetryNotice) {
-    const width = Math.max(20, (renderer.width || 80) - margin * 2)
-    const lines = wrapLines(TELEMETRY_NOTICE, width).slice(0, TELEMETRY_ROWS)
+    const width = Math.max(20, (renderer.width || 80) - margin * 2);
+    const lines = wrapLines(TELEMETRY_NOTICE, width).slice(0, TELEMETRY_ROWS);
     lines.forEach((line, i) => {
-      const slot = telemetrySlots[i]
-      if (slot !== undefined) slot.content = line
-    })
+      const slot = telemetrySlots[i];
+      if (slot !== undefined) slot.content = line;
+    });
   }
 
   const footer = new TextRenderable(renderer, {
@@ -1052,170 +1025,170 @@ export async function runProviderSetup(
     content: "",
     fg: UI.textFaint,
     flexShrink: 0,
-  })
+  });
 
-  root.add(header)
-  root.add(intro)
-  root.add(step)
-  root.add(instruction)
-  root.add(summary)
-  root.add(listBox)
-  root.add(loginBox)
-  root.add(inputFrame)
-  root.add(statusLine)
-  root.add(guidance)
-  root.add(telemetry)
-  root.add(footer)
-  renderer.root.add(root)
+  root.add(header);
+  root.add(intro);
+  root.add(step);
+  root.add(instruction);
+  root.add(summary);
+  root.add(listBox);
+  root.add(loginBox);
+  root.add(inputFrame);
+  root.add(statusLine);
+  root.add(guidance);
+  root.add(telemetry);
+  root.add(footer);
+  renderer.root.add(root);
 
   const paintSummary = (): void => {
-    const rows = summaryRows(steps(), stepIndex, values, choice)
+    const rows = summaryRows(steps(), stepIndex, values, choice);
     summarySlots.forEach((slot, i) => {
-      const row = rows[i]
+      const row = rows[i];
       if (row === undefined) {
-        slot.content = ""
-        slot.visible = false
-        return
+        slot.content = "";
+        slot.visible = false;
+        return;
       }
-      slot.visible = true
-      slot.content = summaryLine(row)
-      slot.fg = summaryColor(row)
-    })
-  }
+      slot.visible = true;
+      slot.content = summaryLine(row);
+      slot.fg = summaryColor(row);
+    });
+  };
 
   const paintList = (): void => {
-    const showList = isListStep() && !submitting
-    listBox.visible = showList
+    const showList = isListStep() && !submitting;
+    listBox.visible = showList;
     if (!showList) {
       for (const slot of listSlots) {
-        slot.content = ""
-        slot.visible = false
+        slot.content = "";
+        slot.visible = false;
       }
-      return
+      return;
     }
-    const slice = visibleSlice(list)
+    const slice = visibleSlice(list);
     listSlots.forEach((slot, i) => {
-      const index = slice.start + i
-      const row = index < slice.end ? listRows[index] : undefined
+      const index = slice.start + i;
+      const row = index < slice.end ? listRows[index] : undefined;
       if (row === undefined) {
-        slot.content = ""
-        slot.visible = false
-        return
+        slot.content = "";
+        slot.visible = false;
+        return;
       }
-      const active = index === slice.activeIndex
-      slot.visible = true
-      slot.content = ` ${active ? ">" : " "} ${row.label}`
-      slot.fg = active ? UI.text : UI.textDim
-    })
-  }
+      const active = index === slice.activeIndex;
+      slot.visible = true;
+      slot.content = ` ${active ? ">" : " "} ${row.label}`;
+      slot.fg = active ? UI.text : UI.textDim;
+    });
+  };
 
-  const isLoginStep = (): boolean => currentStep() === "login"
+  const isLoginStep = (): boolean => currentStep() === "login";
 
   const paintLogin = (): void => {
-    const show = isLoginStep() && !submitting
-    loginBox.visible = show
-    const width = Math.max(20, (renderer.width || 80) - margin * 2)
+    const show = isLoginStep() && !submitting;
+    loginBox.visible = show;
+    const width = Math.max(20, (renderer.width || 80) - margin * 2);
     const lines: string[] =
       !show || loginURL === null
         ? []
-        : ["open this url to authorize:", ...wrapLines(loginURL, width)]
+        : ["open this url to authorize:", ...wrapLines(loginURL, width)];
     loginSlots.forEach((slot, i) => {
-      const line = lines[i]
+      const line = lines[i];
       if (line === undefined) {
-        slot.content = ""
-        slot.visible = false
-        return
+        slot.content = "";
+        slot.visible = false;
+        return;
       }
-      slot.visible = true
-      slot.content = line
+      slot.visible = true;
+      slot.content = line;
       // The url is the one thing to act on here, so it reads above chrome.
-      slot.fg = i === 0 ? UI.textDim : UI.inFlightBright
-    })
-  }
+      slot.fg = i === 0 ? UI.textDim : UI.inFlightBright;
+    });
+  };
 
   const paintStatus = (): void => {
     if (!submitting && isAccountNameStep()) {
       if (oauthProfileError !== null) {
-        const ramp = rampFor({ phase: "blocked", nowMs: 0 })
-        statusLine.content = rampLine(ramp, oauthProfileError)
-        statusLine.fg = ramp.fg
-        guidance.content = "fix the name and press enter"
-        guidance.fg = UI.textDim
-        return
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 });
+        statusLine.content = rampLine(ramp, oauthProfileError);
+        statusLine.fg = ramp.fg;
+        guidance.content = "fix the name and press enter";
+        guidance.fg = UI.textDim;
+        return;
       }
       if (oauthProfileConfirmPending) {
-        const ramp = rampFor({ phase: "blocked", nowMs: 0 })
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 });
         statusLine.content = rampLine(
           ramp,
           `"${confirmedSlug ?? values.oauthProfile}" is already connected`,
-        )
-        statusLine.fg = ramp.fg
+        );
+        statusLine.fg = ramp.fg;
         guidance.content =
           choice?.oauth != null
             ? "enter again to re-authorize this account · esc to cancel"
-            : "enter again to replace this instance's key · esc to cancel"
-        guidance.fg = UI.textDim
-        return
+            : "enter again to replace this instance's key · esc to cancel";
+        guidance.fg = UI.textDim;
+        return;
       }
     }
     if (!submitting && isLoginStep()) {
       if (loginStatus === "failed") {
-        const ramp = rampFor({ phase: "blocked", nowMs: 0 })
-        statusLine.content = rampLine(ramp, (loginError ?? "").toLowerCase())
-        statusLine.fg = ramp.fg
-        guidance.content = loginGuidance()
-        guidance.fg = UI.textDim
-        return
+        const ramp = rampFor({ phase: "blocked", nowMs: 0 });
+        statusLine.content = rampLine(ramp, (loginError ?? "").toLowerCase());
+        statusLine.fg = ramp.fg;
+        guidance.content = loginGuidance();
+        guidance.fg = UI.textDim;
+        return;
       }
       if (loginStatus === "done") {
-        const ramp = rampFor({ phase: "done", nowMs: 0 })
+        const ramp = rampFor({ phase: "done", nowMs: 0 });
         statusLine.content = rampLine(
           ramp,
           `signed in as ${loginResult?.providerName ?? "the account"}`,
-        )
-        statusLine.fg = ramp.fg
-        guidance.content = "enter to pick a model"
-        guidance.fg = UI.textDim
-        return
+        );
+        statusLine.fg = ramp.fg;
+        guidance.content = "enter to pick a model";
+        guidance.fg = UI.textDim;
+        return;
       }
-      const ramp = rampFor({ phase: "working", nowMs: Date.now() })
-      statusLine.content = rampLine(ramp, LOGIN_WAITING_LABEL)
-      statusLine.fg = ramp.fg
-      guidance.content = "the browser should have opened — paste the url if not"
-      guidance.fg = UI.textDim
-      return
+      const ramp = rampFor({ phase: "working", nowMs: Date.now() });
+      statusLine.content = rampLine(ramp, LOGIN_WAITING_LABEL);
+      statusLine.fg = ramp.fg;
+      guidance.content = "the browser should have opened — paste the url if not";
+      guidance.fg = UI.textDim;
+      return;
     }
     if (!submitting && loginCancelled) {
-      const ramp = rampFor({ phase: "blocked", nowMs: 0 })
-      statusLine.content = rampLine(ramp, LOGIN_CANCELLED_MESSAGE)
-      statusLine.fg = ramp.fg
-      guidance.content = loginCancelGuidance()
-      guidance.fg = UI.textDim
-      return
+      const ramp = rampFor({ phase: "blocked", nowMs: 0 });
+      statusLine.content = rampLine(ramp, LOGIN_CANCELLED_MESSAGE);
+      statusLine.fg = ramp.fg;
+      guidance.content = loginCancelGuidance();
+      guidance.fg = UI.textDim;
+      return;
     }
     if (submitting) {
-      const ramp = rampFor({ phase: "working", nowMs: Date.now() })
-      statusLine.content = rampLine(ramp, SUBMIT_PHASE_LABEL[submitPhase])
-      statusLine.fg = ramp.fg
-      guidance.content = ""
-      return
+      const ramp = rampFor({ phase: "working", nowMs: Date.now() });
+      statusLine.content = rampLine(ramp, SUBMIT_PHASE_LABEL[submitPhase]);
+      statusLine.fg = ramp.fg;
+      guidance.content = "";
+      return;
     }
     if (submitError !== null) {
-      const ramp = rampFor({ phase: "blocked", nowMs: 0 })
-      statusLine.content = rampLine(ramp, submitError.toLowerCase())
-      statusLine.fg = ramp.fg
-      guidance.content = failureGuidance(submitPhase, choice)
-      guidance.fg = UI.textDim
-      return
+      const ramp = rampFor({ phase: "blocked", nowMs: 0 });
+      statusLine.content = rampLine(ramp, submitError.toLowerCase());
+      statusLine.fg = ramp.fg;
+      guidance.content = failureGuidance(submitPhase, choice);
+      guidance.fg = UI.textDim;
+      return;
     }
-    statusLine.content = ""
-    guidance.content = ""
-  }
+    statusLine.content = "";
+    guidance.content = "";
+  };
 
   const paintFooter = (): void => {
     if (submitting) {
-      footer.content = "ctrl+c cancel"
-      return
+      footer.content = "ctrl+c cancel";
+      return;
     }
     if (isLoginStep()) {
       footer.content =
@@ -1223,54 +1196,52 @@ export async function runProviderSetup(
           ? "enter retry · esc back · ctrl+c cancel"
           : loginStatus === "done"
             ? "enter continue · esc back · ctrl+c cancel"
-            : "esc cancel sign-in · ctrl+c quit"
-      return
+            : "esc cancel sign-in · ctrl+c quit";
+      return;
     }
     footer.content = isListStep()
       ? "↑↓ move · enter choose · ctrl+c cancel"
       : stepIndex === 0
         ? "enter confirm · ctrl+c cancel"
-        : "enter confirm · esc back · ctrl+c cancel"
-  }
+        : "enter confirm · esc back · ctrl+c cancel";
+  };
 
   const paint = (): void => {
-    const active = currentStep()
-    step.content = stepHeadline(steps(), stepIndex, choice)
+    const active = currentStep();
+    step.content = stepHeadline(steps(), stepIndex, choice);
     instruction.content =
-      isAccountNameStep() && choice !== null
-        ? accountNamePrompt(choice)
-        : STEP_PROMPTS[active]
-    paintSummary()
-    paintList()
-    paintLogin()
-    const showInput = !isListStep() && !isLoginStep() && !submitting
-    inputFrame.visible = showInput
-    input.visible = showInput
-    paintStatus()
-    paintFooter()
-  }
+      isAccountNameStep() && choice !== null ? accountNamePrompt(choice) : STEP_PROMPTS[active];
+    paintSummary();
+    paintList();
+    paintLogin();
+    const showInput = !isListStep() && !isLoginStep() && !submitting;
+    inputFrame.visible = showInput;
+    input.visible = showInput;
+    paintStatus();
+    paintFooter();
+  };
 
   const showStep = (): void => {
-    const active = currentStep()
+    const active = currentStep();
     if (isListStep() || isLoginStep()) {
-      input.blur()
-      paint()
+      input.blur();
+      paint();
       // Arriving on the sign-in step is the trigger: there is nothing to type,
       // so the flow starts itself rather than waiting for a keystroke.
-      if (isLoginStep() && loginStatus === "idle") beginLogin()
-      return
+      if (isLoginStep() && loginStatus === "idle") beginLogin();
+      return;
     }
     if (isAccountNameStep()) {
-      enterAccountNameStep()
-      return
+      enterAccountNameStep();
+      return;
     }
-    const field = active as ProviderField
-    input.placeholder = PROVIDER_FIELD_HINTS[field]
-    input.value = field === "apiKey" ? maskEcho(values.apiKey) : values[field]
+    const field = active as ProviderField;
+    input.placeholder = PROVIDER_FIELD_HINTS[field];
+    input.value = field === "apiKey" ? maskEcho(values.apiKey) : values[field];
     // Paint first: focus is refused while the input is still hidden.
-    paint()
-    input.focus()
-  }
+    paint();
+    input.focus();
+  };
 
   /**
    * Enter the multi-instance "name" step: reset per-visit state, show whatever
@@ -1279,205 +1250,201 @@ export async function runProviderSetup(
    * the live auth store; API-key reads the settings catalog snapshot.
    */
   const enterAccountNameStep = (): void => {
-    oauthProfileError = null
-    oauthProfileConfirmPending = false
-    input.placeholder = OAUTH_PROFILE_HINT
-    input.value = values.oauthProfile
-    paint()
-    input.focus()
-    if (choice === null || choice.custom) return
-    const attempt = (oauthNameAttempt += 1)
+    oauthProfileError = null;
+    oauthProfileConfirmPending = false;
+    input.placeholder = OAUTH_PROFILE_HINT;
+    input.value = values.oauthProfile;
+    paint();
+    input.focus();
+    if (choice === null || choice.custom) return;
+    const attempt = (oauthNameAttempt += 1);
     const applySuggestion = (names: readonly string[]): void => {
-      if (settled || attempt !== oauthNameAttempt) return
+      if (settled || attempt !== oauthNameAttempt) return;
       if (values.oauthProfile.trim().length === 0) {
-        values.oauthProfile = suggestOAuthProfileSlug(names)
-        input.value = values.oauthProfile
-        paint()
+        values.oauthProfile = suggestOAuthProfileSlug(names);
+        input.value = values.oauthProfile;
+        paint();
       }
-    }
+    };
     if (choice.oauth !== null) {
       listOAuthProfiles(choice.oauth)
         .catch((): readonly string[] => [])
-        .then(applySuggestion)
-      return
+        .then(applySuggestion);
+      return;
     }
-    applySuggestion(instanceSlugsForKind(choice.id, existingProviderNames))
-  }
+    applySuggestion(instanceSlugsForKind(choice.id, existingProviderNames));
+  };
 
-  let settled = false
-  let resolveDone: (submitted: boolean) => void = () => {}
+  let settled = false;
+  let resolveDone: (submitted: boolean) => void = () => {};
   const done = new Promise<boolean>((resolve) => {
-    resolveDone = resolve
-  })
+    resolveDone = resolve;
+  });
 
   const stopRamp = (): void => {
-    if (rampTimer === null) return
-    clearInterval(rampTimer)
-    rampTimer = null
-  }
+    if (rampTimer === null) return;
+    clearInterval(rampTimer);
+    rampTimer = null;
+  };
 
   const teardown = (): void => {
-    stopRamp()
-    abandonLogin()
-    renderer.keyInput.off("keypress", onKey)
-    input.off(InputRenderableEvents.ENTER, onEnter)
-    input.off(InputRenderableEvents.INPUT, onInput)
+    stopRamp();
+    abandonLogin();
+    renderer.keyInput.off("keypress", onKey);
+    input.off(InputRenderableEvents.ENTER, onEnter);
+    input.off(InputRenderableEvents.INPUT, onInput);
     try {
-      renderer.root.remove(root)
-      destroySubtree(root)
+      renderer.root.remove(root);
+      destroySubtree(root);
     } catch {
       // already unmounted
     }
     if (!externalRenderer) {
       try {
-        renderer.destroy()
+        renderer.destroy();
       } catch {
         // already destroyed
       }
     }
-  }
+  };
 
   const settle = (submitted: boolean): void => {
-    if (settled) return
-    settled = true
-    teardown()
-    resolveDone(submitted)
-  }
+    if (settled) return;
+    settled = true;
+    teardown();
+    resolveDone(submitted);
+  };
 
   const clearError = (): void => {
-    submitError = null
-    saveAnywayOffered = false
-    loginCancelled = false
-  }
+    submitError = null;
+    saveAnywayOffered = false;
+    loginCancelled = false;
+  };
 
   const clearLoginTimer = (): void => {
-    if (loginTimer === null) return
-    clearTimeout(loginTimer)
-    loginTimer = null
-  }
+    if (loginTimer === null) return;
+    clearTimeout(loginTimer);
+    loginTimer = null;
+  };
 
   /**
    * Drop whatever attempt is in flight: stop its deadline, close its callback
    * server, and bump the attempt counter so a late resolution is ignored.
    */
   const abandonLogin = (): void => {
-    loginAttempt += 1
-    clearLoginTimer()
-    loginAbort?.abort()
-    loginAbort = null
-    loginHandle?.cancel()
-    loginHandle = null
-  }
+    loginAttempt += 1;
+    clearLoginTimer();
+    loginAbort?.abort();
+    loginAbort = null;
+    loginHandle?.cancel();
+    loginHandle = null;
+  };
 
   /** Denial, transport failure, or the deadline — all land the operator here. */
   const failLogin = (attempt: number, message: string): void => {
-    if (attempt !== loginAttempt) return
-    abandonLogin()
-    stopRamp()
-    loginStatus = "failed"
-    loginError = message
-    loginURL = null
-    paint()
-  }
+    if (attempt !== loginAttempt) return;
+    abandonLogin();
+    stopRamp();
+    loginStatus = "failed";
+    loginError = message;
+    loginURL = null;
+    paint();
+  };
 
-  const finishLogin = (
-    attempt: number,
-    kind: OAuthKind,
-    profile: string,
-  ): void => {
-    if (attempt !== loginAttempt) return
-    clearLoginTimer()
-    loginHandle = null
-    loginAbort = null
-    stopRamp()
-    loginStatus = "done"
-    loginError = null
+  const finishLogin = (attempt: number, kind: OAuthKind, profile: string): void => {
+    if (attempt !== loginAttempt) return;
+    clearLoginTimer();
+    loginHandle = null;
+    loginAbort = null;
+    stopRamp();
+    loginStatus = "done";
+    loginError = null;
     // The token is already on disk in the auth store; from here the surface
     // carries only the selection.
-    const result = { kind, profile, providerName: oauthProviderName(kind, profile) }
-    loginResult = result
-    values.name = result.providerName
-    values.apiKey = ""
-    stepIndex += 1
-    if (isListStep()) enterModelList()
-    showStep()
-  }
+    const result = { kind, profile, providerName: oauthProviderName(kind, profile) };
+    loginResult = result;
+    values.name = result.providerName;
+    values.apiKey = "";
+    stepIndex += 1;
+    if (isListStep()) enterModelList();
+    showStep();
+  };
 
   const beginLogin = (): void => {
-    const kind = choice?.oauth ?? null
-    if (kind === null) return
-    abandonLogin()
-    const attempt = loginAttempt
-    loginStatus = "pending"
-    loginError = null
-    loginURL = null
-    loginCancelled = false
-    const abort = new AbortController()
-    loginAbort = abort
+    const kind = choice?.oauth ?? null;
+    if (kind === null) return;
+    abandonLogin();
+    const attempt = loginAttempt;
+    loginStatus = "pending";
+    loginError = null;
+    loginURL = null;
+    loginCancelled = false;
+    const abort = new AbortController();
+    loginAbort = abort;
     // A browser round-trip that never comes back must still give the screen
     // back, so the deadline is armed before the flow is even started.
     loginTimer = setTimeout(() => {
-      failLogin(attempt, LOGIN_TIMEOUT_MESSAGE)
-    }, loginTimeoutMs)
-    stopRamp()
-    rampTimer = setInterval(paintStatus, RAMP_TICK_MS)
-    paint()
+      failLogin(attempt, LOGIN_TIMEOUT_MESSAGE);
+    }, loginTimeoutMs);
+    stopRamp();
+    rampTimer = setInterval(paintStatus, RAMP_TICK_MS);
+    paint();
 
     startLogin({ kind, profile: values.oauthProfile, signal: abort.signal }).then(
       (handle) => {
         if (attempt !== loginAttempt) {
-          handle.cancel()
-          return
+          handle.cancel();
+          return;
         }
-        loginHandle = handle
-        loginURL = handle.authorizeUrl
-        paint()
+        loginHandle = handle;
+        loginURL = handle.authorizeUrl;
+        paint();
         handle.completed.then(
           (result) => {
-            finishLogin(attempt, kind, result.profile)
+            finishLogin(attempt, kind, result.profile);
           },
           (err: unknown) => {
-            failLogin(attempt, err instanceof Error ? err.message : String(err))
+            failLogin(attempt, err instanceof Error ? err.message : String(err));
           },
-        )
+        );
       },
       (err: unknown) => {
-        failLogin(attempt, err instanceof Error ? err.message : String(err))
+        failLogin(attempt, err instanceof Error ? err.message : String(err));
       },
-    )
-  }
+    );
+  };
 
   /** Abandon an outstanding sign-in and return to the provider list. */
   const cancelLogin = (): void => {
-    const wasPending = loginStatus === "pending"
-    abandonLogin()
-    stopRamp()
-    loginStatus = "idle"
-    loginURL = null
-    loginError = null
-    loginResult = null
-    back()
-    loginCancelled = wasPending
-    paint()
-  }
+    const wasPending = loginStatus === "pending";
+    abandonLogin();
+    stopRamp();
+    loginStatus = "idle";
+    loginURL = null;
+    loginError = null;
+    loginResult = null;
+    back();
+    loginCancelled = wasPending;
+    paint();
+  };
 
   const submit = (skipValidation: boolean): void => {
-    submitting = true
-    submitPhase = "testing"
-    clearError()
-    paint()
-    stopRamp()
-    rampTimer = setInterval(paintStatus, RAMP_TICK_MS)
+    submitting = true;
+    submitPhase = "testing";
+    clearError();
+    paint();
+    stopRamp();
+    rampTimer = setInterval(paintStatus, RAMP_TICK_MS);
 
     // Track the phase locally so the rejection handler knows whether the
     // failure happened during the connection test (retryable and bypassable)
     // or during the settings write.
-    let phase: SubmitPhase = "testing"
+    let phase: SubmitPhase = "testing";
     const setPhase = (p: SubmitPhase): void => {
-      phase = p
-      submitPhase = p
-      paint()
-    }
+      phase = p;
+      submitPhase = p;
+      paint();
+    };
 
     const preset: ProviderPreset | undefined =
       choice !== null && !choice.custom
@@ -1487,7 +1454,7 @@ export async function runProviderSetup(
             anthropic: choice.anthropic,
             opencodeGo: choice.opencodeGo,
           }
-        : undefined
+        : undefined;
 
     config
       .onSubmit(values, setPhase, {
@@ -1498,120 +1465,120 @@ export async function runProviderSetup(
       .then(
         () => settle(true),
         (err: unknown) => {
-          stopRamp()
-          submitting = false
-          submitPhase = phase
-          submitError = err instanceof Error ? err.message : String(err)
-          saveAnywayOffered = phase === "testing"
-          paint()
+          stopRamp();
+          submitting = false;
+          submitPhase = phase;
+          submitError = err instanceof Error ? err.message : String(err);
+          saveAnywayOffered = phase === "testing";
+          paint();
         },
-      )
-  }
+      );
+  };
 
   const chooseProvider = (id: string): void => {
-    const picked = providerChoiceById(id)
-    if (picked === undefined) return
-    choice = picked
-    typedModel = false
-    oauthProfileError = null
-    oauthProfileConfirmPending = false
-    confirmedSlug = null
+    const picked = providerChoiceById(id);
+    if (picked === undefined) return;
+    choice = picked;
+    typedModel = false;
+    oauthProfileError = null;
+    oauthProfileConfirmPending = false;
+    confirmedSlug = null;
     if (picked.custom) {
-      values.name = ""
-      values.baseURL = ""
-      values.model = ""
+      values.name = "";
+      values.baseURL = "";
+      values.model = "";
     } else {
       // Multi-instance first-class kinds (OAuth and API-key): leave the catalog
       // name blank until the account/instance slug is settled. See the
       // `oauthProfile` doc comment on `ProviderFormValues`.
-      values.name = ""
-      values.baseURL = picked.baseURL
-      values.model = picked.defaultModel
-      values.oauthProfile = ""
+      values.name = "";
+      values.baseURL = picked.baseURL;
+      values.model = picked.defaultModel;
+      values.oauthProfile = "";
     }
-    stepIndex += 1
-    if (isListStep()) enterModelList()
-  }
+    stepIndex += 1;
+    if (isListStep()) enterModelList();
+  };
 
   const enterModelList = (): void => {
-    if (choice === null) return
-    listRows = modelChoiceRows(choice)
+    if (choice === null) return;
+    listRows = modelChoiceRows(choice);
     const active = Math.max(
       0,
       listRows.findIndex((row) => modelFromRowId(choice?.id ?? "", row.id) === values.model),
-    )
+    );
     list = createListViewport({
       count: listRows.length,
       height: listHeight(),
       activeIndex: active,
-    })
-  }
+    });
+  };
 
   const enterProviderList = (): void => {
-    listRows = providerChoiceRows(choices)
+    listRows = providerChoiceRows(choices);
     const active = Math.max(
       0,
       listRows.findIndex((row) => row.id === choice?.id),
-    )
+    );
     list = createListViewport({
       count: listRows.length,
       height: listHeight(),
       activeIndex: active,
-    })
-  }
+    });
+  };
 
   const acceptListRow = (): void => {
-    const { itemIds } = residualListFromCatalog(listRows)
-    const id = residualIdFromSelection({ index: list.activeIndex }, itemIds)
-    if (id === undefined) return
-    clearError()
+    const { itemIds } = residualListFromCatalog(listRows);
+    const id = residualIdFromSelection({ index: list.activeIndex }, itemIds);
+    if (id === undefined) return;
+    clearError();
     if (currentStep() === "provider") {
-      chooseProvider(id)
-      showStep()
-      return
+      chooseProvider(id);
+      showStep();
+      return;
     }
     if (id === TYPE_MODEL_ID) {
-      typedModel = true
-      values.model = ""
-      showStep()
-      return
+      typedModel = true;
+      values.model = "";
+      showStep();
+      return;
     }
-    values.model = modelFromRowId(choice?.id ?? "", id)
-    submit(false)
-  }
+    values.model = modelFromRowId(choice?.id ?? "", id);
+    submit(false);
+  };
 
   const advance = (): void => {
     if (isListStep()) {
-      acceptListRow()
-      return
+      acceptListRow();
+      return;
     }
     if (isLoginStep()) {
       if (loginStatus === "done") {
-        stepIndex += 1
-        if (isListStep()) enterModelList()
-        showStep()
-        return
+        stepIndex += 1;
+        if (isListStep()) enterModelList();
+        showStep();
+        return;
       }
       // A pending sign-in has nothing to confirm; a failed one retries.
-      if (loginStatus !== "pending") beginLogin()
-      return
+      if (loginStatus !== "pending") beginLogin();
+      return;
     }
     if (isAccountNameStep()) {
-      advanceAccountNameStep()
-      return
+      advanceAccountNameStep();
+      return;
     }
-    const field = currentStep() as ProviderField
-    if (!stepReady(field, values[field])) return
+    const field = currentStep() as ProviderField;
+    if (!stepReady(field, values[field])) return;
 
     if (stepIndex < steps().length - 1) {
-      stepIndex += 1
-      clearError()
-      if (isListStep()) enterModelList()
-      showStep()
-      return
+      stepIndex += 1;
+      clearError();
+      if (isListStep()) enterModelList();
+      showStep();
+      return;
     }
-    submit(false)
-  }
+    submit(false);
+  };
 
   /**
    * Validate the entered slug, then check collisions against a fresh source
@@ -1619,163 +1586,163 @@ export async function runProviderSetup(
    * one more Enter to confirm before the step advances.
    */
   const advanceAccountNameStep = (): void => {
-    if (choice === null || choice.custom) return
-    const validated = validateOAuthProfileSlug(values.oauthProfile)
+    if (choice === null || choice.custom) return;
+    const validated = validateOAuthProfileSlug(values.oauthProfile);
     if (!validated.ok) {
-      oauthProfileError = validated.error
-      oauthProfileConfirmPending = false
-      confirmedSlug = null
-      paint()
-      return
+      oauthProfileError = validated.error;
+      oauthProfileConfirmPending = false;
+      confirmedSlug = null;
+      paint();
+      return;
     }
-    const slug = validated.slug
+    const slug = validated.slug;
     // Already confirmed this exact slug on the previous Enter — proceed
     // without another round-trip. Any edit since then cleared the flag (see
     // onInput), so this only fires on a genuine second, unmodified Enter.
     if (oauthProfileConfirmPending && confirmedSlug === slug) {
-      settleAccountNameSlug(slug)
-      return
+      settleAccountNameSlug(slug);
+      return;
     }
-    const attempt = (oauthNameAttempt += 1)
+    const attempt = (oauthNameAttempt += 1);
     const handleNames = (names: readonly string[]): void => {
-      if (settled || attempt !== oauthNameAttempt) return
+      if (settled || attempt !== oauthNameAttempt) return;
       if (names.includes(slug)) {
-        oauthProfileError = null
-        oauthProfileConfirmPending = true
-        confirmedSlug = slug
-        paint()
-        return
+        oauthProfileError = null;
+        oauthProfileConfirmPending = true;
+        confirmedSlug = slug;
+        paint();
+        return;
       }
-      settleAccountNameSlug(slug)
-    }
+      settleAccountNameSlug(slug);
+    };
     if (choice.oauth !== null) {
       listOAuthProfiles(choice.oauth)
         .catch((): readonly string[] => [])
-        .then(handleNames)
-      return
+        .then(handleNames);
+      return;
     }
-    handleNames(instanceSlugsForKind(choice.id, existingProviderNames))
-  }
+    handleNames(instanceSlugsForKind(choice.id, existingProviderNames));
+  };
 
   const settleAccountNameSlug = (slug: string): void => {
-    values.oauthProfile = slug
-    oauthProfileError = null
-    oauthProfileConfirmPending = false
-    confirmedSlug = null
+    values.oauthProfile = slug;
+    oauthProfileError = null;
+    oauthProfileConfirmPending = false;
+    confirmedSlug = null;
     if (choice !== null && choice.oauth === null && !choice.custom) {
       // API-key multi-instance: catalog key is kind/slug (or legacy bare kind
       // when reconnecting the original single-instance "default").
-      values.name = resolveApiKeyInstanceName(choice.id, slug, existingProviderNames)
+      values.name = resolveApiKeyInstanceName(choice.id, slug, existingProviderNames);
     }
-    stepIndex += 1
-    showStep()
-  }
+    stepIndex += 1;
+    showStep();
+  };
 
   const back = (): void => {
-    if (stepIndex === 0) return
-    stepIndex -= 1
-    clearError()
-    if (currentStep() === "provider") enterProviderList()
-    else if (isListStep()) enterModelList()
-    showStep()
-  }
+    if (stepIndex === 0) return;
+    stepIndex -= 1;
+    clearError();
+    if (currentStep() === "provider") enterProviderList();
+    else if (isListStep()) enterModelList();
+    showStep();
+  };
 
   function onInput(next: string): void {
-    if (submitting || isListStep()) return
+    if (submitting || isListStep()) return;
     if (isAccountNameStep()) {
-      values.oauthProfile = next
+      values.oauthProfile = next;
       // An edit invalidates whatever the last submit attempt found — the
       // confirm applies to one exact slug, and any inline error is stale
       // the moment the text it described changes.
-      const hadFeedback = oauthProfileError !== null || oauthProfileConfirmPending
-      oauthProfileError = null
-      oauthProfileConfirmPending = false
-      confirmedSlug = null
-      if (hadFeedback) paint()
-      return
+      const hadFeedback = oauthProfileError !== null || oauthProfileConfirmPending;
+      oauthProfileError = null;
+      oauthProfileConfirmPending = false;
+      confirmedSlug = null;
+      if (hadFeedback) paint();
+      return;
     }
-    const field = currentStep() as ProviderField
+    const field = currentStep() as ProviderField;
     if (field === "apiKey") {
-      values.apiKey = secretFromMaskedEdit(values.apiKey, next)
-      const masked = maskEcho(values.apiKey)
-      if (input.value !== masked) input.value = masked
+      values.apiKey = secretFromMaskedEdit(values.apiKey, next);
+      const masked = maskEcho(values.apiKey);
+      if (input.value !== masked) input.value = masked;
     } else {
-      values[field] = next
+      values[field] = next;
     }
     if (submitError !== null) {
-      clearError()
-      paint()
+      clearError();
+      paint();
     }
   }
 
   function onEnter(): void {
-    if (submitting) return
-    advance()
+    if (submitting) return;
+    advance();
   }
 
   function onKey(key: KeyEvent): void {
-    if (settled) return
+    if (settled) return;
     if (key.ctrl === true && (key.name === "c" || key.name === "d")) {
-      key.preventDefault()
-      settle(false)
-      return
+      key.preventDefault();
+      settle(false);
+      return;
     }
     if (submitting) {
-      key.preventDefault()
-      return
+      key.preventDefault();
+      return;
     }
     if (key.ctrl === true && key.name === "s") {
-      if (!saveAnywayOffered) return
-      key.preventDefault()
-      submit(true)
-      return
+      if (!saveAnywayOffered) return;
+      key.preventDefault();
+      submit(true);
+      return;
     }
     if (key.name === "escape") {
-      key.preventDefault()
+      key.preventDefault();
       if (isLoginStep()) {
-        cancelLogin()
+        cancelLogin();
       } else if (isAccountNameStep() && oauthProfileConfirmPending) {
         // Cancel the re-authorize confirm without leaving the step — the
         // operator is about to edit the name, not abandon the provider.
-        oauthProfileConfirmPending = false
-        confirmedSlug = null
-        paint()
+        oauthProfileConfirmPending = false;
+        confirmedSlug = null;
+        paint();
       } else {
-        back()
+        back();
       }
-      return
+      return;
     }
     if (isLoginStep()) {
       if (key.name === "return" || key.name === "enter") {
-        key.preventDefault()
-        advance()
+        key.preventDefault();
+        advance();
       }
-      return
+      return;
     }
-    if (!isListStep()) return
+    if (!isListStep()) return;
 
     if (key.name === "up" || key.name === "k") {
-      key.preventDefault()
-      list = moveActive(list, -1)
-      paint()
-      return
+      key.preventDefault();
+      list = moveActive(list, -1);
+      paint();
+      return;
     }
     if (key.name === "down" || key.name === "j") {
-      key.preventDefault()
-      list = moveActive(list, 1)
-      paint()
-      return
+      key.preventDefault();
+      list = moveActive(list, 1);
+      paint();
+      return;
     }
     if (key.name === "return" || key.name === "enter") {
-      key.preventDefault()
-      advance()
+      key.preventDefault();
+      advance();
     }
   }
 
-  input.on(InputRenderableEvents.ENTER, onEnter)
-  input.on(InputRenderableEvents.INPUT, onInput)
-  renderer.keyInput.on("keypress", onKey)
-  showStep()
+  input.on(InputRenderableEvents.ENTER, onEnter);
+  input.on(InputRenderableEvents.INPUT, onInput);
+  renderer.keyInput.on("keypress", onKey);
+  showStep();
 
-  return done
+  return done;
 }

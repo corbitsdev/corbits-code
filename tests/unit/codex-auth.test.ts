@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { generatePkce, generateState } from "../../src/auth/codex/pkce.js";
-import { accountIdFromIdToken, buildAuthorizeUrl, tokensFromResponse } from "../../src/auth/codex/oauth.js";
+import {
+  accountIdFromIdToken,
+  buildAuthorizeUrl,
+  tokensFromResponse,
+} from "../../src/auth/codex/oauth.js";
 import {
   listCodexProfiles,
   loadCodexProfile,

@@ -7,10 +7,7 @@ const ATTACHMENT_SCHEME = "attachment:";
 const ATTACHMENT_URI_PREFIX = "attachment:///";
 
 /** Marker left in place of a base64 image after aging. */
-export function formatAgedImageMarker(input: {
-  uri: string;
-  mimeType: string;
-}): string {
+export function formatAgedImageMarker(input: { uri: string; mimeType: string }): string {
   return (
     `[image attachment aged: ${input.uri} mimeType=${input.mimeType} — ` +
     `rehydratable from the session store; not resent as base64]`
@@ -32,11 +29,11 @@ export function parseAttachmentId(uri: string): string | undefined {
   return id.length > 0 ? id : undefined;
 }
 
-export type AgedImageMarker = {
+export interface AgedImageMarker {
   uri: string;
   id: string;
   mimeType: string;
-};
+}
 
 /** Parse an aged-image marker, or undefined when the text is not one. */
 export function parseAgedImageMarker(text: string): AgedImageMarker | undefined {
@@ -56,8 +53,6 @@ export function parseAgedImageMarker(text: string): AgedImageMarker | undefined 
 export async function attachmentIdFromBase64(data: string): Promise<string> {
   const bytes = new TextEncoder().encode(data);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const hex = [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `img-${hex.slice(0, 24)}`;
 }

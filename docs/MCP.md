@@ -48,8 +48,8 @@ name:
 ```jsonc
 {
   "mcpServers": {
-    "linear": { "type": "http", "url": "https://mcp.linear.app/mcp" }
-  }
+    "linear": { "type": "http", "url": "https://mcp.linear.app/mcp" },
+  },
 }
 ```
 
@@ -57,9 +57,7 @@ The array form carries the name inline:
 
 ```jsonc
 {
-  "mcpServers": [
-    { "name": "linear", "type": "http", "url": "https://mcp.linear.app/mcp" }
-  ]
+  "mcpServers": [{ "name": "linear", "type": "http", "url": "https://mcp.linear.app/mcp" }],
 }
 ```
 
@@ -71,9 +69,9 @@ A stdio server, for contrast, looks like:
     "files": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/data"],
-      "env": { "LOG_LEVEL": "info" }
-    }
-  }
+      "env": { "LOG_LEVEL": "info" },
+    },
+  },
 }
 ```
 
@@ -85,8 +83,8 @@ command, and no credentials in the config (Linear authorizes over OAuth):
 ```jsonc
 {
   "mcpServers": {
-    "linear": { "url": "https://mcp.linear.app/mcp" }
-  }
+    "linear": { "url": "https://mcp.linear.app/mcp" },
+  },
 }
 ```
 

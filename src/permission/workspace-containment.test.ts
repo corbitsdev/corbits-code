@@ -14,7 +14,11 @@ let evilWorktree = "";
 let outside = "";
 let home = "";
 
-const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+const shellCall = (command: string): ToolCall => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 beforeEach(async () => {
   const stamp = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -102,7 +106,9 @@ test("a dangling symlink under cwd pointing outside denies a child path, and sta
   await symlink(outsideTarget, link);
   const target = join(link, "child.txt");
 
-  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+  expect(
+    resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider),
+  ).toBeUndefined();
 
   const restriction = createPathRestriction(cwd, rootsProvider, home);
   expect(restriction.isRestricted(target, false)).toBe(true);
@@ -113,7 +119,9 @@ test("a dangling symlink under cwd pointing outside denies a child path, and sta
   // ultimately points outside the workspace), re-checked once the target exists.
   await mkdir(outsideTarget, { recursive: true });
   await writeFile(join(outsideTarget, "child.txt"), "s");
-  expect(resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider)).toBeUndefined();
+  expect(
+    resolveWorkspacePath(cwd, join("dangling-link", "child.txt"), rootsProvider),
+  ).toBeUndefined();
 });
 
 test("a symlink loop under cwd is denied by resolveWorkspacePath (CL-6715)", async () => {

@@ -56,9 +56,7 @@ describe("zone registry", () => {
   test("collapse order cuts temporary banners first and never cuts the prompt below base", () => {
     expect(COLLAPSE_ORDER[0]).toBe("command_banner");
     expect(COLLAPSE_ORDER.at(-1)).toBe("prompt");
-    expect(COLLAPSE_ORDER.indexOf("notice")).toBeLessThan(
-      COLLAPSE_ORDER.indexOf("prompt"),
-    );
+    expect(COLLAPSE_ORDER.indexOf("notice")).toBeLessThan(COLLAPSE_ORDER.indexOf("prompt"));
   });
 });
 
@@ -133,9 +131,7 @@ describe("resolveGeometry — agents panel", () => {
     const layout = idle80x24({ visibility: { agents: 50 } });
     // Two independent bounds, and the tighter one wins: the fraction of the
     // terminal the board may take, and whatever the transcript floor leaves.
-    expect(layout.heights.agents).toBeLessThanOrEqual(
-      Math.floor(24 * FLEET_BOARD_CAP_FRACTION),
-    );
+    expect(layout.heights.agents).toBeLessThanOrEqual(Math.floor(24 * FLEET_BOARD_CAP_FRACTION));
     expect(layout.heights.agents).toBeLessThanOrEqual(ZONE_REGISTRY.agents.max);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
   });
@@ -281,9 +277,7 @@ describe("resolveGeometry — task panel", () => {
   });
 
   test("the task panel is ahead of the prompt in collapse order", () => {
-    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(
-      COLLAPSE_ORDER.indexOf("prompt"),
-    );
+    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(COLLAPSE_ORDER.indexOf("prompt"));
   });
 });
 
@@ -372,9 +366,7 @@ describe("resolveGeometry — prompt growth", () => {
   test("prompt cannot expand past floor when overlay closed", () => {
     // Request a huge prompt; must cap so transcript stays ≥ 12.
     const layout = idle80x24({ promptContentRows: 40 });
-    expect(layout.heights.prompt).toBeLessThanOrEqual(
-      Math.floor(24 * PROMPT_CAP_FRACTION),
-    );
+    expect(layout.heights.prompt).toBeLessThanOrEqual(Math.floor(24 * PROMPT_CAP_FRACTION));
     expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
     expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
   });
@@ -485,8 +477,7 @@ describe("resolveGeometry — resize / residual", () => {
     const layout = resolveGeometry({ terminal: { columns: 40, rows: 18 } });
     expect(layout.terminal.rows).toBe(18);
     expect(layout.terminal.columns).toBe(40);
-    const sum =
-      layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
+    const sum = layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
     expect(sum).toBe(18);
   });
 });

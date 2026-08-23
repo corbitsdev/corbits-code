@@ -9,12 +9,17 @@ import {
   removeProviderModelApproval,
 } from "./store.js";
 
-export type ScopedApproval = { scope: GrantScope; tool: string; pattern: string; providerModel?: string };
+export interface ScopedApproval {
+  scope: GrantScope;
+  tool: string;
+  pattern: string;
+  providerModel?: string;
+}
 
-export type PermissionsAdmin = {
+export interface PermissionsAdmin {
   list: () => Promise<ScopedApproval[]>;
   revoke: (entry: ScopedApproval) => Promise<void>;
-};
+}
 
 function toApproval(entry: ScopedApproval): Approval {
   return entry.providerModel !== undefined
