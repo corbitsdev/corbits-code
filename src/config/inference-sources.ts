@@ -15,15 +15,19 @@ import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { resolveDefaultModel } from "./providers.js";
 
-export type BuildSourceContext = {
+export interface BuildSourceContext {
   sessionId: string;
   reasoningEffort?: ReasoningEffort;
   catalog: readonly ProviderCatalogEntry[];
-};
+}
 
 // A resolved provider+model, with optional reasoningEffort — the unit both
 // the primary source and its backups are built from.
-export type ProviderRef = { provider: string; model: string; reasoningEffort?: ReasoningEffort };
+export interface ProviderRef {
+  provider: string;
+  model: string;
+  reasoningEffort?: ReasoningEffort;
+}
 
 function refKey(ref: ProviderRef): string {
   return `${ref.provider}\0${ref.model}`;
@@ -56,11 +60,7 @@ function catalogEntry(
   return catalog.find((e) => e.name === provider);
 }
 
-function maxTokensFor(
-  settings: Settings | undefined,
-  provider: string,
-  model: string,
-): number {
+function maxTokensFor(settings: Settings | undefined, provider: string, _model: string): number {
   const cw = settings?.providers[provider]?.contextWindow;
   if (typeof cw === "number" && cw > 0) return cw;
   return SOURCE_MAX_TOKENS;
@@ -98,6 +98,7 @@ export function buildInferenceSourceForRef(
       id: ref.provider,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
+      sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
@@ -118,6 +119,7 @@ export function buildInferenceSourceForRef(
           ? { apiKey: providerSettings.apiKey }
           : {}),
       model: ref.model,
+      sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
@@ -185,10 +187,7 @@ export function buildSourcesFromRefs(
   return out;
 }
 
-export function prependActiveRef(
-  refs: readonly ProviderRef[],
-  active: ProviderRef,
-): ProviderRef[] {
+export function prependActiveRef(refs: readonly ProviderRef[], active: ProviderRef): ProviderRef[] {
   const without = refs.filter((r) => refKey(r) !== refKey(active));
   return [active, ...without];
 }
@@ -209,9 +208,10 @@ function buildSourceBundle(args: {
     ...(args.reasoningEffort !== undefined ? { reasoningEffort: args.reasoningEffort } : {}),
   };
 
-  const refs = args.settings !== undefined
-    ? prependActiveRef(backupRefsFromSettings(args.settings, [args.head]), args.head)
-    : [args.head];
+  const refs =
+    args.settings !== undefined
+      ? prependActiveRef(backupRefsFromSettings(args.settings, [args.head]), args.head)
+      : [args.head];
 
   const sources = buildSourcesFromRefs(refs, ctx, args.settings);
   const defaultId = args.head.provider;

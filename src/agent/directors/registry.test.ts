@@ -94,7 +94,7 @@ describe("director registry", () => {
   test("packageToProfile maps envelope and spawn", () => {
     const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
     expect(explore.id).toBe("explore");
-    expect(explore.systemPromptRole).toContain('agent id `explore`');
+    expect(explore.systemPromptRole).toContain("agent id `explore`");
     expect(explore.systemPromptRole).toContain(DIRECTOR_REGISTRY.explore.systemPrompt);
     expect(explore.description).toContain("agent id: explore");
     expect(explore.capabilities?.mode).toBe("allow");

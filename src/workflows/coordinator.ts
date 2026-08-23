@@ -15,11 +15,11 @@ export class WorkflowCoordinator {
     private readonly persist: () => void = () => {},
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
-    private readonly stepThrough: boolean = false,
+    private readonly stepThrough = false,
     // When true the directive instructs the agent to use step-tagged
     // submit_output rather than advance_workflow, so workflows drive themselves
     // to completion without requiring explicit tool call selection.
-    private readonly autoAdvance: boolean = false,
+    private readonly autoAdvance = false,
   ) {}
 
   isActive(): boolean {

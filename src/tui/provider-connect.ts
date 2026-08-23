@@ -5,25 +5,25 @@
  * implemented there) — reused via `initialProviderId`, not reimplemented.
  */
 
-import type { Settings } from "../config/settings.js"
-import { buildProviderSubmitHandler } from "./provider-setup-submit.js"
-import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js"
+import type { Settings } from "../config/settings.js";
+import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
+import { runProviderSetup, type ProviderSetupConfig } from "./provider-setup.js";
 
-export type ConnectProviderInput = {
-  readonly providerId: string
-  readonly settingsPath: string
+export interface ConnectProviderInput {
+  readonly providerId: string;
+  readonly settingsPath: string;
   /** Project-local selection file; written after a successful connect. */
-  readonly localSettingsPath: string
-  readonly existing: Settings | null
-  readonly createRenderer?: ProviderSetupConfig["createRenderer"]
-  readonly startLogin?: ProviderSetupConfig["startLogin"]
+  readonly localSettingsPath: string;
+  readonly existing: Settings | null;
+  readonly createRenderer?: ProviderSetupConfig["createRenderer"];
+  readonly startLogin?: ProviderSetupConfig["startLogin"];
 }
 
-export type ConnectProviderResult = {
-  readonly connected: boolean
+export interface ConnectProviderResult {
+  readonly connected: boolean;
   /** Settings/catalog provider name to select once connected (may differ from `providerId` for OAuth). */
-  readonly providerName?: string
-  readonly model?: string
+  readonly providerName?: string;
+  readonly model?: string;
 }
 
 /**
@@ -34,12 +34,12 @@ export type ConnectProviderResult = {
 export async function connectProviderInline(
   input: ConnectProviderInput,
 ): Promise<ConnectProviderResult> {
-  let result: ConnectProviderResult = { connected: false }
+  let result: ConnectProviderResult = { connected: false };
   const submitProvider = buildProviderSubmitHandler(
     input.settingsPath,
     input.existing,
     input.localSettingsPath,
-  )
+  );
 
   const submitted = await runProviderSetup({
     showTelemetryNotice: false,
@@ -51,14 +51,14 @@ export async function connectProviderInline(
       // Persistence and validation (empty-key rejection, connection test,
       // unverified marking) live in the one funnel every provider-setup exit
       // path shares — see buildProviderSubmitHandler.
-      await submitProvider(values, setPhase, opts)
+      await submitProvider(values, setPhase, opts);
       result =
         opts.oauth !== undefined
           ? { connected: true, providerName: opts.oauth.providerName, model: values.model.trim() }
-          : { connected: true, providerName: values.name.trim(), model: values.model.trim() }
+          : { connected: true, providerName: values.name.trim(), model: values.model.trim() };
     },
-  })
+  });
 
-  if (!submitted) return { connected: false }
-  return result
+  if (!submitted) return { connected: false };
+  return result;
 }

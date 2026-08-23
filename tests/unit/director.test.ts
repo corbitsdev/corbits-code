@@ -43,16 +43,46 @@ function makeCapabilities(): ReactorCapabilities & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    infer: () => { calls.push("infer"); return { type: "infer" }; },
-    executeTools: () => { calls.push("executeTools"); return { type: "execute_tools", calls: [] }; },
-    suspend: (gate) => { calls.push("suspend"); return { type: "suspend", gate }; },
-    fork: (mode, forkId) => { calls.push("fork"); return { type: "fork", mode, forkId }; },
-    emit: (eventType, data) => { calls.push("emit"); return { type: "emit", eventType, data }; },
-    reply: (content: string) => { calls.push(`reply:${content}`); return { type: "reply", content }; },
-    checkpoint: (message = "") => { calls.push(`checkpoint:${message}`); return { type: "checkpoint", message }; },
-    compact: (compactor, reason) => { calls.push("compact"); return { type: "compact", compactor, reason }; },
-    wait: () => { calls.push("wait"); return { type: "wait" }; },
-    done: () => { calls.push("done"); return { type: "done" }; },
+    infer: () => {
+      calls.push("infer");
+      return { type: "infer" };
+    },
+    executeTools: () => {
+      calls.push("executeTools");
+      return { type: "execute_tools", calls: [] };
+    },
+    suspend: (gate) => {
+      calls.push("suspend");
+      return { type: "suspend", gate };
+    },
+    fork: (mode, forkId) => {
+      calls.push("fork");
+      return { type: "fork", mode, forkId };
+    },
+    emit: (eventType, data) => {
+      calls.push("emit");
+      return { type: "emit", eventType, data };
+    },
+    reply: (content: string) => {
+      calls.push(`reply:${content}`);
+      return { type: "reply", content };
+    },
+    checkpoint: (message = "") => {
+      calls.push(`checkpoint:${message}`);
+      return { type: "checkpoint", message };
+    },
+    compact: (compactor, reason) => {
+      calls.push("compact");
+      return { type: "compact", compactor, reason };
+    },
+    wait: () => {
+      calls.push("wait");
+      return { type: "wait" };
+    },
+    done: () => {
+      calls.push("done");
+      return { type: "done" };
+    },
   };
 }
 
@@ -84,7 +114,9 @@ function inferenceDoneWithInput(inputTokens: number): ReactorInboundEvent {
     type: "inference.done",
     turn: {
       role: "assistant",
-      content: [{ type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "x.ts" } }],
+      content: [
+        { type: "tool_call", id: "call-1", name: "read_file", arguments: { path: "x.ts" } },
+      ],
       model: "test-model",
       timestamp: 0,
     },
@@ -105,12 +137,17 @@ const manyTurnsState: ReactorState = {
 };
 
 function makeChatDirectorWithContinuation(onContinue: () => void) {
-  return createChatDirector("sys", [], { onTasksChange: () => {}, requestContinuation: onContinue });
+  return createChatDirector("sys", [], {
+    onTasksChange: () => {},
+    requestContinuation: onContinue,
+  });
 }
 
 test("current context over threshold emits compact and a continuation request, not a dead loop", async () => {
   let continuations = 0;
-  const director = makeChatDirectorWithContinuation(() => { continuations++; });
+  const director = makeChatDirectorWithContinuation(() => {
+    continuations++;
+  });
 
   // A cycle whose input usage exceeds ~60% of the default 128k window arms compaction.
   await director.decide(inferenceDoneWithInput(100_000), manyTurnsState, makeCapabilities());
@@ -134,7 +171,9 @@ test("current context over threshold emits compact and a continuation request, n
 
 test("compaction is self-regulating: a cycle back under threshold does not re-compact", async () => {
   let continuations = 0;
-  const director = makeChatDirectorWithContinuation(() => { continuations++; });
+  const director = makeChatDirectorWithContinuation(() => {
+    continuations++;
+  });
 
   // After a compaction truncates history, the next cycle's input usage falls
   // back under the threshold — so no further compaction is armed. This is the
@@ -196,25 +235,31 @@ test("a grok provider no longer pauses a 10-turn productive tool-only streak", a
     provider: { providerName: "xai", model: "grok-4" },
   });
   const grokActions = await runToolOnlyStreak(grokDirector, 10);
-  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+    false,
+  );
 
   const defaultDirector = createChatDirector("sys", [], {
     onTasksChange: () => {},
     provider: { providerName: "openai", model: "gpt-4" },
   });
   const defaultActions = await runToolOnlyStreak(defaultDirector, 10);
-  expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(false);
+  expect(defaultActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+    false,
+  );
 });
 
 test("a grok provider still pauses when the same tool call repeats without progress", async () => {
   const grokDirector = createChatDirector("sys", [], {
-      onTasksChange: () => {},
-      provider: { providerName: "xai", model: "grok-4" },
-    });
+    onTasksChange: () => {},
+    provider: { providerName: "xai", model: "grok-4" },
+  });
   // Identical-consecutive (period 1) needs 5 repeats, not 4 — 4 identical
   // calls in a row is legitimate polling (rerunning a flaky test, checking a
   // build) and must not false-positive. See src/agent/director.test.ts for
   // the dedicated coverage of that distinction.
   const grokActions = await runToolOnlyStreak(grokDirector, 5, /* varyPath */ false);
-  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(true);
+  expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
+    true,
+  );
 });

@@ -18,35 +18,35 @@
  * middle tier: a width that can spare a column gets one, and a width that
  * cannot gets none.
  */
-export const SIDE_MARGIN = 1
+export const SIDE_MARGIN = 1;
 
 /** Below this width every column belongs to content: the gutter goes to zero. */
-export const MARGIN_MIN_COLUMNS = 40
+export const MARGIN_MIN_COLUMNS = 40;
 
 /** Gutter width for a terminal of `columns` columns. */
 export function resolveSideMargin(columns: number): number {
-  const cols = Math.max(0, Math.floor(columns))
-  return cols >= MARGIN_MIN_COLUMNS ? SIDE_MARGIN : 0
+  const cols = Math.max(0, Math.floor(columns));
+  return cols >= MARGIN_MIN_COLUMNS ? SIDE_MARGIN : 0;
 }
 
 /** Columns left for content after both gutters. */
 export function resolveContentWidth(columns: number): number {
-  const cols = Math.max(1, Math.floor(columns))
-  return Math.max(1, cols - resolveSideMargin(cols) * 2)
+  const cols = Math.max(1, Math.floor(columns));
+  return Math.max(1, cols - resolveSideMargin(cols) * 2);
 }
 
 /**
  * Blank rows above the first transcript row. Carved out of the transcript
  * residual by the shell, never out of chrome, so the resolved row budget holds.
  */
-export const TOP_PAD_ROWS = 1
+export const TOP_PAD_ROWS = 1;
 
 /** Below this many transcript rows the pad is not worth the row it costs. */
-export const TOP_PAD_MIN_TRANSCRIPT_ROWS = 6
+export const TOP_PAD_MIN_TRANSCRIPT_ROWS = 6;
 
 /** Top pad rows affordable for a transcript of `transcriptRows` rows. */
 export function resolveTopPadRows(transcriptRows: number): number {
-  return transcriptRows >= TOP_PAD_MIN_TRANSCRIPT_ROWS ? TOP_PAD_ROWS : 0
+  return transcriptRows >= TOP_PAD_MIN_TRANSCRIPT_ROWS ? TOP_PAD_ROWS : 0;
 }
 
 /**
@@ -57,7 +57,7 @@ export function resolveTopPadRows(transcriptRows: number): number {
  * `SIDE_MARGIN` keeps content off the left and right. More than one only
  * reads as the interface floating, so there is no middle tier.
  */
-export const BOTTOM_MARGIN_ROWS = 1
+export const BOTTOM_MARGIN_ROWS = 1;
 
 /**
  * Below this terminal height the margin is not worth the row it costs — the
@@ -65,9 +65,9 @@ export const BOTTOM_MARGIN_ROWS = 1
  * transcript floor, so every yield point in the layout agrees on where a
  * terminal stops being able to afford anything optional.
  */
-export const BOTTOM_MARGIN_MIN_ROWS = 24
+export const BOTTOM_MARGIN_MIN_ROWS = 24;
 
 /** Bottom margin rows affordable for a terminal of `terminalRows` rows. */
 export function resolveBottomMarginRows(terminalRows: number): number {
-  return terminalRows >= BOTTOM_MARGIN_MIN_ROWS ? BOTTOM_MARGIN_ROWS : 0
+  return terminalRows >= BOTTOM_MARGIN_MIN_ROWS ? BOTTOM_MARGIN_ROWS : 0;
 }

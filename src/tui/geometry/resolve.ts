@@ -17,14 +17,14 @@ import {
   type ZoneId,
 } from "./zones.js";
 
-export type TerminalSize = {
+export interface TerminalSize {
   readonly columns: number;
   readonly rows: number;
-};
+}
 
 export type OverlayMode = "closed" | "inset" | "full_shell";
 
-export type OverlayInput = {
+export interface OverlayInput {
   readonly mode: OverlayMode;
   /** Requested overlay body rows (measured by host). Capped by fraction + floor. */
   readonly bodyRows?: number;
@@ -34,13 +34,13 @@ export type OverlayInput = {
    * caller has not measured its actual chrome.
    */
   readonly minBodyRows?: number;
-};
+}
 
 /**
  * Optional chrome visibility. The prompt box is the only always-on zone and
  * defaults to its idle budget. Optional zones default to off (0).
  */
-export type ZoneVisibility = {
+export interface ZoneVisibility {
   /** Transient notice row on (default off). */
   readonly notice?: boolean;
   /** Progress: false/omit = 0; true = 2; or explicit 1|2. */
@@ -56,9 +56,9 @@ export type ZoneVisibility = {
   readonly commandBanner?: boolean | 1 | 2;
   /** Settings notice: true → 1 row, or explicit 1–3. */
   readonly settingsNotice?: boolean | 1 | 2 | 3;
-};
+}
 
-export type GeometryInput = {
+export interface GeometryInput {
   readonly terminal: TerminalSize;
   readonly visibility?: ZoneVisibility;
   /**
@@ -73,19 +73,19 @@ export type GeometryInput = {
    * yet, so reserving rows for one only starves whatever is on screen.
    */
   readonly transcriptFloor?: number;
-};
+}
 
-export type Rect = {
+export interface Rect {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
-};
+}
 
 /** Full-width y-stack only. Kept for API stability with shell callers. */
 export type LayoutMode = "stack";
 
-export type GeometryLayout = {
+export interface GeometryLayout {
   readonly terminal: TerminalSize;
   readonly transcriptHeight: number;
   readonly chromeHeight: number;
@@ -111,7 +111,7 @@ export type GeometryLayout = {
   readonly railWidth: number;
   /** Always 0 — no fleet rail gutter. */
   readonly railGutter: number;
-};
+}
 
 type MutableHeights = Record<ZoneId, number>;
 
@@ -132,19 +132,10 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
 
   const progressRows = boolOrRows(vis.progress, 2);
   const progressDivider =
-    vis.progressDivider === true
-      ? 1
-      : vis.progressDivider === false
-        ? 0
-        : progressRows > 0
-          ? 1
-          : 0;
+    vis.progressDivider === true ? 1 : vis.progressDivider === false ? 0 : progressRows > 0 ? 1 : 0;
 
   const promptRequested = input.promptContentRows ?? PROMPT_IDLE_ROWS;
-  const promptCap = Math.max(
-    PROMPT_BASE_ROWS,
-    Math.floor(rows * PROMPT_CAP_FRACTION),
-  );
+  const promptCap = Math.max(PROMPT_BASE_ROWS, Math.floor(rows * PROMPT_CAP_FRACTION));
   const promptRows = clamp(promptRequested, PROMPT_BASE_ROWS, promptCap);
 
   const heights: MutableHeights = {
@@ -159,22 +150,11 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     agents: clamp(
       boolOrRows(vis.agents, 1),
       0,
-      Math.min(
-        ZONE_REGISTRY.agents.max,
-        Math.max(1, Math.floor(rows * FLEET_BOARD_CAP_FRACTION)),
-      ),
+      Math.min(ZONE_REGISTRY.agents.max, Math.max(1, Math.floor(rows * FLEET_BOARD_CAP_FRACTION))),
     ),
     plugin_banner: vis.pluginBanner ? 1 : 0,
-    command_banner: clamp(
-      boolOrRows(vis.commandBanner, 1),
-      0,
-      ZONE_REGISTRY.command_banner.max,
-    ),
-    settings_notice: clamp(
-      boolOrRows(vis.settingsNotice, 1),
-      0,
-      ZONE_REGISTRY.settings_notice.max,
-    ),
+    command_banner: clamp(boolOrRows(vis.commandBanner, 1), 0, ZONE_REGISTRY.command_banner.max),
+    settings_notice: clamp(boolOrRows(vis.settingsNotice, 1), 0, ZONE_REGISTRY.settings_notice.max),
     transcript: 0,
     overlay_host: 0,
   };
@@ -196,7 +176,8 @@ function transcriptFloorFor(mode: OverlayMode, terminalRows: number): number {
   if (mode === "full_shell") return 0;
   if (mode === "inset") {
     // Proposed ≥ 8 on 24-row; scale gently on shorter terminals.
-    if (terminalRows < 24) return Math.min(OVERLAY_TRANSCRIPT_FLOOR, Math.max(4, terminalRows - 12));
+    if (terminalRows < 24)
+      return Math.min(OVERLAY_TRANSCRIPT_FLOOR, Math.max(4, terminalRows - 12));
     return OVERLAY_TRANSCRIPT_FLOOR;
   }
   // closed: hard floor 12; on tiny terminals attempt what remains after min chrome
@@ -232,10 +213,7 @@ function desiredOverlayHeight(
  * One collapse step: reduce the next collapsible zone.
  * Returns the zone id that was reduced, or null if nothing left to cut.
  */
-function collapseOnce(
-  heights: MutableHeights,
-  collapsed: ZoneId[],
-): ZoneId | null {
+function collapseOnce(heights: MutableHeights, collapsed: ZoneId[]): ZoneId | null {
   for (const id of COLLAPSE_ORDER) {
     const h = heights[id];
     if (h <= 0) continue;
@@ -383,10 +361,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   }
 
   // Cap prompt growth against floor before overlay allocation.
-  const promptCap = Math.max(
-    PROMPT_BASE_ROWS,
-    Math.floor(terminal.rows * PROMPT_CAP_FRACTION),
-  );
+  const promptCap = Math.max(PROMPT_BASE_ROWS, Math.floor(terminal.rows * PROMPT_CAP_FRACTION));
   if (heights.prompt > promptCap) heights.prompt = promptCap;
 
   // An open overlay with real content needs its own border/title rows or it
@@ -404,12 +379,7 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
   const maxIters = 128;
   for (let i = 0; i < maxIters; i++) {
     const chrome = sumChrome(heights);
-    const overlay = desiredOverlayHeight(
-      { ...input, terminal },
-      mode,
-      chrome,
-      floor,
-    );
+    const overlay = desiredOverlayHeight({ ...input, terminal }, mode, chrome, floor);
     const transcript = terminal.rows - chrome - overlay;
     if (transcript >= floor && overlay >= minOverlay) {
       heights.transcript = Math.max(0, transcript);
@@ -421,16 +391,8 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     if (cut === null) {
       // Nothing left — relax the transcript floor rather than leave the
       // overlay under its own render minimum; accept best effort past that.
-      heights.overlay_host = desiredOverlayHeight(
-        { ...input, terminal },
-        mode,
-        chrome,
-        0,
-      );
-      heights.transcript = Math.max(
-        0,
-        terminal.rows - sumChrome(heights) - heights.overlay_host,
-      );
+      heights.overlay_host = desiredOverlayHeight({ ...input, terminal }, mode, chrome, 0);
+      heights.transcript = Math.max(0, terminal.rows - sumChrome(heights) - heights.overlay_host);
       break;
     }
   }
