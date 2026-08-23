@@ -1,5 +1,4 @@
 import type { TurnStatus } from "./session-chrome.js";
-import { detectCharRepetition, type CharRepetitionCheck } from "../subagent/repetition.js";
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
@@ -25,14 +24,6 @@ export interface ShouldAbortForStallArgs {
   readonly streamingType: "text" | "thinking" | "tool" | null;
   readonly activeToolCalls: readonly string[];
 }
-
-// The character-level tail-repetition search (constants, doc comments, and
-// implementation) lives in ../subagent/repetition.ts as `detectCharRepetition`
-// — consolidated there so this module and the subagent module do not each
-// hand-roll their own repetition detector. Thresholds are unchanged.
-export type RepetitionCheck = CharRepetitionCheck;
-
-export const detectRepetition = detectCharRepetition;
 
 /**
  * Whether silence of `thresholdMs` counts as stuck at all. Shared by the notice
