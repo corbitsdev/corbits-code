@@ -15,6 +15,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **Shell file work counts as evidence.** A worker that edited with `sed -i`, a
+  heredoc, or `>` redirection had `editedPaths` empty and salvaged as
+  `never-edited` — a sticky hard block that then refused the parent an identical
+  re-dispatch; one that read with `cat`/`head` salvaged as `incomplete-report`.
+  Both are real work classified as no work. `run_shell` commands are now scanned
+  for file reads and writes using the same subject expansion the auto-shell
+  policy uses, so `bash -c` and `env -S` payloads are inspected rather than
+  trusted.
+
 - **Re-read pressure no longer stops a worker.** The `reReadLimit` thrash hard
   stop and its soft `re-read-nudge` are removed: reading one file four times
   while editing another, paging a large file, or re-running a grep to verify an

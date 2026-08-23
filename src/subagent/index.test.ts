@@ -560,6 +560,33 @@ describe("sub-agent stop helpers", () => {
     ).toBe("no-progress");
   });
 
+  test("shell-only work is not never-edited or incomplete-report (CL-6937)", () => {
+    const shellState = nextThrashState(EMPTY_THRASH_STATE, [
+      { type: "tool_call", name: "run_shell", arguments: { command: "cat src/a.ts" } },
+      {
+        type: "tool_call",
+        name: "run_shell",
+        arguments: { command: "sed -i '' 's/a/b/' src/a.ts" },
+      },
+    ]);
+    const report =
+      "## Summary\nDid it\n\n## Findings\nx\n\n## Blockers\nNone\n\n## Paths\nsrc/a.ts";
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        everHadToolCalls: true,
+        turnsCompleted: 4,
+        maxTurns: 30,
+        consecutiveIdentical: 0,
+        repeatLimit: 5,
+        thrashState: shellState,
+        requireEdit: true,
+        requireEvidence: true,
+        lastAssistantText: report,
+      }),
+    ).toBe("complete");
+  });
+
   test("re-read pressure no longer stops a worker; turn-budget still does (CL-6936)", () => {
     let thrash = EMPTY_THRASH_STATE;
     thrash = nextThrashState(thrash, [
