@@ -114,7 +114,9 @@ describe("detectRepetition", () => {
 
   test("digit-normalized detection catches the monotonic counter (thinking-stream shape)", () => {
     const text = monotonicCounterStream(4000);
-    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, {
+      normalizeDigits: true,
+    });
     expect(hit).not.toBeNull();
     expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_THINKING_REPETITION_CONFIG.repeatThreshold);
   });
@@ -147,7 +149,9 @@ describe("detectRepetition", () => {
 
   test("still catches the monotonic counter with thousands of pairs", () => {
     const text = monotonicCounterStream(4000);
-    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, {
+      normalizeDigits: true,
+    });
     expect(hit).not.toBeNull();
     expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_THINKING_REPETITION_CONFIG.repeatThreshold);
   });
@@ -157,7 +161,9 @@ describe("detectRepetition", () => {
     // within maxFoldedPeriodChars (16), so this shape is (deliberately) still
     // caught: it reads as a stalled step counter, not templated enumeration.
     const text = Array.from({ length: 100 }, (_, i) => `step ${i}/${i + 1} done. `).join("");
-    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, { normalizeDigits: true });
+    const hit = detectRepetition(text, DEFAULT_THINKING_REPETITION_CONFIG, {
+      normalizeDigits: true,
+    });
     expect(hit).not.toBeNull();
   });
 });
@@ -185,17 +191,16 @@ describe("repetition check accounting at the cycle-text cap", () => {
   });
 });
 
-
-  test("flags a loop that injects zero-width spaces between identical windows", () => {
-    // Without format-char stripping, ZWSP breaks byte periodicity and the
-    // detector misses the loop (observed in live thrash fleets).
-    const window = "I'll open the remaining source files and implement the activity preview. ";
-    const zwsp = "\u200B";
-    const text = (window + zwsp).repeat(20);
-    const hit = detectRepetition(text);
-    expect(hit).not.toBeNull();
-    expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_REPETITION_CONFIG.repeatThreshold);
-  });
+test("flags a loop that injects zero-width spaces between identical windows", () => {
+  // Without format-char stripping, ZWSP breaks byte periodicity and the
+  // detector misses the loop (observed in live thrash fleets).
+  const window = "I'll open the remaining source files and implement the activity preview. ";
+  const zwsp = "\u200B";
+  const text = (window + zwsp).repeat(20);
+  const hit = detectRepetition(text);
+  expect(hit).not.toBeNull();
+  expect(hit?.repeats).toBeGreaterThanOrEqual(DEFAULT_REPETITION_CONFIG.repeatThreshold);
+});
 
 describe("folded text pass (DEFAULT_TEXT_FOLDED_REPETITION_CONFIG)", () => {
   // Mirrors run.ts: digit-preserving default first, capped folded pass second.
@@ -307,8 +312,9 @@ describe("trackContentlessGrowth", () => {
   test("a visible-rich window re-arms rather than latching", () => {
     // Enough visible content inside every window keeps the guard quiet no
     // matter how long the stream runs.
-    const tokens = Array.from({ length: 50 }, () =>
-      `${"‌".repeat(100)} some genuinely visible sentence with plenty of characters. `,
+    const tokens = Array.from(
+      { length: 50 },
+      () => `${"‌".repeat(100)} some genuinely visible sentence with plenty of characters. `,
     );
     expect(feed(tokens)).toBe(false);
   });

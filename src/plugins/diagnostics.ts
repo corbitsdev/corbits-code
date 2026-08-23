@@ -7,9 +7,9 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const pluginDiagnosticsLogger = getLogger([LOG_NAMESPACE_ROOT, "plugins"]);
 
-export type PluginLoadDiagnostics = {
+export interface PluginLoadDiagnostics {
   warnings: string[];
-};
+}
 
 export function createPluginLoadDiagnostics(): PluginLoadDiagnostics {
   return { warnings: [] };
@@ -49,9 +49,7 @@ export function stderrPluginWarning(msg: string): void {
  * them — and the count is taken from the deduplicated list so the number can
  * never disagree with the names printed beside it.
  */
-export function formatPluginWarningsSummary(
-  warnings: readonly string[],
-): string | undefined {
+export function formatPluginWarningsSummary(warnings: readonly string[]): string | undefined {
   if (warnings.length === 0) return undefined;
 
   const missedSkills = new Set<string>();

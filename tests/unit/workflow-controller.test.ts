@@ -48,7 +48,6 @@ async function withController(
   }
 }
 
-
 test("starting a workflow attaches a coordinator to the director", async () => {
   await withController([], async (controller, director, _cwd) => {
     const msg = controller.start("review");
@@ -113,7 +112,8 @@ test("attach() passes autoAdvance to coordinator — directive uses submit_outpu
 test("history() entry after workflow completion contains the workflow name and steps", async () => {
   await withController([], async (controller, _director, _cwd) => {
     controller.start("review"); // review has 3 steps
-    const coordinator = (controller as unknown as { coordinator: WorkflowCoordinator }).coordinator!;
+    const coordinator = (controller as unknown as { coordinator: WorkflowCoordinator })
+      .coordinator!;
     // Advance through all steps to trigger workflow-complete.
     coordinator.handleToolDone("advance_workflow", {}, false);
     coordinator.handleToolDone("advance_workflow", {}, false);

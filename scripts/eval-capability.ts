@@ -58,7 +58,7 @@ import {
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const CASES_ROOT = join(REPO_ROOT, "evals", "capability", "cases");
 
-type CliOptions = {
+interface CliOptions {
   caseSelector: string;
   provider?: string;
   model?: string;
@@ -89,7 +89,7 @@ type CliOptions = {
    * Eval/CI override, not single-agent mode. Omitted = skywalker default.
    */
   director?: string;
-};
+}
 
 function printUsage(): void {
   console.log(`Usage: bun scripts/eval-capability.ts --provider <name> --model <id> [options]
@@ -321,8 +321,9 @@ function runCommand(
       resolvePromise({
         exitCode: timedOut ? 124 : (code ?? 1),
         stdout: Buffer.concat(out).toString("utf8"),
-        stderr: Buffer.concat(err).toString("utf8")
-          + (timedOut ? `\n[eval] timed out after ${timeoutMs}ms` : ""),
+        stderr:
+          Buffer.concat(err).toString("utf8") +
+          (timedOut ? `\n[eval] timed out after ${timeoutMs}ms` : ""),
         timedOut,
       });
     });
@@ -410,7 +411,9 @@ export async function initEvalGitRepo(workdir: string): Promise<void> {
   ]);
 }
 
-async function prepareWorkdir(caseDef: EvalCase): Promise<{ workdir: string; capturePath: string }> {
+async function prepareWorkdir(
+  caseDef: EvalCase,
+): Promise<{ workdir: string; capturePath: string }> {
   const fixtureAbs = resolveFixturePath(REPO_ROOT, caseDef.fixture);
   const work = await mkdtemp(join(tmpdir(), `corbits-eval-${caseDef.id}-`));
   await cp(fixtureAbs, work, { recursive: true });
@@ -455,11 +458,11 @@ async function readCapturedBehaviors(capturePath: string): Promise<BehaviorMetri
   }
 }
 
-type HTTPFixture = {
+interface HTTPFixture {
   url: string;
   token: string;
   close: () => Promise<void>;
-};
+}
 
 /**
  * Hermetic local page for web-fetch cases: 127.0.0.1 on an ephemeral port,
@@ -469,8 +472,8 @@ type HTTPFixture = {
 function startHTTPFixture(): Promise<HTTPFixture> {
   const token = randomBytes(8).toString("hex");
   const html =
-    "<html><head><title>Release info</title></head>"
-    + `<body><h1>Release info</h1><p>build code: <code>${token}</code></p></body></html>`;
+    "<html><head><title>Release info</title></head>" +
+    `<body><h1>Release info</h1><p>build code: <code>${token}</code></p></body></html>`;
   return new Promise((resolvePromise, reject) => {
     const server: Server = createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/html" });
@@ -625,8 +628,8 @@ async function runCase(
     workdir = prepared.workdir;
     capturePath = prepared.capturePath;
     console.log(
-      `\n=== ${variant.id} × ${caseDef.id} (${caseDef.tier})`
-        + ` [repeat ${repeat + 1}/${opts.repeats}] — ${caseDef.title}`,
+      `\n=== ${variant.id} × ${caseDef.id} (${caseDef.tier})` +
+        ` [repeat ${repeat + 1}/${opts.repeats}] — ${caseDef.title}`,
     );
     console.log(`provider/model: ${labels.provider} / ${labels.model}`);
     console.log(`workdir: ${workdir}`);
@@ -720,11 +723,11 @@ async function runCase(
       console.log("behaviors: capture missing (no turn stream recorded)");
     } else {
       console.log(
-        `behaviors: shell=${behaviors.shellCommandCount} env=${behaviors.envAssignmentCommandCount}`
-          + ` net=${behaviors.networkCommandCount} web_fetch=${behaviors.webFetchToolCallCount}`
-          + ` shellEdit=${behaviors.editViaShellCount} repeats=${behaviors.repeatedSearchCount}`
-          + ` toolOnlyStreak=${behaviors.longestToolOnlyStreak}`
-          + ` maxTurnMs=${behaviors.maxTurnDurationMs}`,
+        `behaviors: shell=${behaviors.shellCommandCount} env=${behaviors.envAssignmentCommandCount}` +
+          ` net=${behaviors.networkCommandCount} web_fetch=${behaviors.webFetchToolCallCount}` +
+          ` shellEdit=${behaviors.editViaShellCount} repeats=${behaviors.repeatedSearchCount}` +
+          ` toolOnlyStreak=${behaviors.longestToolOnlyStreak}` +
+          ` maxTurnMs=${behaviors.maxTurnDurationMs}`,
       );
     }
 
@@ -738,7 +741,8 @@ async function runCase(
       }
     }
 
-    const verifyEnv: Record<string, string> = httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
+    const verifyEnv: Record<string, string> =
+      httpFixture !== null ? httpFixtureEnv(httpFixture) : {};
     const verify = await runVerify(caseDef, workdir, opts.verifyTimeoutMs, verifyEnv);
     if (verify.output.trim().length > 0) {
       console.log(verify.output.trimEnd());
@@ -749,11 +753,11 @@ async function runCase(
     const budget = evaluateSoftBudget({ maxTurns, turnsUsed });
     const overBudget = budget.overBudget;
     // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
-    let passed =
-      agentExitCode === 0
-      && verify.exitCode === 0
-      && overBudget !== true
-      && requireBehaviorCheck.ok;
+    const passed =
+      agentExitCode === 0 &&
+      verify.exitCode === 0 &&
+      overBudget !== true &&
+      requireBehaviorCheck.ok;
     const preview =
       execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
 
@@ -880,7 +884,7 @@ async function main(): Promise<number> {
   }
 
   const startedAt = new Date().toISOString();
-  const cells: Array<{ caseDef: EvalCase; variant: EvalVariant; repeat: number }> = [];
+  const cells: { caseDef: EvalCase; variant: EvalVariant; repeat: number }[] = [];
   for (const { caseDef, variant } of plan) {
     for (let repeat = 0; repeat < opts.repeats; repeat++) {
       cells.push({ caseDef, variant, repeat });
