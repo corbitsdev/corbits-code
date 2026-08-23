@@ -46,7 +46,12 @@ describe("deleteFilePlugin", () => {
 
     const result = await handler()(call("old.txt"), new AbortController().signal);
 
-    expect(result).toEqual({ callId: "delete-call", content: "Deleted file: old.txt" });
+    // Match on the parts that matter (callId, deletion message, removed
+    // content) rather than the exact hunk header text, which is a
+    // formatChangeDiff implementation detail covered by change-diff.test.ts.
+    expect(result.callId).toBe("delete-call");
+    expect(String(result.content)).toContain("Deleted file: old.txt");
+    expect(String(result.content)).toContain("-old");
     expect(await exists(path)).toBe(false);
   });
 
@@ -107,7 +112,9 @@ describe("deleteFilePlugin", () => {
 
     const result = await tool.handler(call(path), new AbortController().signal);
 
-    expect(result).toEqual({ callId: "delete-call", content: `Deleted file: ${path}` });
+    expect(result.callId).toBe("delete-call");
+    expect(String(result.content)).toContain(`Deleted file: ${path}`);
+    expect(String(result.content)).toContain("-gone");
     expect(await exists(path)).toBe(false);
     await rm(outside, { recursive: true, force: true });
   });
@@ -127,7 +134,9 @@ describe("deleteFilePlugin", () => {
 
     allow = true;
     const result = await tool.handler(call(path), new AbortController().signal);
-    expect(result).toEqual({ callId: "delete-call", content: `Deleted file: ${path}` });
+    expect(result.callId).toBe("delete-call");
+    expect(String(result.content)).toContain(`Deleted file: ${path}`);
+    expect(String(result.content)).toContain("-gone");
     expect(await exists(path)).toBe(false);
     await rm(outside, { recursive: true, force: true });
   });
