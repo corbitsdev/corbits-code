@@ -27,6 +27,8 @@ export interface FleetLane {
   readonly currentToolStartedAt: number | null;
   readonly report?: string;
   readonly error?: string;
+  /** Machine-readable forced-stop reason (see SubAgentSession.stopReason). */
+  readonly stopReason?: string;
 }
 
 interface LaneMark {
@@ -147,14 +149,26 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        changes.push({ kind: "done", line: `${lane.description} done` });
+        // A forced stop (repetition / stall / salvage caps) lands as "done"
+        // with a stopReason — that is attention, not a success line.
+        if (lane.stopReason !== undefined) {
+          changes.push({
+            kind: "failed",
+            line: `${lane.description} stopped — ${clip(lane.stopReason, OUTCOME_CHARS)}`,
+          });
+        } else {
+          changes.push({ kind: "done", line: `${lane.description} done` });
+        }
       } else if (lane.status === "failed") {
         changes.push({
           kind: "failed",
           line: `${lane.description} failed — ${clip(firstLine(lane.error) || "no error reported", OUTCOME_CHARS)}`,
         });
       } else if (lane.status === "cancelled") {
-        changes.push({ kind: "failed", line: `${lane.description} cancelled` });
+        changes.push({
+          kind: "failed",
+          line: `${lane.description} stopped — ${clip(lane.stopReason ?? "cancelled", OUTCOME_CHARS)}`,
+        });
       }
       continue;
     }
