@@ -13,7 +13,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.2.106] - 2026-08-23
+
 ### Agent
+
+- **Resuming a session no longer shows a blank error when the saved history
+  has one corrupted line.** A malformed or schema-invalid line anywhere in the
+  saved transcript used to abort the entire resume load. The TUI's resume view
+  now skips just the bad line (logging it) and still shows the rest of the
+  history; a corrupt file still surfaces as an error during live conversation
+  loading, where correctness matters more than availability.
 
 - **Every stop and nudge is now logged, and so is what each dispatch produced.**
   `interventions.jsonl` in the worker's trace dir records each intervention with
@@ -47,6 +56,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [0.2.105] - 2026-08-23
 
+### Permissions
+
+- **Every approval ask and how it settles is now logged.** `approvals.jsonl`
+  in the session dir records each consequential decision — auto-mode
+  allow/deny, or an operator prompt's allow-once / allow-with-scope / deny /
+  timeout / abort — with the classifier rule that triggered it, queued /
+  displayed / settled timestamps, and shell chain segment count. No command
+  text, path, or credential is ever recorded; writes are fire-and-forget and
+  never fail a run. `scripts/approval-forensics.ts` aggregates across local
+  sessions.
+
 ### Agent
 
 - **Context estimate syncs incrementally on append.** `syncFromTurns` keys
@@ -60,6 +80,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   are scored (writes, successful task completions, plan updates) and pair
   closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
   and skips degenerate assistant text.
+
+- **Prefix-stable summaries and growth hysteresis.** Existing compacted user
+  turns stay byte-identical across later passes; new folds become later summary
+  turns with an assistant spacer so the prompt prefix can stay in the KV cache.
+  After a compact that remains over the high watermark, the governor waits for
+  usage to grow by 10% of the window before re-arming. Overflow recovery still
+  compacts immediately.
 
 ### Plugins
 

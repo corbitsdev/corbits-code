@@ -56,6 +56,30 @@ describe("openai-compatible adapter providerOptions passthrough", () => {
   });
 });
 
+describe("openai-compatible adapter SSE parse count", () => {
+  test("parses a non-DeepSeek frame with JSON.parse exactly once", () => {
+    const adapter = createOpenAICompatibleAdapter(source);
+    adapter.buildRequest(messages, "gpt-5.1", {} as InferenceOptions);
+
+    const sseData = JSON.stringify({
+      choices: [{ delta: { role: "assistant", content: "hi" } }],
+    });
+    const originalParse = JSON.parse;
+    let calls = 0;
+    JSON.parse = ((text: string, reviver?: unknown) => {
+      calls += 1;
+      return (originalParse as (t: string, r?: unknown) => unknown)(text, reviver);
+    }) as typeof JSON.parse;
+    try {
+      adapter.parseResponse(sseData);
+    } finally {
+      JSON.parse = originalParse;
+    }
+
+    expect(calls).toBe(1);
+  });
+});
+
 describe("openai-compatible adapter reasoning_content handling", () => {
   const withThinking: ConversationTurn[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },

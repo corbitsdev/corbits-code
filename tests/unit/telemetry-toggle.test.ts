@@ -262,9 +262,9 @@ test("session_id on captured payloads stays constant across an enable/disable/en
   await getInstance().flush();
 
   expect(capturedBodies.length).toBe(2);
-  const sessionId = capturedBodies[0].batch[0].properties.session_id;
+  const sessionId = capturedBodies[0]!.batch[0]!.properties.session_id;
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
-  expect(capturedBodies[1].batch[0].properties.session_id).toBe(sessionId);
+  expect(capturedBodies[1]!.batch[0]!.properties.session_id).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });

@@ -155,6 +155,7 @@ import { createChatDirector, hydrateTasksFromTurns } from "../agent/director.js"
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createApprovalLog } from "../permission/approval-log.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import { createPermissionsAdmin, type ScopedApproval } from "../permission/admin.js";
 import type { GrantScope } from "../permission/types.js";
@@ -829,6 +830,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         approvalTimeout,
       }),
       persist: createApprovalPersist(config.cwd, activeProviderModel),
+      approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive: true,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
@@ -1508,6 +1510,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             summarize: compactionSummarize,
             summaryContext,
             telemetry: liveTelemetry,
+            // Main-session folds only — exec runner and subagents stay silent.
+            onFolded: (info) => emitter.emit("compaction", info),
           }),
         },
       });

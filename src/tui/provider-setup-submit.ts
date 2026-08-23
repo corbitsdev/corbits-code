@@ -1,3 +1,4 @@
+import { checkOAuthProviderScope } from "../auth/oauth-scope-check.js";
 import {
   mergeProviderIntoSettings,
   saveGlobalSettings,
@@ -52,14 +53,22 @@ export function buildProviderSubmitHandler(
     // persisted here — the same two files /model writes when switching.
     //
     // Unlike a pasted key, this credential was just issued by the real
-    // provider's own OAuth server completing a PKCE round-trip, so the
-    // "unverified" concept the API-key path uses doesn't apply the same way
-    // — there is no separate probe step to skip. What a completed login
-    // does not confirm is that the resulting token actually carries API
-    // scope (vs. e.g. a chat-only subscription), which can still surface as
-    // a first-send auth error; tracked separately rather than faked here
-    // with a flag this path has no real signal for.
+    // provider's own OAuth server completing a PKCE round-trip — so the
+    // token is real. That still doesn't confirm it carries usable API scope
+    // (vs. e.g. a chat-only subscription), which would otherwise surface as
+    // a confusing first-send auth error with no setup-attributable hint.
+    // Probe the provider's own catalog endpoint with the issued token before
+    // treating onboarding as complete: a definitive scope rejection blocks
+    // the submit with an actionable message (mirrors the API-key path's
+    // connection test); a check that could not run at all (network blip,
+    // timeout, rate limit) never blocks — only a proven scope failure does.
     if (oauth !== undefined) {
+      if (!skipValidation) {
+        const scopeCheck = await checkOAuthProviderScope(oauth.kind, oauth.profile);
+        if (scopeCheck.status === "insufficient-scope") {
+          throw new Error(scopeCheck.message);
+        }
+      }
       setPhase("saving");
       const base = existing ?? { providers: {} };
       await saveGlobalSettings(settingsPath, {

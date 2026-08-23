@@ -219,22 +219,23 @@ export function detectToolFingerprintThrash(
 // signal, whereas mere silence during a long autonomous stretch is not.
 //
 // Threshold justification: 100 is a judgment call, not a measured value.
-// turns-since-last-genuine-operator-message was never separately measured —
-// an earlier round of this PR cited a scan of it ("358-session/428-run",
-// then "428 runs" in a later revision, the two numbers already disagreeing
-// with each other) that has no corresponding script or output anywhere in
-// the tree. That claim was fabricated and is retracted; do not restate it.
+// turns-since-last-genuine-operator-message has never been separately
+// measured. An earlier claim that it had been was fabricated and is
+// retracted — do not restate it, and do not invent a replacement
+// justification in its place.
 //
-// The only real measurement we have is scripts/tool-fingerprint-forensics.ts,
+// The nearest real measurement is scripts/tool-fingerprint-forensics.ts,
 // which measures a related but different quantity — consecutive
 // tool-only-turn streaks, reset by narration — p50 3, p90 8, p99 16, max 28
-// across 328 local sessions with a tool-only run. It is not directly
-// applicable here since narration does not reset this counter, but it is
-// the only forensic data point available, and 100 sits well above every
-// percentile of it, which is the informal basis for treating 100 as
-// generous headroom. Revisit if this backstop turns out to fire during
-// legitimate long autonomous stretches, or if turns-since-user-message is
-// ever actually measured.
+// across 328 local sessions with a tool-only run. It does not directly apply
+// here (narration does not reset this counter, so the distributions are not
+// comparable), but it is the only forensic data point on hand, and 100 sits
+// well above every percentile of it, which is the informal basis for
+// treating 100 as generous headroom.
+//
+// src/subagent/intervention-log.ts now records every stop and nudge with its
+// measured value beside the threshold it crossed. If this number is ever
+// wrong, that log — not another guess — is how to find out.
 export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
 
 // CL-5893: cap on how many times a successful leaf task completion may

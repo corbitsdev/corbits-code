@@ -75,7 +75,12 @@ describe("integration — vendored feature carry", () => {
 
       const requests = session.harness.scenario.matchedRequests();
       expect(requests.length).toBeGreaterThan(0);
-      const bodies = await Promise.all(requests.map((r) => r.clone().text()));
+      // HarnessRequest resolves to a body-less fallback shape under this project's
+      // DOM-less lib config, even though it carries a real body at runtime; cast
+      // through the Fetch Request shape to read it.
+      const bodies = await Promise.all(
+        requests.map((r) => (r.clone() as unknown as Request).text()),
+      );
       expect(bodies.some((b) => b.includes(TRANSFORM_MARKER))).toBe(true);
     } finally {
       await closeIntegrationSession(session);
@@ -148,7 +153,12 @@ describe("integration — vendored feature carry", () => {
 
       const requests = harness.scenario.matchedRequests();
       expect(requests.length).toBeGreaterThan(0);
-      const bodies = await Promise.all(requests.map((r) => r.clone().text()));
+      // HarnessRequest resolves to a body-less fallback shape under this project's
+      // DOM-less lib config, even though it carries a real body at runtime; cast
+      // through the Fetch Request shape to read it.
+      const bodies = await Promise.all(
+        requests.map((r) => (r.clone() as unknown as Request).text()),
+      );
       expect(bodies.some((b) => b.includes(NUDGE_MARKER))).toBe(true);
 
       // Prompt-only: the nudge must not be persisted.
