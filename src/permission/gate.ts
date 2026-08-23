@@ -413,14 +413,12 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     tool: string,
     rule: string | undefined,
     outcome: ApprovalOutcomeKind,
-    agentLabel: string | undefined,
   ): void => {
     approvalLog
       .ask({
         tool,
         mode: "auto",
         ...(rule !== undefined ? { rule } : {}),
-        ...(agentLabel !== undefined ? { agentLabel } : {}),
       })
       .settle(outcome);
   };
@@ -494,20 +492,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // a secret path is ask so an explicit one-time approval can pass it.
         const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
         if (shellRule?.effect === "deny") {
-          recordAutoDecision(call.name, shellRule.name, "auto-deny", subAgentIdentity?.description);
+          recordAutoDecision(call.name, shellRule.name, "auto-deny");
           return { allowed: false, reason: shellRule.reason };
         }
         if (shellRule === undefined) {
-          recordAutoDecision(call.name, undefined, "auto-allow", subAgentIdentity?.description);
+          recordAutoDecision(call.name, undefined, "auto-allow");
           return { allowed: true };
         }
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
-        recordAutoDecision(
-          call.name,
-          "auto-allowed-tool",
-          "auto-allow",
-          subAgentIdentity?.description,
-        );
+        recordAutoDecision(call.name, "auto-allowed-tool", "auto-allow");
         return { allowed: true };
       }
       // Any other tool in auto mode (MCP or unknown built-in) is not
@@ -617,12 +610,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         const askRule = anySecret ? "sensitive-path" : isMegaChain ? "mega-chain" : undefined;
 
         if (!interactive || requestApproval === undefined) {
-          recordAutoDecision(
-            request.tool,
-            askRule ?? "non-interactive",
-            "deny",
-            request.agentLabel,
-          );
+          recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
           return {
             allowed: false,
             reason: anySecret
@@ -638,7 +626,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           tool: request.tool,
           mode: "interactive",
           ...(askRule !== undefined ? { rule: askRule } : {}),
-          ...(request.agentLabel !== undefined ? { agentLabel: request.agentLabel } : {}),
           segments: segments.length,
         });
         requestForOperator.markDisplayed = ask.markDisplayed;
@@ -685,7 +672,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       }
 
       if (!interactive || requestApproval === undefined) {
-        recordAutoDecision(request.tool, "non-interactive", "deny", request.agentLabel);
+        recordAutoDecision(request.tool, "non-interactive", "deny");
         return {
           allowed: false,
           reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
@@ -695,7 +682,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       const ask = approvalLog.ask({
         tool: request.tool,
         mode: "interactive",
-        ...(request.agentLabel !== undefined ? { agentLabel: request.agentLabel } : {}),
       });
       request.markDisplayed = ask.markDisplayed;
       const turnId = currentTurnId();
