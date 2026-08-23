@@ -112,7 +112,6 @@ mock.module("../../../src/plugins/secret-guard-plugin.js", () => ({
 mock.module("../../../src/plugins/shell-guard-plugin.js", () => ({
   shellGuardPlugin: () => ({}),
   advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
-  DEFAULT_SHELL_TIMEOUT_MS: 15_000,
 }));
 
 mock.module("../../../src/plugins/read-file-guard-plugin.js", () => ({
