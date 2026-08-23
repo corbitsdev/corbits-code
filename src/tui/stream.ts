@@ -401,9 +401,10 @@ function elapsedLabel(ms: number): string {
 }
 
 /**
- * Reasoning body. While text arrives it wraps into a short inset paragraph of
- * the newest revealed prose (no sideways scroll). Once the turn moves on it
- * collapses to the opening clause; the rest is behind the expand key.
+ * Reasoning body. While text arrives it wraps into a bounded inset paragraph of
+ * the newest revealed prose (no sideways scroll; hard line cap). Once the turn
+ * moves on it collapses to the opening clause; the rest is behind the expand
+ * key.
  *
  * A row with no settled thought (a hydrated transcript, a fixture) has no
  * summary to collapse to and keeps the plain block.
