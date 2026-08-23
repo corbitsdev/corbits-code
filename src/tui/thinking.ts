@@ -4,8 +4,9 @@
  *
  * Reasoning is not the answer, so it never owns the screen. Live text used to
  * ride a single sideways-scrolling row; that was unreadable. Now the newest
- * revealed prose wraps into a few inset lines. Once the turn moves on the row
- * collapses to its opening clause — same expand path as before.
+ * revealed prose wraps into a bounded inset paragraph (hard-capped — never an
+ * unbounded dump). Once the turn moves on the row collapses to its opening
+ * clause — same expand path as before.
  */
 
 import { sliceToWidth, stringWidth, wrapLines } from "./view/height.js";
@@ -28,12 +29,18 @@ export function flattenReasoningText(text: string): string {
  * Characters per second the reveal position advances at while reasoning
  * streams. Picked by printing sample frames at 15/20/28/40/60 chars/sec and
  * reading them back: below ~20 the line feels laggy against a fast model,
- * above ~40 it is back to unreadable. 28 landed as fast-but-legible.
+ * above ~40 it is back to unreadable. 28 landed as fast-but-legible and still
+ * reads well against the taller live preview.
  */
 export const REVEAL_CHARS_PER_SEC = 28;
 
-/** How many wrapped lines a live reasoning preview may claim. */
-export const LIVE_THINKING_MAX_LINES = 3;
+/**
+ * How many wrapped lines a live reasoning preview may claim. Hard bound — the
+ * preview never paints unbounded CoT into the transcript. Raised into the
+ * 8–12 band so mid-turn chain-of-thought is glanceable without inventing a
+ * separate stream lane.
+ */
+export const LIVE_THINKING_MAX_LINES = 10;
 
 /**
  * Advance a reveal position toward the text that has actually arrived, capped

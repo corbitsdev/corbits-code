@@ -38,6 +38,10 @@ describe("turnStateFromEvent", () => {
     expect(
       fold([{ type: "inference.start" }, { type: "inference.thinking.delta" }]).streamingType,
     ).toBe("thinking");
+    // Canonical bridge alias — fixtures may emit thinking.delta directly.
+    expect(fold([{ type: "inference.start" }, { type: "thinking.delta" }]).streamingType).toBe(
+      "thinking",
+    );
   });
 
   test("text deltas accumulate a live token count, thinking deltas do not", () => {
