@@ -56,13 +56,10 @@ describe("Codex tool proxy mount", () => {
   });
 
   test("Codex createAgentToolset strips apply_patch on primary; keeps shell/update_plan", async () => {
+    // Unstubbed createPosixTools: write_file / edit_file / delete_file come from
+    // the real posix + delete-file plugin mount. An empty stub would hide them
+    // and make the DIY-remains assertion meaningless.
     const cwd = mkdtempSync(join(tmpdir(), "corbits-codex-mount-"));
-    spyOn(posixModule, "createPosixTools").mockReturnValue({
-      definitions: [],
-      run: async () => ({ id: "x", content: "" }),
-      dispose: async () => {},
-    } as unknown as ReturnType<typeof posixModule.createPosixTools>);
-
     const { createAgentToolset } = await import("./tools.js");
     const permissionGate = {
       check: async () => ({ allowed: true }),
