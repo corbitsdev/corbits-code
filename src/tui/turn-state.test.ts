@@ -347,7 +347,7 @@ describe("repetition tracking", () => {
   });
 
   test("the captured incident shape (no separator between cycles) flips repeating", () => {
-    const deltas = Array(10)
+    const deltas = Array(30)
       .fill(cycle)
       .map((text) => textDelta(text));
     const s = fold([{ type: "inference.start" }, ...deltas]);
@@ -369,7 +369,7 @@ describe("repetition tracking", () => {
     // in-cycle detection that already fired must stay latched — the model
     // did loop, and a coincidental tool call right after should not erase
     // that fact.
-    const deltas = Array(10)
+    const deltas = Array(30)
       .fill(cycle)
       .map((text) => textDelta(text));
     const looping = fold([{ type: "inference.start" }, ...deltas]);
