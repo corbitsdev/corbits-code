@@ -4,12 +4,12 @@ import { runRg, type RgChild, type SpawnRg } from "./rg-run.js";
 
 const line = "big.txt:1:match line here\n";
 
-type Script = {
+interface Script {
   stdout: string[];
   code: number | null;
   /** When true, fire close before any stdout data (Linux-style race). */
   closeFirst?: boolean;
-};
+}
 
 // A child whose event order is dictated by the test rather than by how the
 // platform happens to schedule pipe reads.

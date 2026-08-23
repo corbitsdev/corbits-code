@@ -6,8 +6,7 @@ import { platform } from "node:os";
 // surfaced link manually. Detached + unref so the opener cannot keep the
 // process alive.
 export function openInBrowser(url: string): void {
-  const command =
-    platform() === "darwin" ? "open" : platform() === "win32" ? "cmd" : "xdg-open";
+  const command = platform() === "darwin" ? "open" : platform() === "win32" ? "cmd" : "xdg-open";
   const args = platform() === "win32" ? ["/c", "start", "", url] : [url];
   try {
     const child = spawn(command, args, { stdio: "ignore", detached: true });

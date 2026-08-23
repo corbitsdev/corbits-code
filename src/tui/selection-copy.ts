@@ -6,20 +6,20 @@
  * handler is copy-on-release without per-pixel noise.
  */
 
-import type { Selection } from "@opentui/core"
-import { writeClipboard, type ClipboardPort } from "./copy-path.js"
+import type { Selection } from "@opentui/core";
+import { writeClipboard, type ClipboardPort } from "./copy-path.js";
 
 /** Minimal deps so unit tests do not need a full AppShell. */
-export type SelectionCopyHost = {
-  readonly clipboard: ClipboardPort
-  readonly flash: (text: string) => void
-  readonly clearSelection: () => void
+export interface SelectionCopyHost {
+  readonly clipboard: ClipboardPort;
+  readonly flash: (text: string) => void;
+  readonly clearSelection: () => void;
 }
 
 /** Slice of OpenTUI Selection used by the copy path. */
-export type FinishedSelection = {
-  readonly isDragging: boolean
-  getSelectedText(): string
+export interface FinishedSelection {
+  readonly isDragging: boolean;
+  getSelectedText(): string;
 }
 
 /**
@@ -34,25 +34,24 @@ export function copyFinishedSelection(
   host: SelectionCopyHost,
   selection: FinishedSelection | Selection,
 ): boolean {
-  if (selection.isDragging) return false
-  const text = selection.getSelectedText()
-  if (text.length === 0) return false
+  if (selection.isDragging) return false;
+  const text = selection.getSelectedText();
+  if (text.length === 0) return false;
 
   // Notice row is one line; always collapse whitespace so multi-line
   // drag-selects do not inject raw newlines into chrome.
-  const oneLine = text.replace(/\s+/g, " ").trim()
-  const preview =
-    oneLine.length > 48 ? `${oneLine.slice(0, 45)}…` : oneLine
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  const preview = oneLine.length > 48 ? `${oneLine.slice(0, 45)}…` : oneLine;
 
   // Clear before the write settles — honesty only gates the flash message.
-  host.clearSelection()
+  host.clearSelection();
   writeClipboard(host.clipboard, text, {
     onSuccess: () => {
-      host.flash(`Copied ${text.length} chars: ${preview}`)
+      host.flash(`Copied ${text.length} chars: ${preview}`);
     },
     onFailure: () => {
-      host.flash("Copy failed")
+      host.flash("Copy failed");
     },
-  })
-  return true
+  });
+  return true;
 }

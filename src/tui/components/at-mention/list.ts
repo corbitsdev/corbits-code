@@ -44,7 +44,11 @@ export async function listPathSuggestions(prefix: string, cwd: string): Promise<
 
       // Reconstruct the path the user would type. For bare-fragment prefixes
       // (no slash) entries are shown relative to cwd so dirPrefix is "".
-      const dirPrefix = endsWithSep ? prefix : hasSlash ? prefix.slice(0, prefix.length - fragment.length) : "";
+      const dirPrefix = endsWithSep
+        ? prefix
+        : hasSlash
+          ? prefix.slice(0, prefix.length - fragment.length)
+          : "";
       matched.push(dirPrefix + entry.name + (entry.isDirectory() ? "/" : ""));
     }
 

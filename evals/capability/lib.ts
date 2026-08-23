@@ -23,23 +23,23 @@ export type EvalTier = "simple" | "complex" | "bait";
  * exceeds `threshold`; baseline comparison flags a bait whose baseline no
  * longer reproduces (honesty check) instead of letting it silently pass.
  */
-export type EvalBait = {
+export interface EvalBait {
   metric: NumericBehaviorMetric;
   threshold: number;
-};
+}
 
 /**
  * Hard bound on a captured numeric behavior metric. The case fails when the
  * metric is outside [min, max] (either bound optional; at least one required).
  * Used for honesty checks (e.g. web-bait must actually call web_fetch).
  */
-export type BehaviorRequirement = {
+export interface BehaviorRequirement {
   metric: NumericBehaviorMetric;
   min?: number;
   max?: number;
-};
+}
 
-export type EvalCase = {
+export interface EvalCase {
   id: string;
   tier: EvalTier;
   title: string;
@@ -62,16 +62,16 @@ export type EvalCase = {
    * case when a bound is violated even if agent exit and verify.sh are green.
    */
   requireBehaviors?: BehaviorRequirement[];
-};
+}
 
 /** Token counters from the product run sink (mirrors TokenUsage shape). */
-export type EvalTokenUsage = {
+export interface EvalTokenUsage {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
   thinking: number;
-};
+}
 
 export const emptyTokenUsage = (): EvalTokenUsage => ({
   input: 0,
@@ -82,12 +82,12 @@ export const emptyTokenUsage = (): EvalTokenUsage => ({
 });
 
 /** One model/provider cell in a multi-variant matrix. */
-export type EvalVariant = {
+export interface EvalVariant {
   /** Stable label for reports (defaults to provider/model). */
   id: string;
   provider?: string;
   model?: string;
-};
+}
 
 /**
  * Recorded when the resolved provider/model for a run cell differs from what
@@ -95,14 +95,14 @@ export type EvalVariant = {
  * kicked in. Present on results even when the run was allowed to proceed via
  * --allow-provider-fallback, so the mismatch stays visible downstream.
  */
-export type ProviderFallbackInfo = {
+export interface ProviderFallbackInfo {
   requestedProvider: string | null;
   requestedModel: string | null;
   resolvedProvider: string;
   resolvedModel: string;
-};
+}
 
-export type CaseResult = {
+export interface CaseResult {
   /** Stable key for baseline compare: variantId::caseId. */
   resultKey: string;
   id: string;
@@ -137,24 +137,24 @@ export type CaseResult = {
   /** Per-cell diagnostics for debugging eval failures; null when unavailable. */
   diagnostics: EvalDiagnostics | null;
   textPreview?: string;
-};
+}
 
-export type EvalDiagnostics = {
+export interface EvalDiagnostics {
   /** Short identity (hash) of the pinned Codex instructions text in use; null for non-Codex providers. */
   codexInstructionsHash: string | null;
   /** Built-in tool names advertised to the model for this run. */
   advertisedTools: readonly string[];
   reasoningEffort: string | null;
-};
+}
 
-export type MetricStats = {
+export interface MetricStats {
   min: number;
   median: number;
   max: number;
-};
+}
 
 /** Per case×variant cell aggregate across repeats. */
-export type CellAggregate = {
+export interface CellAggregate {
   resultKey: string;
   id: string;
   variantId: string;
@@ -166,9 +166,9 @@ export type CellAggregate = {
   passRate: number;
   /** min/median/max per numeric behavior metric, over repeats with behaviors. */
   behaviorStats: Partial<Record<NumericBehaviorMetric, MetricStats>>;
-};
+}
 
-export type EvalRunReport = {
+export interface EvalRunReport {
   version: 3;
   startedAt: string;
   finishedAt: string;
@@ -181,9 +181,9 @@ export type EvalRunReport = {
   cases: CaseResult[];
   aggregates: CellAggregate[];
   totals: EvalRunTotals;
-};
+}
 
-export type EvalRunTotals = {
+export interface EvalRunTotals {
   total: number;
   passed: number;
   failed: number;
@@ -191,17 +191,17 @@ export type EvalRunTotals = {
   turnsUsed: number;
   toolCallCount: number;
   tokenUsage: EvalTokenUsage;
-};
+}
 
-export type BehaviorVerdict = {
+export interface BehaviorVerdict {
   metric: NumericBehaviorMetric;
   baselineMedian: number;
   currentMedian: number;
   /** Directional verdict; "neutral" for informational metrics or no change. */
   verdict: "improve" | "regress" | "neutral";
-};
+}
 
-export type BaselineDelta = {
+export interface BaselineDelta {
   resultKey: string;
   id: string;
   variantId: string;
@@ -214,9 +214,9 @@ export type BaselineDelta = {
   behaviorVerdicts: BehaviorVerdict[];
   /** Set when the case is a bait whose baseline does not reproduce its misbehavior. */
   baitNotReproducing?: string;
-};
+}
 
-export type BaselineCompare = {
+export interface BaselineCompare {
   deltas: BaselineDelta[];
   improved: number;
   regressed: number;
@@ -225,7 +225,7 @@ export type BaselineCompare = {
   behaviorImproved: number;
   behaviorRegressed: number;
   baitFlags: number;
-};
+}
 
 const CASE_FILE = "case.json";
 
@@ -299,10 +299,7 @@ function parseBait(raw: unknown, caseId: string): EvalBait | undefined {
   return { metric, threshold };
 }
 
-function parseRequireBehaviors(
-  raw: unknown,
-  caseId: string,
-): BehaviorRequirement[] | undefined {
+function parseRequireBehaviors(raw: unknown, caseId: string): BehaviorRequirement[] | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (!Array.isArray(raw)) {
     throw new Error(`case ${caseId}: requireBehaviors must be an array`);
@@ -324,9 +321,7 @@ function parseBehaviorRequirement(
   }
   const metric = raw.metric;
   if (typeof metric !== "string" || !isNumericBehaviorMetric(metric)) {
-    throw new Error(
-      `${label}.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`,
-    );
+    throw new Error(`${label}.metric must be one of ${NUMERIC_BEHAVIOR_METRICS.join(", ")}`);
   }
   const hasMin = raw.min !== undefined;
   const hasMax = raw.max !== undefined;
@@ -369,9 +364,7 @@ export function checkBehaviorRequirements(
   if (behaviors === null) {
     return {
       ok: false,
-      failures: [
-        "requireBehaviors set but behavior capture missing (no turn stream recorded)",
-      ],
+      failures: ["requireBehaviors set but behavior capture missing (no turn stream recorded)"],
     };
   }
   const failures: string[] = [];
@@ -482,7 +475,8 @@ export function resolveRequestedProviderModel(
   variant: { provider?: string; model?: string },
   labels: { provider?: string; model?: string },
 ): { provider?: string; model?: string } {
-  const requested = (v?: string): string | undefined => (v === undefined || v === "(default)" ? undefined : v);
+  const requested = (v?: string): string | undefined =>
+    v === undefined || v === "(default)" ? undefined : v;
   return {
     provider: variant.provider ?? requested(labels.provider),
     model: variant.model ?? requested(labels.model),
@@ -589,9 +583,7 @@ function parseMatrixCell(
   provider = provider ?? fallback.provider;
   model = model ?? fallback.model;
   if (provider === undefined || model === undefined) {
-    throw new Error(
-      `matrix cell ${index + 1} "${cell}" must specify both provider and model`,
-    );
+    throw new Error(`matrix cell ${index + 1} "${cell}" must specify both provider and model`);
   }
   const id = label ?? defaultVariantId(provider, model);
   return { id, provider, model };
@@ -601,8 +593,8 @@ function parseMatrixCell(
 export function expandMatrix(
   cases: readonly EvalCase[],
   variants: readonly EvalVariant[],
-): Array<{ caseDef: EvalCase; variant: EvalVariant }> {
-  const out: Array<{ caseDef: EvalCase; variant: EvalVariant }> = [];
+): { caseDef: EvalCase; variant: EvalVariant }[] {
+  const out: { caseDef: EvalCase; variant: EvalVariant }[] = [];
   for (const caseDef of cases) {
     for (const variant of variants) {
       out.push({ caseDef, variant });
@@ -652,10 +644,10 @@ export function summarizeRun(results: readonly CaseResult[]): EvalRunTotals {
  * - turnsUsed > maxTurns → overBudget true
  * When maxTurns is unset, overBudget is null (budget not in force).
  */
-export function evaluateSoftBudget(args: {
-  maxTurns: number | null;
-  turnsUsed: number | null;
-}): { overBudget: boolean | null; budgetError: string | null } {
+export function evaluateSoftBudget(args: { maxTurns: number | null; turnsUsed: number | null }): {
+  overBudget: boolean | null;
+  budgetError: string | null;
+} {
   if (args.maxTurns === null) {
     return { overBudget: null, budgetError: null };
   }
@@ -830,19 +822,14 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
   const provider = typeof raw.provider === "string" ? raw.provider : "(unknown)";
   const model = typeof raw.model === "string" ? raw.model : "(unknown)";
   const variants: EvalVariant[] = Array.isArray(raw.variants)
-    ? raw.variants
-        .filter(isRecord)
-        .map((v, i) => {
-          const id =
-            typeof v.id === "string" && v.id.length > 0
-              ? v.id
-              : `variant-${i}`;
-          return {
-            id,
-            ...(typeof v.provider === "string" ? { provider: v.provider } : {}),
-            ...(typeof v.model === "string" ? { model: v.model } : {}),
-          };
-        })
+    ? raw.variants.filter(isRecord).map((v, i) => {
+        const id = typeof v.id === "string" && v.id.length > 0 ? v.id : `variant-${i}`;
+        return {
+          id,
+          ...(typeof v.provider === "string" ? { provider: v.provider } : {}),
+          ...(typeof v.model === "string" ? { model: v.model } : {}),
+        };
+      })
     : [{ id: defaultVariantId(provider, model), provider, model }];
   const totals =
     isRecord(raw.totals) && typeof raw.totals.total === "number"
@@ -855,9 +842,7 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
           turnsUsed:
             typeof raw.totals.turnsUsed === "number" ? (raw.totals.turnsUsed as number) : 0,
           toolCallCount:
-            typeof raw.totals.toolCallCount === "number"
-              ? (raw.totals.toolCallCount as number)
-              : 0,
+            typeof raw.totals.toolCallCount === "number" ? (raw.totals.toolCallCount as number) : 0,
           tokenUsage: parseTokenUsage(raw.totals.tokenUsage) ?? emptyTokenUsage(),
         }
       : summarizeRun(cases);
@@ -879,10 +864,7 @@ export function parseEvalRunReport(raw: unknown): EvalRunReport {
   };
 }
 
-function behaviorVerdicts(
-  prev: CellAggregate,
-  cur: CellAggregate,
-): BehaviorVerdict[] {
+function behaviorVerdicts(prev: CellAggregate, cur: CellAggregate): BehaviorVerdict[] {
   const verdicts: BehaviorVerdict[] = [];
   for (const metric of NUMERIC_BEHAVIOR_METRICS) {
     const prevStats = prev.behaviorStats[metric];
@@ -940,11 +922,11 @@ export function compareToBaseline(
   let baitFlags = 0;
 
   for (const cur of currentAggregates) {
-    const prev = prevByKey.get(cur.resultKey) ?? (
-      baseline.aggregates.length > 0 && baseline.variants.length <= 1
+    const prev =
+      prevByKey.get(cur.resultKey) ??
+      (baseline.aggregates.length > 0 && baseline.variants.length <= 1
         ? prevById.get(cur.id)
-        : undefined
-    );
+        : undefined);
     if (prev === undefined) {
       deltas.push({
         resultKey: cur.resultKey,
@@ -959,8 +941,8 @@ export function compareToBaseline(
       continue;
     }
     if (
-      options.allowProviderFallback !== true
-      && (prev.provider !== cur.provider || prev.model !== cur.model)
+      options.allowProviderFallback !== true &&
+      (prev.provider !== cur.provider || prev.model !== cur.model)
     ) {
       throw new Error(
         `cannot compare baseline for ${cur.resultKey}: baseline ran on ` +
@@ -986,8 +968,8 @@ export function compareToBaseline(
     let baitNotReproducing: string | undefined;
     if (bait !== undefined && baitReproduces(prev, bait) === false) {
       baitNotReproducing =
-        `bait metric ${bait.metric} median did not exceed ${bait.threshold} on baseline — `
-        + "the case no longer reproduces its misbehavior";
+        `bait metric ${bait.metric} median did not exceed ${bait.threshold} on baseline — ` +
+        "the case no longer reproduces its misbehavior";
       baitFlags++;
     }
     deltas.push({

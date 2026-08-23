@@ -17,10 +17,7 @@ describe("integration — raw-mode stdin and SIGINT", () => {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [stdout, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      proc.exited,
-    ]);
+    const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("GOT_CTRL_C_BYTE");

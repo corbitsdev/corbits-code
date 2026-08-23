@@ -1,9 +1,5 @@
 import { describe, expect, it, afterEach } from "bun:test";
-import {
-  contextWindowFor,
-  hasContextWindowFor,
-  setModelContextWindows,
-} from "./context-window.js";
+import { contextWindowFor, hasContextWindowFor, setModelContextWindows } from "./context-window.js";
 
 describe("contextWindowFor", () => {
   afterEach(() => {

@@ -8,10 +8,10 @@ const MAX_ITEMS = 30;
 const MAX_LINES = 60;
 const MAX_CHARS = 4000;
 
-export type McpResultSummary = {
+export interface McpResultSummary {
   preview: string;
   full: string;
-};
+}
 
 // Fields that make a record recognizable, in priority order.
 const NAME_FIELDS = ["name", "title", "identifier", "label", "key", "summary", "id"];
@@ -23,7 +23,10 @@ function asString(value: unknown): string | null {
   return null;
 }
 
-export type McpRecords = { items: Record<string, unknown>[]; label: string };
+export interface McpRecords {
+  items: Record<string, unknown>[];
+  label: string;
+}
 
 // Pull out the array-of-records an MCP result is "about", if any: a bare array of
 // objects, or the single array-valued key of a list wrapper. Returns null when
@@ -37,13 +40,16 @@ export function extractMcpRecords(content: string): McpRecords | null {
     return null;
   }
   const isRecordArray = (v: unknown): v is Record<string, unknown>[] =>
-    Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "object" && x !== null && !Array.isArray(x));
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((x) => typeof x === "object" && x !== null && !Array.isArray(x));
 
   if (isRecordArray(parsed)) return { items: parsed, label: "items" };
   if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
     const obj = parsed as Record<string, unknown>;
     const primary = primaryArray(obj);
-    if (primary !== null && isRecordArray(primary.items)) return { items: primary.items, label: primary.key };
+    if (primary !== null && isRecordArray(primary.items))
+      return { items: primary.items, label: primary.key };
   }
   return null;
 }
@@ -113,7 +119,7 @@ function primaryArray(obj: Record<string, unknown>): { key: string; items: unkno
 }
 
 function bound(lines: string[]): string {
-  let out = lines.slice(0, MAX_LINES);
+  const out = lines.slice(0, MAX_LINES);
   if (lines.length > MAX_LINES) out.push(`… and ${lines.length - MAX_LINES} more`);
   let text = out.join("\n");
   if (text.length > MAX_CHARS) text = `${text.slice(0, MAX_CHARS)}\n… (truncated)`;
@@ -139,7 +145,10 @@ export function formatMcpResult(content: string): McpResultSummary {
   } catch {
     // Not JSON (plain text / markdown from the server): show it, bounded.
     const lines = trimmed.split("\n");
-    return { preview: `${lines.length} ${lines.length === 1 ? "line" : "lines"}`, full: bound(lines) };
+    return {
+      preview: `${lines.length} ${lines.length === 1 ? "line" : "lines"}`,
+      full: bound(lines),
+    };
   }
 
   if (Array.isArray(parsed)) return summarizeList("items", parsed);
@@ -151,7 +160,9 @@ export function formatMcpResult(content: string): McpResultSummary {
     // A single record (e.g. get_project): show its scalar fields, one per line.
     const lines = Object.entries(obj).map(([k, v]) => {
       const scalar = scalarField(obj, k);
-      return scalar !== null ? `${k}: ${scalar}` : `${k}: ${Array.isArray(v) ? `[${v.length} items]` : "{…}"}`;
+      return scalar !== null
+        ? `${k}: ${scalar}`
+        : `${k}: ${Array.isArray(v) ? `[${v.length} items]` : "{…}"}`;
     });
     return { preview: summarizeItem(obj), full: bound(lines) };
   }

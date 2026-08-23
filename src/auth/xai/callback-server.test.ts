@@ -30,7 +30,8 @@ describe("xAI callback server", () => {
       const result = await wait;
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.err).toBeInstanceOf(Error);
-      if (!result.ok && result.err instanceof Error) expect(result.err.message).toMatch(/state did not match/);
+      if (!result.ok && result.err instanceof Error)
+        expect(result.err.message).toMatch(/state did not match/);
     } finally {
       server.close();
     }

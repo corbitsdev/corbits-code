@@ -21,10 +21,7 @@ const API_KEY_PATTERNS: RegExp[] = [
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
 
 function isSecretEnvKey(key: string): boolean {
-  return (
-    key === "API_KEY" ||
-    /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)
-  );
+  return key === "API_KEY" || /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key);
 }
 
 function replaceAll(text: string, pattern: RegExp, replacement: string): string {

@@ -11,8 +11,18 @@ async function* makeStream(events: ReactorEmittedEvent[]): AsyncIterable<Reactor
 test("consumeStream calls sink for every event", async () => {
   const events: ReactorEmittedEvent[] = [
     { type: "reactor.start", seq: 1, data: {} as unknown as ReactorEmittedEvent["data"] },
-    { type: "inference.tool_call.start", seq: 2, data: { name: "read_file" } as unknown as ReactorEmittedEvent["data"] },
-    { type: "tool.done", seq: 3, data: { result: { callId: "c1", content: "ok", isError: false } } as unknown as ReactorEmittedEvent["data"] },
+    {
+      type: "inference.tool_call.start",
+      seq: 2,
+      data: { name: "read_file" } as unknown as ReactorEmittedEvent["data"],
+    },
+    {
+      type: "tool.done",
+      seq: 3,
+      data: {
+        result: { callId: "c1", content: "ok", isError: false },
+      } as unknown as ReactorEmittedEvent["data"],
+    },
   ];
 
   const received: ReactorEmittedEvent[] = [];

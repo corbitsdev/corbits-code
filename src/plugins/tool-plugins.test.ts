@@ -1,12 +1,31 @@
 import { describe, test, expect } from "bun:test";
-import { collectToolPlugins, isToolPluginActive, resolveToolPlugins, type ToolPluginCandidate } from "./tool-plugins.js";
+import {
+  collectToolPlugins,
+  isToolPluginActive,
+  resolveToolPlugins,
+  type ToolPluginCandidate,
+} from "./tool-plugins.js";
 import type { PluginModule } from "./loader.js";
 
 function toolModule(id: string): PluginModule {
   return {
-    manifest: { id, name: id, kind: "tool", credentials: [{ key: "apiKey", label: "Key", secret: true }] },
+    manifest: {
+      id,
+      name: id,
+      kind: "tool",
+      credentials: [{ key: "apiKey", label: "Key", secret: true }],
+    },
     createToolPlugin: ((opts: { apiKey?: string }) => ({
-      tools: [{ definition: { name: `${id}_tool`, description: "d", inputSchema: { type: "object", properties: {} } }, handler: async () => ({ callId: "c", content: opts.apiKey ?? "" }) }],
+      tools: [
+        {
+          definition: {
+            name: `${id}_tool`,
+            description: "d",
+            inputSchema: { type: "object", properties: {} },
+          },
+          handler: async () => ({ callId: "c", content: opts.apiKey ?? "" }),
+        },
+      ],
     })) as unknown,
   };
 }
@@ -36,7 +55,10 @@ describe("resolveToolPlugins", () => {
     const candidates = collectToolPlugins([toolModule("t1"), toolModule("t2")]);
     const plugins = await resolveToolPlugins({
       candidates,
-      pluginConfig: { t1: { enabled: true, consented: true, credentials: { apiKey: "k1" } }, t2: { enabled: true } },
+      pluginConfig: {
+        t1: { enabled: true, consented: true, credentials: { apiKey: "k1" } },
+        t2: { enabled: true },
+      },
     });
     expect(plugins.length).toBe(1);
     expect(plugins[0]!.tools![0]!.definition.name).toBe("t1_tool");
@@ -44,9 +66,19 @@ describe("resolveToolPlugins", () => {
 
   test("a throwing factory is skipped, not fatal", async () => {
     const candidates: ToolPluginCandidate[] = [
-      { id: "bad", name: "bad", credentials: [], factory: () => { throw new Error("boom"); } },
+      {
+        id: "bad",
+        name: "bad",
+        credentials: [],
+        factory: () => {
+          throw new Error("boom");
+        },
+      },
     ];
-    const plugins = await resolveToolPlugins({ candidates, pluginConfig: { bad: { enabled: true, consented: true } } });
+    const plugins = await resolveToolPlugins({
+      candidates,
+      pluginConfig: { bad: { enabled: true, consented: true } },
+    });
     expect(plugins).toEqual([]);
   });
 });

@@ -16,12 +16,13 @@ import {
   buildSubAgentSystemPrompt,
 } from "./agent/prompts.js";
 
-
 const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 
 test("buildChatSystemPrompt wires into createChatDirector without error", () => {
   const prompt = buildChatSystemPrompt();
-  expect(() => createChatDirector(prompt, minimalToolDefinitions, { onTasksChange: () => {} })).not.toThrow();
+  expect(() =>
+    createChatDirector(prompt, minimalToolDefinitions, { onTasksChange: () => {} }),
+  ).not.toThrow();
 });
 
 test("chat prompt orders base, then tools, then context", () => {
@@ -305,7 +306,9 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
 // stops a fan-out of sub-agents each fanning out further.
 test("default sub-agent prompt forbids recursion", () => {
   const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
+  expect(prompt).toContain(
+    "Only the primary Corbits Code session (or an orchestrator profile) may call `task`",
+  );
   expect(prompt).toContain("You are a worker");
 });
 
@@ -321,7 +324,9 @@ test("orchestrator sub-agent prompt grants the task-tool recursion exception", (
   expect(prompt).toContain('task(agent="');
   // Must NOT contain the default no-recursion line — that would contradict
   // the permission grant in the same appendix.
-  expect(prompt).not.toContain("Only the primary Corbits Code session (or an orchestrator profile) may call `task`");
+  expect(prompt).not.toContain(
+    "Only the primary Corbits Code session (or an orchestrator profile) may call `task`",
+  );
 });
 
 test("sub-agent prompt requires structured report envelope and stick-to-brief", () => {
