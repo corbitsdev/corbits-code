@@ -8,7 +8,12 @@ import { createPermissionGate } from "./gate.js";
 import type { ToolCall } from "@intx/types/runtime";
 
 function readRecords(dir: string): Record<string, unknown>[] {
-  const raw = readFileSync(join(dir, APPROVAL_LOG_FILE), "utf8");
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, APPROVAL_LOG_FILE), "utf8");
+  } catch {
+    return [];
+  }
   return raw
     .split("\n")
     .filter((l) => l.trim().length > 0)
@@ -142,5 +147,61 @@ describe("approval-log wiring through the permission gate", () => {
     expect(record).toBeDefined();
     expect(record!.outcome).toBe("deny");
     expect(record!.rule).toBe("non-interactive");
+  });
+
+  // A sub-agent's `task` dispatch `description` is model-authored free text
+  // (see task-tool.ts) — it is only ever trimmed, never constrained to a
+  // closed set. A prior version of this log carried it verbatim as
+  // `agentLabel`. It must never reach the record: unlike `rule` (a fixed
+  // taxonomy) and `segments` (a count), nothing stops a model from quoting a
+  // path, a token, or secret content it just read into its own summary of the
+  // sub-task.
+  test("never logs a sub-agent's free-text dispatch description, even with a secret embedded", async () => {
+    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
+    const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      cwd,
+      approvalLog: createApprovalLog(dir),
+      requestApproval: async (request) => {
+        request.markDisplayed?.();
+        return { allow: true };
+      },
+    });
+    const secret = "sk-live-9f2c7a1e4b6d8f0a";
+    const verdict = await runWithSubAgentIdentity(
+      { description: `fetch the token ${secret} from the vault and cache it`, cwd },
+      () => gate.evaluate(shellCall("curl https://example.com")),
+    );
+    expect(verdict.allowed).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 10));
+    const [record] = readRecords(dir);
+    expect(record).toBeDefined();
+    expect(Object.keys(record!)).not.toContain("agentLabel");
+    const serialized = JSON.stringify(record);
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("vault");
+  });
+});
+
+describe("approval-log record size cap", () => {
+  test("drops a record that would exceed the hard size cap rather than truncate it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "approval-log-cap-"));
+    const log = createApprovalLog(dir);
+    // `rule` is a real, typed field — simulate a future regression where some
+    // caller stuffs unbounded text into it instead of the closed taxonomy.
+    // The cap must catch that even though the type system would not.
+    const ask = log.ask({
+      tool: "run_shell",
+      mode: "interactive",
+      rule: "x".repeat(10_000),
+    });
+    ask.settle("allow-once");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(readRecords(dir)).toHaveLength(0);
   });
 });

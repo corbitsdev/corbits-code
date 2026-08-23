@@ -10,12 +10,20 @@
  * classifier rule triggers them, or whether a prompt was even auto-allowed by
  * policy rather than shown to the operator (CL-5666).
  *
- * No command text, file content, path, or credential ever appears here — only
- * the tool name, the classifier/auto-shell rule that fired (reusing the rule
- * names already defined in auto-shell-policy.ts and classify.ts, not a new
- * taxonomy), a shell chain's segment count, and timing. Writes are
+ * No command text, file content, path, credential, or any other
+ * model-authored or user-authored free text ever appears here — only the tool
+ * name (a fixed identifier), the classifier/auto-shell rule that fired
+ * (reusing the rule names already defined in auto-shell-policy.ts and
+ * classify.ts, plus a small closed set of additional literals this file
+ * defines for decisions those modules don't otherwise name — never a new
+ * taxonomy), a shell chain's segment count, and timing. Every field is either
+ * a fixed enum, a count, or a timestamp; a sub-agent's free-text dispatch
+ * label was deliberately left out even though it would enable a per-agent
+ * breakdown, because nothing constrains what a model puts in it. Writes are
  * fire-and-forget and never throw: a diagnostic must not be able to fail a
- * run.
+ * run. A hard size cap on the serialized line (see MAX_RECORD_BYTES) is
+ * belt-and-suspenders insurance against a future field reintroducing free
+ * text.
  */
 
 import { appendFile } from "node:fs/promises";
@@ -51,8 +59,6 @@ export interface ApprovalRecord {
    */
   rule?: string;
   mode: ApprovalMode;
-  /** The requesting sub-agent's label, when this request came from one. */
-  agentLabel?: string;
   /** Real (non-comment) shell chain segment count, for run_shell requests. */
   segments?: number;
   outcome: ApprovalOutcomeKind;
@@ -77,9 +83,16 @@ export interface AskEvent {
   tool: string;
   rule?: string;
   mode: ApprovalMode;
-  agentLabel?: string;
   segments?: number;
 }
+
+// Belt-and-suspenders cap on the serialized record. Every field here is
+// either a fixed enum, a count, or a timestamp, so a well-formed line should
+// never come close to this — it exists only so a future field that
+// reintroduces free text (an agent label, a subject, a message) cannot grow
+// this file into a content leak; oversized lines are dropped, not truncated,
+// so no partial secret survives half-written.
+const MAX_RECORD_BYTES = 512;
 
 /** Handle for one in-flight ask, returned by ApprovalLog.ask(). */
 export interface ApprovalAsk {
@@ -118,6 +131,10 @@ export function createApprovalLog(dir: string, now: () => Date = () => new Date(
 
   const append = (record: ApprovalRecord): void => {
     const line = `${JSON.stringify(record)}\n`;
+    if (Buffer.byteLength(line, "utf8") > MAX_RECORD_BYTES) {
+      log.debug?.("approval log record dropped: exceeds max size");
+      return;
+    }
     tail = tail.then(
       () =>
         appendFile(path, line, "utf8").catch((err: unknown) => {
@@ -148,7 +165,6 @@ export function createApprovalLog(dir: string, now: () => Date = () => new Date(
             tool: event.tool,
             ...(event.rule !== undefined ? { rule: event.rule } : {}),
             mode: event.mode,
-            ...(event.agentLabel !== undefined ? { agentLabel: event.agentLabel } : {}),
             ...(event.segments !== undefined ? { segments: event.segments } : {}),
             outcome,
             queuedAt: queuedAt.toISOString(),
