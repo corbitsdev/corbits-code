@@ -25,6 +25,8 @@ import {
   type ChromeLiveState,
 } from "./chrome-state.js";
 import {
+  compactionFoldInfo,
+  compactionNotice,
   grantApproval,
   grantNotice,
   hookNotice,
@@ -396,6 +398,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     config.eventEmitter.off("hook", onHook);
     config.eventEmitter.off("mcp.status", onMcpStatus);
     config.eventEmitter.off("permission.grant", onPermissionGrant);
+    config.eventEmitter.off("compaction", onCompaction);
     bridge.dispose();
     // Cancels any flash still counting down: its expiry repaints, and after
     // teardown that repaint reaches a destroyed text buffer.
@@ -460,6 +463,12 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     if (disposed) return;
     const approval = grantApproval(payload);
     if (approval !== null) show(grantNotice(approval));
+  }
+
+  function onCompaction(payload: unknown): void {
+    if (disposed) return;
+    const info = compactionFoldInfo(payload);
+    if (info !== null) show(compactionNotice(info));
   }
 
   // The renderer already owns the alternate screen and raw mode by this point,
@@ -616,6 +625,7 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   config.eventEmitter.on("hook", onHook);
   config.eventEmitter.on("mcp.status", onMcpStatus);
   config.eventEmitter.on("permission.grant", onPermissionGrant);
+  config.eventEmitter.on("compaction", onCompaction);
 
   return {
     shell,
