@@ -3,11 +3,18 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { withFileMutationLock } from "./file-mutation-lock.js";
 import { applyLineRangeEdit, parseEditFileMode } from "./edit-file-line-range.js";
+import { formatChangeDiff } from "./change-diff.js";
 
 function mutationPath(call: ToolCall): string | undefined {
   if (call.name !== "edit_file" && call.name !== "write_file") return undefined;
   const path = call.arguments.path;
   return typeof path === "string" && path.length > 0 ? path : undefined;
+}
+
+function withDiff(result: ToolResult, path: string, before: string, after: string): ToolResult {
+  const diff = formatChangeDiff(path, before, after);
+  if (diff === undefined) return result;
+  return { ...result, content: `${result.content}\n\n${diff}` };
 }
 
 export function verifyPlugin(): ToolPlugin {
@@ -16,12 +23,13 @@ export function verifyPlugin(): ToolPlugin {
       const lockedPath = mutationPath(call);
       const run = async (): Promise<ToolResult> => {
         let before: string | undefined;
-        if (call.name === "edit_file") {
+        if (call.name === "edit_file" || call.name === "write_file") {
           const path = String(call.arguments.path ?? "");
           try {
             before = await readFile(path, "utf8");
           } catch {
-            // File may not exist yet; edit will likely fail downstream
+            // File may not exist yet (new file / edit will likely fail downstream).
+            before = call.name === "write_file" ? "" : undefined;
           }
         }
 
@@ -39,6 +47,7 @@ export function verifyPlugin(): ToolPlugin {
                 isError: true,
               };
             }
+            return withDiff(result, path, before ?? "", actual);
           } catch (err) {
             return {
               callId: call.id,
@@ -73,6 +82,7 @@ export function verifyPlugin(): ToolPlugin {
                 isError: true,
               };
             }
+            return withDiff(result, path, before, actual);
           } catch (err) {
             return {
               callId: call.id,
