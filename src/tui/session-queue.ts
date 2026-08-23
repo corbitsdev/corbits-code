@@ -9,62 +9,57 @@
  * and no product chord wires it anymore — leave the path for tests/API only.
  */
 
-import type { PendingImageAttachment } from "./image-attachments.js"
+import type { PendingImageAttachment } from "./image-attachments.js";
 
-export type QueueKind = "queue" | "steer"
+export type QueueKind = "queue" | "steer";
 
-export type QueueItem = {
-  readonly id: string
-  readonly text: string
-  readonly kind: QueueKind
-  readonly enqueuedAt: number
+export interface QueueItem {
+  readonly id: string;
+  readonly text: string;
+  readonly kind: QueueKind;
+  readonly enqueuedAt: number;
   /** Images attached to this message, delivered with it at the boundary. */
-  readonly attachments?: readonly PendingImageAttachment[]
+  readonly attachments?: readonly PendingImageAttachment[];
 }
 
-export type RunState = "idle" | "busy"
+export type RunState = "idle" | "busy";
 
-export type SessionQueueState = {
-  readonly run: RunState
-  readonly items: readonly QueueItem[]
+export interface SessionQueueState {
+  readonly run: RunState;
+  readonly items: readonly QueueItem[];
   /** True after interrupt until consumer clears (status flash). */
-  readonly interruptFlash: boolean
+  readonly interruptFlash: boolean;
   /** Monotonic id seed for queue items. */
-  readonly nextId: number
+  readonly nextId: number;
 }
 
-export function createSessionQueue(
-  run: RunState = "idle",
-): SessionQueueState {
+export function createSessionQueue(run: RunState = "idle"): SessionQueueState {
   return {
     run,
     items: [],
     interruptFlash: false,
     nextId: 1,
-  }
+  };
 }
 
 /** Pending badge count (queue + steer share one pool for depth totals). */
 export function badgeCount(state: SessionQueueState): number {
-  return state.items.length
+  return state.items.length;
 }
 
 /** Soft-steer pending count (Enter mid-run). */
 export function steerCount(state: SessionQueueState): number {
-  return state.items.filter((i) => i.kind === "steer").length
+  return state.items.filter((i) => i.kind === "steer").length;
 }
 
 /** Follow-up pending count (Alt+Enter mid-run). */
 export function queueCount(state: SessionQueueState): number {
-  return state.items.filter((i) => i.kind === "queue").length
+  return state.items.filter((i) => i.kind === "queue").length;
 }
 
-export function setRunState(
-  state: SessionQueueState,
-  run: RunState,
-): SessionQueueState {
-  if (state.run === run) return state
-  return { ...state, run }
+export function setRunState(state: SessionQueueState, run: RunState): SessionQueueState {
+  if (state.run === run) return state;
+  return { ...state, run };
 }
 
 /**
@@ -79,9 +74,9 @@ export function enqueue(
   now = Date.now(),
   attachments?: readonly PendingImageAttachment[],
 ): SessionQueueState {
-  const t = text.trim()
+  const t = text.trim();
   if (t.length === 0 && (attachments === undefined || attachments.length === 0)) {
-    return state
+    return state;
   }
   const item: QueueItem = {
     id: `q${state.nextId}`,
@@ -89,13 +84,13 @@ export function enqueue(
     kind,
     enqueuedAt: now,
     ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
-  }
+  };
   return {
     ...state,
     items: [...state.items, item],
     nextId: state.nextId + 1,
     interruptFlash: false,
-  }
+  };
 }
 
 /** Steer = priority enqueue (same badge pool). */
@@ -105,7 +100,7 @@ export function enqueueSteer(
   now = Date.now(),
   attachments?: readonly PendingImageAttachment[],
 ): SessionQueueState {
-  return enqueue(state, text, "steer", now, attachments)
+  return enqueue(state, text, "steer", now, attachments);
 }
 
 /**
@@ -120,14 +115,12 @@ export function interrupt(state: SessionQueueState): SessionQueueState {
     ...state,
     run: "idle",
     interruptFlash: true,
-  }
+  };
 }
 
-export function clearInterruptFlash(
-  state: SessionQueueState,
-): SessionQueueState {
-  if (!state.interruptFlash) return state
-  return { ...state, interruptFlash: false }
+export function clearInterruptFlash(state: SessionQueueState): SessionQueueState {
+  if (!state.interruptFlash) return state;
+  return { ...state, interruptFlash: false };
 }
 
 /**
@@ -135,24 +128,23 @@ export function clearInterruptFlash(
  * an operator who wants an earlier item gone has no path here (see
  * `applyShellCancelLast` for why that is the shipped scope, not an oversight).
  */
-export function cancelLast(
-  state: SessionQueueState,
-): { state: SessionQueueState; item: QueueItem | null } {
-  const item = state.items[state.items.length - 1] ?? null
-  if (item === null) return { state, item: null }
+export function cancelLast(state: SessionQueueState): {
+  state: SessionQueueState;
+  item: QueueItem | null;
+} {
+  const item = state.items[state.items.length - 1] ?? null;
+  if (item === null) return { state, item: null };
   return {
     state: { ...state, items: state.items.slice(0, -1) },
     item,
-  }
+  };
 }
 
 /** Drain order: steers first (FIFO within class), then queue (FIFO). */
-export function drainOrder(
-  state: SessionQueueState,
-): readonly QueueItem[] {
-  const steers = state.items.filter((i) => i.kind === "steer")
-  const queues = state.items.filter((i) => i.kind === "queue")
-  return [...steers, ...queues]
+export function drainOrder(state: SessionQueueState): readonly QueueItem[] {
+  const steers = state.items.filter((i) => i.kind === "steer");
+  const queues = state.items.filter((i) => i.kind === "queue");
+  return [...steers, ...queues];
 }
 
 /**
@@ -163,32 +155,30 @@ export function drainOne(
   state: SessionQueueState,
   kind?: QueueKind,
 ): { state: SessionQueueState; item: QueueItem | null } {
-  const order =
-    kind === undefined
-      ? drainOrder(state)
-      : state.items.filter((i) => i.kind === kind)
-  const item = order[0] ?? null
-  if (!item) return { state, item: null }
+  const order = kind === undefined ? drainOrder(state) : state.items.filter((i) => i.kind === kind);
+  const item = order[0] ?? null;
+  if (!item) return { state, item: null };
   return {
     state: {
       ...state,
       items: state.items.filter((i) => i.id !== item.id),
     },
     item,
-  }
+  };
 }
 
 /** Drain every pending soft-steer; leave follow-ups untouched. */
-export function drainSteersOnly(
-  state: SessionQueueState,
-): { state: SessionQueueState; drained: readonly QueueItem[] } {
-  const drained: QueueItem[] = []
-  let current = state
+export function drainSteersOnly(state: SessionQueueState): {
+  state: SessionQueueState;
+  drained: readonly QueueItem[];
+} {
+  const drained: QueueItem[] = [];
+  let current = state;
   for (;;) {
-    const next = drainOne(current, "steer")
-    if (!next.item) break
-    drained.push(next.item)
-    current = next.state
+    const next = drainOne(current, "steer");
+    if (!next.item) break;
+    drained.push(next.item);
+    current = next.state;
   }
-  return { state: current, drained }
+  return { state: current, drained };
 }

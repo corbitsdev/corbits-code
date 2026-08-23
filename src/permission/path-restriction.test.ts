@@ -57,7 +57,7 @@ test("an empty-string root does not turn containment into allow-all", () => {
   expect(r.isRestricted("/etc/passwd", true)).toBe(true);
 });
 
-test("a root of exactly \"/\" is not the same bug: it is not an allow-all prefix", () => {
+test('a root of exactly "/" is not the same bug: it is not an allow-all prefix', () => {
   // Documents the non-bug: "/" + sep is "//", which "/etc/passwd" does not
   // start with, so an unrelated absolute path stays outside the workspace.
   const r = createPathRestriction(cwd, () => ["/"], home);

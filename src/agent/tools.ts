@@ -25,10 +25,7 @@ import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import { mcpClientToAgentTools } from "../mcp/plugin.js";
 import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
-import {
-  filterMcpServersForConnect,
-  type ProjectTrustStore,
-} from "../trust/project-trust.js";
+import { filterMcpServersForConnect, type ProjectTrustStore } from "../trust/project-trust.js";
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
@@ -64,11 +61,9 @@ const AdvanceWorkflowArgs = type({
 // dismiss the question without answering. The gate owns this distinction so the
 // tool layer can translate each outcome into the right tool result.
 export type OperatorResult =
-  | { kind: "option"; index: number }
-  | { kind: "custom"; text: string }
-  | { kind: "cancel" };
+  { kind: "option"; index: number } | { kind: "custom"; text: string } | { kind: "cancel" };
 
-export type AgentToolsetArgs = {
+export interface AgentToolsetArgs {
   cwd: string;
   permissionGate: PermissionGate;
   onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
@@ -135,7 +130,7 @@ export type AgentToolsetArgs = {
     // sharing this session's cwd. See src/subagent/worktree.ts.
     useWorktree?: boolean;
   };
-};
+}
 
 // Per-server connection state surfaced to the TUI.
 export type MCPServerState =
@@ -144,7 +139,7 @@ export type MCPServerState =
   | { name: string; state: "connected"; tools: string[] }
   | { name: string; state: "failed"; error: string };
 
-export type MCPConnectCallbacks = {
+export interface MCPConnectCallbacks {
   // Headless hosts must not advertise an auth callback they cannot complete.
   // Its presence is how the MCP client decides an OAuth flow is interactive.
   interactiveAuth: boolean;
@@ -153,9 +148,9 @@ export type MCPConnectCallbacks = {
   // Fired after a server connects and its tools are registered, with the new
   // full definition set so the director can advertise it on the next inference.
   onToolsChanged: (definitions: ToolDefinition[]) => void;
-};
+}
 
-export type AgentToolset = {
+export interface AgentToolset {
   // The mutable runner the agent dispatches through. Seeded with posix/web/LSP
   // tools; MCP tools are added as servers connect.
   dynamicRunner: DynamicToolRunner;
@@ -166,7 +161,7 @@ export type AgentToolset = {
   // advertised. Set by the runner once the director + reload loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
   dispose: () => Promise<void>;
-};
+}
 
 export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
   const {
@@ -252,7 +247,7 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
             ? [
                 createSearchAgentsTool(() => {
                   const profiles = args.subAgent!.profiles;
-                  return typeof profiles === "function" ? profiles() : profiles ?? [];
+                  return typeof profiles === "function" ? profiles() : (profiles ?? []);
                 }),
               ]
             : []),
@@ -331,21 +326,27 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // tool_search ranks over the live runner (set just below) and promotes matches
   // through a holder the runner wires up once its advertise/reload loop exists.
   const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
-  let runnerRef: DynamicToolRunner | undefined;
-  const toolIndex = createToolIndex(() => runnerRef?.currentDefinitions() ?? [], advertisedBuiltIns);
+  const runnerHolder: { current?: DynamicToolRunner } = {};
+  const toolIndex = createToolIndex(
+    () => runnerHolder.current?.currentDefinitions() ?? [],
+    advertisedBuiltIns,
+  );
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
-      lookup: (name) => runnerRef?.currentDefinitions().find((d) => d.name === name),
+      lookup: (name) => runnerHolder.current?.currentDefinitions().find((d) => d.name === name),
       promote: (names) => promoter.promote(names),
     }),
   );
 
   const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
-  runnerRef = dynamicRunner;
+  runnerHolder.current = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 
-  const connectMCP = async (callbacks: MCPConnectCallbacks, signal?: AbortSignal): Promise<void> => {
+  const connectMCP = async (
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ): Promise<void> => {
     const toConnect = await filterMcpServersForConnect(mcpServers, {
       source: mcpServersSource,
       store: projectTrust ?? { trustedPluginPaths: [], trustedMcpFingerprints: [] },
@@ -358,7 +359,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const result = await connectMCPServer(config, {
           stderr: "ignore",
           ...(callbacks.interactiveAuth
-            ? { onAuthURL: (name: string, url: string) => callbacks.onStatus({ name, state: "needs-auth", url }) }
+            ? {
+                onAuthURL: (name: string, url: string) =>
+                  callbacks.onStatus({ name, state: "needs-auth", url }),
+              }
             : {}),
           // Mid-session re-auth fires needs-auth again without a later connected
           // event. Re-emit connected only when tools are already registered so
@@ -383,7 +387,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const mcpTools = mcpClientToAgentTools(result.client, permissionGate);
         inheritedMcpTools.push(...mcpTools);
         dynamicRunner.addTools(mcpTools);
-        callbacks.onStatus({ name: config.name, state: "connected", tools: result.client.tools.map((t) => t.name) });
+        callbacks.onStatus({
+          name: config.name,
+          state: "connected",
+          tools: result.client.tools.map((t) => t.name),
+        });
         callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
       }),
     );

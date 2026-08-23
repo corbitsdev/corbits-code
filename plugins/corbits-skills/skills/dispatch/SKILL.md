@@ -29,15 +29,15 @@ If the spec is vague, incomplete, or contradictory: stop and report Blockers. Do
 
 ## Who does what
 
-| Work | Director |
-|---|---|
-| Map the codebase, gather facts | `task(agent="explore")` |
-| Eng plan from a spec (no ship) | `task(agent="plan")` |
-| Write `dispatch.yaml` / `plan.md` / status artifacts (mechanical brief; no product feature work) | `task(agent="build")` |
-| Ship product code + tests | `task(agent="build")` |
-| Review a landed task (defects, evidence, no fix) | `task(agent="critique")` |
-| Architecture judgment before a large DAG | `task(agent="greybeard")` |
-| Independent suite / repro evidence | `task(agent="tester")` |
+| Work                                                                                             | Director                  |
+| ------------------------------------------------------------------------------------------------ | ------------------------- |
+| Map the codebase, gather facts                                                                   | `task(agent="explore")`   |
+| Eng plan from a spec (no ship)                                                                   | `task(agent="plan")`      |
+| Write `dispatch.yaml` / `plan.md` / status artifacts (mechanical brief; no product feature work) | `task(agent="build")`     |
+| Ship product code + tests                                                                        | `task(agent="build")`     |
+| Review a landed task (defects, evidence, no fix)                                                 | `task(agent="critique")`  |
+| Architecture judgment before a large DAG                                                         | `task(agent="greybeard")` |
+| Independent suite / repro evidence                                                               | `task(agent="tester")`    |
 
 Skywalker classifies, spawns, tracks, and synthesizes. Path tools (`write_file` / `edit_file` / `delete_file`) are mounted for DIY tiny/bounded product edits; spawn remains the default for DAG product work. Durable orchestration artifacts (`dispatch.yaml`, `plan.md`, status) still go through build — intern does not have write tools (`INTERN_TOOLS` = run_shell, read_file, list_dir). Do not spawn a blob agent to author the manifest. Do not write those manifests on Skywalker.
 
@@ -104,31 +104,31 @@ The directory name is the task `id`. After a worker runs, the task directory is 
 
 ```yaml
 goal: "Short description of the overall goal"
-status: pending                 # pending | in-progress | completed | failed
-max-parallel: 4                 # hard cap unless the operator asks for more
+status: pending # pending | in-progress | completed | failed
+max-parallel: 4 # hard cap unless the operator asks for more
 created: YYYY-MM-DD
 
 verify:
-  workdir: ""                   # empty = repo root
-  build: "bun run build"        # omit if n/a
+  workdir: "" # empty = repo root
+  build: "bun run build" # omit if n/a
   test: "bun test"
   lint: "bun run lint"
 
 critique:
   enabled: true
-  agent: critique               # always task(agent="critique")
+  agent: critique # always task(agent="critique")
 
 commits:
-  strategy: per-task            # per-task | grouped
+  strategy: per-task # per-task | grouped
   message-source: objective
 
 tasks:
   - id: 1a-extract_auth_module
-    type: feature               # feature | bugfix (omit for explore)
-    agent: build                # build | intern | explore
+    type: feature # feature | bugfix (omit for explore)
+    agent: build # build | intern | explore
     depends-on: []
-    receives: []                # subset of depends-on; default = depends-on
-    status: pending             # pending | dispatched | completed | failed | fixing
+    receives: [] # subset of depends-on; default = depends-on
+    status: pending # pending | dispatched | completed | failed | fixing
     critique:
       enabled: true
 
@@ -194,8 +194,11 @@ Must `task(agent="tester")` for the suite (or intern for one named mechanical co
 Synthesize for the operator:
 
 ## Summary
+
 ## Findings
+
 ## Blockers
+
 ## Paths
 
 Include: what landed, which directors ran, verify evidence, remaining failed/fixing tasks. Mark the run `completed` or `failed`. `manage_tasks` should reflect the same.

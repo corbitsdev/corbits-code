@@ -1,4 +1,8 @@
-import { startOAuthLogin, type OAuthLoginHandle, type StartOAuthLoginOptions } from "../oauth/login.js";
+import {
+  startOAuthLogin,
+  type OAuthLoginHandle,
+  type StartOAuthLoginOptions,
+} from "../oauth/login.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "./constants.js";
 import { startXaiCallbackServer } from "./callback-server.js";
 import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";
