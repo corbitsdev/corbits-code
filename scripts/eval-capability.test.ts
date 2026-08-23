@@ -188,7 +188,6 @@ describe("mapPool", () => {
   test("rejects non-positive concurrency", async () => {
     await expect(mapPool([1], 0, async (item) => item)).rejects.toThrow(/positive integer/);
   });
-
 });
 
 describe("initEvalGitRepo", () => {

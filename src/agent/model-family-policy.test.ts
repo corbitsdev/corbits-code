@@ -3,7 +3,10 @@ import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 
 describe("resolveModelFamilyPolicy", () => {
   test("defaults are permissive for an unrecognized provider", () => {
-    const policy = resolveModelFamilyPolicy({ providerName: "anthropic", model: "claude-sonnet-4" });
+    const policy = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+    });
     expect(policy.family).toBe("default");
     expect(policy.applyGrokFinishBias).toBe(false);
     expect(policy.toolOnlyTurnNudgeAt).toBeGreaterThan(20);
@@ -19,7 +22,10 @@ describe("resolveModelFamilyPolicy", () => {
 
   test("grok finish-bias applies to leaves but not orchestrators", () => {
     const leaf = resolveModelFamilyPolicy({ providerName: "xai/default", orchestrator: false });
-    const orchestrator = resolveModelFamilyPolicy({ providerName: "xai/default", orchestrator: true });
+    const orchestrator = resolveModelFamilyPolicy({
+      providerName: "xai/default",
+      orchestrator: true,
+    });
     expect(leaf.applyGrokFinishBias).toBe(true);
     expect(orchestrator.applyGrokFinishBias).toBe(false);
   });

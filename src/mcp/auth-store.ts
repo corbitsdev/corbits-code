@@ -1,18 +1,21 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthClientInformationFull,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Per-server OAuth state persisted between sessions. Holding the PKCE verifier is
 // necessary because authorization spans a process boundary (browser round-trip);
 // tokens and dynamically-registered client info let later sessions reconnect
 // without any user interaction.
-export type MCPAuthState = {
+export interface MCPAuthState {
   clientInformation?: OAuthClientInformationFull;
   tokens?: OAuthTokens;
   codeVerifier?: string;
-};
+}
 
 export function mcpAuthDir(home: string = homedir()): string {
   return join(home, SETTINGS_DIR_NAME, "mcp-auth");
@@ -26,12 +29,20 @@ function authFilePath(serverName: string, home: string): string {
   return join(mcpAuthDir(home), `${slug}.json`);
 }
 
-export async function loadAuthState(serverName: string, home: string = homedir()): Promise<MCPAuthState> {
+export async function loadAuthState(
+  serverName: string,
+  home: string = homedir(),
+): Promise<MCPAuthState> {
   let raw: string;
   try {
     raw = await readFile(authFilePath(serverName, home), "utf8");
   } catch (err) {
-    if (typeof err === "object" && err !== null && "code" in err && (err as { code?: unknown }).code === "ENOENT") {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code?: unknown }).code === "ENOENT"
+    ) {
       return {};
     }
     throw err;
@@ -65,14 +76,24 @@ async function writeAuthFile(path: string, state: MCPAuthState): Promise<void> {
 // Tokens are credentials, so the directory and file are restricted to the owner.
 // Full replace — prefer updateAuthState when mutating a single field so concurrent
 // writers merge instead of last-writer-wins on a stale snapshot.
-export async function saveAuthState(serverName: string, state: MCPAuthState, home: string = homedir()): Promise<void> {
+export async function saveAuthState(
+  serverName: string,
+  state: MCPAuthState,
+  home: string = homedir(),
+): Promise<void> {
   const path = authFilePath(serverName, home);
   const previous = updateChains.get(path) ?? Promise.resolve();
   const write = previous.then(
     () => writeAuthFile(path, state),
     () => writeAuthFile(path, state),
   );
-  updateChains.set(path, write.then(() => undefined, () => undefined));
+  updateChains.set(
+    path,
+    write.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   await write;
 }
 
@@ -99,6 +120,12 @@ export async function updateAuthState(
       return state;
     },
   );
-  updateChains.set(path, run.then(() => undefined, () => undefined));
+  updateChains.set(
+    path,
+    run.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   return run;
 }
