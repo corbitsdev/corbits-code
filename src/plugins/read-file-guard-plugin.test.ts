@@ -200,7 +200,8 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toContain("     2\tl2");
     expect(result.content).toContain("     3\tl3");
     expect(result.content).not.toContain("     4\tl4");
-    expect(result.content).toContain("Use offset=");
+    expect(result.content).toContain('Use path="tool-output:///');
+    expect(result.content).not.toContain("Use offset=");
   });
 
   test("rejects tool-output URIs when no blob reader is configured", async () => {
@@ -276,5 +277,80 @@ describe("readFileGuardPlugin", () => {
   test("ignores non-read_file calls", async () => {
     const result = await run({ id: "r4", name: "grep", arguments: { pattern: "x" } });
     expect(result.content).toBe("FALLBACK");
+  });
+
+  test("a truncated read never asks the model to re-read the same path (CL-6961)", async () => {
+    await fixture("many-lines.txt", Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"));
+    const plugin = readFileGuardPlugin(dir, {});
+    const middleware = plugin.middleware!(fallback);
+    const result = await middleware(
+      { id: "c1", name: "read_file", arguments: { path: "many-lines.txt", limit: 4 } },
+      neverAbort(),
+    );
+    expect(result.content).not.toContain("Use offset=");
+    expect(String(result.content)).toContain('Use path="tool-output:///');
+    // The literal source path never reappears as the thing to read next.
+    expect(String(result.content)).not.toContain("many-lines.txt");
+  });
+
+  test("following the minted cursor resumes and eventually reads a large file to completion without any repeat call on the original path (CL-6961)", async () => {
+    const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
+    await fixture("huge.txt", lines.join("\n"));
+    const plugin = readFileGuardPlugin(dir, {});
+    const middleware = plugin.middleware!(fallback);
+
+    const pathsRead: string[] = ["huge.txt"];
+    let result = await middleware(
+      { id: "c1", name: "read_file", arguments: { path: "huge.txt" } },
+      neverAbort(),
+    );
+    let seen = 0;
+    let guard = 0;
+    for (;;) {
+      guard++;
+      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken cursor chain
+      const content = String(result.content);
+      const numbered = content.split("\n\n")[0] ?? "";
+      seen += numbered.trimEnd().split("\n").length;
+
+      const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
+      if (match === undefined || match === null) break;
+      const nextPath = match[1] as string;
+      expect(pathsRead).not.toContain(nextPath); // every hop targets a fresh, distinct path
+      pathsRead.push(nextPath);
+
+      result = await middleware(
+        { id: `c${pathsRead.length}`, name: "read_file", arguments: { path: nextPath } },
+        neverAbort(),
+      );
+    }
+
+    expect(seen).toBe(lines.length);
+    expect(pathsRead.length).toBeGreaterThan(1); // it actually paginated
+    // Never told to re-issue a call against the literal original path.
+    expect(pathsRead.filter((p) => p === "huge.txt").length).toBe(1);
+  });
+
+  test("a stale (already-consumed) cursor is rejected rather than silently re-served", async () => {
+    await fixture("stale.txt", Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"));
+    const plugin = readFileGuardPlugin(dir, {});
+    const middleware = plugin.middleware!(fallback);
+    const first = await middleware(
+      { id: "s1", name: "read_file", arguments: { path: "stale.txt", limit: 4 } },
+      neverAbort(),
+    );
+    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(String(first.content));
+    expect(match).not.toBeNull();
+    const cursorPath = (match as RegExpExecArray)[1] as string;
+
+    await middleware({ id: "s2", name: "read_file", arguments: { path: cursorPath } }, neverAbort());
+    // Second use of the same, already-consumed cursor: no blob reader is
+    // configured, so it falls through to the direct tool-output-URI path
+    // and reports the honest error rather than fabricating stale content.
+    const replay = await middleware(
+      { id: "s3", name: "read_file", arguments: { path: cursorPath } },
+      neverAbort(),
+    );
+    expect(replay.isError).toBe(true);
   });
 });
