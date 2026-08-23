@@ -13,6 +13,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Agent
+
+- **Compaction keeps scored work, not retry loops.** Errored tool results are no
+  longer auto-pinned; identical errors collapse to one representative. Anchors
+  are scored (writes, successful task completions, plan updates) and pair
+  closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
+  and skips degenerate assistant text.
+
 ### Plugins
 
 - **`run_shell` no longer defaults to a 15s timeout.** Omitted timeout arms no

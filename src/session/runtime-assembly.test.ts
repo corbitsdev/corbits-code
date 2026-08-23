@@ -263,4 +263,26 @@ describe("createSessionPruningCompactor", () => {
     expect(typeof pruning.apply).toBe("function");
     expect(typeof llm.apply).toBe("function");
   });
+
+  test("forwards summaryContext to summarize in llm mode", async () => {
+    const ctx = { workflow: { name: "build", stepIndex: 1, total: 3 } };
+    let captured: unknown;
+    const summarize = async (_turns: unknown, c?: unknown) => {
+      captured = c;
+      return "summary";
+    };
+    const llm = createSessionPruningCompactor({
+      compactionMode: "llm",
+      summarize,
+      summaryContext: () => ctx,
+    });
+    const now = Date.now();
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    await llm.apply(turns as never, { state: {} as never, trigger: "test" });
+    expect(captured).toBe(ctx);
+  });
 });

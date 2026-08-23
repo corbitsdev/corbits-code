@@ -50,6 +50,25 @@ test("condenseTurns extracts files, tools, and links", () => {
   expect(out).toContain("https://example.com/ticket/42");
 });
 
+test("condenseTurns drops a degenerate repeated assistant tail from the excerpt (CL-6906)", () => {
+  // The live detector needs 16 consecutive repeats of an 8+ char window
+  // (DEFAULT_REPETITION_CONFIG). Ten copies of this phrase was enough
+  // before that raise; twenty still trips it after.
+  const loopPhrase = "we need to check whether the cache key already accounts for locale. ";
+  const loopText = loopPhrase.repeat(20);
+  const healthyNote = "Looked at src/auth.ts and found the missing null check.";
+  const degenerateTurns: ConversationTurn[] = [
+    { role: "user", content: [{ type: "text", text: "please continue" }], timestamp: 1 },
+    { role: "assistant", content: [{ type: "text", text: healthyNote }], timestamp: 2 },
+    { role: "assistant", content: [{ type: "text", text: loopText }], timestamp: 3 },
+  ];
+  const out = condenseTurns(degenerateTurns);
+  // The looping tail is dropped entirely rather than handed to the summarizer.
+  expect(out).not.toContain("cache key already accounts for locale");
+  // A healthy assistant note elsewhere in the same drop still survives.
+  expect(out).toContain(healthyNote);
+});
+
 test("buildSummaryPrompt injects active workflow context", () => {
   const prompt = buildSummaryPrompt(turns(), {
     workflow: { name: "build", stepLabel: "Implement", stepIndex: 2, total: 7 },
@@ -94,4 +113,35 @@ test("model summarizer falls back when the model returns empty text", async () =
   });
   const result = await summarize(turns());
   expect(result).toContain("Tools called");
+});
+
+test("model summarizer marks a failure fallback as distinguishable from a real summary (CL-6906)", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => {
+      throw new Error("model unreachable");
+    },
+  });
+  const result = await summarize(turns());
+  expect(result).toContain("[Model summary unavailable");
+  expect(result).toContain("summary call failed");
+});
+
+test("model summarizer marks an empty-output fallback as distinguishable from a real summary (CL-6906)", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => "",
+  });
+  const result = await summarize(turns());
+  expect(result).toContain("[Model summary unavailable");
+  expect(result).toContain("empty model output");
+});
+
+test("model summarizer does not mark a real summary with the fallback marker", async () => {
+  const summarize = createModelSummarizer({
+    getSource: () => source,
+    complete: async () => "## What Happened\n- read src/auth.ts",
+  });
+  const result = await summarize(turns());
+  expect(result).not.toContain("[Model summary unavailable");
 });
