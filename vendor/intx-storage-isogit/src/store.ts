@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import git from "isomorphic-git";
 import {
   ApprovalSnapshot,
@@ -24,9 +22,15 @@ import {
 } from "@intx/types/audit";
 import { AUTHOR } from "./init";
 import type { CommitSigner } from "./signer";
-import { buildSigningArgs } from "./commit-helpers";
+import {
+  buildSigningArgs,
+  commitDurably,
+  restoreIndexAfterFailedCommit,
+} from "./commit-helpers";
 import { withRepoDirLock } from "./repo-lock";
 import { maybeGCUnderLock, type GCPolicy } from "./gc";
+import { decodeUTF8, flushRuntime, type StorageRuntime } from "./runtime";
+import { hasCode } from "@intx/types";
 
 const TURNS_FILE = "turns.jsonl";
 const PROMPT_FILE = "prompt.jsonl";
@@ -139,20 +143,21 @@ function parseMetadata(raw: unknown): MetadataData {
  * tool). Any non-absence read error still surfaces.
  */
 async function tolerantLog(
+  runtime: StorageRuntime,
   dir: string,
   limit: number,
 ): Promise<Awaited<ReturnType<typeof git.readCommit>>[]> {
   const out: Awaited<ReturnType<typeof git.readCommit>>[] = [];
   let oid: string | undefined;
   try {
-    oid = await git.resolveRef({ fs, dir, ref: "HEAD" });
+    oid = await git.resolveRef({ fs: runtime.fs.git, dir, ref: "HEAD" });
   } catch {
     return out;
   }
   while (oid !== undefined && out.length < limit) {
     let entry: Awaited<ReturnType<typeof git.readCommit>>;
     try {
-      entry = await git.readCommit({ fs, dir, oid });
+      entry = await git.readCommit({ fs: runtime.fs.git, dir, oid });
     } catch (err) {
       if (err instanceof Error && "code" in err && err.code === "NotFoundError")
         break;
@@ -165,10 +170,11 @@ async function tolerantLog(
 }
 
 async function readCommitLog(
+  runtime: StorageRuntime,
   dir: string,
   limit: number,
 ): Promise<ContextCommit[]> {
-  const entries = await tolerantLog(dir, limit);
+  const entries = await tolerantLog(runtime, dir, limit);
   return entries.map((e) => {
     const base = {
       hash: e.oid,
@@ -182,6 +188,13 @@ async function readCommitLog(
 
 const AUDIT_DIR = "state/audit";
 const ERRORS_DIR = "state/errors";
+
+type DurableRecordFile = {
+  filepath: string;
+  directory: string;
+  contents: string;
+  duplicateMessage: string;
+};
 
 const SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
 const UNSAFE_FILENAME_CHARS = /[^a-zA-Z0-9_-]/g;
@@ -208,12 +221,15 @@ function sanitizeCallId(callId: string): string {
   return callId.replace(UNSAFE_FILENAME_CHARS, "_");
 }
 
-async function pathExists(fullPath: string): Promise<boolean> {
+async function pathExists(
+  runtime: StorageRuntime,
+  fullPath: string,
+): Promise<boolean> {
   try {
-    await fs.promises.access(fullPath);
+    await runtime.fs.access(fullPath);
     return true;
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
+    if (hasCode(cause) && cause.code === "ENOENT") {
       return false;
     }
     throw cause;
@@ -233,12 +249,18 @@ function decodeJsonlLines(text: string): unknown[] {
 }
 
 async function readBlobAtCommit(
+  runtime: StorageRuntime,
   dir: string,
   oid: string,
   filepath: string,
 ): Promise<Uint8Array | null> {
   try {
-    const { blob } = await git.readBlob({ fs, dir, oid, filepath });
+    const { blob } = await git.readBlob({
+      fs: runtime.fs.git,
+      dir,
+      oid,
+      filepath,
+    });
     return blob;
   } catch (cause) {
     if (
@@ -248,7 +270,7 @@ async function readBlobAtCommit(
     ) {
       return null;
     }
-    return null;
+    throw cause;
   }
 }
 
@@ -307,13 +329,20 @@ export interface DurableMirrorReads {
 export class IsogitStore
   implements ContextStore, AuditStore, DurableMirrorReads
 {
+  private readonly runtime: StorageRuntime;
   private readonly dir: string;
   private readonly signer: CommitSigner | undefined;
   private readonly gcPolicy: GCPolicy | undefined;
   private pendingConnectorState: ConnectorThreadState | null = null;
   private lastTurns: ConversationTurn[] = [];
 
-  constructor(dir: string, signer?: CommitSigner, gcPolicy?: GCPolicy) {
+  constructor(
+    runtime: StorageRuntime,
+    dir: string,
+    signer?: CommitSigner,
+    gcPolicy?: GCPolicy,
+  ) {
+    this.runtime = runtime;
     this.dir = dir;
     this.signer = signer;
     this.gcPolicy = gcPolicy;
@@ -327,7 +356,100 @@ export class IsogitStore
   // the configured policy. A no-op when no policy was supplied.
   private async maybeGC(): Promise<void> {
     if (this.gcPolicy === undefined) return;
-    await maybeGCUnderLock(this.dir, this.gcPolicy);
+    await maybeGCUnderLock(this.runtime, this.dir, this.gcPolicy);
+  }
+
+  /** Persist append-only record files with retry-safe publication semantics. */
+  private async commitRecordFiles(
+    files: readonly DurableRecordFile[],
+    commitMessage: (count: number) => string,
+  ): Promise<void> {
+    const prepared: {
+      file: DurableRecordFile;
+      exists: boolean;
+      committed: boolean;
+    }[] = [];
+    const headOid = await git.resolveRef({
+      fs: this.runtime.fs.git,
+      dir: this.dir,
+      ref: "HEAD",
+    });
+
+    for (const file of files) {
+      const committedBlob = await readBlobAtCommit(
+        this.runtime,
+        this.dir,
+        headOid,
+        file.filepath,
+      );
+      const committed = committedBlob !== null;
+      if (
+        committedBlob !== null &&
+        decodeUTF8(committedBlob) !== file.contents
+      ) {
+        throw new Error(file.duplicateMessage);
+      }
+
+      const fullPath = this.runtime.path.join(this.dir, file.filepath);
+      try {
+        const existing = await this.runtime.fs.readTextFile(fullPath);
+        if (existing !== file.contents) {
+          throw new Error(file.duplicateMessage);
+        }
+        prepared.push({ file, exists: true, committed });
+      } catch (cause) {
+        if (hasCode(cause) && cause.code === "ENOENT") {
+          prepared.push({ file, exists: false, committed });
+        } else {
+          throw cause;
+        }
+      }
+    }
+
+    try {
+      for (const { file, exists } of prepared) {
+        if (!exists) {
+          await this.runtime.fs.mkdir(file.directory, { recursive: true });
+          await this.runtime.fs.writeFile(
+            this.runtime.path.join(this.dir, file.filepath),
+            file.contents,
+          );
+        }
+        await git.add({
+          fs: this.runtime.fs.git,
+          dir: this.dir,
+          filepath: file.filepath,
+        });
+      }
+
+      const changedCount = prepared.filter(
+        ({ committed }) => !committed,
+      ).length;
+      if (changedCount === 0) {
+        await flushRuntime(this.runtime);
+      } else {
+        await commitDurably(this.runtime, this.dir, {
+          message: commitMessage(changedCount),
+          author: AUTHOR,
+          ...this.signingArgs(),
+        });
+      }
+    } catch (cause) {
+      try {
+        await restoreIndexAfterFailedCommit(
+          this.runtime,
+          this.dir,
+          prepared.map(({ file }) => file.filepath),
+        );
+      } catch (resetCause) {
+        throw new Error("Could not restore the record index after failure", {
+          cause: new AggregateError([cause, resetCause]),
+        });
+      }
+      throw cause;
+    }
+    await this.maybeGC();
+    await flushRuntime(this.runtime);
   }
 
   setConnectorState(state: ConnectorThreadState | null): void {
@@ -340,11 +462,11 @@ export class IsogitStore
     tokenUsage: TokenUsage;
     connectorState: ConnectorThreadState | null;
   }> {
-    const turnsPath = path.join(this.dir, TURNS_FILE);
+    const turnsPath = this.runtime.path.join(this.dir, TURNS_FILE);
 
     let turns: ConversationTurn[] = [];
-    if (await pathExists(turnsPath)) {
-      const text = await fs.promises.readFile(turnsPath, "utf-8");
+    if (await pathExists(this.runtime, turnsPath)) {
+      const text = await this.runtime.fs.readTextFile(turnsPath);
       turns = parseTurns(text);
     }
 
@@ -357,15 +479,15 @@ export class IsogitStore
     tokenUsage: TokenUsage;
     connectorState: ConnectorThreadState | null;
   }> {
-    const metadataPath = path.join(this.dir, METADATA_FILE);
-    if (!(await pathExists(metadataPath))) {
+    const metadataPath = this.runtime.path.join(this.dir, METADATA_FILE);
+    if (!(await pathExists(this.runtime, metadataPath))) {
       return {
         pendingOperations: [],
         tokenUsage: { ...EMPTY_USAGE },
         connectorState: null,
       };
     }
-    const text = await fs.promises.readFile(metadataPath, "utf-8");
+    const text = await this.runtime.fs.readTextFile(metadataPath);
     const parsed: unknown = JSON.parse(text);
     const data = parseMetadata(parsed);
     return {
@@ -379,7 +501,7 @@ export class IsogitStore
     options: { message: string },
     _signal?: AbortSignal,
   ): Promise<ContextCommit> {
-    return withRepoDirLock(this.dir, async () => {
+    return withRepoDirLock(this.runtime, this.dir, async () => {
       const tracked = [
         TURNS_FILE,
         PROMPT_FILE,
@@ -387,32 +509,51 @@ export class IsogitStore
         MANIFEST_FILE,
         METADATA_FILE,
       ];
+      const stagedFilepaths: string[] = [];
       for (const filepath of tracked) {
-        const fullPath = path.join(this.dir, filepath);
-        if (await pathExists(fullPath)) {
-          await git.add({ fs, dir: this.dir, filepath });
+        const fullPath = this.runtime.path.join(this.dir, filepath);
+        if (await pathExists(this.runtime, fullPath)) {
+          stagedFilepaths.push(filepath);
         }
       }
 
-      const blobsDir = path.join(this.dir, TOOL_OUTPUT_DIR);
-      if (await pathExists(blobsDir)) {
-        const entries = await fs.promises.readdir(blobsDir);
+      const blobsDir = this.runtime.path.join(this.dir, TOOL_OUTPUT_DIR);
+      if (await pathExists(this.runtime, blobsDir)) {
+        const entries = await this.runtime.fs.readdir(blobsDir);
         for (const entry of entries) {
+          stagedFilepaths.push(`${TOOL_OUTPUT_DIR}/${entry}`);
+        }
+      }
+
+      let oid: string;
+      try {
+        for (const filepath of stagedFilepaths) {
           await git.add({
-            fs,
+            fs: this.runtime.fs.git,
             dir: this.dir,
-            filepath: `${TOOL_OUTPUT_DIR}/${entry}`,
+            filepath,
           });
         }
-      }
 
-      const oid = await git.commit({
-        fs,
-        dir: this.dir,
-        message: options.message,
-        author: AUTHOR,
-        ...this.signingArgs(),
-      });
+        oid = await commitDurably(this.runtime, this.dir, {
+          message: options.message,
+          author: AUTHOR,
+          ...this.signingArgs(),
+        });
+      } catch (cause) {
+        try {
+          await restoreIndexAfterFailedCommit(
+            this.runtime,
+            this.dir,
+            stagedFilepaths,
+          );
+        } catch (resetCause) {
+          throw new Error("Could not restore the context index after failure", {
+            cause: new AggregateError([cause, resetCause]),
+          });
+        }
+        throw cause;
+      }
 
       const described = await this.describeHead(oid, options.message);
       await this.maybeGC();
@@ -424,7 +565,11 @@ export class IsogitStore
     expectedOid: string,
     message: string,
   ): Promise<ContextCommit> {
-    const entries = await git.log({ fs, dir: this.dir, depth: 2 });
+    const entries = await git.log({
+      fs: this.runtime.fs.git,
+      dir: this.dir,
+      depth: 2,
+    });
     const entry = entries[0];
     if (entry === undefined || entry.oid !== expectedOid) {
       throw new Error(
@@ -441,20 +586,26 @@ export class IsogitStore
   }
 
   async branch(name: string, _signal?: AbortSignal): Promise<void> {
-    await git.branch({ fs, dir: this.dir, ref: name });
+    await git.branch({ fs: this.runtime.fs.git, dir: this.dir, ref: name });
+    await flushRuntime(this.runtime);
   }
 
   async log(limit?: number, _signal?: AbortSignal): Promise<ContextCommit[]> {
-    return readCommitLog(this.dir, limit ?? 10);
+    return readCommitLog(this.runtime, this.dir, limit ?? 10);
   }
 
   async readAt(
     hash: string,
     _signal?: AbortSignal,
   ): Promise<ConversationTurn[]> {
-    const blob = await readBlobAtCommit(this.dir, hash, TURNS_FILE);
+    const blob = await readBlobAtCommit(
+      this.runtime,
+      this.dir,
+      hash,
+      TURNS_FILE,
+    );
     if (blob === null) return [];
-    const text = new TextDecoder().decode(blob);
+    const text = decodeUTF8(blob);
     return parseTurns(text);
   }
 
@@ -466,23 +617,22 @@ export class IsogitStore
   ): Promise<void> {
     const safeKey = sanitizeCallId(key);
     const filename = `${safeKey}${blobExtensionFor(contentType)}`;
-    const dirPath = path.join(this.dir, TOOL_OUTPUT_DIR);
-    await fs.promises.mkdir(dirPath, { recursive: true });
-    await fs.promises.writeFile(path.join(dirPath, filename), bytes);
+    const dirPath = this.runtime.path.join(this.dir, TOOL_OUTPUT_DIR);
+    await this.runtime.fs.mkdir(dirPath, { recursive: true });
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(dirPath, filename),
+      bytes,
+    );
   }
 
   async readBlob(key: string, _signal?: AbortSignal): Promise<Uint8Array> {
     const safeKey = sanitizeCallId(key);
-    const dirPath = path.join(this.dir, TOOL_OUTPUT_DIR);
+    const dirPath = this.runtime.path.join(this.dir, TOOL_OUTPUT_DIR);
     let entries: string[];
     try {
-      entries = await fs.promises.readdir(dirPath);
+      entries = await this.runtime.fs.readdir(dirPath);
     } catch (cause) {
-      if (
-        cause instanceof Error &&
-        "code" in cause &&
-        cause.code === "ENOENT"
-      ) {
+      if (hasCode(cause) && cause.code === "ENOENT") {
         throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
       }
       throw cause;
@@ -494,16 +644,15 @@ export class IsogitStore
     if (match === undefined) {
       throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
     }
-    const buf = await fs.promises.readFile(path.join(dirPath, match));
-    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    return this.runtime.fs.readFile(this.runtime.path.join(dirPath, match));
   }
 
   async writePrompt(
     turns: ConversationTurn[],
     _signal?: AbortSignal,
   ): Promise<void> {
-    await fs.promises.writeFile(
-      path.join(this.dir, PROMPT_FILE),
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(this.dir, PROMPT_FILE),
       encodeJsonlLines(turns),
     );
   }
@@ -512,8 +661,8 @@ export class IsogitStore
     turn: AssistantTurn,
     _signal?: AbortSignal,
   ): Promise<void> {
-    await fs.promises.writeFile(
-      path.join(this.dir, RESPONSE_FILE),
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(this.dir, RESPONSE_FILE),
       encodeJsonlLines([turn]),
     );
   }
@@ -522,8 +671,8 @@ export class IsogitStore
     records: TransformRecordType[],
     _signal?: AbortSignal,
   ): Promise<void> {
-    await fs.promises.writeFile(
-      path.join(this.dir, MANIFEST_FILE),
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(this.dir, MANIFEST_FILE),
       encodeJsonlLines(records),
     );
   }
@@ -532,8 +681,8 @@ export class IsogitStore
     turns: ConversationTurn[],
     _signal?: AbortSignal,
   ): Promise<void> {
-    await fs.promises.writeFile(
-      path.join(this.dir, TURNS_FILE),
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(this.dir, TURNS_FILE),
       encodeJsonlLines(turns),
     );
     // Advance the in-memory marker only after the durable write succeeds.
@@ -564,8 +713,8 @@ export class IsogitStore
       tokenUsage: metadata.tokenUsage,
       connectorState: this.pendingConnectorState,
     };
-    await fs.promises.writeFile(
-      path.join(this.dir, METADATA_FILE),
+    await this.runtime.fs.writeFile(
+      this.runtime.path.join(this.dir, METADATA_FILE),
       JSON.stringify(payload, null, 2),
     );
   }
@@ -575,13 +724,13 @@ export class IsogitStore
     _signal?: AbortSignal,
   ): Promise<TransformRecordType[]> {
     if (limit <= 0) return [];
-    const entries = await tolerantLog(this.dir, limit);
+    const entries = await tolerantLog(this.runtime, this.dir, limit);
     const collected: TransformRecordType[] = [];
     for (const entry of entries) {
       let blob: Uint8Array;
       try {
         ({ blob } = await git.readBlob({
-          fs,
+          fs: this.runtime.fs.git,
           dir: this.dir,
           oid: entry.oid,
           filepath: MANIFEST_FILE,
@@ -589,7 +738,7 @@ export class IsogitStore
       } catch {
         continue;
       }
-      const text = new TextDecoder().decode(blob);
+      const text = decodeUTF8(blob);
       const parsedLines = decodeJsonlLines(text);
       for (const raw of parsedLines) {
         const result = TransformRecord(raw);
@@ -609,57 +758,32 @@ export class IsogitStore
     _signal?: AbortSignal,
   ): Promise<void> {
     if (records.length === 0) return;
-    await withRepoDirLock(this.dir, async () => {
-      // Pre-flight: validate all records and check for duplicates before
-      // writing anything to disk. This avoids orphaned files if a
-      // duplicate is detected partway through the batch.
-      const planned: { record: AuditRecordType; filepath: string }[] = [];
+    await withRepoDirLock(this.runtime, this.dir, async () => {
+      const planned: DurableRecordFile[] = [];
       for (const record of records) {
         assertSafeSegment(record.sessionId, "sessionId");
         const safeCallId = sanitizeCallId(record.callId);
 
-        const filepath = path.join(
+        const filepath = this.runtime.path.join(
           AUDIT_DIR,
           record.sessionId,
           `${safeCallId}.json`,
         );
-        const fullPath = path.join(this.dir, filepath);
-
-        try {
-          await fs.promises.access(fullPath);
-          throw new Error(
-            `Duplicate audit record: ${record.sessionId}/${record.callId}`,
-          );
-        } catch (e) {
-          if (e instanceof Error && "code" in e && e.code === "ENOENT") {
-            // Expected: file does not exist yet.
-          } else {
-            throw e;
-          }
-        }
-
-        planned.push({ record, filepath });
+        planned.push({
+          filepath,
+          directory: this.runtime.path.join(
+            this.dir,
+            AUDIT_DIR,
+            record.sessionId,
+          ),
+          contents: JSON.stringify(record, null, 2),
+          duplicateMessage: `Duplicate audit record: ${record.sessionId}/${record.callId}`,
+        });
       }
-
-      // Write phase: all validation passed, safe to write files.
-      for (const { record, filepath } of planned) {
-        const sessionDir = path.join(this.dir, AUDIT_DIR, record.sessionId);
-        await fs.promises.mkdir(sessionDir, { recursive: true });
-        const fullPath = path.join(this.dir, filepath);
-        await fs.promises.writeFile(fullPath, JSON.stringify(record, null, 2));
-        await git.add({ fs, dir: this.dir, filepath });
-      }
-
-      const count = records.length;
-      const noun = count === 1 ? "record" : "records";
-      await git.commit({
-        fs,
-        dir: this.dir,
-        message: `Record ${count} tool audit ${noun}`,
-        author: AUTHOR,
-        ...this.signingArgs(),
+      await this.commitRecordFiles(planned, (count) => {
+        const noun = count === 1 ? "record" : "records";
+        return `Record ${count} tool audit ${noun}`;
       });
-      await this.maybeGC();
     });
   }
 
@@ -668,11 +792,8 @@ export class IsogitStore
     _signal?: AbortSignal,
   ): Promise<void> {
     if (records.length === 0) return;
-    await withRepoDirLock(this.dir, async () => {
-      // Pre-flight: validate all records and check for duplicates before
-      // writing anything to disk. This avoids orphaned files if a
-      // duplicate is detected partway through the batch.
-      const planned: { record: ErrorRecord; filepath: string }[] = [];
+    await withRepoDirLock(this.runtime, this.dir, async () => {
+      const planned: DurableRecordFile[] = [];
       for (const record of records) {
         assertSafeSegment(record.sessionId, "sessionId");
 
@@ -681,48 +802,26 @@ export class IsogitStore
           "_",
         );
         const seq = String(record.seq).padStart(8, "0");
-        const filepath = path.join(
+        const filepath = this.runtime.path.join(
           ERRORS_DIR,
           record.sessionId,
           `${seq}-${sanitizedCategory}.json`,
         );
-        const fullPath = path.join(this.dir, filepath);
-
-        try {
-          await fs.promises.access(fullPath);
-          throw new Error(
-            `Duplicate error record: ${record.sessionId}/${seq}-${sanitizedCategory}`,
-          );
-        } catch (e) {
-          if (e instanceof Error && "code" in e && e.code === "ENOENT") {
-            // Expected: file does not exist yet.
-          } else {
-            throw e;
-          }
-        }
-
-        planned.push({ record, filepath });
+        planned.push({
+          filepath,
+          directory: this.runtime.path.join(
+            this.dir,
+            ERRORS_DIR,
+            record.sessionId,
+          ),
+          contents: JSON.stringify(record, null, 2),
+          duplicateMessage: `Duplicate error record: ${record.sessionId}/${seq}-${sanitizedCategory}`,
+        });
       }
-
-      // Write phase: all validation passed, safe to write files.
-      for (const { record, filepath } of planned) {
-        const sessionDir = path.join(this.dir, ERRORS_DIR, record.sessionId);
-        await fs.promises.mkdir(sessionDir, { recursive: true });
-        const fullPath = path.join(this.dir, filepath);
-        await fs.promises.writeFile(fullPath, JSON.stringify(record, null, 2));
-        await git.add({ fs, dir: this.dir, filepath });
-      }
-
-      const count = records.length;
-      const noun = count === 1 ? "record" : "records";
-      await git.commit({
-        fs,
-        dir: this.dir,
-        message: `Record ${count} error ${noun}`,
-        author: AUTHOR,
-        ...this.signingArgs(),
+      await this.commitRecordFiles(planned, (count) => {
+        const noun = count === 1 ? "record" : "records";
+        return `Record ${count} error ${noun}`;
       });
-      await this.maybeGC();
     });
   }
 
@@ -731,11 +830,11 @@ export class IsogitStore
     _signal?: AbortSignal,
   ): Promise<AuditRecordType[]> {
     assertSafeSegment(sessionId, "sessionId");
-    const sessionDir = path.join(this.dir, AUDIT_DIR, sessionId);
+    const sessionDir = this.runtime.path.join(this.dir, AUDIT_DIR, sessionId);
 
     let entries: string[];
     try {
-      entries = await fs.promises.readdir(sessionDir);
+      entries = await this.runtime.fs.readdir(sessionDir);
     } catch (cause) {
       if (
         cause instanceof Error &&
@@ -750,8 +849,8 @@ export class IsogitStore
     const records: AuditRecordType[] = [];
     for (const entry of entries) {
       if (!entry.endsWith(".json")) continue;
-      const fullPath = path.join(sessionDir, entry);
-      const raw = await fs.promises.readFile(fullPath, "utf-8");
+      const fullPath = this.runtime.path.join(sessionDir, entry);
+      const raw = await this.runtime.fs.readTextFile(fullPath);
       const parsed = JSON.parse(raw) as unknown;
       const result = AuditRecord(parsed);
       if (result instanceof type.errors) {

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
-import { createIsogitStore } from "@intx/storage-isogit";
+import { createIsogitStore } from "@intx/storage-isogit/node";
 import {
   ContentBlock,
   type ConnectorThreadState,
