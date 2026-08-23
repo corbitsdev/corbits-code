@@ -48,14 +48,14 @@ import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 // 1. Sub-agent provider literal
 // ---------------------------------------------------------------------------
 
-export type SubAgentProviderConfig = {
+export interface SubAgentProviderConfig {
   providerName: string;
   baseURL: string;
   apiKey?: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
   providers: readonly Pick<ProviderCatalogEntry, "name" | "bifrostVirtualKey">[];
-};
+}
 
 /** Build the live sub-agent provider seed shared by exec and TUI. */
 export function buildSubAgentProvider(config: SubAgentProviderConfig): SubAgentProvider {
@@ -76,11 +76,11 @@ export type SubAgentSourcesConfig = SubAgentProviderConfig & {
   settings?: Settings;
 };
 
-export type LiveSubAgentSources = {
+export interface LiveSubAgentSources {
   provider: () => SubAgentProvider;
   catalog: () => readonly ProviderCatalogEntry[];
   settings: () => Settings | undefined;
-};
+}
 
 /**
  * The single owner of every session fact a sub-agent spawn reads. A runner's
@@ -116,14 +116,8 @@ export async function loadSeededApprovals(
     loadGlobalApprovals(),
     loadProviderModelApprovals(),
   ]);
-  return [
-    ...sessionApprovals,
-    ...projectApprovals,
-    ...globalApprovals,
-    ...providerModelApprovals,
-  ];
+  return [...sessionApprovals, ...projectApprovals, ...globalApprovals, ...providerModelApprovals];
 }
-
 
 /**
  * Route a gate-persisted grant to the store its scope selects.
@@ -146,7 +140,7 @@ export function createApprovalPersist(
 // 3. Plugin resolution
 // ---------------------------------------------------------------------------
 
-export type DiscoverSessionPluginsArgs = {
+export interface DiscoverSessionPluginsArgs {
   cwd: string;
   pluginPaths?: readonly string[];
   discoverClaudePlugins?: boolean;
@@ -155,7 +149,7 @@ export type DiscoverSessionPluginsArgs = {
   /** When set, skill/load warnings collect here for one end-of-batch summary. */
   diagnostics?: PluginLoadDiagnostics;
   telemetry?: Telemetry;
-};
+}
 
 /** Discover + dedupe plugins from repo, user, optional Claude, and registered paths. */
 export async function discoverSessionPlugins(
@@ -166,9 +160,7 @@ export async function discoverSessionPlugins(
     ...(args.telemetry !== undefined ? { telemetry: args.telemetry } : {}),
   };
   const claudePlugins =
-    args.discoverClaudePlugins === true
-      ? await discoverClaudeInstalledPlugins(args.cwd, diag)
-      : [];
+    args.discoverClaudePlugins === true ? await discoverClaudeInstalledPlugins(args.cwd, diag) : [];
   return dedupePluginModules([
     ...(await discoverRepoPlugins(args.cwd, diag)),
     ...(await discoverUserPlugins(args.cwd, {
@@ -197,18 +189,18 @@ export function skillDirsFromEnabledPlugins(
 // 4. Context-extensions + skills → system prompt
 // ---------------------------------------------------------------------------
 
-export type SessionChatPromptArgs = {
+export interface SessionChatPromptArgs {
   cwd: string;
   skillDirs: readonly string[];
   systemPromptExtensions?: readonly string[];
   sessionMode: SessionMode;
   toolAvailability: ToolAvailability;
-};
+}
 
-export type SessionChatPrompt = {
+export interface SessionChatPrompt {
   systemPrompt: string;
   skills: SkillSummary[];
-};
+}
 
 /** Load AGENTS.md / SYSTEM.md / env / skills and build the main chat system prompt. */
 export async function loadSessionChatPrompt(
@@ -242,13 +234,13 @@ export async function loadSessionChatPrompt(
 // 5. Main-session inference sources
 // ---------------------------------------------------------------------------
 
-export type MainSessionSourceConfig = {
+export interface MainSessionSourceConfig {
   settings?: Settings;
   providers: readonly ProviderCatalogEntry[];
   providerName: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
-};
+}
 
 /** Wrap buildMainSessionSources with the common runner config field names. */
 export function buildSessionSourcesFromConfig(
@@ -260,9 +252,7 @@ export function buildSessionSourcesFromConfig(
     catalog: config.providers,
     activeProvider: config.providerName,
     activeModel: config.model,
-    ...(config.reasoningEffort !== undefined
-      ? { reasoningEffort: config.reasoningEffort }
-      : {}),
+    ...(config.reasoningEffort !== undefined ? { reasoningEffort: config.reasoningEffort } : {}),
     sessionId,
   });
 }
@@ -273,17 +263,15 @@ export function buildSessionSourcesFromConfig(
 
 const SESSION_COMPACTOR_SUMMARY_MAX_CHARS = 2500;
 
-export type SessionPruningCompactorArgs = {
+export interface SessionPruningCompactorArgs {
   compactionMode: "llm" | "pruning";
   summarize: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
   telemetry?: Telemetry;
-};
+}
 
 /** Shared pruning-compactor defaults for the main session agent. */
-export function createSessionPruningCompactor(
-  args: SessionPruningCompactorArgs,
-): Compactor {
+export function createSessionPruningCompactor(args: SessionPruningCompactorArgs): Compactor {
   const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,

@@ -8,7 +8,6 @@ operator.
 
 A single-process coding agent CLI that autonomously implements features in a codebase. It reads files, writes code, runs tests, and submits work — driven by a deterministic event loop rather than a chat transcript. The agent is backed by an OpenAI-compatible LLM and built on Interchange primitives. It runs as a full-screen terminal UI by default, or as a non-TUI `exec` path for scripts and CI.
 
-
 ## Why It Exists
 
 Existing coding agents stall. They get stuck in thinking loops, read files endlessly without writing, drift from their own plans, or forget to signal completion. The user watches a "Thinking..." spinner and hopes. This tool replaces the chat interface with a deterministic event loop that enforces progress and makes every action — and its cost — visible.
@@ -84,7 +83,7 @@ is the direct, explicit resume path.
 ## Safety Model
 
 - **Tiered permission gate** — Read-only tools (`read_file`, `search_files`, `grep`, `list_dir`) run freely. Every consequential tool (`write_file`, `edit_file`, `run_shell`, …) is gated. The operator can Allow Once or Allow Always (scoped to a file, a directory, or a command shape); "Allow Always" choices persist per working directory so repeat actions don't interrupt flow.
-- **Secret guard** — Path-keyed tools (`read_file`, `write_file`, …) hard-deny sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar), even with approval, `--dangerously-skip-permissions`, or `/yolo`. Template files like `.env.example` are exempt. Shell commands that *reference* those paths (e.g. `bun --env-file=.env.staging run …`, `cat .env`) require explicit operator approval and never auto-run in auto mode; once approved, they proceed. Tool-result scrubbing still redacts credential-shaped output that reaches the transcript.
+- **Secret guard** — Path-keyed tools (`read_file`, `write_file`, …) hard-deny sensitive files (`.env`, `id_rsa`, `*.pem`, `.aws/credentials`, `.ssh/*`, `.git-credentials`, and similar), even with approval, `--dangerously-skip-permissions`, or `/yolo`. Template files like `.env.example` are exempt. Shell commands that _reference_ those paths (e.g. `bun --env-file=.env.staging run …`, `cat .env`) require explicit operator approval and never auto-run in auto mode; once approved, they proceed. Tool-result scrubbing still redacts credential-shaped output that reaches the transcript.
 - **Catastrophic-command deny** — Destructive shell patterns that target system roots (`rm -rf /`, home, `/etc`, …), plus `mkfs`, `dd`, `sudo`, fork bombs, `curl | bash`, force-push, … are blocked before they run. Recursive delete of ordinary workspace paths is not hard-denied but requires operator approval (never auto in auto mode).
 - **Constrained auto mode** — Default is on (`auto = true`). Pass `--no-auto` to start in ask mode, or `--auto` to force it on; there is currently no in-session key to toggle it. Auto mode auto-approves workspace file writes/edits/deletes and unconstrained shell without per-action prompts, but it is not a free-for-all:
   - **Denied** (must use `write_file` / `edit_file`): shell file mutations via output redirection, `tee`, `sed -i` / `perl -i`, interpreter inline programs or heredocs.
@@ -119,7 +118,6 @@ The exact turn thresholds are model-family-dependent (tighter for models with ob
 
 **Recovery:** Send a message to resume. To inspect state first, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
 
-
 ### Permission denied (exec)
 
 **What the user sees:** In a non-interactive `corbits exec` run, a consequential action that needs approval returns a tool error explaining that approval is unavailable.
@@ -146,12 +144,12 @@ Capabilities beyond the core toolset are opt-in plugins, enabled per workspace t
 
 The primary session is always **orchestrator** (single-agent mode is gone). Its identity is **Skywalker** (product name remains Corbits Code; when asked its name, answer Skywalker): classify work, DIY tiny/single-file/one-route product edits, dispatch a **closed fleet of 16 directors** for substantial work, track the fleet, and synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are mounted on the primary (CORE / `SKYWALKER_TOOLS`) — path tools are the DIY surface; spawn remains the default for substantial, multi-file, parallel, or specialist work (hard cap 4). Shell file-writes stay denied. MCP tools are not re-filtered by a product-write deny list (that list is gone). Shipped directors have no package `writePaths`; the optional field still constrains path-keyed product tools (not shell) when a profile sets it. Yolo / skip-permissions still bypasses the write-path gate when enabled. Operator slash recipes (`/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`) tell Skywalker which directors to spawn for substantial work; tiny/bounded edits may run on the primary.
 
-| Lane | Directors |
-|---|---|
-| Primary | skywalker |
-| Eng | build, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot |
-| Design | draper, emil, brand-reviewer |
-| Docs / QA | shakespeare, testsmith, tester |
+| Lane      | Directors                                                                          |
+| --------- | ---------------------------------------------------------------------------------- |
+| Primary   | skywalker                                                                          |
+| Eng       | build, explore, plan, intern, critique, greybeard, neckbeard, bruckheimer, gaasbot |
+| Design    | draper, emil, brand-reviewer                                                       |
+| Docs / QA | shakespeare, testsmith, tester                                                     |
 
 There is **no catch-all worker**. `task` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critique); bare dispatch and `intent=general` are refused. Named `task(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explore/critique) may spawn; other workers have no `task`. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 
@@ -161,8 +159,8 @@ Corbits Code fans work out to short-lived **sub-agents** — child agents with t
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.
 - **Sub-agents** are spawned with the `task` tool (wire name kept; meaning is "spawn a child agent," not "add a checklist item").
 
-Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip and fleet board show who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Workers hard-stop after 2 consecutive identical tool calls, when their inference-turn budget is exhausted (default 30; parent can pass `maxTurns` per dispatch; profiles and global settings can raise the default; cap 100), when they finish without ever using tools (never-acted salvage — planning/prose only is not a successful implement), or when `intent=implement` finishes after tools but without any file write/edit/delete (never-edited salvage — a pure-explore plan is not a successful implement). Progressive re-read thrash also hard-stops a worker that keeps re-reading the same path (or the same grep) past a limit. Look *volume* is not a stop — an implement may read hundreds of files before the first edit. Before a hard stop, a soft mid-run nudge asks implement workers to edit or wrap up (explore workers: expand findings / change approach — never forced to edit). Each hard stop returns a salvage report so a runaway or idle child cannot quietly burn a large token budget or look done after prose alone.
- The parent tracks same-brief fingerprints for the session (`src/subagent/brief-dispatch.ts`): after thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is refused — change prompt, agent, intent, success_criteria, and/or do_not to unlock a new run (`maxTurns` or tier alone does not). Turn-budget salvage still allows a few same-brief retries with a higher `maxTurns`, then flips the parent hint to stop and change approach; a successful complete resets the same-brief retry budget.
+Dispatch uses a structured brief (context / goal / optional goals seed) and returns a structured report. The TUI Agents strip and fleet board show who is running; live tool progress updates the status bar without dumping the child transcript into the parent chat. Workers hard-stop after 2 consecutive identical tool calls, when their inference-turn budget is exhausted (default 30; parent can pass `maxTurns` per dispatch; profiles and global settings can raise the default; cap 100), when they finish without ever using tools (never-acted salvage — planning/prose only is not a successful implement), or when `intent=implement` finishes after tools but without any file write/edit/delete (never-edited salvage — a pure-explore plan is not a successful implement). Progressive re-read thrash also hard-stops a worker that keeps re-reading the same path (or the same grep) past a limit. Look _volume_ is not a stop — an implement may read hundreds of files before the first edit. Before a hard stop, a soft mid-run nudge asks implement workers to edit or wrap up (explore workers: expand findings / change approach — never forced to edit). Each hard stop returns a salvage report so a runaway or idle child cannot quietly burn a large token budget or look done after prose alone.
+The parent tracks same-brief fingerprints for the session (`src/subagent/brief-dispatch.ts`): after thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is refused — change prompt, agent, intent, success_criteria, and/or do_not to unlock a new run (`maxTurns` or tier alone does not). Turn-budget salvage still allows a few same-brief retries with a higher `maxTurns`, then flips the parent hint to stop and change approach; a successful complete resets the same-brief retry budget.
 
 ## Roadmap (planned, not yet shipped)
 

@@ -163,7 +163,9 @@ describe("/clear command", () => {
   it("calls signalClear", () => {
     let called = false;
     const ctx = makeCtx();
-    ctx.signalClear = () => { called = true; };
+    ctx.signalClear = () => {
+      called = true;
+    };
     getCommand("clear")!.handler("", ctx);
     expect(called).toBe(true);
   });
@@ -179,7 +181,9 @@ describe("/new command", () => {
   it("calls signalClear", () => {
     let called = false;
     const ctx = makeCtx();
-    ctx.signalClear = () => { called = true; };
+    ctx.signalClear = () => {
+      called = true;
+    };
     getCommand("new")!.handler("", ctx);
     expect(called).toBe(true);
   });

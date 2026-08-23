@@ -41,7 +41,12 @@ const GROK_46_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high", "x
 const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
 
 function isKnownOpenAIReasoningModel(model: string): boolean {
-  return model.startsWith("gpt-5") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4");
+  return (
+    model.startsWith("gpt-5") ||
+    model.startsWith("o1") ||
+    model.startsWith("o3") ||
+    model.startsWith("o4")
+  );
 }
 
 // Per-model reasoning capability sourced from models.dev (populated at startup,
@@ -71,7 +76,9 @@ export function supportedEfforts(
     return [];
   }
   if (isCodex) {
-    return MAX_EFFORT_CODEX_MODELS.includes(model) ? [...CODEX_EFFORTS, "max", "ultra"] : [...CODEX_EFFORTS];
+    return MAX_EFFORT_CODEX_MODELS.includes(model)
+      ? [...CODEX_EFFORTS, "max", "ultra"]
+      : [...CODEX_EFFORTS];
   }
   if (FULL_EFFORT_MODELS.includes(model)) {
     return ["none", ...DEFAULT_EFFORTS, "xhigh"];
@@ -95,7 +102,10 @@ export function validateEffort(
     return { ok: true };
   }
   if (supported.length === 0) {
-    return { ok: false, error: `Model "${model}" does not support reasoning, so it cannot take a reasoning effort.` };
+    return {
+      ok: false,
+      error: `Model "${model}" does not support reasoning, so it cannot take a reasoning effort.`,
+    };
   }
   return {
     ok: false,
@@ -136,10 +146,7 @@ export function cycleReasoningEffort(
  * ladder, not Codex) → none; gpt-5/o1/o3/o4 → medium. Unknown models with a
  * conservative rung set stay undefined so we do not invent a family default.
  */
-export function defaultEffortForModel(
-  model: string,
-  isCodex = false,
-): ReasoningEffort | undefined {
+export function defaultEffortForModel(model: string, isCodex = false): ReasoningEffort | undefined {
   const supported = supportedEfforts(model, undefined, isCodex);
   if (supported.length === 0) return undefined;
   const pick = (desired: ReasoningEffort): ReasoningEffort | undefined =>
@@ -204,7 +211,7 @@ export function clampEffort(
   return best;
 }
 
-export type ResolveEffortForRoleOpts = {
+export interface ResolveEffortForRoleOpts {
   /** True when the spawn is an orchestrator profile (may call task). */
   orchestrator: boolean;
   /** Explicit profile inference leg or task-tier pin — highest precedence. */
@@ -218,7 +225,7 @@ export type ResolveEffortForRoleOpts = {
   parentEffort?: ReasoningEffort;
   model: string;
   isCodex?: boolean;
-};
+}
 
 /**
  * Pure cascade used by `resolveEffortForRole`. Exported for unit tests of the

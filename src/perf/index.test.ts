@@ -353,7 +353,9 @@ describe("snapshot shape", () => {
     end(id);
 
     const span: PerfSpan = snapshot()[0]!;
-    expect(Object.keys(span).sort()).toEqual(["endNs", "id", "name", "parentId", "startNs", "tags"].sort());
+    expect(Object.keys(span).sort()).toEqual(
+      ["endNs", "id", "name", "parentId", "startNs", "tags"].sort(),
+    );
     expect(span.tags).toEqual({ transport: "http_sse", payload_bytes: 4096 });
     expect(span.parentId).toBe("parent1");
   });

@@ -9,10 +9,7 @@ import type {
   ToolDefinition,
   ConversationTurn,
 } from "@intx/types/runtime";
-import {
-  type SessionMetadata,
-  type TaskBoundary,
-} from "../session/compactor.js";
+import { type SessionMetadata, type TaskBoundary } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
@@ -33,10 +30,7 @@ import {
 } from "../subagent/stop-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 import { isOperatorOriginated } from "./message-provenance.js";
-import {
-  classifyBriefSalvage,
-  isHardBlockSalvage,
-} from "../subagent/brief-dispatch.js";
+import { classifyBriefSalvage, isHardBlockSalvage } from "../subagent/brief-dispatch.js";
 import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
 
 const RETRY_POLICY = createCorbitsRetryPolicy();
@@ -51,7 +45,9 @@ const BACKSTOP_NUDGE_TEXT =
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
-function isInternalRecoveryAbort(event: Extract<ReactorInboundEvent, { type: "inference.error" }>): boolean {
+function isInternalRecoveryAbort(
+  event: Extract<ReactorInboundEvent, { type: "inference.error" }>,
+): boolean {
   return isInternalRecoveryAbortRaw(event.error.raw);
 }
 
@@ -63,7 +59,10 @@ function directorNudgeTurn(text: string): ConversationTurn {
   };
 }
 
-function withEphemeralNudge(options: ExtendedInferenceOptions, nudge: string): ExtendedInferenceOptions {
+function withEphemeralNudge(
+  options: ExtendedInferenceOptions,
+  nudge: string,
+): ExtendedInferenceOptions {
   const turn = directorNudgeTurn(nudge);
   const existing = options.ephemeralTurns;
   if (existing === undefined || existing.length === 0) {
@@ -196,7 +195,10 @@ export const presentDefinition: ToolDefinition = {
         properties: {
           type: { type: "string", enum: ["text"] },
           text: { type: "string" },
-          tone: { type: "string", enum: ["default", "muted", "success", "warning", "danger", "accent"] },
+          tone: {
+            type: "string",
+            enum: ["default", "muted", "success", "warning", "danger", "accent"],
+          },
           bold: { type: "boolean" },
           dim: { type: "boolean" },
         },
@@ -297,7 +299,8 @@ export const submitOutputDefinition: ToolDefinition = {
       },
       step: {
         type: "string",
-        description: "Workflow step ID to advance. When present this is a " +
+        description:
+          "Workflow step ID to advance. When present this is a " +
           "step-advancement signal, not a terminal task submission.",
       },
     },
@@ -315,7 +318,6 @@ function isOperatorDeclinedToolResult(result: { content: unknown; isError?: bool
 function operatorDeclinedHasMessage(result: { content: unknown }): boolean {
   return typeof result.content === "string" && / — .+/.test(result.content);
 }
-
 
 const CODE_FILE_EXT =
   /\.(ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|c|cc|cpp|h|hpp|rb|php|cs|swift|kt|kts|scala)$/i;
@@ -335,14 +337,18 @@ function isCodeFile(path: string): boolean {
 // parse, so callers can distinguish "no valid manage_tasks call here" from
 // "a valid call that happened to be a no-op" — the latter still counts as an
 // update for onTasksChange purposes.
-function applyManageTasksToolCall(tasks: Task[], block: { name: string; arguments: unknown }): Task[] | null {
+function applyManageTasksToolCall(
+  tasks: Task[],
+  block: { name: string; arguments: unknown },
+): Task[] | null {
   if (block.name !== "manage_tasks") return null;
   const taskArgs = parseManageTasksArgs(block.arguments);
   return taskArgs !== null ? applyManageTasks(tasks, taskArgs) : null;
 }
 
-export type ChatDirectorOptions = {
-  taskClassifier?: ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>) | undefined;
+export interface ChatDirectorOptions {
+  taskClassifier?:
+    ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>) | undefined;
   onActivateTools?: ((names: string[]) => void) | undefined;
   inactivityTimeoutMs?: number | undefined;
   totalTimeoutMs?: number | undefined;
@@ -350,7 +356,7 @@ export type ChatDirectorOptions = {
   onTasksChange: (tasks: Task[]) => void;
   requestContinuation?: (() => void) | undefined;
   provider?: { providerName: string; model?: string } | undefined;
-};
+}
 
 // The constructor takes the resolved ModelFamilyPolicy rather than the raw
 // `provider` input the factory function accepts and resolves on its behalf.
@@ -364,8 +370,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly askOperatorCalls = new Set<string>();
   private readonly onActivateTools: ((names: string[]) => void) | undefined;
   private readonly taskClassifier:
-    | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
-    | undefined;
+    ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>) | undefined;
   private readonly _systemPrompt: string;
   private _toolDefinitions: ToolDefinition[];
   private inactivityTimeoutMs: number | undefined;
@@ -450,7 +455,11 @@ class ChatDirectorImpl extends DefaultDirector {
   private pendingSalvageNudge: string | null = null;
   private pendingTaskCallIds = new Set<string>();
 
-  constructor(systemPrompt: string, toolDefinitions: ToolDefinition[], options: ChatDirectorImplOptions) {
+  constructor(
+    systemPrompt: string,
+    toolDefinitions: ToolDefinition[],
+    options: ChatDirectorImplOptions,
+  ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
     this._toolDefinitions = toolDefinitions;
@@ -460,8 +469,13 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onActivateTools = options.onActivateTools;
     this.workflowCoordinator = options.workflowCoordinator;
     this.onTasksChange = options.onTasksChange;
-    this.compaction = createCompactionGovernor(options.requestContinuation, systemPrompt, toolDefinitions);
-    this.modelFamilyPolicy = options.modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
+    this.compaction = createCompactionGovernor(
+      options.requestContinuation,
+      systemPrompt,
+      toolDefinitions,
+    );
+    this.modelFamilyPolicy =
+      options.modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -493,16 +507,14 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   private openTaskIds(): string[] {
-    return this.tasks
-      .filter((t) => t.status === "todo" || t.status === "doing")
-      .map((t) => t.id);
+    return this.tasks.filter((t) => t.status === "todo" || t.status === "doing").map((t) => t.id);
   }
 
   private logTerminationWithOpenTasks(path: string): void {
-    logger.error(
-      "Director reached a terminal decision on {path} with open tasks: {openTasks}",
-      { path, openTasks: this.openTaskIds() },
-    );
+    logger.error("Director reached a terminal decision on {path} with open tasks: {openTasks}", {
+      path,
+      openTasks: this.openTaskIds(),
+    });
   }
 
   /**
@@ -546,10 +558,7 @@ class ChatDirectorImpl extends DefaultDirector {
                     : "repeated tool calls in a cycle";
               return `Auto-paused: the model ${detail} without making progress. Send a message to resume.`;
             })();
-      return [
-        capabilities.checkpoint("tool-only-loop-paused"),
-        capabilities.reply(pauseMessage),
-      ];
+      return [capabilities.checkpoint("tool-only-loop-paused"), capabilities.reply(pauseMessage)];
     }
 
     if (this.pendingBackstopNudge) {
@@ -602,12 +611,17 @@ class ChatDirectorImpl extends DefaultDirector {
       ? this._toolDefinitions
       : [...this._toolDefinitions, advanceWorkflowDefinition];
 
-    const directive = active ? this.workflowCoordinator?.directive() ?? null : null;
+    const directive = active ? (this.workflowCoordinator?.directive() ?? null) : null;
 
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
-      const options = { ...action.options, tools, retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY };
-      if (this.inactivityTimeoutMs !== undefined) options.inactivityTimeoutMs = this.inactivityTimeoutMs;
+      const options = {
+        ...action.options,
+        tools,
+        retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY,
+      };
+      if (this.inactivityTimeoutMs !== undefined)
+        options.inactivityTimeoutMs = this.inactivityTimeoutMs;
       if (this.totalTimeoutMs !== undefined) options.totalTimeoutMs = this.totalTimeoutMs;
       if (directive !== null) {
         return {
@@ -645,10 +659,12 @@ class ChatDirectorImpl extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
-    if (event.type === "inference.error" &&
+    if (
+      event.type === "inference.error" &&
       (event.error.category === "timeout" ||
         event.error.category === "retryable" ||
-        (event.error.category === "aborted" && isInternalRecoveryAbort(event)))) {
+        (event.error.category === "aborted" && isInternalRecoveryAbort(event)))
+    ) {
       if (this.inferenceRecoveries < MAX_INFERENCE_RECOVERIES) {
         this.inferenceRecoveries++;
         return [capabilities.checkpoint("inference-recovery"), capabilities.infer()];
@@ -712,10 +728,11 @@ class ChatDirectorImpl extends DefaultDirector {
         if (boundary.kind === "new_task") {
           this.currentTaskLabel = undefined;
 
-          const envelope = this.lastTaskSummary !== undefined
-            ? `\n--- Compacted prior context ---\n${this.lastTaskSummary}\n---` +
-              `\n\nNew task starting now. Prior context summarized above.\n`
-            : "\n--- Context cleared for new task ---\n";
+          const envelope =
+            this.lastTaskSummary !== undefined
+              ? `\n--- Compacted prior context ---\n${this.lastTaskSummary}\n---` +
+                `\n\nNew task starting now. Prior context summarized above.\n`
+              : "\n--- Context cleared for new task ---\n";
 
           return [
             capabilities.checkpoint(`new-task: ${boundary.reason}`),
@@ -767,7 +784,11 @@ class ChatDirectorImpl extends DefaultDirector {
       // reset the cycle-detection side because only text turns and fresh
       // messages do).
       this.turnsSinceUserMessage++;
-      const turnContent = event.turn.content as ReadonlyArray<{ type: string; name?: string; id?: string }>;
+      const turnContent = event.turn.content as readonly {
+        type: string;
+        name?: string;
+        id?: string;
+      }[];
       for (const block of turnContent) {
         if (block.type === "tool_call" && block.name === "task" && typeof block.id === "string") {
           this.pendingTaskCallIds.add(block.id);
@@ -811,7 +832,8 @@ class ChatDirectorImpl extends DefaultDirector {
         this.toolOnlyPauseReason = "thrash";
       } else if (
         this.backstopNudgeFiredAtTurn !== null &&
-        this.turnsSinceUserMessage - this.backstopNudgeFiredAtTurn >= TURNS_SINCE_USER_MESSAGE_BACKSTOP
+        this.turnsSinceUserMessage - this.backstopNudgeFiredAtTurn >=
+          TURNS_SINCE_USER_MESSAGE_BACKSTOP
       ) {
         this.pausedForToolOnly = true;
         this.toolOnlyPauseReason = "backstop";
@@ -860,8 +882,7 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (event.type === "tool.done" && this.pendingTaskCallIds.has(event.result.callId)) {
       this.pendingTaskCallIds.delete(event.result.callId);
-      const body =
-        typeof event.result.content === "string" ? event.result.content : "";
+      const body = typeof event.result.content === "string" ? event.result.content : "";
       const salvage = classifyBriefSalvage(body);
       if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
         this.salvageNudgeFired = true;
@@ -905,7 +926,11 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "tool.done" && this.workflowCalls.has(event.result.callId)) {
       const call = this.workflowCalls.get(event.result.callId);
       this.workflowCalls.delete(event.result.callId);
-      const advanced = this.workflowCoordinator?.handleToolDone(call?.name, call?.args, event.result.isError === true);
+      const advanced = this.workflowCoordinator?.handleToolDone(
+        call?.name,
+        call?.args,
+        event.result.isError === true,
+      );
       if (advanced) this.workflowIdleTurns = 0;
     }
 
@@ -988,7 +1013,8 @@ class ChatDirectorImpl extends DefaultDirector {
             ),
           ];
         }
-        const nudge = "\n\nYou have not yet called advance_workflow. " +
+        const nudge =
+          "\n\nYou have not yet called advance_workflow. " +
           "If this step is complete, call advance_workflow now. " +
           "Otherwise continue working with tools.";
         const passThrough = actions.filter(
@@ -1002,8 +1028,7 @@ class ChatDirectorImpl extends DefaultDirector {
     // A workflow gate step is a legitimate pause for operator approval, so
     // yielding there with open tasks is not an invariant breach — leave it to
     // the workflow runtime and do not nudge.
-    const atWorkflowGate =
-      coordinator?.isActive() === true && coordinator.currentStepIsGate();
+    const atWorkflowGate = coordinator?.isActive() === true && coordinator.currentStepIsGate();
     if (!atWorkflowGate && hasActiveTasks(this.tasks)) {
       const hasTerminal = baseActions.some((a) => a.type === "wait" || a.type === "reply");
       if (hasTerminal) {
@@ -1015,11 +1040,9 @@ class ChatDirectorImpl extends DefaultDirector {
           );
           // Inside a workflow the terminal action is advance_workflow, so point
           // the nudge at it rather than the general manage_tasks guidance.
-          const nudge = coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
-          return [
-            ...passThrough,
-            inferWithNudge(capabilities, nudge),
-          ];
+          const nudge =
+            coordinator?.isActive() === true ? WORKFLOW_OPEN_TASK_NUDGE : IDLE_OPEN_TASK_NUDGE;
+          return [...passThrough, inferWithNudge(capabilities, nudge)];
         }
         this.logTerminationWithOpenTasks("idle-stall");
       }

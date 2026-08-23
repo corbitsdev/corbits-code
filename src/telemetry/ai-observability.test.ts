@@ -15,7 +15,10 @@ import {
 const SUBAGENT_TOOL_NAME = "task";
 const SESSION_ID = "0199-parent-session";
 
-function fakeTelemetry(): { telemetry: Telemetry; captured: { event: string; properties: Record<string, unknown> }[] } {
+function fakeTelemetry(): {
+  telemetry: Telemetry;
+  captured: { event: string; properties: Record<string, unknown> }[];
+} {
   const captured: { event: string; properties: Record<string, unknown> }[] = [];
   const telemetry: Telemetry = {
     enabled: true,
@@ -40,12 +43,20 @@ function fakeTurnContext(overrides: Partial<TurnContext> = {}): TurnContext {
     {
       id: "call-2",
       name: SUBAGENT_TOOL_NAME,
-      arguments: { description: "explore", prompt: "find the leaked API key XYZ-SECRET-123", intent: "explore" },
+      arguments: {
+        description: "explore",
+        prompt: "find the leaked API key XYZ-SECRET-123",
+        intent: "explore",
+      },
     },
   ];
   const toolResults: ToolResult[] = [
     { callId: "call-1", content: "file contents: super secret prompt text" },
-    { callId: "call-2", content: "sub-agent report containing prompt XYZ-SECRET-123", isError: true },
+    {
+      callId: "call-2",
+      content: "sub-agent report containing prompt XYZ-SECRET-123",
+      isError: true,
+    },
   ];
   return {
     turnIndex: 3,
@@ -113,7 +124,9 @@ describe("classifyErrorKind", () => {
   });
 
   test("still reports a timeout that was never aborted as timeout", () => {
-    expect(classifyErrorKind("inference call exceeded inactivity timeout (60000 ms)")).toBe("timeout");
+    expect(classifyErrorKind("inference call exceeded inactivity timeout (60000 ms)")).toBe(
+      "timeout",
+    );
   });
 });
 

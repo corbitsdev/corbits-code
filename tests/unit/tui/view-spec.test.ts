@@ -102,7 +102,11 @@ describe("view line count", () => {
       at({
         type: "grid",
         columns: cols,
-        rows: [[{ type: "text", text: "N" }], [{ type: "text", text: "a" }], [{ type: "text", text: "b" }]],
+        rows: [
+          [{ type: "text", text: "N" }],
+          [{ type: "text", text: "a" }],
+          [{ type: "text", text: "b" }],
+        ],
       }),
     ).toBe(3);
     const many = Array.from({ length: 250 }, (_, i) => [{ type: "text", text: String(i) }]);

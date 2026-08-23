@@ -63,7 +63,13 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
     sessionId: over.sessionId ?? "sess-1",
     turnsUsed: over.turnsUsed ?? 3,
     toolCallCount: over.toolCallCount ?? 5,
-    tokenUsage: over.tokenUsage ?? { input: 100, output: 50, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    tokenUsage: over.tokenUsage ?? {
+      input: 100,
+      output: 50,
+      cacheRead: 0,
+      cacheWrite: 0,
+      thinking: 0,
+    },
     maxTurns: over.maxTurns ?? 20,
     overBudget: over.overBudget ?? false,
     skipPermissions: over.skipPermissions ?? true,
@@ -393,9 +399,21 @@ describe("evaluateSoftBudget", () => {
 describe("computeCellAggregates", () => {
   test("aggregates repeats per cell with pass rate and behavior stats", () => {
     const results = [
-      sampleResult({ repeat: 0, passed: true, behaviors: sampleBehaviors({ repeatedSearchCount: 1 }) }),
-      sampleResult({ repeat: 1, passed: false, behaviors: sampleBehaviors({ repeatedSearchCount: 3 }) }),
-      sampleResult({ repeat: 2, passed: true, behaviors: sampleBehaviors({ repeatedSearchCount: 2 }) }),
+      sampleResult({
+        repeat: 0,
+        passed: true,
+        behaviors: sampleBehaviors({ repeatedSearchCount: 1 }),
+      }),
+      sampleResult({
+        repeat: 1,
+        passed: false,
+        behaviors: sampleBehaviors({ repeatedSearchCount: 3 }),
+      }),
+      sampleResult({
+        repeat: 2,
+        passed: true,
+        behaviors: sampleBehaviors({ repeatedSearchCount: 2 }),
+      }),
     ];
     const cells = computeCellAggregates(results);
     expect(cells).toHaveLength(1);
@@ -457,14 +475,22 @@ describe("compareToBaseline", () => {
       cases: [
         sampleResult({
           variantId: "xai/grok",
-          behaviors: sampleBehaviors({ repeatedSearchCount: 4, networkCommandCount: 0, shellCommandCount: 2 }),
+          behaviors: sampleBehaviors({
+            repeatedSearchCount: 4,
+            networkCommandCount: 0,
+            shellCommandCount: 2,
+          }),
         }),
       ],
     });
     const current = [
       sampleResult({
         variantId: "xai/grok",
-        behaviors: sampleBehaviors({ repeatedSearchCount: 1, networkCommandCount: 2, shellCommandCount: 9 }),
+        behaviors: sampleBehaviors({
+          repeatedSearchCount: 1,
+          networkCommandCount: 2,
+          shellCommandCount: 9,
+        }),
       }),
     ];
     const cmp = compareToBaseline(current, baseline);
@@ -679,14 +705,14 @@ describe("compareToBaseline provider/model guard", () => {
       version: 3,
       provider: "xai",
       model: "grok-4.5",
-      cases: [
-        sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" }),
-      ],
+      cases: [sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" })],
     });
     const current = [
       sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),
     ];
-    expect(() => compareToBaseline(current, baseline)).toThrow(/different resolved model|cannot compare baseline/);
+    expect(() => compareToBaseline(current, baseline)).toThrow(
+      /different resolved model|cannot compare baseline/,
+    );
   });
 
   test("allows the comparison when --allow-provider-fallback is set", () => {
@@ -694,9 +720,7 @@ describe("compareToBaseline provider/model guard", () => {
       version: 3,
       provider: "xai",
       model: "grok-4.5",
-      cases: [
-        sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" }),
-      ],
+      cases: [sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" })],
     });
     const current = [
       sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),

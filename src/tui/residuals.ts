@@ -6,17 +6,17 @@
  * demo.ts, not here.
  */
 
-import type { StreamRow } from "./stream.js"
+import type { StreamRow } from "./stream.js";
 
 /** Host-owned residual row: stable id + display label. */
-export type ResidualCatalogEntry = {
-  readonly id: string
-  readonly label: string
+export interface ResidualCatalogEntry {
+  readonly id: string;
+  readonly label: string;
 }
 
-export type ResidualListPayload = {
-  readonly items: readonly string[]
-  readonly itemIds: readonly string[]
+export interface ResidualListPayload {
+  readonly items: readonly string[];
+  readonly itemIds: readonly string[];
 }
 
 /** Map host catalog entries → openListOverlay items + itemIds. */
@@ -26,7 +26,7 @@ export function residualListFromCatalog(
   return {
     items: entries.map((e) => e.label),
     itemIds: entries.map((e) => e.id),
-  }
+  };
 }
 
 /**
@@ -37,14 +37,14 @@ export function residualIdFromSelection(
   selection: { readonly index: number; readonly id?: string },
   itemIds?: readonly string[],
 ): string | undefined {
-  if (selection.id !== undefined) return selection.id
-  if (itemIds === undefined) return undefined
-  return itemIds[selection.index]
+  if (selection.id !== undefined) return selection.id;
+  if (itemIds === undefined) return undefined;
+  return itemIds[selection.index];
 }
 
-export type ObserveSession = {
-  readonly sessionId: string
-  readonly agentId: string
-  readonly description: string
-  readonly lines: readonly StreamRow[]
+export interface ObserveSession {
+  readonly sessionId: string;
+  readonly agentId: string;
+  readonly description: string;
+  readonly lines: readonly StreamRow[];
 }

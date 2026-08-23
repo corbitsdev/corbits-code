@@ -21,7 +21,7 @@ Pick the tracker before drafting. Do not skip this.
    - GitLab
    - Linear (enable MCP)
    - Other
-   Then persist the choice: DIY with write_file/edit_file — append `Preferred issue tracker: <name>` to `.corbits/MEMORY.md` only. Path tools are the DIY surface; shell writes stay denied. Do not touch anything else.
+     Then persist the choice: DIY with write_file/edit_file — append `Preferred issue tracker: <name>` to `.corbits/MEMORY.md` only. Path tools are the DIY surface; shell writes stay denied. Do not touch anything else.
 4. **GitHub** → create with `gh issue create` (title + body) via `run_shell`. If `gh` is missing, tell the operator to install GitHub CLI (`gh`) and stop. Do not invent an HTTP client.
 5. **GitLab** → create with `glab issue create` (title + body) via `run_shell` similarly. If `glab` is missing, tell the operator and stop.
 6. **Linear without MCP** → stop and tell the operator to enable Linear MCP. Do not invent a Linear REST client.
@@ -38,6 +38,7 @@ When the operator provides `--from-doc` or mentions a planning document, search 
    - `docs/` directory
 
 2. If no documents are found, `ask_operator`:
+
    > I couldn't find any planning documents. Do you have a document you'd like me to reference?
 
 3. When a document is found, `read_file` it and extract:
@@ -63,11 +64,11 @@ Project updates are a distinct Linear artifact: they communicate status on an ex
 
 For freeform input, estimate the scope:
 
-| Scope | Duration | Artifact |
-|-------|----------|----------|
-| Small | 1-3 days | Single issue |
-| Medium | 1-2 weeks | Project with issues (Linear) or a set of issues (GitHub / GitLab) |
-| Large | Quarter+ | Initiative with projects (Linear) or grouped issues (GitHub / GitLab) |
+| Scope  | Duration  | Artifact                                                              |
+| ------ | --------- | --------------------------------------------------------------------- |
+| Small  | 1-3 days  | Single issue                                                          |
+| Medium | 1-2 weeks | Project with issues (Linear) or a set of issues (GitHub / GitLab)     |
+| Large  | Quarter+  | Initiative with projects (Linear) or grouped issues (GitHub / GitLab) |
 
 Present your assessment and `ask_operator` to confirm before proceeding.
 
@@ -236,7 +237,7 @@ Experiment
 
 ### Project Update Format (Linear)
 
-**Audience**: Project updates are read by non-technical stakeholders — founders, GMs, customer-facing teammates, leadership, and sometimes customers. Write for someone who cares about *what the project makes possible*, not *what work was done*.
+**Audience**: Project updates are read by non-technical stakeholders — founders, GMs, customer-facing teammates, leadership, and sometimes customers. Write for someone who cares about _what the project makes possible_, not _what work was done_.
 
 **Style rules:**
 

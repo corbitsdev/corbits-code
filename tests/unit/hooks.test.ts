@@ -198,7 +198,11 @@ test("createLifecycleHookManager executes TypeScript hooks and reports status", 
     durationMs: 1,
   });
 
-  await waitFor(() => events.some((event) => event.type === "hook.updated" && event.hook.lastExitStatus !== undefined));
+  await waitFor(() =>
+    events.some(
+      (event) => event.type === "hook.updated" && event.hook.lastExitStatus !== undefined,
+    ),
+  );
   const written = JSON.parse(await readFile(outputPath, "utf8")) as { turnIndex?: unknown };
   expect(written.turnIndex).toBe(0);
   expect(manager.getStatuses()[0]?.lastExitStatus?.code).toBe(0);

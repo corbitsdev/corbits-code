@@ -8,5 +8,5 @@ export function handleRequest(method: string, path: string): string {
   if (path.startsWith("/posts")) {
     return handlePosts(method, path);
   }
-  return "{\"error\":\"not found\"}";
+  return '{"error":"not found"}';
 }

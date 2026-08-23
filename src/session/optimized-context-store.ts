@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
-import { createIsogitStore } from "@intx/storage-isogit";
+import { createIsogitStore } from "@intx/storage-isogit/node";
 import {
   ContentBlock,
   type ConnectorThreadState,
@@ -122,11 +122,11 @@ const EMPTY_TOKEN_USAGE = {
   thinking: 0,
 } as const;
 
-type SessionMetadata = {
+interface SessionMetadata {
   pendingOperations: PendingOperation[];
   tokenUsage: TokenUsage;
   connectorState: ConnectorThreadState | null;
-};
+}
 
 function emptyMetadata(): SessionMetadata {
   return {
@@ -187,9 +187,7 @@ function longestWellFormedExtraCount(
 ): number {
   for (let keepExtras = parsedExtras.length; keepExtras >= 0; keepExtras--) {
     const turns =
-      keepExtras === 0
-        ? baseTurns
-        : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
+      keepExtras === 0 ? baseTurns : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     if (toolSequenceIsWellFormed(turns)) return keepExtras;
   }
   return 0;
@@ -228,10 +226,7 @@ async function unlinkExtraSegmentsFrom(
  * Orphan-tail recovery lives on `load()`, not here: this path must stay
  * O(window) so resume does not re-pay full-history I/O on healthy sessions.
  */
-export async function loadRecentTurns(
-  dir: string,
-  minTurns: number,
-): Promise<ConversationTurn[]> {
+export async function loadRecentTurns(dir: string, minTurns: number): Promise<ConversationTurn[]> {
   const segments = await listSegmentFiles(dir, TURNS_FILE);
   if (segments.length === 0) return [];
 
@@ -247,7 +242,8 @@ export async function loadRecentTurns(
   }
 
   const turns: ConversationTurn[] = [];
-  for (let i = collectedNewestFirst.length - 1; i >= 0; i--) turns.push(...collectedNewestFirst[i]!);
+  for (let i = collectedNewestFirst.length - 1; i >= 0; i--)
+    turns.push(...collectedNewestFirst[i]!);
   return turns;
 }
 
@@ -292,9 +288,9 @@ async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<str
 }
 
 async function describeHead(dir: string, message: string): Promise<ContextCommit> {
-  const [hash, seconds, parents] = (
-    await runGit(dir, ["log", "-1", "--format=%H%n%ct%n%P"])
-  ).split("\n");
+  const [hash, seconds, parents] = (await runGit(dir, ["log", "-1", "--format=%H%n%ct%n%P"])).split(
+    "\n",
+  );
   if (hash === undefined || hash.length === 0 || seconds === undefined) {
     throw new Error("Unexpected log state after commit: no HEAD");
   }
@@ -407,10 +403,9 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
         const turns = await loadTurnsWithoutMalformedToolSequence(baseResult.turns, extraTexts);
         return { ...baseResult, turns };
       } catch (cause) {
-        log.warn(
-          "base context store load failed; recovering turns from disk segments",
-          { cause: cause instanceof Error ? cause.message : String(cause) },
-        );
+        log.warn("base context store load failed; recovering turns from disk segments", {
+          cause: cause instanceof Error ? cause.message : String(cause),
+        });
         let baseTurns: ConversationTurn[];
         try {
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
@@ -496,7 +491,12 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       if (remove.length > 0) {
         await runGit(dir, ["rm", "--cached", "--ignore-unmatch", "--", ...remove]);
       }
-      await runGit(dir, ["commit", "-m", options.message, `--author=${AUTHOR.name} <${AUTHOR.email}>`]);
+      await runGit(dir, [
+        "commit",
+        "-m",
+        options.message,
+        `--author=${AUTHOR.name} <${AUTHOR.email}>`,
+      ]);
       pendingBlobFilepaths.clear();
       pendingSegmentPaths.clear();
       return describeHead(dir, options.message);

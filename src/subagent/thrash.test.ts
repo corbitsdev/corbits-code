@@ -35,7 +35,7 @@ function grep(pattern: string): ThrashToolCallBlock {
   return { type: "tool_call", name: "grep", arguments: { pattern, path: "src" } };
 }
 
-function applyAll(calls: ReadonlyArray<ThrashToolCallBlock>): ThrashState {
+function applyAll(calls: readonly ThrashToolCallBlock[]): ThrashState {
   return nextThrashState(EMPTY_THRASH_STATE, calls);
 }
 
@@ -112,6 +112,31 @@ describe("thrash pure module", () => {
     expect(thrashFromReRead(deleted)).toBe(true);
   });
 
+  test("apply_patch marks envelope paths as edited for re-read thrash", () => {
+    const patch = `*** Begin Patch
+*** Update File: a.ts
+@@
+-old
++new
+*** End Patch
+`;
+    const patched = applyAll([
+      {
+        type: "tool_call",
+        name: "apply_patch",
+        arguments: { input: patch },
+      },
+      read("a.ts"),
+      read("a.ts"),
+      read("a.ts"),
+      read("a.ts"),
+      grep("p1"),
+      grep("p2"),
+      grep("p3"),
+    ]);
+    expect(thrashFromReRead(patched)).toBe(true);
+  });
+
   test("multi-file unique reads do NOT thrash", () => {
     const calls: ThrashToolCallBlock[] = [];
     for (let i = 0; i < 20; i++) {
@@ -132,13 +157,7 @@ describe("thrash pure module", () => {
 
   test("few re-reads of one path without edit stay under thrash", () => {
     // 3 reads < reReadLimit=4, even with other tools mixed in.
-    const state = applyAll([
-      read("big.ts"),
-      grep("x"),
-      read("big.ts"),
-      grep("y"),
-      read("big.ts"),
-    ]);
+    const state = applyAll([read("big.ts"), grep("x"), read("big.ts"), grep("y"), read("big.ts")]);
     expect(thrashFromReRead(state)).toBe(false);
   });
 
@@ -297,13 +316,7 @@ describe("thrash pure module", () => {
   });
 
   test("tool-less turns never return thrash stop reasons", () => {
-    const state = applyAll([
-      edit("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-      read("a.ts"),
-    ]);
+    const state = applyAll([edit("a.ts"), read("a.ts"), read("a.ts"), read("a.ts"), read("a.ts")]);
     expect(
       evaluateThrashStop({
         state,
