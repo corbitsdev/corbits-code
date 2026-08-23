@@ -1,6 +1,6 @@
 /**
- * Runtime side-channel notices: lifecycle hooks, MCP connection state and
- * recorded permission grants.
+ * Runtime side-channel notices: lifecycle hooks, MCP connection state,
+ * recorded permission grants, and successful context compaction.
  *
  * These channels are chatter by default and only sometimes news. The split
  * this module encodes:
@@ -9,7 +9,8 @@
  *   still be able to read after scrolling away (a hook that failed, an MCP
  *   server asking for authorization or refusing to connect);
  * - a **flash** is for confirmation of something they just caused, true only
- *   for a moment (a hook that ran, a server that came up, a grant recorded);
+ *   for a moment (a hook that ran, a server that came up, a grant recorded,
+ *   a compaction that folded turns away);
  * - **null** is for inventory and intermediate states (`hooks.loaded`, a
  *   server that is merely `connecting`) — the /hooks and /mcp panels own that.
  *
@@ -108,6 +109,19 @@ export function grantNotice(approval: Approval): RuntimeNotice {
   };
 }
 
+export interface CompactionFoldInfo {
+  readonly turnsBefore: number;
+  readonly turnsAfter: number;
+}
+
+/** Confirmation that context compaction actually folded turns away. */
+export function compactionNotice(info: CompactionFoldInfo): RuntimeNotice {
+  return {
+    kind: "flash",
+    text: `context compacted · ${info.turnsBefore} → ${info.turnsAfter} turns`,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Emitter payload validation
 // ---------------------------------------------------------------------------
@@ -166,6 +180,17 @@ export function grantApproval(raw: unknown): Approval | null {
   const parsed = grantPayload(raw);
   if (parsed instanceof type.errors) return null;
   return parsed.approval as Approval;
+}
+
+const compactionPayload = type({
+  turnsBefore: "number",
+  turnsAfter: "number",
+});
+
+export function compactionFoldInfo(raw: unknown): CompactionFoldInfo | null {
+  const parsed = compactionPayload(raw);
+  if (parsed instanceof type.errors) return null;
+  return parsed;
 }
 
 export interface SubAgentProgress {
