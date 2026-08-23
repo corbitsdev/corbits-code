@@ -5,7 +5,11 @@
  * import paths (`../subagent/index.js`, `./subagent.js`, etc.).
  */
 
-export type { SubAgentSession, SubAgentSessionStore, SubAgentTranscriptEntry } from "./session-store.js";
+export type {
+  SubAgentSession,
+  SubAgentSessionStore,
+  SubAgentTranscriptEntry,
+} from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
 export {
   createFleetWatch,
@@ -36,6 +40,7 @@ export {
   formatSubAgentReport,
   hasReportEnvelope,
   parseSubAgentReport,
+  stopReasonFromReport,
   subAgentToolName,
   type DispatchBrief,
   type SubAgentReport,
@@ -115,6 +120,7 @@ export {
   buildSubAgentPrimarySource,
   coreSubAgentWebTools,
   createSubAgentRunController,
+  repetitionStopDetail,
   runSubAgent,
   shouldRequireEvidence,
   type SubAgentRunController,

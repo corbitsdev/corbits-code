@@ -27,31 +27,31 @@
  * Palette values a theme supplies. Call sites paint through `UI`, never
  * through a theme directly, so a second theme is a data change here.
  */
-export type Theme = {
-  readonly name: string
+export interface Theme {
+  readonly name: string;
   /** Terminal ground. Foreground-only discipline means almost nothing fills it. */
-  readonly ground: string
+  readonly ground: string;
   /** All body text. Never white, never gray. */
-  readonly text: string
+  readonly text: string;
   /** Secondary text: labels, context lines, chrome. */
-  readonly textDim: string
+  readonly textDim: string;
   /** Lowest emphasis: comments, concealed markdown syntax. */
-  readonly textFaint: string
+  readonly textFaint: string;
   /** The session mark and anything awaiting a human decision. */
-  readonly action: string
-  readonly actionDim: string
+  readonly action: string;
+  readonly actionDim: string;
   /** Work in progress: ramps, tool verbs, machine output threaded into prose. */
-  readonly inFlight: string
+  readonly inFlight: string;
   /** The tier above body text that still reads as machine: keywords, links, args. */
-  readonly inFlightBright: string
+  readonly inFlightBright: string;
   /** Document structure: markdown headings and section rules. */
-  readonly heading: string
+  readonly heading: string;
   /** Completed and succeeded. */
-  readonly done: string
+  readonly done: string;
   /** Standing caution: attention marks, meter warning band. */
-  readonly warning: string
+  readonly warning: string;
   /** Failure and the meter danger band. */
-  readonly error: string
+  readonly error: string;
 }
 
 /**
@@ -69,20 +69,20 @@ export const BRAND = {
   breakthroughOrange: "#e98428",
   breakthroughOrangeDark: "#bf6b20",
   ridgeGreen: "#7b9974",
-} as const
+} as const;
 
 // Cream stepped down toward the ground rather than desaturated toward gray, so
 // low-emphasis text keeps the same warm hue as full-emphasis text.
-const CREAM_DIM = "#a89f91"
-const CREAM_FAINT = "#787166"
+const CREAM_DIM = "#a89f91";
+const CREAM_FAINT = "#787166";
 
 // The warm chrome ramp. Three tones so the roles that once shared a blue stay
 // separable — they differ in lightness first, hue second, and all three sit
 // well under the action orange's saturation.
-const BRONZE = "#93733f" // dimmest: motion and machine chrome
-const SAND = "#d1ad7d" // brightest: keywords, links, args, and standing caution
-const EMBER = "#a97243" // burnt, between the two: document structure
-const ERROR_RED = "#e0594d" // meter danger band, failures
+const BRONZE = "#93733f"; // dimmest: motion and machine chrome
+const SAND = "#d1ad7d"; // brightest: keywords, links, args, and standing caution
+const EMBER = "#a97243"; // burnt, between the two: document structure
+const ERROR_RED = "#e0594d"; // meter danger band, failures
 
 export const corbitsDark: Theme = {
   name: "corbits-dark",
@@ -98,12 +98,12 @@ export const corbitsDark: Theme = {
   done: BRAND.ridgeGreen,
   warning: SAND,
   error: ERROR_RED,
-}
+};
 
 /** Every theme that ships. A picker would choose from here. */
-export const THEMES = { [corbitsDark.name]: corbitsDark } as const
+export const THEMES = { [corbitsDark.name]: corbitsDark } as const;
 
 /** Semantic roles. Everything outside this file paints through these. */
-export const UI: Theme = corbitsDark
+export const UI: Theme = corbitsDark;
 
-export type UIColor = Theme[keyof Theme]
+export type UIColor = Theme[keyof Theme];

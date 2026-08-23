@@ -9,14 +9,14 @@ import { type } from "arktype";
 // settings). Every installable plugin must declare a manifest to be wired in.
 export type PluginKind = "web" | "command" | "tool" | "agent" | "workflow";
 
-export type PluginCredentialField = {
+export interface PluginCredentialField {
   key: string;
   label: string;
   description?: string;
   secret?: boolean;
-};
+}
 
-export type PluginManifest = {
+export interface PluginManifest {
   id: string;
   name: string;
   // Required: every consumer routes strictly by kind, so a kind-less manifest
@@ -27,7 +27,7 @@ export type PluginManifest = {
   // First-party (origin:repo) plugins may opt in to on-by-default when settings
   // have no entry. Marketplace/path/user plugins ignore this flag.
   defaultEnabled?: boolean;
-};
+}
 
 const PluginCredentialFieldSchema = type({
   key: "string>0",

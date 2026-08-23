@@ -4,11 +4,7 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
 export const planPackage: DirectorPackage = {
   id: "plan",
   primaryIntent: "Author eng change plans; do not implement",
-  outOfLane: [
-    "shipping code",
-    "architecture gate sign-off as Greybeard",
-    "running the fleet",
-  ],
+  outOfLane: ["shipping code", "architecture gate sign-off as Greybeard", "running the fleet"],
   description: "Planning leaf — eng plans only; Greybeard reviews",
   optionalSkills: ["style", "philosophy", "interview"],
   tools: { allow: REVIEW_TOOLS },

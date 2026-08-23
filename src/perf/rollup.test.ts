@@ -19,12 +19,7 @@ import {
   dumpSpans,
   serializeSpan,
 } from "./dump.js";
-import {
-  rollupByPhase,
-  rollupByTurn,
-  sessionTotals,
-  spanDurationNs,
-} from "./rollup.js";
+import { rollupByPhase, rollupByTurn, sessionTotals, spanDurationNs } from "./rollup.js";
 
 // The span store is process-wide, so a perf test cannot assume the tests that
 // ran before it in this process left it empty. Reset on both edges.
@@ -40,7 +35,7 @@ const ALLOWED_TAG_KEY_SET: ReadonlySet<string> = new Set(ALLOWED_TAG_KEYS);
 const DUMP_SPAN_KEY_SET: ReadonlySet<string> = new Set(DUMP_SPAN_KEYS);
 
 /** Build a completed span with fixed times (no live clock). */
-function span( partial: {
+function span(partial: {
   id: string;
   name: PerfSpan["name"];
   parentId?: string;
@@ -323,9 +318,7 @@ describe("sessionTotals", () => {
   });
 
   test("zero TTFT and stream yields zero shares", () => {
-    const totals = sessionTotals([
-      span({ id: "t1", name: "turn", startNs: 0n, endNs: 10n }),
-    ]);
+    const totals = sessionTotals([span({ id: "t1", name: "turn", startNs: 0n, endNs: 10n })]);
     expect(totals.ttftShare).toBe(0);
     expect(totals.streamShare).toBe(0);
   });
@@ -372,9 +365,9 @@ describe("dumpSpans", () => {
   });
 
   test("rejects path-like session ids", async () => {
-    await expect(
-      dumpSpans([], { dir: "/tmp", sessionId: "../etc/passwd" }),
-    ).rejects.toThrow(/sessionId/);
+    await expect(dumpSpans([], { dir: "/tmp", sessionId: "../etc/passwd" })).rejects.toThrow(
+      /sessionId/,
+    );
   });
 
   test("serializes open spans without endNs", () => {

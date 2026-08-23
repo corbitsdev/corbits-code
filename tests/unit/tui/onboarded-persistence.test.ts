@@ -15,7 +15,9 @@ test("markOnboarded sets onboarded:true on an existing global settings file", as
     path,
     JSON.stringify({
       defaultProvider: "openai",
-      providers: { openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-real", models: ["gpt-4o"] } },
+      providers: {
+        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-real", models: ["gpt-4o"] },
+      },
     }),
   );
 
@@ -46,7 +48,9 @@ test("markOnboarded never persists injected OAuth provider tokens", async () => 
   await writeFile(
     path,
     JSON.stringify({
-      providers: { openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-real", models: ["gpt-4o"] } },
+      providers: {
+        openai: { baseURL: "https://api.openai.com/v1", apiKey: "sk-real", models: ["gpt-4o"] },
+      },
     }),
   );
 

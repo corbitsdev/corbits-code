@@ -1,10 +1,7 @@
-import {
-  OPENCODE_GO_ANTHROPIC_BASE_URL,
-  OPENCODE_GO_BASE_URL,
-} from "./constants.js";
+import { OPENCODE_GO_ANTHROPIC_BASE_URL, OPENCODE_GO_BASE_URL } from "./constants.js";
 import { type GoProtocol, protocolForGoModel } from "./models.js";
 
-export type GoEndpoint = {
+export interface GoEndpoint {
   protocol: GoProtocol;
   /** Base URL for the selected protocol's adapter. */
   baseURL: string;
@@ -13,7 +10,7 @@ export type GoEndpoint = {
    * Hosts map these to concrete ProviderAdapters.
    */
   adapter: "openai-compatible" | "openai-responses" | "anthropic";
-};
+}
 
 /**
  * Resolve how a Go model should be called. Unknown models default to

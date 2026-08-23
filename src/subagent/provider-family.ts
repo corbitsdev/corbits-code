@@ -5,10 +5,7 @@ import { isXaiProviderName } from "../config/xai-providers.js";
  * True when the leaf inference path is xAI / Grok family.
  * Used only for tiny provider-specific prompt residuals — not for routing.
  */
-export function isXaiGrokLeafProvider(input: {
-  providerName: string;
-  model?: string;
-}): boolean {
+export function isXaiGrokLeafProvider(input: { providerName: string; model?: string }): boolean {
   const name = input.providerName.toLowerCase();
   if (isXaiProviderName(name)) return true;
   if (name === GROK_RESPONSES_PROVIDER || name.includes("grok")) return true;

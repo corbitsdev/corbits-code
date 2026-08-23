@@ -25,9 +25,9 @@ import { projectSessionsRoot } from "../session/project-key.js";
 // require operator approval instead of a hard deny. Results are cached per
 // resolved path and access mode because the gate consults this on every tool
 // call with a path argument.
-export type PathRestriction = {
+export interface PathRestriction {
   isRestricted: (path: string, isWrite: boolean) => boolean;
-};
+}
 
 const LEGACY_STATE_DIR = ".agent-state";
 
@@ -167,7 +167,6 @@ function underRoot(abs: string, root: string): boolean {
   if (realRoot === UNRESOLVABLE || realAbs === UNRESOLVABLE) return false;
   return realAbs === realRoot || realAbs.startsWith(realRoot + sep);
 }
-
 
 // `rootsProvider` supplies the additional workspace roots (the session's
 // registered git worktrees) beyond cwd itself. A worktree created mid-session
