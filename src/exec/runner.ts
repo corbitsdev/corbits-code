@@ -46,7 +46,12 @@ import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
 import { createSubAgentSessionStore, type SubAgentProvider } from "../subagent/index.js";
-import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  InferenceSource,
+  ToolDefinition,
+  InboundMessage,
+} from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
@@ -384,6 +389,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     };
 
     let currentAgent: Agent | null = null;
+    let currentStorage: ContextStore | null = null;
 
     const overlay = resolveExecDirectorOverlay(config.director);
 
@@ -396,6 +402,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
+      getBlobWriter: () => currentStorage?.writeBlob,
       getBlobReader: () => {
         if (currentAgent === null) {
           throw new Error("blob reader requested before agent init");
@@ -610,6 +617,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     const buildAgent = async (): Promise<Agent> => {
       const storage = await createOptimizedContextStore(workdir);
+      currentStorage = storage;
       const sources = liveSources.length > 0 ? liveSources : [liveSource];
       const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
       // Prefer liveSource credentials on the active id when OAuth was refreshed.
