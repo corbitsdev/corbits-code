@@ -55,6 +55,10 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import {
   detectRepetition,
+  INITIAL_CONTENTLESS_GROWTH_STATE,
+  trackContentlessGrowth,
+  type ContentlessGrowthState,
+  DEFAULT_TEXT_FOLDED_REPETITION_CONFIG,
   DEFAULT_THINKING_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,
   type RepetitionHit,
@@ -566,9 +570,34 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     // Holder object rather than a let: the value is written inside the stream
     // sink closure, and flow analysis would otherwise narrow a let to null at
     // the later catch-site reads.
-    const repetition: { hit: RepetitionHit | null } = { hit: null };
+    const repetition: { hit: RepetitionHit | null; contentless: boolean } = {
+      hit: null,
+      contentless: false,
+    };
     let charsSinceRepetitionCheck = 0;
     let charsSinceThinkingRepetitionCheck = 0;
+    // Contentless-growth guard: catches zero-width floods (U+200C/U+200D walls)
+    // that detectRepetition is structurally blind to — its normalize() strips
+    // invisibles before the periodicity check. One window per stream kind.
+    let textContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
+    let thinkingContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
+    const degenerate = (): boolean => repetition.hit !== null || repetition.contentless;
+    const checkContentless = (
+      state: ContentlessGrowthState,
+      token: string,
+      stream: string,
+    ): ContentlessGrowthState => {
+      const next = trackContentlessGrowth(state, token);
+      if (next.hit) {
+        repetition.contentless = true;
+        runController.abort(
+          new Error(
+            `sub-agent ${stream} output grew with only invisible/contentless characters (zero-width flood)`,
+          ),
+        );
+      }
+      return next.state;
+    };
     const streamSink = (event: ReactorEmittedEvent): void => {
       const name = subAgentToolName(event);
       if (name !== null) {
@@ -576,15 +605,25 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         params.onProgress?.({ description: params.description, toolName: name });
       }
       cycleRecorder.handleEvent(event);
-      if (event.type === "inference.text.delta" && repetition.hit === null) {
+      if (event.type === "inference.text.delta" && !degenerate()) {
         // Count the raw token, not the buffer growth: once the buffer is pinned
         // at its cap, appends no longer change its length and a growth-based
         // counter would disarm detection for the rest of the turn.
         const token = (event.data as { token?: unknown }).token;
+        if (typeof token === "string") {
+          textContentless = checkContentless(textContentless, token, "streamed");
+        }
         charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
-        if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
           charsSinceRepetitionCheck = 0;
-          const hit = detectRepetition(cycleRecorder.text());
+          // Two passes: digit-preserving for phrase loops, then the capped
+          // folded pass for counter/timestamp/fence/emoji floods that are
+          // never byte-periodic or fall under the plain window floor.
+          const hit =
+            detectRepetition(cycleRecorder.text()) ??
+            detectRepetition(cycleRecorder.text(), DEFAULT_TEXT_FOLDED_REPETITION_CONFIG, {
+              normalizeDigits: true,
+            });
           if (hit !== null) {
             repetition.hit = hit;
             runController.abort(
@@ -597,10 +636,13 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       // loop confined to them (the observed live thrash) never trips the
       // turn-level stop checks either — sample them on the same interval with
       // digit-normalized detection tuned for the collapsed period.
-      if (event.type === "inference.thinking.delta" && repetition.hit === null) {
+      if (event.type === "inference.thinking.delta" && !degenerate()) {
         const token = (event.data as { token?: unknown }).token;
+        if (typeof token === "string") {
+          thinkingContentless = checkContentless(thinkingContentless, token, "thinking");
+        }
         charsSinceThinkingRepetitionCheck += typeof token === "string" ? token.length : 0;
-        if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
           charsSinceThinkingRepetitionCheck = 0;
           const hit = detectRepetition(
             cycleRecorder.thinkingText(),
@@ -698,12 +740,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         // events before bare-vs-salvage is decided.
         // Repetition and deadline are already known here; a parent cancel is
         // labeled cancelled even if the outcome below resolves to rethrow.
+        // A contentless flood shares the repetition salvage path: both are
+        // self-inflicted degenerate-output aborts whose tail is the evidence.
         const abortedCycleText = await cycleRecorder.dispose(
-          repetition.hit !== null
-            ? "repetition"
-            : runController.deadlineHit()
-              ? "deadline"
-              : "cancelled",
+          degenerate() ? "repetition" : runController.deadlineHit() ? "deadline" : "cancelled",
           { drain: streamPromise },
         );
         // Deadline always salvages (even with zero output). Cancel after any
@@ -713,7 +753,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
-          repetitionHit: repetition.hit !== null,
+          repetitionHit: degenerate(),
         });
         if (outcome !== "rethrow") {
           const reason =
@@ -729,13 +769,17 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           const partial =
             repetition.hit !== null
               ? `Looped window (repeated ${repetition.hit.repeats}x): ${repetition.hit.window.slice(0, 300)}\n\n${tail}`
-              : tail;
+              : repetition.contentless
+                ? `Contentless output: the stream grew with only invisible characters (zero-width flood).\n\n${tail}`
+                : tail;
           const detail =
             repetition.hit !== null
               ? repetitionStopDetail(repetition.hit)
-              : reason === "deadline" && resolvedDeadlineMs !== undefined
-                ? `${resolvedDeadlineMs}ms elapsed`
-                : abortReasonText(runController.signal);
+              : repetition.contentless
+                ? "contentless/zero-width flood"
+                : reason === "deadline" && resolvedDeadlineMs !== undefined
+                  ? `${resolvedDeadlineMs}ms elapsed`
+                  : abortReasonText(runController.signal);
           return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
         }
       }

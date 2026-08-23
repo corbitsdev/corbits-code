@@ -577,7 +577,7 @@ describe("repetition guard", () => {
         const cycle = `${line1}${line2}`;
 
         // Tokens keep landing every tick — a real stall would never fire here.
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 30; i++) {
           t.bridge.handle({
             type: "inference.text.delta",
             data: { token: cycle },
