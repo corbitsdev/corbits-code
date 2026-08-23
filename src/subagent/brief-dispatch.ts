@@ -20,13 +20,12 @@ import {
   isNoProgressSubAgentReport,
   isNoShipSubAgentReport,
   isRepetitionSubAgentReport,
-  isThrashSubAgentReport,
   isTurnBudgetSubAgentReport,
 } from "./stop-policy.js";
 
 /** Salvage classes that must not be re-dispatched with an identical brief. */
 export type HardBlockSalvage =
-  "thrash" | "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
+  "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
 
 export type BriefSalvageKind =
   HardBlockSalvage | "turn-budget" | "deadline" | "stalled" | "cancelled" | "incomplete-report";
@@ -54,7 +53,6 @@ export interface BriefDispatchRecord {
 export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
 
 const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>([
-  "thrash",
   "no-ship",
   "no-progress",
   "repetition",
@@ -90,7 +88,6 @@ export function isIncompleteReportSubAgentReport(report: string): boolean {
  */
 export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
   // Order: more specific salvage phrases first.
-  if (isThrashSubAgentReport(report)) return "thrash";
   if (isNoShipSubAgentReport(report)) return "no-ship";
   if (isRepetitionSubAgentReport(report)) return "repetition";
   if (isNeverEditedSubAgentReport(report)) return "never-edited";

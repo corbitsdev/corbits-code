@@ -2146,19 +2146,19 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(changed).not.toBe(a);
   });
 
-  test("hard-blocks identical brief after thrash salvage; allows changed brief", () => {
+  test("hard-blocks identical brief after no-progress salvage; allows changed brief", () => {
     const ledger = createBriefDispatchLedger();
-    const fp = fingerprintTaskBrief({ prompt: "fix thrash", intent: "implement" });
+    const fp = fingerprintTaskBrief({ prompt: "fix no-progress job", intent: "implement" });
     expect(ledger.admit(fp).ok).toBe(true);
-    ledger.recordOutcome(fp, "thrash");
+    ledger.recordOutcome(fp, "no-progress");
     const blocked = ledger.admit(fp);
     expect(blocked.ok).toBe(false);
     if (blocked.ok) throw new Error("expected block");
     expect(blocked.message).toContain("refused re-dispatch");
-    expect(blocked.message).toContain("thrash");
+    expect(blocked.message).toContain("no-progress");
 
     const other = fingerprintTaskBrief({
-      prompt: "fix thrash with narrower scope",
+      prompt: "fix no-progress job with narrower scope",
       intent: "implement",
       successCriteria: ["one file only"],
     });
@@ -2183,7 +2183,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(second.dispatchCount).toBe(2);
   });
 
-  test("successful complete resets retry budget; thrash hard-block is sticky", () => {
+  test("successful complete resets retry budget; hard-block is sticky", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "ok job" });
     expect(ledger.admit(fp).ok).toBe(true);
@@ -2196,12 +2196,12 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     if (!afterSuccess.ok) throw new Error("expected admit");
     expect(afterSuccess.dispatchCount).toBe(1);
 
-    // Thrash is sticky for the session — success on a concurrent twin must not clear it.
-    const thrashFp = fingerprintTaskBrief({ prompt: "thrash sticky" });
-    ledger.admit(thrashFp);
-    ledger.recordOutcome(thrashFp, "thrash");
-    ledger.recordOutcome(thrashFp, null);
-    expect(ledger.admit(thrashFp).ok).toBe(false);
+    // Hard-block salvage is sticky for the session — success on a concurrent twin must not clear it.
+    const stickyFp = fingerprintTaskBrief({ prompt: "no-progress sticky" });
+    ledger.admit(stickyFp);
+    ledger.recordOutcome(stickyFp, "no-progress");
+    ledger.recordOutcome(stickyFp, null);
+    expect(ledger.admit(stickyFp).ok).toBe(false);
   });
 
   test("release undoes admit when run never produces a body", () => {
