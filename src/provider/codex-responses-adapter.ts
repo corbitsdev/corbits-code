@@ -13,10 +13,7 @@ import type {
   PartialMessage,
   TokenUsage,
 } from "@intx/types/runtime";
-import {
-  CODEX_RESPONSES_PATH,
-  CODEX_AUTHORIZE_EXTRA_PARAMS,
-} from "../auth/codex/constants.js";
+import { CODEX_RESPONSES_PATH, CODEX_AUTHORIZE_EXTRA_PARAMS } from "../auth/codex/constants.js";
 import { codexInstructions } from "../auth/codex/instructions.js";
 import { PRODUCT_NAME, ENVIRONMENT_TAG_NAME } from "../branding.js";
 
@@ -41,10 +38,7 @@ export const CODEX_SESSION_ID_OPTION = "codexSessionId";
 
 const EMPTY_PARTIAL: PartialMessage = { text: "" };
 
-type FetchLike = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 function requestURL(input: string | URL | Request): string {
   if (typeof input === "string") return input;
@@ -117,7 +111,11 @@ type ResponsesContentPart =
   | { type: "input_image"; image_url: string };
 
 type ResponsesInputItem =
-  | { type: "message"; role: "user" | "assistant" | "system" | "developer"; content: ResponsesContentPart[] }
+  | {
+      type: "message";
+      role: "user" | "assistant" | "system" | "developer";
+      content: ResponsesContentPart[];
+    }
   | { type: "function_call"; name: string; arguments: string; call_id: string }
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
@@ -145,7 +143,9 @@ export function tagSignature(provider: string, encryptedContent: string): string
   return `${provider}${SIGNATURE_TAG_SEPARATOR}${encryptedContent}`;
 }
 
-function untagSignature(tagged: string): { provider: string; encryptedContent: string } | undefined {
+function untagSignature(
+  tagged: string,
+): { provider: string; encryptedContent: string } | undefined {
   const idx = tagged.indexOf(SIGNATURE_TAG_SEPARATOR);
   if (idx === -1) return undefined;
   return { provider: tagged.slice(0, idx), encryptedContent: tagged.slice(idx + 1) };
@@ -171,9 +171,14 @@ export function signatureForModel(
 // (held in a thinking block's signature) AND that backend is the one this
 // request is going to — replaying it to a different provider gets a 400 it
 // cannot recover from.
-function toResponsesItems(turn: ConversationTurn, requestModel: string, requestProvider: string): ResponsesInputItem[] {
+function toResponsesItems(
+  turn: ConversationTurn,
+  requestModel: string,
+  requestProvider: string,
+): ResponsesInputItem[] {
   const items: ResponsesInputItem[] = [];
-  const textKind: "input_text" | "output_text" = turn.role === "assistant" ? "output_text" : "input_text";
+  const textKind: "input_text" | "output_text" =
+    turn.role === "assistant" ? "output_text" : "input_text";
   const textParts: ResponsesContentPart[] = [];
 
   const flushText = (): void => {
@@ -188,11 +193,17 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string, requestP
       textParts.push({ type: textKind, text: block.text } as ResponsesContentPart);
     } else if (block.type === "image") {
       if (block.source.kind === "base64") {
-        textParts.push({ type: "input_image", image_url: `data:${block.source.mimeType};base64,${block.source.data}` });
+        textParts.push({
+          type: "input_image",
+          image_url: `data:${block.source.mimeType};base64,${block.source.data}`,
+        });
       } else if (block.source.kind === "url") {
         textParts.push({ type: "input_image", image_url: block.source.url });
       } else {
-        textParts.push({ type: textKind, text: `[Unsupported image reference omitted: ${block.source.reference}]` } as ResponsesContentPart);
+        textParts.push({
+          type: textKind,
+          text: `[Unsupported image reference omitted: ${block.source.reference}]`,
+        } as ResponsesContentPart);
       }
     } else if (block.type === "tool_call") {
       flushText();
@@ -204,10 +215,23 @@ function toResponsesItems(turn: ConversationTurn, requestModel: string, requestP
       });
     } else if (block.type === "tool_result") {
       flushText();
-      items.push({ type: "function_call_output", call_id: block.callId, output: toolResultText(block) });
-    } else if (block.type === "thinking" && typeof block.signature === "string" && block.signature.length > 0) {
+      items.push({
+        type: "function_call_output",
+        call_id: block.callId,
+        output: toolResultText(block),
+      });
+    } else if (
+      block.type === "thinking" &&
+      typeof block.signature === "string" &&
+      block.signature.length > 0
+    ) {
       flushText();
-      const encryptedContent = signatureForModel(turn, requestModel, requestProvider, block.signature);
+      const encryptedContent = signatureForModel(
+        turn,
+        requestModel,
+        requestProvider,
+        block.signature,
+      );
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
       }
@@ -249,11 +273,12 @@ function optionString(options: InferenceOptions, key: string): string | undefine
 
 // `instructions` is pinned to the official Codex prompt (the backend rejects
 // anything else), so Corbits Code's operating prompt rides as a leading developer
-// message that also neutralizes the Codex prompt's references to tools that do
-// not exist here. The function tools sent with the request are authoritative.
+// message that also reconciles the Codex prompt's tool references with the
+// proxies actually wired up here. The function tools sent with the request are
+// authoritative for names/schemas; this text only resolves which dialect to speak.
 function bridgeMessage(systemPrompt: string): ResponsesInputItem {
   const text = `<${ENVIRONMENT_TAG_NAME} priority="0">
-You are NOT running in the Codex CLI. You are running in ${PRODUCT_NAME}, a different harness. The base instructions above describe Codex CLI tools (apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool reference in the base instructions and use ONLY the function tools provided in this request. The following are your authoritative operating instructions:
+${PRODUCT_NAME} is the harness, not the Codex CLI. The Codex tools named above (apply_patch, update_plan, shell) proxy onto ${PRODUCT_NAME}'s native tools with the same permissions — prefer whichever name appears in the current tool list. These operating instructions are authoritative where they differ from the base instructions:
 
 ${systemPrompt}
 </${ENVIRONMENT_TAG_NAME}>`;
@@ -297,9 +322,12 @@ function buildRequest(
   }
   // reasoning_effort rides in providerOptions (same place the OpenAI-compatible
   // path reads it); map it onto the Responses `reasoning.effort` field.
+  // ChatGPT Codex rejects summary:"auto" for gpt-5.6-terra / gpt-5.3-codex
+  // family (HTTP 400; supported: concise | detailed | none). Codex CLI catalog
+  // default_reasoning_summary is none — send effort only (CL-6893).
   const effort = options.providerOptions?.["reasoning_effort"];
   if (typeof effort === "string" && effort !== "none") {
-    body["reasoning"] = { effort, summary: "auto" };
+    body["reasoning"] = { effort };
   }
   if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
 
@@ -328,10 +356,10 @@ function buildRequest(
 // signature to the exact thinking block it belongs to. `kind` is recorded so a
 // signature is only emitted against a real thinking block.
 type CodexBlockKind = "text" | "thinking" | "tool_call";
-export type CodexBlockIndexer = {
+export interface CodexBlockIndexer {
   nextIndex: number;
   items: Map<string, { index: number; kind: CodexBlockKind }>;
-};
+}
 
 // Both the Codex and grok backends speak the same Responses SSE protocol, so
 // the parser is shared. Each adapter creates its own indexer per request.
@@ -395,7 +423,8 @@ export function parseResponse(
   switch (eventType) {
     case "response.output_text.delta": {
       const token = event["delta"];
-      const itemId = typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__text__";
+      const itemId =
+        typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__text__";
       if (typeof token === "string" && token.length > 0) {
         events.push({
           type: "inference.text.delta",
@@ -412,7 +441,8 @@ export function parseResponse(
       // subsequent signature, supporting reasoning items whose visible
       // summary may be empty or delivered only via the done envelope.
       const token = event["delta"];
-      const itemId = typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__thinking__";
+      const itemId =
+        typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__thinking__";
       const index = blockIndexFor(indexer, itemId, "thinking");
       const tok = typeof token === "string" ? token : "";
       events.push({
@@ -434,7 +464,12 @@ export function parseResponse(
             events.push({
               type: "inference.tool_call.start",
               seq,
-              data: { callId, name, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "tool_call") },
+              data: {
+                callId,
+                name,
+                partial: EMPTY_PARTIAL,
+                index: blockIndexFor(indexer, itemId, "tool_call"),
+              },
             });
           }
         } else if (it["type"] === "reasoning") {
@@ -461,7 +496,11 @@ export function parseResponse(
       // is the first signal for the item) so the harness can attach the
       // signature without ProtocolMismatchError.
       const item = event["item"] as Record<string, unknown> | undefined;
-      if (item?.["type"] === "reasoning" && typeof item["id"] === "string" && typeof item["encrypted_content"] === "string") {
+      if (
+        item?.["type"] === "reasoning" &&
+        typeof item["id"] === "string" &&
+        typeof item["encrypted_content"] === "string"
+      ) {
         const itemId = item["id"] as string;
         const hadPrior = indexer.items.has(itemId);
         const index = blockIndexFor(indexer, itemId, "thinking");
@@ -475,7 +514,10 @@ export function parseResponse(
         events.push({
           type: "inference.block.signature",
           seq,
-          data: { signature: tagSignature(source.provider, item["encrypted_content"] as string), index },
+          data: {
+            signature: tagSignature(source.provider, item["encrypted_content"] as string),
+            index,
+          },
         });
       }
       return events;
@@ -490,7 +532,12 @@ export function parseResponse(
           seq,
           // The harness routes argument fragments by a per-stream placeholder
           // keyed to the block index registered on the start event.
-          data: { callId: String(blockIndex), argumentFragment: fragment, partial: EMPTY_PARTIAL, index: blockIndex },
+          data: {
+            callId: String(blockIndex),
+            argumentFragment: fragment,
+            partial: EMPTY_PARTIAL,
+            index: blockIndex,
+          },
         });
       }
       return events;
@@ -566,7 +613,8 @@ export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAd
     items: new Map<string, { index: number; kind: CodexBlockKind }>(),
   };
   return {
-    buildRequest: (messages, model, options) => buildRequest(messages, model, options, source.provider),
+    buildRequest: (messages, model, options) =>
+      buildRequest(messages, model, options, source.provider),
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
     parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,

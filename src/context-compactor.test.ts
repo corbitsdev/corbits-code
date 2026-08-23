@@ -8,10 +8,10 @@ import {
   buildLLMTurnSummary,
   type SessionMetadata,
 } from "./session/compactor.js";
-import type { ConversationTurn, StrategyContext } from "@intx/types/runtime";
+import type { ConversationTurn, ReactorState, StrategyContext } from "@intx/types/runtime";
 
 const mockStrategyCtx: StrategyContext = {
-  state: {} as any,
+  state: {} as ReactorState,
   trigger: "test",
 };
 

@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,14 +8,28 @@ import {
   createSSHSignature,
   verifySSHSignature,
 } from "@intx/crypto";
-import { initAgentRepo } from "./init";
+import { initAgentRepo } from "./node";
+import { createIsogitStorage } from "./index";
 import {
   applyPack,
   receivePackObjects,
   type CommitVerifier,
   type TreeValidator,
-} from "./pack-receive";
-import { collectReachableObjects } from "./object-walk";
+} from "./node";
+import { collectReachableObjects } from "./node";
+import { createNodeIsogitRuntime } from "./node-runtime";
+import { publishPackAtomically as publishPackAtomicallyImpl } from "./pack-receive";
+import { normalizeRuntime } from "./runtime";
+
+const publishRuntime = normalizeRuntime(createNodeIsogitRuntime());
+
+function publishPackAtomically(
+  dir: string,
+  pack: Uint8Array,
+  transferId: string,
+): Promise<string[]> {
+  return publishPackAtomicallyImpl(publishRuntime, dir, pack, transferId);
+}
 
 const tempDirs: string[] = [];
 
@@ -405,6 +419,181 @@ describe("applyPack", () => {
     );
     await expect(fs.promises.access(packPath)).rejects.toThrow();
     await expect(fs.promises.access(idxPath)).rejects.toThrow();
+  });
+});
+
+describe("publishPackAtomically", () => {
+  test("renames the completed pack before publishing its index", async () => {
+    const source = await makeSourceRepo();
+    const pack = await createPackFromRepo(source.dir, source.oids);
+    const targetDir = await tempDir();
+    await initAgentRepo(targetDir);
+
+    const originalRename = fs.promises.rename.bind(fs.promises);
+    const renames: { from: string; to: string }[] = [];
+    const renameSpy = spyOn(fs.promises, "rename").mockImplementation(
+      async (from, to) => {
+        await originalRename(from, to);
+        renames.push({ from: from.toString(), to: to.toString() });
+      },
+    );
+
+    try {
+      await publishPackAtomically(targetDir, pack, "rename-order");
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    const finalPack = path.join(
+      targetDir,
+      ".git",
+      "objects",
+      "pack",
+      "pack-recv-rename-order.pack",
+    );
+    const finalIdx = finalPack.replace(/\.pack$/, ".idx");
+    expect(renames).toEqual([
+      {
+        from: path.join(
+          targetDir,
+          ".git",
+          "objects",
+          "pack-staging",
+          "rename-order",
+          "pack.pack",
+        ),
+        to: finalPack,
+      },
+      {
+        from: path.join(
+          targetDir,
+          ".git",
+          "objects",
+          "pack-staging",
+          "rename-order",
+          "pack.idx",
+        ),
+        to: finalIdx,
+      },
+    ]);
+    await fs.promises.access(finalPack);
+    await fs.promises.access(finalIdx);
+    await expect(
+      fs.promises.access(
+        path.join(targetDir, ".git", "objects", "pack-staging", "rename-order"),
+      ),
+    ).rejects.toThrow();
+  });
+
+  test.each(["pack", "idx"] as const)(
+    "does not overwrite an existing final %s",
+    async (extension) => {
+      const source = await makeSourceRepo();
+      const pack = await createPackFromRepo(source.dir, source.oids);
+      const targetDir = await tempDir();
+      await initAgentRepo(targetDir);
+
+      const packDir = path.join(targetDir, ".git", "objects", "pack");
+      const existingPath = path.join(
+        packDir,
+        `pack-recv-duplicate.${extension}`,
+      );
+      await fs.promises.mkdir(packDir, { recursive: true });
+      await fs.promises.writeFile(existingPath, "existing");
+
+      await expect(
+        publishPackAtomically(targetDir, pack, "duplicate"),
+      ).rejects.toThrow(/already published/);
+      expect(await fs.promises.readFile(existingPath, "utf8")).toBe("existing");
+    },
+  );
+
+  test("rejects concurrent publishers using the same transfer ID", async () => {
+    const source = await makeSourceRepo();
+    const pack = await createPackFromRepo(source.dir, source.oids);
+    const targetDir = await tempDir();
+    await initAgentRepo(targetDir);
+
+    const originalIndexPack = git.indexPack.bind(git);
+    let signalIndexingStarted: () => void = () => undefined;
+    const indexingStarted = new Promise<void>((resolve) => {
+      signalIndexingStarted = resolve;
+    });
+    let releaseIndexing: () => void = () => undefined;
+    const indexingReleased = new Promise<void>((resolve) => {
+      releaseIndexing = resolve;
+    });
+    let blockNextIndex = true;
+    const indexPackSpy = spyOn(git, "indexPack").mockImplementation(
+      async (args) => {
+        if (blockNextIndex) {
+          blockNextIndex = false;
+          signalIndexingStarted();
+          await indexingReleased;
+        }
+        return originalIndexPack(args);
+      },
+    );
+
+    let firstPublish: Promise<string[]> | undefined;
+    try {
+      firstPublish = publishPackAtomically(targetDir, pack, "concurrent");
+      await indexingStarted;
+
+      await expect(
+        publishPackAtomically(targetDir, pack, "concurrent"),
+      ).rejects.toThrow(/already published or in progress/);
+      expect(indexPackSpy).toHaveBeenCalledTimes(1);
+
+      releaseIndexing();
+      await firstPublish;
+    } finally {
+      releaseIndexing();
+      await firstPublish?.catch(() => undefined);
+      indexPackSpy.mockRestore();
+    }
+  });
+
+  test("cleans up when index publication fails after the pack rename", async () => {
+    const source = await makeSourceRepo();
+    const pack = await createPackFromRepo(source.dir, source.oids);
+    const targetDir = await tempDir();
+    await initAgentRepo(targetDir);
+
+    const originalRename = fs.promises.rename.bind(fs.promises);
+    let renameCount = 0;
+    const renameSpy = spyOn(fs.promises, "rename").mockImplementation(
+      async (from, to) => {
+        renameCount += 1;
+        if (renameCount === 2) throw new Error("index publish failed");
+        await originalRename(from, to);
+      },
+    );
+
+    try {
+      await expect(
+        publishPackAtomically(targetDir, pack, "partial"),
+      ).rejects.toThrow("index publish failed");
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    const finalPack = path.join(
+      targetDir,
+      ".git",
+      "objects",
+      "pack",
+      "pack-recv-partial.pack",
+    );
+    await expect(fs.promises.access(finalPack)).rejects.toThrow();
+    await expect(
+      fs.promises.access(finalPack.replace(/\.pack$/, ".idx")),
+    ).rejects.toThrow();
+    await expect(
+      fs.promises.access(
+        path.join(targetDir, ".git", "objects", "pack-staging", "partial"),
+      ),
+    ).rejects.toThrow();
   });
 });
 
@@ -935,6 +1124,102 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
+function createStorageFailingPromotionFlush(
+  targetDir: string,
+  ref: string,
+  expectedSha: string,
+) {
+  let failureInjected = false;
+  return createIsogitStorage({
+    ...createNodeIsogitRuntime(),
+    flush: async () => {
+      const currentSha = await git
+        .resolveRef({ fs, dir: targetDir, ref })
+        .catch(() => null);
+      if (!failureInjected && currentSha === expectedSha) {
+        failureInjected = true;
+        throw new Error("injected post-promotion flush failure");
+      }
+    },
+  });
+}
+
+describe("post-promotion flush failures", () => {
+  test("receive retains the durable pack for the promoted ref", async () => {
+    const source = await makeRepoWithPaths([
+      { filepath: "state/v1.jsonl", content: "v1" },
+    ]);
+    const pack = await createPackFromRepo(source.dir, source.oids);
+    const targetDir = await tempDir();
+    const ref = "refs/heads/state";
+    const transferId = "receive-flush-failure";
+    const storage = createStorageFailingPromotionFlush(
+      targetDir,
+      ref,
+      source.commitSha,
+    );
+    await storage.initAgentRepo(targetDir);
+
+    await expect(
+      storage.receivePackObjects(
+        targetDir,
+        pack,
+        ref,
+        source.commitSha,
+        transferId,
+        null,
+      ),
+    ).rejects.toThrow("injected post-promotion flush failure");
+
+    expect(await fileExists(publishedPackFile(targetDir, transferId))).toBe(
+      true,
+    );
+    expect(await fileExists(publishedIdxFile(targetDir, transferId))).toBe(
+      true,
+    );
+    expect(await git.resolveRef({ fs, dir: targetDir, ref })).toBe(
+      source.commitSha,
+    );
+    expect(
+      (await git.readCommit({ fs, dir: targetDir, oid: source.commitSha })).oid,
+    ).toBe(source.commitSha);
+  });
+
+  test("apply retains the durable pack and materialized tree for the promoted ref", async () => {
+    const source = await makeSourceRepo();
+    const pack = await createPackFromRepo(source.dir, source.oids);
+    const targetDir = await tempDir();
+    const ref = "refs/heads/deploy";
+    const transferId = "apply-flush-failure";
+    const storage = createStorageFailingPromotionFlush(
+      targetDir,
+      ref,
+      source.commitSha,
+    );
+    await storage.initAgentRepo(targetDir);
+
+    await expect(
+      storage.applyPack(targetDir, pack, ref, source.commitSha, transferId),
+    ).rejects.toThrow("injected post-promotion flush failure");
+
+    expect(await fileExists(publishedPackFile(targetDir, transferId))).toBe(
+      true,
+    );
+    expect(await fileExists(publishedIdxFile(targetDir, transferId))).toBe(
+      true,
+    );
+    expect(await git.resolveRef({ fs, dir: targetDir, ref })).toBe(
+      source.commitSha,
+    );
+    expect(
+      await fs.promises.readFile(
+        path.join(targetDir, "deploy", "prompt.txt"),
+        "utf8",
+      ),
+    ).toBe("You are a helpful agent.");
+  });
+});
+
 // These tests assert that post-publish validation rejections in
 // receivePackObjects and applyPack remove the published .pack + .idx
 // pair from objects/pack/. Without this, rejected packs would
@@ -999,11 +1284,19 @@ describe("receivePackObjects unpublishes on post-publish rejection", () => {
     const pack = await createPackFromRepo(source.dir, source.oids);
 
     const targetDir = await tempDir();
-    await initAgentRepo(targetDir);
+    let flushes = 0;
+    const storage = createIsogitStorage({
+      ...createNodeIsogitRuntime(),
+      flush: () => {
+        flushes += 1;
+        return Promise.resolve();
+      },
+    });
+    await storage.initAgentRepo(targetDir);
 
     const bogusExpected = "0".repeat(40);
     await expect(
-      receivePackObjects(
+      storage.receivePackObjects(
         targetDir,
         pack,
         "refs/heads/state",
@@ -1019,6 +1312,7 @@ describe("receivePackObjects unpublishes on post-publish rejection", () => {
     expect(await fileExists(publishedIdxFile(targetDir, "rejected-sha"))).toBe(
       false,
     );
+    expect(flushes).toBe(2);
   });
 
   test("path_violation removes .pack and .idx", async () => {
@@ -1060,11 +1354,19 @@ describe("applyPack unpublishes on post-publish rejection", () => {
     const pack = await createPackFromRepo(source.dir, source.oids);
 
     const targetDir = await tempDir();
-    await initAgentRepo(targetDir);
+    let flushes = 0;
+    const storage = createIsogitStorage({
+      ...createNodeIsogitRuntime(),
+      flush: () => {
+        flushes += 1;
+        return Promise.resolve();
+      },
+    });
+    await storage.initAgentRepo(targetDir);
 
     const bogusExpected = "0".repeat(40);
     await expect(
-      applyPack(
+      storage.applyPack(
         targetDir,
         pack,
         "refs/heads/deploy",
@@ -1079,5 +1381,6 @@ describe("applyPack unpublishes on post-publish rejection", () => {
     expect(
       await fileExists(publishedIdxFile(targetDir, "apply-rejected-sha")),
     ).toBe(false);
+    expect(flushes).toBe(2);
   });
 });

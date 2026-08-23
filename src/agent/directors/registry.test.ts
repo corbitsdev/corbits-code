@@ -94,7 +94,7 @@ describe("director registry", () => {
   test("packageToProfile maps envelope and spawn", () => {
     const explore = packageToProfile(DIRECTOR_REGISTRY.explore);
     expect(explore.id).toBe("explore");
-    expect(explore.systemPromptRole).toContain('agent id `explore`');
+    expect(explore.systemPromptRole).toContain("agent id `explore`");
     expect(explore.systemPromptRole).toContain(DIRECTOR_REGISTRY.explore.systemPrompt);
     expect(explore.description).toContain("agent id: explore");
     expect(explore.capabilities?.mode).toBe("allow");
@@ -156,7 +156,7 @@ describe("director registry", () => {
 
   test("build mounts product writes; intern is shell-only; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.build.tools?.allow).toEqual(
-      expect.arrayContaining(["write_file", "edit_file", "delete_file"]),
+      expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
     expect(internAllow).toContain("run_shell");

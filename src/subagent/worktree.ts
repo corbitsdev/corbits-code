@@ -19,7 +19,7 @@ const defaultExec: WorktreeExec = (args, options) => execFileAsync("git", args, 
 
 export class WorktreeError extends Error {}
 
-export type SubAgentWorktree = {
+export interface SubAgentWorktree {
   path: string;
   // The repo's `git stash list` output at the moment this worktree was
   // created (see stashList). Stash refs live on the shared repo, not the
@@ -32,7 +32,7 @@ export type SubAgentWorktree = {
   // porcelain status but move HEAD — cleanup preserves when HEAD advanced so
   // those commits are not left reflog-only after `worktree remove`.
   headAtCreate: string;
-};
+}
 
 // The repo's stash list as an array of "stash@{N}: <message>" lines, or null
 // when the lookup itself fails. A failed lookup must never make cleanup more
@@ -86,15 +86,14 @@ export async function createSubAgentWorktree(
 }
 
 export type WorktreeCleanupResult =
-  | { status: "removed"; path: string }
-  | { status: "preserved"; path: string; notice: string };
+  { status: "removed"; path: string } | { status: "preserved"; path: string; notice: string };
 
-export type CleanupSubAgentWorktreeOpts = {
+export interface CleanupSubAgentWorktreeOpts {
   // From createSubAgentWorktree.stashBaseline. `null` means unknown → preserve.
   stashBaseline?: readonly string[] | null;
   // From createSubAgentWorktree.headAtCreate. When set, HEAD advance preserves.
   headAtCreate?: string;
-};
+}
 
 // Removes the worktree if it has no uncommitted changes, no new commits on
 // detached HEAD, and no new stash entries; otherwise leaves it in place (the

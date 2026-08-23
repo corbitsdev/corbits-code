@@ -3,9 +3,7 @@ import { XaiAuthError } from "../auth/xai/session.js";
 
 export type SubAgentAuthFailureKind = "codex" | "xai";
 
-export function classifySubAgentInferenceAuthFailure(
-  err: unknown,
-): SubAgentAuthFailureKind | null {
+export function classifySubAgentInferenceAuthFailure(err: unknown): SubAgentAuthFailureKind | null {
   if (err instanceof CodexAuthError) return "codex";
   if (err instanceof XaiAuthError) return "xai";
   return null;

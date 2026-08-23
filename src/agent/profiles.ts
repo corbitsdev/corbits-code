@@ -6,7 +6,15 @@ import { type } from "arktype";
 import { defaultAgentsPlugin as defaultPlugin } from "./default-agents.js";
 import { REASONING_EFFORTS } from "./profile-types.js";
 
-export type { AgentProfile, AgentPlugin, CapabilityFilter, CapabilityMode, InferenceLeg, InferenceSpec, ReasoningEffort } from "./profile-types.js";
+export type {
+  AgentProfile,
+  AgentPlugin,
+  CapabilityFilter,
+  CapabilityMode,
+  InferenceLeg,
+  InferenceSpec,
+  ReasoningEffort,
+} from "./profile-types.js";
 import type { AgentProfile } from "./profile-types.js";
 
 // Exported so agent-kind plugins can validate contributed profiles.
@@ -22,9 +30,7 @@ const CapabilityFilterSchema = type({
 // through `unknown`. The schema is exercised by tests/unit/data-only-agent
 // and the runtime ReasoningEffort re-export, so drift is caught.
 const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(" | ");
-const ReasoningEffortSchema = type(
-  reasoningEffortLiteral as unknown as "'none'",
-);
+const ReasoningEffortSchema = type(reasoningEffortLiteral as unknown as "'none'");
 
 const InferenceLegSchema = type({
   provider: "string>0",

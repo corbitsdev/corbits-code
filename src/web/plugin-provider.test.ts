@@ -19,7 +19,12 @@ function stubProvider(name: string): WebProvider {
 
 function webModule(id: string, name: string): PluginModule {
   return {
-    manifest: { id, name, kind: "web", credentials: [{ key: "apiKey", label: "Key", secret: true }] },
+    manifest: {
+      id,
+      name,
+      kind: "web",
+      credentials: [{ key: "apiKey", label: "Key", secret: true }],
+    },
     createWebProvider: (() => stubProvider(id)) as unknown,
   };
 }
@@ -52,7 +57,9 @@ describe("selectWebPlugin", () => {
   });
 
   test("returns undefined when multiple enabled and no override (ambiguous)", () => {
-    expect(selectWebPlugin(candidates, { exa: { enabled: true }, other: { enabled: true } }, undefined)).toBeUndefined();
+    expect(
+      selectWebPlugin(candidates, { exa: { enabled: true }, other: { enabled: true } }, undefined),
+    ).toBeUndefined();
   });
 
   test("returns undefined when none enabled and no override", () => {
@@ -74,7 +81,14 @@ describe("resolveWebProviderFromPlugins", () => {
 
   test("returns undefined (falls back to local) when the factory throws", async () => {
     const candidates: WebPluginCandidate[] = [
-      { id: "exa", name: "Exa Search", credentials: [], factory: () => { throw new Error("bad key"); } },
+      {
+        id: "exa",
+        name: "Exa Search",
+        credentials: [],
+        factory: () => {
+          throw new Error("bad key");
+        },
+      },
     ];
     const active = await resolveWebProviderFromPlugins({
       candidates,
