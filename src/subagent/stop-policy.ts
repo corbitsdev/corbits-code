@@ -426,25 +426,31 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
   return text.length > 0 ? text : null;
 }
 
+export type ForcedStopReason =
+  | "no-progress"
+  | "turn-budget"
+  | "never-acted"
+  | "never-edited"
+  | "cancelled"
+  | "deadline"
+  | "thrash"
+  | "no-ship"
+  | "stalled"
+  | "repetition"
+  | "incomplete-report";
+
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
- * instruction asking the finished worker to summarize.
+ * instruction asking the finished worker to summarize. `detail` is the
+ * path-specific specifics (looped window × count, turn counts, cancel reason)
+ * rendered verbatim on the report's `Stopped:` line so the parent and the TUI
+ * see the cause, not just that the worker stopped.
  */
 export function forcedStopReport(
-  reason:
-    | "no-progress"
-    | "turn-budget"
-    | "never-acted"
-    | "never-edited"
-    | "cancelled"
-    | "deadline"
-    | "thrash"
-    | "no-ship"
-    | "stalled"
-    | "repetition"
-    | "incomplete-report",
+  reason: ForcedStopReason,
   partialText: string,
+  detail?: string,
 ): string {
   const summary =
     reason === "no-progress"
@@ -503,6 +509,7 @@ export function forcedStopReport(
     findings,
     blockers,
     paths: "",
+    stopped: detail !== undefined && detail.length > 0 ? `${reason} — ${detail}` : reason,
   });
 }
 
