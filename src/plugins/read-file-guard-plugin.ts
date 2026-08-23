@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -5,7 +6,11 @@ import { Readable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { BlobReader } from "@intx/types/runtime";
-import { canonicalToolOutputUri, isToolOutputLike } from "../util/tool-output-uri.js";
+import {
+  canonicalToolOutputUri,
+  isToolOutputLike,
+  TOOL_OUTPUT_URI_PREFIX,
+} from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 
 // Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file loads the
@@ -39,6 +44,45 @@ interface BoundedRead {
 
 export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;
+}
+
+// A truncated read used to tell the model "Use offset=N to continue" against
+// the identical path -- exactly the same-path pagination fan-out CL-6961
+// measured (97% of 4+-reads-per-path clusters were legitimate chunked reads
+// of one large file, penalized by detectors that only see "same path, many
+// calls"). Each truncated result instead mints a single-use tool-output://
+// cursor pointing at the exact resumption point (source + next offset) and
+// tells the model to pass THAT as `path`. Every follow-up read therefore
+// targets a distinct path, so pagination no longer looks like a same-path
+// loop, and the cursor is a real, resolvable handle -- not the "see the blob"
+// promise result-truncation-plugin.ts's comment forbids, since nothing here
+// claims discarded bytes are retrievable; it just remembers where to resume
+// a fresh bounded read.
+type ReadCursor =
+  | { kind: "file"; absolutePath: string; offset: number }
+  | { kind: "blob"; uri: string; offset: number };
+
+const CONTINUE_OFFSET_RE = /Use offset=(\d+) to continue\.\]$/;
+
+function mintCursor(
+  content: string,
+  cursors: Map<string, ReadCursor>,
+  source: { kind: "file"; absolutePath: string } | { kind: "blob"; uri: string },
+): string {
+  const match = CONTINUE_OFFSET_RE.exec(content);
+  if (match === null) return content;
+  const offset = Number(match[1]);
+  const cursorId = randomUUID();
+  cursors.set(
+    cursorId,
+    source.kind === "file"
+      ? { kind: "file", absolutePath: source.absolutePath, offset }
+      : { kind: "blob", uri: source.uri, offset },
+  );
+  return content.replace(
+    CONTINUE_OFFSET_RE,
+    `Use path="${TOOL_OUTPUT_URI_PREFIX}///${cursorId}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path.]`,
+  );
 }
 
 function numArg(value: unknown): number | undefined {
@@ -297,6 +341,11 @@ export function readFileGuardPlugin(
   options: ReadFileGuardPluginOptions = {},
 ): ToolPlugin {
   const { blobReader } = options;
+  // Single-use resumption pointers minted by mintCursor(); scoped to this
+  // plugin instance (one per session/agent, per buildCorePosixToolPlugins), so
+  // it never outlives the session and never crosses sessions.
+  const cursors = new Map<string, ReadCursor>();
+  const cursorUriPrefix = `${TOOL_OUTPUT_URI_PREFIX}///`;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name !== "read_file") return next(call, signal);
@@ -306,13 +355,58 @@ export function readFileGuardPlugin(
         return next(call, signal);
       }
 
-      const { offset, limit } = resolveReadFilePaging(call);
+      const { limit } = resolveReadFilePaging(call);
 
       if (isToolOutputLike(rawPath)) {
         const uri = canonicalToolOutputUri(rawPath);
         if (uri === undefined) {
           return next(call, signal);
         }
+
+        const cursorId = uri.startsWith(cursorUriPrefix) ? uri.slice(cursorUriPrefix.length) : "";
+        const cursor = cursorId.length > 0 ? cursors.get(cursorId) : undefined;
+        if (cursor !== undefined) {
+          // A cursor is authoritative on position: the model passes only the
+          // handle (and optionally a limit), never an offset back into it.
+          cursors.delete(cursorId);
+          try {
+            signal.throwIfAborted();
+            if (cursor.kind === "file") {
+              const res = await readFileBounded(cursor.absolutePath, cursor.offset, limit, signal);
+              return res.isError
+                ? { callId: call.id, content: res.content, isError: true }
+                : {
+                    callId: call.id,
+                    content: mintCursor(res.content, cursors, {
+                      kind: "file",
+                      absolutePath: cursor.absolutePath,
+                    }),
+                  };
+            }
+            if (blobReader === undefined) {
+              return {
+                callId: call.id,
+                content: `cannot read ${rawPath}: no blob reader is configured for tool-output spills`,
+                isError: true,
+              };
+            }
+            const bytes = await blobReader.read(cursor.uri);
+            const res = await readBytesBounded(bytes, cursor.offset, limit, signal, cursor.uri);
+            return res.isError
+              ? { callId: call.id, content: res.content, isError: true }
+              : {
+                  callId: call.id,
+                  content: mintCursor(res.content, cursors, { kind: "blob", uri: cursor.uri }),
+                };
+          } catch (err) {
+            return {
+              callId: call.id,
+              content: err instanceof Error ? err.message : String(err),
+              isError: true,
+            };
+          }
+        }
+
         if (blobReader === undefined) {
           return {
             callId: call.id,
@@ -322,11 +416,12 @@ export function readFileGuardPlugin(
         }
         try {
           signal.throwIfAborted();
+          const { offset } = resolveReadFilePaging(call);
           const bytes = await blobReader.read(uri);
           const res = await readBytesBounded(bytes, offset, limit, signal, uri);
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }
-            : { callId: call.id, content: res.content };
+            : { callId: call.id, content: mintCursor(res.content, cursors, { kind: "blob", uri }) };
         } catch (err) {
           return {
             callId: call.id,
@@ -346,10 +441,14 @@ export function readFileGuardPlugin(
       }
 
       try {
+        const { offset } = resolveReadFilePaging(call);
         const res = await readFileBounded(absolutePath, offset, limit, signal);
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
-          : { callId: call.id, content: res.content };
+          : {
+              callId: call.id,
+              content: mintCursor(res.content, cursors, { kind: "file", absolutePath }),
+            };
       } catch (err) {
         return {
           callId: call.id,
