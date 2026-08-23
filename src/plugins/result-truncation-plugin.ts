@@ -20,10 +20,17 @@ export function truncateToolResultContent(
   if (content.length <= maxChars) return content;
 
   const remaining = content.length - maxChars;
+  // Truncation happens here, at the source — before the reactor's size-cap
+  // transform spills to a tool-output:/// blob. The blob therefore holds only
+  // this already-truncated text, so the marker must say the remainder is gone:
+  // a "see the blob for the rest" promise would send the model chasing content
+  // that does not exist and re-running the command in a loop.
   return (
     content.slice(0, maxChars) +
-    `\n[output truncated — ${remaining.toLocaleString()} characters omitted. ` +
-    `Use offset/limit params or a more targeted query to see the rest.]`
+    `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
+    `${remaining.toLocaleString()} chars discarded, NOT retrievable ` +
+    `(no tool-output URI has them; re-running gives the same cut). ` +
+    `Use offset/limit or a narrower query.]`
   );
 }
 
