@@ -57,6 +57,14 @@ export interface PermissionRequest {
   // yet" case (e.g. a mega-chain that only offers accept-once). Plain literal
   // text, never model-authored.
   notice?: string;
+  // Set by the gate right before handing this request to requestApproval, so
+  // whichever surface actually renders it (see gate-wire.ts's overlay host)
+  // can report the moment it reached the operator's screen — distinct from
+  // the moment it was raised, when a busy overlay host queues it first (see
+  // src/permission/approval-log.ts). Never present on requests built for
+  // display/matching only (buildRequests), only on the copy passed to
+  // requestApproval.
+  markDisplayed?: () => void;
 }
 
 // The operator's answer. `allow` gates the action; `persist`, when present, is
