@@ -436,6 +436,27 @@ export type ForcedStopReason =
   | "repetition"
   | "incomplete-report";
 
+// Exact Summary text for each forced-stop reason. This is the single source
+// of truth for both forcedStopReport (the producer) and the isXxxSubAgentReport
+// classifiers (the consumers) — CL-6704: classifying on a free-text substring
+// like "no progress" or "cancelled" hard-blocks a SUCCESSFUL report whose
+// Summary happens to contain that phrase. Matching the exact string a forced
+// stop actually produces closes that false-positive path without a report
+// schema change (a typed marker would need one; see CL-6786, out of scope).
+const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
+  "no-progress": "Stopped: repeated the same tool calls with no progress.",
+  "no-ship": "Stopped: implement intent searched many files without writing any.",
+  "never-acted": "Stopped: completed without using any tools.",
+  "never-edited": "Stopped: implement intent finished without writing any files.",
+  cancelled: "Stopped: cancelled by operator before finishing.",
+  deadline: "Stopped: wall-clock deadline reached before finishing.",
+  stalled:
+    "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
+  repetition: "Stopped: degenerate repetition in streamed output (same window looping mid-turn).",
+  "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
+  "turn-budget": "Turn budget reached before finishing.",
+};
+
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
@@ -449,26 +470,7 @@ export function forcedStopReport(
   partialText: string,
   detail?: string,
 ): string {
-  const summary =
-    reason === "no-progress"
-      ? "Stopped: repeated the same tool calls with no progress."
-      : reason === "no-ship"
-        ? "Stopped: implement intent searched many files without writing any."
-        : reason === "never-acted"
-          ? "Stopped: completed without using any tools."
-          : reason === "never-edited"
-            ? "Stopped: implement intent finished without writing any files."
-            : reason === "cancelled"
-              ? "Stopped: cancelled by operator before finishing."
-              : reason === "deadline"
-                ? "Stopped: wall-clock deadline reached before finishing."
-                : reason === "stalled"
-                  ? "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly."
-                  : reason === "repetition"
-                    ? "Stopped: degenerate repetition in streamed output (same window looping mid-turn)."
-                    : reason === "incomplete-report"
-                      ? "Stopped: worker narrated instead of writing a report envelope."
-                      : "Turn budget reached before finishing.";
+  const summary = FORCED_STOP_SUMMARIES[reason];
   const blockers =
     reason === "no-progress"
       ? "Identical tool-call fingerprint repeated consecutively; parent must not re-dispatch the identical brief (it will be refused) — tighten success_criteria/do_not or change approach."
@@ -506,40 +508,40 @@ export function forcedStopReport(
   });
 }
 
+/**
+ * True when a report's Summary is exactly the forced-stop text for `reason`
+ * (CL-6704: exact match, not a free-text substring — a successful report
+ * whose Summary happens to mention the same words must not classify as a
+ * forced stop).
+ */
+export function isForcedStopSubAgentReport(report: string, reason: ForcedStopReason): boolean {
+  const parsed = parseSubAgentReport(report);
+  return parsed.summary === FORCED_STOP_SUMMARIES[reason];
+}
+
 /** True when the worker returned a turn-budget salvage report for the parent. */
 export function isTurnBudgetSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("Turn budget reached");
+  return isForcedStopSubAgentReport(report, "turn-budget");
 }
 
 /** True when the worker returned a never-acted salvage report for the parent. */
 export function isNeverActedSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("without using any tools");
+  return isForcedStopSubAgentReport(report, "never-acted");
 }
 
 /** True when implement intent finished without any write/edit tools. */
 export function isNeverEditedSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("without writing any files");
+  return isForcedStopSubAgentReport(report, "never-edited");
 }
 
 /** True when the worker returned a deadline salvage report for the parent. */
 export function isDeadlineSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("deadline reached");
-}
-
-/** True when the worker returned a progressive-thrash salvage report. */
-export function isThrashSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("progressive thrash");
+  return isForcedStopSubAgentReport(report, "deadline");
 }
 
 /** True when the worker returned a streamed-repetition salvage report. */
 export function isRepetitionSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("degenerate repetition");
+  return isForcedStopSubAgentReport(report, "repetition");
 }
 
 const TURN_BUDGET_PARENT_HINT =
@@ -557,9 +559,6 @@ const NEVER_EDITED_PARENT_HINT =
 
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
-
-const THRASH_PARENT_HINT =
-  "[Sub-agent stopped for progressive thrash (re-read pressure). Do not re-dispatch the identical brief (it will be refused) — change scope, success_criteria, and do_not; continue from Findings.]";
 
 const NO_SHIP_PARENT_HINT =
   "[Sub-agent stopped after searching many files without writing any. Do not search the repo yourself and do not re-dispatch the identical brief (it will be refused) — change success_criteria and do_not, or treat findings as unexecuted.]";
@@ -611,15 +610,9 @@ export function appendDeadlineParentHint(report: string): string {
   return `${DEADLINE_PARENT_HINT}\n\n${report}`;
 }
 
-export function appendThrashParentHint(report: string): string {
-  if (!isThrashSubAgentReport(report)) return report;
-  return `${THRASH_PARENT_HINT}\n\n${report}`;
-}
-
 /** True when the worker returned a no-ship (search-tour) salvage report. */
 export function isNoShipSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("searched many files without writing");
+  return isForcedStopSubAgentReport(report, "no-ship");
 }
 
 export function appendNoShipParentHint(report: string): string {
@@ -634,8 +627,7 @@ export function appendRepetitionParentHint(report: string): string {
 
 /** True when the worker returned a no-progress salvage report. */
 export function isNoProgressSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("no progress");
+  return isForcedStopSubAgentReport(report, "no-progress");
 }
 
 export function appendNoProgressParentHint(report: string): string {
@@ -643,7 +635,7 @@ export function appendNoProgressParentHint(report: string): string {
   return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
 }
 
-/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline / repetition / no-progress. */
+/** Stack parent-visible salvage hints for budget / never-acted / deadline / repetition / no-progress. */
 export function appendSubAgentParentHints(
   report: string,
   options: SubAgentParentHintOptions = {},
@@ -652,9 +644,7 @@ export function appendSubAgentParentHints(
     appendNeverEditedParentHint(
       appendNeverActedParentHint(
         appendTurnBudgetParentHint(
-          appendNoProgressParentHint(
-            appendNoShipParentHint(appendThrashParentHint(appendRepetitionParentHint(report))),
-          ),
+          appendNoProgressParentHint(appendNoShipParentHint(appendRepetitionParentHint(report))),
           options,
         ),
       ),
