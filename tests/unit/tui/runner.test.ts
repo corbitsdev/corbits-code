@@ -40,8 +40,10 @@ test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async ()
   expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual({});
 
   // Readable → merge base.
-  expect(await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "single" }))).toEqual({
-    sessionMode: "single",
+  expect(
+    await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "orchestrator" })),
+  ).toEqual({
+    sessionMode: "orchestrator",
   });
 
   // Unreadable/invalid → null so the caller skips the write instead of
@@ -83,7 +85,8 @@ test("rotation resets run-sink so a new session starts from a clean state", () =
   runSink.reset();
 
   // The new collector is a fresh instance — not the same object as before.
-  const collectorAfterReset = runSink.getTurnCollector();
+  // hooks are configured above, so the collector is non-null here
+  const collectorAfterReset = runSink.getTurnCollector()!;
   expect(collectorAfterReset).not.toBe(collectorBeforeReset);
 
   // Status is cancelled (no events received in new session yet).

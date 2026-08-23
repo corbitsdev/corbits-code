@@ -52,7 +52,7 @@ describe("getValidCodexToken", () => {
     await withHome(async (home) => {
       globalThis.fetch = (() => {
         throw new Error("should not be called");
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
       await saveCodexProfile(
         {
           name: "p",
@@ -69,7 +69,7 @@ describe("getValidCodexToken", () => {
     await withHome(async (home) => {
       globalThis.fetch = (() => {
         throw new Error("should not be called");
-      }) as typeof fetch;
+      }) as unknown as typeof fetch;
       await saveCodexProfile(
         {
           name: "p",
@@ -97,7 +97,7 @@ describe("getValidCodexToken", () => {
             status: 200,
             headers: { "content-type": "application/json" },
           },
-        )) as typeof fetch;
+        )) as unknown as typeof fetch;
       const token = await getValidCodexToken("p", 5_000, home);
       expect(token.access).toBe("fresh");
       const stored = await loadCodexProfile("p", home);
@@ -122,7 +122,7 @@ describe("getValidCodexToken", () => {
         { name: "p", createdAt: 0, tokens: { access: "old", refresh: "bad", expiresAt: 1_000 } },
         home,
       );
-      globalThis.fetch = (async () => new Response("revoked", { status: 400 })) as typeof fetch;
+      globalThis.fetch = (async () => new Response("revoked", { status: 400 })) as unknown as typeof fetch;
       const err = await getValidCodexToken("p", 5_000, home).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(CodexAuthError);
       expect((err as CodexAuthError).reason).toBe("refresh-failed");

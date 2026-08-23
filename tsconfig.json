@@ -11,5 +11,14 @@
       "@intx/types/*": ["./vendor/intx-types/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "packages/**/*.ts"]
+  "include": ["src/**/*.ts", "packages/**/*.ts", "tests/**/*.ts", "evals/**/*.ts", "scripts/**/*.ts"],
+  // Excluded: hermetic sandbox repos for the capability eval suite, not real
+  // application code. They own their own package.json/tsconfig-free layout,
+  // are copied into per-run workdirs rather than imported, and some
+  // deliberately contain invalid syntax (e.g. tests/fixtures/broken-toolchain)
+  // as fixture content for an eval case.
+  "exclude": [
+    "tests/fixtures/**",
+    "evals/capability/cases/**"
+  ]
 }
