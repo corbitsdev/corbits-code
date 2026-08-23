@@ -1,15 +1,27 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 
 // getValidCodexToken/getValidXaiToken hit the real home-level auth store and
 // refresh endpoints; stub the session layer so this test only exercises the
-// scope probe's own HTTP call and status classification.
+// scope probe's own HTTP call and status classification. Other suites
+// (tests/unit/codex-session.test.ts) import the real modules directly, so the
+// mocks must be torn down after this file's tests run rather than leaking
+// into the rest of the bun test process.
+const realCodexSession = { ...(await import("./codex/session.js")) };
+const realXaiSession = { ...(await import("./xai/session.js")) };
+
 mock.module("./codex/session.js", () => ({
+  ...realCodexSession,
   getValidCodexToken: async () => ({ access: "codex-token", accountId: "acct-1" }),
 }));
 mock.module("./xai/session.js", () => ({
+  ...realXaiSession,
   getValidXaiToken: async () => ({ access: "xai-token" }),
-  xaiUserIdFromAccessToken: () => undefined,
 }));
+
+afterAll(() => {
+  mock.module("./codex/session.js", () => realCodexSession);
+  mock.module("./xai/session.js", () => realXaiSession);
+});
 
 const { checkOAuthProviderScope } = await import("./oauth-scope-check.js");
 
