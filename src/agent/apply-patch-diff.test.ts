@@ -31,7 +31,10 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
     auto: false,
     cwd,
   });
-  const posixTools = createPosixTools({ cwd, plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }) });
+  const posixTools = createPosixTools({
+    cwd,
+    plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+  });
   const runTool: CodexRunTool = async (name, args) => {
     // read_file's real tool output is cat -n formatted (line numbers), which
     // is not the raw content applyUpdateHunks needs — in production this
@@ -113,12 +116,9 @@ describe("apply_patch surfaces the changed region", () => {
     const cwd = await mkdtemp(join(tmpdir(), "apply-patch-diff-"));
     try {
       const tools = await makeApplyPatch(cwd);
-      const input = [
-        "*** Begin Patch",
-        "*** Add File: new.txt",
-        "+hello",
-        "*** End Patch",
-      ].join("\n");
+      const input = ["*** Begin Patch", "*** Add File: new.txt", "+hello", "*** End Patch"].join(
+        "\n",
+      );
 
       const result = await invokeApplyPatch(tools, input);
 
