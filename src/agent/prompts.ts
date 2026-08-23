@@ -69,7 +69,7 @@ export function buildHarnessFacts(
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
-    "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
+    "- run_shell has no default timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
     ...(subAgent
       ? [
@@ -207,7 +207,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
   delete_file: "delete one file with an explicit outcome (never shell rm)",
   run_shell:
-    "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
+    "run a shell command (builds, tests, git; pass timeout ms to bound long commands; never to read/write/delete files, search trees, or talk to the user)",
   search_files:
     "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
   grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
