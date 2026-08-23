@@ -364,3 +364,131 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     expect(older).toMatch(/omitted|chars/);
   });
 });
+
+// grep/search_files/list_dir are replayable the same way read_file is: an
+// identical later call reflects newer workspace state, so an older identical
+// result is stubbed the same way an older full-file read is (CL-6906).
+function assistantQuery(id: string, name: string, args: Record<string, unknown>): ConversationTurn {
+  return {
+    role: "assistant",
+    content: [{ type: "tool_call", id, name, arguments: args }],
+    timestamp: 1,
+  };
+}
+
+describe("pruning compactor extends superseded-result stubbing to query tools (CL-6906)", () => {
+  test("stubs an older successful grep call repeated with byte-identical arguments", async () => {
+    const oldBody = "OLD_MATCHES_" + "a".repeat(200);
+    const newBody = "NEW_MATCHES_" + "b".repeat(200);
+    const args = { pattern: "TODO", path: "src" };
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantQuery("g1", "grep", args),
+      userReadResult("g1", oldBody),
+      assistantQuery("g2", "grep", args),
+      userReadResult("g2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    const older = resultText(output, "g1");
+    expect(resultText(output, "g2")).toBe(newBody);
+    expect(older).toBeDefined();
+    expect(older).not.toBe(oldBody);
+    expect(older).toMatch(/omitted|chars/);
+  });
+
+  test("stubs an older successful search_files call with argument key order irrelevant", async () => {
+    const oldBody = "OLD_SEARCH_" + "a".repeat(200);
+    const newBody = "NEW_SEARCH_" + "b".repeat(200);
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantQuery("s1", "search_files", { query: "widget", limit: 20 }),
+      userReadResult("s1", oldBody),
+      // Same arguments, different key order — must still be treated as identical.
+      assistantQuery("s2", "search_files", { limit: 20, query: "widget" }),
+      userReadResult("s2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "s2")).toBe(newBody);
+    expect(resultText(output, "s1")).not.toBe(oldBody);
+  });
+
+  test("stubs an older successful list_dir call repeated on the same path", async () => {
+    const oldBody = "OLD_LISTING_" + "a".repeat(200);
+    const newBody = "NEW_LISTING_" + "b".repeat(200);
+    const args = { path: "src/components" };
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantQuery("l1", "list_dir", args),
+      userReadResult("l1", oldBody),
+      assistantQuery("l2", "list_dir", args),
+      userReadResult("l2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "l2")).toBe(newBody);
+    expect(resultText(output, "l1")).not.toBe(oldBody);
+  });
+
+  test("does not supersede a grep call with different arguments", async () => {
+    const body1 = "MATCHES_TODO_" + "a".repeat(200);
+    const body2 = "MATCHES_FIXME_" + "b".repeat(200);
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantQuery("g1", "grep", { pattern: "TODO", path: "src" }),
+      userReadResult("g1", body1),
+      assistantQuery("g2", "grep", { pattern: "FIXME", path: "src" }),
+      userReadResult("g2", body2),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "g1")).toBe(body1);
+    expect(resultText(output, "g2")).toBe(body2);
+  });
+
+  test("never supersedes run_shell results, even with byte-identical commands", async () => {
+    // The same shell command is not idempotent (builds, tests, mutations can
+    // each produce a genuinely different outcome), so run_shell is excluded
+    // from replayable-result stubbing entirely.
+    const oldBody = "OLD_SHELL_OUTPUT_" + "a".repeat(200);
+    const newBody = "NEW_SHELL_OUTPUT_" + "b".repeat(200);
+    const args = { command: "npm test" };
+    const turns: ConversationTurn[] = [
+      userText("start"),
+      userText("a"),
+      userText("b"),
+      userText("c"),
+      assistantQuery("sh1", "run_shell", args),
+      userReadResult("sh1", oldBody),
+      assistantQuery("sh2", "run_shell", args),
+      userReadResult("sh2", newBody),
+      userText("d"),
+      userText("e"),
+    ];
+    const compactor = createPruningCompactor({ keepRecentTurns: 6, maxAnchorTurns: 2 });
+    const { output } = await compactor.apply(turns, {} as never);
+    expect(resultText(output, "sh1")).toBe(oldBody);
+    expect(resultText(output, "sh2")).toBe(newBody);
+  });
+});
