@@ -14,10 +14,9 @@ import {
 
 // Corbits Code-side replacement for stock `@intx/tools-posix` run_shell.
 // We do not patch interchange: this middleware short-circuits run_shell and
-// enforces a short default timeout, an output-byte cap, and process-group kill
-// so open-ended walks cannot OOM the host.
+// enforces an optional timeout (no built-in default — match Pi), an
+// output-byte cap, and process-group kill so open-ended walks cannot OOM the host.
 
-export const DEFAULT_SHELL_TIMEOUT_MS = 15_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
 export interface ShellTimeoutConfig {
@@ -28,27 +27,32 @@ export interface ShellTimeoutConfig {
 
 /**
  * Effective run_shell timeout. Omitting `requested` (or a non-positive value)
- * uses `defaultMs`. `maxMs` clamps only when settings pass it — there is no
- * implicit 10-minute ceiling.
+ * uses `defaultMs` when set; otherwise returns undefined (no timer). `maxMs`
+ * clamps only a resolved timeout — it alone does not invent one. There is no
+ * implicit 10-minute ceiling and no built-in 15s/2m default.
  */
 export function resolveShellTimeoutMs(
   requested: number | undefined,
-  defaultMs: number,
+  defaultMs: number | undefined,
   maxMs?: number,
-): number {
-  const base = requested !== undefined && requested > 0 ? requested : defaultMs;
+): number | undefined {
+  const fromRequest = requested !== undefined && requested > 0 ? requested : undefined;
+  const fromDefault = defaultMs !== undefined && defaultMs > 0 ? defaultMs : undefined;
+  const base = fromRequest ?? fromDefault;
+  if (base === undefined) return undefined;
   if (maxMs === undefined) return base;
   return Math.min(base, maxMs);
 }
 
 /**
- * Stock tools-posix still advertises timeout default 30000. Shell-guard enforces
- * 15s default; rewrite the definition the model sees so schema and behavior agree.
- * Corbits Code-only — does not patch interchange.
+ * Stock tools-posix still advertises timeout default 30000. Shell-guard has no
+ * built-in default; rewrite the definition the model sees so schema and behavior
+ * agree. When settings supply defaultMs, advertise that. Corbits Code-only —
+ * does not patch interchange.
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,
-  defaultMs: number = DEFAULT_SHELL_TIMEOUT_MS,
+  defaultMs?: number,
 ): ToolDefinition {
   if (definition.name !== "run_shell") return definition;
   const schema = definition.inputSchema;
@@ -61,9 +65,12 @@ export function advertiseShellGuardTimeout(
   const cwdProp = properties["cwd"];
   const nextProperties = { ...properties };
   if (timeout !== undefined && typeof timeout === "object" && timeout !== null) {
+    const hasDefault = defaultMs !== undefined && defaultMs > 0;
     nextProperties["timeout"] = {
       ...(timeout as Record<string, unknown>),
-      description: `Timeout in milliseconds (default: ${defaultMs})`,
+      description: hasDefault
+        ? `Timeout in milliseconds (default: ${defaultMs})`
+        : "Timeout in milliseconds (optional; omit for no default timeout)",
     };
   }
   if (cwdProp === undefined) {
@@ -216,7 +223,8 @@ export async function runGuardedShell(
 ): Promise<GuardedShellResult> {
   signal.throwIfAborted();
 
-  const timeoutMs = args.timeout ?? DEFAULT_SHELL_TIMEOUT_MS;
+  // Arm setTimeout only when a positive timeout was resolved. No built-in default.
+  const timeoutMs = args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
   const outputCap = args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const collector = new BoundedShellOutput(outputCap);
 
@@ -239,11 +247,16 @@ export async function runGuardedShell(
     }
 
     let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const clearTimer = () => {
+      if (timer !== undefined) clearTimeout(timer);
+    };
 
     const settle = (err?: Error) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimer();
       abortCleanup();
       if (err !== undefined) {
         reject(err);
@@ -253,7 +266,7 @@ export async function runGuardedShell(
     const finishOutput = (exitCode: number, timedOut: boolean) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearTimer();
       abortCleanup();
       const { output, truncated } = collector.build();
       resolve({
@@ -275,13 +288,15 @@ export async function runGuardedShell(
     child.stdout.on("data", onChunk);
     child.stderr.on("data", onChunk);
 
-    const timer = setTimeout(() => {
-      killProcessTree(child);
-      // A timeout is not a failure the agent should be denied output for: return
-      // whatever the command produced before the kill, plus the timed-out notice
-      // the caller appends from `timedOut`.
-      finishOutput(124, true);
-    }, timeoutMs);
+    if (timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        killProcessTree(child);
+        // A timeout is not a failure the agent should be denied output for: return
+        // whatever the command produced before the kill, plus the timed-out notice
+        // the caller appends from `timedOut`.
+        finishOutput(124, true);
+      }, timeoutMs);
+    }
 
     const onAbort = () => {
       killProcessTree(child);
@@ -365,7 +380,9 @@ export function shellGuardPlugin(
   env?: Record<string, string>,
   options: ShellGuardPluginOptions = {},
 ): ToolPlugin {
-  const defaultMs = timeoutConfig?.defaultMs ?? DEFAULT_SHELL_TIMEOUT_MS;
+  // No built-in default — only settings.shell.timeoutMs (or a per-call timeout)
+  // arms a timer. maxMs alone does not invent one.
+  const defaultMs = timeoutConfig?.defaultMs;
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
@@ -432,7 +449,7 @@ export function shellGuardPlugin(
               {
                 command: wrappedCommand,
                 cwd: executionCwd,
-                timeout: effectiveTimeout,
+                ...(effectiveTimeout !== undefined ? { timeout: effectiveTimeout } : {}),
                 maxOutputBytes,
                 ...(env !== undefined ? { env } : {}),
               },

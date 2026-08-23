@@ -91,8 +91,9 @@ export interface AgentToolsetArgs {
   // Skill directories (from enabled plugins) the use_skill tool resolves bodies
   // from, in addition to the project-local and bundled defaults.
   skillDirs?: string[];
-  // Shell command timeout defaults/cap, resolved from settings. When omitted the
-  // shell-guard plugin applies its built-in defaults.
+  // Shell command timeout default/cap, resolved from settings. When omitted the
+  // shell-guard plugin arms no default timeout (per-call timeout or settings
+  // shell.timeoutMs required to bound a command).
   shellTimeout?: ShellTimeoutConfig;
   // Outer per-invocation tool run budget (dynamic runner). When omitted built-in
   // defaults apply.
@@ -246,7 +247,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     return { content: "Tasks updated." };
   };
 
-  // Align the advertised run_shell timeout with shell-guard's resolved default.
+  // Align the advertised run_shell timeout with shell-guard (no built-in default;
+  // advertise settings.shell.timeoutMs when set).
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => ({
       ...tool,
