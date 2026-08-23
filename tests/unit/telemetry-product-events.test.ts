@@ -137,10 +137,7 @@ test("skill_used carries no skill name, so an employer-named skill cannot leak",
 
   const tool = createUseSkillTool(cwd, [], telemetry);
   if (tool.kind !== "string") throw new Error(`expected string tool, got ${tool.kind}`);
-  const result = await tool.handler(
-    { name: "acme-internal-deploy" },
-    new AbortController().signal,
-  );
+  const result = await tool.handler({ name: "acme-internal-deploy" }, new AbortController().signal);
 
   // Guard against the test passing because resolution failed: the event only
   // fires on a resolved skill, so a silent miss would trivially "not leak".

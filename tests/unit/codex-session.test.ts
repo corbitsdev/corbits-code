@@ -122,7 +122,8 @@ describe("getValidCodexToken", () => {
         { name: "p", createdAt: 0, tokens: { access: "old", refresh: "bad", expiresAt: 1_000 } },
         home,
       );
-      globalThis.fetch = (async () => new Response("revoked", { status: 400 })) as unknown as typeof fetch;
+      globalThis.fetch = (async () =>
+        new Response("revoked", { status: 400 })) as unknown as typeof fetch;
       const err = await getValidCodexToken("p", 5_000, home).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(CodexAuthError);
       expect((err as CodexAuthError).reason).toBe("refresh-failed");
