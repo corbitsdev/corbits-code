@@ -34,10 +34,14 @@ async function makeApplyPatch(cwd: string): Promise<AgentTool[]> {
   const posixTools = createPosixTools({ cwd, plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }) });
   const runTool: CodexRunTool = async (name, args) => {
     // read_file's real tool output is cat -n formatted (line numbers), which
-    // is not the raw content applyUpdateHunks needs. That mismatch is a
-    // pre-existing quirk of the read_file tool, unrelated to this issue —
-    // read raw content directly here so the test exercises apply_patch's own
-    // write_file/delete_file diff surfacing without tripping over it.
+    // is not the raw content applyUpdateHunks needs — in production this
+    // means Update File hunks generally fail to match context (filed as
+    // CL-6966, Urgent; not this issue's bug to fix). This stub bypasses that
+    // known defect by returning raw content, so the "Update File shows the
+    // diff" test below is NOT proof that apply_patch Update works end to end
+    // — it only proves the diff-surfacing added here is correct once the op
+    // succeeds. Add File / Delete File below do not depend on read_file and
+    // are real, unstubbed coverage.
     if (name === "read_file") {
       const path = String((args as { path?: unknown }).path ?? "");
       try {

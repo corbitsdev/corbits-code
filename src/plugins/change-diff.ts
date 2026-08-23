@@ -134,8 +134,17 @@ function toHunks(ops: DiffOp[]): Hunk[] {
   return hunks;
 }
 
+// Unified-diff convention: a zero-length side reports the line *before* the
+// empty range (one less than where content would start), not that position
+// itself — e.g. an insertion at the top of the file is "-0,0", not "-1,0".
+function hunkRangeStart(start: number, count: number): number {
+  return count === 0 ? Math.max(0, start - 1) : start;
+}
+
 function formatHunk(h: Hunk): string {
-  const lines = [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`];
+  const oldStart = hunkRangeStart(h.oldStart, h.oldLines);
+  const newStart = hunkRangeStart(h.newStart, h.newLines);
+  const lines = [`@@ -${oldStart},${h.oldLines} +${newStart},${h.newLines} @@`];
   for (const op of h.ops) {
     const prefix = op.kind === "same" ? " " : op.kind === "add" ? "+" : "-";
     lines.push(prefix + op.text);
@@ -143,14 +152,38 @@ function formatHunk(h: Hunk): string {
   return lines.join("\n");
 }
 
-function truncate(diff: string, maxChars: number): string {
-  if (diff.length <= maxChars) return diff;
-  const discarded = diff.length - maxChars;
+function truncationNote(sliceLen: number, discarded: number): string {
   return (
-    diff.slice(0, maxChars) +
-    `\n[diff truncated at ${maxChars.toLocaleString()} chars — ${discarded.toLocaleString()} chars discarded. ` +
+    `\n[diff truncated at ${sliceLen.toLocaleString()} chars — ${discarded.toLocaleString()} chars discarded. ` +
     `The write/edit still applied in full; this is only a display cutoff.]`
   );
+}
+
+/**
+ * Truncates so the FINAL result (slice + note) never exceeds maxChars — the
+ * note is reserved before slicing, not appended after. The note's own length
+ * depends on the digit counts of sliceLen/discarded, which depend on
+ * sliceLen, so shrink sliceLen until the assembled result fits (a handful of
+ * iterations at most — the note only grows when a digit-count boundary is
+ * crossed) and hard-clamp as a fallback.
+ */
+function truncate(diff: string, maxChars: number): string {
+  if (diff.length <= maxChars) return diff;
+
+  let sliceLen = maxChars;
+  for (let i = 0; i < 8; i++) {
+    const discarded = diff.length - sliceLen;
+    const note = truncationNote(sliceLen, discarded);
+    const total = sliceLen + note.length;
+    if (total <= maxChars) return diff.slice(0, sliceLen) + note;
+    sliceLen -= total - maxChars;
+    if (sliceLen < 0) sliceLen = 0;
+  }
+
+  // Fallback: guaranteed to fit even if the loop above didn't converge.
+  const discarded = diff.length - sliceLen;
+  const note = truncationNote(sliceLen, discarded);
+  return (diff.slice(0, sliceLen) + note).slice(0, maxChars);
 }
 
 /**
