@@ -27,17 +27,42 @@ function optionalInt(value: unknown): number | undefined {
     : undefined;
 }
 
+// Models pad the unused mode's fields with fillers (old_string: "", start_line: 0).
+// For mode selection a filler counts as absent: "" is never a valid old_string and
+// 0/null/non-integers are never valid 1-based lines. Treating them as present made
+// filler-padded calls look like "both edit modes" and rejected them (CL-6900).
 function hasOldStringArg(args: Record<string, unknown>): boolean {
-  return typeof args.old_string === "string";
+  return typeof args.old_string === "string" && args.old_string.length > 0;
+}
+
+function validLineNumber(value: unknown): number | undefined {
+  const n = optionalInt(value);
+  return n !== undefined && n >= 1 ? n : undefined;
 }
 
 function hasLineRangeArgs(args: Record<string, unknown>): boolean {
-  return optionalInt(args.start_line) !== undefined || optionalInt(args.end_line) !== undefined;
+  return (
+    validLineNumber(args.start_line) !== undefined || validLineNumber(args.end_line) !== undefined
+  );
 }
 
-const MIXED_MODE_MESSAGE =
-  "edit_file: received both old_string and start_line/end_line; only one edit mode is allowed. " +
-  "Omit old_string to use line-range mode, or omit start_line/end_line to use substring mode.";
+function describeReceived(args: Record<string, unknown>): string {
+  const old = args.old_string;
+  return [
+    typeof old === "string" ? `old_string (len ${old.length})` : "no old_string",
+    args.start_line === undefined
+      ? "no start_line"
+      : `start_line=${JSON.stringify(args.start_line)}`,
+    args.end_line === undefined ? "no end_line" : `end_line=${JSON.stringify(args.end_line)}`,
+  ].join(", ");
+}
+
+function mixedModeMessage(args: Record<string, unknown>): string {
+  return (
+    `edit_file: received ${describeReceived(args)}; only one edit mode is allowed. ` +
+    "Omit old_string to use line-range mode, or omit start_line/end_line to use substring mode."
+  );
+}
 
 export function parseLineRangeFields(
   path: string,
@@ -88,7 +113,7 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   // slice, producing a confusing "old_string does not match" error even when the caller
   // meant plain substring mode (CL-4399). One explicit error beats a wrong guess.
   if (substring && lineRange) {
-    return { kind: "invalid", message: MIXED_MODE_MESSAGE };
+    return { kind: "invalid", message: mixedModeMessage(args) };
   }
 
   if (lineRange) {
@@ -96,22 +121,22 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   }
 
   if (!substring) {
+    const emptyOldString = typeof args.old_string === "string";
     return {
       kind: "invalid",
-      message:
-        "edit_file requires old_string (substring mode) or start_line and end_line (line-range mode)",
+      message: emptyOldString
+        ? "edit_file: old_string is empty; provide the exact text to replace (substring mode), " +
+          "or omit it and send start_line/end_line >= 1 (line-range mode). " +
+          `Received ${describeReceived(args)}.`
+        : "edit_file requires old_string (substring mode) or start_line and end_line (line-range mode); " +
+          `received ${describeReceived(args)}`,
     };
-  }
-
-  const old_string = String(args.old_string);
-  if (old_string.length === 0) {
-    return { kind: "invalid", message: "old_string must not be empty" };
   }
 
   return {
     kind: "substring",
     path,
-    old_string,
+    old_string: String(args.old_string),
     new_string,
     replace_all: Boolean(args.replace_all),
   };
