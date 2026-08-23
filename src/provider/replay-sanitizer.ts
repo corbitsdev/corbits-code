@@ -69,7 +69,18 @@ export function sanitizeReplayTurns(
   turns: ConversationTurn[],
   targetModel: string,
 ): ConversationTurn[] {
-  const stripped = turns.map((turn) =>
+  // A turn with no `model` recorded (an optional field on the persisted
+  // schema) is not evidence it came from a foreign provider. Both this
+  // module's own foreign-turn gate below AND the vendored transformMessages'
+  // same-model check key off exact `model` equality — transformMessages is
+  // not ours to change, so a model-less turn is stamped with the target
+  // model before either stage runs. That reads as "this model", not
+  // "foreign", to both stages; without it transformMessages strips the
+  // turn's thinking blocks outright regardless of what this module decides.
+  const modelFilled = turns.map((turn) =>
+    turn.role === "assistant" && turn.model === undefined ? { ...turn, model: targetModel } : turn,
+  );
+  const stripped = modelFilled.map((turn) =>
     turn.role === "assistant" && turn.model !== targetModel ? stripForeignBlocks(turn) : turn,
   );
   const marked = stripped.map(replaceUnusableAssistantTurn);

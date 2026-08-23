@@ -22,7 +22,7 @@ const usage: TokenUsage = {
 };
 
 const source: LastCycleSource = {
-  id: "test",
+  sourceId: "test",
   provider: "openai",
   model: "test-model",
 };

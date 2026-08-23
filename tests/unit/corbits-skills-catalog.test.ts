@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
-import { loadSkillCommands } from "../../src/plugins/skill-commands.ts";
+import { loadSkillCommands } from "../../src/plugins/skill-commands.js";
 
 const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 
