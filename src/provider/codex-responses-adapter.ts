@@ -273,11 +273,12 @@ function optionString(options: InferenceOptions, key: string): string | undefine
 
 // `instructions` is pinned to the official Codex prompt (the backend rejects
 // anything else), so Corbits Code's operating prompt rides as a leading developer
-// message that also neutralizes the Codex prompt's references to tools that do
-// not exist here. The function tools sent with the request are authoritative.
+// message that also reconciles the Codex prompt's tool references with the
+// proxies actually wired up here. The function tools sent with the request are
+// authoritative for names/schemas; this text only resolves which dialect to speak.
 function bridgeMessage(systemPrompt: string): ResponsesInputItem {
   const text = `<${ENVIRONMENT_TAG_NAME} priority="0">
-You are NOT running in the Codex CLI. You are running in ${PRODUCT_NAME}, a different harness. The base instructions above describe Codex CLI tools (apply_patch, update_plan, shell) that DO NOT EXIST here. Ignore every tool reference in the base instructions and use ONLY the function tools provided in this request. The following are your authoritative operating instructions:
+${PRODUCT_NAME} is the harness, not the Codex CLI. The Codex tools named above (apply_patch, update_plan, shell) proxy onto ${PRODUCT_NAME}'s native tools with the same permissions — prefer whichever name appears in the current tool list. These operating instructions are authoritative where they differ from the base instructions:
 
 ${systemPrompt}
 </${ENVIRONMENT_TAG_NAME}>`;
