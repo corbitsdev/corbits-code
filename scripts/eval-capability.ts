@@ -17,7 +17,16 @@ import { spawn } from "node:child_process";
 import { loadConfig, type Config } from "../src/config/index.js";
 import { runExec, resolveExecDirectorOverlay } from "../src/exec/runner.js";
 import { SETTINGS_DIR_NAME } from "../src/branding.js";
-import { codexProfileFromProviderName } from "../src/config/codex-providers.js";
+import {
+  codexProfileFromProviderName,
+  isCodexProviderName,
+} from "../src/config/codex-providers.js";
+import {
+  REASONING_EFFORTS,
+  isReasoningEffort,
+  validateEffort,
+  type ReasoningEffort,
+} from "../src/provider/reasoning-effort.js";
 import { codexInstructionsHash } from "../src/auth/codex/instructions.js";
 import { advertisedToolNamesForSessionMode } from "../src/agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../src/agent/lsp-availability.js";
@@ -64,6 +73,8 @@ interface CliOptions {
   model?: string;
   /** Comma-separated matrix of provider:model cells. */
   matrix?: string;
+  /** Reasoning effort applied to every variant that does not specify its own. */
+  effort?: ReasoningEffort;
   configPath?: string;
   outPath?: string;
   baselinePath?: string;
@@ -98,7 +109,11 @@ function printUsage(): void {
   --case <id|all>       Case id (default: all)
   --provider <name>     Provider name (required except --help, or --matrix with complete cells)
   --model <id>          Model id (required except --help, or --matrix with complete cells)
-  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m,..."; each cell needs both sides
+  --matrix <cells>      Multi-variant: "p1:m1,p2:m2" or "label=p:m[:effort],..."; each cell needs
+                        both provider and model; effort is optional per cell
+  --effort <level>      Reasoning effort for variants that don't set their own
+                        (${REASONING_EFFORTS.join("|")}); rejected when the
+                        target model does not support it
   --config <path>       Settings file override
   --out <path>          Write results JSON
   --baseline <path>     Compare to prior results JSON
@@ -195,6 +210,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--matrix":
         opts.matrix = next();
         break;
+      case "--effort": {
+        const v = next();
+        if (!isReasoningEffort(v)) {
+          throw new Error(`--effort must be one of: ${REASONING_EFFORTS.join(", ")}`);
+        }
+        opts.effort = v;
+        break;
+      }
       case "--config":
         opts.configPath = next();
         break;
@@ -260,10 +283,15 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 // exactOptionalPropertyTypes forbids passing an explicit `undefined` for an
 // optional field, so build the fallback object with the key present only
 // when the CLI option was actually given.
-function providerModelFallback(opts: CliOptions): { provider?: string; model?: string } {
+function providerModelFallback(opts: CliOptions): {
+  provider?: string;
+  model?: string;
+  effort?: ReasoningEffort;
+} {
   return {
     ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
     ...(opts.model !== undefined ? { model: opts.model } : {}),
+    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
   };
 }
 
@@ -549,6 +577,51 @@ async function resolveVariantLabels(
 }
 
 /**
+ * Fail fast, before any inference runs, when a variant's requested reasoning
+ * effort is not one the resolved model accepts. Per-model rungs genuinely
+ * differ (grok-4.6 takes xhigh, grok-composer-2.5-fast does not; the
+ * gpt-5.6 family also takes max/ultra) — silently running at the provider's
+ * default instead would poison a matrix without anyone noticing.
+ */
+export async function validateVariantEfforts(
+  variants: readonly EvalVariant[],
+  opts: CliOptions,
+): Promise<void> {
+  for (const variant of variants) {
+    if (variant.effort === undefined) continue;
+    const labels = await resolveVariantLabels(variant, opts);
+    const isCodex = isCodexProviderName(labels.provider);
+    const verdict = validateEffort(labels.model, variant.effort, isCodex);
+    if (!verdict.ok) {
+      throw new Error(
+        `variant "${variant.id}" (${labels.provider}/${labels.model}): ${verdict.error}`,
+      );
+    }
+  }
+}
+
+/**
+ * Write the requested reasoning effort into the fixture workdir's local
+ * settings so the product path (loadConfig -> local settings -> Config)
+ * picks it up the same way an interactive session would — without ever
+ * touching the operator's real ~/.corbits/settings.json.
+ */
+async function applyEvalEffort(
+  workdir: string,
+  effort: ReasoningEffort | undefined,
+): Promise<void> {
+  if (effort === undefined) return;
+  const path = localSettingsPath(workdir);
+  const existing = await loadLocalSettings(path).catch(() => null);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(
+    path,
+    `${JSON.stringify({ ...existing, reasoningEffort: effort }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+/**
  * Per-cell diagnostics for debugging eval failures: which Codex instructions
  * text was pinned, which built-in tools the model was offered, and the
  * requested reasoning effort. Reuses the exec runner's own resolution
@@ -614,6 +687,7 @@ function failResult(
     behaviors: null,
     providerFallback: null,
     diagnostics: null,
+    effort: variant.effort ?? null,
     ...partial,
   };
 }
@@ -634,6 +708,7 @@ async function runCase(
     const prepared = await prepareWorkdir(caseDef);
     workdir = prepared.workdir;
     capturePath = prepared.capturePath;
+    await applyEvalEffort(workdir, variant.effort);
     console.log(
       `\n=== ${variant.id} × ${caseDef.id} (${caseDef.tier})` +
         ` [repeat ${repeat + 1}/${opts.repeats}] — ${caseDef.title}`,
@@ -819,6 +894,7 @@ async function runCase(
       behaviors,
       providerFallback,
       diagnostics,
+      effort: variant.effort ?? null,
       textPreview,
     };
   } catch (err) {
@@ -860,6 +936,7 @@ async function main(): Promise<number> {
   const all = await loadEvalCases(CASES_ROOT);
   const selected = filterCases(all, opts.caseSelector);
   const variants = parseMatrix(opts.matrix, providerModelFallback(opts));
+  await validateVariantEfforts(variants, opts);
   const plan = expandMatrix(selected, variants);
 
   console.log(
