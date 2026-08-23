@@ -137,7 +137,7 @@ describe("cycleReasoningEffort", () => {
     expect(cycleReasoningEffort("grok-4.6", undefined)).toBe(
       cycleReasoningEffort("grok-4.6", "high"),
     );
-    expect(cycleReasoningEffort("grok-4.6", "high")).toBe("low");
+    expect(cycleReasoningEffort("grok-4.6", "high")).toBe("xhigh");
   });
 
   test("unset gpt-5.1 chat cycles from implicit none to minimal", () => {
@@ -152,7 +152,7 @@ describe("cycleReasoningEffort", () => {
   test("grok leftover minimal cycles the same as unset / high", () => {
     expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", undefined));
     expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(cycleReasoningEffort("grok-4.6", "high"));
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe("low");
+    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe("xhigh");
   });
 
   test("unknown models with rungs still start at supported[0] when no default exists", () => {
