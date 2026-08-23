@@ -195,6 +195,51 @@ function taskToolResult(callId: string, content: string): ToolResult {
   return { callId, content, ...(isError ? { isError: true } : {}) };
 }
 
+type RequiredTaskField = "description" | "prompt";
+
+const REQUIRED_TASK_FIELD_HINTS: Record<RequiredTaskField, string> = {
+  description: "a short label for the sub-agent job",
+  prompt: "the actionable goal for the worker",
+};
+
+/** Truncated echo of a received value so the rejection shows what arrived. */
+function receivedFieldPreview(value: string): string {
+  const trimmed = value.trim();
+  return JSON.stringify(trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed);
+}
+
+/**
+ * Rejection naming only the actually-bad required fields, echoing the valid
+ * one back. A generic "requires description and prompt" hid which field was
+ * missing, so models retried the identical call verbatim (CL-6901).
+ */
+function requiredTaskFieldsError(
+  args: Record<string, unknown>,
+  bad: readonly RequiredTaskField[],
+): string {
+  const parts = bad.map((name) => {
+    const value = args[name];
+    const hint = REQUIRED_TASK_FIELD_HINTS[name];
+    if (value === undefined) return `is missing ${name} (string): ${hint}`;
+    if (typeof value !== "string") return `has invalid ${name} (must be a string): ${hint}`;
+    return `requires a non-empty ${name}: ${hint}`;
+  });
+  let message = `Error: task ${parts.join(" and ")}.`;
+  const good = (Object.keys(REQUIRED_TASK_FIELD_HINTS) as RequiredTaskField[]).filter(
+    (name) =>
+      !bad.includes(name) &&
+      typeof args[name] === "string" &&
+      (args[name] as string).trim().length > 0,
+  );
+  if (good.length > 0) {
+    const echo = good
+      .map((name) => `${name} ${receivedFieldPreview(args[name] as string)}`)
+      .join(" and ");
+    message += ` Received ${echo} — keep it and add ${bad.join(" and ")}.`;
+  }
+  return message;
+}
+
 export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const run = deps.run;
   const telemetry = deps.telemetry ?? NOOP_TELEMETRY;
@@ -206,10 +251,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const args = call.arguments;
       const parsed = TaskToolArgs(args);
       if (parsed instanceof type.errors) {
-        return taskToolResult(
-          call.id,
-          "Error: task requires description (string) and prompt (string).",
+        const bad = (["description", "prompt"] as const).filter(
+          (name) => typeof args[name] !== "string",
         );
+        if (bad.length === 0) {
+          return taskToolResult(call.id, `Error: task arguments invalid: ${parsed.summary}`);
+        }
+        return taskToolResult(call.id, requiredTaskFieldsError(args, bad));
       }
       const {
         description: rawDesc,
@@ -233,7 +281,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const doNot = rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
       if (description.length === 0 || prompt.length === 0) {
-        return taskToolResult(call.id, "Error: task requires a non-empty description and prompt.");
+        const empty = (["description", "prompt"] as const).filter(
+          (name) => (name === "description" ? description : prompt).length === 0,
+        );
+        return taskToolResult(call.id, requiredTaskFieldsError(args, empty));
       }
 
       let provider: SubAgentProvider =
