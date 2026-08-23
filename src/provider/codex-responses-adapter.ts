@@ -1,8 +1,11 @@
 import {
   BEARER_CREDENTIAL_SENTINEL,
   ProtocolMismatchError,
+  decodeToolName,
+  encodeToolName,
   type BuiltRequest,
   type ProviderAdapter,
+  type ToolNameLimit,
 } from "@intx/inference";
 import type {
   ContentBlock,
@@ -157,7 +160,11 @@ export function signatureForModel(
   requestProvider: string,
   signature: string,
 ): string | undefined {
-  if (turn.model !== requestModel) return undefined;
+  // `model` is optional on the persisted turn schema; a turn saved before that
+  // field existed (or otherwise missing it) is not evidence of a model
+  // switch — treat the absence as benign and fall through to the provider
+  // check, rather than dropping reasoning that never actually crossed models.
+  if (turn.model !== undefined && turn.model !== requestModel) return undefined;
   const tagged = untagSignature(signature);
   if (tagged === undefined) return undefined;
   return tagged.provider === requestProvider ? tagged.encryptedContent : undefined;
@@ -171,6 +178,14 @@ export function signatureForModel(
 // (held in a thinking block's signature) AND that backend is the one this
 // request is going to — replaying it to a different provider gets a 400 it
 // cannot recover from.
+// Wire-charset limit for function names on the Responses surface (Codex,
+// Grok, and the generic OpenAI Responses adapter all share OpenAI's
+// `^[a-zA-Z0-9_-]{1,64}$` function-name charset).
+export const RESPONSES_TOOL_NAME_LIMIT: ToolNameLimit = {
+  provider: "responses",
+  maxLength: 64,
+};
+
 function toResponsesItems(
   turn: ConversationTurn,
   requestModel: string,
@@ -180,11 +195,20 @@ function toResponsesItems(
   const textKind: "input_text" | "output_text" =
     turn.role === "assistant" ? "output_text" : "input_text";
   const textParts: ResponsesContentPart[] = [];
+  // A reasoning block whose signature we could not replay (foreign provider,
+  // model switch, or a missing/untagged signature) leaves any function_call
+  // it produced without the reasoning item the Responses API expects to
+  // precede it — the exact orphaned shape that degenerates reasoning models.
+  // Suppress function_call items until the next text or successfully-replayed
+  // reasoning item re-establishes a clean turn shape; tool results are
+  // unaffected since they never need a preceding reasoning item.
+  let suppressOrphanedCalls = false;
 
   const flushText = (): void => {
     if (textParts.length > 0) {
       items.push({ type: "message", role: turn.role, content: [...textParts] });
       textParts.length = 0;
+      suppressOrphanedCalls = false;
     }
   };
 
@@ -206,15 +230,17 @@ function toResponsesItems(
         } as ResponsesContentPart);
       }
     } else if (block.type === "tool_call") {
+      if (suppressOrphanedCalls) continue;
       flushText();
       items.push({
         type: "function_call",
-        name: block.name,
+        name: encodeToolName(block.name, RESPONSES_TOOL_NAME_LIMIT),
         arguments: JSON.stringify(block.arguments ?? {}),
         call_id: block.id,
       });
     } else if (block.type === "tool_result") {
       flushText();
+      suppressOrphanedCalls = false;
       items.push({
         type: "function_call_output",
         call_id: block.callId,
@@ -234,6 +260,9 @@ function toResponsesItems(
       );
       if (encryptedContent !== undefined) {
         items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+        suppressOrphanedCalls = false;
+      } else {
+        suppressOrphanedCalls = true;
       }
     }
   }
@@ -260,7 +289,7 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   // `type`, not nested under a `function` key (unlike Chat Completions).
   return options.tools.map((t) => ({
     type: "function",
-    name: t.name,
+    name: encodeToolName(t.name, RESPONSES_TOOL_NAME_LIMIT),
     description: t.description,
     parameters: t.inputSchema,
   }));
@@ -466,7 +495,7 @@ export function parseResponse(
               seq,
               data: {
                 callId,
-                name,
+                name: decodeToolName(name),
                 partial: EMPTY_PARTIAL,
                 index: blockIndexFor(indexer, itemId, "tool_call"),
               },
@@ -608,13 +637,15 @@ export function isResponsesStreamTerminal(sseData: string): boolean {
 }
 
 export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAdapter {
-  const indexer: CodexBlockIndexer = {
-    nextIndex: 0,
-    items: new Map<string, { index: number; kind: CodexBlockKind }>(),
-  };
+  // Re-created per request in buildRequest, not just once here — otherwise
+  // block indices accumulate across every request the adapter instance ever
+  // serves, growing the map for the life of the conversation.
+  let indexer: CodexBlockIndexer = createResponsesBlockIndexer();
   return {
-    buildRequest: (messages, model, options) =>
-      buildRequest(messages, model, options, source.provider),
+    buildRequest: (messages, model, options) => {
+      indexer = createResponsesBlockIndexer();
+      return buildRequest(messages, model, options, source.provider);
+    },
     parseResponse: (sseData) => parseResponse(sseData, indexer, source),
     parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
