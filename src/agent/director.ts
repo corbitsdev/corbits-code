@@ -8,6 +8,7 @@ import type {
   ReactorAction,
   ToolDefinition,
   ConversationTurn,
+  RetryPolicy,
 } from "@intx/types/runtime";
 import { type SessionMetadata, type TaskBoundary } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
@@ -32,8 +33,6 @@ import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 import { isOperatorOriginated } from "./message-provenance.js";
 import { classifyBriefSalvage, isHardBlockSalvage } from "../subagent/brief-dispatch.js";
 import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
-
-const RETRY_POLICY = createCorbitsRetryPolicy();
 
 // Fired when turnsSinceUserMessage reaches TURNS_SINCE_USER_MESSAGE_BACKSTOP.
 // A nudge, not a pause — the operator explicitly wants long autonomous runs
@@ -356,12 +355,22 @@ export interface ChatDirectorOptions {
   onTasksChange: (tasks: Task[]) => void;
   requestContinuation?: (() => void) | undefined;
   provider?: { providerName: string; model?: string } | undefined;
+  /**
+   * Live catalog provider id for retry stamping. Resolved on each retry
+   * decision so mid-session `/model` switches remapping without rebuilding
+   * the agent. When set, preferred over static `provider.providerName`.
+   */
+  getProviderId?: (() => string | undefined) | undefined;
+  /** Explicit retry policy; when set, skips the default Corbits policy. */
+  retryPolicy?: RetryPolicy | undefined;
 }
 
 // The constructor takes the resolved ModelFamilyPolicy rather than the raw
 // `provider` input the factory function accepts and resolves on its behalf.
 type ChatDirectorImplOptions = Omit<ChatDirectorOptions, "provider"> & {
   modelFamilyPolicy?: ModelFamilyPolicy | undefined;
+  /** Provider-stamped retry policy (xAI short 429 remapping needs providerId). */
+  retryPolicy?: RetryPolicy | undefined;
 };
 
 class ChatDirectorImpl extends DefaultDirector {
@@ -390,6 +399,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private startedAt = Date.now();
   private readonly compaction: CompactionGovernor;
   private readonly modelFamilyPolicy: ModelFamilyPolicy;
+  private readonly retryPolicy: RetryPolicy;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the
@@ -476,6 +486,7 @@ class ChatDirectorImpl extends DefaultDirector {
     );
     this.modelFamilyPolicy =
       options.modelFamilyPolicy ?? resolveModelFamilyPolicy({ providerName: "" });
+    this.retryPolicy = options.retryPolicy ?? createCorbitsRetryPolicy();
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
@@ -618,7 +629,7 @@ class ChatDirectorImpl extends DefaultDirector {
       const options = {
         ...action.options,
         tools,
-        retryPolicy: action.options?.retryPolicy ?? RETRY_POLICY,
+        retryPolicy: action.options?.retryPolicy ?? this.retryPolicy,
       };
       if (this.inactivityTimeoutMs !== undefined)
         options.inactivityTimeoutMs = this.inactivityTimeoutMs;
@@ -1057,12 +1068,24 @@ export function createChatDirector(
   toolDefinitions: ToolDefinition[],
   options: ChatDirectorOptions,
 ): ChatDirector {
-  const { provider, ...rest } = options;
+  const { provider, getProviderId, retryPolicy, ...rest } = options;
   return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
     ...rest,
     // `provider` is raw {providerName, model} input; the constructor wants
     // the resolved ModelFamilyPolicy, not the input it was resolved from.
     modelFamilyPolicy: provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
+    // Stamp provider id onto retry errors so known-xAI short 429s remap.
+    // Prefer an explicit policy, then a live getter (mid-session `/model`),
+    // then the bootstrap providerName.
+    retryPolicy:
+      retryPolicy ??
+      createCorbitsRetryPolicy(
+        getProviderId !== undefined
+          ? { providerId: getProviderId }
+          : provider !== undefined
+            ? { providerId: provider.providerName }
+            : undefined,
+      ),
   });
 }
 

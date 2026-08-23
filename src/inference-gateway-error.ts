@@ -10,6 +10,8 @@ import {
   parseCodexUsageLimitError,
 } from "./auth/codex/usage-limit-error.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
+import { isXaiProviderName } from "./config/xai-providers.js";
+import { isXaiGrokLeafProvider } from "./subagent/provider-family.js";
 
 export interface InferenceErrorLike {
   category: string;
@@ -46,6 +48,20 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 
 /** User-visible line while the harness retries a transient gateway overload. */
 export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
+
+/** User-visible line while the harness retries a short known-xAI HTTP 429. */
+export const XAI_RATE_LIMIT_USER_MESSAGE = "Rate limited — retrying…";
+
+/** Body markers that mean a real usage/quota window, not a short rate limit. */
+const XAI_QUOTA_BODY_MARKERS = [
+  "insufficient_quota",
+  "usage limit",
+  "usage_limit",
+  "quota exceeded",
+  "quota exhausted",
+  "exceeded your current quota",
+  "billing details",
+] as const;
 
 function stringFromRaw(raw: unknown): string {
   if (typeof raw === "string") return raw;
@@ -186,6 +202,57 @@ export function normalizeOpenCodeGoInferenceError(
   };
 }
 
+function isKnownXaiProviderId(providerId: string | undefined): boolean {
+  if (providerId === undefined || providerId.length === 0) return false;
+  if (isXaiProviderName(providerId)) return true;
+  return isXaiGrokLeafProvider({ providerName: providerId });
+}
+
+function textHasXaiQuotaMarkers(...parts: string[]): boolean {
+  const combined = parts.join("\n").toLowerCase();
+  return XAI_QUOTA_BODY_MARKERS.some((marker) => combined.includes(marker));
+}
+
+/**
+ * True when a known-xAI HTTP 429 looks like a short rate limit rather than a
+ * usage/quota window. Used by both retry normalization and transcript copy —
+ * FRIENDLY_BY_CATEGORY would otherwise paint every quota_exhausted 429 as
+ * "Quota exhausted" even when the policy remaps it to retryable.
+ *
+ * Discrimination is body markers for quota, not Retry-After length.
+ */
+export function isXaiShortRateLimitInferenceError(error: InferenceErrorLike): boolean {
+  if (!isKnownXaiProviderId(error.providerId)) return false;
+  if (error.statusCode !== 429) return false;
+  if (error.category !== "quota_exhausted" && error.category !== "retryable") return false;
+  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw))) return false;
+  return true;
+}
+
+/**
+ * intx defaults bare 429 → quota_exhausted. For known-xAI / Grok contexts a
+ * bare 429 (or rate-limit body without usage/quota markers) reclassifies as
+ * retryable so moderate Retry-After values are not treated as long-window
+ * quota exhaustion by the Corbits blind-wait abort.
+ *
+ * Clear usage/quota body markers keep quota_exhausted. Unknown providers are
+ * never remapped.
+ */
+export function normalizeXaiRateLimitError(error: InferenceErrorWithGoContext): InferenceError {
+  if (error.statusCode !== 429) return error;
+  if (error.category !== "quota_exhausted") return error;
+  if (!isKnownXaiProviderId(error.providerId)) return error;
+  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw))) return error;
+
+  return {
+    category: "retryable",
+    message: XAI_RATE_LIMIT_USER_MESSAGE,
+    statusCode: 429,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+  };
+}
+
 /**
  * Lift Codex `usage_limit_reached` bodies onto quota_exhausted with a reset ETA
  * and profile-switch hint. The harness leaves nested `detail.error` on `raw`
@@ -230,14 +297,17 @@ function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): Infe
 /**
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
- * Go quota/rate-limit shapes (including HTTP 400 mis-status) and Codex usage
- * limits (nested detail.error with resets_in_seconds).
+ * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
+ * 429s, and Codex usage limits (nested detail.error with resets_in_seconds).
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
 ): InferenceError {
   const goNormalized = normalizeOpenCodeGoInferenceError(error);
   if (goNormalized !== error) return goNormalized;
+
+  const xaiNormalized = normalizeXaiRateLimitError(error);
+  if (xaiNormalized !== error) return xaiNormalized;
 
   const codexNormalized = normalizeCodexUsageLimitError(error);
   if (codexNormalized !== error) return codexNormalized;

@@ -14,6 +14,8 @@ import { codexProfileFromProviderName, isCodexProviderName } from "./config/code
 import {
   gatewayOverloadUserMessage,
   isGatewayOverloadInferenceError,
+  isXaiShortRateLimitInferenceError,
+  XAI_RATE_LIMIT_USER_MESSAGE,
   type InferenceErrorLike,
 } from "./inference-gateway-error.js";
 
@@ -90,6 +92,9 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
 /** One line describing the failure, falling back to the provider's own message. */
 export function inferenceErrorMessage(error: InferenceErrorLike): string {
   if (isGatewayOverloadInferenceError(error)) return gatewayOverloadUserMessage(error);
+  // Dual-path: harness may still emit intx's quota_exhausted for a known-xAI
+  // short 429; FRIENDLY_BY_CATEGORY would otherwise say "Quota exhausted".
+  if (isXaiShortRateLimitInferenceError(error)) return XAI_RATE_LIMIT_USER_MESSAGE;
 
   const category = classifyInferenceErrorCategory(error);
   if (category === "quota_exhausted") {

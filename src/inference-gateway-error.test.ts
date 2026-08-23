@@ -266,4 +266,56 @@ describe("normalizeInferenceErrorForRetry", () => {
     const normalized = normalizeInferenceErrorForRetry(error);
     expect(normalized).toBe(error);
   });
+
+  test("known-xAI bare 429 reclassifies as retryable", () => {
+    const bare = {
+      category: "quota_exhausted" as const,
+      message: "Too Many Requests",
+      statusCode: 429,
+      retryAfterMs: 45_000,
+      raw: { error: { message: "Too Many Requests" } },
+    };
+
+    // Without xAI context, leave intx's classification alone.
+    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
+
+    const viaProviderId = normalizeInferenceErrorForRetry({
+      ...bare,
+      providerId: "xai/thegreataxios",
+    });
+    expect(viaProviderId.category).toBe("retryable");
+    expect(viaProviderId.retryAfterMs).toBe(45_000);
+    expect(viaProviderId.message.toLowerCase()).toMatch(/rate limit/);
+  });
+
+  test("known-xAI 429 with usage/quota body stays quota_exhausted", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "xai/thegreataxios",
+      retryAfterMs: 86_400_000,
+      raw: {
+        error: {
+          message: "You exceeded your current quota, please check your plan and billing details.",
+          type: "insufficient_quota",
+          code: "insufficient_quota",
+        },
+      },
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.retryAfterMs).toBe(86_400_000);
+  });
+
+  test("unknown provider bare 429 stays quota_exhausted", () => {
+    const err = {
+      category: "quota_exhausted" as const,
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "openai",
+      retryAfterMs: 5_000,
+      raw: { error: { message: "Too Many Requests" } },
+    };
+    expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
+  });
 });

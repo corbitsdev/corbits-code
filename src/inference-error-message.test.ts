@@ -37,4 +37,32 @@ describe("inferenceErrorMessage", () => {
     expect(line).not.toContain("Codex");
     expect(line).toBe("Quota exhausted — usage limit reached.");
   });
+
+  test("known-xAI short 429 shows rate-limit line, not Quota exhausted", () => {
+    const line = inferenceErrorMessage({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "xai/thegreataxios",
+      raw: { error: { message: "Too Many Requests" } },
+    });
+    expect(line.toLowerCase()).toMatch(/rate limit/);
+    expect(line).not.toContain("Quota exhausted");
+  });
+
+  test("known-xAI quota body still shows Quota exhausted", () => {
+    const line = inferenceErrorMessage({
+      category: "quota_exhausted",
+      message: "You exceeded your current quota",
+      statusCode: 429,
+      providerId: "xai/thegreataxios",
+      raw: {
+        error: {
+          message: "You exceeded your current quota",
+          code: "insufficient_quota",
+        },
+      },
+    });
+    expect(line).toBe("Quota exhausted — usage limit reached.");
+  });
 });
