@@ -78,9 +78,7 @@ export function sanitizeReplayTurns(
   // "foreign", to both stages; without it transformMessages strips the
   // turn's thinking blocks outright regardless of what this module decides.
   const modelFilled = turns.map((turn) =>
-    turn.role === "assistant" && turn.model === undefined
-      ? { ...turn, model: targetModel }
-      : turn,
+    turn.role === "assistant" && turn.model === undefined ? { ...turn, model: targetModel } : turn,
   );
   const stripped = modelFilled.map((turn) =>
     turn.role === "assistant" && turn.model !== targetModel ? stripForeignBlocks(turn) : turn,
