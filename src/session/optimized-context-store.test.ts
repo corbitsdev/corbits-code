@@ -398,6 +398,21 @@ describe("loadRecentTurns", () => {
 
     await expect(store.load()).rejects.toThrow(TURNS_FILE);
   });
+
+  test("reactor's load() stays strict and names an unrecoverable extra segment", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const segmentName = segmentFileName(TURNS_FILE, 1);
+
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    // Mid-file garbage that is neither null padding nor a torn tail — unrecoverable.
+    fs.writeFileSync(
+      path.join(dir, segmentName),
+      jsonl([turn("b")]) + "THIS IS NOT JSON\n" + jsonl([turn("c")]),
+    );
+
+    await expect(store.load()).rejects.toThrow(segmentName);
+  });
 });
 
 describe("createOptimizedContextStore checkpoint", () => {
