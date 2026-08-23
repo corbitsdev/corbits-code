@@ -92,9 +92,7 @@ describe("path-like skill refs", () => {
 
   test("rejects absolute path refs", async () => {
     const abs = join(pluginRoot, "skills", "style");
-    expect(
-      await resolveSkillBody(fixtureCwd, abs, [], { pluginRoot }),
-    ).toBeUndefined();
+    expect(await resolveSkillBody(fixtureCwd, abs, [], { pluginRoot })).toBeUndefined();
   });
 
   test("rejects path escape outside pluginRoot", async () => {

@@ -48,9 +48,7 @@ export function projectRootFor(cwd: string): string {
       },
     ).trim();
     if (toplevelRaw.length > 0) {
-      const toplevelAbs = isAbsolute(toplevelRaw)
-        ? toplevelRaw
-        : resolve(cwd, toplevelRaw);
+      const toplevelAbs = isAbsolute(toplevelRaw) ? toplevelRaw : resolve(cwd, toplevelRaw);
       return realpathOr(toplevelAbs);
     }
   } catch {

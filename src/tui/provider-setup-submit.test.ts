@@ -4,11 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { buildProviderSubmitHandler } from "./provider-setup-submit.js";
-import {
-  loadLocalSettings,
-  loadSettings,
-  localSettingsPath,
-} from "../config/settings.js";
+import { loadLocalSettings, loadSettings, localSettingsPath } from "../config/settings.js";
 import type { ProviderFormValues, SubmitPhase } from "./provider-setup.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => {};
@@ -37,9 +33,9 @@ describe("buildProviderSubmitHandler", () => {
       };
       const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
 
-      await expect(
-        submit(values, noopSetPhase, { skipValidation: false, preset }),
-      ).rejects.toThrow(/api key/i);
+      await expect(submit(values, noopSetPhase, { skipValidation: false, preset })).rejects.toThrow(
+        /api key/i,
+      );
 
       expect(await loadSettings(path)).toBeNull();
       expect(await loadLocalSettings(localPath)).toBeNull();
@@ -191,8 +187,7 @@ describe("buildProviderSubmitHandler", () => {
       expect(global?.providers.anthropic?.defaultModel).toBe("claude-sonnet-4");
       // Local selection is what wins on restart when present.
       const resolvedProvider = local?.provider ?? global?.defaultProvider;
-      const resolvedModel =
-        local?.model ?? global?.providers[resolvedProvider ?? ""]?.defaultModel;
+      const resolvedModel = local?.model ?? global?.providers[resolvedProvider ?? ""]?.defaultModel;
       expect(resolvedProvider).toBe("anthropic");
       expect(resolvedModel).toBe("claude-sonnet-4");
     });

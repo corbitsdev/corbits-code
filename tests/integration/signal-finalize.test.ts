@@ -27,45 +27,49 @@ describe("integration — signal finalizes run.json", () => {
     ["SIGINT", 130],
     ["SIGTERM", 143],
     ["SIGHUP", 129],
-  ] as const)("%s writes status: failed and exits with %i", async (signal, expectedExitCode) => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-signal-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-signal-home-"));
-    const sessionId = generateSessionId();
+  ] as const)(
+    "%s writes status: failed and exits with %i",
+    async (signal, expectedExitCode) => {
+      const cwd = mkdtempSync(join(tmpdir(), "corbits-signal-cwd-"));
+      const home = mkdtempSync(join(tmpdir(), "corbits-signal-home-"));
+      const sessionId = generateSessionId();
 
-    try {
-      const proc = Bun.spawn(["bun", "run", FIXTURE], {
-        cwd,
-        env: { ...process.env, HOME: home, SIGNAL_TEST_SESSION_ID: sessionId },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+      try {
+        const proc = Bun.spawn(["bun", "run", FIXTURE], {
+          cwd,
+          env: { ...process.env, HOME: home, SIGNAL_TEST_SESSION_ID: sessionId },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
 
-      const output = await readLine(proc.stdout);
-      const [runDir] = output.split("\n");
-      if (runDir === undefined || runDir.length === 0) {
-        throw new Error(`fixture did not report a run directory: ${JSON.stringify(output)}`);
+        const output = await readLine(proc.stdout);
+        const [runDir] = output.split("\n");
+        if (runDir === undefined || runDir.length === 0) {
+          throw new Error(`fixture did not report a run directory: ${JSON.stringify(output)}`);
+        }
+
+        proc.kill(signal);
+        const exitCode = await proc.exited;
+
+        expect(exitCode).toBe(expectedExitCode);
+
+        // The fixture parks two unawaited straggler "running" snapshot writes
+        // behind setTestWriteGate and releases them only after markCrashed()
+        // flips. Without that fence on the signal path, one of those renames
+        // can last-write-win over status: "failed".
+        const runJsonPath = join(runDir, "run.json");
+        const raw = readFileSync(runJsonPath, "utf8");
+        const state = JSON.parse(raw) as RunState;
+
+        expect(state.status).toBe("failed");
+        expect(state.finishedAt).toBeGreaterThan(0);
+        expect(state.error).toBe(`terminated by ${signal}`);
+        expect(state.task).toBe("simulated signal task");
+      } finally {
+        rmSync(cwd, { recursive: true, force: true });
+        rmSync(home, { recursive: true, force: true });
       }
-
-      proc.kill(signal);
-      const exitCode = await proc.exited;
-
-      expect(exitCode).toBe(expectedExitCode);
-
-      // The fixture parks two unawaited straggler "running" snapshot writes
-      // behind setTestWriteGate and releases them only after markCrashed()
-      // flips. Without that fence on the signal path, one of those renames
-      // can last-write-win over status: "failed".
-      const runJsonPath = join(runDir, "run.json");
-      const raw = readFileSync(runJsonPath, "utf8");
-      const state = JSON.parse(raw) as RunState;
-
-      expect(state.status).toBe("failed");
-      expect(state.finishedAt).toBeGreaterThan(0);
-      expect(state.error).toBe(`terminated by ${signal}`);
-      expect(state.task).toBe("simulated signal task");
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
-    }
-  }, 15_000);
+    },
+    15_000,
+  );
 });

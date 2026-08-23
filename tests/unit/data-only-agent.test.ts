@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadDataOnlyAgentPlugin } from "../../src/plugins/data-only-agent.js";
+import type { AgentProfile } from "../../src/agent/profile-types.js";
 
 let root: string;
 
@@ -32,7 +33,7 @@ async function mkdtemp(): Promise<string> {
 
 describe("loadDataOnlyAgentPlugin", () => {
   test("returns null when there are no *.md files (neither in agents/ nor at root)", async () => {
-    const dir = await makePlugin({ "README": "hi", "notes.txt": "no" });
+    const dir = await makePlugin({ README: "hi", "notes.txt": "no" });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "x" });
     expect(plugin).toBeNull();
   });
@@ -101,8 +102,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("Claude Code tools[] allowlist is aliased to Corbits Code tool names", async () => {
     const dir = await makePlugin({
-      "agents/scout.md":
-        "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
+      "agents/scout.md": "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -119,8 +119,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("Claude Code disallowedTools produces exclude mode", async () => {
     const dir = await makePlugin({
-      "agents/w.md":
-        "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
+      "agents/w.md": "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -133,7 +132,7 @@ describe("loadDataOnlyAgentPlugin", () => {
   test("OpenCode nested permission with wildcard deny becomes allowlist", async () => {
     const dir = await makePlugin({
       "agents/r.md":
-        "---\nname: r\npermission:\n  tool:\n    \"*\": deny\n    read: allow\n    grep: allow\n---\nbody\n",
+        '---\nname: r\npermission:\n  tool:\n    "*": deny\n    read: allow\n    grep: allow\n---\nbody\n',
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -145,8 +144,7 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("OpenCode legacy tools: {read: true, bash: false} mixed picks shorter", async () => {
     const dir = await makePlugin({
-      "agents/m.md":
-        "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
+      "agents/m.md": "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
@@ -182,7 +180,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     });
     const plugin = await loadDataOnlyAgentPlugin(dir, { pluginId: "p" });
     const agent = plugin!.agentPlugin.agents[0] as {
-      inference?: { mode?: string; order: { provider: string; model: string; reasoningEffort?: string }[] };
+      inference?: {
+        mode?: string;
+        order: { provider: string; model: string; reasoningEffort?: string }[];
+      };
     };
     expect(agent.inference).toBeDefined();
     expect(agent.inference!.mode).toBe("prefer");
@@ -341,8 +342,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     expect(plugin).not.toBeNull();
     expect(plugin!.manifest.id).toBe("flat");
     expect(plugin!.agentPlugin.agents.length).toBe(1);
-    expect((plugin!.agentPlugin.agents[0] as any).id).toBe("alpha");
-    expect((plugin!.agentPlugin.agents[0] as any).systemPromptRole).toContain("Direct agent body");
+    expect((plugin!.agentPlugin.agents[0] as AgentProfile).id).toBe("alpha");
+    expect((plugin!.agentPlugin.agents[0] as AgentProfile).systemPromptRole).toContain(
+      "Direct agent body",
+    );
   });
 
   test("supports pointing at agents/ subdir directly; id comes from parent; skills resolve from sibling", async () => {
@@ -357,7 +360,7 @@ describe("loadDataOnlyAgentPlugin", () => {
     const expectedId = dir.split("/").pop() as string;
     expect(plugin!.manifest.id).toBe(expectedId);
     expect(plugin!.agentPlugin.agents.length).toBe(1);
-    const prof = plugin!.agentPlugin.agents[0] as any;
+    const prof = plugin!.agentPlugin.agents[0] as AgentProfile;
     expect(prof.id).toBe("beta");
     expect(prof.systemPromptRole).toContain("Bundled skill: style");
     expect(prof.systemPromptRole).toContain("Style rules: be concise.");

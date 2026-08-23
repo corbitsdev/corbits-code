@@ -13,10 +13,7 @@ export function scopedSearchRetryHints(tool: ScopedSearchTool): string {
   return `${base}; a tighter glob pattern also reduces work`;
 }
 
-export function formatSearchTimeoutMessage(
-  tool: ScopedSearchTool,
-  partialResult?: string,
-): string {
+export function formatSearchTimeoutMessage(tool: ScopedSearchTool, partialResult?: string): string {
   const notice =
     `${tool} ${TIMEOUT_PREFIX} — ${scopedSearchRetryHints(tool)}. ` +
     `This is not the same as "no matches".`;
@@ -47,10 +44,7 @@ export function formatMcpToolTimeoutMessage(toolName: string, timeoutMs: number)
   );
 }
 
-export function formatReadFileTimeoutMessage(
-  path: string,
-  partialResult?: string,
-): string {
+export function formatReadFileTimeoutMessage(path: string, partialResult?: string): string {
   const notice =
     `read_file ${TIMEOUT_PREFIX} for ${path} — use a smaller offset/limit, ` +
     `grep to locate content first, or read a narrower path. ` +

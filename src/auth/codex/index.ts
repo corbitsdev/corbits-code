@@ -3,11 +3,7 @@
 // provider catalog; profiles are keyed by user-chosen name so multiple Codex
 // subscriptions can coexist.
 
-export {
-  CODEX_BASE_URL,
-  CODEX_DEFAULT_MODELS,
-  CODEX_REDIRECT_URI,
-} from "./constants.js";
+export { CODEX_BASE_URL, CODEX_DEFAULT_MODELS, CODEX_REDIRECT_URI } from "./constants.js";
 export {
   listCodexProfiles,
   loadCodexProfile,

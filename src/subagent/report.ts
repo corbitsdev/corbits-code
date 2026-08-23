@@ -38,7 +38,7 @@ export function appendActivitySummary(reply: string, toolNames: readonly string[
 // free-form blob as optional color. Optional goals seed a checklist hint
 // (manage_tasks on the child owns the real list). Typed spawn fields
 // (intent / success_criteria / do_not / report_focus) are rendered only when set.
-export type DispatchBrief = {
+export interface DispatchBrief {
   description: string;
   prompt: string;
   context?: string;
@@ -47,15 +47,10 @@ export type DispatchBrief = {
   successCriteria?: readonly string[];
   doNot?: readonly string[];
   reportFocus?: string;
-};
+}
 
 export function buildDispatchBrief(brief: DispatchBrief): string {
-  const parts: string[] = [
-    `# Dispatch brief: ${brief.description}`,
-    "",
-    "## Goal",
-    brief.prompt,
-  ];
+  const parts: string[] = [`# Dispatch brief: ${brief.description}`, "", "## Goal", brief.prompt];
   if (brief.context !== undefined && brief.context.trim().length > 0) {
     parts.push("", "## Context", brief.context.trim());
   }
@@ -73,11 +68,7 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
     );
   }
   if (brief.doNot !== undefined && brief.doNot.length > 0) {
-    parts.push(
-      "",
-      "## Do not",
-      ...brief.doNot.map((d, i) => `${i + 1}. ${d}`),
-    );
+    parts.push("", "## Do not", ...brief.doNot.map((d, i) => `${i + 1}. ${d}`));
   }
   if (brief.goals !== undefined && brief.goals.length > 0) {
     parts.push(
@@ -102,7 +93,9 @@ const REPORT_ENVELOPE_HEADINGS = ["Summary", "Findings", "Blockers", "Paths"] as
 
 /** True iff `text` has all four report headings (`^##\s+Name\s*$` per line, case-insensitive). */
 export function hasReportEnvelope(text: string): boolean {
-  return REPORT_ENVELOPE_HEADINGS.every((name) => new RegExp(`^##\\s+${name}\\s*$`, "im").test(text));
+  return REPORT_ENVELOPE_HEADINGS.every((name) =>
+    new RegExp(`^##\\s+${name}\\s*$`, "im").test(text),
+  );
 }
 
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
@@ -114,12 +107,12 @@ export function demoteNestedReportHeadings(text: string): string {
 // Normalize a worker's final text into the structured report envelope. Missing
 // sections fall back so a partial or free-form reply still returns something
 // useful to the parent instead of a raw dump.
-export type SubAgentReport = {
+export interface SubAgentReport {
   summary: string;
   findings: string;
   blockers: string;
   paths: string;
-};
+}
 
 export function parseSubAgentReport(reply: string): SubAgentReport {
   const text = reply.trim();
@@ -150,7 +143,10 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
 }
 
 export function formatSubAgentReport(report: SubAgentReport): string {
-  const lines: string[] = ["## Summary", report.summary.length > 0 ? report.summary : "(no summary)"];
+  const lines: string[] = [
+    "## Summary",
+    report.summary.length > 0 ? report.summary : "(no summary)",
+  ];
   if (report.findings.length > 0) {
     lines.push("", "## Findings", report.findings);
   }

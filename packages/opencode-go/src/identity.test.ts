@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { OPENCODE_GO_DISPLAY_NAME, OPENCODE_GO_PROVIDER_ID } from "./constants.js";
-import {
-  isOpenCodeGoProvider,
-  isOpenCodeGoProviderId,
-  isOpenCodeGoURL,
-} from "./identity.js";
+import { isOpenCodeGoProvider, isOpenCodeGoProviderId, isOpenCodeGoURL } from "./identity.js";
 
 describe("isOpenCodeGoProviderId", () => {
   test("matches stable id and display name", () => {

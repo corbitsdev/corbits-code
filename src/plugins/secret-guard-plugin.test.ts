@@ -14,7 +14,11 @@ function handler() {
 }
 
 const read = (path: string): ToolCall => ({ id: "c", name: "read_file", arguments: { path } });
-const shell = (command: unknown): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+const shell = (command: unknown): ToolCall => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 describe("isSensitivePath", () => {
   const sensitive = [
@@ -109,7 +113,11 @@ describe("secretGuardPlugin", () => {
   });
 
   test("denies writing a sensitive file", async () => {
-    const call: ToolCall = { id: "c", name: "write_file", arguments: { path: ".ssh/id_rsa", content: "x" } };
+    const call: ToolCall = {
+      id: "c",
+      name: "write_file",
+      arguments: { path: ".ssh/id_rsa", content: "x" },
+    };
     const result = await handler()(call, new AbortController().signal);
     expect(result.isError).toBe(true);
   });
