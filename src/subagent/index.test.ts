@@ -162,9 +162,41 @@ describe("sub-agent stop helpers", () => {
   });
 
   test("no-progress trips at the default repeat limit", () => {
-    expect(DEFAULT_SUBAGENT_REPEAT_LIMIT).toBe(2);
-    expect(subAgentNoProgress(1, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
-    expect(subAgentNoProgress(2, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
+    expect(DEFAULT_SUBAGENT_REPEAT_LIMIT).toBe(5);
+    expect(subAgentNoProgress(4, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
+    expect(subAgentNoProgress(5, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
+  });
+
+  test("legitimate polling (2-4 identical fingerprints) does not hard-stop (CL-6776)", () => {
+    // A worker rerunning `git status` or polling a build a few times while
+    // waiting must not be hard-blocked on identical re-dispatch.
+    for (const consecutive of [2, 3, 4]) {
+      expect(subAgentNoProgress(consecutive, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
+      expect(
+        evaluateSubAgentStop({
+          hasToolCalls: true,
+          everHadToolCalls: true,
+          turnsCompleted: consecutive,
+          maxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
+          consecutiveIdentical: consecutive,
+          repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
+        }),
+      ).toBeNull();
+    }
+  });
+
+  test("a true runaway (>5 identical fingerprints) still hard-stops", () => {
+    expect(subAgentNoProgress(6, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: true,
+        everHadToolCalls: true,
+        turnsCompleted: 6,
+        maxTurns: DEFAULT_SUBAGENT_MAX_TURNS,
+        consecutiveIdentical: 6,
+        repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
+      }),
+    ).toBe("no-progress");
   });
 
   test("fingerprint is null when a turn has no tool calls", () => {
@@ -790,6 +822,10 @@ describe("sub-agent stop helpers", () => {
 
   test("resolveSubAgentDeadlineMs keeps a short explicit deadline when the outer watchdog is high", () => {
     expect(resolveSubAgentDeadlineMs(45_000, 660_000)).toBe(45_000);
+  });
+
+  test("resolveSubAgentDeadlineMs keeps an explicit deadline when the outer watchdog is omitted", () => {
+    expect(resolveSubAgentDeadlineMs(18_000_000, undefined)).toBe(18_000_000);
   });
 
   test("resolveSubAgentDeadlineMs skips arming when outer watchdog is at or below the margin", () => {

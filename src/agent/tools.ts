@@ -32,7 +32,7 @@ import {
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { advertisedToolNamesForSessionMode, PRIMARY_DENIED_PRODUCT_TOOLS, type ToolAvailability } from "./tool-search.js";
+import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
 import {
@@ -141,9 +141,10 @@ export type AgentToolsetArgs = {
     useWorktree?: boolean;
   };
   /**
-   * When true, mount Codex-only tool proxies (apply_patch) into baseTools
-   * before the primary deny filter. Primary still strips apply_patch via
-   * PRIMARY_DENIED_PRODUCT_TOOLS; leaves keep it when their allowlist includes it.
+   * When true, mount Codex-only tool proxies (apply_patch, shell, update_plan)
+   * into baseTools. Primary then strips apply_patch so DIY stays on
+   * write_file/edit_file/delete_file; shell and update_plan stay mounted.
+   * Leaves keep apply_patch when their allowlist includes it.
    */
   isCodex?: boolean;
 };
@@ -383,17 +384,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  // Codex proxies land before the primary deny filter so Skywalker still strips
-  // apply_patch via PRIMARY_DENIED_PRODUCT_TOOLS when isCodex is true.
+  // Codex apply_patch mounts when isCodex; primary strips it so Corbits DIY
+  // stays on write_file/edit_file/delete_file. Leaves keep it via BUILD/DOCS allowlists.
   baseTools.push(
     ...createCodexToolProxies({ isCodex: args.isCodex === true, runTool, runManageTasks }),
   );
 
-  // Primary Skywalker never mounts product mutation tools — never-implement is
-  // structural (toolset), not prompt-only. Leaves that need write/edit/delete
-  // mount them via createTaskTool / runSubAgent's own tool assembly.
-  const primaryDenied = new Set(PRIMARY_DENIED_PRODUCT_TOOLS);
-  const primaryTools = baseTools.filter((tool) => !primaryDenied.has(tool.definition.name));
+  const primaryTools = baseTools.filter((tool) => tool.definition.name !== "apply_patch");
 
   const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerRef = dynamicRunner;

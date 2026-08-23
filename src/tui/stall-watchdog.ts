@@ -104,9 +104,33 @@ function silentPastThreshold(
   )
 }
 
+/**
+ * Whether the run has gone silent while merely *awaiting* the model's next
+ * response — right after submit or the instant a tool batch resolves, before
+ * any token of the reply has arrived. `turnStateOnSubmit` and the `tool.done`
+ * handler both reset `streamingType` to null exactly when they flip
+ * `awaitingResponse` true, so this state can persist for as long as the model
+ * takes to start replying: a slow model or a long thinking pass, not
+ * necessarily a dead one. There is no signal available here to tell "still
+ * coming" from "never coming" apart, so this case is deliberately excluded
+ * from auto-abort and left to the notice instead — see `shouldAbortForStall`.
+ */
+function awaitingFirstToken(args: ShouldAbortForStallArgs): boolean {
+  return args.awaitingResponse && args.streamingType === null
+}
+
 // Pure decision helper: returns true when the run is genuinely stuck and should
 // be aborted. Extracted so the timeout logic is unit-testable without timers.
+//
+// Auto-abort is reserved for a stream that had already started producing
+// tokens and then went dead mid-flight — the one case silence cannot be
+// explained by "still waiting on the model." A long-but-healthy wait for the
+// model to start (right after submit, or right after a tool batch resolves)
+// is exempted here even past the timeout: it still surfaces via the notice
+// (`stallLevel` / `shouldNoticeStall`), but the operator stays in control of
+// whether to give up on it rather than having the turn discarded for them.
 export function shouldAbortForStall(args: ShouldAbortForStallArgs): boolean {
+  if (awaitingFirstToken(args)) return false
   return silentPastThreshold(args, args.stallTimeoutMs)
 }
 

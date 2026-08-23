@@ -11,6 +11,189 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [0.2.103] - 2026-08-23
+
+### TUI
+
+- **In-flight tool rows show elapsed time.** Ordinary pending calls (MCP,
+  search, shell) tick a live clock the same way Task rows already do, so a
+  slow-but-alive call is distinguishable from a hung turn.
+
+- **The stall notice comes down the moment activity resumes.** It is a live
+  diagnosis, not a sticky banner: a tool finishing or the turn settling
+  clears it on that paint, even if the monitor tick has already been
+  cancelled.
+
+### Tools
+
+- **MCP tool calls arm their own watchdog.** Default 5 minutes
+  (`settings.mcp.timeoutMs`), still capped by `tools.maxTimeoutMs` when set.
+  Expiry returns a model-reactable tool error; the turn is not aborted.
+  `task` and `run_shell` behavior is unchanged.
+
+### Sub-agents
+
+- **Successful leaf `task` completions re-arm the primary backstop.** A
+  productive fleet no longer hard-pauses solely from turns-since-operator
+  volume. Failed or salvaged leaf reports get no credit, so true tool-only
+  no-progress still nudges then pauses.
+
+- **Leaf no-progress repeat limit raised from 2 to 5.** Legitimate polling
+  / retry streaks survive longer before salvage.
+
+### Auth / evals
+
+- **Exec refreshes Codex instructions before first Codex inference**, same
+  shared path as the TUI, with best-effort fallback to cache/bundled copy.
+  Capability eval cells also stamp instructions hash, built-in tools, and
+  requested reasoning effort for triage.
+
+- **New capability eval cases:** misleading-symptom, flaky-diagnosis,
+  broken-toolchain, hidden-contract-inventory (held-out tests), and
+  impossible-spec (reward-hacking bait).
+
+### CI
+
+- **Codex instructions unit mock restores `node:fs` in `afterAll`.** The
+  leaked in-memory fake had been poisoning later suites under
+  `bun test ./src ./tests ./evals` since the mock landed.
+
+## [0.2.102] - 2026-08-22
+
+### Permissions
+
+- **Workspace containment returns canonical real paths.** Writers receive the
+  realpath from the containment allow, closing the symlink-retarget window
+  between check and write; the write-path allowlist compares both sides in
+  canonical space so symlinked cwds don't false-deny.
+
+- **Dangling or looping symlink components fail closed.** A path component
+  that exists but cannot resolve (dangling link, symlink loop) is denied by
+  containment and the write-path allowlist instead of being treated as a
+  missing tail; genuinely-new file paths still resolve via the nearest real
+  ancestor.
+
+### Trust
+
+- **Project-trust stores are keyed by realpath.** The same repo reached via
+  symlink twins (e.g. `/tmp` vs `/private/tmp`) now finds the same grants;
+  the saved `repo` field and validity compare canonicalize consistently.
+
+### TUI
+
+- **Typeahead popups no longer leak queued permission gates.** Both the
+  @-mention popup and the slash-command palette refresh their suggestion
+  lists in place instead of close+reopen, so a queued gate can't open (and
+  swallow keys) mid-filter. Zero matches shows "(no matches)" without
+  releasing the popup; Enter there preserves the typed text.
+
+## [0.2.101] - 2026-08-22
+
+### Permissions
+
+- **`/yolo` persists as the user-global skip-permissions default.** Exec
+  inherits it; `--dangerously-skip-permissions` still forces the current
+  process. Secret-guard and authz still apply. The TUI shows a startup notice
+  (and exec a stderr warning) when prompts are disabled by the saved default.
+
+- **Always-allow for `git worktree *` now covers later worktree commands.**
+  Contained and permitted-sibling worktree add/remove segments no longer hit
+  the restricted-path guard before grant matching, so a standing grant
+  applies instead of re-prompting on every dispatch. Force flags, chained
+  commands, and genuinely-outside destinations still prompt.
+
+- **Empty workspace roots can no longer disable path containment.** An empty
+  string in the roots list used to make every absolute path count as
+  contained; it is now rejected before the prefix compare.
+
+### TUI
+
+- **The stall watchdog no longer aborts healthy waits for the model.** A run
+  that is merely awaiting the model's next token (after submit or after a
+  tool batch resolves) surfaces a persistent stall notice but is never
+  auto-aborted; auto-abort is reserved for a stream that started emitting
+  and then died mid-flight. Live sub-agents and open permission gates keep
+  their existing exemptions.
+
+### Sub-agents
+
+- **Thinking-token loops now trip the repetition detector.** Thinking deltas
+  feed the same cycle buffer and abort path as visible text, with a
+  short-period digit-folded check that catches monotonic counters (`0/1 1/2
+  2/3 …`) without flagging healthy templated enumeration; the looped window
+  is flushed to `partial.jsonl` for diagnosis.
+
+### Trust & plugins
+
+- **Project-trust stores are atomic, serialized, and cwd-correct.** Saves go
+  through temp-file + rename behind a per-store mutation queue; a store
+  missing its `repo` field is invalid (empty grants); plugin trust paths
+  resolve against the project cwd, never the process cwd, and relative
+  entries are dropped on load.
+
+- **Repo plugins with `defaultEnabled` load agent profiles**, matching how
+  skills already gate; tool plugins remain consent-gated. A later same-id
+  install can no longer silently turn a bundled default off.
+
+### CI
+
+- **ESLint + Prettier land with a split concurrent CI** (lint / typecheck /
+  build-and-test) with dependency and lint caches; `bun run check` is the
+  single pre-PR gate. The lint job is non-blocking until the repo-wide
+  mechanical fix batch lands.
+
+## [0.2.100] - 2026-08-22
+
+### Plugins
+
+- **Requested `run_shell` timeouts are no longer capped at 10 minutes.** The 15s
+  default when timeout is omitted is unchanged. `shell.maxTimeoutMs` still
+  clamps the command when set.
+
+- Capability evals accept `--concurrency <n>` (env `CORBITS_EVAL_CONCURRENCY`,
+  default 1); overlapping `httpFixture` cells isolate `EVAL_HTTP_URL` so
+  parallel web-bait runs do not share a process.env origin.
+
+### TUI
+
+- **Tool `run()` no longer has an implicit 11-minute wall-clock abort.** The
+  outer watchdog arms only when Settings set `tools.timeoutMs` /
+  `tools.maxTimeoutMs`, or when `run_shell` passes a positive `timeout`
+  (requested plus slack, so this layer cannot beat shell-guard). Unset
+  settings leave `task` and other tools unbounded; parent cancel, maxTurns,
+  and eval `--agent-timeout-ms` still bound the run. `tools.maxTimeoutMs`
+  still clamps non-shell tools when set and does not cap a longer requested
+  `run_shell`.
+
+- **`task` (sub-agent dispatch) is always exempt from the generic tool-execution
+  watchdog**, even when Settings arm it. Workers past 11 minutes with healthy
+  activity complete and return their own report instead of surfacing as
+  operator cancels; maxTurns, no-progress, thrash, and the opt-in `deadlineMs`
+  remain the operative bounds.
+
+### Directors
+
+- **Skywalker spawn-target for product code is `build`.** Prompt and
+  skill copy that still said `spawn implement` / `task(agent="implement")`
+  now dispatch `build`. Intent graph `explore → implement → critique`
+  and slash `/implement` are unchanged.
+
+- **Skywalker may DIY tiny product writes (CL-6629).** Path tools
+  (`write_file` / `edit_file` / `delete_file`) remount on the primary
+  session. Tiny/single-file/one-route bounded edits are the exception;
+  spawn remains default for substantial/multi-file/parallel/specialist
+  work (hard cap 4 workers). Docs/design still spawn shakespeare /
+  bruckheimer / brand-reviewer except one-line fixes. Greybeard stays
+  write-free. Shell file-writes stay denied. Spawn is a judgment call,
+  not a tool ban.
+
+- **Exec and capability evals can run as a chosen primary director.**
+  `corbits exec --director <id>` (and eval `--director`) overlays that
+  package's system prompt and initially-advertised tool set on the product exec path.
+  Omit / skywalker keep the default Skywalker session. Directors that
+  cannot spawn (for example build) do not mount `task`. This is an
+  exec/eval/CI override, not a TUI or single-agent mode.
+
 ## [0.2.99] - 2026-08-21
 
 Skywalker is the primary orchestrator over a closed director fleet: product write tools stay off the primary, and you cannot spawn Skywalker as a task leaf. Workers are not done until they return the four-heading report. First-party action skills ship as slashes; eval runners require an explicit provider/model pair; the style skill no longer refuses non-git folders.

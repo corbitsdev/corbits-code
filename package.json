@@ -1,6 +1,6 @@
 {
   "name": "@corbits/code",
-  "version": "0.2.99",
+  "version": "0.2.103",
   "description": "Single-process coding agent CLI built on the Interchange runtime (Bun + TypeScript)",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
@@ -33,6 +33,8 @@
     "build:bin": "bun build ./src/index.ts --compile --minify --define process.env.NODE_ENV='\"production\"' --outfile ./dist/corbits && bun scripts/copy-repo-plugins.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests ./evals",
+    "lint": "prettier --check --cache . && eslint --cache .",
+    "check": "bun run lint && bun run typecheck && bun run build && bun run test",
     "start": "bun run build && bun ./dist/index.js",
     "eval:capability": "bun scripts/eval-capability.ts",
     "eval:public-swe-one": "bun scripts/eval-public-swe-one.ts",
@@ -79,9 +81,13 @@
     "solid-js": "1.9.14"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.0",
     "@intx/inference-testing": "0.2.2",
     "@types/bun": "1.3.9",
+    "eslint": "^9.39.0",
+    "prettier": "^3.6.2",
     "typescript": "5.9.3",
+    "typescript-eslint": "^8.46.4",
     "typescript-language-server": "^4.3.4",
     "ws": "^8.21.0"
   },

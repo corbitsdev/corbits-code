@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
   matchesWritePathAllowlist,
   writePathDeniedReason,
@@ -55,6 +57,59 @@ describe("matchesWritePathAllowlist", () => {
     expect(
       matchesWritePathAllowlist("../sibling/PRODUCT.md", ["PRODUCT.md"], cwd),
     ).toBe(false);
+  });
+});
+
+describe("matchesWritePathAllowlist with a symlinked cwd", () => {
+  test("allows a write under the canonical target of a symlinked cwd", () => {
+    // Mirrors macOS's /tmp -> /private/tmp: cwd is spelled via the symlink,
+    // but resolveWorkspacePath (and any tool arg it rewrites) hands the
+    // subject in already realpathed. Both sides of the compare must
+    // canonicalize the same way or a legitimate write is hard-denied.
+    const real = mkdtempSync(join(realpathSync(tmpdir()), "write-path-real-"));
+    const linkDir = join(realpathSync(tmpdir()), `write-path-link-${process.pid}`);
+    try {
+      symlinkSync(real, linkDir);
+      const symlinkedCwd = linkDir; // lexically distinct from `real`
+      const canonicalSubject = join(real, "docs", "a.md"); // already realpathed
+
+      expect(
+        matchesWritePathAllowlist(canonicalSubject, ["docs/*"], symlinkedCwd),
+      ).toBe(true);
+
+      // A genuinely outside path is still denied.
+      const outsideReal = mkdtempSync(join(realpathSync(tmpdir()), "write-path-outside-"));
+      try {
+        expect(
+          matchesWritePathAllowlist(join(outsideReal, "docs", "a.md"), ["docs/*"], symlinkedCwd),
+        ).toBe(false);
+      } finally {
+        rmSync(outsideReal, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(linkDir, { force: true });
+      rmSync(real, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("matchesWritePathAllowlist with an unresolvable cwd", () => {
+  test("a cwd whose final component is a dangling symlink is hard-denied, not spuriously allowed (CL-6715)", () => {
+    // If cwd itself is unresolvable, both absCwd and abs collapse to the same
+    // UNRESOLVABLE sentinel, `abs === absCwd` goes true, rel becomes ".", and
+    // a root-matching pattern (e.g. "**") would otherwise spuriously allow —
+    // turning a hard authz deny into an ask-prompt.
+    const parent = mkdtempSync(join(realpathSync(tmpdir()), "write-path-dangling-parent-"));
+    const danglingCwd = join(parent, "dangling-cwd");
+    try {
+      symlinkSync(join(parent, "does-not-exist"), danglingCwd);
+
+      expect(matchesWritePathAllowlist("anything.md", ["**"], danglingCwd)).toBe(false);
+      expect(matchesWritePathAllowlist("PRODUCT.md", ["PRODUCT.md"], danglingCwd)).toBe(false);
+    } finally {
+      rmSync(danglingCwd, { force: true });
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 });
 

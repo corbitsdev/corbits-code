@@ -13,6 +13,7 @@ describe("draperPackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(draperPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(draperPackage.systemPrompt).toContain("build (fixes)");
   });
 
   test("spawn.maySpawn is false", () => {

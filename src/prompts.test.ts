@@ -47,8 +47,10 @@ test("agent identity is Skywalker orchestrator", () => {
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
-  expect(facts).toContain("write_file, edit_file, delete_file");
-  expect(facts).toContain("not mounted on the primary Skywalker session");
+  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("tiny/single-file/one-route");
+  expect(facts).toContain("Spawn build");
+  expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("15s timeout");
   expect(facts).toContain("find, rg, and grep -r");
@@ -92,6 +94,9 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(guidelines).toContain("grep or search_files");
   expect(guidelines).toContain("ask_operator only when permission blocks you");
   expect(guidelines).toContain("load the style and philosophy skills");
+  expect(guidelines).toContain("DIY tiny/single-file/one-route");
+  expect(guidelines).toContain("never shell-write (echo/heredoc/sed/rm)");
+  expect(guidelines).not.toContain("not mounted on Skywalker");
 });
 
 test("orchestrator guidelines teach the typed task spawn contract", () => {

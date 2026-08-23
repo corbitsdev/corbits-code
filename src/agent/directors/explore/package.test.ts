@@ -13,6 +13,9 @@ describe("explorePackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(explorePackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(explorePackage.systemPrompt).toContain(
+      "naming the right director: build, plan, critique, greybeard, intern",
+    );
   });
 
   test("systemPrompt has finish bias against re-reading the same paths", () => {

@@ -13,6 +13,8 @@ describe("brandReviewerPackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(brandReviewerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(brandReviewerPackage.systemPrompt).toContain("name build");
+    expect(brandReviewerPackage.systemPrompt).not.toContain("name implement");
   });
 
   test("spawn.maySpawn is false", () => {

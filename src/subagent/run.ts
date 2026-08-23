@@ -60,6 +60,7 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import {
   detectRepetition,
+  DEFAULT_THINKING_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,
   type RepetitionHit,
 } from "./repetition.js";
@@ -70,7 +71,6 @@ import {
   resolveDefaultSubAgentMaxTurns,
   toolWatchdogFromSettings,
 } from "../config/settings.js";
-import { resolveToolExecutionTimeoutMs } from "../tui/tool-execution-watchdog.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import { ID_PREFIX } from "../branding.js";
@@ -293,16 +293,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   // visible to the finally block, which is a sibling scope, not a child.
   let stallWatchdog: ReturnType<typeof setInterval> | undefined;
   // Combines the caller's cancel signal with an optional opt-in wall-clock
-  // deadline so a leaf that hits the deadline can still return a salvage report
-  // rather than racing the outer per-tool-call watchdog (which would discard the
-  // run wholesale). When deadlineMs is omitted, no timer is armed — maxTurns +
-  // cancel remain the only bounds. Declared before try so finally can dispose.
+  // deadline so a leaf that hits the deadline can still return a salvage
+  // report. When deadlineMs is omitted, no timer is armed — maxTurns + cancel
+  // remain the only bounds. Declared before try so finally can dispose.
+  // The task tool is exempt from the generic per-tool watchdog (see
+  // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
   const resolvedDeadlineMs =
     params.deadlineMs !== undefined
-      ? resolveSubAgentDeadlineMs(
-          params.deadlineMs,
-          resolveToolExecutionTimeoutMs(toolWatchdogFromSettings(params.settings)),
-        )
+      ? resolveSubAgentDeadlineMs(params.deadlineMs, undefined)
       : undefined;
   const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
 
@@ -602,6 +600,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   // the later catch-site reads.
   const repetition: { hit: RepetitionHit | null } = { hit: null };
   let charsSinceRepetitionCheck = 0;
+  let charsSinceThinkingRepetitionCheck = 0;
   const streamSink = (event: ReactorEmittedEvent): void => {
     const name = subAgentToolName(event);
     if (name !== null) {
@@ -622,6 +621,26 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           repetition.hit = hit;
           runController.abort(
             new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
+          );
+        }
+      }
+    }
+    // Thinking deltas are never shown to the user, so a monotonic-counter
+    // loop confined to them (the observed live thrash) never trips the
+    // turn-level stop checks either — sample them on the same interval with
+    // digit-normalized detection tuned for the collapsed period.
+    if (event.type === "inference.thinking.delta" && repetition.hit === null) {
+      const token = (event.data as { token?: unknown }).token;
+      charsSinceThinkingRepetitionCheck += typeof token === "string" ? token.length : 0;
+      if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
+        charsSinceThinkingRepetitionCheck = 0;
+        const hit = detectRepetition(cycleRecorder.thinkingText(), DEFAULT_THINKING_REPETITION_CONFIG, {
+          normalizeDigits: true,
+        });
+        if (hit !== null) {
+          repetition.hit = hit;
+          runController.abort(
+            new Error(`sub-agent thinking output repeated the same window ${hit.repeats} times`),
           );
         }
       }

@@ -1,14 +1,14 @@
 ---
 name: opsh
 user-invocable: false
-description: Write scripts using opsh and its built-in libraries. Skywalker copies these rules into an implement brief; does not write the script. Load when writing, reviewing, or debugging opsh scripts.
+description: Write scripts using opsh and its built-in libraries. Tiny scripts: DIY with these rules. Substantial script work: copy the rules into an implement brief. Load when writing, reviewing, or debugging opsh scripts.
 ---
 
 # opsh Scripting
 
-You are Skywalker. Host is Corbits Code. This is a convention skill. You do not write the script.
+You are Skywalker. Host is Corbits Code. This is a convention skill. Tiny / single-file scripts: DIY with write_file/edit_file using these rules. Substantial script work: spawn build with this skill's rules copied into the brief (workers do not mount `use_skill`).
 
-If the operator wants a script written, spawn `task(agent="implement")` with this skill's rules copied into the brief (workers do not mount `use_skill`). If the operator wants a review, spawn `task(agent="critique")` (or `task(agent="neckbeard")` for hygiene-only) with the same rules copied in.
+If the operator wants a substantial script written, spawn `task(agent="build")` with this skill's rules copied into the brief. If the operator wants a review, spawn `task(agent="critique")` (or `task(agent="neckbeard")` for hygiene-only) with the same rules copied in.
 
 Shell for agent commands is `run_shell` (there is no Bash tool). Bash-the-language in the examples below stays — opsh scripts are bash.
 

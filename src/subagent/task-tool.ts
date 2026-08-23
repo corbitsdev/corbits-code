@@ -178,8 +178,9 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   spawnAllowlist?: readonly string[];
   /**
    * Optional wall-clock budget (ms) for each worker this tool spawns. Opt-in
-   * only — there is no default leaf death clock. When set, clamped below the
-   * outer tool-execution watchdog so a salvage report can return first.
+   * only — there is no default leaf death clock. The task tool is exempt from
+   * the generic tool-execution watchdog, so this deadline is the only
+   * wall-clock bound on a worker.
    */
   deadlineMs?: number;
 
@@ -451,7 +452,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       if (agentId === "skywalker" || resolvedDirectorId === "skywalker") {
         return taskToolResult(
           call.id,
-          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (implement, explore, plan, critique, …).",
+          "Error: skywalker is the primary session identity, not a spawned worker. Pass task(agent=…) for a specialist (build, explore, plan, critique, …).",
         );
       }
 

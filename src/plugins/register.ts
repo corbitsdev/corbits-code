@@ -9,7 +9,10 @@ export function isPluginEnabled(config: Record<string, PluginConfig>, id: string
 
 // Enablement for a loaded module: explicit settings win; otherwise only a
 // first-party repo plugin with manifest.defaultEnabled turns on. Marketplace
-// (user), path, and project plugins cannot self-enable via the flag.
+// (user), path, and project plugins cannot self-enable via the flag — except
+// when dedupePluginModules stamped shadowedRepoDefaultEnabled, meaning this
+// module's id shadowed a repo defaultEnabled plugin during discovery dedupe;
+// the bundled default-on survives the shadowing (CL-6716).
 export function isPluginModuleEnabled(
   mod: PluginModule,
   config: Record<string, PluginConfig | undefined>,
@@ -19,7 +22,10 @@ export function isPluginModuleEnabled(
   const enabled = config[id]?.enabled;
   if (enabled === true) return true;
   if (enabled === false) return false;
-  return mod.origin === "repo" && mod.manifest?.defaultEnabled === true;
+  return (
+    (mod.origin === "repo" && mod.manifest?.defaultEnabled === true)
+    || mod.shadowedRepoDefaultEnabled === true
+  );
 }
 
 // Mark a plugin enabled while preserving credentials/consented and other fields.

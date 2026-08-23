@@ -5,7 +5,6 @@ import { type } from "arktype";
 
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { PRODUCT_MUTATION_TOOLS } from "./product-mutation-tools.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered and dispatchable but discovered on demand via tool_search, keeping
@@ -17,12 +16,17 @@ import { PRODUCT_MUTATION_TOOLS } from "./product-mutation-tools.js";
 // dispatchable — the model finds it via tool_search when a session actually
 // needs it.
 //
-// Product mutation tools (write_file / edit_file / delete_file / apply_patch) are
-// intentionally absent from the primary Skywalker core/catalog sets — they mount
-// only on leaf directors that need them (implement, shakespeare, …). See
-// PRIMARY_DENIED_PRODUCT_TOOLS.
+// Product mutation tools (write_file / edit_file / delete_file) sit in CORE so
+// the primary Skywalker session can DIY tiny/bounded edits without a
+// tool_search round-trip. Substantial work still spawns build / docs
+// directors — that is a prompt judgment call, not a toolset strip.
+// Codex `apply_patch` is mounted only when isCodex and kept on build/docs
+// leaves — it is intentionally absent from CORE/CATALOG.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
+  "write_file",
+  "edit_file",
+  "delete_file",
   "lsp",
   "run_shell",
   "ask_operator",
@@ -36,9 +40,6 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   // failing on an unloaded task tool.
   "task",
 ];
-
-/** Product mutation tools denied on the primary Skywalker session (structural). */
-export const PRIMARY_DENIED_PRODUCT_TOOLS: readonly string[] = PRODUCT_MUTATION_TOOLS;
 
 const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
 
@@ -75,8 +76,8 @@ export function advertisedToolNamesForSessionMode(
 // Built-in file/search/web tools advertised alongside the core set. They carry full
 // schemas on the wire so the model can call them directly; MCP tools are not
 // listed at all — they are discovered blind via tool_search.
-// write_file is intentionally omitted: primary Skywalker does not mutate product
-// files; implement/docs leaves mount write tools via their own toolsets.
+// write_file / edit_file / delete_file live in CORE (not here) so they are
+// advertised without a tool_search round-trip.
 // web_fetch / web_search are catalog (not deferred): URL reads and search are
 // first-class primary work; requiring tool_search before web_fetch caused
 // thrash on web-bait and contradicted the skywalker "already mounted" rule.

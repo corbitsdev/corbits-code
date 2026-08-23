@@ -21,12 +21,26 @@ function delta(token: string): ReactorEmittedEvent {
   return { type: "inference.text.delta", data: { token } } as unknown as ReactorEmittedEvent;
 }
 
-async function readPartialRecords(): Promise<Array<{ reason: string; text: string }>> {
+function thinkingDelta(token: string): ReactorEmittedEvent {
+  return { type: "inference.thinking.delta", data: { token } } as unknown as ReactorEmittedEvent;
+}
+
+async function readPartialRecords(): Promise<
+  Array<{ reason: string; text: string; thinkingText?: string; thinkingChars?: number }>
+> {
   const raw = await readFile(join(dir, PARTIAL_FILE), "utf8");
   return raw
     .trim()
     .split("\n")
-    .map((line) => JSON.parse(line) as { reason: string; text: string });
+    .map(
+      (line) =>
+        JSON.parse(line) as {
+          reason: string;
+          text: string;
+          thinkingText?: string;
+          thinkingChars?: number;
+        },
+    );
 }
 
 describe("createCycleTextRecorder", () => {
@@ -117,6 +131,43 @@ describe("createCycleTextRecorder", () => {
     await disposePromise;
     const records = await readPartialRecords();
     expect(records[0]?.text).toBe("buffered text");
+  });
+
+  test("buffers thinking deltas separately from text and flushes both", async () => {
+    const recorder = createCycleTextRecorder(() => dir);
+    recorder.handleEvent(delta("visible reply"));
+    recorder.handleEvent(thinkingDelta("0/1 1/2 2/3 "));
+    expect(recorder.text()).toBe("visible reply");
+    expect(recorder.thinkingText()).toBe("0/1 1/2 2/3 ");
+
+    await recorder.flush("repetition");
+    const records = await readPartialRecords();
+    expect(records[0]?.text).toBe("visible reply");
+    expect(records[0]?.thinkingText).toBe("0/1 1/2 2/3 ");
+    expect(recorder.thinkingText()).toBe("");
+  });
+
+  test("a thinking-only loop still writes a partial record with the looped window", async () => {
+    // No visible text ever streamed (the observed live failure): the salvage
+    // must still be diagnosable from thinkingText alone.
+    const recorder = createCycleTextRecorder(() => dir);
+    recorder.handleEvent(thinkingDelta("0/1 1/2 2/3 3/4 4/5 "));
+    const snapshot = await recorder.dispose("repetition");
+
+    expect(snapshot).toBe("");
+    const records = await readPartialRecords();
+    expect(records[0]?.reason).toBe("repetition");
+    expect(records[0]?.text).toBe("");
+    expect(records[0]?.thinkingText).toBe("0/1 1/2 2/3 3/4 4/5 ");
+  });
+
+  test("a turn boundary resets both the text and thinking buffers", () => {
+    const recorder = createCycleTextRecorder(() => dir);
+    recorder.handleEvent(delta("hello"));
+    recorder.handleEvent(thinkingDelta("thinking"));
+    recorder.handleEvent({ type: "inference.done", data: {} } as unknown as ReactorEmittedEvent);
+    expect(recorder.text()).toBe("");
+    expect(recorder.thinkingText()).toBe("");
   });
 
   test("reset reopens a closed recorder so new deltas buffer and flush normally", async () => {

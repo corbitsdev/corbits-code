@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   DOCS_TOOLS,
-  IMPLEMENT_TOOLS,
+  BUILD_TOOLS,
+  ORCHESTRATOR_TOOLS,
   READ_TOOLS,
+  SKYWALKER_TOOLS,
 } from "./tool-sets.js";
 
 describe("DOCS_TOOLS", () => {
@@ -30,7 +32,7 @@ describe("DOCS_TOOLS", () => {
   });
 
   test("run_shell stays on the other surfaces", () => {
-    for (const surface of [READ_TOOLS, IMPLEMENT_TOOLS]) {
+    for (const surface of [READ_TOOLS, BUILD_TOOLS]) {
       expect(surface).toContain("run_shell");
     }
   });
@@ -41,16 +43,27 @@ describe("DOCS_TOOLS", () => {
   });
 });
 
-describe("IMPLEMENT_TOOLS", () => {
+describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
+  test("Skywalker mounts product writes; greybeard orchestrator surface does not", () => {
+    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+      expect(SKYWALKER_TOOLS as readonly string[]).toContain(name);
+      expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain(name);
+    }
+    expect(SKYWALKER_TOOLS).toContain("task");
+    expect(ORCHESTRATOR_TOOLS).toContain("task");
+  });
+});
+
+describe("BUILD_TOOLS", () => {
   test("includes apply_patch alongside path mutation tools", () => {
-    expect(IMPLEMENT_TOOLS).toContain("write_file");
-    expect(IMPLEMENT_TOOLS).toContain("edit_file");
-    expect(IMPLEMENT_TOOLS).toContain("delete_file");
-    expect(IMPLEMENT_TOOLS).toContain("apply_patch");
+    expect(BUILD_TOOLS).toContain("write_file");
+    expect(BUILD_TOOLS).toContain("edit_file");
+    expect(BUILD_TOOLS).toContain("delete_file");
+    expect(BUILD_TOOLS).toContain("apply_patch");
   });
 
   test("includes the Codex shell and update_plan proxy names", () => {
-    expect(IMPLEMENT_TOOLS).toContain("shell");
-    expect(IMPLEMENT_TOOLS).toContain("update_plan");
+    expect(BUILD_TOOLS).toContain("shell");
+    expect(BUILD_TOOLS).toContain("update_plan");
   });
 });

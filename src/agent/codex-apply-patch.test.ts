@@ -157,11 +157,7 @@ describe("extractAffectedPaths", () => {
 *** Delete File: obsolete.txt
 *** End Patch
 `);
-    expect(extractAffectedPaths(patch)).toEqual([
-      "hello.txt",
-      "src/app.py",
-      "obsolete.txt",
-    ]);
+    expect(extractAffectedPaths(patch)).toEqual(["hello.txt", "src/app.py", "obsolete.txt"]);
   });
 
   test("move path extraction includes source and destination", () => {

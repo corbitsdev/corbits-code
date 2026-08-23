@@ -46,8 +46,10 @@ export type PartialFlushReason =
 export type CycleTextRecorder = {
   /** Feed every stream event; buffers deltas, resets on done, flushes on error. */
   handleEvent: (event: ReactorEmittedEvent) => void;
-  /** The buffered text of the current (unfinished) cycle. */
+  /** The buffered visible text of the current (unfinished) cycle. */
   text: () => string;
+  /** The buffered thinking text of the current (unfinished) cycle. */
+  thinkingText: () => string;
   /** Write the buffer to partial.jsonl with a reason, then reset it. */
   flush: (reason: PartialFlushReason) => Promise<void>;
   /**
@@ -71,13 +73,25 @@ export function createCycleTextRecorder(
   resolveContextDir: () => string,
 ): CycleTextRecorder {
   let cycleText = "";
+  let cycleThinkingText = "";
   let closed = false;
 
-  const writeRecord = async (reason: PartialFlushReason, text: string): Promise<void> => {
-    if (text.trim().length === 0) return;
-    const record = JSON.stringify({ reason, chars: text.length, text });
+  const writeRecord = async (
+    reason: PartialFlushReason,
+    text: string,
+    thinkingText: string,
+  ): Promise<void> => {
+    if (text.trim().length === 0 && thinkingText.trim().length === 0) return;
+    const record: Record<string, unknown> = { reason, chars: text.length, text };
+    // Omitted when empty: a text-only abort (the common case) keeps the
+    // existing record shape, and diagnosing a thinking-loop abort needs the
+    // looped window that never reached visible text.
+    if (thinkingText.length > 0) {
+      record.thinkingChars = thinkingText.length;
+      record.thinkingText = thinkingText;
+    }
     try {
-      await appendFile(join(resolveContextDir(), PARTIAL_FILE), `${record}\n`, "utf8");
+      await appendFile(join(resolveContextDir(), PARTIAL_FILE), `${JSON.stringify(record)}\n`, "utf8");
     } catch (err) {
       getLogger([LOG_NAMESPACE_ROOT, "session", "partial"]).warn(
         "failed to write partial stream output: {error}",
@@ -88,8 +102,10 @@ export function createCycleTextRecorder(
 
   const flush = async (reason: PartialFlushReason): Promise<void> => {
     const text = cycleText;
+    const thinkingText = cycleThinkingText;
     cycleText = "";
-    await writeRecord(reason, text);
+    cycleThinkingText = "";
+    await writeRecord(reason, text, thinkingText);
   };
 
   const handleEvent = (event: ReactorEmittedEvent): void => {
@@ -99,8 +115,14 @@ export function createCycleTextRecorder(
       if (typeof token === "string") cycleText = appendCycleText(cycleText, token);
       return;
     }
+    if (event.type === "inference.thinking.delta") {
+      const token = (event.data as { token?: unknown }).token;
+      if (typeof token === "string") cycleThinkingText = appendCycleText(cycleThinkingText, token);
+      return;
+    }
     if (onTurnBoundary(event)) {
       cycleText = "";
+      cycleThinkingText = "";
       return;
     }
     if (event.type === "inference.error") {
@@ -115,16 +137,26 @@ export function createCycleTextRecorder(
     if (closed) return "";
     closed = true;
     const snapshot = cycleText;
+    const thinkingSnapshot = cycleThinkingText;
     cycleText = "";
+    cycleThinkingText = "";
     if (opts?.drain !== undefined) await opts.drain.catch(() => undefined);
-    await writeRecord(reason, snapshot);
+    await writeRecord(reason, snapshot, thinkingSnapshot);
     return snapshot;
   };
 
   const reset = (): void => {
     closed = false;
     cycleText = "";
+    cycleThinkingText = "";
   };
 
-  return { handleEvent, text: () => cycleText, flush, dispose, reset };
+  return {
+    handleEvent,
+    text: () => cycleText,
+    thinkingText: () => cycleThinkingText,
+    flush,
+    dispose,
+    reset,
+  };
 }

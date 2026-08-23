@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { type } from "arktype";
 import { getLogger } from "@intx/log";
@@ -64,6 +65,21 @@ function extractStringArrayField(value: unknown[] | undefined, field: string, pa
   return strings;
 }
 
+// Symlink twins of the same repo (e.g. macOS's /tmp -> /private/tmp) must key
+// and compare as the same project — otherwise grants written via one spelling
+// are invisible via the other (fail-closed availability) and each spelling
+// accumulates its own duplicate store. realpath collapses the twins; a path
+// that doesn't exist yet (or isn't readable) falls back to the lexical
+// resolve so callers never see an error from this normalization step alone.
+function canonicalizeCwd(cwd: string): string {
+  const resolved = resolve(cwd);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 // SECURITY: project trust records must NOT live inside the repo they authorize —
 // a hostile repo could otherwise ship its own `.corbits/trust.json` and
 // pre-grant consent to its plugins and MCP servers. We store them under the
@@ -71,7 +87,7 @@ function extractStringArrayField(value: unknown[] | undefined, field: string, pa
 // interactive consent on THIS machine can populate them. Path-origin plugins
 // use a separate global store (`path-trust.ts`); do not OR the two lists.
 export function projectTrustPath(cwd: string, home: string = homedir()): string {
-  const repo = resolve(cwd);
+  const repo = canonicalizeCwd(cwd);
   const key = createHash("sha256").update(repo).digest("hex").slice(0, 32);
   return join(home, SETTINGS_DIR_NAME, "trust", `${key}.json`);
 }
@@ -130,15 +146,34 @@ export async function readProjectTrustStore(
     path,
   );
   // Guard against a stale/copied record keyed to a different repo path: the
-  // file records the repo it was written for and must match this cwd.
-  if (validated.repo !== undefined && resolve(validated.repo) !== resolve(cwd)) {
-    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${resolve(cwd)}`;
+  // file records the repo it was written for and must match this cwd. A
+  // missing or non-string `repo` is invalid too — without it, a hand-edited
+  // or stripped store would apply its grants to whatever cwd happens to hash
+  // to this filename, defeating the mismatch guard entirely.
+  if (typeof validated.repo !== "string") {
+    logger.warn`project trust store missing repo field at ${path}`;
     return { state: "invalid", store: emptyStore() };
+  }
+  if (canonicalizeCwd(validated.repo) !== canonicalizeCwd(cwd)) {
+    logger.warn`project trust store repo mismatch at ${path}: recorded ${validated.repo}, expected ${canonicalizeCwd(cwd)}`;
+    return { state: "invalid", store: emptyStore() };
+  }
+  // Grants are recorded as absolute paths (see requireAbsolute below); a
+  // relative entry has no fixed meaning on load — resolving it here would
+  // bind to whatever process.cwd() happens to be, the same confused-cwd bug
+  // path-trust.ts guards against on disk. Drop it instead of guessing.
+  const absolutePluginPaths: string[] = [];
+  for (const p of trustedPluginPaths) {
+    if (!isAbsolute(p)) {
+      logger.warn`project trust store dropping non-absolute trustedPluginPaths entry at ${path}: ${p}`;
+      continue;
+    }
+    absolutePluginPaths.push(resolve(p));
   }
   return {
     state: "valid",
     store: {
-      trustedPluginPaths: trustedPluginPaths.map((p) => resolve(p)),
+      trustedPluginPaths: absolutePluginPaths,
       trustedMcpFingerprints: [...trustedMcpFingerprints],
     },
   };
@@ -148,15 +183,49 @@ export async function loadProjectTrust(cwd: string, home: string = homedir()): P
   return (await readProjectTrustStore(cwd, home)).store;
 }
 
+// Written via temp-file + rename (same pattern as path-trust.ts / saveGlobalSettings)
+// so a concurrent reader never sees a truncated or half-written store — a torn
+// read would be indistinguishable from a corrupt file and wipe consent.
 async function saveProjectTrust(cwd: string, store: ProjectTrustStore, home: string = homedir()): Promise<void> {
   const path = projectTrustPath(cwd, home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const record = { repo: resolve(cwd), ...store };
-  await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  const record = { repo: canonicalizeCwd(cwd), ...store };
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+  await rename(tmp, path);
 }
 
-export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string): boolean {
-  const abs = resolve(pluginPath);
+// The grant helpers re-read the store immediately before writing, but two
+// in-process mutations interleaving between that read and the write would
+// still drop grants (e.g. a plugin-trust and an MCP-trust update landing at
+// the same time). Chain them per trust-store path so each mutation sees the
+// previous one's result. (Cross-process writers remain last-writer-wins of a
+// complete file, same as path-trust.ts.)
+const mutationQueues = new Map<string, Promise<unknown>>();
+
+function enqueueMutation<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const prior = mutationQueues.get(key) ?? Promise.resolve();
+  const next = prior.then(run, run);
+  mutationQueues.set(
+    key,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
+// A relative pluginPath has no fixed meaning until resolved against some cwd;
+// resolving it against process.cwd() (path.resolve's default) would trust a
+// different directory than the caller's project, the confused-cwd bug
+// path-trust.ts avoids by requiring absolute paths outright. Project trust
+// callers pass relative paths in practice, so resolve against the given
+// project cwd instead of rejecting — path.resolve(cwd, pluginPath) leaves an
+// already-absolute pluginPath untouched.
+function resolveAgainstProjectCwd(cwd: string, pluginPath: string): string {
+  return resolve(canonicalizeCwd(cwd), pluginPath);
+}
+
+export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string, cwd: string = process.cwd()): boolean {
+  const abs = resolveAgainstProjectCwd(cwd, pluginPath);
   return store.trustedPluginPaths.includes(abs);
 }
 
@@ -165,13 +234,15 @@ export async function trustPlugin(
   pluginPath: string,
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
-  const store = await loadProjectTrust(cwd, home);
-  const abs = resolve(pluginPath);
-  if (!store.trustedPluginPaths.includes(abs)) {
-    store.trustedPluginPaths = [...store.trustedPluginPaths, abs];
-    await saveProjectTrust(cwd, store, home);
-  }
-  return store;
+  const abs = resolveAgainstProjectCwd(cwd, pluginPath);
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    if (!store.trustedPluginPaths.includes(abs)) {
+      store.trustedPluginPaths = [...store.trustedPluginPaths, abs];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
 }
 
 /**
@@ -200,13 +271,15 @@ export async function trustMcpServer(
   server: MCPServerConfig,
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
-  const store = await loadProjectTrust(cwd, home);
   const fp = mcpServerFingerprint(server);
-  if (!store.trustedMcpFingerprints.includes(fp)) {
-    store.trustedMcpFingerprints = [...store.trustedMcpFingerprints, fp];
-    await saveProjectTrust(cwd, store, home);
-  }
-  return store;
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    if (!store.trustedMcpFingerprints.includes(fp)) {
+      store.trustedMcpFingerprints = [...store.trustedMcpFingerprints, fp];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
 }
 
 /**
