@@ -4,7 +4,7 @@ export type CapabilityName = "ticket-tracker" | "code-host" | "doc-search";
 
 export type StepType = "standard" | "gate";
 
-export type WorkflowStep = {
+export interface WorkflowStep {
   id: string;
   label: string;
   prompt?: string;
@@ -16,17 +16,17 @@ export type WorkflowStep = {
   parallel?: boolean;
   type?: StepType;
   profile?: string;
-};
+}
 
-export type Workflow = {
+export interface Workflow {
   name: string;
   description: string;
   autoInvoke?: string;
   stepThrough?: boolean;
   autoAdvance?: boolean;
   steps: WorkflowStep[];
-};
+}
 
-export type WorkflowPlugin = {
+export interface WorkflowPlugin {
   workflows: Workflow[];
-};
+}

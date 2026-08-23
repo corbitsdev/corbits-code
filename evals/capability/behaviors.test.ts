@@ -132,9 +132,7 @@ describe("deriveBehaviorMetrics", () => {
   });
 
   test("counts chain segments per command and in total", () => {
-    const metrics = deriveBehaviorMetrics(
-      summary([shellTurn("a && b && c"), shellTurn("d")]),
-    );
+    const metrics = deriveBehaviorMetrics(summary([shellTurn("a && b && c"), shellTurn("d")]));
     expect(metrics.chainSegmentCount).toBe(4);
     expect(metrics.maxChainSegmentsPerCommand).toBe(3);
   });

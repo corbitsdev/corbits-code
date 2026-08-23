@@ -16,11 +16,11 @@ import {
 // skills) into a single PluginModule-shaped result, so `loadPluginEntry` has one
 // call to make and one place that decides the manifest kind.
 
-export type DataOnlyPlugin = {
+export interface DataOnlyPlugin {
   manifest: PluginManifest;
   agentPlugin?: { agents: unknown[] };
   commandPlugin?: CommandPlugin;
-};
+}
 
 async function readManifestJson(dir: string): Promise<PluginManifest | null> {
   try {
@@ -37,11 +37,13 @@ async function readManifestJson(dir: string): Promise<PluginManifest | null> {
 // to the corbits manifest: `name` becomes `id`+`name`; `kind` is inferred from
 // the plugin's contents (agents present -> "agent", else "command") since a
 // native root `manifest.json`, when present, is always preferred and authoritative.
-type ClaudePluginManifest = { id: string; name: string; description?: string };
+interface ClaudePluginManifest {
+  id: string;
+  name: string;
+  description?: string;
+}
 
-async function readClaudePluginManifestFile(
-  path: string,
-): Promise<ClaudePluginManifest | null> {
+async function readClaudePluginManifestFile(path: string): Promise<ClaudePluginManifest | null> {
   try {
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw) as unknown;
@@ -120,7 +122,8 @@ export async function loadDataOnlyPlugin(
       name: claudeManifest?.name ?? fallbackId,
       kind: agents !== null ? "agent" : "command",
     };
-    if (claudeManifest?.description !== undefined) manifest.description = claudeManifest.description;
+    if (claudeManifest?.description !== undefined)
+      manifest.description = claudeManifest.description;
   }
 
   // Merge command sources: explicit commands/*.md plus one command per skill.

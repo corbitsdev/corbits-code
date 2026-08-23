@@ -2,7 +2,7 @@ import { openInBrowser } from "./browser.js";
 import type { CallbackServer } from "./callback-server.js";
 import { generatePkce, generateState, type Pkce } from "./pkce.js";
 
-export type OAuthLoginHandle = {
+export interface OAuthLoginHandle {
   // The URL to authorize at — surfaced as a copyable link in the TUI and also
   // handed to the browser opener.
   authorizeUrl: string;
@@ -11,9 +11,9 @@ export type OAuthLoginHandle = {
   completed: Promise<{ profile: string }>;
   // Tear down the callback server (also triggered via the abort signal).
   cancel: () => void;
-};
+}
 
-export type StartOAuthLoginOptions = {
+export interface StartOAuthLoginOptions {
   profile: string;
   signal: AbortSignal;
   // Injected for tests; defaults to the real clock.
@@ -22,9 +22,9 @@ export type StartOAuthLoginOptions = {
   // When false, the browser is not auto-opened (the caller surfaces the link).
   // Defaults to true.
   openBrowser?: boolean;
-};
+}
 
-export type OAuthLoginDeps<TTokens> = {
+export interface OAuthLoginDeps<TTokens> {
   startCallbackServer: (expectedState: string) => Promise<CallbackServer>;
   buildAuthorizeUrl: (pkce: Pkce, state: string) => string;
   exchangeCode: (code: string, verifier: string, now: number) => Promise<TTokens>;
@@ -32,7 +32,7 @@ export type OAuthLoginDeps<TTokens> = {
     profile: { name: string; tokens: TTokens; createdAt: number },
     home?: string,
   ) => Promise<void>;
-};
+}
 
 // Drive the loopback PKCE login: start the callback server, build the authorize
 // URL, and return a handle whose `completed` promise resolves after the browser

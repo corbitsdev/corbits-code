@@ -25,38 +25,39 @@ export type DirectorId = (typeof DIRECTOR_IDS)[number];
 export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general";
 
 /** Static model-role tag for CL-5816 stub resolution (not a full package yet). */
-export type ModelRole = "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
+export type ModelRole =
+  "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
 
-export type ToolEnvelope = {
+export interface ToolEnvelope {
   /** Tools mounted when present — prefer small allowlists over deny-everything. */
   readonly allow?: readonly string[];
   /** Tools denied even if present in the session registry. Prefer allow when possible. */
   readonly deny?: readonly string[];
-};
+}
 
-export type SpawnRights = {
+export interface SpawnRights {
   /** Whether this director may call `task`. */
   readonly maySpawn: boolean;
   /** When set, only these director ids may be spawned. */
   readonly allowlist?: readonly DirectorId[];
-};
+}
 
-export type NudgePolicy = {
+export interface NudgePolicy {
   readonly maxTurns?: number;
   /** Stall silence budget in ms before a parent-facing stall notice. */
   readonly stallMs?: number;
-};
+}
 
-export type ReportContract = {
+export interface ReportContract {
   /** Required top-level sections in the worker report. */
   readonly requiredSections: readonly string[];
-};
+}
 
 /**
  * One shipped director: hard primary intent + package fields.
  * Packages land in later levels; registry holds the closed set.
  */
-export type DirectorPackage = {
+export interface DirectorPackage {
   readonly id: DirectorId;
   /** Hard primary intent lane — one job. */
   readonly primaryIntent: string;
@@ -81,12 +82,12 @@ export type DirectorPackage = {
   readonly nudge?: NudgePolicy;
   readonly report: ReportContract;
   readonly modelRole: ModelRole;
-};
+}
 
-export type ResolveDirectorInput = {
+export interface ResolveDirectorInput {
   readonly agentId?: string;
   readonly intent?: TaskIntent;
-};
+}
 
 export type ResolveDirectorResult =
   | { readonly ok: true; readonly package: DirectorPackage }

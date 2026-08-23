@@ -27,17 +27,19 @@ export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // returned payload including the notice stays under READ_FILE_MAX_BYTES.
 const NOTICE_RESERVE_BYTES = 256;
 
-const LINE_TRUNC_SUFFIX =
-  ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
+const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
 const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;
 
 type TruncReason = "lines" | "bytes" | "scan";
 
-type BoundedRead = { content: string; isError?: boolean };
+interface BoundedRead {
+  content: string;
+  isError?: boolean;
+}
 
-export type ReadFileGuardPluginOptions = {
+export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;
-};
+}
 
 function numArg(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -113,9 +115,7 @@ function readStreamBounded(
         return false;
       }
       const tooLong = overflow || raw.length > READ_FILE_MAX_LINE_LENGTH;
-      const text = tooLong
-        ? raw.slice(0, READ_FILE_MAX_LINE_LENGTH) + LINE_TRUNC_SUFFIX
-        : raw;
+      const text = tooLong ? raw.slice(0, READ_FILE_MAX_LINE_LENGTH) + LINE_TRUNC_SUFFIX : raw;
       const numbered = numberLine(lineNo, text);
       const bytes = Buffer.byteLength(numbered, "utf8") + 1;
       if (emitted > 0 && outBytes + bytes > contentBudget) {
@@ -284,9 +284,7 @@ function resolveReadFilePaging(call: { arguments: Record<string, unknown> }): {
   const limitArg = numArg(call.arguments.limit);
   const offset = offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
   const limit =
-    limitArg !== undefined && limitArg > 0
-      ? Math.floor(limitArg)
-      : READ_FILE_DEFAULT_MAX_LINES;
+    limitArg !== undefined && limitArg > 0 ? Math.floor(limitArg) : READ_FILE_DEFAULT_MAX_LINES;
   return { offset, limit };
 }
 

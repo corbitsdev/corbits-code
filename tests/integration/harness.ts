@@ -40,22 +40,22 @@ export const INTEGRATION_SOURCE: InferenceSource = {
   model: "claude-integration",
 };
 
-export type IntegrationSession = {
+export interface IntegrationSession {
   harness: Harness;
   cwd: string;
   workdir: string;
   agent: Agent;
   toolset: Awaited<ReturnType<typeof createAgentToolset>>;
-};
+}
 
-export type OpenIntegrationSessionOpts = {
+export interface OpenIntegrationSessionOpts {
   permissionGate: PermissionGate;
   systemPrompt?: string;
   /** Pre-inference transforms, delivered the production way: riding deps. */
   contextTransforms?: ContextTransform[];
   /** Override to pin the published createAgent snapshot (characterization). */
   createAgentFn?: typeof createAgent;
-};
+}
 
 export async function openIntegrationSession(
   opts: OpenIntegrationSessionOpts,
@@ -74,7 +74,10 @@ export async function openIntegrationSession(
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
-      createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], { onTasksChange: () => {}, inactivityTimeoutMs: 750_000 }),
+      createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
+        onTasksChange: () => {},
+        inactivityTimeoutMs: 750_000,
+      }),
   });
 
   const toolsFactory = defineTool({
@@ -128,10 +131,10 @@ export async function closeIntegrationSession(session: IntegrationSession): Prom
   }
 }
 
-export type TurnResult = {
+export interface TurnResult {
   events: ReactorEmittedEvent[];
   reply: string;
-};
+}
 
 /** One user turn; waits until `agent.send()` resolves (connector.reply). */
 export async function runUntilDone(
@@ -163,7 +166,7 @@ export async function runUntilDone(
 
 export function toolDoneEvents(
   events: ReactorEmittedEvent[],
-): Array<Extract<ReactorEmittedEvent, { type: "tool.done" }>> {
+): Extract<ReactorEmittedEvent, { type: "tool.done" }>[] {
   return events.filter(
     (e): e is Extract<ReactorEmittedEvent, { type: "tool.done" }> => e.type === "tool.done",
   );

@@ -1,6 +1,6 @@
 import type { User } from "../types/index.js";
 
-const mockUsers: Map<string, User> = new Map([
+const mockUsers = new Map<string, User>([
   ["u1", { id: "u1", name: "Alice", email: "alice@example.com" }],
 ]);
 

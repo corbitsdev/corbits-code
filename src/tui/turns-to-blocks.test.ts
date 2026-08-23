@@ -77,7 +77,11 @@ describe("hydrateTasksFromTurns", () => {
 
   test("returns an empty list for a transcript with no manage_tasks calls", () => {
     const turns: ConversationTurn[] = [
-      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 0 } as unknown as ConversationTurn,
+      {
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+        timestamp: 0,
+      } as unknown as ConversationTurn,
     ];
     expect(hydrateTasksFromTurns(turns)).toEqual([]);
   });
@@ -91,9 +95,7 @@ describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)
 
     // The restored list goes to the task panel and nowhere else: the transcript
     // carries neither the raw call rows nor an aggregated copy of the list.
-    expect(hydrateTasksFromTurns(turns)).toEqual([
-      { id: "t1", title: "work", status: "doing" },
-    ]);
+    expect(hydrateTasksFromTurns(turns)).toEqual([{ id: "t1", title: "work", status: "doing" }]);
     expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
     expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
   });
@@ -103,9 +105,7 @@ describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)
 
     const blocks = turnsToContentBlocks(turns);
 
-    expect(hydrateTasksFromTurns(turns)).toEqual([
-      { id: "t1", title: "work", status: "doing" },
-    ]);
+    expect(hydrateTasksFromTurns(turns)).toEqual([{ id: "t1", title: "work", status: "doing" }]);
     expect(blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks")).toBe(false);
   });
 });

@@ -8,20 +8,20 @@ import type { ProviderSettings } from "./settings.js";
 // share this projection; only the prefix, endpoint, model list, and catalog
 // markers differ.
 
-type OAuthProfileLike = {
+interface OAuthProfileLike {
   name: string;
   tokens: { access: string };
-};
+}
 
-export type OAuthProviderProjection<P extends OAuthProfileLike> = {
+export interface OAuthProviderProjection<P extends OAuthProfileLike> {
   providerName: (profile: string) => string;
   isProviderName: (name: string) => boolean;
   profileFromProviderName: (name: string) => string | undefined;
   providersAsSettings: (profiles: readonly P[]) => Record<string, ProviderSettings>;
   profilesToCatalogEntries: (profiles: readonly P[]) => ProviderCatalogEntry[];
-};
+}
 
-export type OAuthProviderProjectionOptions<P extends OAuthProfileLike> = {
+export interface OAuthProviderProjectionOptions<P extends OAuthProfileLike> {
   // Provider namespace including the trailing slash (e.g. "codex/").
   prefix: string;
   baseURL: string;
@@ -30,7 +30,7 @@ export type OAuthProviderProjectionOptions<P extends OAuthProfileLike> = {
   // Provider-specific catalog fields (profile marker, account id, …) merged
   // into each catalog entry so the runtime can route it to the right adapter.
   catalogExtras: (profile: P) => Partial<ProviderCatalogEntry>;
-};
+}
 
 export function createOAuthProviderProjection<P extends OAuthProfileLike>(
   options: OAuthProviderProjectionOptions<P>,

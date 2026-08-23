@@ -34,7 +34,7 @@ describe("openai-compatible adapter image input", () => {
       },
     ];
     const built = adapter.buildRequest(turns, "gpt-5.1", {} as InferenceOptions);
-    const body = JSON.parse(built.body) as { messages: Array<{ content: unknown }> };
+    const body = JSON.parse(built.body) as { messages: { content: unknown }[] };
 
     expect(body.messages[0]?.content).toEqual([
       { type: "text", text: "what is this?" },
@@ -59,14 +59,21 @@ describe("openai-compatible adapter providerOptions passthrough", () => {
 describe("openai-compatible adapter reasoning_content handling", () => {
   const withThinking: ConversationTurn[] = [
     { role: "user", content: [{ type: "text", text: "hi" }] },
-    { role: "assistant", model: "deepseek-v4", content: [{ type: "thinking", thinking: "ponder" }, { type: "text", text: "hello" }] },
+    {
+      role: "assistant",
+      model: "deepseek-v4",
+      content: [
+        { type: "thinking", thinking: "ponder" },
+        { type: "text", text: "hello" },
+      ],
+    },
     { role: "user", content: [{ type: "text", text: "again" }] },
   ] as unknown as ConversationTurn[];
 
-  function messagesFor(model: string): Array<Record<string, unknown>> {
+  function messagesFor(model: string): Record<string, unknown>[] {
     const adapter = createOpenAICompatibleAdapter({ ...source, model } as typeof source);
     const built = adapter.buildRequest(withThinking, model, {} as InferenceOptions);
-    return (JSON.parse(built.body) as { messages: Array<Record<string, unknown>> }).messages;
+    return (JSON.parse(built.body) as { messages: Record<string, unknown>[] }).messages;
   }
 
   test("strips reasoning_content from input messages for DeepSeek models", () => {
