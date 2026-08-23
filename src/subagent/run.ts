@@ -46,6 +46,7 @@ import {
   type CodexRunManageTasks,
   type CodexRunTool,
 } from "../agent/codex-tool-proxies.js";
+import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
@@ -398,6 +399,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ...createCodexToolProxies({
         isCodex: isCodexProviderName(params.provider.providerName),
         runTool,
+        readRawFile: createCodexReadRawFile(params.cwd, permissionGate),
         runManageTasks,
         allowDelete: allowDeleteFromCapabilities(params.capabilities),
         allowShell: allowShellFromCapabilities(params.capabilities),
