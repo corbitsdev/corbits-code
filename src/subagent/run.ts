@@ -176,13 +176,13 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
   return tools.filter((t) => nameSet.has(t.definition.name));
 }
 
-export type SubAgentRunController = {
+export interface SubAgentRunController {
   signal: AbortSignal;
   deadlineHit: () => boolean;
   /** Abort the run from inside (e.g. repetition detection), distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
   dispose: () => void;
-};
+}
 
 /**
  * Combines an optional caller cancel signal with an optional opt-in wall-clock
