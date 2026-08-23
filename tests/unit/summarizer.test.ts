@@ -16,7 +16,11 @@ const source: InferenceSource = {
 
 function turns(): ConversationTurn[] {
   return [
-    { role: "user", content: [{ type: "text", text: "Fix the login bug, see https://example.com/ticket/42" }], timestamp: 1 },
+    {
+      role: "user",
+      content: [{ type: "text", text: "Fix the login bug, see https://example.com/ticket/42" }],
+      timestamp: 1,
+    },
     {
       role: "assistant",
       content: [
@@ -28,7 +32,9 @@ function turns(): ConversationTurn[] {
     },
     {
       role: "assistant",
-      content: [{ type: "tool_call", id: "c2", name: "edit_file", arguments: { path: "src/session.ts" } }],
+      content: [
+        { type: "tool_call", id: "c2", name: "edit_file", arguments: { path: "src/session.ts" } },
+      ],
       model: "test-model",
       timestamp: 3,
     },

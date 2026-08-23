@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 
 import { expect, test } from "bun:test";
 
-import { fetchPricing, loadPricing, parseModelsDevPricing, parseModelsDevContextWindows, readPricingCache, writePricingCache } from "../../src/cost/pricing-fetcher.js";
+import {
+  fetchPricing,
+  loadPricing,
+  parseModelsDevPricing,
+  parseModelsDevContextWindows,
+  readPricingCache,
+  writePricingCache,
+} from "../../src/cost/pricing-fetcher.js";
 
 test("parseModelsDevContextWindows reads limit.context per model", () => {
   const windows = parseModelsDevContextWindows({
@@ -78,14 +85,17 @@ test("fetchPricing fetches and timestamps model prices", async () => {
   const pricing = await fetchPricing({
     endpoint: "https://example.test/models.json",
     now: () => 123,
-    fetchImpl: async () => response({
-      models: [{
-        id: "provider/model",
-        input_cost_per_million: 1,
-        output_cost_per_million: 2,
-        cache_read_cost_per_million: 0.25,
-      }],
-    }),
+    fetchImpl: async () =>
+      response({
+        models: [
+          {
+            id: "provider/model",
+            input_cost_per_million: 1,
+            output_cost_per_million: 2,
+            cache_read_cost_per_million: 0.25,
+          },
+        ],
+      }),
   });
 
   expect(pricing).toEqual({
@@ -107,9 +117,12 @@ test("loadPricing writes fetched prices to cache", async () => {
     await loadPricing({
       cachePath,
       now: () => 456,
-      fetchImpl: async () => response({
-        models: [{ id: "provider/model", input_cost_per_million: 10, output_cost_per_million: 20 }],
-      }),
+      fetchImpl: async () =>
+        response({
+          models: [
+            { id: "provider/model", input_cost_per_million: 10, output_cost_per_million: 20 },
+          ],
+        }),
     });
 
     expect(await readPricingCache(cachePath)).toEqual({
@@ -145,7 +158,9 @@ test("loadPricing falls back to cache when API is unavailable", async () => {
 
     const pricing = await loadPricing({
       cachePath,
-      fetchImpl: async () => { throw new Error("offline"); },
+      fetchImpl: async () => {
+        throw new Error("offline");
+      },
     });
 
     expect(pricing).toEqual(cached);

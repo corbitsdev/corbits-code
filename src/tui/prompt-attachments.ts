@@ -8,13 +8,13 @@ import {
   findImagePathMentions,
   type AttachImageResult,
   type PendingImageAttachment,
-} from "./image-attachments.js"
+} from "./image-attachments.js";
 
-export type { PendingImageAttachment }
+export type { PendingImageAttachment };
 
-export type PathMentionIngestion = {
-  readonly text: string
-  readonly attachments: readonly PendingImageAttachment[]
+export interface PathMentionIngestion {
+  readonly text: string;
+  readonly attachments: readonly PendingImageAttachment[];
 }
 
 /**
@@ -27,24 +27,24 @@ export async function ingestPathMentions(
   cwd: string,
   load: (path: string) => Promise<AttachImageResult>,
 ): Promise<PathMentionIngestion> {
-  const mentions = findImagePathMentions(text, cwd)
-  if (mentions.length === 0) return { text, attachments: [] }
+  const mentions = findImagePathMentions(text, cwd);
+  if (mentions.length === 0) return { text, attachments: [] };
 
-  const loaded = await Promise.all(mentions.map((m) => load(m.path)))
-  const attachments: PendingImageAttachment[] = []
-  let out = text
+  const loaded = await Promise.all(mentions.map((m) => load(m.path)));
+  const attachments: PendingImageAttachment[] = [];
+  let out = text;
   for (const [index, mention] of mentions.entries()) {
-    const result = loaded[index]
-    if (result === undefined || !result.ok) continue
-    attachments.push(result.attachment)
-    out = out.replace(mention.raw, `[Attached image: ${result.attachment.name}]`)
+    const result = loaded[index];
+    if (result === undefined || !result.ok) continue;
+    attachments.push(result.attachment);
+    out = out.replace(mention.raw, `[Attached image: ${result.attachment.name}]`);
   }
-  return { text: out, attachments }
+  return { text: out, attachments };
 }
 
-export type MentionSplice = {
-  readonly value: string
-  readonly cursor: number
+export interface MentionSplice {
+  readonly value: string;
+  readonly cursor: number;
 }
 
 /**
@@ -58,7 +58,7 @@ export function spliceMentionCompletion(
   cursor: number,
   completion: string,
 ): MentionSplice {
-  const head = value.slice(0, atStart + 1)
-  const tail = value.slice(Math.max(cursor, atStart + 1))
-  return { value: `${head}${completion}${tail}`, cursor: head.length + completion.length }
+  const head = value.slice(0, atStart + 1);
+  const tail = value.slice(Math.max(cursor, atStart + 1));
+  return { value: `${head}${completion}${tail}`, cursor: head.length + completion.length };
 }

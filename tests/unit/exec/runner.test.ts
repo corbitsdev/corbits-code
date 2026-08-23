@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Config } from "../../../src/config/index.js";
-import { formatCaughtError, resolveExecDirectorOverlay, runExec } from "../../../src/exec/runner.js";
+import {
+  formatCaughtError,
+  resolveExecDirectorOverlay,
+  runExec,
+} from "../../../src/exec/runner.js";
 import { BUILD_TOOLS } from "../../../src/agent/directors/tool-sets.js";
 
 function bareConfig(task: string): Config {

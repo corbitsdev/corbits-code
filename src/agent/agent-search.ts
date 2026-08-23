@@ -14,9 +14,9 @@ function profileSearchText(profile: AgentProfile): string {
   return parts.join(" ");
 }
 
-export type AgentIndex = {
+export interface AgentIndex {
   search(query: string, limit?: number): AgentProfile[];
-};
+}
 
 // Lexical ranker over id, description, and role text — same spirit as tool_search.
 export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): AgentIndex {
@@ -71,9 +71,7 @@ function formatAgentProfileEntry(p: AgentProfile): string {
   const orch = p.orchestrator === true ? " [orchestrator]" : "";
   const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
   const header =
-    desc.length > 0
-      ? `### ${p.id}${orch}${source}\n${desc}`
-      : `### ${p.id}${orch}${source}`;
+    desc.length > 0 ? `### ${p.id}${orch}${source}\n${desc}` : `### ${p.id}${orch}${source}`;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
   return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;

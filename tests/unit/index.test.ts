@@ -81,7 +81,7 @@ async function withEnv(fn: () => void | Promise<void>): Promise<void> {
     await fn();
   } finally {
     for (const [key, value] of Object.entries(original)) {
-      if (value === undefined) delete process.env[key];
+      if (value === undefined) Reflect.deleteProperty(process.env, key);
       else process.env[key] = value;
     }
   }
