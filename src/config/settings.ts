@@ -284,11 +284,11 @@ export function shellEnvFromSettings(
 }
 
 export const DEFAULT_SUBAGENT_MAX_TURNS = 30;
-export const MAX_SUBAGENT_MAX_TURNS_CAP = 100;
 
+/** Floor-only sanitization: ≥1 integer. No upper hard cap. */
 export function clampSubAgentMaxTurns(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_SUBAGENT_MAX_TURNS;
-  return Math.min(MAX_SUBAGENT_MAX_TURNS_CAP, Math.max(1, Math.floor(value)));
+  return Math.max(1, Math.floor(value));
 }
 
 export function resolveDefaultSubAgentMaxTurns(settings?: Settings | null): number {
@@ -306,12 +306,6 @@ export function validateTaskMaxTurns(value: number): TaskMaxTurnsValidation {
   }
   if (value < 1) {
     return { ok: false, message: "maxTurns must be at least 1." };
-  }
-  if (value > MAX_SUBAGENT_MAX_TURNS_CAP) {
-    return {
-      ok: false,
-      message: `maxTurns cannot exceed ${MAX_SUBAGENT_MAX_TURNS_CAP}.`,
-    };
   }
   return { ok: true, value };
 }
@@ -531,7 +525,7 @@ export function isSettings(value: unknown): value is Settings {
   if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
   if (s.subagentMaxTurns !== undefined) {
     const n = s.subagentMaxTurns;
-    if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > MAX_SUBAGENT_MAX_TURNS_CAP) {
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 1) {
       return false;
     }
   }

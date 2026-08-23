@@ -11,8 +11,15 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [0.2.104] - 2026-08-23
+## [Unreleased]
 
+### Sub-agents
+
+- **Sub-agent `maxTurns` no longer hard-caps at 100.** Default remains 30 when
+  unset; values must still be integers ≥1. `task(maxTurns)`, profile
+  `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
+
+## [0.2.104] - 2026-08-23
 ### TUI
 
 - **Taller live chain-of-thought preview.** Parent reasoning still paints
