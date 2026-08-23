@@ -3,10 +3,7 @@
 
 const tails = new Map<string, Promise<unknown>>();
 
-export async function withFileMutationLock<T>(
-  filePath: string,
-  run: () => Promise<T>,
-): Promise<T> {
+export async function withFileMutationLock<T>(filePath: string, run: () => Promise<T>): Promise<T> {
   const prev = tails.get(filePath) ?? Promise.resolve();
   const op = prev.catch(() => undefined).then(run);
   tails.set(filePath, op);

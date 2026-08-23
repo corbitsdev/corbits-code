@@ -319,7 +319,13 @@ describe("loadRecentTurns", () => {
     // window of 4, so the walk continues into segment 0 (2 turns) whole —
     // reads are segment-granular, not turn-exact.
     const loaded = await loadRecentTurns(dir, 4);
-    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
   });
 
   test("returns an empty list when no segments exist", async () => {

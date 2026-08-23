@@ -18,7 +18,6 @@ PostHog usage events.
 
 Local measurement does not require any settings or env vars.
 
-
 ## OTEL export (opt-in)
 
 Export is **off** until an OTLP endpoint is configured. When enabled, traces go
@@ -33,12 +32,12 @@ error code `OTEL_CONFIG_INVALID` and does not half-enable export.
 
 **Env vars (preferred for secrets; match OTEL conventions):**
 
-| Variable | Meaning |
-|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP base URL (`http` or `https` only) |
-| `OTEL_EXPORTER_OTLP_HEADERS` | Comma-separated `key=value` headers (values may be percent-encoded) |
-| `OTEL_SERVICE_NAME` | Resource `service.name` (default: `corbits-code`) |
-| `OTEL_RESOURCE_ATTRIBUTES` | Comma-separated `key=value` resource attributes |
+| Variable                      | Meaning                                                             |
+| ----------------------------- | ------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP base URL (`http` or `https` only)                              |
+| `OTEL_EXPORTER_OTLP_HEADERS`  | Comma-separated `key=value` headers (values may be percent-encoded) |
+| `OTEL_SERVICE_NAME`           | Resource `service.name` (default: `corbits-code`)                   |
+| `OTEL_RESOURCE_ATTRIBUTES`    | Comma-separated `key=value` resource attributes                     |
 
 **Global settings** (`~/.corbits/settings.json`), optional `otel` block:
 
@@ -165,10 +164,10 @@ Then supply auth only via env when needed.
 
 ## Relationship to product telemetry
 
-| Pipe | Purpose | Default | Content |
-|---|---|---|---|
-| PostHog (`docs/TELEMETRY.md`) | Aggregate product usage | Opt-out | Three allowlisted events |
-| Local PerfTrace | Operator/dev attribution | Always on | Privacy-strict phase spans |
-| OTEL export | Your APM / Phoenix / collector | Opt-in | Full span tree when enabled |
+| Pipe                          | Purpose                        | Default   | Content                     |
+| ----------------------------- | ------------------------------ | --------- | --------------------------- |
+| PostHog (`docs/TELEMETRY.md`) | Aggregate product usage        | Opt-out   | Three allowlisted events    |
+| Local PerfTrace               | Operator/dev attribution       | Always on | Privacy-strict phase spans  |
+| OTEL export                   | Your APM / Phoenix / collector | Opt-in    | Full span tree when enabled |
 
 Do not enlarge the PostHog event schema for performance diagnostics.

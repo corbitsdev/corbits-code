@@ -1,6 +1,12 @@
 import { describe, it, expect, afterEach } from "bun:test";
 
-import { registerCommand, registerCommandPlugin, getCommand, listCommands, setHiddenCommands } from "./registry.js";
+import {
+  registerCommand,
+  registerCommandPlugin,
+  getCommand,
+  listCommands,
+  setHiddenCommands,
+} from "./registry.js";
 import type { CommandContext } from "./registry.js";
 
 const ctx: CommandContext = {
@@ -75,7 +81,11 @@ describe("command registry", () => {
         return { type: "noop" };
       },
     });
-    getCommand("test-handler")?.handler("hello world", { signalClear: () => { clearCalled = true; } });
+    getCommand("test-handler")?.handler("hello world", {
+      signalClear: () => {
+        clearCalled = true;
+      },
+    });
     expect(receivedArgs).toBe("hello world");
     expect(clearCalled).toBe(true);
   });
@@ -96,8 +106,16 @@ describe("registerCommandPlugin", () => {
 
 describe("setHiddenCommands", () => {
   it("hides named commands from listCommands", () => {
-    registerCommand({ name: "visible-cmd", description: "visible", handler: () => ({ type: "noop" }) });
-    registerCommand({ name: "hidden-cmd", description: "hidden", handler: () => ({ type: "noop" }) });
+    registerCommand({
+      name: "visible-cmd",
+      description: "visible",
+      handler: () => ({ type: "noop" }),
+    });
+    registerCommand({
+      name: "hidden-cmd",
+      description: "hidden",
+      handler: () => ({ type: "noop" }),
+    });
 
     setHiddenCommands(["hidden-cmd"]);
 
@@ -107,7 +125,11 @@ describe("setHiddenCommands", () => {
   });
 
   it("getCommand still returns hidden commands", () => {
-    registerCommand({ name: "hidden-but-callable", description: "x", handler: () => ({ type: "noop" }) });
+    registerCommand({
+      name: "hidden-but-callable",
+      description: "x",
+      handler: () => ({ type: "noop" }),
+    });
     setHiddenCommands(["hidden-but-callable"]);
     expect(getCommand("hidden-but-callable")).toBeDefined();
   });

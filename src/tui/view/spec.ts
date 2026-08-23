@@ -20,7 +20,7 @@ export type ViewNode =
   | {
       type: "grid";
       // per-column hints (optional); omitted columns default to left.
-      columns?: Array<{ align?: "left" | "right" | "center" }>;
+      columns?: { align?: "left" | "right" | "center" }[];
       rows: ViewNode[][];
     };
 

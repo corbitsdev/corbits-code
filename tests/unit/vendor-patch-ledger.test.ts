@@ -50,7 +50,11 @@ async function patchedPackages(): Promise<string[]> {
   return packages.sort();
 }
 
-type Marker = { file: string; anchor: string; line: number };
+interface Marker {
+  file: string;
+  anchor: string;
+  line: number;
+}
 
 async function collectMarkers(pkgDir: string): Promise<Marker[]> {
   const srcDir = join(pkgDir, "src");

@@ -8,10 +8,7 @@ import { ORCHESTRATOR_TOOLS } from "../tool-sets.js";
 export const greybeardPackage: DirectorPackage = {
   id: "greybeard",
   primaryIntent: "Architecture review; limited spawn",
-  outOfLane: [
-    "shipping product code",
-    "pedantic style-only nitpicking",
-  ],
+  outOfLane: ["shipping product code", "pedantic style-only nitpicking"],
   description: "Architecture review leaf",
   optionalSkills: ["style", "philosophy"],
   tools: { allow: ORCHESTRATOR_TOOLS },

@@ -17,10 +17,12 @@ describe("unwrapToolContent", () => {
   });
 
   test("multiple text blocks are newline-joined", () => {
-    expect(unwrapToolContent([
-      { type: "text", text: "a" },
-      { type: "text", text: "b" },
-    ])).toBe("a\nb");
+    expect(
+      unwrapToolContent([
+        { type: "text", text: "a" },
+        { type: "text", text: "b" },
+      ]),
+    ).toBe("a\nb");
   });
 
   test("a non-text block is stringified rather than dropped or undefined", () => {

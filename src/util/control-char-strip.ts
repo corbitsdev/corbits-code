@@ -8,21 +8,21 @@
 // sanitizer never touches.
 
 // String-type sequences (OSC, DCS, PM, APC) run until the ST terminator
-// (ESC \) or, conventionally for OSC, BEL (\x07).
-const STRING_SEQUENCE = /\x1b[\]P^_][\s\S]*?(?:\x07|\x1b\\)/g;
+// (ESC \) or, conventionally for OSC, BEL (\u0007).
+const STRING_SEQUENCE = /\u001b[\]P^_][\s\S]*?(?:\u0007|\u001b\\)/g;
 
 // An unterminated string sequence never ends, so its payload would otherwise
 // leak as visible text once the introducer bytes are stripped, and a terminator
 // arriving from a later concatenation would arm it. Drop it through end of text.
-const UNTERMINATED_STRING_SEQUENCE = /\x1b[\]P^_][\s\S]*$/;
+const UNTERMINATED_STRING_SEQUENCE = /\u001b[\]P^_][\s\S]*$/;
 
 // CSI: ESC [, parameter bytes 0x30-0x3F, intermediate bytes 0x20-0x2F, final
 // byte 0x40-0x7E.
-const CSI_SEQUENCE = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+const CSI_SEQUENCE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 // Remaining two-byte Fe escape sequences (cursor save/restore, charset
 // select, RIS, etc.) not already covered above.
-const OTHER_ESCAPE = /\x1b[0-9A-Za-z=><]/g;
+const OTHER_ESCAPE = /\u001b[0-9A-Za-z=><]/g;
 
 // Bidirectional overrides and isolates (Trojan Source). These reorder the
 // glyphs a reader sees without changing the underlying bytes, so a filename or
@@ -41,7 +41,7 @@ const LINE_PARAGRAPH_SEPARATORS = /[\u2028\u2029]/g;
 
 // C0 controls other than the whitespace worth keeping (tab, newline,
 // carriage return), plus the C1 range and the standalone DEL byte.
-const C0_C1_CONTROLS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g;
+const C0_C1_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0080-\u009f]/g;
 
 export function stripTerminalControlSequences(text: string): string {
   return text
@@ -56,7 +56,7 @@ export function stripTerminalControlSequences(text: string): string {
 
 // A complete escape sequence anchored at the start of the text.
 const COMPLETE_SEQUENCE_AT_START =
-  /^(?:\x1b[\]P^_][\s\S]*?(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]|\x1b[0-9A-Za-z=><])/;
+  /^(?:\u001b[\]P^_][\s\S]*?(?:\u0007|\u001b\\)|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[0-9A-Za-z=><])/;
 
 // Beyond this, a "sequence" is treated as junk and sanitized rather than held:
 // an unterminated OSC must not let an attacker buffer the transcript forever.
@@ -76,7 +76,7 @@ export function splitPendingControlTail(text: string): readonly [string, string]
   if (last >= 0xd800 && last <= 0xdbff) end -= 1;
 
   const head = text.slice(0, end);
-  const escape = head.lastIndexOf("\x1b");
+  const escape = head.lastIndexOf("\u001b");
   if (
     escape >= 0 &&
     head.length - escape <= MAX_HELD_CHARS &&

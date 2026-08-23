@@ -15,11 +15,7 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import {
-  EMPTY_THRASH_STATE,
-  nextThrashState,
-  type ThrashState,
-} from "./thrash.js";
+import { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
 import {
   DEFAULT_SUBAGENT_REPEAT_LIMIT,
   evaluateSubAgentStop,
@@ -39,7 +35,6 @@ const TOOL_FAILURE_RECOVERY_NUDGE =
 /** Implement leaves: soft re-read pressure should push toward edit or wrap-up. */
 const RE_READ_NUDGE_IMPLEMENT =
   "You are re-reading the same paths without finishing. Edit a file to make progress, or stop tooling and write your final report now.";
-
 
 /**
  * Explore / non-implement leaves: same soft re-read pressure, but do not force
@@ -67,9 +62,7 @@ const SUBAGENT_STALL_NUDGE =
 
 function inferWithSubAgentNudge(capabilities: ReactorCapabilities, text: string): ReactorAction {
   const options: ExtendedInferenceOptions = {
-    ephemeralTurns: [
-      { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
-    ],
+    ephemeralTurns: [{ role: "user", content: [{ type: "text", text }], timestamp: Date.now() }],
   };
   return capabilities.infer(options);
 }
@@ -149,8 +142,8 @@ export class SubAgentDirector extends DefaultDirector {
     repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
     stallTimeoutMs?: number,
     now: () => number = Date.now,
-    requireEdit: boolean = false,
-    requireEvidence: boolean = false,
+    requireEdit = false,
+    requireEvidence = false,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
@@ -197,12 +190,12 @@ export class SubAgentDirector extends DefaultDirector {
       this.consecutiveStalls = 0;
       this.compaction.noteInferenceDone(event, state.turns);
       this.turnsCompleted++;
-      const content = event.turn.content as ReadonlyArray<{
+      const content = event.turn.content as readonly {
         type: string;
         name?: string;
         arguments?: unknown;
         text?: string;
-      }>;
+      }[];
       this.lastAssistantText = lastText(content);
       const fingerprint = fingerprintToolCalls(content);
       this.streak = nextToolCallStreak(this.streak, fingerprint);
@@ -289,7 +282,7 @@ export class SubAgentDirector extends DefaultDirector {
                   ? "subagent-thrash"
                   : stop === "no-ship"
                     ? "subagent-no-ship"
-                  : "subagent-turn-budget";
+                    : "subagent-turn-budget";
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content))),
@@ -303,10 +296,7 @@ export class SubAgentDirector extends DefaultDirector {
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
-      if (
-        event.result.isError === true &&
-        this.pendingNudgeText !== REPORT_FORCED_WRAP_UP_NUDGE
-      ) {
+      if (event.result.isError === true && this.pendingNudgeText !== REPORT_FORCED_WRAP_UP_NUDGE) {
         // Recovery is more specific than re-read guidance, but mandatory wrap-up wins.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
       }

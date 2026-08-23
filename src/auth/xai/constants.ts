@@ -13,7 +13,14 @@ export const XAI_CALLBACK_PORT = 1456;
 export const XAI_CALLBACK_PATH = "/callback";
 export const XAI_REDIRECT_URI = `http://127.0.0.1:${String(XAI_CALLBACK_PORT)}${XAI_CALLBACK_PATH}`;
 
-export const XAI_SCOPES = ["openid", "profile", "email", "offline_access", "grok-cli:access", "api:access"] as const;
+export const XAI_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "grok-cli:access",
+  "api:access",
+] as const;
 
 // grok-cli OAuth tokens are NOT accepted by api.x.ai (that endpoint expects an
 // API key). They authenticate against the CLI chat proxy, which exposes the
@@ -23,11 +30,7 @@ export const XAI_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
 // Keep the catalog aligned with Grok Build / xAI listings; default stays the
 // last CLI-advertised coding model until the proxy is confirmed to accept a
 // newer flagship as the session default.
-export const XAI_DEFAULT_MODELS = [
-  "grok-4.5",
-  "grok-4.6",
-  "grok-composer-2.5-fast",
-] as const;
+export const XAI_DEFAULT_MODELS = ["grok-4.5", "grok-4.6", "grok-composer-2.5-fast"] as const;
 
 // The CLI chat proxy speaks the OpenAI Responses API at /v1/responses and
 // authenticates the caller by client headers in addition to the bearer token.

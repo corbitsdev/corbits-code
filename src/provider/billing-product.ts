@@ -1,16 +1,13 @@
-import {
-  isKnownGoModel,
-  isOpenCodeGoProvider,
-} from "../../packages/opencode-go/src/index.js";
+import { isKnownGoModel, isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 
 /** How the provider is billed when known (Go subscription vs Zen PAYG credits). */
 export type BillingProduct = "subscription" | "credits";
 
-export type BillingProductProvider = {
+export interface BillingProductProvider {
   name?: string;
   baseURL?: string;
   opencodeGo?: boolean;
-};
+}
 
 const BARE_ZEN_BASES = new Set([
   "https://opencode.ai/zen/v1",
@@ -58,10 +55,7 @@ export function billingProductForProvider(
  * True when a known Go model id is configured on a Zen-billed provider path.
  * Used to surface a cross-product warning (Go model would bill as Zen PAYG).
  */
-export function isGoModelOnZenPath(
-  modelId: string,
-  provider: BillingProductProvider,
-): boolean {
+export function isGoModelOnZenPath(modelId: string, provider: BillingProductProvider): boolean {
   if (!isKnownGoModel(modelId)) return false;
   if (isOpenCodeGoProvider(provider)) return false;
   return billingProductForProvider(provider) === "credits";

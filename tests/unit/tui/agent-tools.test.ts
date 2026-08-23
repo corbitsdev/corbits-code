@@ -6,10 +6,26 @@ const mockDispose = mock(async () => {});
 
 const mockPosixTools = {
   definitions: [
-    { name: "read_file", description: "Read a file", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "write_file", description: "Write a file", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "edit_file", description: "Edit a file", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "delete_file", description: "Delete a file", inputSchema: { type: "object", properties: {}, required: [] } },
+    {
+      name: "read_file",
+      description: "Read a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "write_file",
+      description: "Write a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "edit_file",
+      description: "Edit a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "delete_file",
+      description: "Delete a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
   ] as ToolDefinition[],
   run: mock(async (_call: ToolCall, _signal: AbortSignal) => ({
     callId: "test",
@@ -37,7 +53,9 @@ const realVerifyPlugin = { ...(await import("../../../src/plugins/verify-plugin.
 const realPermissionPlugin = { ...(await import("../../../src/plugins/permission-plugin.js")) };
 const realSecretGuardPlugin = { ...(await import("../../../src/plugins/secret-guard-plugin.js")) };
 const realShellGuardPlugin = { ...(await import("../../../src/plugins/shell-guard-plugin.js")) };
-const realReadFileGuardPlugin = { ...(await import("../../../src/plugins/read-file-guard-plugin.js")) };
+const realReadFileGuardPlugin = {
+  ...(await import("../../../src/plugins/read-file-guard-plugin.js")),
+};
 const realEditFileLineRange = { ...(await import("../../../src/plugins/edit-file-line-range.js")) };
 const realDirector = { ...(await import("../../../src/agent/director.js")) };
 
@@ -213,7 +231,10 @@ test("onOperatorGate callback is invoked when the operator tool handler is calle
     },
   });
 
-  const result = await callOperator(toolset, { question: "Which approach?", options: ["A", "B", "C"] });
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["A", "B", "C"],
+  });
 
   expect(capturedQuestion).toBe("Which approach?");
   expect(capturedOptions).toEqual(["A", "B", "C"]);
@@ -282,7 +303,9 @@ test("operator tool returns error when no options are provided", async () => {
     onOperatorGate: async () => ({ kind: "option", index: 0 }),
   });
 
-  expect(await callOperator(toolset, { question: "Empty?", options: [] })).toMatch(/requires at least one option/);
+  expect(await callOperator(toolset, { question: "Empty?", options: [] })).toMatch(
+    /requires at least one option/,
+  );
 });
 
 test("operator tool returns error for out-of-range index", async () => {
@@ -292,7 +315,9 @@ test("operator tool returns error for out-of-range index", async () => {
     onOperatorGate: async () => ({ kind: "option", index: 99 }),
   });
 
-  expect(await callOperator(toolset, { question: "Pick one", options: ["X"] })).toMatch(/invalid selection/);
+  expect(await callOperator(toolset, { question: "Pick one", options: ["X"] })).toMatch(
+    /invalid selection/,
+  );
 });
 
 const subAgentDeps = {

@@ -5,16 +5,13 @@ import { AgentProfileSchema } from "../agent/profiles.js";
 import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { isPluginModuleEnabled } from "./register.js";
-import {
-  pluginWarningSink,
-  type PluginLoadDiagnostics,
-} from "./diagnostics.js";
+import { pluginWarningSink, type PluginLoadDiagnostics } from "./diagnostics.js";
 import { type } from "arktype";
 
-export type ResolveAgentPluginProfilesOptions = {
+export interface ResolveAgentPluginProfilesOptions {
   onWarning?: (msg: string) => void;
   diagnostics?: PluginLoadDiagnostics;
-};
+}
 
 /**
  * Resolve the warning sink for profile validation. Prefer diagnostics when
@@ -61,18 +58,21 @@ export async function resolveAgentPluginProfiles(
     for (const raw of rawAgents) {
       const result = AgentProfileSchema(raw);
       if (result instanceof type.errors) {
-        const id = typeof raw === "object" && raw !== null && "id" in raw
-          ? String((raw as { id: unknown }).id)
-          : "<no id>";
-        onWarning(
-          `plugin "${mod.manifest.id}" agent "${id}" skipped: ${result.summary}`,
-        );
+        const id =
+          typeof raw === "object" && raw !== null && "id" in raw
+            ? String((raw as { id: unknown }).id)
+            : "<no id>";
+        onWarning(`plugin "${mod.manifest.id}" agent "${id}" skipped: ${result.summary}`);
         continue;
       }
       const profile = { ...(result as AgentProfile) };
       // Resolve systemPromptPath relative to the plugin directory. The file
       // content becomes systemPromptRole; an explicit systemPromptRole wins.
-      if (profile.systemPromptPath !== undefined && profile.systemPromptRole === undefined && mod.dir !== undefined) {
+      if (
+        profile.systemPromptPath !== undefined &&
+        profile.systemPromptRole === undefined &&
+        mod.dir !== undefined
+      ) {
         try {
           const promptRaw = await readFile(join(mod.dir, profile.systemPromptPath), "utf8");
           profile.systemPromptRole = promptRaw.trim();
