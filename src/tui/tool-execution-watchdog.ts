@@ -292,7 +292,10 @@ export function withPauseableTimeout(
  * one entry per budget in the enclosing chain, each keyed to that budget's
  * own generation.
  */
-export interface ChainedPauseToken { own: PauseToken; enclosing?: ChainedPauseToken }
+export interface ChainedPauseToken {
+  own: PauseToken;
+  enclosing?: ChainedPauseToken;
+}
 
 /** Per-tool budget handle visible to permission-gate code via ALS. */
 export interface ToolApprovalBudget {

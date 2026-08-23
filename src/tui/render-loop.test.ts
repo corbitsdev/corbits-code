@@ -21,7 +21,9 @@ const SHELL_OPTS = {
 
 const WIDE = { width: 80, height: 24 } as const;
 
-interface ScheduleCall { readonly intervalMs: number }
+interface ScheduleCall {
+  readonly intervalMs: number;
+}
 
 /** Records every (re)scheduling of the monitor and lets the test drive it. */
 function recordingMonitor() {

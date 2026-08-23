@@ -252,13 +252,10 @@ describe("mountProductHost", () => {
   test("operator.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
     const { host, emitter } = await mountHeadless();
     try {
-      let resolved: unknown;
       emitter.emit("operator.gate", {
         question: "Proceed?",
         options: ["Cancel", "Continue"],
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
+        resolve: (_result: unknown) => {},
       });
       expect(host.shell.overlayKind).toBe("operator");
       expect(host.shell.overlayItems).toEqual(["Cancel", "Continue"]);

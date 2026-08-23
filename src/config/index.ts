@@ -1,4 +1,4 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
 import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
@@ -46,7 +46,6 @@ import {
 
 import {
   globalSettingsPath,
-  loadLocalSettings,
   loadLocalSettingsResult,
   type SettingsLoadDiagnostic,
   loadSettings,

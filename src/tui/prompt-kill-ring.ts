@@ -22,7 +22,10 @@
 
 export const KILL_RING_MAX = 10;
 
-export interface YankSpan { start: number; end: number }
+export interface YankSpan {
+  start: number;
+  end: number;
+}
 
 export interface KillRing {
   /** Killed strings, most recent first. */

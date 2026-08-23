@@ -1,9 +1,12 @@
 import type { ContentBlock as RuntimeContentBlock, ConversationTurn } from "@intx/types/runtime";
 
-import type { Task } from "../agent/tasks.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
-interface PlanBlockStep { file: string; action: string; reason?: string }
+interface PlanBlockStep {
+  file: string;
+  action: string;
+  reason?: string;
+}
 
 export type ContentBlockData =
   | { type: "user"; content: string }

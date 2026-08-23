@@ -2,7 +2,7 @@ import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
 
 // Free-model naming conventions: OpenRouter appends ":free", some gateways use
 // a "-free" suffix. Either, at the end of the id, marks a no-cost model.
-const FREE_MODEL_SUFFIX = /[:\-]free$/i;
+const FREE_MODEL_SUFFIX = /[:-]free$/i;
 
 export function isFreeModelId(modelId: string): boolean {
   return FREE_MODEL_SUFFIX.test(modelId.trim());

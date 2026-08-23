@@ -219,7 +219,7 @@ describe("buildCorePosixToolPlugins", () => {
       const encoder = new TextEncoder();
       // Mirrors runSubAgent wiring: child store bound after agent create, parent
       // always available so brief-handed tool-output:// URIs resolve (CL-4323).
-      let childReader: ReturnType<typeof createBlobReader> | undefined;
+      const childHolder: { current?: ReturnType<typeof createBlobReader> } = {};
       const parentReader = createBlobReader({
         async readBlob(key: string) {
           if (key === "parent-mcp-skill") return encoder.encode("parent-skill-body-tail");
@@ -227,7 +227,7 @@ describe("buildCorePosixToolPlugins", () => {
         },
       });
       const blobReader = createCompositeBlobReader(
-        () => childReader,
+        () => childHolder.current,
         () => parentReader,
       );
       const gate = createPermissionGate({
@@ -258,7 +258,7 @@ describe("buildCorePosixToolPlugins", () => {
       expect(fromParent.isError).toBeFalsy();
       expect(String(fromParent.content)).toContain("parent-skill-body-tail");
 
-      childReader = createBlobReader({
+      childHolder.current = createBlobReader({
         async readBlob(key: string) {
           if (key === "child-local") return encoder.encode("child-own-spill");
           throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);

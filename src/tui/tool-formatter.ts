@@ -432,7 +432,7 @@ export function mergedToolCollapsedPreview(
   return outcomePreview;
 }
 
-function pathFromResult(toolName: string, content: string): string | null {
+function pathFromResult(_toolName: string, content: string): string | null {
   // write_file -> "wrote N bytes to <path>", edit_file -> "replaced N occurrence(s) in <path>"
   const wrote = content.match(/wrote \d+ bytes to (.+)$/m);
   if (wrote) return wrote[1] ?? null;

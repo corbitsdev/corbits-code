@@ -8,8 +8,6 @@
  * surfaces stay testable without a live runner.
  */
 
-import type { KeyEvent } from "@opentui/core";
-
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
 import { maskEcho, maskSecret } from "./provider-setup.js";
 import { residualIdFromSelection, type ResidualCatalogEntry } from "./residuals.js";
@@ -63,10 +61,16 @@ export interface PluginEntry {
 }
 
 /** Result of a verify/addPath admin action, reported via `deps.notify`. */
-export interface PluginActionResult { readonly ok: boolean; readonly message: string }
+export interface PluginActionResult {
+  readonly ok: boolean;
+  readonly message: string;
+}
 
 /** A web-search candidate the plugins surface can hand to `setWebProvider`. */
-export interface WebProviderChoice { readonly id: string; readonly name: string }
+export interface WebProviderChoice {
+  readonly id: string;
+  readonly name: string;
+}
 
 export type CompactionMode = "llm" | "pruning";
 
@@ -87,20 +91,14 @@ export interface PluginsSurfaceDeps {
   readonly list: () => readonly PluginEntry[];
   // A trust-grant load can surface skill-miss and similar warnings; the
   // optional message is shown via `deps.notify` at the call site.
-  readonly setEnabled: (
-    id: string,
-    enabled: boolean,
-  ) => Promise<{ message?: string } | void> | void;
+  readonly setEnabled: (id: string, enabled: boolean) => Promise<{ message?: string } | undefined>;
   /** Persists credential values for the plugin (does not enable/verify it). */
-  readonly saveCredentials: (
-    id: string,
-    credentials: Record<string, string>,
-  ) => Promise<void> | void;
+  readonly saveCredentials: (id: string, credentials: Record<string, string>) => Promise<void>;
   readonly verify: (id: string, credentials: Record<string, string>) => Promise<PluginActionResult>;
   readonly addPath: (path: string) => Promise<PluginActionResult>;
   readonly webProviders: () => readonly WebProviderChoice[];
   readonly currentWebProvider: () => string | undefined;
-  readonly setWebProvider: (id: string | undefined) => Promise<void> | void;
+  readonly setWebProvider: (id: string | undefined) => Promise<void>;
   /**
    * Standing session-level load warnings (or the full set when attribution is
    * weak). Shown as a summary row under `/plugins`; drives `plugin !` via the
@@ -122,7 +120,7 @@ export interface HookEntry {
 
 export interface HooksSurfaceDeps {
   readonly list: () => readonly HookEntry[];
-  readonly setEnabled: (id: string, enabled: boolean) => Promise<void> | void;
+  readonly setEnabled: (id: string, enabled: boolean) => Promise<void>;
 }
 
 /** A configured MCP server and its live connection state. */
@@ -248,7 +246,10 @@ function selectedId(
 }
 
 /** One option in a cycled field, as drawn inline: `label` bracketed when active. */
-interface CycleOption<T extends string> { readonly id: T; readonly label: string }
+interface CycleOption<T extends string> {
+  readonly id: T;
+  readonly label: string;
+}
 
 /** Render a cycled field's current state: `label  ‹ label ›  label`. */
 function cycleField<T extends string>(options: readonly CycleOption<T>[], activeId: T): string {

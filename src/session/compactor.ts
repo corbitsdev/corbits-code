@@ -348,7 +348,10 @@ function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Se
 // Locate the turn index of each tool_call and its matching tool_result. In this
 // runtime a call lives on one turn and its result on the following turn, so the
 // two halves of a pair can straddle a keep/summarize boundary.
-interface PairLocation { callIdx?: number; resultIdx?: number }
+interface PairLocation {
+  callIdx?: number;
+  resultIdx?: number;
+}
 function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   const pairs = new Map<string, PairLocation>();
   turns.forEach((turn, idx) => {
@@ -770,9 +773,7 @@ export async function buildLLMTurnSummary(
 /**
  * Build the current-plan text from a plan steps array.
  */
-export function formatPlan(
-  steps: { file: string; action: string; reason?: string }[],
-): string {
+export function formatPlan(steps: { file: string; action: string; reason?: string }[]): string {
   return steps
     .map((s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`)
     .join("\n");

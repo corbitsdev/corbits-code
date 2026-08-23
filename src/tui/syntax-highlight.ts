@@ -53,7 +53,10 @@ function decodeEntities(text: string): string {
   return text.replace(/&(#x27|#39|amp|lt|gt|quot);/g, (_, name: string) => ENTITIES[name] ?? _);
 }
 
-interface Token { text: string; role: SemanticRole | undefined }
+interface Token {
+  text: string;
+  role: SemanticRole | undefined;
+}
 
 // hljs output is a well-formed subset of HTML: text, entities, and `<span
 // class="...">` wrappers that may nest. Walk it once, keeping a stack of the

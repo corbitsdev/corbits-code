@@ -18,11 +18,11 @@ const AMBIENT_TERMINAL_VARS = ["COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSIO
 const AMBIENT_HARNESS_VARS = ["EVAL_HTTP_URL"];
 
 for (const key of [...AMBIENT_TERMINAL_VARS, ...AMBIENT_HARNESS_VARS]) {
-  delete process.env[key];
+  Reflect.deleteProperty(process.env, key);
 }
 
 for (const key of Object.keys(process.env)) {
-  if (key.startsWith("CORBITS_")) delete process.env[key];
+  if (key.startsWith("CORBITS_")) Reflect.deleteProperty(process.env, key);
 }
 
 // No test may export telemetry or write an installationId into a real global

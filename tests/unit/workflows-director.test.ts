@@ -159,11 +159,6 @@ function textTurn(text: string): ReactorInboundEvent {
   };
 }
 
-// Simulates the DefaultDirector's conversational-mode reply for a text-only turn.
-function replyAction(caps: ReactorCapabilities): ReactorAction[] {
-  return [caps.checkpoint("inference-done"), caps.reply("some text")];
-}
-
 test("auto-continuation fires on reply() as well as wait() after a text turn", async () => {
   const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
   runtime.start(flow);

@@ -12,7 +12,7 @@ import {
   loadSeededApprovals,
   skillDirsFromEnabledPlugins,
 } from "./runtime-assembly.js";
-import type { SubAgentProviderConfig, SubAgentSourcesConfig } from "./runtime-assembly.js";
+import type { SubAgentSourcesConfig } from "./runtime-assembly.js";
 import type { Settings } from "../config/settings.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";

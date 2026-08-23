@@ -1,4 +1,7 @@
-export interface ColorValue { hex: string; ansi256: number }
+export interface ColorValue {
+  hex: string;
+  ansi256: number;
+}
 
 export type SemanticRole =
   | "brand"

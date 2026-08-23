@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { createRenderer } from "./agent/renderer.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
