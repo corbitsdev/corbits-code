@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   createGrokResponsesAdapter,
+  GROK_SESSION_ID_OPTION,
   GROK_USER_ID_OPTION,
 } from "../../src/provider/grok-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
@@ -97,6 +98,39 @@ describe("grok-responses buildRequest", () => {
     const tools = body["tools"] as Record<string, unknown>[];
     expect(tools[0]).toMatchObject({ type: "function", name: "read_file" });
     expect(body["tool_choice"]).toBe("auto");
+  });
+
+  test("sets prompt_cache_key from the session id, stable across builds", () => {
+    const options: InferenceOptions = {
+      ...baseOptions,
+      providerOptions: { ...baseOptions.providerOptions, [GROK_SESSION_ID_OPTION]: "sess-1" },
+    };
+    const first = JSON.parse(
+      adapter().buildRequest([userTurn("a")], "grok-4.5", options).body,
+    ) as Record<string, unknown>;
+    const second = JSON.parse(
+      adapter().buildRequest([userTurn("b")], "grok-4.5", options).body,
+    ) as Record<string, unknown>;
+    expect(first["prompt_cache_key"]).toBe("sess-1");
+    expect(second["prompt_cache_key"]).toBe("sess-1");
+  });
+
+  test("distinct session ids yield distinct prompt_cache_keys", () => {
+    const bodyFor = (sessionId: string): Record<string, unknown> =>
+      JSON.parse(
+        adapter().buildRequest([userTurn("hi")], "grok-4.5", {
+          providerOptions: { [GROK_SESSION_ID_OPTION]: sessionId },
+        }).body,
+      ) as Record<string, unknown>;
+    expect(bodyFor("sess-1")["prompt_cache_key"]).toBe("sess-1");
+    expect(bodyFor("sess-2")["prompt_cache_key"]).toBe("sess-2");
+  });
+
+  test("omits prompt_cache_key when no session id is present", () => {
+    const body = JSON.parse(
+      adapter().buildRequest([userTurn("hi")], "grok-4.5", baseOptions).body,
+    ) as Record<string, unknown>;
+    expect(body).not.toHaveProperty("prompt_cache_key");
   });
 
   test("drops duplicate tool results for a call id", () => {

@@ -1446,6 +1446,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               id: config.providerName,
               apiKey: config.apiKey,
               model: config.model,
+              sessionId,
               ...(config.reasoningEffort !== undefined
                 ? { reasoningEffort: config.reasoningEffort }
                 : {}),
