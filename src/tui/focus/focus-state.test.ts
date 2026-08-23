@@ -81,11 +81,7 @@ describe("priority: overlay > observe > shell", () => {
     expect(focusOwner(s)).toBe("overlay");
     expect(scrollLease(s)).toBe("overlay");
     // Observe remains under the overlay.
-    expect(s.frames.map((f) => f.target)).toEqual([
-      "prompt",
-      "observe",
-      "overlay",
-    ]);
+    expect(s.frames.map((f) => f.target)).toEqual(["prompt", "observe", "overlay"]);
   });
 
   test("openObserve while overlay open keeps overlay on top", () => {

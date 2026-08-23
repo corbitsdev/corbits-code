@@ -16,5 +16,4 @@ export const OPENCODE_GO_ANTHROPIC_BASE_URL = "https://opencode.ai/zen/go";
 export const OPENCODE_GO_USAGE_PATH = "/usage";
 export const OPENCODE_GO_MODELS_PATH = "/models";
 
-export const OPENCODE_GO_AUTH_HINT =
-  "Paste your OpenCode Go API key from https://opencode.ai/auth";
+export const OPENCODE_GO_AUTH_HINT = "Paste your OpenCode Go API key from https://opencode.ai/auth";

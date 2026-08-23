@@ -26,7 +26,9 @@ describe("createCodexResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
-    const body = JSON.parse(request.body) as { input: Array<{ type: string; role?: string; content?: unknown }> };
+    const body = JSON.parse(request.body) as {
+      input: { type: string; role?: string; content?: unknown }[];
+    };
 
     expect(body.input[0]).toEqual({
       type: "message",
@@ -49,7 +51,7 @@ describe("createCodexResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
-    const body = JSON.parse(request.body) as { input: Array<{ content?: unknown }> };
+    const body = JSON.parse(request.body) as { input: { content?: unknown }[] };
 
     expect(body.input[0]?.content).toEqual([{ type: "input_text", text: "hello" }]);
   });
@@ -110,21 +112,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
 
 describe("isResponsesStreamTerminal", () => {
   test("is true for the Responses end-of-turn events", () => {
-    for (const type of [
-      "response.completed",
-      "response.incomplete",
-      "response.done",
-    ]) {
+    for (const type of ["response.completed", "response.incomplete", "response.done"]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(true);
     }
   });
 
   test("is false for streaming and lifecycle events", () => {
-    for (const type of [
-      "response.output_text.delta",
-      "response.created",
-      "response.in_progress",
-    ]) {
+    for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(false);
     }
   });

@@ -5,69 +5,69 @@
  * paint without a renderer. No OpenTUI or Ink deps.
  */
 
-import { validateView, viewToLines } from "./view/index.js"
-import { toolCallRow } from "./diff.js"
-import { toolResultRow } from "./mcp-view.js"
-import type { StreamRow } from "./stream.js"
-import { TOOL_DETAIL_WIDTH } from "./tool-args.js"
-import { pushToolCall, pushToolResult } from "./tool-rows.js"
+import { validateView, viewToLines } from "./view/index.js";
+import { toolCallRow } from "./diff.js";
+import { toolResultRow } from "./mcp-view.js";
+import type { StreamRow } from "./stream.js";
+import { TOOL_DETAIL_WIDTH } from "./tool-args.js";
+import { pushToolCall, pushToolResult } from "./tool-rows.js";
 
 /**
  * Loose content-block shape from `history.hydrate` / turns-to-blocks.
  * Matches product-host; extra fields (id, callId, arguments) are tolerated.
  */
-export type HistoryBlock = {
-  readonly type: string
-  readonly content?: string
-  readonly name?: string
-  readonly message?: string
-  readonly isError?: boolean
+export interface HistoryBlock {
+  readonly type: string;
+  readonly content?: string;
+  readonly name?: string;
+  readonly message?: string;
+  readonly isError?: boolean;
   /** tool_call argument payload when `content` is absent (ContentBlockData). */
-  readonly arguments?: string
+  readonly arguments?: string;
   /**
    * Call id carried by a `tool_call` / `tool_result` block. Two saved calls to
    * the same tool are indistinguishable by name alone — a resumed transcript
    * with parallel sub-agent dispatches needs this to pair each result with
    * its own call rather than the newest pending call of that name.
    */
-  readonly callId?: string
+  readonly callId?: string;
   /** view block payload — validated before it reaches the layout pass. */
-  readonly node?: unknown
+  readonly node?: unknown;
   /** plan block payload. */
-  readonly steps?: unknown
+  readonly steps?: unknown;
 }
 
 /** Body for a resumed error the transcript recorded without its message. */
-export const MISSING_ERROR_DETAIL = "this step failed and the details were not saved"
+export const MISSING_ERROR_DETAIL = "this step failed and the details were not saved";
 
 /** Bodies for blocks that survived to hydration carrying nothing paintable. */
-export const EMPTY_VIEW_DETAIL = "this reply was a view with no text"
-export const EMPTY_PLAN_DETAIL = "plan with no steps"
+export const EMPTY_VIEW_DETAIL = "this reply was a view with no text";
+export const EMPTY_PLAN_DETAIL = "plan with no steps";
 
 function asHistoryBlock(raw: unknown): HistoryBlock | null {
-  if (raw === null || typeof raw !== "object") return null
-  const o = raw as Record<string, unknown>
-  if (typeof o.type !== "string") return null
+  if (raw === null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.type !== "string") return null;
   const out: {
-    type: string
-    content?: string
-    name?: string
-    message?: string
-    isError?: boolean
-    arguments?: string
-    callId?: string
-    node?: unknown
-    steps?: unknown
-  } = { type: o.type }
-  if (typeof o.content === "string") out.content = o.content
-  if (typeof o.name === "string") out.name = o.name
-  if (typeof o.message === "string") out.message = o.message
-  if (typeof o.isError === "boolean") out.isError = o.isError
-  if (typeof o.arguments === "string") out.arguments = o.arguments
-  if (typeof o.callId === "string") out.callId = o.callId
-  if (o.node !== undefined) out.node = o.node
-  if (o.steps !== undefined) out.steps = o.steps
-  return out as HistoryBlock
+    type: string;
+    content?: string;
+    name?: string;
+    message?: string;
+    isError?: boolean;
+    arguments?: string;
+    callId?: string;
+    node?: unknown;
+    steps?: unknown;
+  } = { type: o.type };
+  if (typeof o.content === "string") out.content = o.content;
+  if (typeof o.name === "string") out.name = o.name;
+  if (typeof o.message === "string") out.message = o.message;
+  if (typeof o.isError === "boolean") out.isError = o.isError;
+  if (typeof o.arguments === "string") out.arguments = o.arguments;
+  if (typeof o.callId === "string") out.callId = o.callId;
+  if (o.node !== undefined) out.node = o.node;
+  if (o.steps !== undefined) out.steps = o.steps;
+  return out as HistoryBlock;
 }
 
 /**
@@ -76,30 +76,34 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
  * recover the words, because a resumed reply that was a view must not vanish.
  */
 function viewText(node: unknown): string {
-  const result = validateView(node)
-  if (!result.ok) return ""
+  const result = validateView(node);
+  if (!result.ok) return "";
   return viewToLines(result.node, TOOL_DETAIL_WIDTH)
-    .map((line) => line.map((segment) => segment.text).join("").trimEnd())
+    .map((line) =>
+      line
+        .map((segment) => segment.text)
+        .join("")
+        .trimEnd(),
+    )
     .join("\n")
-    .trim()
+    .trim();
 }
 
 function planText(steps: unknown): string {
-  if (!Array.isArray(steps)) return ""
-  const lines: string[] = []
+  if (!Array.isArray(steps)) return "";
+  const lines: string[] = [];
   for (const raw of steps) {
-    if (raw === null || typeof raw !== "object") continue
-    const step = raw as Record<string, unknown>
-    const file = typeof step.file === "string" ? step.file : ""
-    const action = typeof step.action === "string" ? step.action : ""
-    const reason = typeof step.reason === "string" ? step.reason : ""
-    const head = [action, file].filter((part) => part.length > 0).join(" ")
-    const text = reason.length > 0 ? `${head} — ${reason}` : head
-    if (text.length > 0) lines.push(`- ${text}`)
+    if (raw === null || typeof raw !== "object") continue;
+    const step = raw as Record<string, unknown>;
+    const file = typeof step.file === "string" ? step.file : "";
+    const action = typeof step.action === "string" ? step.action : "";
+    const reason = typeof step.reason === "string" ? step.reason : "";
+    const head = [action, file].filter((part) => part.length > 0).join(" ");
+    const text = reason.length > 0 ? `${head} — ${reason}` : head;
+    if (text.length > 0) lines.push(`- ${text}`);
   }
-  return lines.join("\n")
+  return lines.join("\n");
 }
-
 
 /**
  * Map one content block to a transcript row, or null when the block type is
@@ -115,19 +119,19 @@ function planText(steps: unknown): string {
 export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
   switch (block.type) {
     case "user":
-      return { role: "user", text: block.content ?? "" }
+      return { role: "user", text: block.content ?? "" };
     case "text":
     case "reply":
-      return { role: "assistant", text: block.content ?? "" }
+      return { role: "assistant", text: block.content ?? "" };
     case "thinking":
-      return { role: "system", text: block.content ?? "", meta: "thinking" }
+      return { role: "system", text: block.content ?? "", meta: "thinking" };
     case "tool_call": {
-      const args = callArguments(block)
+      const args = callArguments(block);
       return toolCallRow({
         name: block.name ?? "tool",
         ...(args !== undefined ? { arguments: args } : {}),
         ...(block.callId !== undefined ? { callId: block.callId } : {}),
-      })
+      });
     }
     case "tool_result":
       return toolResultRow({
@@ -135,31 +139,31 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
         content: block.content ?? (block.isError ? "error" : "ok"),
         isError: block.isError === true,
         ...(block.callId !== undefined ? { callId: block.callId } : {}),
-      })
+      });
     case "view": {
-      const text = viewText(block.node) || block.content?.trim() || ""
+      const text = viewText(block.node) || block.content?.trim() || "";
       return {
         role: "assistant",
         text: text.length > 0 ? text : EMPTY_VIEW_DETAIL,
         markdown: false,
-      }
+      };
     }
     case "plan": {
-      const text = planText(block.steps)
+      const text = planText(block.steps);
       return {
         role: "system",
         text: text.length > 0 ? text : EMPTY_PLAN_DETAIL,
         meta: "plan",
-      }
+      };
     }
     case "error":
       return {
         role: "system",
         text: block.message ?? MISSING_ERROR_DETAIL,
         meta: "error",
-      }
+      };
     default:
-      return null
+      return null;
   }
 }
 
@@ -168,21 +172,19 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
  * Skips non-objects and unpaintable block types.
  */
 export function hydrateHistoryRows(blocks: unknown): StreamRow[] {
-  if (!Array.isArray(blocks)) return []
-  const rows: StreamRow[] = []
+  if (!Array.isArray(blocks)) return [];
+  const rows: StreamRow[] = [];
   for (const raw of blocks) {
-    const block = asHistoryBlock(raw)
-    if (block) pushHistoryBlock(rows, block)
+    const block = asHistoryBlock(raw);
+    if (block) pushHistoryBlock(rows, block);
   }
-  return rows
+  return rows;
 }
 
 /** Argument payload of a tool_call block, wherever the block carries it. */
 function callArguments(block: HistoryBlock): string | undefined {
-  if (block.content !== undefined) return block.content
-  return block.arguments !== undefined && block.arguments.length > 0
-    ? block.arguments
-    : undefined
+  if (block.content !== undefined) return block.content;
+  return block.arguments !== undefined && block.arguments.length > 0 ? block.arguments : undefined;
 }
 
 /**
@@ -192,13 +194,13 @@ function callArguments(block: HistoryBlock): string | undefined {
  */
 function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
   if (block.type === "tool_call") {
-    const args = callArguments(block)
+    const args = callArguments(block);
     pushToolCall(rows, {
       name: block.name ?? "tool",
       ...(args !== undefined ? { arguments: args } : {}),
       ...(block.callId !== undefined ? { callId: block.callId } : {}),
-    })
-    return
+    });
+    return;
   }
   if (block.type === "tool_result") {
     pushToolResult(rows, {
@@ -206,22 +208,20 @@ function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
       content: block.content ?? (block.isError ? "error" : "ok"),
       isError: block.isError === true,
       ...(block.callId !== undefined ? { callId: block.callId } : {}),
-    })
-    return
+    });
+    return;
   }
-  const row = rowFromHistoryBlock(block)
-  if (row) rows.push(row)
+  const row = rowFromHistoryBlock(block);
+  if (row) rows.push(row);
 }
 
 /**
  * Convenience: map an already-typed block list (e.g. from turns-to-blocks).
  */
-export function rowsFromHistoryBlocks(
-  blocks: readonly HistoryBlock[],
-): StreamRow[] {
-  const rows: StreamRow[] = []
+export function rowsFromHistoryBlocks(blocks: readonly HistoryBlock[]): StreamRow[] {
+  const rows: StreamRow[] = [];
   for (const block of blocks) {
-    pushHistoryBlock(rows, block)
+    pushHistoryBlock(rows, block);
   }
-  return rows
+  return rows;
 }

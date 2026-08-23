@@ -3,12 +3,10 @@
 import { SENT_MESSAGE_HISTORY_LIMIT } from "../session/sent-messages.js";
 
 function tailSent(sent: readonly string[]): readonly string[] {
-  return sent.length <= SENT_MESSAGE_HISTORY_LIMIT
-    ? sent
-    : sent.slice(-SENT_MESSAGE_HISTORY_LIMIT);
+  return sent.length <= SENT_MESSAGE_HISTORY_LIMIT ? sent : sent.slice(-SENT_MESSAGE_HISTORY_LIMIT);
 }
 
-export type SentHistoryBrowse = {
+export interface SentHistoryBrowse {
   /** Messages sent in this session, oldest first. */
   sent: readonly string[];
   /** Unsent draft saved when the user first presses Up from live editing. */
@@ -18,7 +16,7 @@ export type SentHistoryBrowse = {
    * 0 = newest sent, higher = older (`sent[sent.length - 1 - browseIndex]`).
    */
   browseIndex: number | null;
-};
+}
 
 export function createSentHistoryBrowse(sent: readonly string[]): SentHistoryBrowse {
   return { sent: tailSent(sent), draft: null, browseIndex: null };
@@ -28,11 +26,11 @@ export function resetSentHistoryBrowse(sent: readonly string[]): SentHistoryBrow
   return createSentHistoryBrowse(sent);
 }
 
-export type HistoryStepResult = {
+export interface HistoryStepResult {
   browse: SentHistoryBrowse;
   value: string;
   cursor: number;
-};
+}
 
 /** Up at prompt cursor 0: older sent message, or stash draft on first step. */
 export function stepSentHistoryUp(

@@ -43,7 +43,7 @@ describe("loadSkillCommands", () => {
   test("promotes every skill to a slash command, tagged or not", async () => {
     const dir = await makePlugin({
       "skills/linear-issue-workflow/SKILL.md":
-        "---\nname: linear-issue-workflow\ndescription: Implement a Linear issue\nargument-hint: \"<issue-id>\"\ndisable-model-invocation: true\n---\nImplement the issue.",
+        '---\nname: linear-issue-workflow\ndescription: Implement a Linear issue\nargument-hint: "<issue-id>"\ndisable-model-invocation: true\n---\nImplement the issue.',
       "skills/linear-create/SKILL.md":
         "---\nname: linear-create\ndescription: Create Linear issues\n---\nCreate the artifacts.",
     });
@@ -77,12 +77,11 @@ describe("loadSkillCommands", () => {
   test("copies argument-hint from skill frontmatter", async () => {
     const dir = await makePlugin({
       "skills/linear-create/SKILL.md":
-        "---\nname: linear-create\ndescription: Create Linear issues\nargument-hint: \"[description] [--from-doc]\"\n---\nCreate the artifacts.",
+        '---\nname: linear-create\ndescription: Create Linear issues\nargument-hint: "[description] [--from-doc]"\n---\nCreate the artifacts.',
     });
     const cmd = (await loadSkillCommands(dir))!.find((c) => c.name === "linear-create")!;
     expect(cmd.argumentHint).toBe("[description] [--from-doc]");
   });
-
 
   test("$ARGUMENTS in a skill body interpolates inline", async () => {
     const dir = await makePlugin({

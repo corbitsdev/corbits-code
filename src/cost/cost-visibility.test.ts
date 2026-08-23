@@ -6,7 +6,11 @@ import type { PricingCache } from "./pricing-fetcher.js";
 const pricingCache: PricingCache = {
   timestamp: 0,
   models: {
-    "glm-5.1": { inputPricePerToken: 0.000002, outputPricePerToken: 0.00001, cacheReadPricePerToken: 0 },
+    "glm-5.1": {
+      inputPricePerToken: 0.000002,
+      outputPricePerToken: 0.00001,
+      cacheReadPricePerToken: 0,
+    },
     "free-model": { inputPricePerToken: 0, outputPricePerToken: 0, cacheReadPricePerToken: 0 },
   },
 };
@@ -53,12 +57,18 @@ describe("isCodingPlanBaseURL", () => {
 
 describe("costHiddenReason", () => {
   it("hides for a manual provider override", () => {
-    expect(costHiddenReason({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe("provider-free");
+    expect(costHiddenReason({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe(
+      "provider-free",
+    );
   });
 
   it("hides for a coding-plan base URL", () => {
     expect(
-      costHiddenReason({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/coding/paas/v4", pricingCache }),
+      costHiddenReason({
+        modelId: "glm-5.1",
+        baseURL: "https://api.z.ai/api/coding/paas/v4",
+        pricingCache,
+      }),
     ).toBe("coding-plan");
   });
 
@@ -72,7 +82,11 @@ describe("costHiddenReason", () => {
 
   it("shows cost for a normal metered model", () => {
     expect(
-      costHiddenReason({ modelId: "glm-5.1", baseURL: "https://api.z.ai/api/paas/v4", pricingCache }),
+      costHiddenReason({
+        modelId: "glm-5.1",
+        baseURL: "https://api.z.ai/api/paas/v4",
+        pricingCache,
+      }),
     ).toBeNull();
   });
 
