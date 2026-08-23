@@ -31,7 +31,13 @@ function thinkingDelta(token: string): ReactorEmittedEvent {
 }
 
 async function readPartialRecords(): Promise<
-  { reason: string; text: string; thinkingText?: string; thinkingChars?: number }[]
+  {
+    reason: string;
+    text: string;
+    thinkingText?: string;
+    thinkingChars?: number;
+    error?: { category?: string; message?: string; statusCode?: number };
+  }[]
 > {
   const raw = await readFile(join(dir, PARTIAL_FILE), "utf8");
   return raw
@@ -44,6 +50,7 @@ async function readPartialRecords(): Promise<
           text: string;
           thinkingText?: string;
           thinkingChars?: number;
+          error?: { category?: string; message?: string; statusCode?: number };
         },
     );
 }
@@ -90,6 +97,31 @@ describe("createCycleTextRecorder", () => {
     const records = await readPartialRecords();
     expect(records[0]?.reason).toBe("inference-error");
     expect(records[0]?.text).toBe("partial before failure");
+    expect(records[0]?.error?.category).toBe("aborted");
+    expect(records[0]?.error?.message).toBe("aborted");
+  });
+
+  test("inference.error with empty cycle text still writes a partial with the error payload", async () => {
+    // Observed live: ~20 unattributable episodes had inference.error with no
+    // streamed text. The partial must still land so category/message survive.
+    const recorder = createCycleTextRecorder(() => dir);
+    recorder.handleEvent({
+      type: "inference.error",
+      data: {
+        error: { category: "rate_limit", message: "429 too many requests", statusCode: 429 },
+      },
+    } as unknown as ReactorEmittedEvent);
+
+    await Bun.sleep(20);
+    const records = await readPartialRecords();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.reason).toBe("inference-error");
+    expect(records[0]?.text).toBe("");
+    expect(records[0]?.error).toEqual({
+      category: "rate_limit",
+      message: "429 too many requests",
+      statusCode: 429,
+    });
   });
 
   test("dispose flushes the entry snapshot with the given reason and returns it", async () => {

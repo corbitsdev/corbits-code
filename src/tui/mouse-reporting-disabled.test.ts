@@ -7,7 +7,7 @@
  * `createCliRenderer` branch runs, and assert on the options it was
  * actually called with.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import type { Harness } from "./harness.js";
 
 interface CapturedRendererOptions {
@@ -49,6 +49,11 @@ afterAll(() => {
   mock.module("@opentui/core", () => realCore);
 });
 
+afterEach(() => {
+  let harness: Harness | undefined;
+  while ((harness = mountedHarnesses.pop()) !== undefined) harness.destroy();
+});
+
 const { runListModal } = await import("./list-modal.js");
 const { runProviderSetup } = await import("./provider-setup.js");
 
@@ -71,7 +76,6 @@ describe("default renderer mount disables DEC mouse reporting (CL-5540)", () => 
     expect(capturedOptions).toHaveLength(1);
     expect(capturedOptions[0]?.useMouse).toBe(false);
     expect(capturedOptions[0]?.enableMouseMovement).toBe(false);
-    mountedHarnesses.pop()?.destroy();
   });
 
   test("runProviderSetup", async () => {

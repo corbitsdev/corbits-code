@@ -27,7 +27,9 @@ export interface PricingCache {
 export interface PricingFetcherOptions {
   cachePath?: string;
   endpoint?: string;
-  fetchImpl?: typeof fetch;
+  // The plain call signature, not `typeof fetch` — `typeof fetch` also carries
+  // static members (e.g. `preconnect`) that a test double has no reason to implement.
+  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   fetchTimeoutMs?: number;
   now?: () => number;
   refreshIntervalMs?: number;

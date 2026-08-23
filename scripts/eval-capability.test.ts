@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { initEvalGitRepo, mapPool, parseArgs, buildEvalDiagnostics } from "./eval-capability.ts";
-import type { Config } from "../src/config/index.ts";
+import { initEvalGitRepo, mapPool, parseArgs, buildEvalDiagnostics } from "./eval-capability.js";
+import type { Config } from "../src/config/index.js";
 
 const execFileAsync = promisify(execFile);
 

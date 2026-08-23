@@ -73,7 +73,8 @@ test("sink forwards events via the emitter", () => {
 test("getTurnCollector is available and has expected shape", () => {
   const args = makeArgs();
   const runSink = createRunSink(args);
-  const collector = runSink.getTurnCollector();
+  // hooks are configured in makeArgs(), so the collector is non-null here
+  const collector = runSink.getTurnCollector()!;
   expect(typeof collector.observe).toBe("function");
   expect(typeof collector.getTurns).toBe("function");
   expect(typeof collector.getTokenUsage).toBe("function");
@@ -100,7 +101,8 @@ test("reset clears status, error, and turn collector between sessions", () => {
   expect(runSink.getRunError()).toBeUndefined();
 
   // The turn collector returned after reset is fresh.
-  const collector = runSink.getTurnCollector();
+  // hooks are configured in makeArgs(), so the collector is non-null here
+  const collector = runSink.getTurnCollector()!;
   expect(collector.getTurns()).toHaveLength(0);
   expect(collector.getToolCallCount()).toBe(0);
 
