@@ -13,7 +13,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.2.106] - 2026-08-23
+
 ### Agent
+
+- **Resuming a session no longer shows a blank error when the saved history
+  has one corrupted line.** A malformed or schema-invalid line anywhere in the
+  saved transcript used to abort the entire resume load. The TUI's resume view
+  now skips just the bad line (logging it) and still shows the rest of the
+  history; a corrupt file still surfaces as an error during live conversation
+  loading, where correctness matters more than availability.
 
 - **Every stop and nudge is now logged, and so is what each dispatch produced.**
   `interventions.jsonl` in the worker's trace dir records each intervention with
