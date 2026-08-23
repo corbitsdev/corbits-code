@@ -24,7 +24,6 @@ import {
   appendDeadlineParentHint,
   appendNeverActedParentHint,
   appendSubAgentParentHints,
-  appendThrashParentHint,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
   classifyBriefSalvage,
@@ -535,7 +534,7 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
-  test("evaluateSubAgentStop prefers no-progress over thrash", () => {
+  test("evaluateSubAgentStop prefers no-progress over the turn budget", () => {
     let thrash = EMPTY_THRASH_STATE;
     for (let i = 0; i < 4; i++) {
       thrash = nextThrashState(thrash, [
@@ -561,21 +560,14 @@ describe("sub-agent stop helpers", () => {
     ).toBe("no-progress");
   });
 
-  test("evaluateSubAgentStop returns thrash before turn-budget", () => {
+  test("re-read pressure no longer stops a worker; turn-budget still does (CL-6936)", () => {
     let thrash = EMPTY_THRASH_STATE;
     thrash = nextThrashState(thrash, [
       { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
     ]);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       thrash = nextThrashState(thrash, [
         { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-      ]);
-    }
-    // Push totalToolCalls to the reReadMinTotalTools gate (8) so the edited
-    // path's re-read pressure alone is not enough to trip thrash.
-    for (let i = 0; i < 3; i++) {
-      thrash = nextThrashState(thrash, [
-        { type: "tool_call", name: "grep", arguments: { pattern: `p${i}`, path: "src" } },
       ]);
     }
     expect(
@@ -588,7 +580,7 @@ describe("sub-agent stop helpers", () => {
         repeatLimit: 2,
         thrashState: thrash,
       }),
-    ).toBe("thrash");
+    ).toBe("turn-budget");
   });
 
   test("evaluateSubAgentStop returns report-forced once, at forceReportWithin turns before the cap", () => {
@@ -686,14 +678,6 @@ describe("sub-agent stop helpers", () => {
     const neverEdited = forcedStopReport("never-edited", "I mapped the files; ready to code next");
     expect(neverEdited).toContain("without writing any files");
     expect(appendSubAgentParentHints(neverEdited)).toContain("edit-first");
-
-    const thrashReport = forcedStopReport("thrash", "Re-read a.ts after edit");
-    const thrashParsed = parseSubAgentReport(thrashReport);
-    expect(thrashParsed.summary).toContain("progressive thrash");
-    expect(thrashParsed.findings).toContain("a.ts");
-    expect(thrashParsed.blockers).toContain("Re-read pressure");
-    expect(appendThrashParentHint(thrashReport)).toContain("progressive thrash");
-    expect(appendSubAgentParentHints(thrashReport)).toContain("identical brief");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
@@ -1025,7 +1009,7 @@ describe("thrash edge cases", () => {
     expect(stop(3, 3)).toBe("turn-budget");
   });
 
-  test("an ordinary edit-then-verify loop does not thrash", () => {
+  test("an ordinary edit-then-verify loop is not a stop", () => {
     // edit -> read-back verify, four times, on one file: legitimate iteration.
     let s = EMPTY_THRASH_STATE;
     for (let i = 0; i < 4; i++) {
@@ -1035,7 +1019,7 @@ describe("thrash edge cases", () => {
     expect(stop(8, 30, s)).toBeNull();
   });
 
-  test("chunked reads of a large edited file do not trip thrash (offset-aware key)", () => {
+  test("chunked reads of a large edited file are not a stop", () => {
     let s = EMPTY_THRASH_STATE;
     s = nextThrashState(s, [edit("big.ts")]);
     s = nextThrashState(s, [
@@ -1047,14 +1031,14 @@ describe("thrash edge cases", () => {
     expect(stop(2, 30, s)).toBeNull();
   });
 
-  test("re-reading the same chunk repeatedly amid enough tool volume still thrashes", () => {
+  test("re-reading the same chunk repeatedly is not a stop (CL-6936)", () => {
     let s = EMPTY_THRASH_STATE;
     s = nextThrashState(s, [edit("big.ts")]);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       s = nextThrashState(s, [read("big.ts", { offset: 0, limit: 500 })]);
     }
     s = nextThrashState(s, [grep("p1"), grep("p2"), grep("p3")]);
-    expect(stop(6, 30, s)).toBe("thrash");
+    expect(stop(6, 30, s)).toBeNull();
   });
 });
 
@@ -1169,208 +1153,6 @@ describe("SubAgentDirector report-forced wiring", () => {
     const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)
       ?.ephemeralTurns;
     expect(ephemeralTurns).toBeUndefined();
-  });
-});
-
-describe("SubAgentDirector re-read-nudge wiring (CL-5813)", () => {
-  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
-
-  function makeCapabilities(): ReactorCapabilities {
-    return {
-      infer: (options) =>
-        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
-      executeTools: (calls, parallel, addToHistory) =>
-        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
-      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
-      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
-      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
-      reply: (content) => ({ type: "reply", content }) as ReactorAction,
-      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
-      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
-      wait: () => ({ type: "wait" }) as ReactorAction,
-      done: () => ({ type: "done" }) as ReactorAction,
-    };
-  }
-
-  function makeInferenceDoneEvent(
-    toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
-  ): ReactorInboundEvent {
-    return {
-      type: "inference.done",
-      turn: {
-        role: "assistant",
-        model: "test",
-        timestamp: 0,
-        content: toolCalls.map((tc) => ({
-          type: "tool_call",
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.args ?? {},
-        })),
-      },
-      usage: { input: 0, output: 0 },
-      source: "test",
-    } as unknown as ReactorInboundEvent;
-  }
-
-  function makeToolDoneEvent(callId: string): ReactorInboundEvent {
-    return {
-      type: "tool.done",
-      result: { callId, content: "ok" },
-    } as unknown as ReactorInboundEvent;
-  }
-
-  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
-    return Array.isArray(result) ? result : [result];
-  }
-
-  /**
-   * Soft re-read needs count>=3 on one path and total tools >= 8. Drive that
-   * over a few turns, then assert the follow-up infer carries the implement
-   * nudge, and that a further climb to hard thrash still stops the leaf.
-   */
-  test("soft re-read injects implement wording once, then hard thrash still stops", async () => {
-    // requireEdit=true → implement wording
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      30,
-      2,
-      undefined,
-      Date.now,
-      true,
-    );
-    const capabilities = makeCapabilities();
-
-    // Turns 1–3: three reads of the same path (still under soft min tools).
-    for (let i = 1; i <= 3; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
-    }
-
-    // Turns 4–7: greps to clear reReadMinTotalTools (3 reads + 5 greps = 8).
-    // Soft fires on the turn that crosses total=8 with count=3.
-    for (let i = 1; i <= 4; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
-    }
-
-    // 5th grep: total tools = 8, soft re-read should arm.
-    const softDone = makeInferenceDoneEvent([{ id: "g5", name: "grep", args: { pattern: "p5" } }]);
-    const softTurn = actionsArray(await director.decide(softDone, mockState, capabilities));
-    // Soft is not a stop — tools still execute.
-    expect(softTurn.find((a) => a.type === "execute_tools")).toBeDefined();
-    expect(softTurn.some((a) => a.type === "reply")).toBe(false);
-
-    const afterSoft = actionsArray(
-      await director.decide(makeToolDoneEvent("g5"), mockState, capabilities),
-    );
-    const softInfer = afterSoft.find((a) => a.type === "infer");
-    expect(softInfer).toBeDefined();
-    if (softInfer === undefined || softInfer.type !== "infer") throw new Error("expected infer");
-    const softEphemeral = (
-      softInfer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
-    )?.ephemeralTurns;
-    expect(softEphemeral?.[0]?.content?.[0]?.text).toContain("Edit a file");
-    expect(softEphemeral?.[0]?.content?.[0]?.text).not.toContain("Expand Findings");
-
-    // One more read of hot.ts → hard thrash stop.
-    const hardDone = makeInferenceDoneEvent([
-      { id: "r4", name: "read_file", args: { path: "hot.ts" } },
-    ]);
-    const hardTurn = actionsArray(await director.decide(hardDone, mockState, capabilities));
-    expect(hardTurn.some((a) => a.type === "reply")).toBe(true);
-    const checkpoint = hardTurn.find((a) => a.type === "checkpoint");
-    expect(checkpoint).toBeDefined();
-    if (checkpoint === undefined || checkpoint.type !== "checkpoint") {
-      throw new Error("expected checkpoint");
-    }
-    expect(checkpoint.message).toBe("subagent-thrash");
-  });
-
-  test("explore intent uses non-edit soft re-read wording", async () => {
-    // requireEdit=false (default) → explore wording
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const capabilities = makeCapabilities();
-
-    for (let i = 1; i <= 3; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
-    }
-    for (let i = 1; i <= 4; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
-    }
-    await director.decide(
-      makeInferenceDoneEvent([{ id: "g5", name: "grep", args: { pattern: "p5" } }]),
-      mockState,
-      capabilities,
-    );
-    const afterSoft = actionsArray(
-      await director.decide(makeToolDoneEvent("g5"), mockState, capabilities),
-    );
-    const infer = afterSoft.find((a) => a.type === "infer");
-    expect(infer).toBeDefined();
-    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
-    const text = (infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] })
-      ?.ephemeralTurns?.[0]?.content?.[0]?.text;
-    expect(text).toContain("Expand Findings");
-    expect(text).not.toContain("Edit a file");
-  });
-
-  test("soft re-read nudge fires only once even while pressure stays soft", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const capabilities = makeCapabilities();
-
-    for (let i = 1; i <= 3; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `r${i}`, name: "read_file", args: { path: "hot.ts" } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`r${i}`), mockState, capabilities);
-    }
-    for (let i = 1; i <= 5; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: `g${i}`, name: "grep", args: { pattern: `p${i}` } }]),
-        mockState,
-        capabilities,
-      );
-      await director.decide(makeToolDoneEvent(`g${i}`), mockState, capabilities);
-    }
-
-    // Soft already fired on g5. Another grep keeps soft pressure (still 3 reads)
-    // but the follow-up infer must not re-nudge.
-    await director.decide(
-      makeInferenceDoneEvent([{ id: "g6", name: "grep", args: { pattern: "p6" } }]),
-      mockState,
-      capabilities,
-    );
-    const second = actionsArray(
-      await director.decide(makeToolDoneEvent("g6"), mockState, capabilities),
-    );
-    const infer = second.find((a) => a.type === "infer");
-    expect(infer).toBeDefined();
-    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer");
-    const ephemeral = (infer.options as { ephemeralTurns?: unknown[] } | undefined)?.ephemeralTurns;
-    expect(ephemeral).toBeUndefined();
   });
 });
 
@@ -2371,7 +2153,6 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
   });
 
   test("classifyBriefSalvage maps forced-stop envelopes", () => {
-    expect(classifyBriefSalvage(forcedStopReport("thrash", "x"))).toBe("thrash");
     expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
     expect(classifyBriefSalvage(forcedStopReport("repetition", "x"))).toBe("repetition");
     expect(classifyBriefSalvage(forcedStopReport("never-acted", "x"))).toBe("never-acted");
@@ -2403,8 +2184,8 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(third).toContain(TURN_BUDGET_STOP_PARENT_HINT.slice(1, 40));
   });
 
-  test("createTaskTool refuses identical re-dispatch after thrash salvage", async () => {
-    const thrash = forcedStopReport("thrash", "Re-read pressure");
+  test("createTaskTool refuses identical re-dispatch after no-progress salvage", async () => {
+    const thrash = forcedStopReport("no-progress", "Repeated the same call");
     let runs = 0;
     const sessions = createSubAgentSessionStore();
     const tool = createTaskTool({
@@ -2424,14 +2205,14 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
       intent: "implement",
     };
     const first = await callTask(tool, args);
-    expect(first).toContain("progressive thrash");
+    expect(first).toContain("no progress");
     expect(first).toContain("identical brief");
     expect(runs).toBe(1);
     expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
 
     const second = await callTask(tool, args);
     expect(second).toContain("refused re-dispatch");
-    expect(second).toContain("thrash");
+    expect(second).toContain("no-progress");
     expect(runs).toBe(1);
     // Refuse must not leave a ghost running session on the Agents strip.
     expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
@@ -2449,7 +2230,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
       prompt: "do the thrashy work with a narrower scope",
       success_criteria: ["one file"],
     });
-    expect(third).toContain("progressive thrash");
+    expect(third).toContain("no progress");
     expect(runs).toBe(2);
   });
 
