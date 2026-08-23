@@ -5,6 +5,7 @@
 // this store is the dedicated child record the enter-session UI reads.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { stopReasonFromReport } from "./report.js";
 import { toolCallPreview } from "./tool-preview.js";
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
@@ -65,6 +66,12 @@ export interface SubAgentSession {
   finishedAt?: number;
   report?: string;
   error?: string;
+  /**
+   * Machine-readable termination reason for a forced stop (repetition guard,
+   * stall abort, salvage caps, operator cancel) — the report's `Stopped:`
+   * line, or `cancelled — <reason>` on cancel. Absent on clean completes.
+   */
+  stopReason?: string;
   // Session id of the orchestrator that dispatched this worker, when this is
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's task tool.
@@ -115,6 +122,8 @@ export interface SubAgentSessionStore {
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
+
+export const DEFAULT_CANCEL_REASON = "Cancelled by operator";
 
 const DEFAULT_MAX_COMPLETED = 20;
 const DEFAULT_MAX_ENTRIES = 400;
@@ -273,6 +282,7 @@ export function createSubAgentSessionStore(
     session.lastActivityAt = now();
     clearToolCalls(session);
     session.error = reason;
+    session.stopReason = reason === DEFAULT_CANCEL_REASON ? "cancelled" : `cancelled — ${reason}`;
     pushEntry(session, {
       kind: "report",
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
@@ -539,6 +549,10 @@ export function createSubAgentSessionStore(
         session.finishedAt = now();
         clearToolCalls(session);
         session.report = report;
+        // A forced-stop salvage arrives via complete(); its Stopped: line is
+        // the terminal reason (repetition / stall / salvage caps).
+        const stopped = stopReasonFromReport(report);
+        if (stopped !== null) session.stopReason = stopped;
         pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
         cancelHandles.delete(id);
         pruneCompleted();
@@ -567,11 +581,11 @@ export function createSubAgentSessionStore(
       cancelHandles.set(id, abort);
     },
 
-    cancel(id: string, reason = "Cancelled by operator"): boolean {
+    cancel(id: string, reason = DEFAULT_CANCEL_REASON): boolean {
       return cancelSession(id, reason);
     },
 
-    cancelAll(reason = "Cancelled by operator"): string[] {
+    cancelAll(reason = DEFAULT_CANCEL_REASON): string[] {
       const running = [...sessions.values()].filter((s) => s.status === "running");
       const cancelled: string[] = [];
       for (const session of running) {
@@ -617,6 +631,7 @@ function cloneSession(session: SubAgentSession): SubAgentSession {
     ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),
+    ...(session.stopReason !== undefined ? { stopReason: session.stopReason } : {}),
     ...(session.parentSessionId !== undefined ? { parentSessionId: session.parentSessionId } : {}),
   };
 }

@@ -19,6 +19,8 @@ import {
   formatSubAgentReport,
   nextToolCallStreak,
   parseSubAgentReport,
+  repetitionStopDetail,
+  stopReasonFromReport,
   appendDeadlineParentHint,
   appendNeverActedParentHint,
   appendSubAgentParentHints,
@@ -766,6 +768,48 @@ describe("sub-agent stop helpers", () => {
     expect(appendDeadlineParentHint(forcedStopReport("cancelled", "x"))).not.toContain(
       "wall-clock deadline",
     );
+  });
+
+  test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
+    const repetition = forcedStopReport(
+      "repetition",
+      "Looped window (repeated 1363x): Groaning. ",
+      'window "Groaning. " × 1363',
+    );
+    expect(repetition.startsWith('Stopped: repetition — window "Groaning. " × 1363\n')).toBe(true);
+    expect(parseSubAgentReport(repetition).stopped).toBe('repetition — window "Groaning. " × 1363');
+    expect(stopReasonFromReport(repetition)).toBe('repetition — window "Groaning. " × 1363');
+    // Survives runSubAgent's parse/format normalization round-trip.
+    const roundTripped = formatSubAgentReport(parseSubAgentReport(repetition));
+    expect(stopReasonFromReport(roundTripped)).toBe('repetition — window "Groaning. " × 1363');
+    // Classifiers and hints still fire on the unchanged Summary text.
+    expect(appendSubAgentParentHints(repetition)).toContain("degenerated into a loop");
+
+    const cancelled = forcedStopReport("cancelled", "partial", "Session closed");
+    expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
+    // Without a detail the line is the bare reason token.
+    expect(stopReasonFromReport(forcedStopReport("cancelled", "partial"))).toBe("cancelled");
+    expect(stopReasonFromReport(forcedStopReport("turn-budget", "x", "30/30 turns"))).toBe(
+      "turn-budget — 30/30 turns",
+    );
+
+    // A nested forced-stop quoted in Findings must not leak its Stopped line
+    // as the outer report's reason.
+    const nested = forcedStopReport(
+      "never-acted",
+      forcedStopReport("cancelled", "inner", "inner reason"),
+    );
+    expect(stopReasonFromReport(nested)).toBe("never-acted");
+    // A clean report has no Stopped line.
+    expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
+  });
+
+  test("repetitionStopDetail formats the looped window snippet and repeat count", () => {
+    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 })).toBe(
+      'window "Groaning. " × 1363',
+    );
+    const long = repetitionStopDetail({ window: "x".repeat(500), repeats: 7 });
+    expect(long).toBe(`window "${"x".repeat(80)}" × 7`);
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {
@@ -1882,6 +1926,29 @@ describe("createTaskTool", () => {
     expect(out).not.toBe('Sub-agent "race" cancelled by operator.');
     const row = sessions.list().find((s) => s.description === "race");
     expect(row?.status).toBe("cancelled");
+  });
+
+  test("pre-progress cancel surfaces the recorded cancel reason to the parent", async () => {
+    const sessions = createSubAgentSessionStore();
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      sessions,
+      run: async () => {
+        const row = sessions.list().find((s) => s.description === "reasoned");
+        if (row !== undefined) sessions.cancel(row.id, "Session closed");
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      },
+    });
+    const out = await callTask(tool, { description: "reasoned", prompt: "x", intent: "explore" });
+    expect(out).toContain("Stopped: cancelled — Session closed");
+    const row = sessions.list().find((s) => s.description === "reasoned");
+    expect(row?.status).toBe("cancelled");
+    expect(row?.stopReason).toBe("cancelled — Session closed");
   });
 
   test("pre-progress AbortError still surfaces as bare cancel", async () => {
