@@ -11,7 +11,7 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.103] - 2026-08-23
 
 ### TUI
 
@@ -23,6 +23,40 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   diagnosis, not a sticky banner: a tool finishing or the turn settling
   clears it on that paint, even if the monitor tick has already been
   cancelled.
+
+### Tools
+
+- **MCP tool calls arm their own watchdog.** Default 5 minutes
+  (`settings.mcp.timeoutMs`), still capped by `tools.maxTimeoutMs` when set.
+  Expiry returns a model-reactable tool error; the turn is not aborted.
+  `task` and `run_shell` behavior is unchanged.
+
+### Sub-agents
+
+- **Successful leaf `task` completions re-arm the primary backstop.** A
+  productive fleet no longer hard-pauses solely from turns-since-operator
+  volume. Failed or salvaged leaf reports get no credit, so true tool-only
+  no-progress still nudges then pauses.
+
+- **Leaf no-progress repeat limit raised from 2 to 5.** Legitimate polling
+  / retry streaks survive longer before salvage.
+
+### Auth / evals
+
+- **Exec refreshes Codex instructions before first Codex inference**, same
+  shared path as the TUI, with best-effort fallback to cache/bundled copy.
+  Capability eval cells also stamp instructions hash, built-in tools, and
+  requested reasoning effort for triage.
+
+- **New capability eval cases:** misleading-symptom, flaky-diagnosis,
+  broken-toolchain, hidden-contract-inventory (held-out tests), and
+  impossible-spec (reward-hacking bait).
+
+### CI
+
+- **Codex instructions unit mock restores `node:fs` in `afterAll`.** The
+  leaked in-memory fake had been poisoning later suites under
+  `bun test ./src ./tests ./evals` since the mock landed.
 
 ## [0.2.102] - 2026-08-22
 
