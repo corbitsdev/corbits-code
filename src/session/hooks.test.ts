@@ -10,19 +10,23 @@ function observeOneTurnWithToolResult(
   collector: ReturnType<typeof createTurnContextCollector>,
   toolResultContent: string,
 ): void {
-  collector.observe(event("inference.done", {
-    turn: {
-      role: "assistant",
-      content: [{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }],
-      model: "test",
-      timestamp: 0,
-    },
-    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-    source: { provider: "test", model: "test" },
-  }));
-  collector.observe(event("tool.done", {
-    result: { callId: "call-1", content: toolResultContent },
-  }));
+  collector.observe(
+    event("inference.done", {
+      turn: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }],
+        model: "test",
+        timestamp: 0,
+      },
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { provider: "test", model: "test" },
+    }),
+  );
+  collector.observe(
+    event("tool.done", {
+      result: { callId: "call-1", content: toolResultContent },
+    }),
+  );
 }
 
 describe("createTurnContextCollector tool result truncation", () => {

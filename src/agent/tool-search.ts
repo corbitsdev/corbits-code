@@ -46,11 +46,11 @@ const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"
 // the life of the session — the tools array is a provider cache prefix (see
 // ADVERTISED_TOOL_NAMES below), so a value that could flip mid-session would
 // force a re-prefill worse than the schema bytes it saves.
-export type ToolAvailability = {
+export interface ToolAvailability {
   // Whether a language server was resolvable for this project at startup —
   // not whether one currently responds.
   languageServerAvailable: boolean;
-};
+}
 
 export function coreToolNamesForSessionMode(
   mode: SessionMode,
@@ -97,10 +97,7 @@ export const CATALOG_TOOL_NAMES: readonly string[] = [
 // Primary TUI/exec sessions should pass
 // `advertisedToolNamesForSessionMode(sessionMode, toolAvailability)` as the
 // `builtInPrefix` to `advertisedTools` — not this constant alone.
-export const ADVERTISED_TOOL_NAMES: readonly string[] = [
-  ...CORE_TOOL_NAMES,
-  ...CATALOG_TOOL_NAMES,
-];
+export const ADVERTISED_TOOL_NAMES: readonly string[] = [...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES];
 
 // Project the live tool registry onto the advertised set: the fixed built-in
 // prefix (its order never changes — this is what keeps the provider cache
@@ -133,11 +130,11 @@ export function advertisedTools(
 // tool_search matches, or a director-side trigger like the lsp hint), in
 // first-activation order. Backed by a Set, so re-activating an already-active
 // name is a no-op — it neither reorders nor duplicates the entry.
-export type ActivatedToolTracker = {
+export interface ActivatedToolTracker {
   // Adds any new names and returns whether the set actually changed.
   activate(names: readonly string[]): boolean;
   list(): string[];
-};
+}
 
 export function createActivatedToolTracker(): ActivatedToolTracker {
   const activeNames = new Set<string>();
@@ -171,10 +168,10 @@ export const toolSearchDefinition: ToolDefinition = {
   },
 };
 
-export type ToolIndex = {
+export interface ToolIndex {
   // Rank registered tools against a query, returning the best-matching tool names.
   search(query: string, limit?: number): string[];
-};
+}
 
 function tokenize(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
@@ -217,14 +214,14 @@ export function createToolIndex(
   };
 }
 
-export type ToolSearchDeps = {
+export interface ToolSearchDeps {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
   // Make the matched tools' names part of the advertised wire set on the next
   // inference. Every registered tool is already dispatchable via `run`, so this
   // only affects what the model can see without an intervening tool_search.
   promote: (names: string[]) => void;
-};
+}
 
 const ToolSearchArgs = type({ query: "string" });
 

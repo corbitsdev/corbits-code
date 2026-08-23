@@ -138,7 +138,10 @@ describe("buildOtlpPayload", () => {
     const resource = payload.resourceSpans[0]!.resource.attributes;
     expect(
       resource.some(
-        (a) => a.key === "service.name" && "stringValue" in a.value && a.value.stringValue === "corbits-code",
+        (a) =>
+          a.key === "service.name" &&
+          "stringValue" in a.value &&
+          a.value.stringValue === "corbits-code",
       ),
     ).toBe(true);
   });
@@ -159,7 +162,7 @@ describe("buildOtlpPayload", () => {
 
 describe("flushToOtel", () => {
   test("POSTs OTLP JSON with headers to /v1/traces", async () => {
-    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const calls: { url: string; init: RequestInit }[] = [];
     const fetchFn = mockFetch(async (input, init) => {
       calls.push({ url: String(input), init: init ?? {} });
       return new Response(null, { status: 200 });
@@ -242,7 +245,11 @@ describe("flushPerfToOtel", () => {
     const id = start("session");
     end(id);
 
-    await flushPerfToOtel(baseSettings({ endpoint: "http://127.0.0.1:4318" }), {}, { fetchFn, getSpans: snapshot });
+    await flushPerfToOtel(
+      baseSettings({ endpoint: "http://127.0.0.1:4318" }),
+      {},
+      { fetchFn, getSpans: snapshot },
+    );
     expect(calls).toEqual(["http://127.0.0.1:4318/v1/traces"]);
   });
 
@@ -283,9 +290,9 @@ describe("flushPerfToOtel", () => {
     );
     expect(bodies).toHaveLength(1);
     const parsed = JSON.parse(bodies[0]!) as {
-      resourceSpans: Array<{
-        scopeSpans: Array<{ spans: Array<{ name: string }> }>;
-      }>;
+      resourceSpans: {
+        scopeSpans: { spans: { name: string }[] }[];
+      }[];
     };
     const names = parsed.resourceSpans[0]!.scopeSpans[0]!.spans.map((s) => s.name);
     expect(names).toEqual(["tool"]);

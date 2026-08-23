@@ -2,26 +2,24 @@ import { readFile, writeFile } from "node:fs/promises";
 import { hasCode } from "@intx/types";
 import type { ToolDefinition } from "@intx/types/runtime";
 
-export type EditFileSubstringMode = {
+export interface EditFileSubstringMode {
   kind: "substring";
   path: string;
   old_string: string;
   new_string: string;
   replace_all: boolean;
-};
+}
 
-export type EditFileLineRangeMode = {
+export interface EditFileLineRangeMode {
   kind: "line_range";
   path: string;
   start_line: number;
   end_line: number;
   new_string: string;
-};
+}
 
 export type EditFileModeParse =
-  | EditFileSubstringMode
-  | EditFileLineRangeMode
-  | { kind: "invalid"; message: string };
+  EditFileSubstringMode | EditFileLineRangeMode | { kind: "invalid"; message: string };
 
 function optionalInt(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)
@@ -51,14 +49,18 @@ export function parseLineRangeFields(
   if (start_line === undefined || end_line === undefined) {
     return {
       kind: "invalid",
-      message: "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
+      message:
+        "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
     };
   }
   if (start_line < 1 || end_line < 1) {
     return { kind: "invalid", message: "start_line and end_line must be >= 1" };
   }
   if (start_line > end_line) {
-    return { kind: "invalid", message: `start_line (${start_line}) must be <= end_line (${end_line})` };
+    return {
+      kind: "invalid",
+      message: `start_line (${start_line}) must be <= end_line (${end_line})`,
+    };
   }
   return { kind: "line_range", path, start_line, end_line, new_string };
 }
@@ -97,7 +99,7 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
     return {
       kind: "invalid",
       message:
-        'edit_file requires old_string (substring mode) or start_line and end_line (line-range mode)',
+        "edit_file requires old_string (substring mode) or start_line and end_line (line-range mode)",
     };
   }
 
@@ -115,22 +117,19 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   };
 }
 
-export type SplitFileLines = {
+export interface SplitFileLines {
   lines: string[];
   newline: "\n" | "\r\n";
   /** File ended with a newline before the edit. */
   trailingNewline: boolean;
-};
+}
 
 export function splitFileLines(content: string): SplitFileLines {
   const newline: "\n" | "\r\n" = content.includes("\r\n") ? "\r\n" : "\n";
   const trailingNewline =
     content.length > 0 && (newline === "\r\n" ? content.endsWith("\r\n") : content.endsWith("\n"));
 
-  let lines =
-    newline === "\r\n"
-      ? content.split("\r\n")
-      : content.split("\n");
+  let lines = newline === "\r\n" ? content.split("\r\n") : content.split("\n");
 
   if (trailingNewline && lines.length > 0 && lines[lines.length - 1] === "") {
     lines = lines.slice(0, -1);
@@ -149,7 +148,11 @@ function splitNewStringLines(newString: string): string[] {
   return parts;
 }
 
-export function joinFileLines(lines: string[], newline: "\n" | "\r\n", trailingNewline: boolean): string {
+export function joinFileLines(
+  lines: string[],
+  newline: "\n" | "\r\n",
+  trailingNewline: boolean,
+): string {
   if (lines.length === 0) {
     return trailingNewline ? newline : "";
   }

@@ -17,16 +17,14 @@ describe("isXaiGrokLeafProvider", () => {
   });
 
   test("matches model ids that start with grok", () => {
-    expect(
-      isXaiGrokLeafProvider({ providerName: "openai-compat", model: "grok-4.5" }),
-    ).toBe(true);
+    expect(isXaiGrokLeafProvider({ providerName: "openai-compat", model: "grok-4.5" })).toBe(true);
   });
 
   test("rejects codex and generic providers", () => {
     expect(isXaiGrokLeafProvider({ providerName: "codex", model: "gpt-5.1" })).toBe(false);
-    expect(
-      isXaiGrokLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" }),
-    ).toBe(false);
+    expect(isXaiGrokLeafProvider({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe(
+      false,
+    );
     expect(isXaiGrokLeafProvider({ providerName: "openai", model: "gpt-4.1" })).toBe(false);
   });
 
@@ -37,21 +35,21 @@ describe("isXaiGrokLeafProvider", () => {
 
 describe("shouldApplyGrokAntiThrash", () => {
   test("applies the residual to a Grok leaf worker", () => {
-    expect(
-      shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: false }),
-    ).toBe(true);
+    expect(shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: false })).toBe(
+      true,
+    );
   });
 
   test("withholds the residual from a Grok orchestrator", () => {
-    expect(
-      shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: true }),
-    ).toBe(false);
+    expect(shouldApplyGrokAntiThrash({ providerName: "xai/default", orchestrator: true })).toBe(
+      false,
+    );
   });
 
   test("withholds the residual from non-Grok leaves", () => {
-    expect(
-      shouldApplyGrokAntiThrash({ providerName: "anthropic", orchestrator: false }),
-    ).toBe(false);
+    expect(shouldApplyGrokAntiThrash({ providerName: "anthropic", orchestrator: false })).toBe(
+      false,
+    );
   });
 });
 
@@ -87,6 +85,8 @@ describe("detectModelFamily", () => {
     expect(detectModelFamily({ providerName: "xai/default", model: "grok-4.5" })).toBe("grok");
     expect(detectModelFamily({ providerName: "xai/default", model: "grok-4.6" })).toBe("grok");
     expect(detectModelFamily({ providerName: "moonshot", model: "kimi-k2" })).toBe("kimi");
-    expect(detectModelFamily({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe("default");
+    expect(detectModelFamily({ providerName: "anthropic", model: "claude-sonnet-4" })).toBe(
+      "default",
+    );
   });
 });

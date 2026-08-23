@@ -85,21 +85,13 @@ describe("path-trust (global)", () => {
       const plugin = join(home, "shared", "plugin");
       expect((await readPathTrustStore(home)).state).toBe("missing");
 
-      const first = await migratePathTrustFromPluginPaths(
-        [plugin],
-        async () => [plugin],
-        home,
-      );
+      const first = await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home);
       expect(isPathPluginTrusted(first, plugin)).toBe(true);
       expect((await readPathTrustStore(home)).state).toBe("valid");
 
       // Second boot with extra path must NOT auto-grant the newcomer.
       const extra = join(home, "shared", "newcomer");
-      const second = await migratePathTrustFromPluginPaths(
-        [plugin, extra],
-        async (p) => [p],
-        home,
-      );
+      const second = await migratePathTrustFromPluginPaths([plugin, extra], async (p) => [p], home);
       expect(isPathPluginTrusted(second, plugin)).toBe(true);
       expect(isPathPluginTrusted(second, extra)).toBe(false);
     } finally {
@@ -194,11 +186,7 @@ describe("path-trust (global)", () => {
       expect((await readPathTrustStore(home)).state).toBe("valid");
 
       const plugin = join(home, "plugins", "a");
-      const migrated = await migratePathTrustFromPluginPaths(
-        [plugin],
-        async () => [plugin],
-        home,
-      );
+      const migrated = await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home);
       expect(isPathPluginTrusted(migrated, plugin)).toBe(false);
     } finally {
       await cleanup();
@@ -228,11 +216,7 @@ describe("path-trust (global)", () => {
       expect((await readPathTrustStore(home)).state).toBe("invalid");
 
       const plugin = join(home, "shared", "plugin");
-      const store = await migratePathTrustFromPluginPaths(
-        [plugin],
-        async () => [plugin],
-        home,
-      );
+      const store = await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home);
       expect(isPathPluginTrusted(store, plugin)).toBe(true);
       expect((await readPathTrustStore(home)).state).toBe("valid");
     } finally {
@@ -248,11 +232,7 @@ describe("path-trust (global)", () => {
       expect((await loadPathTrust(home)).trustedPluginPaths).toEqual([]);
 
       const plugin = join(home, "shared", "plugin");
-      const store = await migratePathTrustFromPluginPaths(
-        [plugin],
-        async () => [plugin],
-        home,
-      );
+      const store = await migratePathTrustFromPluginPaths([plugin], async () => [plugin], home);
       expect(isPathPluginTrusted(store, plugin)).toBe(true);
     } finally {
       await cleanup();

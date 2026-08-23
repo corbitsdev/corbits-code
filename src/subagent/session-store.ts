@@ -19,7 +19,7 @@ export type SubAgentTranscriptEntry =
   | { kind: "tool_result"; callId: string; name: string; content: string; isError: boolean }
   | { kind: "report"; content: string };
 
-export type OutstandingToolCall = {
+export interface OutstandingToolCall {
   callId: string;
   name: string;
   startedAt: number;
@@ -30,9 +30,9 @@ export type OutstandingToolCall = {
    * about what is running (CL-5765).
    */
   preview: string | null;
-};
+}
 
-export type SubAgentSession = {
+export interface SubAgentSession {
   id: string;
   description: string;
   agentId: string;
@@ -76,9 +76,9 @@ export type SubAgentSession = {
   // a nested (one-hop) dispatch. Undefined for top-level sessions started
   // directly from the primary session's task tool.
   parentSessionId?: string;
-};
+}
 
-export type StartSessionInput = {
+export interface StartSessionInput {
   description: string;
   agentId: string;
   brief: string;
@@ -88,9 +88,9 @@ export type StartSessionInput = {
   // Set when this session is a nested dispatch spawned by an orchestrator
   // sub-agent, so the strip can render it indented under its parent.
   parentSessionId?: string;
-};
+}
 
-export type SubAgentSessionStoreOptions = {
+export interface SubAgentSessionStoreOptions {
   // Cap on completed/failed sessions retained after finish. Running sessions
   // are never pruned by this bound.
   maxCompleted?: number;
@@ -100,9 +100,9 @@ export type SubAgentSessionStoreOptions = {
   maxEntryChars?: number;
   now?: () => number;
   createId?: () => string;
-};
+}
 
-export type SubAgentSessionStore = {
+export interface SubAgentSessionStore {
   list(): readonly SubAgentSession[];
   get(id: string): SubAgentSession | undefined;
   // Running + recent completed, newest first — surface for the Agents strip.
@@ -121,7 +121,7 @@ export type SubAgentSessionStore = {
   cancelAll(reason?: string): string[];
   subscribe(listener: () => void): () => void;
   clear(): void;
-};
+}
 
 export const DEFAULT_CANCEL_REASON = "Cancelled by operator";
 
@@ -362,14 +362,12 @@ export function createSubAgentSessionStore(
     },
 
     listForStrip(): readonly SubAgentSession[] {
-      return [...sessions.values()]
-        .map(snapshotOf)
-        .sort((a, b) => {
-          // Running first, then by startedAt descending.
-          if (a.status === "running" && b.status !== "running") return -1;
-          if (a.status !== "running" && b.status === "running") return 1;
-          return b.startedAt - a.startedAt;
-        });
+      return [...sessions.values()].map(snapshotOf).sort((a, b) => {
+        // Running first, then by startedAt descending.
+        if (a.status === "running" && b.status !== "running") return -1;
+        if (a.status !== "running" && b.status === "running") return 1;
+        return b.startedAt - a.startedAt;
+      });
     },
 
     start(input: StartSessionInput): SubAgentSession {
@@ -429,7 +427,8 @@ export function createSubAgentSessionStore(
           case "inference.tool_call.start": {
             const data = event.data as { name?: unknown; callId?: unknown };
             const name = typeof data.name === "string" ? data.name : "tool";
-            const callId = typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
+            const callId =
+              typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
             beginToolCall(session, callId, name, now());
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             pushEntry(session, { kind: "tool", callId, name, arguments: "" });
@@ -470,14 +469,7 @@ export function createSubAgentSessionStore(
               if (args !== null && args.length > 0) entry.arguments = args;
               // Arguments finished streaming; the call itself is still in
               // flight, so this renames it rather than restarting its clock.
-              beginToolCall(
-                session,
-                entry.callId,
-                entry.name,
-                now(),
-                false,
-                entry.arguments,
-              );
+              beginToolCall(session, entry.callId, entry.name, now(), false, entry.arguments);
               return;
             }
             // No matching start — record a complete tool entry.
@@ -497,9 +489,11 @@ export function createSubAgentSessionStore(
           case "tool.start": {
             // tool.start is the execution-time counterpart of inference.tool_call.
             // Prefer inference events for the transcript; only fill gaps.
-            const call = (event as {
-              data?: { call?: { name?: unknown; id?: unknown; arguments?: unknown } };
-            }).data?.call;
+            const call = (
+              event as {
+                data?: { call?: { name?: unknown; id?: unknown; arguments?: unknown } };
+              }
+            ).data?.call;
             const name = typeof call?.name === "string" ? call.name : null;
             if (name === null) return;
             const callId = typeof call?.id === "string" ? call.id : null;
@@ -517,11 +511,16 @@ export function createSubAgentSessionStore(
             return;
           }
           case "tool.done": {
-            const result = (event.data as {
-              result?: { callId?: unknown; content?: unknown; isError?: unknown };
-            })?.result;
+            const result = (
+              event.data as {
+                result?: { callId?: unknown; content?: unknown; isError?: unknown };
+              }
+            )?.result;
             if (result === undefined) return;
-            const callId = typeof result.callId === "string" ? result.callId : `result-${session.entries.length}`;
+            const callId =
+              typeof result.callId === "string"
+                ? result.callId
+                : `result-${session.entries.length}`;
             let name = "tool";
             for (let i = session.entries.length - 1; i >= 0; i--) {
               const entry = session.entries[i];

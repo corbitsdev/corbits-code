@@ -23,7 +23,11 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
     { tool: "write_file", pattern: "npm test" },
   ];
 
-  const requests: Array<{ tool: string; cwd?: string | undefined; activeProviderModel?: string | undefined }> = [
+  const requests: {
+    tool: string;
+    cwd?: string | undefined;
+    activeProviderModel?: string | undefined;
+  }[] = [
     { tool: "run_shell", cwd: "/proj", activeProviderModel: "openai:gpt-5" },
     { tool: "run_shell", cwd: "/proj", activeProviderModel: "anthropic:opus" },
     { tool: "run_shell", cwd: "/other", activeProviderModel: "openai:gpt-5" },
@@ -34,7 +38,13 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
   for (const grant of grants) {
     for (const req of requests) {
       test(`grant ${JSON.stringify(grant)} vs request ${JSON.stringify(req)}`, async () => {
-        const expected = grantScopeMatches(grant, req.tool, req.activeProviderModel, req.cwd, workspace);
+        const expected = grantScopeMatches(
+          grant,
+          req.tool,
+          req.activeProviderModel,
+          req.cwd,
+          workspace,
+        );
 
         const viaEvaluateApprovals = await evaluateApprovals({
           tool: req.tool,
@@ -52,7 +62,13 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
           scopes: [],
           ...(req.cwd !== undefined ? { cwd: req.cwd } : {}),
         };
-        const viaGate = isRequestCoveredByGrant(request, grant, req.activeProviderModel, noopRestricted, workspace);
+        const viaGate = isRequestCoveredByGrant(
+          request,
+          grant,
+          req.activeProviderModel,
+          noopRestricted,
+          workspace,
+        );
 
         // Both live call sites additionally require the pattern to match the
         // subject, which is true for every case here ("npm test" grants an
@@ -73,13 +89,20 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
 // other two call sites get above.
 describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
   const full = "npm i && curl x";
-  const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+  const shellCall = (command: string): ToolCall => ({
+    id: "c",
+    name: "run_shell",
+    arguments: { command },
+  });
 
   test("does not replay a grant scoped to a different cwd", async () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: full, cwd: "/other-project" }],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -95,7 +118,10 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
       approvals: [{ tool: "run_shell", pattern: full, providerModel: "openai:gpt-5" }],
       providerName: "anthropic",
       model: "opus",
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });
@@ -107,7 +133,10 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
     let asked = 0;
     const gate = createPermissionGate({
       approvals: [{ tool: "run_shell", pattern: full }],
-      requestApproval: async () => { asked++; return { allow: true }; },
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
       interactive: true,
       skipPermissions: false,
     });

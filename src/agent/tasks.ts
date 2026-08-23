@@ -42,8 +42,8 @@ export const manageTasksDefinition: ToolDefinition = {
   name: "manage_tasks",
   description:
     "Maintain your own ordered work list for multi-step jobs. " +
-    "action=\"create\" replaces the full list (use to seed or replan). " +
-    "action=\"update\" patches by id: status (todo→doing→done/cancelled), title edits, " +
+    'action="create" replaces the full list (use to seed or replan). ' +
+    'action="update" patches by id: status (todo→doing→done/cancelled), title edits, ' +
     "and appends when the id is new and title is set. " +
     "Keep this list live — add, cancel, and re-title steps as you learn more. " +
     "Skip for trivial single-step changes.",
@@ -54,20 +54,23 @@ export const manageTasksDefinition: ToolDefinition = {
         type: "string",
         enum: ["create", "update"],
         description:
-          "\"create\" replaces the list; \"update\" patches by id and can append new tasks (id + title).",
+          '"create" replaces the list; "update" patches by id and can append new tasks (id + title).',
       },
       tasks: {
         type: "array",
-        description: "For action=\"create\": the new ordered task list (full replace).",
+        description: 'For action="create": the new ordered task list (full replace).',
         items: {
           type: "object",
           properties: {
-            id: { type: "string", description: "Stable id, unique within this list (e.g. t1, t2)." },
+            id: {
+              type: "string",
+              description: "Stable id, unique within this list (e.g. t1, t2).",
+            },
             title: { type: "string", description: "Short, action-oriented description." },
             status: {
               type: "string",
               enum: ["todo", "doing", "done", "cancelled"],
-              description: "Defaults to \"todo\" when omitted.",
+              description: 'Defaults to "todo" when omitted.',
             },
           },
           required: ["id", "title"],
@@ -76,8 +79,8 @@ export const manageTasksDefinition: ToolDefinition = {
       updates: {
         type: "array",
         description:
-          "For action=\"update\": per-task patches. Unknown id + title appends a new task; " +
-          "status \"cancelled\" removes it from active work.",
+          'For action="update": per-task patches. Unknown id + title appends a new task; ' +
+          'status "cancelled" removes it from active work.',
         items: {
           type: "object",
           properties: {
