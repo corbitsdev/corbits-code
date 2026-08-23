@@ -163,15 +163,9 @@ removed line), not a decision marker, and no decision-marker shares that row.
 ## The live task list panel
 
 **Parked pending rebuild.** `formatChromeZones` (`src/tui/chrome-state.ts`)
-always returns `{ task: null, agents: null }` — neither the checklist strip nor
-the agents/fleet board auto-paints. Live work stays on transcript `● Task …`
-rows (see below). `formatTasksPanel` / `formatAgentsPanel` remain for a future
-rebuild; demos and shell tests may still feed preformatted rows via
-`setChromeZones` directly, and Alt+T (`toggleTasksPanel`) still toggles the
-shell's hidden flag for those manual paints.
-
-A task is a unit of work with a status; an agent is an executor with its own
-context and transcript. They are never merged into one panel. When the
+keeps the task checklist parked (`task: null`) while the agents strip paints
+live. A task is a unit of work with a status; an agent is an executor with its
+own context and transcript. They are never merged into one panel. When the
 checklist strip is rebuilt, each row will show a bracket status marker (`[ ]`
 todo, `[~]` doing, `[x]` done, `[-]` cancelled) ahead of the title, bounded to
 `TASKS_PANEL_MAX_VISIBLE` with a trailing `+N more` under overflow, and
@@ -194,34 +188,40 @@ The panel stays **hidden by default** (CL-5847): a fresh shell does not paint
 the checklist. `toggleTasksPanel` (bound to Alt+T) opts in for the shell's
 lifetime — it flips a hidden flag held on the shell in memory only — so demos
 and tests that call `setChromeZones` with task rows can still show them.
-Because `formatChromeZones` parks auto-paint, Alt+T alone does not surface a
-live `manage_tasks` list today.
+Because `formatChromeZones` parks task auto-paint, Alt+T alone does not
+surface a live `manage_tasks` list today.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-hydrate. `manage_tasks` calls paint no transcript rows; with chrome strips
+hydrate. `manage_tasks` calls paint no transcript rows; with the checklist
 parked, that list has no standing chrome surface until rebuild.
 
-## Live sub-agent rows (Task tool)
+## Live agents chrome (strip above the prompt)
 
-Live workers paint as pending `task` tool rows in the transcript — the
-operator-preferred Amp/Codex-style lines:
+Live workers paint as a **flat agents strip** above the prompt (label /
+status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 
 ```
-● Task Design Lab interview 1:07 · AskUserQuestion
-● Task UI variations 0:59 · write_file
+● explore  map callers  · 0:59 · grep
+● general  write tests  · 1:07 · write_file
 ```
 
-`runtime-bridge` paints each `task` call as a stream row and rewrites it in
-place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
-stall marker). Ordinary in-flight tool rows get the same elapsed clock
-(`syncToolElapsed`) without the current-tool suffix, so a slow MCP or
-network call is distinguishable from a hung turn. There is no standing
-FLEET board and no dual-rail agents chrome:
-`formatChromeZones` always returns both zones null (`task` and `agents`), and
-geometry is stack-only (`layoutMode: "stack"`, `railWidth: 0`). Checklist and
-agents strips are parked pending rebuild; Alt+T / direct `setChromeZones` may
-still paint for demos and tests.
+`formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
+stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is
+`AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Terminal
+lanes (done / failed / cancelled) linger for `AGENTS_PANEL_LINGER_MS` (4s)
+after `finishedAt`, then drop. Product-host sticky poll uses
+`agentsChromeNeedsSticky` so clocks and linger stay fresh; while sticky is
+needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
+clocks.
+
+### Transcript Task rows (history anchors)
+
+`runtime-bridge` still paints each `task` call as a transcript stream row for
+**spawn / final / fail anchors**. While the agents strip is sticky, sticky-poll
+`syncAgentProgress` rewrites are gated off so the transcript is not a dual live
+rail. Ordinary in-flight tool rows keep their own elapsed clock
+(`syncToolElapsed`) without the current-tool suffix.
 
 ### Unprompted fleet reports
 
