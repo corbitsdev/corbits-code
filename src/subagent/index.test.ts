@@ -1727,7 +1727,31 @@ describe("createTaskTool", () => {
     expect(out).toContain("unavailable");
   });
 
-  test("rejects task maxTurns above the cap", async () => {
+  test("accepts task maxTurns above 100", async () => {
+    let captured: RunSubAgentParams | undefined;
+    const tool = createTaskTool({
+      permissionGate: testPermissionGate,
+      cwd: "/repo",
+      getWorkdirBase: () => "/repo/.corbits",
+      provider,
+      run: async (params) => {
+        captured = params;
+        return "done";
+      },
+    });
+
+    const result = await callTask(tool, {
+      description: "Long job",
+      prompt: "Work",
+      maxTurns: 500,
+      intent: "explore",
+    });
+
+    expect(result).not.toContain("Error:");
+    expect(captured?.maxTurns).toBe(500);
+  });
+
+  test("rejects task maxTurns below 1", async () => {
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
       cwd: "/repo",
@@ -1737,14 +1761,14 @@ describe("createTaskTool", () => {
     });
 
     const result = await callTask(tool, {
-      description: "Too long",
+      description: "Too short",
       prompt: "Work",
-      maxTurns: 101,
+      maxTurns: 0,
       intent: "explore",
     });
 
     expect(result).toContain("Error:");
-    expect(result).toContain("100");
+    expect(result).toContain("at least 1");
   });
 
   test("uses profile maxTurns when task omits maxTurns", async () => {
