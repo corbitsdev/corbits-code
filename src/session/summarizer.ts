@@ -206,7 +206,6 @@ export function createModelSummarizer(
     const fallback = (reason: string): string =>
       `[Model summary unavailable (${reason}); deterministic fallback]\n${buildTurnSummary(turns, maxChars)}`;
     try {
-
       const promptTurns: ConversationTurn[] = [
         {
           role: "system",
