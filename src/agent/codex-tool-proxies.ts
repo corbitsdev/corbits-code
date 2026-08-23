@@ -33,7 +33,7 @@ export type CodexRunManageTasks = (
   args: Record<string, unknown>,
 ) => Promise<{ content: string; isError?: boolean }>;
 
-export type CreateCodexToolProxiesOpts = {
+export interface CreateCodexToolProxiesOpts {
   isCodex: boolean;
   runTool: CodexRunTool;
   /** Dispatches update_plan's translated manage_tasks(action="create") call. */
@@ -49,7 +49,7 @@ export type CreateCodexToolProxiesOpts = {
    * Docs leaves pass false because DOCS_TOOLS omits run_shell.
    */
   allowShell?: boolean;
-};
+}
 
 const ApplyPatchArgs = type({
   input: "string>0",

@@ -12,7 +12,10 @@ import {
 import { DOCS_TOOLS, BUILD_TOOLS } from "./directors/tool-sets.js";
 import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
 
-type Call = { name: string; args: Record<string, unknown> };
+interface Call {
+  name: string;
+  args: Record<string, unknown>;
+}
 
 // `manage_tasks` is deliberately NOT a branch here: the real posixTools
 // registry runTool forwards to has no manage_tasks handler (only
