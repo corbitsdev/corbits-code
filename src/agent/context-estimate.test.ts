@@ -155,4 +155,60 @@ describe("createContextEstimate", () => {
     expect(estimate.tokens).toBe(1);
     expect(estimate.turnCount).toBe(1);
   });
+
+  test("append reuses prefix identities and adds only the new turn", () => {
+    const estimate = createContextEstimate();
+    const first = textTurn("xxxx");
+    const second = textTurn("yyyyyyyy", "assistant");
+    const turns = [first];
+    expect(estimate.syncFromTurns(turns)).toBe(1);
+
+    turns.push(second);
+    expect(estimate.syncFromTurns(turns)).toBe(1 + 2);
+    expect(estimate.tokens).toBe(3);
+    expect(estimate.turnCount).toBe(2);
+  });
+
+  test("second syncFromTurns with the same identities is a no-op", () => {
+    const estimate = createContextEstimate();
+    const first = textTurn("xxxx");
+    const second = textTurn("yyyyyyyy", "assistant");
+    const turns = [first, second];
+    expect(estimate.syncFromTurns(turns)).toBe(3);
+    expect(estimate.syncFromTurns(turns)).toBe(3);
+    expect(estimate.syncFromTurns([first, second])).toBe(3);
+    expect(estimate.tokens).toBe(3);
+    expect(estimate.turnCount).toBe(2);
+  });
+
+  test("rewrite or shrink fully recomputes", () => {
+    const estimate = createContextEstimate();
+    const first = textTurn("xxxx");
+    const second = textTurn("yyyyyyyy", "assistant");
+    expect(estimate.syncFromTurns([first, second])).toBe(3);
+
+    const rewritten = [textTurn("xxxx"), textTurn("yyyyyyyy", "assistant")];
+    expect(estimate.syncFromTurns(rewritten)).toBe(estimateContextTokens(rewritten));
+    expect(estimate.tokens).toBe(3);
+    expect(estimate.turnCount).toBe(2);
+
+    const shrunk = rewritten.slice(0, 1);
+    expect(estimate.syncFromTurns(shrunk)).toBe(estimateContextTokens(shrunk));
+    expect(estimate.tokens).toBe(1);
+    expect(estimate.turnCount).toBe(1);
+  });
+
+  test("same-length middle identity break recomputes even when the last ref matches", () => {
+    const estimate = createContextEstimate();
+    const first = textTurn("aaaa");
+    const middle = textTurn("bbbb");
+    const last = textTurn("cccc");
+    expect(estimate.syncFromTurns([first, middle, last])).toBe(3);
+
+    const replacedMiddle = textTurn("bbbbbbbb");
+    const after = [first, replacedMiddle, last];
+    expect(estimate.syncFromTurns(after)).toBe(estimateContextTokens(after));
+    expect(estimate.tokens).toBe(4);
+    expect(estimate.turnCount).toBe(3);
+  });
 });
