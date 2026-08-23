@@ -36,6 +36,10 @@ export function createCompactionGovernor(
   let pending = false;
   let idlePending = false;
   let postCompactInfer = false;
+  // Idle empty compact needs a post-compact decide cycle to adopt the shrunk
+  // turns for the meter, but must not start a new inference (there is no
+  // operator question to answer). Distinct from postCompactInfer.
+  let postCompactMeter = false;
   let overflowRecoveries = 0;
   // Set whenever the arming decision fell back to the local estimate because
   // the provider omitted usage or reported zero, so callers rendering a meter
@@ -137,12 +141,16 @@ export function createCompactionGovernor(
     idlePending = false;
     pending = false;
     const content = typeof event.message.content === "string" ? event.message.content : "";
-    // An operator message that raced the continuation is already in history;
-    // compact first, then request another continuation to answer it.
+    // The reactor delivers no event after compact, so always request a
+    // continuation to re-enter decide against the shrunk turns:
+    // - raced operator content → re-infer to answer it
+    // - empty synthetic continuation → meter-only sync (no infer)
     if (content.length > 0) {
       postCompactInfer = true;
-      requestContinuation?.();
+    } else {
+      postCompactMeter = true;
     }
+    requestContinuation?.();
     return [capabilities.compact(COMPACTOR_NAME, "context-threshold")];
   }
 
@@ -165,12 +173,22 @@ export function createCompactionGovernor(
     return [capabilities.compact(COMPACTOR_NAME, "context-overflow")];
   }
 
-  function resumeAfterCompact(event: ReactorInboundEvent): boolean {
-    if (!postCompactInfer || event.type !== "message.received") return false;
+  // After compact, a content-less continuation re-enters decide. "infer" means
+  // resume the interrupted loop; "meter" means adopt the shrunk turns for the
+  // Ctx display and stay idle (idle empty compact has nothing to answer).
+  function resumeAfterCompact(event: ReactorInboundEvent): "infer" | "meter" | null {
+    if (event.type !== "message.received") return null;
     const content = typeof event.message.content === "string" ? event.message.content : "";
-    if (content.length > 0) return false;
-    postCompactInfer = false;
-    return true;
+    if (content.length > 0) return null;
+    if (postCompactInfer) {
+      postCompactInfer = false;
+      return "infer";
+    }
+    if (postCompactMeter) {
+      postCompactMeter = false;
+      return "meter";
+    }
+    return null;
   }
 
   // After a successful compact, the provider-reported usage from before the

@@ -309,9 +309,16 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   pushCostContext();
   // Completed turns update cost/context; inference.start also refreshes so a
   // post-compact estimate (synced in decide before the infer) paints before
-  // the next inference.done arrives with provider usage.
+  // the next inference.done arrives with provider usage. connector.reply
+  // covers idle empty compact, which syncs the meter then waits (no infer).
   const onCostEvent = (event: { type: string }): void => {
-    if (onTurnBoundary(event) || event.type === "inference.start") pushCostContext();
+    if (
+      onTurnBoundary(event) ||
+      event.type === "inference.start" ||
+      event.type === "connector.reply"
+    ) {
+      pushCostContext();
+    }
   };
   deps.eventEmitter.on("event", onCostEvent);
 
