@@ -353,6 +353,7 @@ Session runtime state lives under the global projects tree (not in the repo):
 - `~/.corbits/projects/<project-key>/<session-id>/run.json` — `RunState`
 - `~/.corbits/projects/<project-key>/<session-id>/context/` — git-backed conversation context (`@intx/storage-isogit`)
 - Project key: slug + short hash of this checkout's git toplevel (from `--show-toplevel`, so linked worktrees have distinct keys; workspace realpath when not a git tree)
+- `latest` is a symlink in that same project sessions directory (not a session of its own). Naive globs over the directory double-count unless they skip `latest` (as `listSessions` does).
 
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
