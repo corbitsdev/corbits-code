@@ -20,11 +20,11 @@ import {
 export const DEFAULT_SHELL_TIMEOUT_MS = 15_000;
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
 
-export type ShellTimeoutConfig = {
+export interface ShellTimeoutConfig {
   defaultMs?: number;
   maxMs?: number;
   maxOutputBytes?: number;
-};
+}
 
 /**
  * Effective run_shell timeout. Omitting `requested` (or a non-positive value)
@@ -86,20 +86,20 @@ export function advertiseShellGuardTimeout(
 const SEARCH_TOOL_TIMEOUT_MS = 10_000;
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
 
-type RunShellArgs = {
+interface RunShellArgs {
   command: string;
   timeout?: number;
   cwd?: string;
   maxOutputBytes?: number;
   env?: Record<string, string>;
-};
+}
 
-export type GuardedShellResult = {
+export interface GuardedShellResult {
   output: string;
   exitCode: number;
   timedOut: boolean;
   outputTruncated: boolean;
-};
+}
 
 /**
  * Collects shell stdout/stderr with a hard byte ceiling. While under the cap the
@@ -295,9 +295,7 @@ export async function runGuardedShell(
     };
 
     child.on("error", (err) => {
-      settle(
-        new Error(`failed to spawn command: ${args.command}`, { cause: err }),
-      );
+      settle(new Error(`failed to spawn command: ${args.command}`, { cause: err }));
     });
 
     child.on("close", (code, sig) => {
@@ -349,12 +347,12 @@ function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
  * 10s wall-clock budget to grep/search_files when the agent does not abort
  * earlier. Does not modify interchange — short-circuits before the base tool.
  */
-export type ShellGuardPluginOptions = {
+export interface ShellGuardPluginOptions {
   // When true (yolo / --dangerously-skip-permissions), shell may retain a cwd
   // outside the session root. A getter is resolved per call so `/yolo`
   // mid-session takes effect without rebuilding the plugin stack.
   allowOutsideCwd?: boolean | (() => boolean);
-};
+}
 
 function resolveAllowOutsideCwd(value: boolean | (() => boolean) | undefined): boolean {
   if (typeof value === "function") return value();
@@ -430,23 +428,19 @@ export function shellGuardPlugin(
           );
           const wrappedCommand = wrapCommandWithPwdProbe(command);
           try {
-            const { output, exitCode, timedOut, outputTruncated } =
-              await runGuardedShell(
-                {
-                  command: wrappedCommand,
-                  cwd: executionCwd,
-                  timeout: effectiveTimeout,
-                  maxOutputBytes,
-                  ...(env !== undefined ? { env } : {}),
-                },
-                signal,
-              );
+            const { output, exitCode, timedOut, outputTruncated } = await runGuardedShell(
+              {
+                command: wrappedCommand,
+                cwd: executionCwd,
+                timeout: effectiveTimeout,
+                maxOutputBytes,
+                ...(env !== undefined ? { env } : {}),
+              },
+              signal,
+            );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
-              if (
-                !allowOutsideCwd &&
-                !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)
-              ) {
+              if (!allowOutsideCwd && !isShellCwdWithinSession(sessionRoot, parsed.finalCwd)) {
                 return {
                   callId: call.id,
                   content: shellCwdEscapesSessionMessage(parsed.finalCwd),
@@ -455,8 +449,7 @@ export function shellGuardPlugin(
               }
               retainedShellCwd = parsed.finalCwd;
             }
-            const base =
-              exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
+            const base = exitCode === 0 ? parsed.output : `exit code ${exitCode}\n${parsed.output}`;
             let content = base;
             if (outputTruncated) {
               content =
@@ -493,9 +486,7 @@ export function shellGuardPlugin(
           if (outcome === BUDGET_EXPIRED) {
             const content = signal.aborted
               ? `${call.name} aborted`
-              : formatSearchTimeoutMessage(
-                  call.name as "grep" | "search_files",
-                );
+              : formatSearchTimeoutMessage(call.name as "grep" | "search_files");
             return { callId: call.id, content, isError: true };
           }
 
@@ -519,9 +510,7 @@ export function shellGuardPlugin(
           ) {
             return {
               callId: call.id,
-              content: formatSearchTimeoutMessage(
-                call.name as "grep" | "search_files",
-              ),
+              content: formatSearchTimeoutMessage(call.name as "grep" | "search_files"),
               isError: true,
             };
           }

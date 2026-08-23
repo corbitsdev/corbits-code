@@ -5,7 +5,7 @@ export type FirstClassOAuthProvider = "codex" | "xai";
 export type FirstClassBillingProduct = "subscription" | "credits";
 
 /** One connect path under a chooser provider (e.g. OpenAI ChatGPT vs API key). */
-export type FirstClassProviderPath = {
+export interface FirstClassProviderPath {
   id: string;
   label: string;
   auth: "oauth" | "api-key";
@@ -23,9 +23,9 @@ export type FirstClassProviderPath = {
    * e.g. "codex" for ChatGPT OAuth, "openai" for API key.
    */
   providerId?: string;
-};
+}
 
-export type FirstClassProviderDef = {
+export interface FirstClassProviderDef {
   id: string;
   label: string;
   auth: FirstClassAuthKind;
@@ -52,4 +52,4 @@ export type FirstClassProviderDef = {
    * api-key flow runs against that path's fields / providerId.
    */
   paths?: readonly FirstClassProviderPath[];
-};
+}

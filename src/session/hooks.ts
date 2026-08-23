@@ -20,18 +20,18 @@ export type HookKind = "postTurn" | "postRun";
 
 export type LifecycleHookType = "typescript" | "shell";
 
-export type HookExitStatus = {
+export interface HookExitStatus {
   code: number | null;
   signal: string | null;
   stderr: string;
-};
+}
 
-export type LifecycleHook = {
+export interface LifecycleHook {
   id: string;
   name: string;
   type: LifecycleHookType;
   path: string;
-};
+}
 
 export type LifecycleHookStatus = LifecycleHook & {
   enabled: boolean;
@@ -40,7 +40,7 @@ export type LifecycleHookStatus = LifecycleHook & {
   lastExitStatus?: HookExitStatus;
 };
 
-export type TurnContext = {
+export interface TurnContext {
   turnIndex: number;
   assistantTurn: ConversationTurn;
   toolCalls: ToolCall[];
@@ -48,9 +48,9 @@ export type TurnContext = {
   usage: TokenUsage;
   source: LastCycleSource;
   durationMs: number;
-};
+}
 
-export type RunSummary = {
+export interface RunSummary {
   task: string;
   status: "done" | "failed" | "cancelled";
   startedAt: number;
@@ -61,20 +61,20 @@ export type RunSummary = {
   turns: TurnContext[];
   toolCallCount: number;
   error?: string;
-};
+}
 
 export type LifecycleHookEvent =
   | { type: "hooks.loaded"; hooks: LifecycleHookStatus[] }
   | { type: "hook.updated"; hook: LifecycleHookStatus };
 
-export type LifecycleHookManager = {
+export interface LifecycleHookManager {
   getStatuses(): LifecycleHookStatus[];
   setEnabled(id: string, enabled: boolean): void;
   dispatchPostTurn(ctx: TurnContext): void;
   dispatchPostRun(summary: RunSummary): Promise<void>;
-};
+}
 
-type PendingTurn = {
+interface PendingTurn {
   startedAt: number;
   turnIndex: number;
   assistantTurn: ConversationTurn;
@@ -82,7 +82,7 @@ type PendingTurn = {
   toolResults: ToolResult[];
   usage: TokenUsage;
   source: LastCycleSource;
-};
+}
 
 const emptyUsage: TokenUsage = {
   input: 0,
@@ -169,7 +169,7 @@ async function discoverHooksInDirectory(directory: string): Promise<LifecycleHoo
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export type TurnContextCollectorOptions = {
+export interface TurnContextCollectorOptions {
   // Turn/token/tool-call counts are cheap scalars needed regardless of
   // consumers. The turns array (with truncated tool results) is the actual
   // standing copy of recent history, so callers with nothing to hand it to
@@ -178,7 +178,7 @@ export type TurnContextCollectorOptions = {
   // Resuming a session should continue the persisted run.json turn count
   // rather than restart it at zero.
   initialTurnCount?: number;
-};
+}
 
 export function createTurnContextCollector(
   onTurn: (ctx: TurnContext) => void,
@@ -239,7 +239,10 @@ export function createTurnContextCollector(
 
       if (onTurnBoundary(event)) {
         const toolCalls = event.data.turn.content
-          .filter((block): block is Extract<typeof block, { type: "tool_call" }> => block.type === "tool_call")
+          .filter(
+            (block): block is Extract<typeof block, { type: "tool_call" }> =>
+              block.type === "tool_call",
+          )
           .map((block): ToolCall => ({
             id: block.id,
             name: block.name,
@@ -337,7 +340,11 @@ export function createLifecycleHookManager(args: {
     onEvent({ type: "hook.updated", hook: { ...next } });
   }
 
-  function runHook(status: LifecycleHookStatus, kind: HookKind, payload: TurnContext | RunSummary): Promise<void> {
+  function runHook(
+    status: LifecycleHookStatus,
+    kind: HookKind,
+    payload: TurnContext | RunSummary,
+  ): Promise<void> {
     updateStatus(status.id, { lastFiredAt: Date.now(), lastKind: kind });
     return runLifecycleHook(status, kind, payload).then(
       (exitStatus) => updateStatus(status.id, { lastExitStatus: exitStatus }),
@@ -381,9 +388,10 @@ async function runLifecycleHook(
   kind: HookKind,
   payload: TurnContext | RunSummary,
 ): Promise<HookExitStatus> {
-  const command = hook.type === "typescript"
-    ? await createTypeScriptHookCommand(hook, kind)
-    : hookCommand(hook, kind);
+  const command =
+    hook.type === "typescript"
+      ? await createTypeScriptHookCommand(hook, kind)
+      : hookCommand(hook, kind);
   const proc = Bun.spawn(command, {
     stdin: "pipe",
     stdout: "ignore",
@@ -391,10 +399,7 @@ async function runLifecycleHook(
   });
   proc.stdin.write(JSON.stringify(payload));
   proc.stdin.end();
-  const [exitCode, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stderr).text(),
-  ]);
+  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
   return {
     code: exitCode,
     signal: proc.signalCode,
@@ -406,10 +411,7 @@ function hookCommand(hook: LifecycleHook, kind: HookKind): string[] {
   return ["sh", hook.path, kind];
 }
 
-async function createTypeScriptHookCommand(
-  hook: LifecycleHook,
-  kind: HookKind,
-): Promise<string[]> {
+async function createTypeScriptHookCommand(hook: LifecycleHook, kind: HookKind): Promise<string[]> {
   const runnerDir = join(tmpdir(), `${COMMAND_NAME}-hook-runners`);
   const runnerPath = join(runnerDir, `${hashHookRunner(hook.path, kind)}.ts`);
   await mkdir(runnerDir, { recursive: true });
@@ -437,9 +439,10 @@ function hashHookRunner(path: string, kind: HookKind): string {
 
 function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
   const raw = typeof result.content === "string" ? result.content : JSON.stringify(result.content);
-  const content = raw.length <= HOOK_PAYLOAD_TOOL_RESULT_CHARS
-    ? raw
-    : `…[${raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS} chars omitted]${raw.slice(raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS)}`;
+  const content =
+    raw.length <= HOOK_PAYLOAD_TOOL_RESULT_CHARS
+      ? raw
+      : `…[${raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS} chars omitted]${raw.slice(raw.length - HOOK_PAYLOAD_TOOL_RESULT_CHARS)}`;
   return {
     callId: result.callId,
     content,

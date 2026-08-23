@@ -93,12 +93,7 @@ export function verifyPlugin(): ToolPlugin {
   };
 }
 
-function applyEdit(
-  content: string,
-  oldStr: string,
-  newStr: string,
-  replaceAll: boolean,
-): string {
+function applyEdit(content: string, oldStr: string, newStr: string, replaceAll: boolean): string {
   if (oldStr.length === 0) return content;
   if (replaceAll) {
     return content.split(oldStr).join(newStr);

@@ -1,8 +1,4 @@
-export {
-  XAI_BASE_URL,
-  XAI_DEFAULT_MODELS,
-  XAI_REDIRECT_URI,
-} from "./constants.js";
+export { XAI_BASE_URL, XAI_DEFAULT_MODELS, XAI_REDIRECT_URI } from "./constants.js";
 export {
   listXaiProfiles,
   loadXaiProfile,

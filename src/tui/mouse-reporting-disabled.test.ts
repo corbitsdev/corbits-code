@@ -7,16 +7,16 @@
  * `createCliRenderer` branch runs, and assert on the options it was
  * actually called with.
  */
-import { afterAll, describe, expect, mock, test } from "bun:test"
-import type { Harness } from "./harness.js"
+import { afterAll, describe, expect, mock, test } from "bun:test";
+import type { Harness } from "./harness.js";
 
-type CapturedRendererOptions = {
-  readonly useMouse?: boolean
-  readonly enableMouseMovement?: boolean
+interface CapturedRendererOptions {
+  readonly useMouse?: boolean;
+  readonly enableMouseMovement?: boolean;
 }
 
-const capturedOptions: CapturedRendererOptions[] = []
-const mountedHarnesses: Harness[] = []
+const capturedOptions: CapturedRendererOptions[] = [];
+const mountedHarnesses: Harness[] = [];
 
 // The mock must be registered before anything (including this file's own
 // helpers) does a real `@opentui/core` import, or that import wins the module
@@ -27,18 +27,18 @@ const mountedHarnesses: Harness[] = []
 // mocked, so the capture is shallow-copied immediately -- holding onto the
 // live namespace would turn into the mocked exports the moment mock.module
 // below runs, making the afterAll restore below a no-op.
-const realCore = { ...(await import("@opentui/core")) }
+const realCore = { ...(await import("@opentui/core")) };
 
 mock.module("@opentui/core", () => ({
   ...realCore,
   createCliRenderer: async (options: CapturedRendererOptions) => {
-    capturedOptions.push(options)
-    const { createHarness } = await import("./harness.js")
-    const harness = await createHarness({ width: 80, height: 24 })
-    mountedHarnesses.push(harness)
-    return harness.renderer
+    capturedOptions.push(options);
+    const { createHarness } = await import("./harness.js");
+    const harness = await createHarness({ width: 80, height: 24 });
+    mountedHarnesses.push(harness);
+    return harness.renderer;
   },
-}))
+}));
 
 // `mock.module` replaces the shared module cache for the whole test process,
 // not just this file — every other test that imports `@opentui/core` runs in
@@ -46,44 +46,44 @@ mock.module("@opentui/core", () => ({
 // later un-injected `createCliRenderer` caller does not silently get this
 // fake harness renderer instead.
 afterAll(() => {
-  mock.module("@opentui/core", () => realCore)
-})
+  mock.module("@opentui/core", () => realCore);
+});
 
-const { runListModal } = await import("./list-modal.js")
-const { runProviderSetup } = await import("./provider-setup.js")
+const { runListModal } = await import("./list-modal.js");
+const { runProviderSetup } = await import("./provider-setup.js");
 
 async function waitForMount(): Promise<void> {
   for (let i = 0; i < 100 && capturedOptions.length === 0; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
 
 describe("default renderer mount disables DEC mouse reporting (CL-5540)", () => {
   test("runListModal", async () => {
-    capturedOptions.length = 0
+    capturedOptions.length = 0;
     // Fire-and-forget: the mounted renderer never resolves this promise in
     // this test (nothing presses a key), so only await the mount itself.
     void runListModal({
       title: "resume session",
       options: [{ id: "s-1", label: "First session" }],
-    })
-    await waitForMount()
-    expect(capturedOptions).toHaveLength(1)
-    expect(capturedOptions[0]?.useMouse).toBe(false)
-    expect(capturedOptions[0]?.enableMouseMovement).toBe(false)
-    mountedHarnesses.pop()?.destroy()
-  })
+    });
+    await waitForMount();
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.useMouse).toBe(false);
+    expect(capturedOptions[0]?.enableMouseMovement).toBe(false);
+    mountedHarnesses.pop()?.destroy();
+  });
 
   test("runProviderSetup", async () => {
-    capturedOptions.length = 0
+    capturedOptions.length = 0;
     void runProviderSetup({
       onSubmit: async () => undefined,
       showTelemetryNotice: false,
-    })
-    await waitForMount()
-    expect(capturedOptions).toHaveLength(1)
-    expect(capturedOptions[0]?.useMouse).toBe(false)
-    expect(capturedOptions[0]?.enableMouseMovement).toBe(false)
-    mountedHarnesses.pop()?.destroy()
-  })
-})
+    });
+    await waitForMount();
+    expect(capturedOptions).toHaveLength(1);
+    expect(capturedOptions[0]?.useMouse).toBe(false);
+    expect(capturedOptions[0]?.enableMouseMovement).toBe(false);
+    mountedHarnesses.pop()?.destroy();
+  });
+});

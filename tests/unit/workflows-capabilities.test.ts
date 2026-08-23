@@ -1,10 +1,6 @@
 import { test, expect } from "bun:test";
 import type { ToolDefinition } from "@intx/types/runtime";
-import {
-  detectCapabilities,
-  resolveStep,
-  CAPABILITIES,
-} from "../../src/workflows/capabilities.js";
+import { detectCapabilities, resolveStep, CAPABILITIES } from "../../src/workflows/capabilities.js";
 import type { WorkflowStep } from "../../src/workflows/types.js";
 
 function tool(name: string): ToolDefinition {
@@ -42,9 +38,7 @@ test("no matching tools means the capability is absent", () => {
 });
 
 test("unknown MCP servers are ignored, not errored", () => {
-  expect(() =>
-    detectCapabilities([tool("mcp__some_unknown_server__do_thing")]),
-  ).not.toThrow();
+  expect(() => detectCapabilities([tool("mcp__some_unknown_server__do_thing")])).not.toThrow();
 });
 
 test("an override disables a present capability", () => {

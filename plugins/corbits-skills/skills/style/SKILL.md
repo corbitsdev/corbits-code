@@ -48,7 +48,7 @@ Decorative comment blocks (ASCII art dividers, section headers) add visual noise
 result = await legacyMethod()
 ```
 
-**TODO/FIXME/XXX markers are not a deferral mechanism.** They are reserved for work that is *genuinely blocked* by something outside your control — waiting on an upstream library fix, an unreleased API version, missing access or credentials, a dependency in another team's queue. The marker must name the blocker, so a reader knows what would unblock it.
+**TODO/FIXME/XXX markers are not a deferral mechanism.** They are reserved for work that is _genuinely blocked_ by something outside your control — waiting on an upstream library fix, an unreleased API version, missing access or credentials, a dependency in another team's queue. The marker must name the blocker, so a reader knows what would unblock it.
 
 Do not use these markers for:
 
@@ -61,7 +61,7 @@ If you could do it now, do it now. A TODO is a promise to the reader that the wo
 
 ### Comments describe the current code
 
-Code comments speak for the commit they appear in. Do not write comments that refer to other commits — neither what an earlier commit changed nor what a planned follow-up commit will do. A comment like `// stub; next commit fills this in` is wrong the moment that follow-up is reordered, dropped, or read by someone who reverted past it. If the code is intentionally a stub now, say *why it is a stub now*, not what is supposed to replace it.
+Code comments speak for the commit they appear in. Do not write comments that refer to other commits — neither what an earlier commit changed nor what a planned follow-up commit will do. A comment like `// stub; next commit fills this in` is wrong the moment that follow-up is reordered, dropped, or read by someone who reverted past it. If the code is intentionally a stub now, say _why it is a stub now_, not what is supposed to replace it.
 
 This holds even when you have a multi-commit plan in context — a planned commit does not exist until it lands, and the comment must be accurate for the commit it lives in, standing alone.
 
@@ -143,7 +143,7 @@ Document INFERENCE.md updates          (filename in subject)
 A commit message must stand alone. Do not reference:
 
 - File paths or filenames — the diff already lists what changed
-- External tracking systems (Linear, Jira, GitHub issues) — they may move, be renamed, or be inaccessible to future readers; the commit must explain *itself*, not point to an explanation elsewhere
+- External tracking systems (Linear, Jira, GitHub issues) — they may move, be renamed, or be inaccessible to future readers; the commit must explain _itself_, not point to an explanation elsewhere
 - PR review comments, prior conversations, or other ephemeral discussions
 - The commit's position in a branch or series, in either direction — neither prior commits ("as discussed in the previous commit") nor upcoming ones ("the next commit wires this up"). A commit describes the state of the repo at that commit, not the branch's trajectory. This holds even when you know exactly which commits are planned to land next: a follow-up commit you intend to write does not yet exist, and a reader landing on this commit (or reverting past the planned one) will not see it.
 
@@ -151,11 +151,11 @@ Someone reading `git log` years from now, with only the repo in hand, should und
 
 **Body content — what belongs in a commit message:**
 
-**Write for a stranger reading `git log` years from now, not for the person reviewing this PR.** The reviewer has the conversation, the ticket, the prior state of the code; the future reader has only the message and the diff. Most length problems dissolve once the audience is right: anything you would write *because the reviewer would appreciate seeing your reasoning* almost certainly does not belong.
+**Write for a stranger reading `git log` years from now, not for the person reviewing this PR.** The reviewer has the conversation, the ticket, the prior state of the code; the future reader has only the message and the diff. Most length problems dissolve once the audience is right: anything you would write _because the reviewer would appreciate seeing your reasoning_ almost certainly does not belong.
 
-**Most commits do not need a body.** A clear subject and a coherent diff are usually enough. Add a body only when the diff would leave a future reader genuinely unable to answer *why* this change. If you are reaching for a body to demonstrate the change was considered, or to preempt questions from the reviewer, that is not the body's job.
+**Most commits do not need a body.** A clear subject and a coherent diff are usually enough. Add a body only when the diff would leave a future reader genuinely unable to answer _why_ this change. If you are reaching for a body to demonstrate the change was considered, or to preempt questions from the reviewer, that is not the body's job.
 
-When a body is warranted, it carries one thing: the motivation that would otherwise leave the diff looking arbitrary — why this change, why now, why not the obvious alternative. Information about the *code's behavior*, even non-obvious behavior, does not belong here: future callers do not read `git log`, they read the code, so a comment on the affected function or a line in the relevant documentation file is the right home. Surrounding context — the alternatives explored, the work that led here, the broader trade-off landscape — does not belong either, even when it feels load-bearing in the moment. Before writing a line of body, ask where that information actually lives:
+When a body is warranted, it carries one thing: the motivation that would otherwise leave the diff looking arbitrary — why this change, why now, why not the obvious alternative. Information about the _code's behavior_, even non-obvious behavior, does not belong here: future callers do not read `git log`, they read the code, so a comment on the affected function or a line in the relevant documentation file is the right home. Surrounding context — the alternatives explored, the work that led here, the broader trade-off landscape — does not belong either, even when it feels load-bearing in the moment. Before writing a line of body, ask where that information actually lives:
 
 - **Describes what the code does** → the code already says this. Cut.
 - **Describes how the system works in general** → belongs in repo documentation. If the docs are wrong, fix them in this commit; don't smuggle the explanation into the message.
@@ -304,7 +304,7 @@ Defaults live at the edge, alongside validation. The boundary that accepts user 
 
 The rule targets **read-site defaults** — code that asks "did I get a value?" and silently substitutes one when the answer is no. Concretely: no `getattr(obj, "key", default)`, no `dict.get(k, default)`, no `value || fallback` or `value ?? fallback` scattered through business logic. Each of these is a defaulting decision smuggled into a layer that does not own the input contract, and each colludes with swallowed errors — a missing value that should have raised at the boundary instead becomes a silent fallback three layers deep, indistinguishable from a value the user actually passed.
 
-Default parameter values on a function signature are a different shape and are fine *when the function is itself a boundary*: a config loader, a dataclass constructor that receives values crossing from edge to interior, the entry point of a recursion (its own first call is the edge for the accumulator). What is not fine is an internal helper deep in the call graph that papers over a caller forgetting to pass something. Optional configuration fields get resolved once, at load time, into a concrete config object with no optionals; inner code sees a fully-specified value and trusts it.
+Default parameter values on a function signature are a different shape and are fine _when the function is itself a boundary_: a config loader, a dataclass constructor that receives values crossing from edge to interior, the entry point of a recursion (its own first call is the edge for the accumulator). What is not fine is an internal helper deep in the call graph that papers over a caller forgetting to pass something. Optional configuration fields get resolved once, at load time, into a concrete config object with no optionals; inner code sees a fully-specified value and trusts it.
 
 To locate the edge in a multi-layer system, ask which single function or file decides what an absent value means. That layer is the edge. Anything deeper that re-decides is wrong. The exception is genuinely public library code where no single layer owns the contract — every caller is the edge. "Public" here means consumed across organization or API boundaries, not "shared across two internal modules"; the latter still has an edge, and the rule still applies one layer in.
 
