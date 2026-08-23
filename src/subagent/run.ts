@@ -53,6 +53,11 @@ import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
 import { shouldApplyGrokAntiThrash } from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+import {
+  createInterventionLog,
+  NOOP_INTERVENTION_SINK,
+  type InterventionSink,
+} from "./intervention-log.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 
 import { COMPACTOR_KEEP_RECENT_TURNS, createPruningCompactor } from "../session/compactor.js";
@@ -459,6 +464,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       }),
     });
 
+    // Assigned once the leaf's trace dir exists; the director factory closes
+    // over this binding and only fires after that point.
+    let interventions: InterventionSink = NOOP_INTERVENTION_SINK;
     let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
     const requestContinuation = (): void => {
       try {
@@ -482,8 +490,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     const directorDef = defineDirector({
       id: `${ID_PREFIX}/subagent`,
       configSchema: type({}),
-      factory: (_config, _env, agentCtx) =>
-        new SubAgentDirector(
+      factory: (_config, _env, agentCtx) => {
+        const director = new SubAgentDirector(
           agentCtx.systemPrompt,
           normalizeToolDefinitionsForProvider([...agentCtx.toolDefinitions], {
             providerName: params.provider.providerName,
@@ -496,7 +504,12 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           Date.now,
           params.intent === "implement",
           shouldRequireEvidence(params),
-        ),
+        );
+        director.observeInterventions((event) => {
+          interventions(event);
+        });
+        return director;
+      },
     });
 
     // Directors are pure decide(event, ...) functions with no timer of their
@@ -536,6 +549,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
 
     const workdir = join(params.workdirBase, "subagents", generateSessionId());
     await mkdir(workdir, { recursive: true });
+    // One record per stop/nudge, with its measured value beside its threshold,
+    // written into this leaf's own trace dir (CL-6938).
+    interventions = createInterventionLog(workdir, {
+      role: params.orchestrator === true ? "orchestrator" : "leaf",
+      provider: params.provider.providerName,
+      model: params.provider.model,
+      family: modelFamilyPolicy.family,
+      ...(params.intent !== undefined ? { intent: params.intent } : {}),
+    });
 
     const def = defineAgent({
       id: `${ID_PREFIX}/subagent`,
@@ -828,6 +850,20 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
                 : reason === "deadline" && resolvedDeadlineMs !== undefined
                   ? `${resolvedDeadlineMs}ms elapsed`
                   : abortReasonText(runController.signal);
+          interventions({
+            id: reason,
+            class: "stop",
+            ...(repetition.hit !== null
+              ? {
+                  measurement: {
+                    metric: "repeats",
+                    value: repetition.hit.repeats,
+                  },
+                }
+              : {}),
+            state: { totalToolCalls: toolNamesUsed.length },
+            ...(detail !== undefined ? { detail } : {}),
+          });
           return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
         }
       }

@@ -15,6 +15,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **Every stop and nudge is now logged, and so is what each dispatch produced.**
+  `interventions.jsonl` in the worker's trace dir records each intervention with
+  its measured value beside the threshold it crossed, the model family it fired
+  on, and the run state at that moment — plus refused parent re-dispatches and,
+  now, one outcome record per completed dispatch (the salvage kind or a
+  clean-complete marker, plus the dispatch count). `bun run
+  scripts/intervention-forensics.ts` aggregates them: counts by family, value
+  distribution against threshold, two context columns (stops on runs that had
+  already edited files, stops before half the turn budget — not a measured
+  false-positive rate), and outcome counts by kind. Threshold changes can now
+  cite data instead of judgment.
+
 - **Shell file work counts as evidence.** A worker that edited with `sed -i`, a
   heredoc, or `>` redirection had `editedPaths` empty and salvaged as
   `never-edited` — a sticky hard block that then refused the parent an identical
