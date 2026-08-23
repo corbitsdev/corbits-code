@@ -7,10 +7,7 @@ import { requestModelsEndpoint } from "../provider/models-endpoint.js";
  *
  * Returns only the model id strings. Throws on HTTP or parse errors.
  */
-export async function fetchBifrostModels(
-  baseURL: string,
-  apiKey: string,
-): Promise<string[]> {
+export async function fetchBifrostModels(baseURL: string, apiKey: string): Promise<string[]> {
   const headers: Record<string, string> = {
     "x-bf-vk": apiKey,
   };
@@ -22,7 +19,7 @@ export async function fetchBifrostModels(
     const text = await res.text().catch(() => "");
     throw new Error(`Failed to list Bifrost models (${res.status}): ${text}`);
   }
-  const json = (await res.json()) as { data?: Array<{ id?: unknown }> };
+  const json = (await res.json()) as { data?: { id?: unknown }[] };
   return (json.data ?? [])
     .map((d) => (typeof d.id === "string" ? d.id : undefined))
     .filter((id): id is string => id !== undefined && id.length > 0);

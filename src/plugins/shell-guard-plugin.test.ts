@@ -27,10 +27,7 @@ function toolContentTrimmed(result: ToolResult): string {
 
 describe("runGuardedShell", () => {
   test("captures stdout", async () => {
-    const { output, exitCode } = await runGuardedShell(
-      { command: "echo hello" },
-      neverAbort(),
-    );
+    const { output, exitCode } = await runGuardedShell({ command: "echo hello" }, neverAbort());
     expect(exitCode).toBe(0);
     expect(output).toContain("hello");
   });
@@ -72,8 +69,7 @@ describe("runGuardedShell", () => {
     const cap = 8_192;
     const { output, outputTruncated, exitCode } = await runGuardedShell(
       {
-        command:
-          "python3 -c \"print('START' + 'a' * 20000 + 'END' + 'b' * 20000)\"",
+        command: "python3 -c \"print('START' + 'a' * 20000 + 'END' + 'b' * 20000)\"",
         timeout: 5_000,
         maxOutputBytes: cap,
       },
@@ -132,10 +128,7 @@ describe("runGuardedShell", () => {
     const token = `ic_guard_abort_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
     const controller = new AbortController();
-    const promise = runGuardedShell(
-      { command: cmd, timeout: 30_000 },
-      controller.signal,
-    );
+    const promise = runGuardedShell({ command: cmd, timeout: 30_000 }, controller.signal);
     setTimeout(() => controller.abort(), 80);
     await expect(promise).rejects.toThrow(/aborted/);
     await new Promise((r) => setTimeout(r, 300));
@@ -146,10 +139,7 @@ describe("runGuardedShell", () => {
 
   test("abort kills the process group", async () => {
     const controller = new AbortController();
-    const promise = runGuardedShell(
-      { command: "sleep 60", timeout: 30_000 },
-      controller.signal,
-    );
+    const promise = runGuardedShell({ command: "sleep 60", timeout: 30_000 }, controller.signal);
     setTimeout(() => controller.abort(), 50);
     await expect(promise).rejects.toThrow(/aborted/);
   });
@@ -241,9 +231,9 @@ describe("shellGuardPlugin", () => {
   });
 
   test("plugin-level env is applied to run_shell's spawn environment", async () => {
-    const handler = shellGuardPlugin(process.cwd(), undefined, { CORBITS_TEST_ENV_VAR: "plugin-env" }).middleware!(
-      fallback,
-    );
+    const handler = shellGuardPlugin(process.cwd(), undefined, {
+      CORBITS_TEST_ENV_VAR: "plugin-env",
+    }).middleware!(fallback);
     const result = await handler(
       { id: "c-env", name: "run_shell", arguments: { command: "echo $CORBITS_TEST_ENV_VAR" } },
       neverAbort(),
@@ -263,9 +253,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("clamps a per-command timeout override to the configured max", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware!(
-      fallback,
-    );
+    const handler = shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware!(fallback);
     const result = await handler(
       { id: "c2b", name: "run_shell", arguments: { command: "sleep 60", timeout: 900_000 } },
       neverAbort(),
@@ -274,9 +262,7 @@ describe("shellGuardPlugin", () => {
   });
 
   test("applies a configured default timeout when none is passed", async () => {
-    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware!(
-      fallback,
-    );
+    const handler = shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware!(fallback);
     const result = await handler(
       { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
       neverAbort(),
@@ -312,15 +298,9 @@ describe("shellGuardPlugin", () => {
 
   test("applies a search-tool budget via abort signal", async () => {
     let sawAbort = false;
-    const slow = async (
-      _call: ToolCall,
-      signal: AbortSignal,
-    ): Promise<ToolResult> =>
+    const slow = async (_call: ToolCall, signal: AbortSignal): Promise<ToolResult> =>
       new Promise((resolve) => {
-        const timer = setTimeout(
-          () => resolve({ callId: "c4", content: "too-late" }),
-          5_000,
-        );
+        const timer = setTimeout(() => resolve({ callId: "c4", content: "too-late" }), 5_000);
         signal.addEventListener(
           "abort",
           () => {
@@ -460,14 +440,8 @@ describe("shellGuardPlugin", () => {
     await mkdir(b);
     const handlerA = shellGuardPlugin(root).middleware!(fallback);
     const handlerB = shellGuardPlugin(root).middleware!(fallback);
-    await handlerA(
-      { id: "ia", name: "run_shell", arguments: { command: "cd a" } },
-      neverAbort(),
-    );
-    await handlerB(
-      { id: "ib", name: "run_shell", arguments: { command: "cd b" } },
-      neverAbort(),
-    );
+    await handlerA({ id: "ia", name: "run_shell", arguments: { command: "cd a" } }, neverAbort());
+    await handlerB({ id: "ib", name: "run_shell", arguments: { command: "cd b" } }, neverAbort());
     const pwdA = await handlerA(
       { id: "pa", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),

@@ -2,10 +2,10 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { isKimiLeafProvider } from "../subagent/provider-family.js";
 
 /** Context used to decide whether a provider needs wire-schema rewrites. */
-export type NormalizeToolDefsContext = {
+export interface NormalizeToolDefsContext {
   providerName: string;
   model?: string;
-};
+}
 
 /**
  * Shared primitives / view guidance for `present`. Used by both the canonical
@@ -118,7 +118,8 @@ export const KIMI_PRESENT_INPUT_SCHEMA = {
   properties: {
     view: {
       description:
-        "Root layout node. Runtime validates full nested trees. " + PRESENT_VIEW_PRIMITIVES_GUIDANCE,
+        "Root layout node. Runtime validates full nested trees. " +
+        PRESENT_VIEW_PRIMITIVES_GUIDANCE,
       oneOf: [
         TEXT_NODE,
         DIVIDER_NODE,

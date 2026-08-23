@@ -26,12 +26,13 @@ import {
 } from "./types.js";
 
 /** Intent → default director when `task(agent=…)` is omitted. No general director. */
-export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> = {
-  implement: "build",
-  explore: "explore",
-  plan: "plan",
-  review: "critique",
-};
+export const INTENT_DEFAULT_DIRECTOR: Readonly<Record<Exclude<TaskIntent, "general">, DirectorId>> =
+  {
+    implement: "build",
+    explore: "explore",
+    plan: "plan",
+    review: "critique",
+  };
 
 /**
  * Closed v1 registry — full packages (prompts, envelopes, spawn, nudge, modelRole).

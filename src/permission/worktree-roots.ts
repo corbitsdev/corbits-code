@@ -21,7 +21,8 @@ export function realpathOr(path: string): string {
 function parseWorktreePorcelain(stdout: string, cwd: string): string[] {
   const roots: string[] = [];
   for (const line of stdout.split("\n")) {
-    if (line.startsWith("worktree ")) roots.push(realpathOr(resolve(line.slice("worktree ".length).trim())));
+    if (line.startsWith("worktree "))
+      roots.push(realpathOr(resolve(line.slice("worktree ".length).trim())));
   }
   const self = realpathOr(resolve(cwd));
   return roots.filter((root) => root !== self);
@@ -46,7 +47,10 @@ export async function listWorktreeRoots(cwd: string): Promise<string[]> {
 // awaiting). Same semantics as listWorktreeRoots, just blocking.
 export function listWorktreeRootsSync(cwd: string): string[] {
   try {
-    const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, encoding: "utf8" });
+    const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+    });
     return parseWorktreePorcelain(stdout, cwd);
   } catch {
     return [];

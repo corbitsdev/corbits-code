@@ -43,12 +43,21 @@ export function htmlToMarkdown(html: string): string {
     .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level: string, inner: string) => {
       return `\n${"#".repeat(Number(level))} ${htmlToText(inner)}\n`;
     })
-    .replace(/<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
-      const text = htmlToText(inner);
-      return text.length > 0 ? `[${text}](${href})` : href;
-    })
-    .replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _tag: string, inner: string) => `**${htmlToText(inner)}**`)
-    .replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi, (_m, _tag: string, inner: string) => `_${htmlToText(inner)}_`)
+    .replace(
+      /<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi,
+      (_m, href: string, inner: string) => {
+        const text = htmlToText(inner);
+        return text.length > 0 ? `[${text}](${href})` : href;
+      },
+    )
+    .replace(
+      /<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi,
+      (_m, _tag: string, inner: string) => `**${htmlToText(inner)}**`,
+    )
+    .replace(
+      /<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi,
+      (_m, _tag: string, inner: string) => `_${htmlToText(inner)}_`,
+    )
     .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, (_m, inner: string) => `\`${htmlToText(inner)}\``)
     .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_m, inner: string) => `\n- ${htmlToText(inner)}`)
     .replace(/<\/(p|div|tr|table|ul|ol)>/gi, "\n")

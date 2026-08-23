@@ -219,7 +219,7 @@ describe("buildCorePosixToolPlugins", () => {
       const encoder = new TextEncoder();
       // Mirrors runSubAgent wiring: child store bound after agent create, parent
       // always available so brief-handed tool-output:// URIs resolve (CL-4323).
-      let childReader: ReturnType<typeof createBlobReader> | undefined;
+      const childHolder: { current?: ReturnType<typeof createBlobReader> } = {};
       const parentReader = createBlobReader({
         async readBlob(key: string) {
           if (key === "parent-mcp-skill") return encoder.encode("parent-skill-body-tail");
@@ -227,7 +227,7 @@ describe("buildCorePosixToolPlugins", () => {
         },
       });
       const blobReader = createCompositeBlobReader(
-        () => childReader,
+        () => childHolder.current,
         () => parentReader,
       );
       const gate = createPermissionGate({
@@ -258,7 +258,7 @@ describe("buildCorePosixToolPlugins", () => {
       expect(fromParent.isError).toBeFalsy();
       expect(String(fromParent.content)).toContain("parent-skill-body-tail");
 
-      childReader = createBlobReader({
+      childHolder.current = createBlobReader({
         async readBlob(key: string) {
           if (key === "child-local") return encoder.encode("child-own-spill");
           throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
@@ -443,10 +443,12 @@ describe("buildCorePosixToolPlugins", () => {
     // redundant with it.
     const secretShapedContent = `AKIAABCDEFGHIJKLMNOP\n${"x".repeat(90_000)}`;
     const shortCircuitingPlugin: ToolPlugin = {
-      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: secretShapedContent,
-      }),
+      middleware:
+        () =>
+        async (call: ToolCall): Promise<ToolResult> => ({
+          callId: call.id,
+          content: secretShapedContent,
+        }),
     };
 
     const gate = createPermissionGate({
@@ -461,8 +463,13 @@ describe("buildCorePosixToolPlugins", () => {
     plugins[ripgrepIndex] = shortCircuitingPlugin;
 
     const composed = composeMiddleware(
-      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
-      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+      plugins
+        .map((plugin) => plugin.middleware)
+        .filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({
+        callId: call.id,
+        content: "unreachable: short-circuiting plugin never delegates",
+      }),
     );
 
     const result = await composed(
@@ -492,10 +499,12 @@ describe("buildCorePosixToolPlugins", () => {
     const straddlingSecret = "AKIAABCDEFGHIJKLMNOP"; // 20 chars, cap lands mid-key
     const secretShapedContent = `${padding}${straddlingSecret}`;
     const shortCircuitingPlugin: ToolPlugin = {
-      middleware: () => async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: secretShapedContent,
-      }),
+      middleware:
+        () =>
+        async (call: ToolCall): Promise<ToolResult> => ({
+          callId: call.id,
+          content: secretShapedContent,
+        }),
     };
 
     const gate = createPermissionGate({
@@ -510,8 +519,13 @@ describe("buildCorePosixToolPlugins", () => {
     plugins[ripgrepIndex] = shortCircuitingPlugin;
 
     const composed = composeMiddleware(
-      plugins.map((plugin) => plugin.middleware).filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
-      async (call) => ({ callId: call.id, content: "unreachable: short-circuiting plugin never delegates" }),
+      plugins
+        .map((plugin) => plugin.middleware)
+        .filter((mw): mw is NonNullable<typeof mw> => mw !== undefined),
+      async (call) => ({
+        callId: call.id,
+        content: "unreachable: short-circuiting plugin never delegates",
+      }),
     );
 
     const result = await composed(

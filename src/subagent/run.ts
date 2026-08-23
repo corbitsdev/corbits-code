@@ -27,7 +27,11 @@ import type { BlobReader, InboundMessage } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
-import { buildBifrostSource, buildOpenAISource, type ProviderCatalogEntry } from "../config/index.js";
+import {
+  buildBifrostSource,
+  buildOpenAISource,
+  type ProviderCatalogEntry,
+} from "../config/index.js";
 import { buildInferenceSourceForRef, buildSubagentSources } from "../config/inference-sources.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
@@ -51,6 +55,10 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import {
   detectRepetition,
+  INITIAL_CONTENTLESS_GROWTH_STATE,
+  trackContentlessGrowth,
+  type ContentlessGrowthState,
+  DEFAULT_TEXT_FOLDED_REPETITION_CONFIG,
   DEFAULT_THINKING_REPETITION_CONFIG,
   REPETITION_CHECK_INTERVAL_CHARS,
   type RepetitionHit,
@@ -58,10 +66,7 @@ import {
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
-import {
-  resolveDefaultSubAgentMaxTurns,
-  toolWatchdogFromSettings,
-} from "../config/settings.js";
+import { resolveDefaultSubAgentMaxTurns, toolWatchdogFromSettings } from "../config/settings.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import { ID_PREFIX } from "../branding.js";
@@ -171,13 +176,13 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
   return tools.filter((t) => nameSet.has(t.definition.name));
 }
 
-export type SubAgentRunController = {
+export interface SubAgentRunController {
   signal: AbortSignal;
   deadlineHit: () => boolean;
   /** Abort the run from inside (e.g. repetition detection), distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
   dispose: () => void;
-};
+}
 
 /**
  * Combines an optional caller cancel signal with an optional opt-in wall-clock
@@ -224,6 +229,22 @@ export function createSubAgentRunController(
   };
 }
 
+/** Stopped-line detail for a repetition abort: the looped window plus repeat count. */
+export function repetitionStopDetail(hit: RepetitionHit): string {
+  return `window ${JSON.stringify(hit.window.slice(0, 80))} × ${hit.repeats}`;
+}
+
+/** String form of an abort signal's reason (cancel detail), or undefined. */
+function abortReasonText(signal: AbortSignal): string | undefined {
+  const reason: unknown = signal.reason;
+  if (typeof reason === "string" && reason.length > 0) return reason;
+  // A bare abort() carries a default AbortError — no operator-written cause.
+  if (reason instanceof Error && reason.name !== "AbortError" && reason.message.length > 0) {
+    return reason.message;
+  }
+  return undefined;
+}
+
 /**
  * Arm requireEvidence only for CritiqueDirector. Greybeard is also
  * intent=review and may spawn-only then envelope; that is not a fake
@@ -256,10 +277,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   // parent's (CL-4323): parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
   let childBlobReader: BlobReader | undefined;
-  const sessionBlobReader = createCompositeBlobReader(
-    () => childBlobReader,
-    params.getBlobReader,
-  );
+  const sessionBlobReader = createCompositeBlobReader(() => childBlobReader, params.getBlobReader);
   const posixTools = createPosixTools({
     cwd: params.cwd,
     blobReader: sessionBlobReader,
@@ -269,10 +287,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ...(params.shellTimeout !== undefined ? { shellTimeout: params.shellTimeout } : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
-      extraToolPlugins: [
-        ...(params.extraToolPlugins ?? []),
-        spawnRegistry.plugin,
-      ],
+      extraToolPlugins: [...(params.extraToolPlugins ?? []), spawnRegistry.plugin],
     }),
   });
 
@@ -296,331 +311,381 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   const runController = createSubAgentRunController(params.signal, resolvedDeadlineMs);
 
   try {
-  const shellDefaultMs = params.shellTimeout?.defaultMs;
-  let tools = fromToolRunner(posixTools).map((tool) => ({
-    ...tool,
-    definition: advertiseEditFileLineRange(advertiseShellGuardTimeout(tool.definition, shellDefaultMs)),
-  }));
+    const shellDefaultMs = params.shellTimeout?.defaultMs;
+    let tools = fromToolRunner(posixTools).map((tool) => ({
+      ...tool,
+      definition: advertiseEditFileLineRange(
+        advertiseShellGuardTimeout(tool.definition, shellDefaultMs),
+      ),
+    }));
 
-  tools = [...tools, ...coreSubAgentWebTools()];
+    tools = [...tools, ...coreSubAgentWebTools()];
 
-  const inherited = params.inheritMcpTools?.() ?? [];
-  if (inherited.length > 0) {
-    tools = [...tools, ...inherited];
-  }
-
-  if (params.capabilities !== undefined) {
-    tools = applyCapabilityFilter(tools, params.capabilities);
-  }
-
-  // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
-  // checklist. The handler is local to this loop; parent and child never share
-  // a list (the parent TUI tracks only the parent's manage_tasks calls).
-  tools = [
-    ...tools,
-    stringTool({
-      definition: manageTasksDefinition,
-      handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-        const parsed = parseManageTasksArgs(rawArgs);
-        if (parsed === null) {
-          return "Error: manage_tasks requires action ('create' or 'update').";
-        }
-        return "Tasks updated.";
-      },
-    }),
-  ];
-
-  // Orchestrators need task + search_agents installed, not just mentioned in
-  // the prompt. Nested dispatch always forbids further orchestration so the
-  // tree bottoms out after one hop.
-  if (params.orchestrator === true) {
-    if (params.nestedDispatch === undefined) {
-      throw new Error(
-        "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
-      );
+    const inherited = params.inheritMcpTools?.() ?? [];
+    if (inherited.length > 0) {
+      tools = [...tools, ...inherited];
     }
-    const nd = params.nestedDispatch;
+
+    if (params.capabilities !== undefined) {
+      tools = applyCapabilityFilter(tools, params.capabilities);
+    }
+
+    // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
+    // checklist. The handler is local to this loop; parent and child never share
+    // a list (the parent TUI tracks only the parent's manage_tasks calls).
     tools = [
       ...tools,
-      createTaskTool({
-        permissionGate: nd.permissionGate,
-        ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
-        ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
-        ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
-        ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
-        cwd: params.cwd,
-        getWorkdirBase: nd.getWorkdirBase,
-        provider: nd.provider,
-        allowOrchestrator: false,
-        // Nested workers inherit this composite so they can re-read both the
-        // orchestrator's spills and the original parent's.
-        getBlobReader: () => sessionBlobReader,
-        // Pass the public entry so nested workers still go through the outer
-        // slot/refresh path; avoids task-tool importing runSubAgent (cycle).
-        run: runSubAgent,
-        telemetry: liveTelemetry,
-        ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
-        ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
-        ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
-        ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
-        ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
-        ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
-        ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
-        ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
-        ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
+      stringTool({
+        definition: manageTasksDefinition,
+        handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+          const parsed = parseManageTasksArgs(rawArgs);
+          if (parsed === null) {
+            return "Error: manage_tasks requires action ('create' or 'update').";
+          }
+          return "Tasks updated.";
+        },
       }),
-      ...(nd.profiles !== undefined
-        ? [
-            createSearchAgentsTool(() => {
-              const profiles = nd.profiles;
-              return typeof profiles === "function" ? profiles() : (profiles ?? []);
-            }),
-          ]
-        : []),
     ];
-  }
 
-  const environment = await gatherEnvironment(params.cwd);
-  const extensions =
-    params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
-  const toolNames = tools.map((t) => t.definition.name);
-  const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
-    orchestrator: params.orchestrator === true,
-    toolNames,
-    grokAntiThrash: shouldApplyGrokAntiThrash({
+    // Orchestrators need task + search_agents installed, not just mentioned in
+    // the prompt. Nested dispatch always forbids further orchestration so the
+    // tree bottoms out after one hop.
+    if (params.orchestrator === true) {
+      if (params.nestedDispatch === undefined) {
+        throw new Error(
+          "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
+        );
+      }
+      const nd = params.nestedDispatch;
+      tools = [
+        ...tools,
+        createTaskTool({
+          permissionGate: nd.permissionGate,
+          ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
+          ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+          ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+          ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
+          cwd: params.cwd,
+          getWorkdirBase: nd.getWorkdirBase,
+          provider: nd.provider,
+          allowOrchestrator: false,
+          // Nested workers inherit this composite so they can re-read both the
+          // orchestrator's spills and the original parent's.
+          getBlobReader: () => sessionBlobReader,
+          // Pass the public entry so nested workers still go through the outer
+          // slot/refresh path; avoids task-tool importing runSubAgent (cycle).
+          run: runSubAgent,
+          telemetry: liveTelemetry,
+          ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
+          ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
+          ...(nd.sessions !== undefined ? { sessions: nd.sessions } : {}),
+          ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
+          ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
+          ...(nd.profiles !== undefined ? { profiles: nd.profiles } : {}),
+          ...(nd.parentSessionId !== undefined ? { parentSessionId: nd.parentSessionId } : {}),
+          ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
+          ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
+        }),
+        ...(nd.profiles !== undefined
+          ? [
+              createSearchAgentsTool(() => {
+                const profiles = nd.profiles;
+                return typeof profiles === "function" ? profiles() : (profiles ?? []);
+              }),
+            ]
+          : []),
+      ];
+    }
+
+    const environment = await gatherEnvironment(params.cwd);
+    const extensions =
+      params.systemPromptRole !== undefined ? [params.systemPromptRole] : undefined;
+    const toolNames = tools.map((t) => t.definition.name);
+    const systemPrompt = buildSubAgentSystemPrompt(extensions, environment, undefined, {
+      orchestrator: params.orchestrator === true,
+      toolNames,
+      grokAntiThrash: shouldApplyGrokAntiThrash({
+        providerName: params.provider.providerName,
+        model: params.provider.model,
+        orchestrator: params.orchestrator === true,
+      }),
+    });
+
+    let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
+    const requestContinuation = (): void => {
+      try {
+        agentHandle?.deliver(buildCompactionContinuationMessage());
+      } catch {
+        // Agent may be closing; a dropped continuation is harmless.
+      }
+    };
+
+    const maxTurns = params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
+
+    const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
       orchestrator: params.orchestrator === true,
-    }),
-  });
+    });
 
-  let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
-  const requestContinuation = (): void => {
-    try {
-      agentHandle?.deliver(buildCompactionContinuationMessage());
-    } catch {
-      // Agent may be closing; a dropped continuation is harmless.
-    }
-  };
+    // Family-gate wire schemas the same way main sessions do (kimi present rewrite).
+    // Sub-agent toolsets currently omit `present` (main-session only); normalize is
+    // still applied so a future present on leaf tools cannot reintroduce $ref cycles.
+    const directorDef = defineDirector({
+      id: `${ID_PREFIX}/subagent`,
+      configSchema: type({}),
+      factory: (_config, _env, agentCtx) =>
+        new SubAgentDirector(
+          agentCtx.systemPrompt,
+          normalizeToolDefinitionsForProvider([...agentCtx.toolDefinitions], {
+            providerName: params.provider.providerName,
+            model: params.provider.model,
+          }),
+          requestContinuation,
+          maxTurns,
+          DEFAULT_SUBAGENT_REPEAT_LIMIT,
+          modelFamilyPolicy.subAgentStallTimeoutMs,
+          Date.now,
+          params.intent === "implement",
+          shouldRequireEvidence(params),
+        ),
+    });
 
-  const maxTurns =
-    params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
+    // Directors are pure decide(event, ...) functions with no timer of their
+    // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
+    // external nudge to even get a decide() call. Ping the same continuation
+    // channel compaction uses at the stall interval; the director only acts on
+    // a ping if nothing happened since the last one.
+    stallWatchdog = setInterval(
+      () => requestContinuation(),
+      modelFamilyPolicy.subAgentStallTimeoutMs,
+    );
+    if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
-  const modelFamilyPolicy = resolveModelFamilyPolicy({
-    providerName: params.provider.providerName,
-    model: params.provider.model,
-    orchestrator: params.orchestrator === true,
-  });
+    // Every tool call this sub-agent makes runs under its own identity in ALS
+    // (description + cwd + optional writePaths), so the permission gate can
+    // attribute approvals and enforce director path locks (see identity-context.ts).
+    const subAgentIdentity = {
+      description: params.description,
+      cwd: params.cwd,
+      ...(params.writePaths !== undefined && params.writePaths.length > 0
+        ? { writePaths: params.writePaths }
+        : {}),
+    };
+    const toolsFactory = defineTool({
+      id: `${ID_PREFIX}/subagent-tools`,
+      // Without the watchdog config, child tool calls run under default budgets
+      // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
+      factory: () => {
+        const runner = createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings));
+        return {
+          ...runner,
+          run: (call, signal) =>
+            runWithSubAgentIdentity(subAgentIdentity, () => runner.run(call, signal)),
+        };
+      },
+    });
 
-  // Family-gate wire schemas the same way main sessions do (kimi present rewrite).
-  // Sub-agent toolsets currently omit `present` (main-session only); normalize is
-  // still applied so a future present on leaf tools cannot reintroduce $ref cycles.
-  const directorDef = defineDirector({
-    id: `${ID_PREFIX}/subagent`,
-    configSchema: type({}),
-    factory: (_config, _env, agentCtx) =>
-      new SubAgentDirector(
-        agentCtx.systemPrompt,
-        normalizeToolDefinitionsForProvider([...agentCtx.toolDefinitions], {
-          providerName: params.provider.providerName,
-          model: params.provider.model,
-        }),
-        requestContinuation,
-        maxTurns,
-        DEFAULT_SUBAGENT_REPEAT_LIMIT,
-        modelFamilyPolicy.subAgentStallTimeoutMs,
-        Date.now,
-        params.intent === "implement",
-        shouldRequireEvidence(params),
-      ),
-  });
+    const workdir = join(params.workdirBase, "subagents", generateSessionId());
+    await mkdir(workdir, { recursive: true });
 
-  // Directors are pure decide(event, ...) functions with no timer of their
-  // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
-  // external nudge to even get a decide() call. Ping the same continuation
-  // channel compaction uses at the stall interval; the director only acts on
-  // a ping if nothing happened since the last one.
-  stallWatchdog = setInterval(() => requestContinuation(), modelFamilyPolicy.subAgentStallTimeoutMs);
-  if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
+    const def = defineAgent({
+      id: `${ID_PREFIX}/subagent`,
+      systemPrompt,
+      tools: [toolsFactory],
+      capabilities: [],
+      director: directorDef.build({}),
+      inference: {
+        sources: [{ provider: params.provider.providerName, model: params.provider.model }],
+      },
+    });
 
-  // Every tool call this sub-agent makes runs under its own identity in ALS
-  // (description + cwd + optional writePaths), so the permission gate can
-  // attribute approvals and enforce director path locks (see identity-context.ts).
-  const subAgentIdentity = {
-    description: params.description,
-    cwd: params.cwd,
-    ...(params.writePaths !== undefined && params.writePaths.length > 0
-      ? { writePaths: params.writePaths }
-      : {}),
-  };
-  const toolsFactory = defineTool({
-    id: `${ID_PREFIX}/subagent-tools`,
-    // Without the watchdog config, child tool calls run under default budgets
-    // and ignore tools.timeoutMs / maxTimeoutMs / waitForApproval settings.
-    factory: () => {
-      const runner = createDynamicToolRunner(tools, toolWatchdogFromSettings(params.settings));
-      return {
-        ...runner,
-        run: (call, signal) => runWithSubAgentIdentity(subAgentIdentity, () => runner.run(call, signal)),
-      };
-    },
-  });
+    const storage = await createOptimizedContextStore(workdir);
 
-  const workdir = join(params.workdirBase, "subagents", generateSessionId());
-  await mkdir(workdir, { recursive: true });
-
-  const def = defineAgent({
-    id: `${ID_PREFIX}/subagent`,
-    systemPrompt,
-    tools: [toolsFactory],
-    capabilities: [],
-    director: directorDef.build({}),
-    inference: {
-      sources: [{ provider: params.provider.providerName, model: params.provider.model }],
-    },
-  });
-
-  const storage = await createOptimizedContextStore(workdir);
-
-  const head = { provider: params.provider.providerName, model: params.provider.model };
-  const bundle =
-    params.settings !== undefined && params.catalog !== undefined
-      ? buildSubagentSources({
-          settings: params.settings,
-          catalog: params.catalog,
-          head,
-          ...(params.provider.reasoningEffort !== undefined
-            ? { reasoningEffort: params.provider.reasoningEffort }
-            : {}),
-        })
-      : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
-  const inferenceDeps = await createInferenceDependencies();
-  const subagentSource =
-    bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
-  agent = await createAgentWithLiveToolDispatch(def, {
-    sources: bundle.sources,
-    defaultSource: bundle.defaultSource,
-    storage,
-    workdir,
-    // contextTransforms ride deps: the published @intx/agent forwards deps
-    // into reactor assembly verbatim, and the vendored assembly picks the
-    // transforms up from there.
-    deps: {
-      ...inferenceDeps,
-      contextTransforms: [
-        createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
-      ],
-    },
-    audit: noopAuditStore(),
-    authorize: permissiveAuthorize(),
-    directors: createDirectorRegistry({
-      factories: [directorDef.factory],
-      defaultId: `${ID_PREFIX}/subagent`,
-    }),
-    compactors: {
-      "pruning-compactor": createPruningCompactor({
-        keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
-        summaryMaxChars: 2500,
-        // A structured model summary keeps sub-agent context useful across a
-        // compaction; the deterministic stub remains the fallback on failure.
-        ...(subagentSource !== undefined
-          ? { summarize: createModelSummarizer({ getSource: () => subagentSource, deps: inferenceDeps }) }
-          : {}),
+    const head = { provider: params.provider.providerName, model: params.provider.model };
+    const bundle =
+      params.settings !== undefined && params.catalog !== undefined
+        ? buildSubagentSources({
+            settings: params.settings,
+            catalog: params.catalog,
+            head,
+            ...(params.provider.reasoningEffort !== undefined
+              ? { reasoningEffort: params.provider.reasoningEffort }
+              : {}),
+          })
+        : buildSubAgentPrimarySource(params.provider, params.catalog, params.settings);
+    const inferenceDeps = await createInferenceDependencies();
+    const subagentSource =
+      bundle.sources.find((s) => s.id === bundle.defaultSource) ?? bundle.sources[0];
+    agent = await createAgentWithLiveToolDispatch(def, {
+      sources: bundle.sources,
+      defaultSource: bundle.defaultSource,
+      storage,
+      workdir,
+      // contextTransforms ride deps: the published @intx/agent forwards deps
+      // into reactor assembly verbatim, and the vendored assembly picks the
+      // transforms up from there.
+      deps: {
+        ...inferenceDeps,
+        contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
+      },
+      audit: noopAuditStore(),
+      authorize: permissiveAuthorize(),
+      directors: createDirectorRegistry({
+        factories: [directorDef.factory],
+        defaultId: `${ID_PREFIX}/subagent`,
       }),
-    },
-  });
-  // Tools were built before the agent; bind the child's store now so own spills
-  // resolve without dropping the parent fallback.
-  childBlobReader = agent.blobReader;
-  agentHandle = agent;
+      compactors: {
+        "pruning-compactor": createPruningCompactor({
+          keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
+          summaryMaxChars: 2500,
+          // A structured model summary keeps sub-agent context useful across a
+          // compaction; the deterministic stub remains the fallback on failure.
+          ...(subagentSource !== undefined
+            ? {
+                summarize: createModelSummarizer({
+                  getSource: () => subagentSource,
+                  deps: inferenceDeps,
+                }),
+              }
+            : {}),
+        }),
+      },
+    });
+    // Tools were built before the agent; bind the child's store now so own spills
+    // resolve without dropping the parent fallback.
+    childBlobReader = agent.blobReader;
+    agentHandle = agent;
 
-  // Collect tool activity for the parent-facing report, and optionally forward
-  // progress without dumping the full sub-agent event stream into the chat
-  // transcript (which would interleave sub-agent text with the parent turn).
-  const toolNamesUsed: string[] = [];
-  let lastPartialText = "";
-  // Watch the streamed text of the in-flight cycle: turn-level stop checks
-  // (inference.done) never fire while a model loops inside one turn, so a
-  // degenerate loop is aborted from the stream side. The recorder keeps the
-  // cycle text so the looped tail survives the abort as the salvage payload.
-  const cycleRecorder = createCycleTextRecorder(() => workdir);
-  // Holder object rather than a let: the value is written inside the stream
-  // sink closure, and flow analysis would otherwise narrow a let to null at
-  // the later catch-site reads.
-  const repetition: { hit: RepetitionHit | null } = { hit: null };
-  let charsSinceRepetitionCheck = 0;
-  let charsSinceThinkingRepetitionCheck = 0;
-  const streamSink = (event: ReactorEmittedEvent): void => {
-    const name = subAgentToolName(event);
-    if (name !== null) {
-      toolNamesUsed.push(name);
-      params.onProgress?.({ description: params.description, toolName: name });
-    }
-    cycleRecorder.handleEvent(event);
-    if (event.type === "inference.text.delta" && repetition.hit === null) {
-      // Count the raw token, not the buffer growth: once the buffer is pinned
-      // at its cap, appends no longer change its length and a growth-based
-      // counter would disarm detection for the rest of the turn.
-      const token = (event.data as { token?: unknown }).token;
-      charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
-      if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
-        charsSinceRepetitionCheck = 0;
-        const hit = detectRepetition(cycleRecorder.text());
-        if (hit !== null) {
-          repetition.hit = hit;
-          runController.abort(
-            new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
-          );
+    // Collect tool activity for the parent-facing report, and optionally forward
+    // progress without dumping the full sub-agent event stream into the chat
+    // transcript (which would interleave sub-agent text with the parent turn).
+    const toolNamesUsed: string[] = [];
+    let lastPartialText = "";
+    // Watch the streamed text of the in-flight cycle: turn-level stop checks
+    // (inference.done) never fire while a model loops inside one turn, so a
+    // degenerate loop is aborted from the stream side. The recorder keeps the
+    // cycle text so the looped tail survives the abort as the salvage payload.
+    const cycleRecorder = createCycleTextRecorder(() => workdir);
+    // Holder object rather than a let: the value is written inside the stream
+    // sink closure, and flow analysis would otherwise narrow a let to null at
+    // the later catch-site reads.
+    const repetition: { hit: RepetitionHit | null; contentless: boolean } = {
+      hit: null,
+      contentless: false,
+    };
+    let charsSinceRepetitionCheck = 0;
+    let charsSinceThinkingRepetitionCheck = 0;
+    // Contentless-growth guard: catches zero-width floods (U+200C/U+200D walls)
+    // that detectRepetition is structurally blind to — its normalize() strips
+    // invisibles before the periodicity check. One window per stream kind.
+    let textContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
+    let thinkingContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
+    const degenerate = (): boolean => repetition.hit !== null || repetition.contentless;
+    const checkContentless = (
+      state: ContentlessGrowthState,
+      token: string,
+      stream: string,
+    ): ContentlessGrowthState => {
+      const next = trackContentlessGrowth(state, token);
+      if (next.hit) {
+        repetition.contentless = true;
+        runController.abort(
+          new Error(
+            `sub-agent ${stream} output grew with only invisible/contentless characters (zero-width flood)`,
+          ),
+        );
+      }
+      return next.state;
+    };
+    const streamSink = (event: ReactorEmittedEvent): void => {
+      const name = subAgentToolName(event);
+      if (name !== null) {
+        toolNamesUsed.push(name);
+        params.onProgress?.({ description: params.description, toolName: name });
+      }
+      cycleRecorder.handleEvent(event);
+      if (event.type === "inference.text.delta" && !degenerate()) {
+        // Count the raw token, not the buffer growth: once the buffer is pinned
+        // at its cap, appends no longer change its length and a growth-based
+        // counter would disarm detection for the rest of the turn.
+        const token = (event.data as { token?: unknown }).token;
+        if (typeof token === "string") {
+          textContentless = checkContentless(textContentless, token, "streamed");
+        }
+        charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
+        if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
+          charsSinceRepetitionCheck = 0;
+          // Two passes: digit-preserving for phrase loops, then the capped
+          // folded pass for counter/timestamp/fence/emoji floods that are
+          // never byte-periodic or fall under the plain window floor.
+          const hit =
+            detectRepetition(cycleRecorder.text()) ??
+            detectRepetition(cycleRecorder.text(), DEFAULT_TEXT_FOLDED_REPETITION_CONFIG, {
+              normalizeDigits: true,
+            });
+          if (hit !== null) {
+            repetition.hit = hit;
+            runController.abort(
+              new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
+            );
+          }
         }
       }
-    }
-    // Thinking deltas are never shown to the user, so a monotonic-counter
-    // loop confined to them (the observed live thrash) never trips the
-    // turn-level stop checks either — sample them on the same interval with
-    // digit-normalized detection tuned for the collapsed period.
-    if (event.type === "inference.thinking.delta" && repetition.hit === null) {
-      const token = (event.data as { token?: unknown }).token;
-      charsSinceThinkingRepetitionCheck += typeof token === "string" ? token.length : 0;
-      if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS) {
-        charsSinceThinkingRepetitionCheck = 0;
-        const hit = detectRepetition(cycleRecorder.thinkingText(), DEFAULT_THINKING_REPETITION_CONFIG, {
-          normalizeDigits: true,
-        });
-        if (hit !== null) {
-          repetition.hit = hit;
-          runController.abort(
-            new Error(`sub-agent thinking output repeated the same window ${hit.repeats} times`),
+      // Thinking deltas are never shown to the user, so a monotonic-counter
+      // loop confined to them (the observed live thrash) never trips the
+      // turn-level stop checks either — sample them on the same interval with
+      // digit-normalized detection tuned for the collapsed period.
+      if (event.type === "inference.thinking.delta" && !degenerate()) {
+        const token = (event.data as { token?: unknown }).token;
+        if (typeof token === "string") {
+          thinkingContentless = checkContentless(thinkingContentless, token, "thinking");
+        }
+        charsSinceThinkingRepetitionCheck += typeof token === "string" ? token.length : 0;
+        if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
+          charsSinceThinkingRepetitionCheck = 0;
+          const hit = detectRepetition(
+            cycleRecorder.thinkingText(),
+            DEFAULT_THINKING_REPETITION_CONFIG,
+            {
+              normalizeDigits: true,
+            },
           );
+          if (hit !== null) {
+            repetition.hit = hit;
+            runController.abort(
+              new Error(`sub-agent thinking output repeated the same window ${hit.repeats} times`),
+            );
+          }
         }
       }
-    }
-    const partial = partialTextFromEvent(event);
-    if (partial !== null) lastPartialText = partial;
-    params.onEvent?.(event);
-  };
-  streamPromise = consumeStream(agent.stream(), streamSink);
+      const partial = partialTextFromEvent(event);
+      if (partial !== null) lastPartialText = partial;
+      params.onEvent?.(event);
+    };
+    streamPromise = consumeStream(agent.stream(), streamSink);
 
-  // Aborting the send signal only rejects the promise; the child reactor keeps
-  // running until close() (same hard-stop rule as the parent in runner.ts).
-  closeOnAbort = (): void => {
-    void (async () => {
-      try {
-        await agent?.close();
-      } catch {
-        // close is idempotent; ignore races with disposeSubAgentSession.
-      }
-      try {
-        await posixTools.dispose();
-      } catch {
-        // ignore
-      }
-    })();
-  };
-  if (runController.signal.aborted) {
-    closeOnAbort();
-  } else {
-    runController.signal.addEventListener("abort", closeOnAbort, { once: true });
-  }
+    // Aborting the send signal only rejects the promise; the child reactor keeps
+    // running until close() (same hard-stop rule as the parent in runner.ts).
+    closeOnAbort = (): void => {
+      void (async () => {
+        try {
+          await agent?.close();
+        } catch {
+          // close is idempotent; ignore races with disposeSubAgentSession.
+        }
+        try {
+          await posixTools.dispose();
+        } catch {
+          // ignore
+        }
+      })();
+    };
+    if (runController.signal.aborted) {
+      closeOnAbort();
+    } else {
+      runController.signal.addEventListener("abort", closeOnAbort, { once: true });
+    }
 
     const fullPrompt = buildDispatchBrief({
       description: params.description,
@@ -675,23 +740,20 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         // events before bare-vs-salvage is decided.
         // Repetition and deadline are already known here; a parent cancel is
         // labeled cancelled even if the outcome below resolves to rethrow.
+        // A contentless flood shares the repetition salvage path: both are
+        // self-inflicted degenerate-output aborts whose tail is the evidence.
         const abortedCycleText = await cycleRecorder.dispose(
-          repetition.hit !== null
-            ? "repetition"
-            : runController.deadlineHit()
-              ? "deadline"
-              : "cancelled",
+          degenerate() ? "repetition" : runController.deadlineHit() ? "deadline" : "cancelled",
           { drain: streamPromise },
         );
         // Deadline always salvages (even with zero output). Cancel after any
         // tools or assistant prose salvages so the parent keeps partial work;
         // pre-progress cancel still surfaces as a bare AbortError.
-        const hadProgress =
-          toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
+        const hadProgress = toolNamesUsed.length > 0 || lastPartialText.trim().length > 0;
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
-          repetitionHit: repetition.hit !== null,
+          repetitionHit: degenerate(),
         });
         if (outcome !== "rethrow") {
           const reason =
@@ -707,8 +769,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           const partial =
             repetition.hit !== null
               ? `Looped window (repeated ${repetition.hit.repeats}x): ${repetition.hit.window.slice(0, 300)}\n\n${tail}`
-              : tail;
-          return appendActivitySummary(forcedStopReport(reason, partial), toolNamesUsed);
+              : repetition.contentless
+                ? `Contentless output: the stream grew with only invisible characters (zero-width flood).\n\n${tail}`
+                : tail;
+          const detail =
+            repetition.hit !== null
+              ? repetitionStopDetail(repetition.hit)
+              : repetition.contentless
+                ? "contentless/zero-width flood"
+                : reason === "deadline" && resolvedDeadlineMs !== undefined
+                  ? `${resolvedDeadlineMs}ms elapsed`
+                  : abortReasonText(runController.signal);
+          return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
         }
       }
       throw err;

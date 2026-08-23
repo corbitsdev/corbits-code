@@ -30,10 +30,10 @@ function fakeFetch(): { impl: typeof fetch; calls: () => number } {
   return { impl, calls: () => count };
 }
 
-type BatchBody = {
+interface BatchBody {
   api_key: string;
   batch: { event: string; timestamp: string; properties: Record<string, unknown> }[];
-};
+}
 
 function recordingFetch() {
   const bodies: BatchBody[] = [];
@@ -217,7 +217,9 @@ test("capture transmits nothing for an event name inherited from Object.prototyp
     apiKey: "test-key",
   });
   for (const name of ["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"]) {
-    telemetry.capture(name as Parameters<typeof telemetry.capture>[0], { leaked: "should-not-appear" });
+    telemetry.capture(name as Parameters<typeof telemetry.capture>[0], {
+      leaked: "should-not-appear",
+    });
   }
   await telemetry.flush();
   expect(events().length).toBe(0);
@@ -231,7 +233,10 @@ test("capture ignores allowlisted property names inherited from a payload's prot
     fetchFn: impl,
     apiKey: "test-key",
   });
-  const properties = Object.create({ $ai_trace_id: "inherited-should-not-appear" }) as Record<string, unknown>;
+  const properties = Object.create({ $ai_trace_id: "inherited-should-not-appear" }) as Record<
+    string,
+    unknown
+  >;
   properties.$ai_span_id = "span-1";
   telemetry.capture("$ai_span", properties);
   await telemetry.flush();
@@ -272,7 +277,12 @@ test("flush resolves after pending captures settle", async () => {
     new Promise<Response>((resolve) => {
       resolveFetch = () => resolve(new Response("1", { status: 200 }));
     })) as unknown as typeof fetch;
-  const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, fetchFn: impl, apiKey: "test-key" });
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
 
   telemetry.capture("cli_start");
   let flushed = false;
@@ -289,7 +299,12 @@ test("flush resolves after pending captures settle", async () => {
 
 test("flush gives up after its deadline when a request never settles", async () => {
   const impl = (() => new Promise<Response>(() => {})) as unknown as typeof fetch;
-  const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, fetchFn: impl, apiKey: "test-key" });
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
   telemetry.capture("cli_start");
   const start = Date.now();
   await telemetry.flush();
@@ -299,7 +314,12 @@ test("flush gives up after its deadline when a request never settles", async () 
 
 test("flush resolves even when the underlying fetch rejects", async () => {
   const impl = (() => Promise.reject(new Error("network down"))) as unknown as typeof fetch;
-  const telemetry = createTelemetry({ settings: settingsWith("id"), env: {}, fetchFn: impl, apiKey: "test-key" });
+  const telemetry = createTelemetry({
+    settings: settingsWith("id"),
+    env: {},
+    fetchFn: impl,
+    apiKey: "test-key",
+  });
   telemetry.capture("cli_start");
   await expect(telemetry.flush()).resolves.toBeUndefined();
 });

@@ -9,23 +9,23 @@ export const MAX_OUTPUT_BYTES = 512_000;
 
 export type RgResult = RgOutcome | { kind: "unavailable" };
 
-export type RgLimits = {
+export interface RgLimits {
   timeoutMs?: number;
   maxOutputBytes?: number;
-};
+}
 
 // The subset of a spawned child this module drives. Taking it as a parameter
 // lets the run be exercised with a scripted event order, which is the only way
 // to pin down behavior that otherwise depends on how a platform happens to
 // deliver pipe data.
-export type RgChild = {
+export interface RgChild {
   pid: number | undefined;
   stdout: { on: (event: "data", listener: (chunk: unknown) => void) => unknown };
   stderr: { on: (event: "data", listener: (chunk: unknown) => void) => unknown };
   on: ((event: "error", listener: (err: Error) => void) => unknown) &
     ((event: "close", listener: (code: number | null) => void) => unknown);
   kill: (signal?: NodeJS.Signals) => unknown;
-};
+}
 
 export type SpawnRg = (rgArgs: string[], cwd: string, signal: AbortSignal) => RgChild;
 

@@ -8,10 +8,7 @@ import { resolveAgentPluginProfiles } from "./agent-plugins.js";
 
 async function writeAgentPlugin(dir: string, id: string): Promise<void> {
   await mkdir(join(dir, "agents"), { recursive: true });
-  await writeFile(
-    join(dir, "manifest.json"),
-    JSON.stringify({ id, name: id, kind: "agent" }),
-  );
+  await writeFile(join(dir, "manifest.json"), JSON.stringify({ id, name: id, kind: "agent" }));
   await writeFile(
     join(dir, "agents", "scout.md"),
     [
@@ -300,7 +297,7 @@ describe("discoverClaudeInstalledPlugins", () => {
       }),
     );
 
-    const skips: Array<{ source: string; reason: string }> = [];
+    const skips: { source: string; reason: string }[] = [];
     const modules = await discoverClaudeInstalledPlugins("/repo", {
       home,
       onExpandSkip: (skip) => skips.push({ source: skip.source, reason: skip.reason }),

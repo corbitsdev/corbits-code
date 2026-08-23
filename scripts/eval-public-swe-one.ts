@@ -16,7 +16,7 @@
  *   bun scripts/eval-public-swe-one.ts --instance … --provider <name> --model <id> --evaluate
  */
 
-import { mkdir, writeFile, readFile, mkdtemp, rm, cp } from "node:fs/promises";
+import { mkdir, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -30,7 +30,7 @@ const DEFAULT_SUBSET = "princeton-nlp/SWE-bench_Lite";
 const DEFAULT_SPLIT = "test";
 const DEFAULT_AGENT_TIMEOUT_MS = 1_800_000; // 30m — real SWE tasks thrash
 
-type CliOptions = {
+interface CliOptions {
   provider: string;
   model: string;
   instanceId: string;
@@ -41,9 +41,9 @@ type CliOptions = {
   dryRun: boolean;
   outDir: string;
   help: boolean;
-};
+}
 
-type SweInstance = {
+interface SweInstance {
   instance_id: string;
   repo: string;
   base_commit: string;
@@ -53,7 +53,7 @@ type SweInstance = {
   version?: string;
   patch?: string;
   test_patch?: string;
-};
+}
 
 function printHelp(): void {
   console.log(`Usage: bun scripts/eval-public-swe-one.ts --provider <name> --model <id> [options]
@@ -332,7 +332,9 @@ async function main(): Promise<void> {
 
   const instance = await loadInstance(opts);
   await writeFile(join(outDir, "instance.json"), JSON.stringify(instance, null, 2));
-  console.log(`loaded ${instance.instance_id} (${instance.repo} @ ${instance.base_commit.slice(0, 12)})`);
+  console.log(
+    `loaded ${instance.instance_id} (${instance.repo} @ ${instance.base_commit.slice(0, 12)})`,
+  );
 
   const prompt = buildPrompt(instance);
   await writeFile(join(outDir, "prompt.txt"), prompt);

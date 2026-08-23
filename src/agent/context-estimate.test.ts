@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ContentBlock, ConversationTurn, MediaSource, ToolDefinition } from "@intx/types/runtime";
+import type {
+  ContentBlock,
+  ConversationTurn,
+  MediaSource,
+  ToolDefinition,
+} from "@intx/types/runtime";
 import {
   createContextEstimate,
   estimateContentBlockTokens,
@@ -32,7 +37,11 @@ describe("estimateMediaSourceTokens", () => {
     const base64: MediaSource = { kind: "base64", data: "abcd".repeat(100), mimeType: "image/png" };
     expect(estimateMediaSourceTokens(base64)).toBe(estimateTokensFromChars(400));
 
-    const url: MediaSource = { kind: "url", url: "https://example.com/a.png", mimeType: "image/png" };
+    const url: MediaSource = {
+      kind: "url",
+      url: "https://example.com/a.png",
+      mimeType: "image/png",
+    };
     expect(estimateMediaSourceTokens(url)).toBe(1_000);
   });
 
@@ -94,7 +103,9 @@ describe("estimateOverheadTokens", () => {
     ];
     const expectedChars =
       40 + "run_shell".length + 20 + JSON.stringify({ command: "string" }).length;
-    expect(estimateOverheadTokens(systemPrompt, tools)).toBe(estimateTokensFromChars(expectedChars));
+    expect(estimateOverheadTokens(systemPrompt, tools)).toBe(
+      estimateTokensFromChars(expectedChars),
+    );
   });
 
   test("is zero for an empty prompt and no tools", () => {

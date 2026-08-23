@@ -12,7 +12,7 @@ import {
 } from "./models.js";
 
 /** Host-agnostic catalog projection for connect + model pickers. */
-export type GoCatalogEntry = {
+export interface GoCatalogEntry {
   name: typeof OPENCODE_GO_PROVIDER_ID;
   displayName: typeof OPENCODE_GO_DISPLAY_NAME;
   baseURL: typeof OPENCODE_GO_BASE_URL;
@@ -20,7 +20,7 @@ export type GoCatalogEntry = {
   defaultModel: string;
   protocols: Readonly<Record<string, GoProtocol>>;
   authHint: typeof OPENCODE_GO_AUTH_HINT;
-};
+}
 
 export function buildGoCatalogEntry(): GoCatalogEntry {
   const protocols: Record<string, GoProtocol> = {};

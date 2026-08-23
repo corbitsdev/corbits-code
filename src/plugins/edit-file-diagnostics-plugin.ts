@@ -128,7 +128,9 @@ function diagnoseNotUnique(fileText: string, oldString: string): string {
   if (occurrences.length > MAX_OCCURRENCES_LISTED) {
     lines.push(`… and ${occurrences.length - MAX_OCCURRENCES_LISTED} more`);
   }
-  lines.push("Widen old_string with surrounding context so it matches exactly once, or pass replace_all=true.");
+  lines.push(
+    "Widen old_string with surrounding context so it matches exactly once, or pass replace_all=true.",
+  );
   return lines.join("\n");
 }
 
@@ -142,11 +144,11 @@ export function normalizeLine(line: string): string {
   return noCr.trim().replace(/[ \t]+/g, " ");
 }
 
-export type NearMiss = {
+export interface NearMiss {
   text: string;
   startLine: number;
   endLine: number;
-};
+}
 
 /**
  * Find a unique multi-line span whose per-line whitespace normalization equals
@@ -167,7 +169,7 @@ export function findWhitespaceNearMiss(fileText: string, oldString: string): Nea
   const fileLines = fileText.split("\n");
   const fileNorm = fileLines.map(normalizeLine);
 
-  const hits: Array<{ start: number; end: number }> = [];
+  const hits: { start: number; end: number }[] = [];
   const window = coreNorm.length;
   for (let i = 0; i <= fileNorm.length - window; i++) {
     let match = true;
@@ -214,10 +216,10 @@ export function trimEdgeEmptyLines(lines: string[]): string[] {
   return lines.slice(start, end);
 }
 
-export type Occurrence = {
+export interface Occurrence {
   lineNumber: number;
   preview: string;
-};
+}
 
 export function findOccurrences(fileText: string, oldString: string): Occurrence[] {
   if (oldString.length === 0) return [];
@@ -249,17 +251,17 @@ function lineNumberAt(text: string, index: number): number {
   return n;
 }
 
-export type ClosestLine = {
+export interface ClosestLine {
   lineNumber: number;
   text: string;
-};
+}
 
 export function closestLines(fileText: string, oldString: string): ClosestLine[] {
   const needleTokens = tokenize(oldString);
   if (needleTokens.size === 0) return [];
 
   const lines = fileText.split("\n");
-  const scored: Array<{ lineNumber: number; text: string; score: number }> = [];
+  const scored: { lineNumber: number; text: string; score: number }[] = [];
   for (let i = 0; i < lines.length; i++) {
     const text = lines[i] ?? "";
     const tokens = tokenize(text);
