@@ -69,7 +69,7 @@ export function buildHarnessFacts(
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one; prefer the URI over re-reading huge blobs.",
-    "- run_shell defaults to a 15s timeout; pass timeout for builds, tests, and other long commands.",
+    "- run_shell has no default timeout; pass timeout for builds, tests, and other long commands.",
     "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
     ...(subAgent
       ? [
@@ -152,7 +152,7 @@ export function buildGuidelines(
           "- Break multi-step or parallel work into focused `task` dispatches with distinct lenses; prefer several parallel task calls when jobs are independent.",
           "- Prefer the typed spawn contract on every worker: `intent`, `success_criteria` (done-when), `do_not` (scope fence), and `report_focus` so workers finish instead of thrashing. Free-form `prompt` alone is weaker.",
           "- After workers return, merge their Summary/Findings into a coherent answer for the operator; do not paste raw sub-agent dumps.",
-          "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, cap 100). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
+          "- Pass `maxTurns` on `task` when a job needs a larger inference budget (default 30, no hard upper cap). On turn-budget salvage, re-dispatch with continuation context and a higher maxTurns only a few times on the same brief — after the re-dispatch cap, change approach instead of bumping turns again.",
           "- After thrash / no-progress / repetition / never-acted salvage, do not re-dispatch an identical brief (prompt/agent/intent/success_criteria/do_not) — it is refused. Change the brief to force a re-run; maxTurns alone does not unlock it.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `task`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
@@ -207,7 +207,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
   delete_file: "delete one file with an explicit outcome (never shell rm)",
   run_shell:
-    "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
+    "run a shell command (builds, tests, git; pass timeout ms to bound long commands; never to read/write/delete files, search trees, or talk to the user)",
   search_files:
     "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
   grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
