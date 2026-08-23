@@ -191,7 +191,10 @@ const PARTIAL_FENCE_RE = /^\s*[`~]{0,2}\s*$/;
 const INDENTED_CODE_RE = /^(?: {4}|\t)(.*)$/;
 const CODE_GUTTER = "▏ ";
 
-interface FencedBlock { lines: StyledSegment[][]; consumed: number }
+interface FencedBlock {
+  lines: StyledSegment[][];
+  consumed: number;
+}
 
 // Always paint the gutter, including on blank body lines. Skipping empty lines
 // left disconnected bar fragments (a floating language cap, gaps mid-block, a

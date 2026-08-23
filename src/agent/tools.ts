@@ -326,21 +326,21 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   // tool_search ranks over the live runner (set just below) and promotes matches
   // through a holder the runner wires up once its advertise/reload loop exists.
   const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
-  let runnerRef: DynamicToolRunner | undefined;
+  const runnerHolder: { current?: DynamicToolRunner } = {};
   const toolIndex = createToolIndex(
-    () => runnerRef?.currentDefinitions() ?? [],
+    () => runnerHolder.current?.currentDefinitions() ?? [],
     advertisedBuiltIns,
   );
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
-      lookup: (name) => runnerRef?.currentDefinitions().find((d) => d.name === name),
+      lookup: (name) => runnerHolder.current?.currentDefinitions().find((d) => d.name === name),
       promote: (names) => promoter.promote(names),
     }),
   );
 
   const dynamicRunner = createDynamicToolRunner(baseTools, toolWatchdog);
-  runnerRef = dynamicRunner;
+  runnerHolder.current = dynamicRunner;
   const connectedClients: MCPClient[] = [];
 
   const connectMCP = async (

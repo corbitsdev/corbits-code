@@ -20,7 +20,10 @@ afterEach(() => {
   resetFeedbackStateForTests();
 });
 
-interface Dispatched { name: string; args: string }
+interface Dispatched {
+  name: string;
+  args: string;
+}
 
 function harness(options?: {
   isFeedbackCapturePending?: () => boolean;

@@ -82,7 +82,7 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
             if (delta !== null && typeof delta === "object") {
               for (const key of NULL_REJECTED_DELTA_FIELDS) {
                 if ((delta as Record<string, unknown>)[key] === null) {
-                  delete (delta as Record<string, unknown>)[key];
+                  Reflect.deleteProperty(delta as object, key);
                   patched = true;
                 }
               }

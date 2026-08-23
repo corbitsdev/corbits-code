@@ -14,7 +14,6 @@ const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
 
-const JOURNAL_TOOLS = new Set(["write_file", "edit_file", "run_shell", "submit_output"]);
 const SILENT_TOOLS = new Set(["read_file", "list_dir", "search_files", "grep"]);
 
 function verb(label: string): string {
@@ -27,7 +26,6 @@ function miniDiff(oldStr: string, newStr: string): string {
   const lines: string[] = [];
 
   // Simple: show removed lines then added lines with 1-line context from old
-  const context = oldLines.length > 0 ? `        ${oldLines[0]}\n` : "";
   for (const line of oldLines) {
     lines.push(`        ${RED}-${RESET} ${line}`);
   }

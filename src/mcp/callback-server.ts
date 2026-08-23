@@ -13,7 +13,10 @@ export interface CallbackServer {
 }
 
 type CallbackResult = { code: string } | { error: Error };
-interface CallbackWaiter { resolve: (code: string) => void; reject: (error: Error) => void }
+interface CallbackWaiter {
+  resolve: (code: string) => void;
+  reject: (error: Error) => void;
+}
 
 const CALLBACK_PATH = "/callback";
 

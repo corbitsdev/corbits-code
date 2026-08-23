@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { handleRequest } from "../../src/index.js";
-import { resetProducts, getProduct } from "../../src/services/products.js";
+import { resetProducts } from "../../src/services/products.js";
 import { resetReservations } from "../../src/services/reservations.js";
 import { setClock, resetClock } from "../../src/clock.js";
 

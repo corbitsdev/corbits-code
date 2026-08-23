@@ -5,7 +5,9 @@ export const INFERENCE_ABORT_INTERNAL_RECOVERY = "internal-recovery" as const;
 export type InferenceAbortReason =
   typeof INFERENCE_ABORT_USER_STOP | typeof INFERENCE_ABORT_INTERNAL_RECOVERY | string;
 
-export interface ClassifiedAbortRaw { origin: InferenceAbortReason }
+export interface ClassifiedAbortRaw {
+  origin: InferenceAbortReason;
+}
 
 export function isInternalRecoveryAbortRaw(raw: unknown): boolean {
   return (

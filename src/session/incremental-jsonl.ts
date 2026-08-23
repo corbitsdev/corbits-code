@@ -181,7 +181,11 @@ export function createSegmentedJSONLWriter(
     const offsets = prevOffsets.slice(0, prefix + 1);
     const keepBytesInFirstSeg = offsets[prefix]! - prevOffsets[firstSegStartRecord]!;
 
-    interface PlanEntry { index: number; keepBytes: number; text: string }
+    interface PlanEntry {
+      index: number;
+      keepBytes: number;
+      text: string;
+    }
     const plan: PlanEntry[] = [{ index: firstSeg, keepBytes: keepBytesInFirstSeg, text: "" }];
     const newSegStarts = prevSegStarts.slice(0, firstSeg + 1);
 

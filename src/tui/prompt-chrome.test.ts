@@ -321,7 +321,10 @@ describe("no permanent hint strip", () => {
   });
 });
 
-interface RuleChunk { readonly text: string; readonly fg: unknown }
+interface RuleChunk {
+  readonly text: string;
+  readonly fg: unknown;
+}
 
 function ruleChunksOf(rule: { content: unknown }): RuleChunk[] {
   const content = rule.content;

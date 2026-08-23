@@ -52,7 +52,10 @@ export function webBrand(name: string): string {
   return name.replace(/\s+(search|fetch)$/i, "").trim();
 }
 
-export interface ActiveWebProvider { provider: WebProvider; name: string }
+export interface ActiveWebProvider {
+  provider: WebProvider;
+  name: string;
+}
 
 // Build the active web provider from the discovered candidates and stored
 // config. On failure logs to stderr and returns undefined so the run proceeds

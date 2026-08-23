@@ -16,7 +16,7 @@
  *   bun scripts/eval-public-swe-one.ts --instance … --provider <name> --model <id> --evaluate
  */
 
-import { mkdir, writeFile, readFile, mkdtemp, rm, cp } from "node:fs/promises";
+import { mkdir, writeFile, mkdtemp, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";

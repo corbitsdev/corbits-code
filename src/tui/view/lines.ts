@@ -1,7 +1,7 @@
 import type { StyledSegment } from "../markdown-parser.js";
 import { color, type SemanticRole } from "../semantic-theme.js";
 import { wrapLines } from "./height.js";
-import type { Tone, ViewNode } from "./spec.js";
+import type { ViewNode } from "./spec.js";
 import { VIEW_GRID_MAX_ROWS } from "./spec.js";
 import { GAP, PAD, toneRole, truncate } from "./registry.js";
 

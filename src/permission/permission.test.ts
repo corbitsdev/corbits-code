@@ -826,11 +826,9 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
   // operator override possible, even though the full command the authz
   // plugin actually enforces at execution time would allow it.
   test("does not deny rg reading bounded stdin downstream of a single pipe", async () => {
-    let asked = 0;
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => {
-        asked++;
         return { allow: true };
       },
       interactive: true,
@@ -3177,7 +3175,7 @@ describe("listWorktreeRoots", () => {
   });
 
   test("resolveWorkspacePath resolves relative traversal into an allowlisted sibling worktree", async () => {
-    const { repo, worktree } = createRepoWithWorktree();
+    const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const relativeTarget = join("..", "secondary", "notes.md");
     // Canonical (realpath-resolved), not the lexical join — see CL-6712.
@@ -3194,7 +3192,7 @@ describe("listWorktreeRoots", () => {
   });
 
   test("pathEscapePlugin resolves a relative ../ path into an allowlisted sibling worktree instead of rejecting it pre-realpath", async () => {
-    const { repo, worktree } = createRepoWithWorktree();
+    const { repo } = createRepoWithWorktree();
     const roots = await listWorktreeRoots(repo);
     const plugin = pathEscapePlugin(repo, () => roots);
     const handler = plugin.middleware!((call) =>
@@ -3293,7 +3291,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
   test("a burst of foreign-path checks triggers at most one re-list", () => {
     const repo = createRepo();
     let listCalls = 0;
-    const lister = (cwd: string): string[] => {
+    const lister = (_cwd: string): string[] => {
       listCalls++;
       return [];
     };
@@ -3310,7 +3308,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
   test("after the debounce window elapses, a subsequent foreign-path check re-lists again", () => {
     const repo = createRepo();
     let listCalls = 0;
-    const lister = (cwd: string): string[] => {
+    const lister = (_cwd: string): string[] => {
       listCalls++;
       return [];
     };

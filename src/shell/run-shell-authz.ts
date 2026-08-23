@@ -56,7 +56,7 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // (`bash -c 'while :; do'`, `perl -e 'fork while fork'`), so they run on
   // the original subject — command-position matchers neutralize separators
   // inside quotes and would otherwise miss the `;` these patterns need.
-  /:\(\)\s*\{\s*:\|:\&\s*\};/,
+  /:\(\)\s*\{\s*:\|:&\s*\};/,
   // Piping a network download straight into a shell (through any wrappers).
   new RegExp(String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`),
   // Privilege escalation and shell replacement, only in command position.

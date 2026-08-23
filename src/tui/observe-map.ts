@@ -71,7 +71,9 @@ export function rowsFromBridgeEvents(events: readonly BridgeInboundEvent[]): Str
  * Row index where the inference attempt in progress began. A failed attempt is
  * re-streamed from scratch, so its rows are retracted rather than appended to.
  */
-interface AttemptBoundary { at: number | null }
+interface AttemptBoundary {
+  at: number | null;
+}
 
 /** Fold one bridge event onto a row list, merging tool calls with their answers. */
 function pushBridgeEvent(
