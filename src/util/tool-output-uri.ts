@@ -1,4 +1,4 @@
-const TOOL_OUTPUT_URI_PREFIX = "tool-output:";
+export const TOOL_OUTPUT_URI_PREFIX = "tool-output:";
 
 export function isToolOutputLike(path: string): boolean {
   return path.startsWith(TOOL_OUTPUT_URI_PREFIX);
