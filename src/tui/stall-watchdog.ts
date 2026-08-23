@@ -1,5 +1,4 @@
 import type { TurnStatus } from "./session-chrome.js";
-import { detectSequencePeriod, type SequencePeriodCheck } from "../util/period-detection.js";
 
 // How long the run can be continuously awaiting a response with no new content
 // before the watchdog fires and aborts the in-flight request.
@@ -24,65 +23,6 @@ export interface ShouldAbortForStallArgs {
   readonly isProcessing: boolean;
   readonly streamingType: "text" | "thinking" | "tool" | null;
   readonly activeToolCalls: readonly string[];
-}
-
-// The captured incident looped two sentences with no line break between them
-// ("...ranked findings.Confirming callId emission...") — degeneration is a
-// character-level loop, not a line-level one. Splitting on "\n" misses it
-// entirely, so the tail is treated as a plain string and checked for the
-// smallest period it exactly repeats: the shortest span p such that the last
-// several hundred characters equal p repeated.
-//
-// A period below this is more likely a short structural tic (indentation, a
-// repeated bullet or table-cell divider) than a looping phrase. Live loops
-// repeat units as short as 10 chars ("Groaning. " emitted ~1,363 times), so
-// the floor sits at 8 — short structural tics that survive it (a "- item\n"
-// bullet is 7 chars) fall below, and the ones at or above it are filtered by
-// the distinct-chars floor and the raised repeat bar instead. Still well
-// under the ~140-char period of the captured incident's two-sentence cycle.
-const REPETITION_MIN_PERIOD = 8;
-// How many exact repeats of the period are required before it counts as a
-// loop rather than a coincidence. Raised 3x in step with the 3x-lower period
-// floor so the minimum exactly-periodic span stays at 192 chars (was 24*8,
-// now 8*24). Verified against real non-degenerate repetition: a 6-row
-// markdown table separator (period ~51 chars, 6 exact repeats) and 3
-// identical code lines (period ~60 chars, 3 exact repeats) both land far
-// under this bar and are not flagged; a genuine degenerate loop repeats
-// hundreds of times, so it still clears the bar long before the stream ends.
-const REPETITION_MIN_REPEATS = 24;
-// Hard ceiling on the period search regardless of buffer size, purely to cap
-// worst-case work per check — token-level degeneration loops on a phrase or
-// two, never on multi-paragraph spans.
-const REPETITION_MAX_PERIOD_CAP = 2_000;
-// A monochrome run ("x".repeat(500), a "----" rule, a wall of spaces) is
-// trivially periodic at *every* period, which would otherwise make it the
-// single easiest thing to false-trigger on — verified by execution against
-// `thinking-reveal.test.ts`'s burst-of-"x" fixture, which tripped the guard
-// before this floor existed. Requiring the repeating unit itself to contain
-// this many distinct characters keeps single-character and low-variety runs
-// out without weakening the sentence-level case: the captured incident's
-// cycle spans two full sentences, comfortably above it.
-const REPETITION_MIN_DISTINCT_CHARS = 8;
-
-export type RepetitionCheck = SequencePeriodCheck;
-
-/**
- * Whether the tail of `text` is an exact repeat of some short span at least
- * `REPETITION_MIN_REPEATS` times. Pure text-in, decision-out: the caller owns
- * accumulating the buffer across deltas and cycles within a turn.
- *
- * Delegates to the generic detectSequencePeriod over the character array —
- * periods longer than `text.length / REPETITION_MIN_REPEATS` are skipped
- * there, not as an arbitrary cutoff but because they cannot mathematically
- * reach the occurrence threshold within the given text.
- */
-export function detectRepetition(text: string): RepetitionCheck {
-  return detectSequencePeriod(text.split(""), {
-    minPeriod: REPETITION_MIN_PERIOD,
-    maxPeriod: REPETITION_MAX_PERIOD_CAP,
-    minRepeats: REPETITION_MIN_REPEATS,
-    minDistinct: () => REPETITION_MIN_DISTINCT_CHARS,
-  });
 }
 
 /**
