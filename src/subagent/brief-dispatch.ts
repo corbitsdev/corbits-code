@@ -1,9 +1,9 @@
 /**
  * Parent-side re-dispatch caps for task briefs (CL-4343 + CL-5203).
  *
- * Leaf stops already salvage thrash / no-progress / turn-budget / etc. This
+ * Leaf stops already salvage no-progress / turn-budget / etc. This
  * module tracks how often the *parent* re-spawns the same brief so:
- * - thrash-class salvages hard-block an identical re-dispatch for the rest of
+ * - hard-block-class salvages refuse an identical re-dispatch for the rest of
  *   the parent chat session (sticky until the fingerprint changes)
  * - turn-budget salvage flips from "raise maxTurns" to "stop" after enough
  *   same-brief dispatches without a successful complete
@@ -12,21 +12,20 @@
  */
 
 import type { TaskIntent } from "./report.js";
-import { parseSubAgentReport } from "./report.js";
 import {
   isDeadlineSubAgentReport,
+  isForcedStopSubAgentReport,
   isNeverActedSubAgentReport,
   isNeverEditedSubAgentReport,
   isNoProgressSubAgentReport,
   isNoShipSubAgentReport,
   isRepetitionSubAgentReport,
-  isThrashSubAgentReport,
   isTurnBudgetSubAgentReport,
 } from "./stop-policy.js";
 
 /** Salvage classes that must not be re-dispatched with an identical brief. */
 export type HardBlockSalvage =
-  "thrash" | "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
+  "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
 
 export type BriefSalvageKind =
   HardBlockSalvage | "turn-budget" | "deadline" | "stalled" | "cancelled" | "incomplete-report";
@@ -54,7 +53,6 @@ export interface BriefDispatchRecord {
 export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
 
 const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>([
-  "thrash",
   "no-ship",
   "no-progress",
   "repetition",
@@ -68,20 +66,17 @@ export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSal
 
 /** True when the worker returned a stall salvage report. */
 export function isStalledSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("long silence");
+  return isForcedStopSubAgentReport(report, "stalled");
 }
 
 /** True when the worker returned a cancel salvage report. */
 export function isCancelledSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("cancelled");
+  return isForcedStopSubAgentReport(report, "cancelled");
 }
 
 /** True when the worker returned an incomplete-report salvage (narration, no envelope). */
 export function isIncompleteReportSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.toLowerCase().includes("narrated instead of writing a report envelope");
+  return isForcedStopSubAgentReport(report, "incomplete-report");
 }
 
 /**
@@ -90,7 +85,6 @@ export function isIncompleteReportSubAgentReport(report: string): boolean {
  */
 export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
   // Order: more specific salvage phrases first.
-  if (isThrashSubAgentReport(report)) return "thrash";
   if (isNoShipSubAgentReport(report)) return "no-ship";
   if (isRepetitionSubAgentReport(report)) return "repetition";
   if (isNeverEditedSubAgentReport(report)) return "never-edited";
@@ -184,16 +178,11 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
         return;
       }
       if (salvage === null) {
-        // Successful complete resets the same-brief retry budget. Hard-block
-        // lastSalvage is sticky for the session and must not be cleared by a
-        // concurrent twin that finishes after thrash was already recorded.
-        if (existing.lastSalvage !== undefined && isHardBlockSalvage(existing.lastSalvage)) {
-          byFingerprint.set(fingerprint, {
-            dispatchCount: existing.dispatchCount,
-            lastSalvage: existing.lastSalvage,
-          });
-          return;
-        }
+        // CL-6710: a successful complete clears the sticky hard-block too.
+        // Two concurrent identical-brief dispatches can both admit; if one
+        // salvages and the other succeeds, the success proves the brief is
+        // re-dispatchable, so it must not leave the sibling's hard-block
+        // standing for the rest of the session.
         byFingerprint.set(fingerprint, { dispatchCount: 0 });
         return;
       }
