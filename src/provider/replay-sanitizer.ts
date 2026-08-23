@@ -11,6 +11,8 @@ import type { ContentBlock, ConversationTurn } from "@intx/types/runtime";
 // audio, video, code execution) that make adapter builders throw, and opaque
 // provider signatures that a foreign provider rejects when echoed back.
 
+export const THINKING_ONLY_OMITTED = "[thinking-only turn omitted]";
+
 // Output-only shapes a foreign provider cannot round-trip; adapter builders
 // throw on them, so they are dropped from foreign-model turns before build.
 const FOREIGN_UNMAPPABLE_TYPES = new Set<ContentBlock["type"]>([
@@ -43,6 +45,21 @@ function stripForeignBlocks(turn: ConversationTurn): ConversationTurn {
   return { ...turn, content };
 }
 
+function hasTextOrToolCall(content: ContentBlock[]): boolean {
+  return content.some((block) => block.type === "text" || block.type === "tool_call");
+}
+
+// transformMessages drops an assistant turn only when stripping thinking
+// leaves empty content. Same-model thinking-only and leftover-only turns
+// survive with no text/tool_call; adapters then 400 or used to drop them,
+// producing an identical next request and a thinking-only loop. Replace
+// the unusable turn with a stable text marker so the turn stays, roles
+// alternate, and the wire body changes.
+function replaceUnusableAssistantTurn(turn: ConversationTurn): ConversationTurn {
+  if (turn.role !== "assistant" || hasTextOrToolCall(turn.content)) return turn;
+  return { ...turn, content: [{ type: "text", text: THINKING_ONLY_OMITTED }] };
+}
+
 /**
  * Repair persisted turns for replay against `targetModel`. Assistant turns
  * produced by a different model lose blocks the target provider cannot
@@ -52,10 +69,11 @@ export function sanitizeReplayTurns(
   turns: ConversationTurn[],
   targetModel: string,
 ): ConversationTurn[] {
-  const repaired = turns.map((turn) =>
+  const stripped = turns.map((turn) =>
     turn.role === "assistant" && turn.model !== targetModel ? stripForeignBlocks(turn) : turn,
   );
-  return transformMessages(repaired, { targetModel });
+  const marked = stripped.map(replaceUnusableAssistantTurn);
+  return transformMessages(marked, { targetModel });
 }
 
 /**
