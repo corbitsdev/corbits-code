@@ -7,6 +7,7 @@ import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses-adapter.js";
 import { CODEX_RESPONSES_PROVIDER, withCodexContentTypeRepair } from "./codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses-adapter.js";
+import { withReplaySanitizer } from "./replay-sanitizer.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses-adapter.js";
 
@@ -59,6 +60,7 @@ export function createInferenceDependencies(): Promise<Dependencies> {
     cached = loadAdapterRegistry(manifest, {
       import: (specifier) => Promise.resolve(localModules[specifier]),
     })
+      .then(withReplaySanitizer)
       .then(createDependencies)
       .then((deps) => ({
         ...deps,
