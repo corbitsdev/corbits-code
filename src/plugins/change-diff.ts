@@ -21,7 +21,10 @@ function splitLines(content: string): string[] {
   return lines;
 }
 
-type DiffOp = { kind: "same" | "add" | "del"; text: string };
+interface DiffOp {
+  kind: "same" | "add" | "del";
+  text: string;
+}
 
 /** Longest-common-subsequence line diff. Callers must bound input size. */
 function lcsDiff(oldLines: string[], newLines: string[]): DiffOp[] {
