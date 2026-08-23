@@ -96,7 +96,7 @@ describe("tool execution watchdog", () => {
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
-  test("omitted run_shell timeout is unbounded (shell-guard still 15s)", () => {
+  test("omitted run_shell timeout is unbounded (shell-guard also has no default)", () => {
     expect(
       resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "run_shell", arguments: {} }),
     ).toBeUndefined();

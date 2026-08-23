@@ -21,6 +21,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
   and skips degenerate assistant text.
 
+### Plugins
+
+- **`run_shell` no longer defaults to a 15s timeout.** Omitted timeout arms no
+  timer (match Pi). Pass a per-call `timeout`, or set `shell.timeoutMs` in
+  settings, to bound a command. `shell.maxTimeoutMs` still clamps a resolved
+  timeout and does not invent one on its own. Abort and the output-byte cap are
+  unchanged.
+
+### Sub-agents
+
+- **Sub-agent `maxTurns` no longer hard-caps at 100.** Default remains 30 when
+  unset; values must still be integers ≥1. `task(maxTurns)`, profile
+  `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
+
+## [0.2.104] - 2026-08-23
+
 ### TUI
 
 - **Taller live chain-of-thought preview.** Parent reasoning still paints
@@ -31,12 +47,81 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   unchanged. Assistant mid-turn text continues to grow the open streaming
   assistant row from `inference.text.delta`.
 
-### Fixed
+- **Live agents sit in a chrome strip above the prompt.** Running and
+  finished workers no longer compete with the transcript for vertical
+  space; the strip stays parked over the input, finished rows linger
+  briefly, then it clears when idle. Transcript task-row rewrites pause
+  while the strip owns live status.
+
+### Tools
+
+- **`edit_file` filler args no longer count as a second mode.** Models pad
+  the unused mode with `start_line: 0` / `end_line: 0` / `old_string: ""`.
+  Those now count as absent, so substring vs line-range is chosen from the
+  real fields. Mixed-mode calls still reject, and the error names exactly
+  which fields to drop so a retry can differ.
+
+- **`task` rejections name only the missing field.** A typed brief that
+  omitted `prompt` used to be told both `description` and `prompt` were
+  required, so the model retried the identical call. The error now names
+  the actual gap and echoes the valid field back.
+
+- **Truncation no longer promises a retrievable remainder.** Tool results
+  cut at 80,000 chars now say the discarded tail is gone and re-running
+  yields the same cut, instead of pointing at a `tool-output:///` blob that
+  only held the truncated text.
+
+### Sub-agents
+
+- **Parents and the TUI see why a child stopped.** Forced stops (repetition,
+  stall, deadline, turn-budget, no-progress, operator cancel, thrash) carry
+  a machine-readable `Stopped:` line on the report and a reason on the
+  child's session. Fleet rows announce `<lane> stopped — <reason>` instead
+  of a silent done/cancelled.
+
+- **Repetition detection covers short-phrase, counter, emoji, and
+  zero-width floods.** The periodic window floor drops to 8 chars (with a
+  higher repeat bar so healthy lists stay quiet). A digit-folded pass
+  catches incrementing counters and fence/emoji floods; a contentless-growth
+  check flags streams of invisibles that used to normalize to healthy text.
+
+### Providers
+
+- **Cross-provider replay no longer 400s the rest of the session.**
+  Switching model/provider mid-session used to replay foreign thinking
+  signatures and output-only blocks the new adapter cannot encode. Every
+  adapter now sanitizes persisted history before `buildRequest`: drop
+  unmappable blocks, strip foreign signatures, and synthesize dangling
+  `tool_result`s.
+
+- **Grok and OpenAI Responses set `prompt_cache_key` per session.** Codex
+  already did; xAI and Go Responses did not, so Grok threads cached at
+  ~66–72% versus Codex's 92%+. Parent and each sub-agent thread get a
+  stable, distinct key.
+
+- **TUI first inference waits for Codex instructions refresh.** The TUI
+  used to fire the refresh un-awaited, so turn 2's request prefix could
+  change under a live cache key and force a full miss. Delivery now waits
+  for that promise (non-Codex profiles skip it; a failed refresh still
+  falls back to cached/bundled copy).
 
 - **Codex Responses no longer sends `reasoning.summary: "auto"`.** ChatGPT
   Codex rejects that value for gpt-5.6-terra / gpt-5.3-codex family models
   (HTTP 400 at turn 0). The adapter now sends `{ effort }` only, matching
-  Codex CLI catalog `default_reasoning_summary=none` (CL-6893).
+  Codex CLI catalog `default_reasoning_summary=none`.
+
+- **Codex native tools proxy onto Corbits tools.** `apply_patch`,
+  `exec_command`, and `update_plan` from Codex-family models land on the
+  real file, shell, and `manage_tasks` handlers instead of being rejected
+  as unknown names.
+
+### CI
+
+- **Required checks are `prettier`, `eslint`, `typecheck`, and
+  `build-and-test`.** The old combined `lint` job (cached, continue-on-error)
+  never reported the status contexts the main ruleset required, so every PR
+  sat blocked. Lint result caches are gone in CI; local `bun run lint` still
+  uses `--cache`.
 
 ## [0.2.103] - 2026-08-23
 
