@@ -1,0 +1,4 @@
+{
+  "_comment": "Legacy deploy-time pricing overrides. Not read by the runtime.",
+  "feeBasisPoints": 200
+}
