@@ -105,7 +105,7 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 
 describe("resolveGeometry — agents panel", () => {
   test("agents zone max allows more than one row again", () => {
-    expect(ZONE_REGISTRY.agents.max).toBe(AGENTS_PANEL_MAX_VISIBLE + 2);
+    expect(ZONE_REGISTRY.agents.max).toBe(AGENTS_PANEL_MAX_VISIBLE + 1);
     for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
       const layout = idle80x24({ visibility: { agents: n } });
       const fracCap = Math.max(1, Math.floor(24 * FLEET_BOARD_CAP_FRACTION));
@@ -137,14 +137,15 @@ describe("resolveGeometry — agents panel", () => {
   });
 
   test("a taller terminal honours the agents row request (stack)", () => {
+    const requested = AGENTS_PANEL_MAX_VISIBLE + 1;
     const tall = resolveGeometry({
       terminal: { columns: 120, rows: 40 },
-      visibility: { agents: 14 },
+      visibility: { agents: requested },
       transcriptFloor: FLEET_TRANSCRIPT_FLOOR,
     });
     expect(tall.layoutMode).toBe("stack");
     expect(tall.railWidth).toBe(0);
-    expect(tall.heights.agents).toBe(14);
+    expect(tall.heights.agents).toBe(requested);
     expect(tall.regions.agents?.width).toBe(tall.contentWidth);
     // Stack: agents sit below transcript and consume vertical chrome.
     expect(tall.regions.agents!.y).toBeGreaterThan(tall.regions.transcript!.y);

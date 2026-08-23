@@ -4389,6 +4389,15 @@ function renderTasksRows(shell: AppShell, rows: readonly TaskPanelRow[], maxWidt
   }
 }
 
+/** Paint tone for one agents-strip row (cream live / orange trouble / green done). */
+function agentRowFg(row: AgentPanelRow): string {
+  if (row.kind === "more" || row.kind === "header") return UI.textDim;
+  if (row.stalled || row.status === "failed") return UI.action;
+  if (row.status === "done") return UI.done;
+  if (row.status === "cancelled") return UI.textDim;
+  return UI.text;
+}
+
 /** Rebuild agentsBox's row children to match the requested rows exactly. */
 function renderAgentsRows(shell: AppShell, rows: readonly AgentPanelRow[], maxWidth: number): void {
   for (const child of [...shell.agentsBox.getChildren()]) {
@@ -4396,13 +4405,12 @@ function renderAgentsRows(shell: AppShell, rows: readonly AgentPanelRow[], maxWi
     destroySubtree(child);
   }
   for (const row of rows) {
-    // Bronze for a live working lane (inFlight), red for a stalled one — the
-    // ●/! marker already names the state, the hue only carries the urgency.
-    // The "+N more" fold-away row is chrome about the strip, not a lane in it,
-    // so it sits back in dim and leaves the colour to the work.
+    // Live lanes use primary cream (`UI.text`) — the Amp/Codex strip is body
+    // text, not bronze in-flight chrome. Stalled / failed keep the decision
+    // orange; done linger is green; cancelled / "+N more" sit back in dim.
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitAgentRow(row, maxWidth),
-      fg: row.kind === "more" ? UI.textDim : row.stalled ? UI.action : UI.inFlight,
+      fg: agentRowFg(row),
     });
     shell.agentsBox.add(text);
   }
@@ -4444,7 +4452,9 @@ export function setChromeZones(shell: AppShell, content: ChromeZoneContent): voi
           prev === undefined ||
           row.label !== prev.label ||
           row.tail !== prev.tail ||
-          row.stalled !== prev.stalled
+          row.stalled !== prev.stalled ||
+          row.status !== prev.status ||
+          row.kind !== prev.kind
         );
       });
     bag.chrome.agents = next;

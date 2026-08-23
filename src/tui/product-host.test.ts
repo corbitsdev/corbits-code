@@ -6,6 +6,7 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
+import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
 import {
   acceptOverlaySelection,
@@ -296,7 +297,7 @@ describe("mountProductHost", () => {
     expect(host.shell.streamLog).toEqual([]);
   });
 
-  test("setChrome with running agents does not paint an agents panel clock", async () => {
+  test("setChrome with running agents paints an agents panel clock", async () => {
     const now = Date.now();
     const { host, renderOnce, captureCharFrame } = await mountHeadless({
       chrome: {
@@ -314,17 +315,49 @@ describe("mountProductHost", () => {
     });
     try {
       await renderOnce();
-      // Fleet board chrome is off — sticky poll must not resurrect an agents
-      // panel clock from injected chrome state.
-      expect(captureCharFrame()).not.toContain("0:59");
-      expect(captureCharFrame()).not.toContain("map callers");
+      // Live agents strip above the prompt — sticky poll keeps the clock fresh.
+      expect(captureCharFrame()).toContain("0:59");
+      expect(captureCharFrame()).toContain("map callers");
 
       await new Promise((r) => setTimeout(r, 1_100));
       await renderOnce();
-      expect(captureCharFrame()).not.toMatch(/1:0\d/);
+      expect(captureCharFrame()).toMatch(/1:0\d/);
+      expect(captureCharFrame()).toContain("map callers");
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("sticky ticks clear the agents zone after linger without setChrome", async () => {
+    const now = Date.now();
+    const { host, renderOnce, captureCharFrame, destroyHarness } = await mountHeadless({
+      chrome: {
+        agents: [
+          {
+            agentId: "explore",
+            currentToolStartedAt: null,
+            description: "map callers",
+            status: "done",
+            startedAt: now - 10_000,
+            lastActivityAt: now,
+            finishedAt: now,
+          },
+        ],
+      },
+    });
+    try {
+      await renderOnce();
+      expect(host.shell.layout.heights.agents).toBeGreaterThan(0);
+      expect(captureCharFrame()).toContain("map callers");
+
+      // Only sticky poll may clear — no setChrome. Wait past linger + one tick.
+      await new Promise((r) => setTimeout(r, AGENTS_PANEL_LINGER_MS + 500));
+      await renderOnce();
+      expect(host.shell.layout.heights.agents).toBe(0);
       expect(captureCharFrame()).not.toContain("map callers");
     } finally {
       host.dispose();
+      destroyHarness();
     }
   });
 });
