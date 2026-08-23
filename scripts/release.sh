@@ -6,13 +6,15 @@
 #
 # End to end this:
 #   1. bumps "version" in package.json,
-#   2. commits "Release corbits X.Y.Z" and tags vX.Y.Z locally (no push yet),
+#   2. commits "Release corbits X.Y.Z" locally (no tag yet -- see step 5),
 #   3. cross-compiles standalone binaries (no runtime required) for
 #      macOS arm64/x64 and Linux x64/arm64 with `bun build --compile`,
 #   4. smoke-tests the host-native binary, then packages each target as a
 #      .tar.gz (+ .sha256) and each Linux target as a .deb (built from stock
 #      `ar` + `tar`, so no dpkg is needed),
-#   5. pushes the release commit and tag only after artifacts exist,
+#   5. lands the release commit on main through an auto-merged PR (a direct
+#      push is rejected by the branch ruleset), then tags vX.Y.Z at the merged
+#      main and pushes the tag -- both only after artifacts exist,
 #   6. creates the GitHub release on corbitsdev/corbits-code with those assets,
 #   7. regenerates the Homebrew formula (per-arch url + sha256) in the
 #      corbitsdev/homebrew-tap tap and pushes it, so `brew install corbits-code` works.
@@ -21,6 +23,16 @@
 # so a half-finished release can be completed by re-running with the version.
 # Push is deferred until after a successful build so a failed compile never
 # publishes a tag without binaries.
+#
+# The release commit reaches main via a PR because main requires status checks
+# and a direct push cannot satisfy them. The tag is cut only after that PR
+# merges: a squash or rebase merge rewrites the commit SHA, and a tag cut
+# earlier would point at a commit that is not in main. The PR is merged with
+# --merge for the same reason.
+#
+# NOTE: do not pipe this script (e.g. `release.sh X.Y.Z | tail -40`) without
+# `set -o pipefail` -- you get the pipe's exit code, not this script's, and a
+# failed release reads as success.
 #
 # Requirements: run on a Mac with git, gh (authenticated), bun, jq, ar, tar,
 # and shasum available. `bun build --compile` cross-compiles every target
@@ -70,6 +82,9 @@ done
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be X.Y.Z, got: $VERSION" >&2; exit 2; }
 
 TAG="v$VERSION"
+# main requires status checks, so the release commit lands via a PR, not a
+# direct push. Matches the existing convention (release-0.2.104 -> PR #548).
+RELEASE_BRANCH="release-$VERSION"
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$ROOT"
 STAGE="$ROOT/dist/release"
@@ -296,12 +311,18 @@ else
 fi
 NOTES_FILE="$NOTES_TMP"
 
-# ---- 1-2. version bump, commit, tag (local only; push after build) ---------
-step "Version, commit, and tag (local)"
+# ---- 1-2. version bump and release commit (local; tagged after the merge) --
+# The tag is deliberately NOT cut here. The release commit reaches main through
+# a PR (step 4), and a squash or rebase merge would rewrite its SHA and leave
+# the tag pointing at a commit that is not in main. Nothing before step 4b
+# needs the tag to exist, so it is created once the commit is actually on main.
+step "Version and release commit (local)"
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
   skip "tag $TAG already exists"
   cur=$(jq -r .version package.json)
   [ "$cur" = "$VERSION" ] || info "note: package.json says $cur, not $VERSION (tag already cut)"
+elif [ "$(jq -r .version package.json)" = "$VERSION" ]; then
+  skip "package.json already at $VERSION (release commit exists or is merged)"
 else
   [ -z "$(git status --porcelain)" ] || die "working tree not clean; commit or stash first"
   jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp
@@ -309,8 +330,7 @@ else
   [ "$(jq -r .version package.json)" = "$VERSION" ] || die "package.json bump failed"
   git add package.json
   git commit -q -m "Release $FORMULA $VERSION"
-  git tag -a "$TAG" -m "$FORMULA $VERSION"
-  info "committed and tagged $TAG (push deferred until after build)"
+  info "committed release $VERSION (PR and tag deferred until after build)"
 fi
 
 # ---- 3. build binaries, smoke, tarballs, and debs --------------------------
@@ -362,10 +382,71 @@ for entry in "${TARGETS[@]}"; do
   rm -f "$STAGE/$FORMULA-$label.bin"
 done
 
-# ---- 4. push commit + tag only after artifacts exist -----------------------
-step "Push release commit and tag"
-git_push "$ROOT"
-git_push "$ROOT" "$TAG"
+# ---- 4. land the release commit on main via PR, then tag ------------------
+# A direct push to main is rejected by the branch ruleset ("N of N required
+# status checks are expected"), so the commit goes through a PR that GitHub
+# auto-merges once those same checks pass. --merge (never --squash/--rebase)
+# keeps the release commit's SHA intact. Idempotent at every stage so a
+# re-run after a failure resumes rather than duplicating.
+step "Land release commit on $MAIN_REPO main"
+remote_version() { git show origin/main:package.json 2>/dev/null | jq -r .version 2>/dev/null || echo ""; }
+if [ "$DO_PUSH" != 1 ]; then
+  skip "would: push $RELEASE_BRANCH, open+merge its PR, then tag $TAG"
+else
+  git fetch origin main --quiet --no-tags
+  if [ "$(remote_version)" = "$VERSION" ]; then
+    skip "release commit for $VERSION is already on main"
+  else
+    git_push "$ROOT" "HEAD:refs/heads/$RELEASE_BRANCH"
+    PR_NUM=$(gh pr list --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --state open \
+      --json number --jq '.[0].number // empty')
+    if [ -z "$PR_NUM" ]; then
+      gh pr create --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --base main \
+        --title "Release $FORMULA $VERSION" \
+        --body "Version bump to $VERSION. Release notes are the CHANGELOG.md \`## [$VERSION]\` section." >/dev/null
+      PR_NUM=$(gh pr list --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --state open \
+        --json number --jq '.[0].number // empty')
+      [ -n "$PR_NUM" ] || die "could not create or find the release PR for $RELEASE_BRANCH"
+      info "opened release PR #$PR_NUM"
+    else
+      info "reusing open release PR #$PR_NUM"
+    fi
+    # Auto-merge lets the required checks be the gate without polling them here.
+    gh pr merge "$PR_NUM" --repo "$MAIN_REPO" --merge --auto --delete-branch >/dev/null \
+      || die "could not arm auto-merge on PR #$PR_NUM"
+    info "waiting for required checks and auto-merge on #$PR_NUM"
+    merged=0
+    for _ in $(seq 1 160); do   # 160 * 15s = 40 min ceiling
+      state=$(gh pr view "$PR_NUM" --repo "$MAIN_REPO" --json state --jq .state 2>/dev/null || echo "")
+      case "$state" in
+        MERGED) merged=1; break ;;
+        CLOSED) die "release PR #$PR_NUM was closed without merging" ;;
+      esac
+      sleep 15
+    done
+    [ "$merged" = 1 ] || die "release PR #$PR_NUM did not merge in time; check its status checks, then re-run"
+    info "PR #$PR_NUM merged"
+    git fetch origin main --quiet --no-tags
+    [ "$(remote_version)" = "$VERSION" ] || die "main is not at $VERSION after merge; aborting before tag"
+  fi
+fi
+
+# ---- 4b. tag the merged release commit ------------------------------------
+step "Tag $TAG"
+if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+  skip "tag $TAG already on origin"
+else
+  if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    if [ "$DO_PUSH" = 1 ]; then
+      git tag -a "$TAG" -m "$FORMULA $VERSION" "origin/main"
+      info "tagged $TAG at origin/main"
+    else
+      git tag -a "$TAG" -m "$FORMULA $VERSION"
+      info "tagged $TAG at HEAD (--no-push)"
+    fi
+  fi
+  git_push "$ROOT" "$TAG"
+fi
 
 # ---- 5. GitHub release on the main repo ------------------------------------
 step "GitHub release on $MAIN_REPO"
@@ -380,7 +461,9 @@ do
   [ -e "$f" ] && ASSETS+=("$f")
 done
 [ "${#ASSETS[@]}" -gt 0 ] || die "no assets for $VERSION in $STAGE"
-if gh release view "$TAG" --repo "$MAIN_REPO" >/dev/null 2>&1; then
+if [ "$DO_PUSH" != 1 ]; then
+  skip "would: create/refresh release $TAG on $MAIN_REPO with ${#ASSETS[@]} assets"
+elif gh release view "$TAG" --repo "$MAIN_REPO" >/dev/null 2>&1; then
   skip "release $TAG exists -- refreshing assets"
   gh release upload "$TAG" "${ASSETS[@]}" --repo "$MAIN_REPO" --clobber
 else
