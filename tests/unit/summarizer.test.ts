@@ -51,8 +51,11 @@ test("condenseTurns extracts files, tools, and links", () => {
 });
 
 test("condenseTurns drops a degenerate repeated assistant tail from the excerpt (CL-6906)", () => {
+  // The live detector needs 16 consecutive repeats of an 8+ char window
+  // (DEFAULT_REPETITION_CONFIG). Ten copies of this phrase was enough
+  // before that raise; twenty still trips it after.
   const loopPhrase = "we need to check whether the cache key already accounts for locale. ";
-  const loopText = loopPhrase.repeat(10);
+  const loopText = loopPhrase.repeat(20);
   const healthyNote = "Looked at src/auth.ts and found the missing null check.";
   const degenerateTurns: ConversationTurn[] = [
     { role: "user", content: [{ type: "text", text: "please continue" }], timestamp: 1 },
