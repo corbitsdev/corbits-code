@@ -70,7 +70,10 @@ mock.module("../../../src/agent/posix-tool-plugins.js", () => ({
 }));
 
 const mockConnectMCPServer = mock(
-  async (config: { name: string }, _options?: import("../../../src/mcp/client.js").MCPConnectOptions) => ({
+  async (
+    config: { name: string },
+    _options?: import("../../../src/mcp/client.js").MCPConnectOptions,
+  ) => ({
     ok: false as const,
     serverName: config.name,
     error: "not connected",

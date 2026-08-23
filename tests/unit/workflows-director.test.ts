@@ -101,7 +101,12 @@ test("the active step directive is injected into the inferred system prompt", as
     type: "message.received",
     message: {
       ref: { uid: 1, mailbox: "INBOX" },
-      headers: { from: "user@test", to: ["agent@test"], date: "1970-01-01T00:00:00Z", messageId: "m1" },
+      headers: {
+        from: "user@test",
+        to: ["agent@test"],
+        date: "1970-01-01T00:00:00Z",
+        messageId: "m1",
+      },
       flags: [],
       signatureStatus: "missing",
       content: "go",
