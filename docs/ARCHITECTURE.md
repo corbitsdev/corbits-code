@@ -28,11 +28,11 @@ types the TUI maps is `PRODUCTION_REACTOR_TYPES` in
 treat that as canonical rather than this table or any other doc's partial
 list.
 
-| Event | When it fires |
-|---|---|
+| Event            | When it fires                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `inference.done` | The LLM finished one assistant turn. Carries the full turn content. Fires once per turn, every turn — this is the **turn boundary**. |
-| `tool.done` | One tool call completed. Carries the result and the original `callId`. |
-| `reactor.done` | The reactor loop shut down. Fires once, at the end of the run — not between turns. |
+| `tool.done`      | One tool call completed. Carries the result and the original `callId`.                                                               |
+| `reactor.done`   | The reactor loop shut down. Fires once, at the end of the run — not between turns.                                                   |
 
 `inference.done` and `reactor.done` read as near-synonyms at a call site but
 answer different questions: "did a turn end" versus "did the reactor shut
@@ -107,21 +107,19 @@ Two directors, selected by role:
 
 - **ChatDirector** (interactive, `src/agent/director.ts`) — Extends `DefaultDirector` with task list tracking, workflow nudges, LSP auto-activation, and multi-turn chat semantics. It never terminates the session: operator declines are surfaced as replies and the reactor stays alive for the next message. Auto mode is toggled by CLI flags (`--auto` / `--no-auto`); there is currently no in-session key to toggle it (default on; constrained envelope — workspace writes and unconstrained shell auto-allow; installs, recursive rm, force/uncontained worktree changes, sensitive-path and opaque-wrapper shell still ask; contained non-force `git worktree add`/`remove`/`prune` and `list` auto-allow; shell file-mutation denied). It is not a separate edit/plan mode.
 - **SubAgentDirector** (delegated work, `src/subagent/index.ts`) — Drives a dispatched worker until a turn arrives with no tool calls, then replies with the final assistant text and ends the run. A tool-less turn **after tools** completes only with the four-heading envelope (Summary, Findings, Blockers, Paths); a missing envelope nudges once then salvages as **incomplete-report**. A tool-less completion with **zero tool calls in the entire run** is returned as a **never-acted** salvage report (not a successful implement). When `task(intent="implement")` is set, a tool-using run that never wrote/edited/deleted a file is returned as **never-edited** instead of complete — so a pure-explore "plan" cannot look shipped to the parent (tracked via `thrashState.editedPaths` from `edit_file` / `write_file` / `delete_file`). Explore/read-only workers that used tools then replied with findings remain normal completes. Hard stops also fire after 5 consecutive identical tool-call fingerprints (**no-progress**, mirroring the director-level `IDENTICAL_REPEAT_MIN` threshold), on progressive re-read pressure (**thrash** — the same path re-read past a limit amid enough tool volume, tracked by `src/subagent/thrash.ts`), or after the leaf turn budget (**turn-budget**, default 30, overridable via `task(maxTurns)`, agent profile `maxTurns`, or `settings.subagentMaxTurns`, capped at 100), each returning a structured salvage report (reason, partial findings, blockers) so a thrashing child cannot burn tokens indefinitely. Before hard thrash, a one-shot **re-read-nudge** fires when re-read pressure crosses a soft threshold (default 3 same-path reads with enough tool volume, still below the hard re-read limit of 4): the director injects an ephemeral redirect — implement leaves are asked to edit or wrap up; explore leaves are asked to expand findings / change approach / report, never forced into edit — then keeps running so hard thrash remains reachable if the leaf ignores it. A fourth hard stop, **repetition**, is detected outside the director entirely:
- `runSubAgent`'s stream sink watches the streamed text of the in-flight cycle for degenerate token loops (`src/subagent/repetition.ts`) — format chars (ZWSP, BOM, bidi marks, soft hyphen, …) stripped then whitespace-collapsed raw text, a smallest-period KMP check over the probe tail, default window >= 16 chars repeated >= 8 times, evaluated every 256 streamed chars — and on a hit aborts the run controller mid-cycle, returning a `repetition` salvage report that leads with the looped window and warns the parent against re-dispatching the identical brief. `inference.thinking.delta` is sampled the same way on its own buffer, but with digit runs folded to one placeholder and a shorter window (>= 4 chars repeated >= 32 times), gated to periods <= 16 chars once folded: thinking is never rendered to the user, so a monotonic counter (e.g. `0/1 1/2 2/3 …`, which stays non-periodic and escapes the raw-text check) can be caught, but folding still erases real information — a healthy templated enumeration line becomes byte-identical to its neighbors once digits are erased, so the period-length cap only lets counter-shaped folded periods (a handful of chars) through and refuses the much longer periods a folded prose line produces. Because directors only see completed turns, this is the only stop that can catch a loop inside a single turn that never finishes. A one-shot **report-forced** signal fires a few turns before the cap while the leaf is still tooling — it is not a stop: the director injects a wrap-up nudge and lets the leaf finish on its own, so turn-budget stays reachable for a leaf still making progress. When both report-forced and re-read-nudge apply, report-forced wins (near-budget wrap-up is more urgent than a mid-run redirect). Operator/parent cancel after any progress likewise returns a **cancelled** salvage report (partial findings + tool activity) instead of a bare cancel string; cancel before progress still surfaces as cancelled-by-operator.
- Optional `task(tier=)` (`fast` | `standard` | `clever`) overrides profile inference, profile tier, and the parent provider for that spawn only, and fails closed when the tier is unconfigured. The parent `task` tool keeps a session-scoped brief-dispatch ledger (`src/subagent/brief-dispatch.ts`): fingerprints cover prompt + agent + intent + success_criteria + do_not (not maxTurns/description/tier). After thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is hard-blocked for the rest of the parent chat; change at least one fingerprint field to force a re-run. Turn-budget salvage still invites a higher maxTurns for a few same-brief retries without a successful complete, then flips the parent hint to stop and change approach (soft — further identical dispatches are still admitted). A successful complete resets the same-brief retry budget.
-
-
+  `runSubAgent`'s stream sink watches the streamed text of the in-flight cycle for degenerate token loops (`src/subagent/repetition.ts`) — format chars (ZWSP, BOM, bidi marks, soft hyphen, …) stripped then whitespace-collapsed raw text, a smallest-period KMP check over the probe tail, default window >= 16 chars repeated >= 8 times, evaluated every 256 streamed chars — and on a hit aborts the run controller mid-cycle, returning a `repetition` salvage report that leads with the looped window and warns the parent against re-dispatching the identical brief. `inference.thinking.delta` is sampled the same way on its own buffer, but with digit runs folded to one placeholder and a shorter window (>= 4 chars repeated >= 32 times), gated to periods <= 16 chars once folded: thinking is never rendered to the user, so a monotonic counter (e.g. `0/1 1/2 2/3 …`, which stays non-periodic and escapes the raw-text check) can be caught, but folding still erases real information — a healthy templated enumeration line becomes byte-identical to its neighbors once digits are erased, so the period-length cap only lets counter-shaped folded periods (a handful of chars) through and refuses the much longer periods a folded prose line produces. Because directors only see completed turns, this is the only stop that can catch a loop inside a single turn that never finishes. A one-shot **report-forced** signal fires a few turns before the cap while the leaf is still tooling — it is not a stop: the director injects a wrap-up nudge and lets the leaf finish on its own, so turn-budget stays reachable for a leaf still making progress. When both report-forced and re-read-nudge apply, report-forced wins (near-budget wrap-up is more urgent than a mid-run redirect). Operator/parent cancel after any progress likewise returns a **cancelled** salvage report (partial findings + tool activity) instead of a bare cancel string; cancel before progress still surfaces as cancelled-by-operator.
+  Optional `task(tier=)` (`fast` | `standard` | `clever`) overrides profile inference, profile tier, and the parent provider for that spawn only, and fails closed when the tier is unconfigured. The parent `task` tool keeps a session-scoped brief-dispatch ledger (`src/subagent/brief-dispatch.ts`): fingerprints cover prompt + agent + intent + success_criteria + do_not (not maxTurns/description/tier). After thrash / no-progress / repetition / never-acted / never-edited salvage, an identical re-dispatch is hard-blocked for the rest of the parent chat; change at least one fingerprint field to force a re-run. Turn-budget salvage still invites a higher maxTurns for a few same-brief retries without a successful complete, then flips the parent hint to stop and change approach (soft — further identical dispatches are still admitted). A successful complete resets the same-brief retry budget.
 
 #### Model-family policy (`src/agent/model-family-policy.ts`)
 
 Both directors consume one `ModelFamilyPolicy` object, resolved once per session/leaf from the provider/model via `detectModelFamily` (`src/subagent/provider-family.ts`) — the directors branch on this data, never on per-family subclasses or forks. `resolveModelFamilyPolicy({ providerName, model, orchestrator? })` returns:
 
-| Field | Meaning |
-|---|---|
-| `toolOnlyTurnNudgeAt` | Consecutive tool-only assistant turns (tool calls, no text) before the ChatDirector injects a one-shot wrap-up nudge — a check-in, not a stop. |
-| `wrapUpNudgeText` | Ephemeral nudge text injected at the nudge threshold. |
-| `subAgentStallTimeoutMs` | Wall-clock inactivity, in ms, before a silent sub-agent leaf gets a continuation nudge. |
-| `applyGrokFinishBias` | The existing grok anti-thrash residual (withheld from orchestrators — see `shouldApplyGrokAntiThrash`). |
+| Field                    | Meaning                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `toolOnlyTurnNudgeAt`    | Consecutive tool-only assistant turns (tool calls, no text) before the ChatDirector injects a one-shot wrap-up nudge — a check-in, not a stop. |
+| `wrapUpNudgeText`        | Ephemeral nudge text injected at the nudge threshold.                                                                                          |
+| `subAgentStallTimeoutMs` | Wall-clock inactivity, in ms, before a silent sub-agent leaf gets a continuation nudge.                                                        |
+| `applyGrokFinishBias`    | The existing grok anti-thrash residual (withheld from orchestrators — see `shouldApplyGrokAntiThrash`).                                        |
 
 Defaults (`src/agent/model-family-policy.ts:47`): nudge at 25 consecutive tool-only turns, 5-minute stall timeout. The hard pause is no longer a `ModelFamilyPolicy` field — it runs the same period-detection thrash check for every family (see below). Nudge-at-25 replaced an earlier count-only design (nudge at 12, hard-pause at 20 by count alone, grok tightened to 6/10) that conflated any tool-only turn with no-progress — a Grok session hard-paused at 10 turns while making real progress through Linear lookups and code reads (CL-4839's original loop protection was aimed at runaway list-crawl thrash, not busy-but-progressing tool use). A grep/jq pass over real session traces under `~/.corbits/projects/*/*/context/turns.jsonl` (54 sessions with any tool-only run) found healthy tool-only streaks topping out at 13 turns (p90 12, p99 13) — 25 sits comfortably above that. **Grok** shares the default nudge threshold (its own 6/10 pair was the miscalibration this fixed) but keeps its shorter sub-agent stall timeout (90s) and `applyGrokFinishBias` residual, both independently motivated. **Kimi (Moonshot)** detection ships now (`isKimiLeafProvider`) so callers can already branch on the family, but its thresholds are provisional — pinned to the permissive default with a why-comment in the policy module — pending eval characterization of Kimi's tool-only and stall behavior.
 
@@ -137,11 +135,11 @@ The hard pause is a separate signal that does **not** depend on the nudge having
 - **period 2** — an alternating pair (`A,B,A,B,...`). The previous implementation compared each turn only to the one immediately before it, so this pattern never triggered at any length.
 - **period ≥3** — a rotating cycle (`A,B,C,A,B,C,...`).
 
-The repeat floor differs by period (`src/subagent/stop-policy.ts:138-157`): period 1 requires 5 repeats (`IDENTICAL_REPEAT_MIN`) — a short run of identical calls is legitimate (rerunning a flaky test, polling a build), and review on CL-5611 found the previous 4-repeat pause false-positived on exactly that. Any cycle of period ≥2 requires only 3 repeats (`CYCLE_REPEAT_MIN`) — there is no plausible legitimate reason to re-issue a fixed rotation of *different* tool calls with identical arguments, so it fires fast (an alternating pair pauses at 6 turns; a 3-call cycle at 9). Both floors are set well above the *measured* healthy ceiling: a local forensic scan (`scripts/tool-fingerprint-forensics.ts`, 328 sessions with a tool-only run, 559 tool-only runs — **this dataset informs the period-detection repeat floors above, not the backstop threshold below, which uses a separate measurement**) found zero occurrences of any repeating cycle for any period the scan checks — periods 1 through 6 (`MAX_PERIOD_SCANNED`); the scan does not check periods 7-8, so `TOOL_FINGERPRINT_MAX_PERIOD` (`src/subagent/stop-policy.ts:138`) has no forensic backing above period 6, only headroom — stronger than CL-5611's original "zero 3+ identical" finding for the periods it does cover. The 5-repeat period-1 floor itself is not independently measured (the forensic dataset contains no repeats to calibrate against); it is inferred headroom for the polling case, chosen only to sit above the previously-false-positived value of 4.
+The repeat floor differs by period (`src/subagent/stop-policy.ts:138-157`): period 1 requires 5 repeats (`IDENTICAL_REPEAT_MIN`) — a short run of identical calls is legitimate (rerunning a flaky test, polling a build), and review on CL-5611 found the previous 4-repeat pause false-positived on exactly that. Any cycle of period ≥2 requires only 3 repeats (`CYCLE_REPEAT_MIN`) — there is no plausible legitimate reason to re-issue a fixed rotation of _different_ tool calls with identical arguments, so it fires fast (an alternating pair pauses at 6 turns; a 3-call cycle at 9). Both floors are set well above the _measured_ healthy ceiling: a local forensic scan (`scripts/tool-fingerprint-forensics.ts`, 328 sessions with a tool-only run, 559 tool-only runs — **this dataset informs the period-detection repeat floors above, not the backstop threshold below, which uses a separate measurement**) found zero occurrences of any repeating cycle for any period the scan checks — periods 1 through 6 (`MAX_PERIOD_SCANNED`); the scan does not check periods 7-8, so `TOOL_FINGERPRINT_MAX_PERIOD` (`src/subagent/stop-policy.ts:138`) has no forensic backing above period 6, only headroom — stronger than CL-5611's original "zero 3+ identical" finding for the periods it does cover. The 5-repeat period-1 floor itself is not independently measured (the forensic dataset contains no repeats to calibrate against); it is inferred headroom for the polling case, chosen only to sit above the previously-false-positived value of 4.
 
 Once `detectToolFingerprintThrash` reports `repeating: true`, the director stops issuing infers entirely and replies with a loud, operator-facing pause message ("Auto-paused: the model repeated the same tool call N times in a row..." for period 1, or "...repeated a P-call cycle N times in a row..." for a longer cycle, both ending "without making progress. Send a message to resume."), using the same `capabilities.reply()` channel the workflow-stall message already uses to reach the TUI. A streak of length 200+ with a different tool call every turn never pauses. Because a turn with pending `tool_call` blocks must be followed by tool results before anything else (a bare nudge turn on top of pending tool calls is a provider-invalid conversation), both the nudge and the pause are applied by rewriting the `infer` action that follows once those pending tools have resolved (`applyToolOnlyLoopProtection`, `src/agent/director.ts:447`) — the same one-shot rewrite shape as the sub-agent report-forced wiring below. This loop-protection rewrite runs with the **highest precedence** among the terminal/continuation rewrites in `decideInner`: it is checked before the workflow-idle, open-task, and goal-governor continuation nudges, since those exist to keep a session moving — exactly the behavior the pause guards against. Resuming is just the operator sending a new message, which resets the streak, the fingerprint history, and un-pauses through the same reset path as the other nudge budgets.
 
-**Backstop: nudge, then escalate — not an immediate pause.** Period detection has a structural blind spot: any period above `TOOL_FINGERPRINT_MAX_PERIOD`, or a "phase-broken" cycle that inserts a varying element between otherwise-repeating windows (e.g. `A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...`), never settles into an exact repeating tail and so never fires the fast path — at any streak length. Earlier versions of this backstop each had their own escape, all the same shape: the reset condition was satisfiable by something the model or the system itself could trigger. Round 4 fixed the narration escape (a raw tool-only streak that reset on any narrated turn, so a model inserting one word every ~55 turns kept resetting the counter) by separating two questions that had been sharing one reset rule — but its fix reset `turnsSinceUserMessage` on *any* `message.received` event, which is also satisfied by the synthetic content-less messages the runner sends itself after compaction (`buildCompactionContinuationMessage` in `src/tui/runner.ts`, `src/exec/runner.ts`, `src/subagent/run.ts`) — and compaction fires more often during long tool-only loops, i.e. exactly when the backstop should be counting.
+**Backstop: nudge, then escalate — not an immediate pause.** Period detection has a structural blind spot: any period above `TOOL_FINGERPRINT_MAX_PERIOD`, or a "phase-broken" cycle that inserts a varying element between otherwise-repeating windows (e.g. `A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...`), never settles into an exact repeating tail and so never fires the fast path — at any streak length. Earlier versions of this backstop each had their own escape, all the same shape: the reset condition was satisfiable by something the model or the system itself could trigger. Round 4 fixed the narration escape (a raw tool-only streak that reset on any narrated turn, so a model inserting one word every ~55 turns kept resetting the counter) by separating two questions that had been sharing one reset rule — but its fix reset `turnsSinceUserMessage` on _any_ `message.received` event, which is also satisfied by the synthetic content-less messages the runner sends itself after compaction (`buildCompactionContinuationMessage` in `src/tui/runner.ts`, `src/exec/runner.ts`, `src/subagent/run.ts`) — and compaction fires more often during long tool-only loops, i.e. exactly when the backstop should be counting.
 Round 5 fixes the reset condition's shape instead of patching another instance: `turnsSinceUserMessage` now resets only when the inbound message carries `OPERATOR_ORIGINATED_FLAG` (`src/agent/message-provenance.ts`), a flag set only at the genuine human-input submit sites — the TUI's prompt-submit path (`userInboundMessage`, `src/tui/runner.ts`) and exec's initial-task send (`operatorTaskMessage`, `src/exec/runner.ts`). Nothing else sets it, so a message.received event from a synthetic or system-originated send (compaction continuation, retry, future director continuation) is system-originated by default and cannot accidentally qualify — the failure mode inverts from "silently forgets to exclude a sender" to "must explicitly claim to be a human." "Is the model cycling?" (`toolFingerprintHistory` / `lastThrashCheck`) is unaffected by this and is still cleared by any narrated turn — narration remains legitimate evidence the model is not stuck in a tight loop; only the "how long since the operator last saw a real checkpoint?" side (`turnsSinceUserMessage`, `src/agent/director.ts`) requires the operator flag. `detectTurnsSinceUserMessageBackstop` (`src/subagent/stop-policy.ts`) is the secondary/final-net check driven by this counter, evaluated only when period detection has not already reported `repeating: true` on that same turn — so it can never preempt the fast path, only catch what the fast path misses (periods above `TOOL_FINGERPRINT_MAX_PERIOD`, and phase-broken cycles).
 
 **This backstop's threshold (100) is a judgment call, not a measured value.** turns-since-last-genuine-operator-message was never separately measured — an earlier revision of this doc cited a scan of it with a stated methodology and specific percentiles; no corresponding script or output exists anywhere in the tree, and the citation was internally inconsistent about the session/run counts besides. That claim is retracted. The only real measurement available is `scripts/tool-fingerprint-forensics.ts`, which measures a related but different quantity — consecutive tool-only-turn streaks, reset by narration — p50 3, p90 8, p99 16, max 28 across 328 local sessions with a tool-only run. It doesn't directly justify 100 (narration doesn't reset this counter, so the distributions aren't comparable), but it's the only forensic data point on hand, and 100 sits comfortably above every percentile of it.
@@ -155,7 +153,6 @@ Because the operator explicitly wants long autonomous runs to keep going, reachi
 `SubAgentDirector` tracks `lastActivityAt`, updated on every real `inference.done` and `tool.done`. Directors are pure `decide(event, ...)` functions with no timer of their own and the reactor has no proactive "idle" event, so a genuinely silent leaf (e.g. parked on a long-running background command with nothing else to do) produces no event for the director to react to. `runSubAgent` (`src/subagent/index.ts`) arms an external interval, at `subAgentStallTimeoutMs`, that pings the same content-less continuation channel the compaction governor uses to re-enter an idle reactor (`requestContinuation`). The director only acts on a ping if the elapsed time since `lastActivityAt` has crossed the timeout — a ping delivered while a tool call is still executing simply queues until that cycle finishes, so "no pending harness-tracked work" falls out of when the check can run at all rather than needing separate bookkeeping. The first stall past the timeout gets one continuation nudge (asking the leaf to check on the background work or report status); a second **consecutive** stall (no activity since that nudge) escalates to the existing salvage path, returning a `stalled` `forcedStopReport` with the same structured shape (summary/findings/blockers) as `no-progress` / `turn-budget` / `thrash` / `never-acted` / `never-edited`. Any real activity between pings resets the streak, so a leaf that is genuinely working through a slow single turn is never penalized.
 
 **Precedence**: stall detection sits **below** no-progress, thrash, and turn-budget — those are evaluated from real `inference.done` turns inside `evaluateSubAgentStop` and always take priority; the stall check only ever fires on a continuation ping that inference/tool-result handling did not already consume that cycle. Report-forced (near-budget wrap-up) and re-read-nudge (mid-run soft re-read redirect) are independent one-shot signals that can both fire across a run — one is turn-count driven, the other re-read-pressure driven — but neither is a competing stop reason in the sense no-progress/thrash/turn-budget are. Stall nudging is wall-clock driven and likewise independent of both.
-
 
 The reactor only persists a response turn to `turns.jsonl` on `inference.done`, so a cycle that is cancelled, aborted, errors, or is otherwise interrupted mid-stream would leave nothing behind. A cycle-text recorder (`src/session/stream-journal.ts`) closes that gap by buffering the in-flight cycle's streamed text in memory — no writes on the happy path — and appending one JSON record (`{reason, chars, text}`) to `partial.jsonl`, alongside `turns.jsonl` in the session context dir, on abnormal cycle end. It is wired into the sub-agent run loop, the exec runner (flushed on failed sends), and the TUI runner (flushed on interrupt and on session rotation, before the context dir is repointed).
 
@@ -171,7 +168,6 @@ Both adopt the shared **compaction governor** (`src/agent/compaction.ts`) descri
 - **Launch-time tool gating:** the deleted `hasGoalAtLaunch` flag let persisted continuation state (loaded before the first inference call) gate which tools were advertised in the wire prefix (see `tool-search.ts` — the tools array is a provider cache prefix, so gating facts must be fixed for the session's life). A replacement that persists its own state across sessions will face the same launch-ordering constraint: state must load before the tool list is built.
 
 The auto-deny approval timeout the goal governor armed (`timeoutMs`/`timeoutMessage` on the TUI permission gate) is generic plumbing that survives in `src/tui/gate-events.ts` / `src/tui/request-approval.ts` with no current caller — a future generalized auto-continue mechanism owns re-arming it.
-
 
 The agent maintains an optional **`manage_tasks`** list (create/update via the homonymous tool). The TUI task panel reflects director task state; `manage_tasks` tool calls are collapsed into a dedicated content block in the event stream.
 
@@ -217,13 +213,13 @@ Invocation: workflows are **not** top-level slash commands. Recipe definitions l
 
 Three distinct concepts (do not conflate them):
 
-| Concept | What it is | Surface |
-|---|---|---|
-| **Agent** | A runtime entity with its own loop, tools, and context | Primary session or a spawned child |
-| **Task** | A checklist item owned by *one* agent via `manage_tasks` | Local work plan — not a spawn |
-| **Sub-agent** | A short-lived child agent for one self-contained job | Spawned with the **`task`** tool (wire name kept for compatibility) |
+| Concept       | What it is                                               | Surface                                                             |
+| ------------- | -------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Agent**     | A runtime entity with its own loop, tools, and context   | Primary session or a spawned child                                  |
+| **Task**      | A checklist item owned by _one_ agent via `manage_tasks` | Local work plan — not a spawn                                       |
+| **Sub-agent** | A short-lived child agent for one self-contained job     | Spawned with the **`task`** tool (wire name kept for compatibility) |
 
-The **`task`** tool **spawns a sub-agent** on a separate inference source (tier/profile resolved from settings). The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the *child's* own `manage_tasks` list). The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
+The **`task`** tool **spawns a sub-agent** on a separate inference source (tier/profile resolved from settings). The dispatch brief separates durable `context`, actionable `prompt`, and optional `goals` (checklist seeds for the _child's_ own `manage_tasks` list). The child returns a structured report (`Summary` / `Findings` / `Blockers` / `Paths`) plus a tools-used footer. Parent and child never share a `manage_tasks` list.
 
 When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** plugins, including **data-only** markdown plugins with no `index.ts`), the chat model also receives **`search_agents`** — a lexical index over profile id, description, and role text so the model can discover ids before calling `task(agent=...)`. Results include each match's full loaded system prompt / body so the parent can inspect plugin or Claude marketplace agents without `read_file` on paths outside the session cwd (path-escape blocks those roots by design; writes remain blocked). `task` and `search_agents` are core tools on the primary session.
 
@@ -235,57 +231,57 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Primary**
 
-| Director | Owns | Does not own |
-|---|---|---|
+| Director  | Owns                                                           | Does not own                                                  |
+| --------- | -------------------------------------------------------------- | ------------------------------------------------------------- |
 | skywalker | Orchestrate only — classify, dispatch, track fleet, synthesize | Product tree edits; being the implementer/reviewer by default |
 
 **Engineering directors**
 
-| Director | Owns | Does not own |
-|---|---|---|
-| build | Ship product code | Pure docs, pure review |
-| explore | Map/read codebase | Product edits |
-| plan | Eng change plan (steps, paths, tests, risks) | Arch gate, product discovery, code |
-| intern | Mechanical commands only | Ambiguous or product-design work |
-| critique | Evidence-based code review | Fixing product code |
-| greybeard | Architecture/approach review of plans/docs; limited spawn | Authoring eng plans, implementing |
-| neckbeard | Adversarial hygiene / refactor stress | Real review substitute |
-| bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code |
-| gaasbot | Quick CTO opinion voice | Formal review gate, implement |
+| Director    | Owns                                                                    | Does not own                       |
+| ----------- | ----------------------------------------------------------------------- | ---------------------------------- |
+| build       | Ship product code                                                       | Pure docs, pure review             |
+| explore     | Map/read codebase                                                       | Product edits                      |
+| plan        | Eng change plan (steps, paths, tests, risks)                            | Arch gate, product discovery, code |
+| intern      | Mechanical commands only                                                | Ambiguous or product-design work   |
+| critique    | Evidence-based code review                                              | Fixing product code                |
+| greybeard   | Architecture/approach review of plans/docs; limited spawn               | Authoring eng plans, implementing  |
+| neckbeard   | Adversarial hygiene / refactor stress                                   | Real review substitute             |
+| bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code                     |
+| gaasbot     | Quick CTO opinion voice                                                 | Formal review gate, implement      |
 
 **Design trio (dev perspective)**
 
-| Director | Owns |
-|---|---|
-| draper | Product visual / design-system critique |
-| emil | Design-engineering + software laws on product UI/code |
-| brand-reviewer | **DESIGN.md** create-if-missing + alignment gate |
+| Director       | Owns                                                  |
+| -------------- | ----------------------------------------------------- |
+| draper         | Product visual / design-system critique               |
+| emil           | Design-engineering + software laws on product UI/code |
+| brand-reviewer | **DESIGN.md** create-if-missing + alignment gate      |
 
 **Docs + QA**
 
-| Director | Owns |
-|---|---|
+| Director    | Owns                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------- |
 | shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION lane |
-| testsmith | Test design only (what/how to test) |
-| tester | Runtime verification; never fix product code |
+| testsmith   | Test design only (what/how to test)                                                     |
+| tester      | Runtime verification; never fix product code                                            |
 
 **Intent → director** (`task(intent=…)` when `agent` is omitted)
 
-| Intent | Default director |
-|---|---|
-| implement | build |
-| explore | explore |
-| plan | plan |
-| review | critique (override with `agent=…`) |
-| general | **none** — reclassify only |
+| Intent    | Default director                   |
+| --------- | ---------------------------------- |
+| implement | build                              |
+| explore   | explore                            |
+| plan      | plan                               |
+| review    | critique (override with `agent=…`) |
+| general   | **none** — reclassify only         |
 
 **Spawn matrix**
 
-| Who | Spawn rights |
-|---|---|
-| skywalker (primary session) | Full closed fleet |
-| greybeard | intern, explore, critique only |
-| All other directors | no `task` |
+| Who                         | Spawn rights                   |
+| --------------------------- | ------------------------------ |
+| skywalker (primary session) | Full closed fleet              |
+| greybeard                   | intern, explore, critique only |
+| All other directors         | no `task`                      |
 
 **Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, brand-reviewer, bruckheimer) mount write tools with **no** package `writePaths`. Lane routing is spawn policy (shakespeare = P/A/I docs, brand-reviewer = DESIGN.md, bruckheimer = product discovery), not a file lock. Optional `writePaths` still exists; the permission gate enforces it when a profile sets it.
 
@@ -355,7 +351,7 @@ tool call
 
 - **Path Escape** (`path-escape-plugin.ts`) — Canonicalizes path-like arguments against `cwd` and blocks `..` escapes, except into a root the permission layer's worktree-roots provider allowlists (e.g. a sibling git worktree of the same repo). Runs first so later plugins see resolved paths.
 - **Tool-output URI** (`tool-output-uri-plugin.ts`) — Normalizes mistaken `read_file` blob URIs to `tool-output:///id` (corbits-only; interchange stays unpatched).
-- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies path-keyed tool calls (`read_file`, `write_file`, …) that would put a sensitive file into (or write it from) the model context. Runs before the permission plugin, so the path-arg deny holds even under `--dangerously-skip-permissions`. Shell commands that *reference* a sensitive path (tokenized so `cat .env`, `bun --env-file=.env run …`, and quote/env-assignment forms are detected) are not hard-denied here: they require operator approval via the permission gate, and auto mode forces an ask through the auto-shell policy (`sensitive-path` rule). Once the operator approves, the command runs. Shell detection is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly). Tool-result secret scrub still redacts credential-shaped output.
+- **Secret Guard** (`secret-guard-plugin.ts`) — Hard-denies path-keyed tool calls (`read_file`, `write_file`, …) that would put a sensitive file into (or write it from) the model context. Runs before the permission plugin, so the path-arg deny holds even under `--dangerously-skip-permissions`. Shell commands that _reference_ a sensitive path (tokenized so `cat .env`, `bun --env-file=.env run …`, and quote/env-assignment forms are detected) are not hard-denied here: they require operator approval via the permission gate, and auto mode forces an ask through the auto-shell policy (`sensitive-path` rule). Once the operator approves, the command runs. Shell detection is best-effort: token matching defeats quoting and env-assignment/redirection forms but not dynamic path construction (variable indirection, `printf` assembly). Tool-result secret scrub still redacts credential-shaped output.
 - **Authorization** (`run-shell-authz.ts`, wired by `authz-plugin.ts`) — Denies catastrophic shell command patterns by regex, and hard-blocks shell `find`, head-position `rg`, and recursive `grep -r` (they can walk huge trees and OOM the host). Bounded `grep`/`search_files` tools remain practical alternatives (timeout + output caps); the patterns match those three command shapes only — an `ls -R`, `fd`, or scripted `os.walk` is just as unbounded and is not caught, so the block message tells the model not to substitute one. The permission gate’s shell auto-allow path consults the same policy so it never pre-approves a command authz would reject.
 - **Permission** (`permission-plugin.ts`) — Delegates consequential calls to the permission gate.
 - **Shell Guard** (`shell-guard-plugin.ts`) — Corbits Code-only replacement for stock `run_shell` (interchange stays unpatched): 15s default timeout, 512KB display cap with head+tail retention (the process keeps running when the cap is hit), process-group kill on timeout/abort only. Also applies a 10s wall-clock budget to `grep`/`search_files`.
@@ -413,12 +409,12 @@ Primary is Skywalker. Bundled skill bodies that are operator slashes are **actio
 
 `discoverSkills(cwd, pluginDirs)` runs at session start and returns each available skill's `name` + one-line `description` for the lazy listing in the system prompt. It scans the following base directories, highest precedence first:
 
-| Base directory | Source |
-|---|---|
+| Base directory        | Source                                                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `<pluginDir>/skills/` | Each enabled plugin that ships skills, including the bundled `corbits-skills` catalog when auto-enabled (`skillDirsFromEnabledPlugins`) |
-| `.agents/skills/` | Shared across runtimes |
-| `.claude/skills/` | Claude Code workspace skills |
-| `.codex/skills/` | Codex workspace skills |
+| `.agents/skills/`     | Shared across runtimes                                                                                                                  |
+| `.claude/skills/`     | Claude Code workspace skills                                                                                                            |
+| `.codex/skills/`      | Codex workspace skills                                                                                                                  |
 
 Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory name: the first base dir that provides a given name wins, so an enabled plugin skill shadows a project-local skill of the same name. Plugin dirs are passed in discovery order (repo first), so a first-party catalog name wins over a later marketplace or project skill of the same name. `resolveSkillBody(cwd, ref, pluginDirs)` resolves a skill's body using the same ordered list (it accepts a bare name or a `plugin:name` ref, keying on the name).
 
@@ -426,11 +422,11 @@ Each `<base>/<skill-name>/SKILL.md` is one skill. Discovery dedupes by directory
 
 A skill file begins with a YAML frontmatter block, followed by the body that holds the instructions. Discovery parses `description`; `loadSkillCommands` also reads `user-invocable`. The skill's identifier (what `use_skill` and `/<skill-name>` take) is its directory name. A skill with no `SKILL.md` or an empty body is skipped.
 
-| Field | Required | Description |
-|---|---|---|
-| `description` | yes | One-line summary shown in the prompt's lazy skills listing and the slash picker |
-| `name` | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier |
-| `user-invocable` | no | When `false`, `loadSkillCommands` skips slash synthesis; the skill remains `use_skill` only. Untagged skills still become slashes (marketplace BC) |
+| Field            | Required     | Description                                                                                                                                        |
+| ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `description`    | yes          | One-line summary shown in the prompt's lazy skills listing and the slash picker                                                                    |
+| `name`           | conventional | Conventionally matches the directory name; the directory name is what is actually used as the identifier                                           |
+| `user-invocable` | no           | When `false`, `loadSkillCommands` skips slash synthesis; the skill remains `use_skill` only. Untagged skills still become slashes (marketplace BC) |
 
 There are no `type` or `disable-model-invocation` fields required for model invocation — a skill body is plain instruction text. `argument-hint` on frontmatter is preserved for the slash picker (greyed arg guidance). Multi-step orchestration is a separate mechanism (see Workflows above), not a skill `type`.
 
@@ -442,7 +438,6 @@ There are no `type` or `disable-model-invocation` fields required for model invo
 2. **Operator** — `/<skill-name>` from `loadSkillCommands` sends the same SKILL.md body (plus typed args) to the primary as a user turn. Skills with `user-invocable: false` are omitted from the slash registry and remain `use_skill` only. Skywalker then follows the recipe.
 
 Which plugin skill directories are in scope is decided in `runner.ts` / `skillDirsFromEnabledPlugins`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched. Slash-command registration is first-wins (built-ins, then plugins in discovery order), so a first-party `/implement` stays first-party if a marketplace plugin of the same slash name is also enabled.
-
 
 ## Data Flow
 

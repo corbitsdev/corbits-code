@@ -4,7 +4,7 @@
  * height in rows — no paint, no OpenTUI/Ink imports.
  */
 
-export type ListViewportState = {
+export interface ListViewportState {
   /** Total number of items in the list. */
   count: number;
   /** Visible row capacity (viewport height). */
@@ -13,21 +13,21 @@ export type ListViewportState = {
   offset: number;
   /** Index of the active/highlighted item. */
   activeIndex: number;
-};
+}
 
-export type CreateListViewportArgs = {
+export interface CreateListViewportArgs {
   count: number;
   height: number;
   activeIndex?: number;
-};
+}
 
-export type VisibleSlice = {
+export interface VisibleSlice {
   /** Inclusive start index into the full list. */
   start: number;
   /** Exclusive end index into the full list. */
   end: number;
   activeIndex: number;
-};
+}
 
 function clamp(n: number, min: number, max: number): number {
   if (n < min) return min;

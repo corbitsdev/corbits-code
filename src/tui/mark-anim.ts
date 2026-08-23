@@ -20,32 +20,32 @@
  * drive it deterministically. There is no timer in this module.
  */
 
-import { MARK_SMALL, type MarkGrid } from "./mark-shape.js"
-import { UI } from "./theme.js"
+import { MARK_SMALL, type MarkGrid } from "./mark-shape.js";
+import { UI } from "./theme.js";
 
 /** One full loop of the draw/fill/fade timeline. */
-export const MARK_PERIOD_SECONDS = 4.6
+export const MARK_PERIOD_SECONDS = 4.6;
 
 /** Smoothstep easing, clamped to [0, 1]. */
 export function smooth(x: number): number {
-  const c = clamp01(x)
-  return c * c * (3 - 2 * c)
+  const c = clamp01(x);
+  return c * c * (3 - 2 * c);
 }
 
 function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0
-  if (value < 0) return 0
-  if (value > 1) return 1
-  return value
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }
 
-export type MarkFrame = {
+export interface MarkFrame {
   /** 0..1 how much of the silhouette is revealed, left to right. */
-  readonly drawProg: number
+  readonly drawProg: number;
   /** 0..1 bottom-up fill of the silhouette. */
-  readonly fillProg: number
+  readonly fillProg: number;
   /** 0..1 overall opacity; the terminal approximates it as density. */
-  readonly alpha: number
+  readonly alpha: number;
 }
 
 /**
@@ -54,21 +54,20 @@ export type MarkFrame = {
  * (reduced motion, or an idle session) is a static, fully-filled mark.
  */
 export function markFrame(seconds: number, still: boolean): MarkFrame {
-  if (still) return { drawProg: 1, fillProg: 1, alpha: 1 }
-  const wrapped =
-    ((seconds % MARK_PERIOD_SECONDS) + MARK_PERIOD_SECONDS) % MARK_PERIOD_SECONDS
-  const p = wrapped / MARK_PERIOD_SECONDS
-  if (p < 0.38) return { drawProg: smooth(p / 0.38), fillProg: 0, alpha: 1 }
-  if (p < 0.48) return { drawProg: 1, fillProg: 0, alpha: 1 }
+  if (still) return { drawProg: 1, fillProg: 1, alpha: 1 };
+  const wrapped = ((seconds % MARK_PERIOD_SECONDS) + MARK_PERIOD_SECONDS) % MARK_PERIOD_SECONDS;
+  const p = wrapped / MARK_PERIOD_SECONDS;
+  if (p < 0.38) return { drawProg: smooth(p / 0.38), fillProg: 0, alpha: 1 };
+  if (p < 0.48) return { drawProg: 1, fillProg: 0, alpha: 1 };
   if (p < 0.76) {
-    return { drawProg: 1, fillProg: smooth((p - 0.48) / 0.28), alpha: 1 }
+    return { drawProg: 1, fillProg: smooth((p - 0.48) / 0.28), alpha: 1 };
   }
-  if (p < 0.9) return { drawProg: 1, fillProg: 1, alpha: 1 }
-  return { drawProg: 1, fillProg: 1, alpha: smooth((1 - p) / 0.1) }
+  if (p < 0.9) return { drawProg: 1, fillProg: 1, alpha: 1 };
+  return { drawProg: 1, fillProg: 1, alpha: smooth((1 - p) / 0.1) };
 }
 
 /** Eighth blocks, shortest to tallest, growing upward from the cell floor. */
-const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const
+const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
 
 /**
  * Coverage is raised to this power once a cell is filled. The mark is a thin
@@ -76,33 +75,33 @@ const EIGHTHS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as cons
  * lifts them far enough for the silhouette to read as one solid body while
  * leaving the sparsest edge cells short enough to still slope.
  */
-const FILL_GAMMA = 0.6
+const FILL_GAMMA = 0.6;
 
 /** One snowflake pixel. Exported so tests can distinguish sky from mountain. */
-export const SNOW_CHAR = "·"
+export const SNOW_CHAR = "·";
 
 /**
  * Fraction of columns that host a flake. Kept low so the sky reads as empty
  * with occasional drift rather than a storm.
  */
-const SNOW_COLUMN_FRACTION = 0.18
+const SNOW_COLUMN_FRACTION = 0.18;
 
 /** Baseline rows-per-second fall rate. Slow enough to feel like drift. */
-const SNOW_FALL_SPEED = 0.55
+const SNOW_FALL_SPEED = 0.55;
 
-export type MarkCell = {
-  readonly char: string
-  readonly fg: string
+export interface MarkCell {
+  readonly char: string;
+  readonly fg: string;
 }
 
-export type MarkInput = {
-  readonly nowMs: number
+export interface MarkInput {
+  readonly nowMs: number;
   /**
    * Hold the mountain's draw/fill/fade timeline on its fully-filled frame:
    * idle session, or reduced motion. Snow is not gated by this — see
    * `snowOn` in `renderMark`.
    */
-  readonly still: boolean
+  readonly still: boolean;
   /**
    * Reduced-motion hook: suppresses snow regardless of `still`. Nothing
    * wires a live setting into this yet, but the parameter exists so a
@@ -110,9 +109,9 @@ export type MarkInput = {
    * than overloading `still` (which only ever freezes the mountain's
    * draw/fill/fade timeline). Defaults to off.
    */
-  readonly reducedMotion?: boolean
+  readonly reducedMotion?: boolean;
   /** Which baked rasterization to composite. Defaults to the compact grid. */
-  readonly grid?: MarkGrid
+  readonly grid?: MarkGrid;
 }
 
 /**
@@ -120,9 +119,9 @@ export type MarkInput = {
  * flake columns and phases never jitter between frames.
  */
 function unitHash(a: number, b = 0): number {
-  const n = Math.imul(a + 1, 374761393) ^ Math.imul(b + 1, 668265263)
-  const x = Math.imul(n ^ (n >>> 13), 1274126177)
-  return ((x >>> 0) % 10_000) / 10_000
+  const n = Math.imul(a + 1, 374761393) ^ Math.imul(b + 1, 668265263);
+  const x = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((x >>> 0) % 10_000) / 10_000;
 }
 
 /**
@@ -130,18 +129,13 @@ function unitHash(a: number, b = 0): number {
  * only; each active column carries one flake with a private phase and a slight
  * speed variation so the field does not march as a rigid lattice.
  */
-function snowflakeAt(
-  row: number,
-  col: number,
-  seconds: number,
-  rows: number,
-): boolean {
-  if (rows <= 0) return false
-  if (unitHash(col, 1) > SNOW_COLUMN_FRACTION) return false
-  const phase = unitHash(col, 2) * rows
-  const speed = SNOW_FALL_SPEED * (0.75 + unitHash(col, 3) * 0.5)
-  const wrapped = (((seconds * speed + phase) % rows) + rows) % rows
-  return Math.floor(wrapped) === row
+function snowflakeAt(row: number, col: number, seconds: number, rows: number): boolean {
+  if (rows <= 0) return false;
+  if (unitHash(col, 1) > SNOW_COLUMN_FRACTION) return false;
+  const phase = unitHash(col, 2) * rows;
+  const speed = SNOW_FALL_SPEED * (0.75 + unitHash(col, 3) * 0.5);
+  const wrapped = (((seconds * speed + phase) % rows) + rows) % rows;
+  return Math.floor(wrapped) === row;
 }
 
 /**
@@ -160,54 +154,48 @@ function snowflakeAt(
  * the mark sinks toward empty rather than blending to black.
  */
 export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
-  const shape = input.grid ?? MARK_SMALL
-  const seconds = input.nowMs / 1000
-  const { drawProg, fillProg, alpha } = markFrame(seconds, input.still)
-  const revealed = drawProg * shape.cols
-  const fillLine = shape.rows * (1 - fillProg)
+  const shape = input.grid ?? MARK_SMALL;
+  const seconds = input.nowMs / 1000;
+  const { drawProg, fillProg, alpha } = markFrame(seconds, input.still);
+  const revealed = drawProg * shape.cols;
+  const fillLine = shape.rows * (1 - fillProg);
   // Independent of `still`: the mountain can be frozen full while snow still
   // drifts (the idle landing screen). `reducedMotion` is the actual
   // motion-suppression hook. Fade out drops the snow too so the decoration
   // doesn't outlast the mark it drifts over.
-  const snowOn = alpha === 1 && !input.reducedMotion
+  const snowOn = alpha === 1 && !input.reducedMotion;
 
-  const grid: MarkCell[][] = []
+  const grid: MarkCell[][] = [];
   for (let row = 0; row < shape.rows; row++) {
-    const cells: MarkCell[] = []
+    const cells: MarkCell[] = [];
     // 1 once the row is wholly below the fill line, 0 once wholly above it.
-    const rowFill = clamp01(row + 1 - fillLine)
+    const rowFill = clamp01(row + 1 - fillLine);
     for (let col = 0; col < shape.cols; col++) {
-      const coverage = shape.coverage[row]?.[col] ?? 0
-      const reveal = clamp01(revealed - col)
+      const coverage = shape.coverage[row]?.[col] ?? 0;
+      const reveal = clamp01(revealed - col);
       if (coverage === 0 || reveal === 0) {
         // Snow only in true sky. Unrevealed mountain cells stay empty so the
         // left-to-right draw still reads as a clean silhouette edge.
-        if (
-          snowOn &&
-          coverage === 0 &&
-          snowflakeAt(row, col, seconds, shape.rows)
-        ) {
-          cells.push({ char: SNOW_CHAR, fg: UI.textFaint })
+        if (snowOn && coverage === 0 && snowflakeAt(row, col, seconds, shape.rows)) {
+          cells.push({ char: SNOW_CHAR, fg: UI.textFaint });
         } else {
-          cells.push({ char: " ", fg: UI.action })
+          cells.push({ char: " ", fg: UI.action });
         }
-        continue
+        continue;
       }
       // The outline states the shape at its true coverage; filling lifts it
       // toward solid without squaring off the edge cells that carry the slope.
-      const outline = coverage
-      const filled = coverage ** FILL_GAMMA
-      const height = clamp01(
-        (outline + (filled - outline) * rowFill) * reveal * alpha,
-      )
+      const outline = coverage;
+      const filled = coverage ** FILL_GAMMA;
+      const height = clamp01((outline + (filled - outline) * rowFill) * reveal * alpha);
       cells.push({
         char: fillEdgeChar(rowFill, height) ?? blockChar(height),
         fg: UI.action,
-      })
+      });
     }
-    grid.push(cells)
+    grid.push(cells);
   }
-  return grid
+  return grid;
 }
 
 /**
@@ -217,21 +205,18 @@ export function renderMark(input: MarkInput): readonly (readonly MarkCell[])[] {
  * keeps the wipe inside the silhouette.
  */
 function fillEdgeChar(rowFill: number, height: number): string | null {
-  if (rowFill <= 0 || rowFill >= 1) return null
-  return blockChar(Math.min(rowFill, height))
+  if (rowFill <= 0 || rowFill >= 1) return null;
+  return blockChar(Math.min(rowFill, height));
 }
 
 function blockChar(height: number): string {
-  const index = Math.min(
-    EIGHTHS.length - 1,
-    Math.round(height * EIGHTHS.length) - 1,
-  )
+  const index = Math.min(EIGHTHS.length - 1, Math.round(height * EIGHTHS.length) - 1);
   // Below half an eighth there is no block short enough to be honest: the cell
   // is closer to empty, which is also how the fade reaches nothing.
-  return index < 0 ? " " : (EIGHTHS[index] ?? " ")
+  return index < 0 ? " " : (EIGHTHS[index] ?? " ");
 }
 
 /** Flatten a frame to plain text — the shape assertion tests read this. */
 export function markText(grid: readonly (readonly MarkCell[])[]): string {
-  return grid.map((row) => row.map((cell) => cell.char).join("")).join("\n")
+  return grid.map((row) => row.map((cell) => cell.char).join("")).join("\n");
 }

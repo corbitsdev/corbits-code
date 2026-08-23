@@ -26,35 +26,25 @@ import {
 
 /** Salvage classes that must not be re-dispatched with an identical brief. */
 export type HardBlockSalvage =
-  | "thrash"
-  | "no-ship"
-  | "no-progress"
-  | "repetition"
-  | "never-acted"
-  | "never-edited";
+  "thrash" | "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
 
 export type BriefSalvageKind =
-  | HardBlockSalvage
-  | "turn-budget"
-  | "deadline"
-  | "stalled"
-  | "cancelled"
-  | "incomplete-report";
+  HardBlockSalvage | "turn-budget" | "deadline" | "stalled" | "cancelled" | "incomplete-report";
 
-export type TaskBriefFingerprintInput = {
+export interface TaskBriefFingerprintInput {
   prompt: string;
   agent?: string;
   intent?: TaskIntent;
   successCriteria?: readonly string[];
   doNot?: readonly string[];
-};
+}
 
-export type BriefDispatchRecord = {
+export interface BriefDispatchRecord {
   /** How many times this fingerprint has been accepted for run (including first). */
   dispatchCount: number;
   /** Last salvage class observed for this fingerprint, if any. */
   lastSalvage?: BriefSalvageKind;
-};
+}
 
 /**
  * After this many total dispatches of the same brief without a successful
@@ -141,15 +131,15 @@ function serializeList(items: readonly string[] | undefined): string {
   return items.map((item) => normalizeText(item)).join("\0");
 }
 
-export type BriefDispatchLedger = {
+export interface BriefDispatchLedger {
   get: (fingerprint: string) => BriefDispatchRecord | undefined;
   /**
    * Pre-run gate. Returns ok with the 1-based dispatch count that will be used,
    * or a reject message for the parent tool result.
    */
-  admit: (fingerprint: string) =>
-    | { ok: true; dispatchCount: number }
-    | { ok: false; message: string };
+  admit: (
+    fingerprint: string,
+  ) => { ok: true; dispatchCount: number } | { ok: false; message: string };
   /** Record the outcome of an admitted run (salvage kind or null on success). */
   recordOutcome: (fingerprint: string, salvage: BriefSalvageKind | null) => void;
   /**
@@ -157,7 +147,7 @@ export type BriefDispatchLedger = {
    * (throw / auth fail). Prevents burning turn-budget retry budget on crashes.
    */
   release: (fingerprint: string) => void;
-};
+}
 
 export function createBriefDispatchLedger(): BriefDispatchLedger {
   const byFingerprint = new Map<string, BriefDispatchRecord>();

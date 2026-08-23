@@ -90,7 +90,13 @@ describe("createWebSearchTool", () => {
     const tool = createWebSearchTool();
     if (tool.kind !== "string") throw new Error("expected a string tool");
     await tool.handler(
-      { query: "q", numResults: 3, type: "deep", livecrawl: "preferred", contextMaxCharacters: 500 },
+      {
+        query: "q",
+        numResults: 3,
+        type: "deep",
+        livecrawl: "preferred",
+        contextMaxCharacters: 500,
+      },
       new AbortController().signal,
     );
     expect(calls[0]?.args).toEqual({

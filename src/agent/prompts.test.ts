@@ -10,10 +10,7 @@ import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 // Tool names referenced in the discipline block must exist in the actual
 // registration source, not be assumed. web_fetch/web_search are catalog tools
 // (always advertised) and also registered via createWebFetchTool/createWebSearchTool.
-const REGISTERED_TOOL_NAMES = new Set([
-  ...CORE_TOOL_NAMES,
-  ...CATALOG_TOOL_NAMES,
-]);
+const REGISTERED_TOOL_NAMES = new Set([...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES]);
 
 const REFERENCED_TOOL_NAMES = [
   "read_file",
@@ -62,7 +59,9 @@ describe("buildPromptDisciplineBlock", () => {
     // Command shape.
     expect(block).toMatch(/one logical operation per call/i);
     // Turn semantics.
-    expect(block).toMatch(/no tool calls.*final answer|reply with no tool calls is the final answer/i);
+    expect(block).toMatch(
+      /no tool calls.*final answer|reply with no tool calls is the final answer/i,
+    );
     expect(block).toMatch(/three failures/i);
     expect(block).toMatch(/repeat a search/i);
     expect(block).toMatch(/parallel/i);

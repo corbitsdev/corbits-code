@@ -54,7 +54,9 @@ export const webSearchDefinition: ToolDefinition = {
 // (default) or "parallel"; CORBITS_WEB_SEARCH_API_KEY supplies an optional
 // bearer key appended as a query param, matching both hosted MCP servers'
 // documented keyless-with-optional-key auth model.
-export function resolveWebSearchProvider(env: NodeJS.ProcessEnv = process.env): WebSearchProviderId {
+export function resolveWebSearchProvider(
+  env: NodeJS.ProcessEnv = process.env,
+): WebSearchProviderId {
   const raw = env.CORBITS_WEB_SEARCH_PROVIDER?.toLowerCase();
   return raw === "parallel" ? "parallel" : "exa";
 }

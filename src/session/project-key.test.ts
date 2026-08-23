@@ -5,12 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
-import {
-  projectKeyFor,
-  projectRootFor,
-  projectSessionsRoot,
-  projectsRoot,
-} from "./project-key.js";
+import { projectKeyFor, projectRootFor, projectSessionsRoot, projectsRoot } from "./project-key.js";
 
 let root = "";
 

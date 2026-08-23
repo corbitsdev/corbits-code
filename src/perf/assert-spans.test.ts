@@ -25,10 +25,7 @@ import {
   assertPhaseSummary,
   assertTurnHasInferenceAndTools,
 } from "./assert-spans.js";
-import {
-  MULTI_TOOL_TURN_GOLDEN,
-  multiToolTurnFixture,
-} from "./fixtures/multi-tool-turn.js";
+import { MULTI_TOOL_TURN_GOLDEN, multiToolTurnFixture } from "./fixtures/multi-tool-turn.js";
 import { ALLOWED_TAG_KEYS, clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
 import { rollupByPhase, rollupByTurn, type TurnSummary } from "./rollup.js";
@@ -136,9 +133,9 @@ describe("assertPhaseSummary", () => {
 
   test("throws when totalNs is below minTotalNs", () => {
     const phases = rollupByPhase(multiToolTurnFixture());
-    expect(() =>
-      assertPhaseSummary(phases, "inference", { minTotalNs: 999_999 }),
-    ).toThrow(/phase "inference": expected totalNs >= 999999/);
+    expect(() => assertPhaseSummary(phases, "inference", { minTotalNs: 999_999 })).toThrow(
+      /phase "inference": expected totalNs >= 999999/,
+    );
   });
 });
 

@@ -136,8 +136,7 @@ export function createCompactionGovernor(
     if (!idlePending || event.type !== "message.received") return null;
     idlePending = false;
     pending = false;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
+    const content = typeof event.message.content === "string" ? event.message.content : "";
     // An operator message that raced the continuation is already in history;
     // compact first, then request another continuation to answer it.
     if (content.length > 0) {
@@ -168,8 +167,7 @@ export function createCompactionGovernor(
 
   function resumeAfterCompact(event: ReactorInboundEvent): boolean {
     if (!postCompactInfer || event.type !== "message.received") return false;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
+    const content = typeof event.message.content === "string" ? event.message.content : "";
     if (content.length > 0) return false;
     postCompactInfer = false;
     return true;

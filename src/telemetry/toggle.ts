@@ -17,7 +17,7 @@ import { getTelemetry, setTelemetry } from "./singleton.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "telemetry", "toggle"]);
 
-export type TelemetryToggleDeps = {
+export interface TelemetryToggleDeps {
   getTelemetry: () => Telemetry;
   setTelemetry: (telemetry: Telemetry) => void;
   loadSettings: (path: string) => Promise<Settings | null>;
@@ -25,7 +25,7 @@ export type TelemetryToggleDeps = {
   ensureTelemetrySettings: (path: string) => Promise<Settings>;
   saveGlobalSettings: (path: string, settings: Settings) => Promise<void>;
   createTelemetry: (options: CreateTelemetryOptions) => Telemetry;
-};
+}
 
 const defaultDeps: TelemetryToggleDeps = {
   getTelemetry,
@@ -91,11 +91,15 @@ export function createTelemetryToggleHandler(
       // Opt-out keeps plain loadSettings: disabling must never generate an id.
       const current = enabled
         ? await deps.ensureTelemetrySettings(globalSettingsPath).catch((err: unknown) => {
-            logger.warn("Failed to ensure telemetry settings for re-enable: {error}", { error: err });
+            logger.warn("Failed to ensure telemetry settings for re-enable: {error}", {
+              error: err,
+            });
             return undefined;
           })
         : await deps.loadSettings(globalSettingsPath).catch((err: unknown) => {
-            logger.warn("Failed to load global settings for telemetry toggle: {error}", { error: err });
+            logger.warn("Failed to load global settings for telemetry toggle: {error}", {
+              error: err,
+            });
             return undefined;
           });
       if (current === undefined) {

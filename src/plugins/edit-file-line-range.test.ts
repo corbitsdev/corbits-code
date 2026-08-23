@@ -145,7 +145,11 @@ describe("advertiseEditFileLineRange", () => {
   });
 
   test("leaves non-edit tools unchanged", () => {
-    const def = { name: "read_file", description: "r", inputSchema: { type: "object", properties: {} } };
+    const def = {
+      name: "read_file",
+      description: "r",
+      inputSchema: { type: "object", properties: {} },
+    };
     expect(advertiseEditFileLineRange(def)).toBe(def);
   });
 });
