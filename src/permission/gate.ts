@@ -43,10 +43,27 @@ import { end, start } from "../perf/index.js";
 import { currentTurnId } from "../perf/reactor-spans.js";
 import { classifyPermissionKind } from "../telemetry/classify.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { NOOP_APPROVAL_LOG, type ApprovalLog, type ApprovalOutcomeKind } from "./approval-log.js";
 
 // Closes out an operator prompt: ends the wait span and records the outcome.
 // buildRequests yields at most one request per tool call, and the two prompt
 // sites below are mutually exclusive, so this runs once per prompt shown.
+// Classifies a settled ApprovalOutcome into the approval-log taxonomy.
+// gate-wire.ts's timeout/abort auto-denies carry a fixed message text (see
+// autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
+// finish() usage); anything else that denies is a plain operator/unavailable
+// decision.
+function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeKind {
+  if (outcome === undefined) return "deny";
+  if (!outcome.allow) {
+    const message = outcome.message ?? "";
+    if (message.includes("timed out")) return "timeout";
+    if (message.includes("no longer running")) return "abort";
+    return "deny";
+  }
+  return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
+}
+
 function finishApprovalWait(
   telemetry: Telemetry,
   waitSpanId: string,
@@ -274,6 +291,10 @@ export interface PermissionGateOptions {
   // than read from the process-wide handle so a gate built without one is
   // silent by construction.
   telemetry?: Telemetry;
+  // Ask/settle event log (see approval-log.ts): one record per consequential
+  // decision, auto or interactive. Defaults to a no-op so nothing depends on
+  // logging being wired.
+  approvalLog?: ApprovalLog;
 }
 
 export interface PermissionGate {
@@ -321,6 +342,7 @@ export interface PermissionGate {
 export function createPermissionGate(options: PermissionGateOptions): PermissionGate {
   const { requestApproval, persist, interactive, providerName, model, cwd } = options;
   const telemetry = options.telemetry ?? NOOP_TELEMETRY;
+  const approvalLog = options.approvalLog ?? NOOP_APPROVAL_LOG;
   const mcpTiers = options.mcpTiers ?? createMcpToolPermissionRegistry();
   const resolvedCwd = cwd ?? process.cwd();
   const rootsProvider = options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
@@ -380,6 +402,27 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         rootsProvider,
       ),
     );
+  };
+
+  // An auto-mode (or non-interactive-unavailable) decision settles the
+  // instant it is made — there is no operator to wait on, so queued/displayed/
+  // settled all collapse to now. Interactive prompts use approvalLog.ask
+  // directly (see below) so their real queued/displayed/settled timestamps
+  // are captured.
+  const recordAutoDecision = (
+    tool: string,
+    rule: string | undefined,
+    outcome: ApprovalOutcomeKind,
+    agentLabel: string | undefined,
+  ): void => {
+    approvalLog
+      .ask({
+        tool,
+        mode: "auto",
+        ...(rule !== undefined ? { rule } : {}),
+        ...(agentLabel !== undefined ? { agentLabel } : {}),
+      })
+      .settle(outcome);
   };
 
   const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
@@ -450,9 +493,21 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         // reads stay hard-denied by secret-guard; shell that only *mentions*
         // a secret path is ask so an explicit one-time approval can pass it.
         const shellRule = autoShellRuleForCall(call, isRestrictedHere, effectiveCwd, rootsProvider);
-        if (shellRule?.effect === "deny") return { allowed: false, reason: shellRule.reason };
-        if (shellRule === undefined) return { allowed: true };
+        if (shellRule?.effect === "deny") {
+          recordAutoDecision(call.name, shellRule.name, "auto-deny", subAgentIdentity?.description);
+          return { allowed: false, reason: shellRule.reason };
+        }
+        if (shellRule === undefined) {
+          recordAutoDecision(call.name, undefined, "auto-allow", subAgentIdentity?.description);
+          return { allowed: true };
+        }
       } else if (!restricted && AUTO_ALLOWED_TOOLS.has(call.name)) {
+        recordAutoDecision(
+          call.name,
+          "auto-allowed-tool",
+          "auto-allow",
+          subAgentIdentity?.description,
+        );
         return { allowed: true };
       }
       // Any other tool in auto mode (MCP or unknown built-in) is not
@@ -552,7 +607,22 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         }
         if (!needsOperator) continue;
 
+        // A mega-chain (see MEGA_CHAIN_SEGMENT_THRESHOLD) is accept-once only:
+        // no scope is offered for it (buildRequests already returns none), and
+        // this check is the belt to that suspenders — the gate itself refuses
+        // to mint a grant for one even if a persist scope somehow arrived.
+        // Computed ahead of the non-interactive branch too, so both settle
+        // paths tag the same ask with the same rule.
+        const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
+        const askRule = anySecret ? "sensitive-path" : isMegaChain ? "mega-chain" : undefined;
+
         if (!interactive || requestApproval === undefined) {
+          recordAutoDecision(
+            request.tool,
+            askRule ?? "non-interactive",
+            "deny",
+            request.agentLabel,
+          );
           return {
             allowed: false,
             reason: anySecret
@@ -563,12 +633,15 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
 
         // Secret-path shell must never mint a stored grant — even an exact match
         // would be misleading because future secret-path shell always re-asks.
-        // A mega-chain (see MEGA_CHAIN_SEGMENT_THRESHOLD) is accept-once only:
-        // no scope is offered for it (buildRequests already returns none), and
-        // this check is the belt to that suspenders — the gate itself refuses
-        // to mint a grant for one even if a persist scope somehow arrived.
-        const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
         const requestForOperator = anySecret ? { ...request, scopes: [] } : request;
+        const ask = approvalLog.ask({
+          tool: request.tool,
+          mode: "interactive",
+          ...(askRule !== undefined ? { rule: askRule } : {}),
+          ...(request.agentLabel !== undefined ? { agentLabel: request.agentLabel } : {}),
+          segments: segments.length,
+        });
+        requestForOperator.markDisplayed = ask.markDisplayed;
         const turnId = currentTurnId();
         const waitSpanId = start("permission.wait", {
           ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
@@ -579,6 +652,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           outcome = await requestApproval(requestForOperator);
         } finally {
           finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
+          ask.settle(classifyOutcome(outcome));
         }
         if (outcome === undefined || !outcome.allow) {
           const suffix =
@@ -611,12 +685,19 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
       }
 
       if (!interactive || requestApproval === undefined) {
+        recordAutoDecision(request.tool, "non-interactive", "deny", request.agentLabel);
         return {
           allowed: false,
           reason: `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`,
         };
       }
 
+      const ask = approvalLog.ask({
+        tool: request.tool,
+        mode: "interactive",
+        ...(request.agentLabel !== undefined ? { agentLabel: request.agentLabel } : {}),
+      });
+      request.markDisplayed = ask.markDisplayed;
       const turnId = currentTurnId();
       const waitSpanId = start("permission.wait", {
         ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
@@ -627,6 +708,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         outcome = await requestApproval(request);
       } finally {
         finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
+        ask.settle(classifyOutcome(outcome));
       }
       if (outcome === undefined || !outcome.allow) {
         const suffix =
