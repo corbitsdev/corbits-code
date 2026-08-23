@@ -377,7 +377,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ...createCodexToolProxies({
         isCodex: isCodexProviderName(params.provider.providerName),
         runTool,
-        readRawFile: createCodexReadRawFile(params.cwd),
+        readRawFile: createCodexReadRawFile(params.cwd, permissionGate),
         runManageTasks,
         allowDelete: allowDeleteFromCapabilities(params.capabilities),
         allowShell: allowShellFromCapabilities(params.capabilities),
