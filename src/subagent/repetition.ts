@@ -99,11 +99,11 @@ export const DEFAULT_TEXT_FOLDED_REPETITION_CONFIG: RepetitionConfig = {
   maxFoldedPeriodChars: 16,
 };
 
-export type RepetitionHit = {
+export interface RepetitionHit {
   /** The normalized window that repeats. */
   window: string;
   repeats: number;
-};
+}
 
 // Whitespace runs collapse so wrapping and indentation differences do not
 // break periodicity. Digits are deliberately NOT normalized: tables, numbered
@@ -182,12 +182,12 @@ export function detectRepetition(
 }
 
 /** Tunables for the contentless-growth guard. */
-export type ContentlessGrowthConfig = {
+export interface ContentlessGrowthConfig {
   /** Raw streamed chars per measurement window. */
   rawWindowChars: number;
   /** A window with fewer visible chars than this counts as contentless. */
   minVisibleChars: number;
-};
+}
 
 // detectRepetition can never see a zero-width flood: normalize() strips
 // invisibles *before* the periodicity check, so thousands of U+200C/U+200D
@@ -203,12 +203,12 @@ export const DEFAULT_CONTENTLESS_GROWTH_CONFIG: ContentlessGrowthConfig = {
   minVisibleChars: 32,
 };
 
-export type ContentlessGrowthState = {
+export interface ContentlessGrowthState {
   /** Raw chars accumulated in the current window. */
   rawChars: number;
   /** Visible (invisible-stripped, whitespace-removed) chars in the window. */
   visibleChars: number;
-};
+}
 
 export const INITIAL_CONTENTLESS_GROWTH_STATE: ContentlessGrowthState = {
   rawChars: 0,
