@@ -591,22 +591,24 @@ export function turnStateFromEvent(
       return {
         ...state,
         ...tracking,
-        awaitingResponse: true,
+        awaitingResponse: tracking.activeToolCalls.length === 0,
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
       };
     }
 
-    case "tool_result":
+    case "tool_result": {
+      const activeToolCalls = withoutActiveCall(state.activeToolCalls, event.name ?? "tool");
       return {
         ...state,
-        awaitingResponse: true,
+        awaitingResponse: activeToolCalls.length === 0,
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
-        activeToolCalls: withoutActiveCall(state.activeToolCalls, event.name ?? "tool"),
+        activeToolCalls,
       };
+    }
 
     /**
      * A cycle with no active tool calls left is also a turn's real
