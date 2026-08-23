@@ -48,7 +48,7 @@ test("task tool definition requires description and prompt", () => {
   expect(taskToolDefinition.inputSchema.required).toEqual(["description", "prompt"]);
 });
 
-test("handler rejects empty description or prompt", async () => {
+test("handler rejects empty description or prompt, naming only the empty field", async () => {
   const tool = createTaskTool({
     permissionGate: testPermissionGate,
     cwd: "/repo",
@@ -56,8 +56,40 @@ test("handler rejects empty description or prompt", async () => {
     provider,
     run: async () => "should not run",
   });
-  expect(await callHandler(tool, { description: "", prompt: "do it" })).toContain("Error:");
-  expect(await callHandler(tool, { description: "label", prompt: "  " })).toContain("Error:");
+  const emptyDesc = await callHandler(tool, { description: "", prompt: "do it" });
+  expect(emptyDesc).toContain("Error: task requires a non-empty description");
+  expect(emptyDesc).toContain('Received prompt "do it"');
+  expect(emptyDesc).not.toContain("non-empty prompt");
+  const emptyPrompt = await callHandler(tool, { description: "label", prompt: "  " });
+  expect(emptyPrompt).toContain("Error: task requires a non-empty prompt");
+  expect(emptyPrompt).toContain('Received description "label" — keep it and add prompt.');
+  expect(emptyPrompt).not.toContain("non-empty description");
+});
+
+test("handler rejects missing required fields, naming only the missing ones", async () => {
+  const tool = createTaskTool({
+    permissionGate: testPermissionGate,
+    cwd: "/repo",
+    getWorkdirBase: () => "/repo/.ctx",
+    provider,
+    run: async () => "should not run",
+  });
+  const missingPrompt = await callHandler(tool, { description: "Add GET /health route" });
+  expect(missingPrompt).toContain(
+    "Error: task is missing prompt (string): the actionable goal for the worker.",
+  );
+  expect(missingPrompt).toContain(
+    'Received description "Add GET /health route" — keep it and add prompt.',
+  );
+  expect(missingPrompt).not.toContain("missing description");
+  const missingDesc = await callHandler(tool, { prompt: "do it" });
+  expect(missingDesc).toContain("Error: task is missing description (string)");
+  expect(missingDesc).toContain('Received prompt "do it" — keep it and add description.');
+  expect(missingDesc).not.toContain("missing prompt");
+  const missingBoth = await callHandler(tool, {});
+  expect(missingBoth).toContain("Error: task is missing description (string)");
+  expect(missingBoth).toContain("is missing prompt (string)");
+  expect(missingBoth).not.toContain("Received");
 });
 
 test("generic leaf gets role-default medium even when parent effort is high", async () => {
