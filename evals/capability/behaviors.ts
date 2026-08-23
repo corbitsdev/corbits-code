@@ -36,7 +36,7 @@ export const CapturedRunSummary = type({
 export type CapturedTurn = typeof CapturedTurn.infer;
 export type CapturedRunSummary = typeof CapturedRunSummary.infer;
 
-export type BehaviorMetrics = {
+export interface BehaviorMetrics {
   /** run_shell calls observed. */
   shellCommandCount: number;
   /** run_shell commands containing an env-var prefix (`FOO=bar cmd`) or `export`. */
@@ -61,7 +61,7 @@ export type BehaviorMetrics = {
   maxTurnDurationMs: number;
   /** Per-tool-name call counts for the whole run. */
   toolCallsByName: Record<string, number>;
-};
+}
 
 /** Numeric metric keys eligible for min/median/max aggregation and baseline diff. */
 export const NUMERIC_BEHAVIOR_METRICS = [
@@ -103,7 +103,17 @@ export const BEHAVIOR_METRIC_DIRECTIONS: Record<NumericBehaviorMetric, "lower" |
   maxTurnDurationMs: "lower",
 };
 
-const NETWORK_COMMANDS = new Set(["curl", "wget", "nc", "ncat", "telnet", "aria2c", "http", "xh", "httpie"]);
+const NETWORK_COMMANDS = new Set([
+  "curl",
+  "wget",
+  "nc",
+  "ncat",
+  "telnet",
+  "aria2c",
+  "http",
+  "xh",
+  "httpie",
+]);
 const INPLACE_EDIT_COMMANDS = new Set(["sed", "perl", "awk", "gawk"]);
 const SHELL_TOOL_NAME = "run_shell";
 const WEB_FETCH_TOOL_NAME = "web_fetch";
@@ -159,12 +169,12 @@ export function segmentIsShellEdit(segment: string): boolean {
     if (ch === "'" && !inDouble) inSingle = !inSingle;
     else if (ch === '"' && !inSingle) inDouble = !inDouble;
     else if (
-      ch === "<"
-      && !inSingle
-      && !inDouble
-      && segment[i + 1] === "<"
-      && segment[i + 2] !== "<"
-      && segment[i - 1] !== "<"
+      ch === "<" &&
+      !inSingle &&
+      !inDouble &&
+      segment[i + 1] === "<" &&
+      segment[i + 2] !== "<" &&
+      segment[i - 1] !== "<"
     ) {
       return true;
     }
@@ -191,7 +201,8 @@ function normalizeValue(value: unknown): unknown {
 
 function turnHasText(turn: CapturedTurn): boolean {
   return turn.assistantTurn.content.some(
-    (block) => block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
+    (block) =>
+      block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
   );
 }
 
@@ -225,10 +236,7 @@ export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetr
     }
     for (const call of turn.toolCalls) {
       toolCallsByName[call.name] = (toolCallsByName[call.name] ?? 0) + 1;
-      const signature = JSON.stringify([
-        call.name,
-        normalizeToolArguments(call.arguments),
-      ]);
+      const signature = JSON.stringify([call.name, normalizeToolArguments(call.arguments)]);
       if (seenCalls.has(signature)) repeatedSearchCount++;
       else seenCalls.add(signature);
 

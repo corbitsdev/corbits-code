@@ -11,15 +11,21 @@ import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
-export type MCPTool = { name: string; description: string; inputSchema: Record<string, unknown>; annotations?: McpToolAnnotations };
-export type MCPClient = {
+export interface MCPTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  annotations?: McpToolAnnotations;
+}
+export interface MCPClient {
   serverName: string;
   tools: MCPTool[];
   call(toolName: string, args: Record<string, unknown>, signal: AbortSignal): Promise<string>;
   close(): Promise<void>;
-};
-export type MCPConnectResult = { ok: true; client: MCPClient } | { ok: false; serverName: string; error: string };
-export type MCPConnectOptions = {
+}
+export type MCPConnectResult =
+  { ok: true; client: MCPClient } | { ok: false; serverName: string; error: string };
+export interface MCPConnectOptions {
   stderr?: "inherit" | "ignore" | "pipe";
   onAuthURL?: (serverName: string, authorizationUrl: string) => void;
   /**
@@ -29,7 +35,7 @@ export type MCPConnectOptions = {
    */
   onAuthorized?: (serverName: string) => void;
   signal?: AbortSignal;
-};
+}
 
 function isHttpServer(config: MCPServerConfig): boolean {
   return config.type === "http" || (config.type === undefined && config.url !== undefined);
@@ -37,15 +43,21 @@ function isHttpServer(config: MCPServerConfig): boolean {
 
 export function unwrapToolContent(content: unknown): string {
   if (!Array.isArray(content) || content.length === 0) return "";
-  return content.map((block) => {
-    if (block !== null && typeof block === "object" && (block as { type?: unknown }).type === "text") {
-      return String((block as { text?: unknown }).text ?? "");
-    }
-    return JSON.stringify(block);
-  }).join("\n");
+  return content
+    .map((block) => {
+      if (
+        block !== null &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "text"
+      ) {
+        return String((block as { text?: unknown }).text ?? "");
+      }
+      return JSON.stringify(block);
+    })
+    .join("\n");
 }
 
-type HTTPAuthContext = {
+interface HTTPAuthContext {
   url: URL;
   authProvider: CorbitsOAuthProvider;
   callback: CallbackServer;
@@ -53,16 +65,19 @@ type HTTPAuthContext = {
   interactive: boolean;
   serverName: string;
   onAuthorized?: (serverName: string) => void;
-};
+}
 
 function isRecoverableAuthError(err: unknown): boolean {
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
 async function completeInteractiveAuth(context: HTTPAuthContext): Promise<void> {
-  if (!context.interactive) throw new Error("Authorization required but no interactive handler is available.");
+  if (!context.interactive)
+    throw new Error("Authorization required but no interactive handler is available.");
   const code = await context.callback.waitForCode(context.signal ?? new AbortController().signal);
-  await new StreamableHTTPClientTransport(context.url, { authProvider: context.authProvider }).finishAuth(code);
+  await new StreamableHTTPClientTransport(context.url, {
+    authProvider: context.authProvider,
+  }).finishAuth(code);
 }
 
 /**
@@ -81,7 +96,11 @@ export async function retryAfterInteractiveAuth<T>(
   return value;
 }
 
-async function recoverHTTPAuthorization<T>(err: unknown, context: HTTPAuthContext | undefined, operation: () => Promise<T>): Promise<T> {
+async function recoverHTTPAuthorization<T>(
+  err: unknown,
+  context: HTTPAuthContext | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
   if (context === undefined || !isRecoverableAuthError(err)) throw err;
   let lastErr: unknown = err;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -105,7 +124,10 @@ async function recoverHTTPAuthorization<T>(err: unknown, context: HTTPAuthContex
   throw lastErr;
 }
 
-async function withHTTPAuthorizationRecovery<T>(context: HTTPAuthContext | undefined, operation: () => Promise<T>): Promise<T> {
+async function withHTTPAuthorizationRecovery<T>(
+  context: HTTPAuthContext | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
   try {
     return await operation();
   } catch (err) {
@@ -113,11 +135,19 @@ async function withHTTPAuthorizationRecovery<T>(context: HTTPAuthContext | undef
   }
 }
 
-async function finishClient(client: Client, serverName: string, authContext?: HTTPAuthContext): Promise<MCPClient> {
+async function finishClient(
+  client: Client,
+  serverName: string,
+  authContext?: HTTPAuthContext,
+): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () => client.listTools());
   const tools: MCPTool[] = result.tools.map((t) => {
     const annotations = t.annotations as McpToolAnnotations | undefined;
-    const tool: MCPTool = { name: t.name, description: t.description ?? "", inputSchema: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} } };
+    const tool: MCPTool = {
+      name: t.name,
+      description: t.description ?? "",
+      inputSchema: (t.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
+    };
     if (annotations !== undefined) tool.annotations = annotations;
     return tool;
   });
@@ -126,7 +156,9 @@ async function finishClient(client: Client, serverName: string, authContext?: HT
     tools,
     async call(toolName, args, signal) {
       const context = authContext === undefined ? undefined : { ...authContext, signal };
-      const result = await withHTTPAuthorizationRecovery(context, () => client.callTool({ name: toolName, arguments: args }, undefined, { signal }));
+      const result = await withHTTPAuthorizationRecovery(context, () =>
+        client.callTool({ name: toolName, arguments: args }, undefined, { signal }),
+      );
       return unwrapToolContent(result.content);
     },
     async close() {
@@ -136,9 +168,18 @@ async function finishClient(client: Client, serverName: string, authContext?: HT
   };
 }
 
-async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions): Promise<MCPConnectResult> {
-  if (config.command === undefined) return { ok: false, serverName: config.name, error: "stdio MCP server requires a command" };
-  const transportOptions: { command: string; args?: string[]; env?: Record<string, string>; stderr?: "inherit" | "ignore" | "pipe" } = { command: config.command, env: buildStdioMcpProcessEnv(process.env, config.env) };
+async function connectStdio(
+  config: MCPServerConfig,
+  options: MCPConnectOptions,
+): Promise<MCPConnectResult> {
+  if (config.command === undefined)
+    return { ok: false, serverName: config.name, error: "stdio MCP server requires a command" };
+  const transportOptions: {
+    command: string;
+    args?: string[];
+    env?: Record<string, string>;
+    stderr?: "inherit" | "ignore" | "pipe";
+  } = { command: config.command, env: buildStdioMcpProcessEnv(process.env, config.env) };
   if (config.args !== undefined) transportOptions.args = config.args;
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
@@ -147,12 +188,20 @@ async function connectStdio(config: MCPServerConfig, options: MCPConnectOptions)
     return { ok: true, client: await finishClient(client, config.name) };
   } catch (err) {
     await client.close().catch(() => undefined);
-    return { ok: false, serverName: config.name, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      serverName: config.name,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
-async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions): Promise<MCPConnectResult> {
-  if (config.url === undefined) return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
+async function connectHttp(
+  config: MCPServerConfig,
+  options: MCPConnectOptions,
+): Promise<MCPConnectResult> {
+  if (config.url === undefined)
+    return { ok: false, serverName: config.name, error: "http MCP server requires a url" };
   const url = new URL(config.url);
   const callback = await startCallbackServer(config.name);
   const authProvider = await createOAuthProvider({
@@ -161,7 +210,8 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
     onAuthURL: (name, authUrl) => options.onAuthURL?.(name, authUrl),
     onAuthorizationState: callback.expectState,
   });
-  const makeTransport = (): Transport => new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
+  const makeTransport = (): Transport =>
+    new StreamableHTTPClientTransport(url, { authProvider }) as unknown as Transport;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   const authContext: HTTPAuthContext = {
     url,
@@ -178,20 +228,34 @@ async function connectHttp(config: MCPServerConfig, options: MCPConnectOptions):
   } catch (err) {
     await client.close().catch(() => undefined);
     callback.close();
-    return { ok: false, serverName: config.name, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      serverName: config.name,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
-export async function connectMCPServer(config: MCPServerConfig, options: MCPConnectOptions = {}): Promise<MCPConnectResult> {
+export async function connectMCPServer(
+  config: MCPServerConfig,
+  options: MCPConnectOptions = {},
+): Promise<MCPConnectResult> {
   return isHttpServer(config) ? connectHttp(config, options) : connectStdio(config, options);
 }
 
-export async function connectMCPServers(configs: MCPServerConfig[], onWarning: (message: string) => void, options: MCPConnectOptions = {}): Promise<MCPClient[]> {
+export async function connectMCPServers(
+  configs: MCPServerConfig[],
+  onWarning: (message: string) => void,
+  options: MCPConnectOptions = {},
+): Promise<MCPClient[]> {
   const results = await Promise.all(configs.map((c) => connectMCPServer(c, options)));
   const clients: MCPClient[] = [];
   for (const result of results) {
     if (result.ok) clients.push(result.client);
-    else onWarning(`[mcp] Warning: failed to connect to MCP server "${result.serverName}": ${result.error}`);
+    else
+      onWarning(
+        `[mcp] Warning: failed to connect to MCP server "${result.serverName}": ${result.error}`,
+      );
   }
   return clients;
 }

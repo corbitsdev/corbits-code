@@ -23,7 +23,9 @@ describe("createGrokResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "grok-4.5", {});
-    const body = JSON.parse(request.body) as { input: Array<{ type: string; role?: string; content?: unknown }> };
+    const body = JSON.parse(request.body) as {
+      input: { type: string; role?: string; content?: unknown }[];
+    };
 
     expect(body.input).toHaveLength(1);
     expect(body.input[0]).toEqual({
@@ -47,7 +49,7 @@ describe("createGrokResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "grok-4.5", {});
-    const body = JSON.parse(request.body) as { input: Array<{ content?: unknown }> };
+    const body = JSON.parse(request.body) as { input: { content?: unknown }[] };
 
     expect(body.input[0]?.content).toBe("hello");
   });

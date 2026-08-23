@@ -1,5 +1,9 @@
 import { openInBrowser } from "../oauth/browser.js";
-import { startOAuthLogin, type OAuthLoginHandle, type StartOAuthLoginOptions } from "../oauth/login.js";
+import {
+  startOAuthLogin,
+  type OAuthLoginHandle,
+  type StartOAuthLoginOptions,
+} from "../oauth/login.js";
 import { CODEX_BASE_URL, CODEX_DEFAULT_MODELS } from "./constants.js";
 import { startCodexCallbackServer } from "./callback-server.js";
 import { buildAuthorizeUrl, exchangeCode } from "./oauth.js";

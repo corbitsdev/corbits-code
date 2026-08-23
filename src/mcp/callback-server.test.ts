@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { startCallbackServer } from "./callback-server.js";
 
-const authorize = (server: Awaited<ReturnType<typeof startCallbackServer>>, state: string): void => {
+const authorize = (
+  server: Awaited<ReturnType<typeof startCallbackServer>>,
+  state: string,
+): void => {
   server.expectState(state);
 };
 
@@ -40,7 +43,9 @@ describe("MCP callback server", () => {
     try {
       authorize(server, "first");
       await fetch(`${server.redirectUrl}?error=access_denied&state=first`);
-      await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow("access_denied");
+      await expect(server.waitForCode(new AbortController().signal)).rejects.toThrow(
+        "access_denied",
+      );
 
       authorize(server, "second");
       const response = await fetch(`${server.redirectUrl}?code=abc&state=second`);

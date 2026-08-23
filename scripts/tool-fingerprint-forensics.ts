@@ -25,7 +25,7 @@ function stableJson(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
 }
 
-function fingerprintToolCalls(content: ReadonlyArray<Record<string, unknown>>): string | null {
+function fingerprintToolCalls(content: readonly Record<string, unknown>[]): string | null {
   const parts: string[] = [];
   for (const block of content) {
     if (block.type !== "tool_call") continue;
@@ -93,7 +93,9 @@ const runLengths: number[] = [];
 for (const file of files) {
   let lines: string[];
   try {
-    lines = readFileSync(file, "utf8").split("\n").filter((l) => l.trim().length > 0);
+    lines = readFileSync(file, "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0);
   } catch {
     continue;
   }
@@ -107,7 +109,7 @@ for (const file of files) {
       continue;
     }
     if (turn.role !== "assistant" || !Array.isArray(turn.content)) continue;
-    const content = turn.content as ReadonlyArray<Record<string, unknown>>;
+    const content = turn.content as readonly Record<string, unknown>[];
     const hasToolCalls = content.some((b) => b.type === "tool_call");
     const hasText = content.some(
       (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,

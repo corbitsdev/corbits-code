@@ -11,7 +11,7 @@ import { getValidXaiToken, xaiUserIdFromAccessToken } from "./session.js";
 // (which accepts our OAuth token) and mirrors the shape returned by
 // grok.com billing endpoints used by the official CLI.
 
-export type XaiUsage = {
+export interface XaiUsage {
   subscriptionTier: string;
   // 0-100 percent of the credit allowance consumed in the current period.
   creditUsagePercent: number;
@@ -20,14 +20,17 @@ export type XaiUsage = {
   totalUsed?: number;
   onDemandUsed?: number;
   onDemandCap?: number;
-};
+}
 
 function num(v: unknown): number {
   return typeof v === "number" ? v : 0;
 }
 
 function parseXaiUsage(payload: unknown): XaiUsage {
-  let p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
+  let p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<
+    string,
+    unknown
+  >;
   // Some clients return { config: { ... } } — unwrap for the real fields.
   if (p["config"] && typeof p["config"] === "object") {
     p = p["config"] as Record<string, unknown>;
@@ -76,9 +79,7 @@ async function xaiAuthHeaders(profileName: string): Promise<Record<string, strin
 // If baseURL is supplied (and differs from the official), billing is resolved
 // relative to it so local grok-compatible proxies can serve usage.
 export async function fetchXaiUsage(profileName: string, baseURL?: string): Promise<XaiUsage> {
-  const billingURL = baseURL
-    ? `${baseURL.replace(/\/$/, "")}/billing`
-    : XAI_BILLING_URL;
+  const billingURL = baseURL ? `${baseURL.replace(/\/$/, "")}/billing` : XAI_BILLING_URL;
   // Bound the billing fetch: it runs on profile switch and modal open, neither
   // of which sits behind the inference timers, so an unresponsive proxy must
   // abort rather than hang the UI.
@@ -106,10 +107,18 @@ export async function fetchXaiUsage(profileName: string, baseURL?: string): Prom
 export function formatXaiUsage(usage: XaiUsage): string {
   const lines: string[] = [`Grok (${usage.subscriptionTier})`];
   lines.push(`credit: ${String(Math.round(usage.creditUsagePercent))}% used`);
-  if (usage.includedUsed !== undefined && usage.monthlyLimit !== undefined && usage.monthlyLimit > 0) {
+  if (
+    usage.includedUsed !== undefined &&
+    usage.monthlyLimit !== undefined &&
+    usage.monthlyLimit > 0
+  ) {
     lines.push(`monthly: ${String(usage.includedUsed)}/${String(usage.monthlyLimit)}`);
   }
-  if (usage.onDemandUsed !== undefined && usage.onDemandCap !== undefined && usage.onDemandCap > 0) {
+  if (
+    usage.onDemandUsed !== undefined &&
+    usage.onDemandCap !== undefined &&
+    usage.onDemandCap > 0
+  ) {
     lines.push(`on-demand: ${String(usage.onDemandUsed)}/${String(usage.onDemandCap)}`);
   }
   return lines.join("\n");
@@ -118,6 +127,9 @@ export function formatXaiUsage(usage: XaiUsage): string {
 // Compact one-line form for the header (replaces the dollar cost for xAI
 // profiles): "Grok pro 23%".
 export function formatXaiUsageCompact(usage: XaiUsage): string {
-  const tier = usage.subscriptionTier && usage.subscriptionTier !== "unknown" ? `Grok ${usage.subscriptionTier}` : "Grok";
+  const tier =
+    usage.subscriptionTier && usage.subscriptionTier !== "unknown"
+      ? `Grok ${usage.subscriptionTier}`
+      : "Grok";
   return `${tier} ${String(Math.round(usage.creditUsagePercent))}%`;
 }

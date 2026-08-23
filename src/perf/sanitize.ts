@@ -94,7 +94,9 @@ export function isOpaqueId(value: unknown): value is string {
  * Strip unknown keys and non-allowlisted values.
  * Never throws; returns a new object with only safe tags (or undefined if empty).
  */
-export function sanitizeTags(tags: Record<string, unknown> | undefined | null): PerfTags | undefined {
+export function sanitizeTags(
+  tags: Record<string, unknown> | undefined | null,
+): PerfTags | undefined {
   if (tags === undefined || tags === null) return undefined;
 
   const out: PerfTags = {};

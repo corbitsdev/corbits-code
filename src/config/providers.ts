@@ -6,7 +6,7 @@ import {
 } from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
 
-export type ProviderSubmission = {
+export interface ProviderSubmission {
   name: string;
   originalName?: string;
   baseURL: string;
@@ -17,7 +17,7 @@ export type ProviderSubmission = {
   bifrostVirtualKey?: boolean;
   anthropic?: boolean;
   opencodeGo?: boolean;
-};
+}
 
 // Precedence for the active/backup model of a provider: defaultModel wins
 // when present and non-empty, otherwise the first configured model.
@@ -30,7 +30,12 @@ export function resolveDefaultModel(
 }
 
 export type ProviderEntryResult =
-  | { ok: true; entry: ProviderCatalogEntry; catalog: ProviderCatalogEntry[]; selectedModel: string }
+  | {
+      ok: true;
+      entry: ProviderCatalogEntry;
+      catalog: ProviderCatalogEntry[];
+      selectedModel: string;
+    }
   | { ok: false; error: string };
 
 export function buildProviderEntry(
@@ -60,8 +65,7 @@ export function buildProviderEntry(
   // delete/recreate. Known first-class Go id/label still pins via name identity.
   const anthropic = submission.anthropic === true || existing?.anthropic === true;
   const submittedBase = submission.baseURL.length > 0 ? submission.baseURL : undefined;
-  const demoteByURL =
-    submittedBase !== undefined && !isOpenCodeGoURL(submittedBase);
+  const demoteByURL = submittedBase !== undefined && !isOpenCodeGoURL(submittedBase);
   const stickyGoFlag =
     !demoteByURL &&
     (submission.opencodeGo === true ||

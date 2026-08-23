@@ -153,7 +153,11 @@ describe("lookupModelPricing", () => {
   const cache: PricingCache = {
     timestamp: 0,
     models: {
-      "gpt-4": { inputPricePerToken: 0.00003, outputPricePerToken: 0.00006, cacheReadPricePerToken: 0 },
+      "gpt-4": {
+        inputPricePerToken: 0.00003,
+        outputPricePerToken: 0.00006,
+        cacheReadPricePerToken: 0,
+      },
     },
   };
 
@@ -177,14 +181,15 @@ describe("lookupModelPricing", () => {
 describe("fetchPricing", () => {
   test("parses a successful response and returns a cache object", async () => {
     const mockPayload = {
-      models: [
-        { id: "test-model", input_cost_per_million: 10, output_cost_per_million: 20 },
-      ],
+      models: [{ id: "test-model", input_cost_per_million: 10, output_cost_per_million: 20 }],
     };
     const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
     const fixedNow = 1_700_000_000_000;
-    const result = await fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch, now: () => fixedNow });
+    const result = await fetchPricing({
+      fetchImpl: mockFetch as unknown as typeof fetch,
+      now: () => fixedNow,
+    });
 
     expect(result.timestamp).toBe(fixedNow);
     expect(result.models["test-model"]).toBeDefined();
@@ -192,12 +197,16 @@ describe("fetchPricing", () => {
 
   test("throws when response is not ok", async () => {
     const mockFetch = async () => ({ ok: false, status: 503 });
-    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow("503");
+    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow(
+      "503",
+    );
   });
 
   test("throws when response contains no model prices", async () => {
     const mockFetch = async () => ({ ok: true, json: async () => ({}) });
-    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow("did not include model prices");
+    await expect(fetchPricing({ fetchImpl: mockFetch as unknown as typeof fetch })).rejects.toThrow(
+      "did not include model prices",
+    );
   });
 });
 
@@ -208,9 +217,7 @@ describe("fetchPricing", () => {
 describe("loadPricing", () => {
   test("returns fetch result and writes cache on success", async () => {
     const mockPayload = {
-      models: [
-        { id: "m1", input_cost_per_million: 5, output_cost_per_million: 10 },
-      ],
+      models: [{ id: "m1", input_cost_per_million: 5, output_cost_per_million: 10 }],
     };
     const mockFetch = async () => ({ ok: true, json: async () => mockPayload });
 
@@ -225,7 +232,9 @@ describe("loadPricing", () => {
   });
 
   test("falls back to disk cache when fetch fails", async () => {
-    const failingFetch = (async (): Promise<Response> => { throw new Error("network error"); }) as unknown as typeof fetch;
+    const failingFetch = (async (): Promise<Response> => {
+      throw new Error("network error");
+    }) as unknown as typeof fetch;
 
     // Point at a non-existent cache path — should return null (no fallback available)
     const result = await loadPricing({
@@ -245,7 +254,10 @@ describe("writePricingCache error handling", () => {
   test("swallows write errors and logs to stderr", async () => {
     const stderrLines: string[] = [];
     const orig = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((s: string) => { stderrLines.push(s); return true; }) as typeof process.stderr.write;
+    process.stderr.write = ((s: string) => {
+      stderrLines.push(s);
+      return true;
+    }) as typeof process.stderr.write;
 
     // Write to a path where mkdir will fail (file exists as a file, not dir)
     const badPath = `/tmp/not-a-dir-${Date.now()}`;
@@ -267,7 +279,7 @@ describe("startPricingRefresh", () => {
   test("returns a timer and can be cleared without throwing", () => {
     const timer = startPricingRefresh({
       refreshIntervalMs: 999_999,
-      fetchImpl: (async () => ({ ok: false, status: 500 } as Response)) as unknown as typeof fetch,
+      fetchImpl: (async () => ({ ok: false, status: 500 }) as Response) as unknown as typeof fetch,
       cachePath: "/tmp/nonexistent-refresh-cache.json",
     });
     expect(timer).toBeDefined();
@@ -311,10 +323,13 @@ describe("readPricingCache / writePricingCache", () => {
 
   test("returns null when cache file has invalid model entry", async () => {
     const path = `/tmp/pricing-test-bad-model-${Date.now()}.json`;
-    await Bun.write(path, JSON.stringify({
-      timestamp: 1,
-      models: { "bad-model": { inputPricePerToken: "not-a-number" } },
-    }));
+    await Bun.write(
+      path,
+      JSON.stringify({
+        timestamp: 1,
+        models: { "bad-model": { inputPricePerToken: "not-a-number" } },
+      }),
+    );
     const result = await readPricingCache(path);
     expect(result).toBeNull();
   });

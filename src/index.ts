@@ -15,16 +15,13 @@ import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner.js";
 
-export type Runners = {
+export interface Runners {
   runTUI: (config: import("./config/index.js").Config) => Promise<number>;
   runExec: (config: import("./config/index.js").Config) => Promise<number>;
   runOnboarding: (config: import("./config/index.js").UnconfiguredConfig) => Promise<number>;
-};
+}
 
-export async function mainWithRunners(
-  argv: readonly string[],
-  runners: Runners,
-): Promise<number> {
+export async function mainWithRunners(argv: readonly string[], runners: Runners): Promise<number> {
   // Must run before any other line: @intx/log installs a console sink as a
   // side effect of import, and loadConfig itself can log (e.g. healed
   // settings). Once installed, this replaces that default so nothing —
@@ -40,8 +37,7 @@ export async function mainWithRunners(
   // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
   // main-screen notice. Surface fail-open diagnostics on stderr for those
   // paths so junk local files are never silent.
-  const surfaceDiagnosticsOnStderr =
-    config.command === "exec" || !config.configured;
+  const surfaceDiagnosticsOnStderr = config.command === "exec" || !config.configured;
   if (surfaceDiagnosticsOnStderr && config.settingsDiagnostics !== undefined) {
     for (const d of config.settingsDiagnostics) {
       process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
@@ -82,8 +78,8 @@ export async function mainWithRunners(
       // Exec needs a provider; onboarding is TUI-only. Fail closed with a
       // clear message rather than launching Ink.
       process.stderr.write(
-        "No provider configured. Run `corbits` (interactive) once to complete setup, "
-          + "or pass --provider / --model with credentials.\n",
+        "No provider configured. Run `corbits` (interactive) once to complete setup, " +
+          "or pass --provider / --model with credentials.\n",
       );
       exitCode = 2;
     } else {
@@ -147,7 +143,9 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
   // rename() below. See markCrashed's doc comment for the residual window
   // this cannot close.
   markCrashed();
-  process.stderr.write(`${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+  process.stderr.write(
+    `${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+  );
   const file = await writeCrashReport(kind, error);
   if (file !== null) {
     process.stderr.write(`crash report written to ${file}\n`);

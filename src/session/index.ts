@@ -8,7 +8,6 @@ import { loadState, saveState, type RunState } from "./state.js";
 import { resolveSessionLabel } from "./session-label.js";
 import { projectRootFor, projectSessionsRoot } from "./project-key.js";
 
-
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
 // ---------------------------------------------------------------------------
@@ -88,7 +87,6 @@ function legacyLatestCandidates(cwd: string): string[] {
   return legacySessionRoots(cwd).map((base) => join(base, "latest"));
 }
 
-
 function realpathSafe(path: string): string {
   try {
     return realpathSync(path);
@@ -126,9 +124,12 @@ export async function migrateLegacySessionIfNeeded(
   return dir;
 }
 
-
 /** Full path to a session's context subdirectory. */
-export function sessionContextDir(cwd: string, sessionId: string, home: string = homedir()): string {
+export function sessionContextDir(
+  cwd: string,
+  sessionId: string,
+  home: string = homedir(),
+): string {
   return join(sessionDir(cwd, sessionId, home), "context");
 }
 
@@ -197,22 +198,19 @@ export async function resolveLatestSession(
   }
 }
 
-
-export type SessionSummary = {
+export interface SessionSummary {
   sessionId: string;
   task: string;
   startedAt: number;
   status: RunState["status"];
-};
+}
 
-const SESSION_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** True when `value` is a UUID v7 session id Corbits would write on disk. */
 export function isSessionId(value: string): boolean {
   return SESSION_ID_RE.test(value);
 }
-
 
 async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   const ids = new Set<string>();
@@ -232,9 +230,11 @@ async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
   return [...ids];
 }
 
-
 /** List on-disk sessions for a project, newest first. */
-export async function listSessions(cwd: string, home: string = homedir()): Promise<SessionSummary[]> {
+export async function listSessions(
+  cwd: string,
+  home: string = homedir(),
+): Promise<SessionSummary[]> {
   const entries = await collectSessionIds(cwd, home);
 
   const summaries: SessionSummary[] = [];
@@ -298,12 +298,17 @@ export async function renameSession(
     } catch {
       // Session dir missing; fall back to now.
     }
-    await saveState(cwd, sessionId, {
-      status: "running",
-      turnsUsed: 0,
-      task: trimmed,
-      startedAt,
-    }, home);
+    await saveState(
+      cwd,
+      sessionId,
+      {
+        status: "running",
+        turnsUsed: 0,
+        task: trimmed,
+        startedAt,
+      },
+      home,
+    );
     return;
   }
   await saveState(cwd, sessionId, { ...existing, task: trimmed }, home);

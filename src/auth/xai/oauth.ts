@@ -43,7 +43,11 @@ export function tokensFromResponse(
   };
 }
 
-export async function exchangeCode(code: string, verifier: string, now: number): Promise<XaiTokens> {
+export async function exchangeCode(
+  code: string,
+  verifier: string,
+  now: number,
+): Promise<XaiTokens> {
   return tokensFromResponse(await exchangeSharedCode(xaiOAuthConfig, code, verifier), now);
 }
 
