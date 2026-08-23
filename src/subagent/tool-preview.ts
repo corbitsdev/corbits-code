@@ -9,6 +9,7 @@
  */
 
 import { scrubSecrets } from "../web/secret-scrub.js";
+import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 
 /** Hard cap so a long command cannot shove the row's other columns off-screen. */
 export const TOOL_PREVIEW_MAX = 48;
@@ -56,13 +57,15 @@ function extractSubject(name: string, rawArgs: string): string | null {
 
   if (
     tool === "read_file" ||
-    tool === "write_file" ||
-    tool === "edit_file" ||
-    tool === "delete_file" ||
+    isProductMutationTool(tool) ||
     tool.endsWith("__read_file") ||
     tool.endsWith("__write_file") ||
     tool.endsWith("__edit_file")
   ) {
+    if (tool === "apply_patch") {
+      const paths = productMutationPaths(tool, args);
+      return paths[0] ?? null;
+    }
     return stringField(args, "path") ?? stringField(args, "file_path");
   }
 
