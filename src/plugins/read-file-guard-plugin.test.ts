@@ -346,7 +346,10 @@ describe("readFileGuardPlugin", () => {
     expect(match).not.toBeNull();
     const cursorPath = (match as RegExpExecArray)[1] as string;
 
-    await middleware({ id: "s2", name: "read_file", arguments: { path: cursorPath } }, neverAbort());
+    await middleware(
+      { id: "s2", name: "read_file", arguments: { path: cursorPath } },
+      neverAbort(),
+    );
     // Second use of the same, already-consumed cursor: distinct from a
     // generic missing-blob error, this must name a followable next step —
     // the original source and the offset to resume from — rather than
@@ -397,7 +400,10 @@ describe("readFileGuardPlugin", () => {
     expect(match).not.toBeNull();
     const cursorPath = (match as RegExpExecArray)[1] as string;
 
-    await middleware({ id: "b2", name: "read_file", arguments: { path: cursorPath } }, neverAbort());
+    await middleware(
+      { id: "b2", name: "read_file", arguments: { path: cursorPath } },
+      neverAbort(),
+    );
     // Replaying the consumed cursor must not fall through to blobReader.read()
     // (which would throw the opaque "Blob not found" error naming only the
     // random cursor UUID) -- it must short-circuit to the actionable message
