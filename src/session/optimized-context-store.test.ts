@@ -344,6 +344,60 @@ describe("loadRecentTurns", () => {
     const loaded = await loadRecentTurns(dir, 5);
     expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
+
+  test("skips a non-tail malformed line in the newest segment", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("b")]) + '{"role":"user","content":[{"type":"te\n' + jsonl([turn("c")]),
+    );
+
+    const loaded = await loadRecentTurns(dir, 5);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c"]);
+  });
+
+  test("skips a malformed line in an older sealed segment", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("b")]) + '{"role":"user","content":[{"type":"te\n' + jsonl([turn("c")]),
+    );
+    fs.writeFileSync(path.join(dir, segmentFileName(TURNS_FILE, 2)), jsonl([turn("d")]));
+
+    const loaded = await loadRecentTurns(dir, 5);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+  });
+
+  test("skips a line that parses as JSON but fails the turn schema", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]));
+    const badTurn = JSON.stringify({ role: "user", content: "not-an-array", timestamp: 1 });
+    fs.writeFileSync(
+      path.join(dir, segmentFileName(TURNS_FILE, 1)),
+      jsonl([turn("b")]) + badTurn + "\n" + jsonl([turn("c")]),
+    );
+
+    const loaded = await loadRecentTurns(dir, 5);
+    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b", "c"]);
+  });
+
+  test("the reactor's load() stays strict on the same corrupt fixture and names the segment", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + '{"role":"user","content":[{"type":"te\n' + jsonl([turn("b")]),
+    );
+
+    await expect(store.load()).rejects.toThrow(TURNS_FILE);
+  });
 });
 
 describe("createOptimizedContextStore checkpoint", () => {
