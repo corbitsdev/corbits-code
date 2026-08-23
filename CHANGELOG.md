@@ -13,6 +13,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [0.2.105] - 2026-08-23
 
+### Permissions
+
+- **Every approval ask and how it settles is now logged.** `approvals.jsonl`
+  in the session dir records each consequential decision — auto-mode
+  allow/deny, or an operator prompt's allow-once / allow-with-scope / deny /
+  timeout / abort — with the classifier rule that triggered it, queued /
+  displayed / settled timestamps, and shell chain segment count. No command
+  text, path, or credential is ever recorded; writes are fire-and-forget and
+  never fail a run. `scripts/approval-forensics.ts` aggregates across local
+  sessions.
+
 ### Agent
 
 - **Context estimate syncs incrementally on append.** `syncFromTurns` keys
