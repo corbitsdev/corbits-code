@@ -32,10 +32,7 @@ describe("PRODUCT_MUTATION_TOOLS", () => {
 +new
 *** End Patch
 `;
-    expect(productMutationPaths("apply_patch", { input })).toEqual([
-      "hello.txt",
-      "src/app.py",
-    ]);
+    expect(productMutationPaths("apply_patch", { input })).toEqual(["hello.txt", "src/app.py"]);
   });
 
   test("productMutationPaths returns [] for malformed apply_patch input", () => {
