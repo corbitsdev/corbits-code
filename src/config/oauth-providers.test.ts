@@ -52,7 +52,6 @@ describe("settings projection", () => {
     expect(entry?.defaultModel).toBe(entry?.models?.[0]);
     expect(entry?.baseURL).toBeString();
   });
-
 });
 
 describe("catalog projection", () => {

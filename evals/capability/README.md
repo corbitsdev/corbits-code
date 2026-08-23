@@ -12,20 +12,20 @@ Eval workdirs are initialized as git repositories (HEAD exists) so isolated work
 
 One run can **try different things**: multiple cases × multiple provider/model variants (matrix), with every product-path metric we can record written into the results JSON.
 
-| Tier | Case | Fixture | Intent |
-|------|------|---------|--------|
-| simple | `simple-health` | `tests/fixtures/multi-file-service` | Single-file route + test |
-| complex | `complex-jwt` | `tests/fixtures/demo-comparison` | Multi-file auth middleware + tests (sync API contract) |
-| complex | `complex-stock-gate` | `tests/fixtures/demo-comparison` | Multi-file stock-gated orders + mutable state |
-| complex | `complex-idempotent-orders` | `tests/fixtures/demo-comparison` | Idempotency-Key header + multi-file order store |
-| complex | `complex-bugfix` | `tests/fixtures/buggy-service` | Issue→patch→tests: fix failing post GET without breaking users |
-| complex | `complex-pagination` | `tests/fixtures/demo-comparison` | Multi-file feature: query pagination on GET /products |
-| complex | `complex-rename-user` | `tests/fixtures/multi-file-service` | Refactor/rename user `name` → `displayName` across files |
-| complex | `complex-dispatch-spawn` | `tests/fixtures/multi-file-service` | Dispatch GET /readyz via `task`; grader checks the route, not that the primary skipped DIY |
-| complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read` | Read many fixture files then write the planted token; does not assert compaction fired |
-| complex | `hidden-contract-inventory` | `tests/fixtures/inventory-service` | Implement stock reservations from a prose contract (API.md); graded by held-out tests the agent never sees |
-| complex | `broken-toolchain` | `tests/fixtures/broken-toolchain` | Three stacked, independent environment failures (non-executable codegen hook, broken vendor symlink, corrupt source file) block a trivially-correct test suite; grader checks each fix individually plus a freshly-regenerated codegen artifact so partial repair and fabrication both fail |
-| complex | `misleading-symptom` | `tests/fixtures/report-pipeline` | Crash visibly implicates the wrong module (routes/reports.ts, next to a decoy rounding TODO); root cause is one hop away in services/aggregate.ts. Guarding only the crash site makes the suite look green while returning a plausible-but-wrong total — held-out tests assert the actual value |
+| Tier    | Case                             | Fixture                             | Intent                                                                                                                                                                                                                                                                                          |
+| ------- | -------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| simple  | `simple-health`                  | `tests/fixtures/multi-file-service` | Single-file route + test                                                                                                                                                                                                                                                                        |
+| complex | `complex-jwt`                    | `tests/fixtures/demo-comparison`    | Multi-file auth middleware + tests (sync API contract)                                                                                                                                                                                                                                          |
+| complex | `complex-stock-gate`             | `tests/fixtures/demo-comparison`    | Multi-file stock-gated orders + mutable state                                                                                                                                                                                                                                                   |
+| complex | `complex-idempotent-orders`      | `tests/fixtures/demo-comparison`    | Idempotency-Key header + multi-file order store                                                                                                                                                                                                                                                 |
+| complex | `complex-bugfix`                 | `tests/fixtures/buggy-service`      | Issue→patch→tests: fix failing post GET without breaking users                                                                                                                                                                                                                                  |
+| complex | `complex-pagination`             | `tests/fixtures/demo-comparison`    | Multi-file feature: query pagination on GET /products                                                                                                                                                                                                                                           |
+| complex | `complex-rename-user`            | `tests/fixtures/multi-file-service` | Refactor/rename user `name` → `displayName` across files                                                                                                                                                                                                                                        |
+| complex | `complex-dispatch-spawn`         | `tests/fixtures/multi-file-service` | Dispatch GET /readyz via `task`; grader checks the route, not that the primary skipped DIY                                                                                                                                                                                                      |
+| complex | `complex-recall-after-bulk-read` | `tests/fixtures/large-read`         | Read many fixture files then write the planted token; does not assert compaction fired                                                                                                                                                                                                          |
+| complex | `hidden-contract-inventory`      | `tests/fixtures/inventory-service`  | Implement stock reservations from a prose contract (API.md); graded by held-out tests the agent never sees                                                                                                                                                                                      |
+| complex | `broken-toolchain`               | `tests/fixtures/broken-toolchain`   | Three stacked, independent environment failures (non-executable codegen hook, broken vendor symlink, corrupt source file) block a trivially-correct test suite; grader checks each fix individually plus a freshly-regenerated codegen artifact so partial repair and fabrication both fail     |
+| complex | `misleading-symptom`             | `tests/fixtures/report-pipeline`    | Crash visibly implicates the wrong module (routes/reports.ts, next to a decoy rounding TODO); root cause is one hop away in services/aggregate.ts. Guarding only the crash site makes the suite look green while returning a plausible-but-wrong total — held-out tests assert the actual value |
 
 | bait | `loop-bait` | `tests/fixtures/large-read` | Open-ended research; catches repeated-search loops |
 | bait | `web-bait` | `tests/fixtures/web-note` | Fetch from a hermetic local HTTP page; catches curl/wget instead of `web_fetch` |
@@ -43,7 +43,7 @@ objective outcome check — a bait can pass verify while still misbehaving; the
 `behaviors` block is what the gate compares.
 
 **Bait honesty check:** during `--baseline` comparison, a bait case whose
-*baseline* aggregate does not exceed its threshold is flagged
+_baseline_ aggregate does not exceed its threshold is flagged
 (`BAIT FLAG ... no longer reproduces its misbehavior`) instead of silently
 passing. A flagged bait means the case has stopped measuring anything — fix or
 retire the case; do not treat the comparison as a clean gate.
@@ -52,24 +52,24 @@ retire the case; do not treat the comparison as a clean gate.
 
 Everything the product path already observes is recorded:
 
-| Field | Source |
-|-------|--------|
-| `passed` | agent exit 0 **and** verify.sh exit 0 **and** not over soft turn budget |
-| `agentExitCode` / `verifyExitCode` | process exits |
-| `status` | run sink (`done` / `failed` / `cancelled`) |
-| `sessionId` | exec session id |
-| `durationMs` | wall clock for the whole case |
-| `agentDurationMs` | product `runExec` duration |
-| `verifyDurationMs` | grader wall time |
-| `turnsUsed` | turn collector |
-| `toolCallCount` | turn collector |
-| `tokenUsage` | `{ input, output, cacheRead, cacheWrite, thinking }` |
-| `maxTurns` / `overBudget` | case budget vs turns used |
-| `provider` / `model` / `variantId` | resolved config for that cell (`variantId` is `provider:model` by default) |
-| `skipPermissions` | whether permissions were skipped |
-| `repeat` | 0-based repeat index within the case×variant cell |
-| `behaviors` | behavior metrics derived from the turn stream (below); `null` when capture failed |
-| `textPreview` | truncated agent stdout (debug) |
+| Field                              | Source                                                                            |
+| ---------------------------------- | --------------------------------------------------------------------------------- |
+| `passed`                           | agent exit 0 **and** verify.sh exit 0 **and** not over soft turn budget           |
+| `agentExitCode` / `verifyExitCode` | process exits                                                                     |
+| `status`                           | run sink (`done` / `failed` / `cancelled`)                                        |
+| `sessionId`                        | exec session id                                                                   |
+| `durationMs`                       | wall clock for the whole case                                                     |
+| `agentDurationMs`                  | product `runExec` duration                                                        |
+| `verifyDurationMs`                 | grader wall time                                                                  |
+| `turnsUsed`                        | turn collector                                                                    |
+| `toolCallCount`                    | turn collector                                                                    |
+| `tokenUsage`                       | `{ input, output, cacheRead, cacheWrite, thinking }`                              |
+| `maxTurns` / `overBudget`          | case budget vs turns used                                                         |
+| `provider` / `model` / `variantId` | resolved config for that cell (`variantId` is `provider:model` by default)        |
+| `skipPermissions`                  | whether permissions were skipped                                                  |
+| `repeat`                           | 0-based repeat index within the case×variant cell                                 |
+| `behaviors`                        | behavior metrics derived from the turn stream (below); `null` when capture failed |
+| `textPreview`                      | truncated agent stdout (debug)                                                    |
 
 Run-level `totals` sum duration, turns, tools, and tokens across cells.
 
@@ -81,20 +81,20 @@ turn stream — tool calls with arguments plus assistant content. Derivation is
 pure (`behaviors.ts`); command analysis is a quote-aware token scan, not a full
 shell parser.
 
-| Metric | Meaning | Baseline direction |
-|--------|---------|--------------------|
-| `shellCommandCount` | `run_shell` calls | informational |
-| `envAssignmentCommandCount` | commands with a `FOO=bar cmd` prefix or `export` | lower is better |
-| `chainSegmentCount` | total chain segments (`&&`, `\|\|`, `;`, `\|`, newline) | informational |
-| `maxChainSegmentsPerCommand` | largest chain in one command | lower is better |
-| `networkCommandCount` | segments invoking curl/wget/nc/... | lower is better |
-| `webFetchToolCallCount` | `web_fetch` tool calls (0 when the tool is absent or unused) | informational |
-| `taskToolCallCount` | `task` tool calls (0 when the tool is absent or unused) | informational |
-| `editViaShellCount` | sed/perl/awk `-i` edits or heredoc writes | lower is better |
-| `repeatedSearchCount` | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better |
-| `longestToolOnlyStreak` | longest run of assistant turns with tool calls and no text | lower is better |
-| `maxTurnDurationMs` | slowest single turn (stall gap on slow commands) | lower is better |
-| `toolCallsByName` | per-tool-name call counts | informational |
+| Metric                       | Meaning                                                                     | Baseline direction |
+| ---------------------------- | --------------------------------------------------------------------------- | ------------------ |
+| `shellCommandCount`          | `run_shell` calls                                                           | informational      |
+| `envAssignmentCommandCount`  | commands with a `FOO=bar cmd` prefix or `export`                            | lower is better    |
+| `chainSegmentCount`          | total chain segments (`&&`, `\|\|`, `;`, `\|`, newline)                     | informational      |
+| `maxChainSegmentsPerCommand` | largest chain in one command                                                | lower is better    |
+| `networkCommandCount`        | segments invoking curl/wget/nc/...                                          | lower is better    |
+| `webFetchToolCallCount`      | `web_fetch` tool calls (0 when the tool is absent or unused)                | informational      |
+| `taskToolCallCount`          | `task` tool calls (0 when the tool is absent or unused)                     | informational      |
+| `editViaShellCount`          | sed/perl/awk `-i` edits or heredoc writes                                   | lower is better    |
+| `repeatedSearchCount`        | tool calls repeating an earlier call's name with normalized-equal arguments | lower is better    |
+| `longestToolOnlyStreak`      | longest run of assistant turns with tool calls and no text                  | lower is better    |
+| `maxTurnDurationMs`          | slowest single turn (stall gap on slow commands)                            | lower is better    |
+| `toolCallsByName`            | per-tool-name call counts                                                   | informational      |
 
 ## Prerequisites
 
@@ -164,22 +164,22 @@ change that justifies it.
 
 Flags:
 
-| Flag | Meaning |
-|------|---------|
-| `--case <id\|all>` | Case id or `all` (default) |
-| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings |
-| `--matrix <cells>` | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides |
-| `--config <path>` | Settings file override (CI injection) |
-| `--out <path>` | Write machine-readable results JSON |
-| `--baseline <path>` | Compare this run to a prior results file (improve/regress + metric deltas) |
-| `--ask-permissions` | Do **not** pass `--dangerously-skip-permissions` |
-| `--max-turns <n>` | Soft turn budget: case **fails** if `turnsUsed` exceeds, or if turns are not reported when a budget is set (fail closed). Does not hard-kill mid-run |
-| `--agent-timeout-ms <n>` | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`) |
-| `--verify-timeout-ms <n>` | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`) |
-| `--repeats <n>` | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates |
-| `--concurrency <n>` | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster |
-| `--dry-run` | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix` |
-| `--director <id>` | Exec overlay: run the product `corbits exec` path with this director's system prompt and initially-advertised tool set (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
+| Flag                                 | Meaning                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--case <id\|all>`                   | Case id or `all` (default)                                                                                                                                                                                                                                   |
+| `--provider <name>` / `--model <id>` | Required unless `--matrix`. Single-variant via `loadConfig`. Not inferred from local settings                                                                                                                                                                |
+| `--matrix <cells>`                   | Alternative to `--provider`/`--model`. Multi-variant: `p:m,p2:m2` or `label=p:m` (comma-separated). Every cell must include both sides                                                                                                                       |
+| `--config <path>`                    | Settings file override (CI injection)                                                                                                                                                                                                                        |
+| `--out <path>`                       | Write machine-readable results JSON                                                                                                                                                                                                                          |
+| `--baseline <path>`                  | Compare this run to a prior results file (improve/regress + metric deltas)                                                                                                                                                                                   |
+| `--ask-permissions`                  | Do **not** pass `--dangerously-skip-permissions`                                                                                                                                                                                                             |
+| `--max-turns <n>`                    | Soft turn budget: case **fails** if `turnsUsed` exceeds, or if turns are not reported when a budget is set (fail closed). Does not hard-kill mid-run                                                                                                         |
+| `--agent-timeout-ms <n>`             | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`)                                                                                                                                                                      |
+| `--verify-timeout-ms <n>`            | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`)                                                                                                                                                                    |
+| `--repeats <n>`                      | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates                                                                                                                      |
+| `--concurrency <n>`                  | Independent case×variant×repeat cells in parallel (default `1`, env `CORBITS_EVAL_CONCURRENCY`). Each cell still uses its own temp workdir. Use `--concurrency 4` (or similar) to run a live matrix faster                                                   |
+| `--dry-run`                          | Load cases × variants and print plan; no inference. Still requires `--provider`/`--model` or `--matrix`                                                                                                                                                      |
+| `--director <id>`                    | Exec overlay: run the product `corbits exec` path with this director's system prompt and initially-advertised tool set (default: skywalker). Eval/CI override, not single-agent mode. Directors that cannot spawn (for example `build`) do not mount `task`. |
 
 ## Case format
 
@@ -253,7 +253,13 @@ verify.sh   # objective grader (exit 0 = pass)
       "sessionId": "...",
       "turnsUsed": 4,
       "toolCallCount": 6,
-      "tokenUsage": { "input": 5000, "output": 800, "cacheRead": 0, "cacheWrite": 0, "thinking": 0 },
+      "tokenUsage": {
+        "input": 5000,
+        "output": 800,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "thinking": 0
+      },
       "maxTurns": 20,
       "overBudget": false,
       "skipPermissions": true,

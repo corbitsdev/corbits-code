@@ -52,6 +52,65 @@ describe("parseEditFileMode", () => {
       expect(mode.message).toContain("only one edit mode is allowed");
       expect(mode.message).toContain("Omit old_string");
       expect(mode.message).toContain("omit start_line/end_line");
+      expect(mode.message).toContain("old_string (len 1)");
+      expect(mode.message).toContain("start_line=1");
+      expect(mode.message).toContain("end_line=1");
+    }
+  });
+
+  test("treats filler start_line/end_line of 0 as absent and picks substring mode", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      old_string: "x",
+      new_string: "y",
+      start_line: 0,
+      end_line: 0,
+    });
+    expect(mode.kind).toBe("substring");
+  });
+
+  test("treats null line fields as absent and picks substring mode", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      old_string: "x",
+      new_string: "y",
+      start_line: null,
+      end_line: null,
+    });
+    expect(mode.kind).toBe("substring");
+  });
+
+  test("treats filler empty old_string as absent and picks line-range mode", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      old_string: "",
+      start_line: 2,
+      end_line: 3,
+      new_string: "z",
+    });
+    expect(mode.kind).toBe("line_range");
+  });
+
+  test("empty old_string alone gets a helpful error naming what was received", () => {
+    const mode = parseEditFileMode({
+      path: "a.ts",
+      old_string: "",
+      new_string: "y",
+    });
+    expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain("old_string is empty");
+      expect(mode.message).toContain("old_string (len 0)");
+    }
+  });
+
+  test("missing both modes reports what was received", () => {
+    const mode = parseEditFileMode({ path: "a.ts", new_string: "y" });
+    expect(mode.kind).toBe("invalid");
+    if (mode.kind === "invalid") {
+      expect(mode.message).toContain("requires old_string");
+      expect(mode.message).toContain("no old_string");
+      expect(mode.message).toContain("no start_line");
     }
   });
 
@@ -145,7 +204,11 @@ describe("advertiseEditFileLineRange", () => {
   });
 
   test("leaves non-edit tools unchanged", () => {
-    const def = { name: "read_file", description: "r", inputSchema: { type: "object", properties: {} } };
+    const def = {
+      name: "read_file",
+      description: "r",
+      inputSchema: { type: "object", properties: {} },
+    };
     expect(advertiseEditFileLineRange(def)).toBe(def);
   });
 });
@@ -162,11 +225,9 @@ describe("editFileLineRangePlugin", () => {
   });
 
   function handler(next: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>) {
-    const mws = [
-      pathEscapePlugin(cwd).middleware!,
-      editFileLineRangePlugin().middleware!,
-      verifyPlugin().middleware!,
-    ];
+    const mws = [pathEscapePlugin(cwd), editFileLineRangePlugin(), verifyPlugin()].flatMap((p) =>
+      p.middleware ? [p.middleware] : [],
+    );
     return composeMiddleware(mws, next);
   }
 

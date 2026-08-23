@@ -20,10 +20,7 @@ export function createLazyBlobReader(get: () => BlobReader | undefined): BlobRea
 export function isBlobNotFoundError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message;
-  return (
-    msg.includes("Blob not found") ||
-    msg === "blob reader is not configured"
-  );
+  return msg.includes("Blob not found") || msg === "blob reader is not configured";
 }
 
 /**

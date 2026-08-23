@@ -11,7 +11,7 @@ export class TTLCache<T> {
 
   constructor(
     private readonly ttlMs: number,
-    private readonly jitterMs: number = 0,
+    private readonly jitterMs = 0,
   ) {}
 
   set(key: string, value: T): void {

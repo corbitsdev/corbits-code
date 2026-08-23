@@ -19,13 +19,13 @@ export type WorkflowEvent =
 export type WorkflowListener = (event: WorkflowEvent) => void;
 
 // A flattened view of the active frame's steps for the TUI step panel.
-export type WorkflowView = {
+export interface WorkflowView {
   name: string;
   stepIndex: number;
   total: number;
   label: string;
-  steps: Array<{ step: WorkflowStep; status: StepStatus }>;
-};
+  steps: { step: WorkflowStep; status: StepStatus }[];
+}
 
 type Resolver = (name: string) => Workflow | undefined;
 

@@ -2,7 +2,7 @@ import { lookupModelPricing, type PricingCache } from "./pricing-fetcher.js";
 
 // Free-model naming conventions: OpenRouter appends ":free", some gateways use
 // a "-free" suffix. Either, at the end of the id, marks a no-cost model.
-const FREE_MODEL_SUFFIX = /[:\-]free$/i;
+const FREE_MODEL_SUFFIX = /[:-]free$/i;
 
 export function isFreeModelId(modelId: string): boolean {
   return FREE_MODEL_SUFFIX.test(modelId.trim());
@@ -30,18 +30,14 @@ export function isFreeModelByPricing(cache: PricingCache | null, modelId: string
   return pricing.inputPricePerToken === 0 && pricing.outputPricePerToken === 0;
 }
 
-export type CostVisibilityInput = {
+export interface CostVisibilityInput {
   baseURL?: string | undefined;
   modelId: string;
   providerFree?: boolean | undefined;
   pricingCache: PricingCache | null;
-};
+}
 
-export type CostHiddenReason =
-  | "provider-free"
-  | "coding-plan"
-  | "free-model"
-  | "zero-priced";
+export type CostHiddenReason = "provider-free" | "coding-plan" | "free-model" | "zero-priced";
 
 // Non-null when the dollar cost should be suppressed: a manual provider
 // override, a coding-plan endpoint, a free-named model, or a model the pricing

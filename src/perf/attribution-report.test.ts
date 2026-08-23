@@ -8,10 +8,7 @@ import {
   spansFromDumpJson,
 } from "./attribution-report.js";
 import { DUMP_VERSION, buildDump, serializeSpan } from "./dump.js";
-import {
-  MULTI_TOOL_TURN_GOLDEN,
-  multiToolTurnFixture,
-} from "./fixtures/multi-tool-turn.js";
+import { MULTI_TOOL_TURN_GOLDEN, multiToolTurnFixture } from "./fixtures/multi-tool-turn.js";
 import type { PerfSpan } from "./index.js";
 
 function span(partial: {
@@ -249,10 +246,7 @@ describe("attributionFromSpans — subagent + transport", () => {
     expect(report.session.inference.ttftNs).toBe(400 + 500);
     expect(report.session.inference.streamNs).toBe(1600 + 2000);
 
-    const turnShareSum = report.turns[0]!.categories.reduce(
-      (a, c) => a + c.share,
-      0,
-    );
+    const turnShareSum = report.turns[0]!.categories.reduce((a, c) => a + c.share, 0);
     expect(turnShareSum).toBeCloseTo(1, 10);
   });
 });
@@ -423,22 +417,16 @@ describe("dump round-trip", () => {
   });
 
   test("attributionFromDump rejects unsupported DUMP_VERSION", () => {
-    const dump = buildDump(
-      multiToolTurnFixture(),
-      "fixture-multi",
-      "2026-04-08T00:00:00.000Z",
+    const dump = buildDump(multiToolTurnFixture(), "fixture-multi", "2026-04-08T00:00:00.000Z");
+    expect(() => attributionFromDump({ ...dump, version: DUMP_VERSION + 1 })).toThrow(
+      /unsupported dump version/,
     );
-    expect(() =>
-      attributionFromDump({ ...dump, version: DUMP_VERSION + 1 }),
-    ).toThrow(/unsupported dump version/);
   });
 });
 
 describe("formatAttributionReport", () => {
   test("prints category labels and percentages for the golden fixture", () => {
-    const text = formatAttributionReport(
-      attributionFromSpans(multiToolTurnFixture()),
-    );
+    const text = formatAttributionReport(attributionFromSpans(multiToolTurnFixture()));
     expect(text).toContain("PerfTrace attribution report");
     expect(text).toContain("inference");
     expect(text).toContain("tools");

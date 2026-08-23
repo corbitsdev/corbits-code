@@ -21,7 +21,10 @@ describe("resolveResumeSeed", () => {
     const seed = resolveResumeSeed(
       pickedState({
         turnsUsed: 12,
-        mcpServers: [{ name: "filesystem", toolCount: 5 }, { name: "search", toolCount: 2 }],
+        mcpServers: [
+          { name: "filesystem", toolCount: 5 },
+          { name: "search", toolCount: 2 },
+        ],
       }),
     );
 

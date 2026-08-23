@@ -85,10 +85,7 @@ function isReasoningEffort(v: unknown): v is ReasoningEffort {
 }
 
 // Resolve the agent id: frontmatter `id` wins, then `name`, then the file stem.
-function pickId(
-  fm: Record<string, unknown> | null,
-  filename: string,
-): string | undefined {
+function pickId(fm: Record<string, unknown> | null, filename: string): string | undefined {
   if (fm !== null) {
     const fromId = typeof fm.id === "string" ? fm.id.trim() : "";
     if (fromId.length > 0) return fromId;
@@ -103,9 +100,7 @@ function pickId(
 // Normalize the union of `tools` / `disallowedTools` / `permission` shapes from
 // the three dialects into a single CapabilityFilter. Returns undefined when no
 // restriction was declared (agent inherits all tools).
-function normalizeCapabilities(
-  fm: Record<string, unknown> | null,
-): CapabilityFilter | undefined {
+function normalizeCapabilities(fm: Record<string, unknown> | null): CapabilityFilter | undefined {
   if (fm === null) return undefined;
 
   // Native: capabilities: { mode, tools[] } — mode must validate, but tools
@@ -171,11 +166,7 @@ function normalizeCapabilities(
   // wrongly narrow the agent to only the listed tools. Deny entries are real
   // restrictions and stay. (Subagents' allow entries are real allowlists
   // because there's no inheritance intent.)
-  if (
-    fm.permission !== undefined &&
-    typeof fm.permission === "object" &&
-    fm.permission !== null
-  ) {
+  if (fm.permission !== undefined && typeof fm.permission === "object" && fm.permission !== null) {
     const isPrimary = fm.mode === "primary" || fm.mode === "all";
     if (!isPrimary) {
       return normalizePermission(fm.permission as Record<string, unknown>);
@@ -194,9 +185,7 @@ function normalizeCapabilities(
 //   flat (corbitsdev):     { read: "allow", bash: "deny", write: "allow" }
 //   nested (OpenCode):     { tool: { "*": "deny", read: "allow" } }
 // Resource types other than "tool" (skill, mcp) are ignored in v1.
-function normalizePermission(
-  perm: Record<string, unknown>,
-): CapabilityFilter | undefined {
+function normalizePermission(perm: Record<string, unknown>): CapabilityFilter | undefined {
   let flat: Record<string, unknown> | undefined;
 
   if (perm.tool !== undefined && typeof perm.tool === "object" && perm.tool !== null) {
@@ -236,17 +225,11 @@ function normalizePermission(
 // A bare Claude Code `effort: high` with no `model` has nothing to attach the
 // effort to now that tiers (which used to map effort to a model swap) are
 // gone, so it is ignored — set `model` alongside `effort` to pin both.
-function normalizeInference(
-  fm: Record<string, unknown> | null,
-): { inference?: InferenceSpec } {
+function normalizeInference(fm: Record<string, unknown> | null): { inference?: InferenceSpec } {
   if (fm === null) return {};
 
   // Native explicit inference spec.
-  if (
-    fm.inference !== undefined &&
-    typeof fm.inference === "object" &&
-    fm.inference !== null
-  ) {
+  if (fm.inference !== undefined && typeof fm.inference === "object" && fm.inference !== null) {
     const spec = normalizeInferenceSpec(fm.inference as Record<string, unknown>);
     if (spec !== undefined) return { inference: spec };
   }
@@ -279,10 +262,7 @@ function normalizeInferenceSpec(raw: Record<string, unknown>): InferenceSpec | u
 
 // Accept either a single leg object or an array of legs. An optional top-level
 // `effort` is applied to legs that don't declare their own.
-function normalizeModelField(
-  model: unknown,
-  effort: unknown,
-): InferenceSpec | undefined {
+function normalizeModelField(model: unknown, effort: unknown): InferenceSpec | undefined {
   const legs: InferenceLeg[] = [];
 
   const asLeg = (raw: unknown): InferenceLeg | undefined => {
@@ -344,10 +324,10 @@ function parseSkillReferencesFromBody(body: string): string[] {
   return out;
 }
 
-export type DataOnlyAgentPlugin = {
+export interface DataOnlyAgentPlugin {
   manifest: { id: string; name: string; kind: "agent"; description?: string };
   agentPlugin: { agents: unknown[] };
-};
+}
 
 // Build a data-only agent plugin module from a directory containing agents/*.md.
 // Returns null if the directory has no usable agent files.
@@ -430,18 +410,14 @@ export async function loadDataOnlyAgentPlugin(
     for (const name of skillNames) {
       const text = await loadSkillText(cwd, name, pluginRoot, extraPluginDirs);
       if (text === undefined) {
-        warning?.(
-          `agent ${id}: skill "${name}" referenced but not found in skill search path`,
-        );
+        warning?.(`agent ${id}: skill "${name}" referenced but not found in skill search path`);
         continue;
       }
       skillBlocks.push(`# Bundled skill: ${name}\n\n${text}`);
     }
 
     const promptBody =
-      skillBlocks.length > 0
-        ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}`
-        : body;
+      skillBlocks.length > 0 ? `${skillBlocks.join("\n\n---\n\n")}\n\n---\n\n${body}` : body;
     // The Corbits Code translation appendix is appended at prompt-build time by
     // buildSubAgentSystemPrompt, so the systemPromptRole stays focused on the
     // agent's own definition (skills + body) and the appendix applies uniformly
