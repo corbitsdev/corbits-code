@@ -326,6 +326,49 @@ describe("stall watchdog", () => {
     })
   })
 
+  test("clears the notice once activity resumes, rather than leaving it up", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(500)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+
+        // The model starts producing again — the notice must not linger past
+        // the silence it was reporting. handle() itself has to take it down;
+        // waiting for the next tick leaves a window where the turn can settle
+        // and cancel the cadence, which would strand the banner forever.
+        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } })
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
+  test("clears the notice when the turn settles before the next tick", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h)
+      try {
+        t.bridge.submit("build it", "immediate")
+        t.port.clear()
+
+        t.advance(500)
+        t.tick()
+        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE)
+
+        t.bridge.handle({ type: "inference.done", data: {} })
+        // Cadence is cancelled on settle. The notice has to already be gone.
+        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE)
+      } finally {
+        t.bridge.dispose()
+      }
+    })
+  })
+
   test("aborts and flashes once a mid-stream hang crosses the stall timeout", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h)

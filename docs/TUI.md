@@ -140,6 +140,9 @@ instant a tool batch resolves and `awaitingResponse` flips back to true).
 That wait has no signal to tell "still coming" from "never coming" apart, so
 it is never auto-aborted no matter how long it runs; it still surfaces via
 the notice, keeping the operator in control of whether to give up on it.
+The notice is a live diagnosis, not a sticky banner: it comes down on the
+same paint as the activity that ends the silence, including when the turn
+settles before the next monitor tick.
 
 An idle session animates nothing at all: the monitor tick stops entirely
 rather than repainting an unchanging frame.
@@ -211,7 +214,10 @@ operator-preferred Amp/Codex-style lines:
 
 `runtime-bridge` paints each `task` call as a stream row and rewrites it in
 place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
-stall marker). There is no standing FLEET board and no dual-rail agents chrome:
+stall marker). Ordinary in-flight tool rows get the same elapsed clock
+(`syncToolElapsed`) without the current-tool suffix, so a slow MCP or
+network call is distinguishable from a hung turn. There is no standing
+FLEET board and no dual-rail agents chrome:
 `formatChromeZones` always returns both zones null (`task` and `agents`), and
 geometry is stack-only (`layoutMode: "stack"`, `railWidth: 0`). Checklist and
 agents strips are parked pending rebuild; Alt+T / direct `setChromeZones` may
