@@ -59,10 +59,26 @@ export interface ReadFileGuardPluginOptions {
 // claims discarded bytes are retrievable; it just remembers where to resume
 // a fresh bounded read.
 type ReadCursor =
-  | { kind: "file"; absolutePath: string; offset: number }
-  | { kind: "blob"; uri: string; offset: number };
+  | { kind: "file"; absolutePath: string; offset: number; consumed: boolean }
+  | { kind: "blob"; uri: string; offset: number; consumed: boolean };
+
+// A cursor is single-use, but the record survives consumption (bounded by
+// MAX_CURSOR_HISTORY below) so a stale replay -- consumed already, or a
+// second process/turn racing the first -- can be told exactly where to
+// resume instead of hitting an opaque "blob not found" dead end that names
+// neither the file nor an offset and leaves re-reading from scratch (the
+// original path, no offset) as the model's only move.
+const MAX_CURSOR_HISTORY = 200;
 
 const CONTINUE_OFFSET_RE = /Use offset=(\d+) to continue\.\]$/;
+
+function pruneCursorHistory(cursors: Map<string, ReadCursor>): void {
+  while (cursors.size > MAX_CURSOR_HISTORY) {
+    const oldest = cursors.keys().next().value;
+    if (oldest === undefined) break;
+    cursors.delete(oldest);
+  }
+}
 
 function mintCursor(
   content: string,
@@ -76,12 +92,37 @@ function mintCursor(
   cursors.set(
     cursorId,
     source.kind === "file"
-      ? { kind: "file", absolutePath: source.absolutePath, offset }
-      : { kind: "blob", uri: source.uri, offset },
+      ? { kind: "file", absolutePath: source.absolutePath, offset, consumed: false }
+      : { kind: "blob", uri: source.uri, offset, consumed: false },
   );
+  pruneCursorHistory(cursors);
   return content.replace(
     CONTINUE_OFFSET_RE,
     `Use path="${TOOL_OUTPUT_URI_PREFIX}///${cursorId}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path.]`,
+  );
+}
+
+// Bound the source shown in a stale-cursor message: an adversarial or
+// pathological path must not blow past a reasonable notice size.
+const STALE_CURSOR_SOURCE_MAX = 300;
+
+function displaySource(source: string): string {
+  return source.length > STALE_CURSOR_SOURCE_MAX
+    ? `${source.slice(0, STALE_CURSOR_SOURCE_MAX)}…`
+    : source;
+}
+
+/**
+ * Message for a cursor that is known but already used (or is being replayed
+ * from a stale/compacted turn). Distinct from "blob not found": it names the
+ * original source and the exact offset to resume from, so recovery is a
+ * single new call rather than a re-read from scratch of the whole file.
+ */
+function staleCursorMessage(cursor: ReadCursor): string {
+  const source = cursor.kind === "file" ? cursor.absolutePath : cursor.uri;
+  return (
+    `this read_file continuation handle was already used (each cursor is single-use). ` +
+    `Resume with read_file, path="${displaySource(source)}", offset=${cursor.offset}.`
   );
 }
 
@@ -365,10 +406,16 @@ export function readFileGuardPlugin(
 
         const cursorId = uri.startsWith(cursorUriPrefix) ? uri.slice(cursorUriPrefix.length) : "";
         const cursor = cursorId.length > 0 ? cursors.get(cursorId) : undefined;
+        if (cursor !== undefined && cursor.consumed) {
+          // Known cursor, already used -- distinct from a genuine missing
+          // blob: name the original source and offset so recovery is one
+          // targeted call, not a from-scratch re-read of the whole file.
+          return { callId: call.id, content: staleCursorMessage(cursor), isError: true };
+        }
         if (cursor !== undefined) {
           // A cursor is authoritative on position: the model passes only the
           // handle (and optionally a limit), never an offset back into it.
-          cursors.delete(cursorId);
+          cursor.consumed = true;
           try {
             signal.throwIfAborted();
             if (cursor.kind === "file") {
