@@ -4,13 +4,14 @@
  * Pure: structured session state → task / agents zone rows.
  * Heights stay with geometry; this module never invents row budgets.
  *
- * ## Parked auto-paint
+ * ## Agents strip (live) / task checklist (parked)
  *
- * `formatChromeZones` currently always returns `{ task: null, agents: null }`
- * — both chrome strips are parked pending rebuild. Live work stays on
- * transcript `● Task …` rows. `formatTasksPanel` / `formatAgentsPanel` remain
- * for demos, tests, and a future rebuild; manual `setChromeZones` can still
- * feed preformatted rows.
+ * `formatChromeZones` paints the agents zone from `formatAgentsPanel` and keeps
+ * the task checklist parked (`task: null`). Live fleet status is a flat strip
+ * above the prompt (label / status / current tool) — same shape as transcript
+ * `● Task …` anchors, without a FLEET header board. Transcript Task rows remain
+ * as spawn/final/fail anchors; live progress clocks belong to chrome only
+ * (product-host gates `syncAgentProgress` while this strip needs a tick).
  *
  * ## Product host push contract
  *
@@ -26,46 +27,57 @@
  *
  * Always pass the full snapshot so absent zones clear (`null` hides the zone).
  * Partial object fields mean “no data” → that zone line is null, not left
- * stale. Observe mode can override the agents line via `state.observe` when
- * agents chrome is rebuilt.
+ * stale. Observe mode can override the agents line via `state.observe`.
+ * Sticky poll continues while any agent is running or still inside the
+ * post-terminal linger window (`finishedAt` + `AGENTS_PANEL_LINGER_MS`).
  */
 
 import {
   agentProgress,
-  fleetProgress,
   laneState,
   DEFAULT_STALL_MS,
   type AgentProgressSession,
-  type FleetProgress,
   type LaneState,
-} from "./agent-progress.js"
-import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js"
-import type { ChromeZoneContent } from "./shell.js"
+} from "./agent-progress.js";
+import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js";
+import type { ChromeZoneContent } from "./shell.js";
+
+/**
+ * How long a terminal agent row (done / failed / cancelled) stays on the strip
+ * after `finishedAt` before dropping. Mid of the 3–5s hold window so success
+ * and failure share the same glanceable linger.
+ */
+export const AGENTS_PANEL_LINGER_MS = 4_000;
 
 /** Subagent row shape for the agents chrome panel (store-agnostic). */
-export type ChromeAgentSession = {
-  readonly agentId: string
-  readonly description: string
-  readonly status: "running" | "done" | "failed" | "cancelled"
+export interface ChromeAgentSession {
+  readonly agentId: string;
+  readonly description: string;
+  readonly status: "running" | "done" | "failed" | "cancelled";
   /** Current tool while running (optional detail). */
-  readonly currentToolName?: string | null
+  readonly currentToolName?: string | null;
   /**
    * Bounded subject of the outstanding call (command / path / pattern). When
    * set, the agents panel paints this instead of the bare tool name (CL-5765).
    */
-  readonly currentToolPreview?: string | null
+  readonly currentToolPreview?: string | null;
   /** Clock the worker started; feeds the panel row's elapsed time. */
-  readonly startedAt?: number
+  readonly startedAt?: number;
   /** Clock of the worker's last reported activity; feeds stalled detection. */
-  readonly lastActivityAt?: number
+  readonly lastActivityAt?: number;
   /** Clock the oldest outstanding tool call began; separates a long tool from silence. */
-  readonly currentToolStartedAt: number | null
+  readonly currentToolStartedAt: number | null;
+  /**
+   * When the worker reached a terminal status. Drives the post-finish linger
+   * window on the strip (`AGENTS_PANEL_LINGER_MS`); absent → no linger paint.
+   */
+  readonly finishedAt?: number;
 }
 
 /** Lightweight task row: title + status, as written by the task tool. */
-export type ChromeTaskRow = {
-  readonly title: string
-  readonly status: "todo" | "doing" | "done" | "cancelled"
+export interface ChromeTaskRow {
+  readonly title: string;
+  readonly status: "todo" | "doing" | "done" | "cancelled";
 }
 
 /**
@@ -73,31 +85,31 @@ export type ChromeTaskRow = {
  * "+N more" trailer, or a bare-string task input with no structured status)
  * so the renderer knows not to paint a status marker for it.
  */
-export type TaskPanelRow = {
-  readonly label: string
-  readonly status: "todo" | "doing" | "done" | "cancelled" | null
+export interface TaskPanelRow {
+  readonly label: string;
+  readonly status: "todo" | "doing" | "done" | "cancelled" | null;
 }
 
 /**
  * Full live chrome snapshot. Missing / null fields hide that zone.
  * Prefer pushing a complete snapshot on every update.
  */
-export type ChromeLiveState = {
+export interface ChromeLiveState {
   /**
    * Task list: the structured rows the task tool writes. Distinct from
    * `agents` — a task is a unit of work with a status, not an executor.
    */
-  readonly task?: readonly ChromeTaskRow[] | null
+  readonly task?: readonly ChromeTaskRow[] | null;
   /** Subagent sessions for the strip summary (running preferred). */
-  readonly agents?: readonly ChromeAgentSession[] | null
+  readonly agents?: readonly ChromeAgentSession[] | null;
   /**
    * When set, agents line becomes observe chrome (matches enterSubagentObserve).
    * Pass null/omit when not observing.
    */
   readonly observe?: {
-    readonly agentId: string
-    readonly description: string
-  } | null
+    readonly agentId: string;
+    readonly description: string;
+  } | null;
 }
 
 /**
@@ -107,16 +119,20 @@ export type ChromeLiveState = {
  * marker, agentId + description) is the part the renderer may ellipsize under
  * width pressure; `tail` (clock/tool) must never be trimmed away.
  */
-export type AgentPanelRow = {
-  readonly label: string
-  readonly tail: string
-  readonly stalled: boolean
+export interface AgentPanelRow {
+  readonly label: string;
+  readonly tail: string;
+  readonly stalled: boolean;
   /**
    * What the row is, so the renderer can colour and align it without parsing
-   * `label`. Absent means a lane row (the default, and every row before the
-   * board grew a header).
+   * `label`. Absent means a lane row (the default).
    */
-  readonly kind?: "header" | "lane" | "more"
+  readonly kind?: "header" | "lane" | "more";
+  /**
+   * Lane lifecycle for paint tone. Live running uses primary `UI.text`;
+   * terminal linger uses done/error/dim. Absent ⇒ treat as live running.
+   */
+  readonly status?: "running" | "done" | "failed" | "cancelled";
 }
 
 /**
@@ -124,33 +140,31 @@ export type AgentPanelRow = {
  * operator answers "is everything fine" without reading a word. This is a
  * display order only; stall/`in_tool` semantics live in `agent-progress`.
  */
-const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"]
+const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working"];
 
 /** Always-populated result for setChromeZones (null = hide zone). */
-export type FormattedChromeZones = {
+export interface FormattedChromeZones {
   /** One row per rendered task-panel line (null = hide zone, zero rows). */
-  readonly task: readonly TaskPanelRow[] | null
+  readonly task: readonly TaskPanelRow[] | null;
   /** One row per rendered agents-panel line (null = hide zone, zero rows). */
-  readonly agents: readonly AgentPanelRow[] | null
+  readonly agents: readonly AgentPanelRow[] | null;
 }
 
 /**
  * Format structured live state into chrome zone rows for setChromeZones.
  *
- * Both chrome strips (task checklist + agents/fleet board) are parked pending
- * rebuild: this always returns `{ task: null, agents: null }` so nothing
- * auto-paints in those zones. Live work stays on transcript `● Task …` rows
- * (runtime-bridge). `formatTasksPanel` / `formatAgentsPanel` stay intact for
- * demos, tests, and a future rebuild; manual `setChromeZones` / Alt+T can still
- * feed preformatted rows into the shell.
+ * Agents strip is live (`formatAgentsPanel`); the task checklist stays parked
+ * (`task: null`) until a later rebuild. Manual `setChromeZones` / Alt+T can
+ * still feed preformatted task rows into the shell.
  */
 export function formatChromeZones(
   state: ChromeLiveState,
   nowMs: number = Date.now(),
 ): FormattedChromeZones {
-  void state
-  void nowMs
-  return { task: null, agents: null }
+  return {
+    task: null,
+    agents: formatAgentsPanel(state.agents, state.observe, nowMs),
+  };
 }
 
 /**
@@ -159,7 +173,37 @@ export function formatChromeZones(
  * holds a setChromeZones reference.
  */
 export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
-  return formatChromeZones(state)
+  return formatChromeZones(state);
+}
+
+/**
+ * True while the agents strip still needs wall-clock ticks: any running worker,
+ * or any terminal row still inside the post-finish linger window. Product-host
+ * sticky poll uses this both to keep clocks/linger fresh and to freeze
+ * transcript `syncAgentProgress` rewrites while chrome owns live status.
+ */
+export function agentsChromeNeedsSticky(
+  agents: readonly ChromeAgentSession[] | null | undefined,
+  nowMs: number,
+  lingerMs: number = AGENTS_PANEL_LINGER_MS,
+): boolean {
+  if (agents === null || agents === undefined) return false;
+  for (const session of agents) {
+    if (session.status === "running") return true;
+    if (agentIsLingering(session, nowMs, lingerMs)) return true;
+  }
+  return false;
+}
+
+/** Terminal session still inside the glanceable linger window. */
+export function agentIsLingering(
+  session: ChromeAgentSession,
+  nowMs: number,
+  lingerMs: number = AGENTS_PANEL_LINGER_MS,
+): boolean {
+  if (session.status === "running") return false;
+  if (session.finishedAt === undefined) return false;
+  return nowMs - session.finishedAt < lingerMs;
 }
 
 /**
@@ -175,35 +219,37 @@ export function formatTasksPanel(
   task: readonly ChromeTaskRow[] | null | undefined,
   maxVisible: number = TASKS_PANEL_MAX_VISIBLE,
 ): readonly TaskPanelRow[] | null {
-  if (task === null || task === undefined) return null
+  if (task === null || task === undefined) return null;
 
   const rows: TaskPanelRow[] = task
     .map((t) => ({ label: t.title.trim(), status: t.status }))
-    .filter((r) => r.label.length > 0)
-  if (rows.length === 0) return null
+    .filter((r) => r.label.length > 0);
+  if (rows.length === 0) return null;
 
-  const live = rows.filter((r) => r.status === "todo" || r.status === "doing")
-  if (live.length === 0) return null
+  const live = rows.filter((r) => r.status === "todo" || r.status === "doing");
+  if (live.length === 0) return null;
 
   // Prefer open work; keep recently-done visible only while open work remains
   // so the operator sees items flip to done without a permanent [x] wall.
   const openFirst = [
     ...live,
     ...rows.filter((r) => r.status === "done" || r.status === "cancelled"),
-  ]
-  const visible = openFirst.slice(0, maxVisible)
-  const hidden = openFirst.length - visible.length
-  if (hidden > 0) visible.push({ label: `+${hidden} more`, status: null })
-  return visible
+  ];
+  const visible = openFirst.slice(0, maxVisible);
+  const hidden = openFirst.length - visible.length;
+  if (hidden > 0) visible.push({ label: `+${hidden} more`, status: null });
+  return visible;
 }
 
 /**
- * Format the live agents panel: one row per running agent, bounded to
- * `maxVisible` with a trailing "+N more" row, sourced from the same
- * `agentProgress` / `laneState` clock/tool/stall computation the transcript
- * trailer uses. Terminal-only sessions (done/failed/cancelled) render no
- * rows — the panel shows live work, not a history; Ctrl+E / agents-nav covers
- * inspection.
+ * Format the live agents strip: a flat growing list (label / status / tool),
+ * bounded to `maxVisible` with a trailing "+N more" row.
+ *
+ * No FLEET header — a roll-up board fought the Amp/Codex-style lane list the
+ * strip is meant to be. Running lanes sort trouble-first via `laneState`;
+ * terminal sessions linger for `AGENTS_PANEL_LINGER_MS` after `finishedAt`
+ * (success / fail / cancel share the same window) then drop. Observe mode
+ * still replaces the whole strip with a single observe row.
  */
 export function formatAgentsPanel(
   agents: readonly ChromeAgentSession[] | null | undefined,
@@ -211,21 +257,21 @@ export function formatAgentsPanel(
   nowMs: number,
   maxVisible: number = AGENTS_PANEL_MAX_VISIBLE,
   stallMs: number = DEFAULT_STALL_MS,
+  lingerMs: number = AGENTS_PANEL_LINGER_MS,
 ): readonly AgentPanelRow[] | null {
-  const observeRow = formatObserveRow(observe)
-  if (observeRow !== undefined) return observeRow === null ? null : [observeRow]
+  const observeRow = formatObserveRow(observe);
+  if (observeRow !== undefined) return observeRow === null ? null : [observeRow];
 
-  if (agents === null || agents === undefined || agents.length === 0) return null
+  if (agents === null || agents === undefined || agents.length === 0) return null;
 
-  const running = agents.filter((s) => s.status === "running")
-  if (running.length === 0) return null
+  const running = agents.filter((s) => s.status === "running");
+  const lingering = agents.filter((s) => agentIsLingering(s, nowMs, lingerMs));
+  if (running.length === 0 && lingering.length === 0) return null;
 
-  // One sort, not two. Both jobs the old pair of sorts did — which lanes
-  // survive a fan-out, and what order the survivors paint in — want trouble
-  // first, and neither key here churns: a lane's state changes only when
-  // something real happens to it, and startedAt never changes at all. Sorting
-  // by staleness would have reshuffled the board on every tool event.
-  const ranked = [...running]
+  // One sort for live lanes. Trouble first; startedAt never churns so the board
+  // does not reshuffle on every tool event. Lingering terminals trail, newest
+  // finish first, so a just-completed lane stays glanceable at the bottom edge.
+  const rankedRunning = [...running]
     .map((session) => ({
       session,
       state: boardLaneState(session, nowMs, stallMs),
@@ -235,41 +281,33 @@ export function formatAgentsPanel(
         BOARD_LANE_ORDER.indexOf(a.state) - BOARD_LANE_ORDER.indexOf(b.state) ||
         (a.session.startedAt ?? 0) - (b.session.startedAt ?? 0) ||
         a.session.agentId.localeCompare(b.session.agentId),
-    )
+    );
 
-  // The header always costs a row, so it is part of the budget it summarises.
-  const bodyBudget = Math.max(1, maxVisible - 1)
-  const hidden = Math.max(0, ranked.length - bodyBudget)
-  // Below a few body rows, a whole row spent on the hidden count carries less
-  // than the lane it displaces; the header states it instead.
-  const countInHeader = hidden > 0 && bodyBudget < 4
-  const shown = ranked.slice(0, countInHeader ? bodyBudget : bodyBudget - (hidden > 0 ? 1 : 0))
-  const stillHidden = ranked.length - shown.length
+  const rankedLingering = [...lingering].sort(
+    (a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0) || a.agentId.localeCompare(b.agentId),
+  );
 
-  // Fleet roll-up from the same `laneState` path the rows use — never a second
-  // stall opinion grown in this file.
-  const fleet = fleetProgress(
-    running.flatMap((s) => {
-      const progress = toProgressSession(s)
-      return progress === null ? [] : [progress]
-    }),
-    nowMs,
-    stallMs,
-  )
+  const ranked: AgentPanelRow[] = [
+    ...rankedRunning.map(({ session, state }) => formatAgentRow(session, state, nowMs, stallMs)),
+    ...rankedLingering.map((session) => formatTerminalRow(session)),
+  ];
 
-  const rows: AgentPanelRow[] = [fleetHeaderRow(fleet, countInHeader ? stillHidden : 0)]
-  for (const { session, state } of shown) {
-    rows.push(formatAgentRow(session, state, nowMs, stallMs))
+  const shown = ranked.slice(0, maxVisible);
+  const hidden = ranked.length - shown.length;
+  if (hidden > 0) {
+    // maxVisible lanes + trailing fold → AGENTS_PANEL_MAX_VISIBLE + 1
+    // (geometry agents.max). Mirror formatTasksPanel: do not steal a lane slot.
+    return [
+      ...shown,
+      {
+        label: `+${hidden} more`,
+        tail: "",
+        stalled: false,
+        kind: "more",
+      },
+    ];
   }
-  if (stillHidden > 0 && !countInHeader) {
-    rows.push({
-      label: `+${stillHidden} more lanes`,
-      tail: "",
-      stalled: false,
-      kind: "more",
-    })
-  }
-  return rows
+  return shown;
 }
 
 /**
@@ -278,7 +316,7 @@ export function formatAgentsPanel(
  * safe display default rather than inventing timestamps.
  */
 function toProgressSession(session: ChromeAgentSession): AgentProgressSession | null {
-  if (session.startedAt === undefined) return null
+  if (session.startedAt === undefined) return null;
   return {
     status: session.status,
     currentToolName: session.currentToolName ?? null,
@@ -286,121 +324,65 @@ function toProgressSession(session: ChromeAgentSession): AgentProgressSession | 
     currentToolStartedAt: session.currentToolStartedAt,
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt ?? session.startedAt,
-  }
+  };
 }
 
 /**
  * Board-facing lane word: main's `laneState` when clocks exist, else `working`
  * (no second stall path — without clocks we simply cannot claim stalled).
  */
-function boardLaneState(
-  session: ChromeAgentSession,
-  nowMs: number,
-  stallMs: number,
-): LaneState {
-  const progress = toProgressSession(session)
-  if (progress === null) return "working"
-  return laneState(progress, nowMs, stallMs)
+function boardLaneState(session: ChromeAgentSession, nowMs: number, stallMs: number): LaneState {
+  const progress = toProgressSession(session);
+  if (progress === null) return "working";
+  return laneState(progress, nowMs, stallMs);
 }
 
 /**
- * Fit the board into the rows geometry actually granted it.
+ * Fit the strip into the rows geometry actually granted it.
  *
- * The formatter sizes the board to its content, but collapse can grant fewer
- * rows than that under pressure. Painting the full set anyway overflows the
- * zone's box — rows land on top of each other and on whatever is below. So the
- * granted height is the last word, and the lanes it costs are disclosed rather
- * than dropped in silence.
- *
- * When the formatter already folded a fan-out (`+N more lanes` or header
- * `+N hidden`), that prior count is carried into the re-clamp total so the
- * operator still sees every running lane accounted for — not only the ones
- * still present as row objects after the first fold.
+ * The formatter sizes to content, but collapse can grant fewer rows under
+ * pressure. Painting the full set anyway overflows the zone's box. The granted
+ * height is the last word; lanes it costs are disclosed rather than dropped
+ * silently. Prior `+N more` counts are carried into the re-clamp total.
  */
 export function clampBoardRows(
   rows: readonly AgentPanelRow[],
   height: number,
 ): readonly AgentPanelRow[] {
-  if (height <= 0) return []
-  if (rows.length <= height) return rows
+  if (height <= 0) return [];
+  if (rows.length <= height) return rows;
 
-  const header = rows[0]
-  if (header === undefined) return []
-  const lanes = rows.filter((r) => r.kind === "lane")
-  const priorHidden = priorHiddenCount(rows)
-  // Drop any prior disclosure on the header; we restate the total below.
-  const cleanHeader = stripHiddenTail(header)
+  const lanes = rows.filter((r) => r.kind !== "more" && r.kind !== "header");
+  const priorHidden = priorHiddenCount(rows);
 
-  // Below a few rows the disclosure line costs more than the lane it displaces,
-  // so the header carries the count instead — the same trade the formatter makes.
-  if (height < 4) {
-    const shown = lanes.slice(0, Math.max(0, height - 1))
-    const hidden = priorHidden + (lanes.length - shown.length)
-    return [withHiddenCount(cleanHeader, hidden), ...shown]
+  if (height < 2) {
+    return lanes.slice(0, height);
   }
 
-  const shown = lanes.slice(0, Math.max(0, height - 2))
-  const hidden = priorHidden + (lanes.length - shown.length)
-  return [
-    cleanHeader,
-    ...shown,
-    { label: `+${hidden} more lanes`, tail: "", stalled: false, kind: "more" },
-  ]
+  const shown = lanes.slice(0, Math.max(0, height - 1));
+  const hidden = priorHidden + (lanes.length - shown.length);
+  return [...shown, { label: `+${hidden} more`, tail: "", stalled: false, kind: "more" }];
 }
 
 /** Lanes already disclosed by a prior format/clamp fold on these rows. */
 function priorHiddenCount(rows: readonly AgentPanelRow[]): number {
-  let hidden = 0
+  let hidden = 0;
   for (const row of rows) {
     if (row.kind === "more") {
-      const match = /^\+(\d+) more lanes$/.exec(row.label)
-      if (match?.[1] !== undefined) hidden += Number(match[1])
-      continue
-    }
-    if (row.kind === "header") {
-      const match = / · \+(\d+) hidden$/.exec(row.tail)
-      if (match?.[1] !== undefined) hidden += Number(match[1])
+      const match = /^\+(\d+) more(?: lanes)?$/.exec(row.label);
+      if (match?.[1] !== undefined) hidden += Number(match[1]);
     }
   }
-  return hidden
-}
-
-function stripHiddenTail(header: AgentPanelRow): AgentPanelRow {
-  const tail = header.tail.replace(/ · \+\d+ hidden$/, "")
-  return tail === header.tail ? header : { ...header, tail }
-}
-
-function withHiddenCount(header: AgentPanelRow, hidden: number): AgentPanelRow {
-  return hidden > 0 ? { ...header, tail: ` · +${hidden} hidden` } : header
-}
-
-/**
- * The one-line answer to "is everything fine". Counts run worst-first so that
- * a narrow terminal ellipsizes away the routine tail rather than the trouble.
- * Counts come from main's `fleetProgress`; the FLEET chrome layout is the board.
- */
-function fleetHeaderRow(fleet: FleetProgress, hidden: number): AgentPanelRow {
-  const parts = [`${fleet.running} ${fleet.running === 1 ? "lane" : "lanes"}`]
-  // Trouble first (matches BOARD_LANE_ORDER); skip zero counts; working last.
-  if (fleet.stalled > 0) parts.push(`${fleet.stalled} stalled`)
-  if (fleet.inTool > 0) parts.push(`${fleet.inTool} in tool`)
-  if (fleet.working > 0) parts.push(`${fleet.working} working`)
-  return {
-    label: `FLEET  ${parts.join(" · ")}`,
-    tail: hidden > 0 ? ` · +${hidden} hidden` : "",
-    stalled: fleet.stalled > 0,
-    kind: "header",
-  }
+  return hidden;
 }
 
 function formatObserveRow(observe: ChromeLiveState["observe"]): AgentPanelRow | null | undefined {
-  if (observe === null || observe === undefined) return undefined
-  const id = observe.agentId.trim()
-  const desc = observe.description.trim()
-  if (id.length === 0 && desc.length === 0) return null
-  const label =
-    id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc
-  return { label: `observe: ${label}`, tail: "", stalled: false }
+  if (observe === null || observe === undefined) return undefined;
+  const id = observe.agentId.trim();
+  const desc = observe.description.trim();
+  if (id.length === 0 && desc.length === 0) return null;
+  const label = id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc;
+  return { label: `observe: ${label}`, tail: "", stalled: false, kind: "lane", status: "running" };
 }
 
 function formatAgentRow(
@@ -409,43 +391,66 @@ function formatAgentRow(
   nowMs: number,
   stallMs: number,
 ): AgentPanelRow {
-  const stalled = state === "stalled"
+  const stalled = state === "stalled";
   // Rail grammar: ● for live work, ! when quiet. The marker names the state so
-  // the tail stays clock/tool only (variant A single-line lanes).
-  const marker = stalled ? "!" : "●"
-  const label = `${marker} ${session.agentId}  ${session.description}`.trim()
+  // the tail stays clock/tool only.
+  const marker = stalled ? "!" : "●";
+  const label = `${marker} ${session.agentId}  ${session.description}`.trim();
   // Prefer the argument subject (command / path) over the bare tool name so a
   // strip of shell calls is distinguishable at a glance (CL-5765).
-  const preview = session.currentToolPreview
-  const tool = session.currentToolName
+  const preview = session.currentToolPreview;
+  const tool = session.currentToolName;
   const doing =
     preview !== undefined && preview !== null && preview.length > 0
       ? preview
       : tool !== undefined && tool !== null && tool.length > 0
         ? tool
-        : null
+        : null;
 
-  const progressSession = toProgressSession(session)
+  const progressSession = toProgressSession(session);
   if (progressSession === null) {
-    // No clock to report (the host omitted startedAt) — still surface what the
-    // lane is doing rather than dropping detail the row already has.
-    return { label, tail: doing !== null ? ` · ${doing}` : "", stalled, kind: "lane" }
+    return {
+      label,
+      tail: doing !== null ? ` · ${doing}` : "",
+      stalled,
+      kind: "lane",
+      status: "running",
+    };
   }
 
-  // Prefer agentProgress for tool-clock / in_tool / silence clocks so the
-  // board never invents a second stall path. Tail is clock · tool only — the
-  // ●/! marker already names the state.
-  const progress = agentProgress(progressSession, nowMs, stallMs)
+  const progress = agentProgress(progressSession, nowMs, stallMs);
   if (progress !== null) {
     return {
       label,
       tail: ` · ${progress.stat}`,
       stalled,
       kind: "lane",
-    }
+      status: "running",
+    };
   }
 
-  return { label, tail: doing !== null ? ` · ${doing}` : "", stalled, kind: "lane" }
+  return {
+    label,
+    tail: doing !== null ? ` · ${doing}` : "",
+    stalled,
+    kind: "lane",
+    status: "running",
+  };
+}
+
+function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
+  const failed = session.status === "failed";
+  const marker = failed ? "!" : "●";
+  const label = `${marker} ${session.agentId}  ${session.description}`.trim();
+  const word =
+    session.status === "done" ? "done" : session.status === "failed" ? "failed" : "cancelled";
+  return {
+    label,
+    tail: ` · ${word}`,
+    stalled: failed,
+    kind: "lane",
+    status: session.status,
+  };
 }
 
 /**
@@ -466,7 +471,7 @@ export function annotateAgentTools(
   state: ChromeLiveState,
   _toolByDescription?: ReadonlyMap<string, string>,
 ): ChromeLiveState {
-  return state
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,34 +479,35 @@ export function annotateAgentTools(
 // ---------------------------------------------------------------------------
 
 /** manage_tasks / Task-shaped row (title + status). */
-export type ChromeSessionTask = {
-  readonly title: string
-  readonly status: "todo" | "doing" | "done" | "cancelled"
+export interface ChromeSessionTask {
+  readonly title: string;
+  readonly status: "todo" | "doing" | "done" | "cancelled";
 }
 
 /**
  * SubAgentSession-shaped strip row. `agentId` preferred; falls back to `id`
  * when the store only exposes a session id.
  */
-export type ChromeSessionAgent = {
-  readonly agentId?: string
-  readonly id?: string
-  readonly description: string
-  readonly status: "running" | "done" | "failed" | "cancelled"
-  readonly currentToolName?: string | null
-  readonly currentToolPreview?: string | null
-  readonly currentToolStartedAt: number | null
-  readonly startedAt?: number
-  readonly lastActivityAt?: number
+export interface ChromeSessionAgent {
+  readonly agentId?: string;
+  readonly id?: string;
+  readonly description: string;
+  readonly status: "running" | "done" | "failed" | "cancelled";
+  readonly currentToolName?: string | null;
+  readonly currentToolPreview?: string | null;
+  readonly currentToolStartedAt: number | null;
+  readonly startedAt?: number;
+  readonly lastActivityAt?: number;
+  readonly finishedAt?: number;
 }
 
 /**
  * Live session bags the product host already holds. Missing fields omit zones.
  */
-export type ChromeSessionInput = {
-  readonly tasks?: readonly ChromeSessionTask[] | null
-  readonly agents?: readonly ChromeSessionAgent[] | null
-  readonly observe?: ChromeLiveState["observe"]
+export interface ChromeSessionInput {
+  readonly tasks?: readonly ChromeSessionTask[] | null;
+  readonly agents?: readonly ChromeSessionAgent[] | null;
+  readonly observe?: ChromeLiveState["observe"];
 }
 
 /**
@@ -512,53 +518,48 @@ export type ChromeSessionInput = {
  * are ignored when absent.
  */
 export function chromeFromSession(input: ChromeSessionInput): ChromeLiveState {
-  const task = mapSessionTasks(input.tasks)
-  const agents = mapSessionAgents(input.agents)
-  const observe = input.observe ?? null
+  const task = mapSessionTasks(input.tasks);
+  const agents = mapSessionAgents(input.agents);
+  const observe = input.observe ?? null;
 
   return {
     ...(task !== undefined ? { task } : {}),
     ...(agents !== undefined ? { agents } : {}),
     ...(observe !== null && observe !== undefined ? { observe } : {}),
-  }
+  };
 }
 
 function mapSessionTasks(
   tasks: readonly ChromeSessionTask[] | null | undefined,
 ): ChromeTaskRow[] | null | undefined {
-  if (tasks === undefined) return undefined
-  if (tasks === null) return null
-  if (tasks.length === 0) return null
+  if (tasks === undefined) return undefined;
+  if (tasks === null) return null;
+  if (tasks.length === 0) return null;
   return tasks.map((t) => ({
     title: t.title,
     status: t.status,
-  }))
+  }));
 }
 
 function mapSessionAgents(
   agents: readonly ChromeSessionAgent[] | null | undefined,
 ): ChromeAgentSession[] | null | undefined {
-  if (agents === undefined) return undefined
-  if (agents === null) return null
-  if (agents.length === 0) return null
+  if (agents === undefined) return undefined;
+  if (agents === null) return null;
+  if (agents.length === 0) return null;
 
   return agents.map((a) => {
-    const agentId = (a.agentId ?? a.id ?? "").trim()
+    const agentId = (a.agentId ?? a.id ?? "").trim();
     return {
       agentId: agentId.length > 0 ? agentId : "agent",
       description: a.description,
       status: a.status,
-      ...(a.currentToolName !== undefined
-        ? { currentToolName: a.currentToolName }
-        : {}),
-      ...(a.currentToolPreview !== undefined
-        ? { currentToolPreview: a.currentToolPreview }
-        : {}),
+      ...(a.currentToolName !== undefined ? { currentToolName: a.currentToolName } : {}),
+      ...(a.currentToolPreview !== undefined ? { currentToolPreview: a.currentToolPreview } : {}),
       currentToolStartedAt: a.currentToolStartedAt,
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
-      ...(a.lastActivityAt !== undefined
-        ? { lastActivityAt: a.lastActivityAt }
-        : {}),
-    }
-  })
+      ...(a.lastActivityAt !== undefined ? { lastActivityAt: a.lastActivityAt } : {}),
+      ...(a.finishedAt !== undefined ? { finishedAt: a.finishedAt } : {}),
+    };
+  });
 }

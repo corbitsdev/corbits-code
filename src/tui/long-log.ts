@@ -10,9 +10,9 @@
  * is kept separately — but an unbounded array still costs memory and O(n)
  * snapshot/diff work on every append over a long, tool-heavy session.
  */
-export const MAX_RETAINED_STREAM_ROWS = 600
+export const MAX_RETAINED_STREAM_ROWS = 600;
 
 /** Rows to drop from the front of a log of this length to fit the cap. */
 export function retentionOverflow(length: number): number {
-  return Math.max(0, length - MAX_RETAINED_STREAM_ROWS)
+  return Math.max(0, length - MAX_RETAINED_STREAM_ROWS);
 }

@@ -20,14 +20,14 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 // What the agent was doing when compaction fired. Lets the summary preserve
 // the workflow contract ("we are at step 3/7 of /build") rather than dropping
 // it into the compacted region.
-export type SummaryContext = {
+export interface SummaryContext {
   workflow?: {
     name?: string;
     stepLabel?: string;
     stepIndex?: number;
     total?: number;
   };
-};
+}
 
 const SYSTEM_INSTRUCTION = [
   "You are compacting the context of an in-progress coding session so the agent",
@@ -95,7 +95,7 @@ export function condenseTurns(turns: ConversationTurn[]): string {
     }
   }
 
-  const sections: Array<string | null> = [
+  const sections: (string | null)[] = [
     `Turns dropped: ${turns.length}`,
     toolNames.size > 0 ? `Tools used: ${[...toolNames].sort().join(", ")}` : null,
     files.size > 0
@@ -175,7 +175,7 @@ function defaultComplete(deps: Dependencies): CompletionFn {
   };
 }
 
-export type ModelSummarizerOptions = {
+export interface ModelSummarizerOptions {
   /** Returns the source to summarize with — read live so model switches apply. */
   getSource: () => InferenceSource;
   /** Abort signal source; the summary call is cancelled if the session ends. */
@@ -185,7 +185,7 @@ export type ModelSummarizerOptions = {
   deps?: Dependencies;
   /** Cap on the returned summary length. */
   maxChars?: number;
-};
+}
 
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.

@@ -98,7 +98,10 @@ describe("createAuthStore", () => {
   test("round-trips profiles under an injected home and survives corrupt files", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
-      const store = createAuthStore<TestTokens>({ filename: "test-auth.json", isTokens: isTestTokens });
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
       expect(store.authPath(home)).toBe(join(home, ".corbits", "test-auth.json"));
       expect(await store.listProfiles(home)).toEqual([]);
 
@@ -133,7 +136,10 @@ describe("createAuthStore", () => {
   test("drops invalid profile entries instead of wedging on them", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
-      const store = createAuthStore<TestTokens>({ filename: "test-auth.json", isTokens: isTestTokens });
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        isTokens: isTestTokens,
+      });
       await store.saveProfile(
         { name: "good", tokens: { access: "a", refresh: "r", expiresAt: 1 }, createdAt: 1 },
         home,
@@ -175,7 +181,9 @@ describe("createTokenSession", () => {
           return { access: "new", refresh: "ref2", expiresAt: 10_000 };
         }),
       toAccess: (tokens) => tokens.access,
-      ...(overrides?.mergeRefreshed !== undefined ? { mergeRefreshed: overrides.mergeRefreshed } : {}),
+      ...(overrides?.mergeRefreshed !== undefined
+        ? { mergeRefreshed: overrides.mergeRefreshed }
+        : {}),
       missingError: (name) => new Error(`missing ${name}`),
       refreshFailedError: (name, cause) => new Error(`refresh failed ${name}: ${String(cause)}`),
     });

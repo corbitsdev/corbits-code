@@ -22,7 +22,9 @@ const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // the user's target (e.g. an issue id).
 function buildPrompt(body: string, args: string): string {
   if (body.includes("$ARGUMENTS")) {
-    return args.length > 0 ? body.replaceAll("$ARGUMENTS", args) : body.replaceAll("$ARGUMENTS", "");
+    return args.length > 0
+      ? body.replaceAll("$ARGUMENTS", args)
+      : body.replaceAll("$ARGUMENTS", "");
   }
   return args.length > 0 ? `${body}\n\n${args}` : body;
 }
@@ -79,7 +81,10 @@ export async function loadSkillCommands(
     const def: CommandDefinition = {
       name,
       description,
-      handler: (args: string): CommandResult => ({ type: "send", text: buildPrompt(capturedBody, args) }),
+      handler: (args: string): CommandResult => ({
+        type: "send",
+        text: buildPrompt(capturedBody, args),
+      }),
     };
     if (argumentHint !== undefined) def.argumentHint = argumentHint;
     commands.push(def);

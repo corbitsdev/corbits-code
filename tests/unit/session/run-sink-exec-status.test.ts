@@ -60,7 +60,6 @@ describe("createRunSink sticky inference.error", () => {
     const runSink = createRunSink({
       emitter,
       hookManager: { dispatchPostTurn: () => undefined, getStatuses: () => [] },
-
     });
 
     runSink.sink({
@@ -89,7 +88,6 @@ describe("createRunSink sticky inference.error", () => {
     const runSink = createRunSink({
       emitter,
       hookManager: { dispatchPostTurn: () => undefined, getStatuses: () => [] },
-
     });
 
     runSink.sink({

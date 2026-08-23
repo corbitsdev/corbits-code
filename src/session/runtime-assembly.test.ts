@@ -12,10 +12,7 @@ import {
   loadSeededApprovals,
   skillDirsFromEnabledPlugins,
 } from "./runtime-assembly.js";
-import type {
-  SubAgentProviderConfig,
-  SubAgentSourcesConfig,
-} from "./runtime-assembly.js";
+import type { SubAgentSourcesConfig } from "./runtime-assembly.js";
 import type { Settings } from "../config/settings.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";
@@ -160,7 +157,6 @@ describe("loadSeededApprovals merge order", () => {
     expect(seeded[0]).toEqual({ tool: "run_shell", pattern: "session npm *" });
     expect(seeded[1]).toEqual({ tool: "run_shell", pattern: "project npm *" });
   });
-
 });
 
 describe("createApprovalPersist", () => {
@@ -230,9 +226,9 @@ describe("skillDirsFromEnabledPlugins", () => {
         manifest: { id: "corbits-skills", name: "skills", kind: "command", defaultEnabled: true },
       },
     ] as unknown as PluginModule[];
-    expect(
-      skillDirsFromEnabledPlugins(modules, { "corbits-skills": { enabled: false } }),
-    ).toEqual([]);
+    expect(skillDirsFromEnabledPlugins(modules, { "corbits-skills": { enabled: false } })).toEqual(
+      [],
+    );
   });
 
   test("ignores defaultEnabled on marketplace/path plugins", () => {

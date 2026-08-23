@@ -1,15 +1,22 @@
 import type { ToolCall } from "@intx/types/runtime";
 import type { ApprovalScope, PermissionRequest } from "./types.js";
-import { splitChainedCommand, deriveCommandScopes, tokenize, isShellCommentOnly, isShellNoOp } from "./command.js";
+import {
+  splitChainedCommand,
+  deriveCommandScopes,
+  tokenize,
+  isShellCommentOnly,
+  isShellNoOp,
+} from "./command.js";
 import { isMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
+import { commandReferencesSensitivePath, isSensitivePath } from "../plugins/secret-guard-plugin.js";
 import {
-  commandReferencesSensitivePath,
-  isSensitivePath,
-} from "../plugins/secret-guard-plugin.js";
-import { runShellAuthzBlockReason, runShellAuthzSegmentBlockReason } from "../shell/run-shell-authz.js";
+  runShellAuthzBlockReason,
+  runShellAuthzSegmentBlockReason,
+} from "../shell/run-shell-authz.js";
 import { resolveWorkspacePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
+import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -23,27 +30,44 @@ import type { RootsProvider } from "./worktree-roots.js";
 // for a denial to prevent. Every other posix tool is consequential and
 // defaults to the "ask" tier. Catastrophic commands are denied earlier by the
 // authorization plugin, so they never reach here.
-const READ_ONLY_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "manage_tasks"]);
+const READ_ONLY_TOOLS = new Set([
+  "read_file",
+  "search_files",
+  "grep",
+  "list_dir",
+  "lsp",
+  "manage_tasks",
+]);
 
 // Tools that take a single path-like argument the gate should check against
 // restriction (outside the workspace boundary, or writes under the session state root).
 
 // Covers both read-only tools (dropped from allow to ask) and the mutating
-// file tools (dropped from auto-allow to ask in auto mode).
-const PATH_ARG_TOOLS = new Set(["read_file", "search_files", "grep", "list_dir", "lsp", "write_file", "edit_file", "delete_file"]);
+// file tools (dropped from auto-allow to ask in auto mode). apply_patch is
+// omitted here — its subjects come from the envelope (see productMutationPaths).
+const PATH_ARG_TOOLS = new Set([
+  "read_file",
+  "search_files",
+  "grep",
+  "list_dir",
+  "lsp",
+  "write_file",
+  "edit_file",
+  "delete_file",
+]);
 
 // `lsp` names its target `filePath`; every other path-arg tool uses `path`.
 function pathArgKey(toolName: string): string {
   return toolName === "lsp" ? "filePath" : "path";
 }
 
-// write_file/edit_file/delete_file mutate the target; every other path-arg tool only
+// Product mutation tools mutate the target; every other path-arg tool only
 // reads it. Restriction policy (see path-restriction.ts) treats reads and
 // writes of a session-state path differently, so callers need to tell the
 
 // gate which mode a given tool call is in.
 function isWriteTool(toolName: string): boolean {
-  return toolName === "write_file" || toolName === "edit_file" || toolName === "delete_file";
+  return isProductMutationTool(toolName);
 }
 
 export type Tier = "allow" | "ask";
@@ -178,9 +202,7 @@ export function commandTargetsRestricted(
     for (const pipeSeg of segment.split("|")) {
       if (isPureDirectoryListingSegment(pipeSeg)) continue;
       if (
-        pathLikeTokens(pipeSeg).some(
-          (token) => token.startsWith("~") || isRestricted(token, false),
-        )
+        pathLikeTokens(pipeSeg).some((token) => token.startsWith("~") || isRestricted(token, false))
       ) {
         return true;
       }
@@ -206,15 +228,57 @@ export function callTargetsRestricted(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
-  if (call.name === "run_shell") return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
+  if (call.name === "run_shell")
+    return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
+  if (call.name === "apply_patch") {
+    return productMutationPaths(call.name, call.arguments).some((path) => isRestricted(path, true));
+  }
+
   return restrictedPathArg(call, isRestricted) !== undefined;
 }
 
 const SAFE_SHELL_PROGRAMS = new Set([
-  "cat", "head", "tail", "wc", "cut", "tr", "nl", "rev", "column", "uniq", "sort", "comm", "look",
-  "ls", "tree", "stat", "file", "du", "df", "basename", "dirname", "realpath", "readlink",
-  "echo", "printf", "date", "whoami", "hostname", "uname", "pwd", "which", "type", "id",
-  "grep", "rg", "fgrep", "egrep", "od", "xxd", "strings", "find",
+  "cat",
+  "head",
+  "tail",
+  "wc",
+  "cut",
+  "tr",
+  "nl",
+  "rev",
+  "column",
+  "uniq",
+  "sort",
+  "comm",
+  "look",
+  "ls",
+  "tree",
+  "stat",
+  "file",
+  "du",
+  "df",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "echo",
+  "printf",
+  "date",
+  "whoami",
+  "hostname",
+  "uname",
+  "pwd",
+  "which",
+  "type",
+  "id",
+  "grep",
+  "rg",
+  "fgrep",
+  "egrep",
+  "od",
+  "xxd",
+  "strings",
+  "find",
 ]);
 
 // `find` traverses read-only unless an action flag runs a command (-exec/-ok and
@@ -364,7 +428,9 @@ export function isAutoAllowedShellCall(
 // file" rung: a persisted "*" would silently authorize all future writes/edits
 // in the directory, which is too blunt to offer as a one-keystroke choice.
 function fileScopes(path: string): ApprovalScope[] {
-  const scopes: ApprovalScope[] = [{ id: "exact", label: `Allow Always (this file)`, pattern: path }];
+  const scopes: ApprovalScope[] = [
+    { id: "exact", label: `Allow Always (this file)`, pattern: path },
+  ];
   const slash = path.lastIndexOf("/");
   if (slash > 0) {
     const dir = path.slice(0, slash);
@@ -387,8 +453,7 @@ function stringArg(call: ToolCall, key: string): string {
 // exact-only multi-segment rule (and single-segment ladder) is unchanged.
 export const MEGA_CHAIN_SEGMENT_THRESHOLD = 5;
 
-export const MEGA_CHAIN_NOTICE =
-  `Chains of ${MEGA_CHAIN_SEGMENT_THRESHOLD}+ steps are approved once only — split into shorter commands for reusable approvals.`;
+export const MEGA_CHAIN_NOTICE = `Chains of ${MEGA_CHAIN_SEGMENT_THRESHOLD}+ steps are approved once only — split into shorter commands for reusable approvals.`;
 
 // The real (non-comment-only) chain segments of a shell command — the basis
 // both shellApprovalScopes and isSingleShellCommand use to answer "is this
@@ -430,7 +495,9 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
   if (call.name === "run_shell") {
     const command = stringArg(call, "command");
     // Pure comments / empty: nothing to approve.
-    const realSegments = splitChainedCommand(command).filter((segment) => !isShellCommentOnly(segment));
+    const realSegments = splitChainedCommand(command).filter(
+      (segment) => !isShellCommentOnly(segment),
+    );
     if (realSegments.length === 0) return [];
     return [
       {
@@ -439,14 +506,50 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
         subject: command,
         arguments: { command },
         scopes: shellApprovalScopes(command),
-        ...(realSegments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD ? { notice: MEGA_CHAIN_NOTICE } : {}),
+        ...(realSegments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD
+          ? { notice: MEGA_CHAIN_NOTICE }
+          : {}),
       },
     ];
   }
-  if (call.name === "write_file" || call.name === "edit_file" || call.name === "delete_file") {
+  if (isProductMutationTool(call.name)) {
+    if (call.name === "apply_patch") {
+      const paths = productMutationPaths(call.name, call.arguments);
+      if (paths.length === 0) {
+        return [
+          {
+            tool: "apply_patch",
+            action: "Apply patch",
+            subject: "",
+            arguments: call.arguments,
+            scopes: [],
+          },
+        ];
+      }
+      return paths.map((path) => ({
+        tool: "apply_patch",
+        action: "Apply patch",
+        subject: path,
+        arguments: call.arguments,
+        scopes: fileScopes(path),
+      }));
+    }
     const path = stringArg(call, "path");
-    const action = call.name === "write_file" ? "Write file" : call.name === "edit_file" ? "Edit file" : "Delete file";
-    return [{ tool: call.name, action, subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
+    const action =
+      call.name === "write_file"
+        ? "Write file"
+        : call.name === "edit_file"
+          ? "Edit file"
+          : "Delete file";
+    return [
+      {
+        tool: call.name,
+        action,
+        subject: path,
+        arguments: call.arguments,
+        scopes: fileScopes(path),
+      },
+    ];
   }
   // web_fetch/web_search get their own permission classes (webfetch/websearch)
   // keyed on the URL/query rather than the generic tool-name scope below, so an
@@ -481,7 +584,15 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
   // grants that path or directory, not every future read.
   if (READ_ONLY_TOOLS.has(call.name)) {
     const path = stringArg(call, pathArgKey(call.name));
-    return [{ tool: call.name, action: "Read restricted path", subject: path, arguments: call.arguments, scopes: fileScopes(path) }];
+    return [
+      {
+        tool: call.name,
+        action: "Read restricted path",
+        subject: path,
+        arguments: call.arguments,
+        scopes: fileScopes(path),
+      },
+    ];
   }
   // Any other consequential tool: approve as a whole, remember by tool name.
   // MCP tools are presented by their human label; the raw mcp__ identifier stays
@@ -495,7 +606,12 @@ export function buildRequests(call: ToolCall): PermissionRequest[] {
       subject: call.name,
       arguments: call.arguments,
       scopes: [
-        { id: "tool", label: `Always allow ${label}`, pattern: call.name, ...(mcp ? { hint: label } : {}) },
+        {
+          id: "tool",
+          label: `Always allow ${label}`,
+          pattern: call.name,
+          ...(mcp ? { hint: label } : {}),
+        },
       ],
     },
   ];

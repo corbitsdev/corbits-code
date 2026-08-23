@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
+import { PRODUCT_NAME } from "../branding.js";
 import {
   createCodexResponsesAdapter,
   isResponsesStreamTerminal,
@@ -26,7 +27,9 @@ describe("createCodexResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
-    const body = JSON.parse(request.body) as { input: Array<{ type: string; role?: string; content?: unknown }> };
+    const body = JSON.parse(request.body) as {
+      input: { type: string; role?: string; content?: unknown }[];
+    };
 
     expect(body.input[0]).toEqual({
       type: "message",
@@ -49,7 +52,7 @@ describe("createCodexResponsesAdapter", () => {
     ];
 
     const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
-    const body = JSON.parse(request.body) as { input: Array<{ content?: unknown }> };
+    const body = JSON.parse(request.body) as { input: { content?: unknown }[] };
 
     expect(body.input[0]?.content).toEqual([{ type: "input_text", text: "hello" }]);
   });
@@ -57,6 +60,29 @@ describe("createCodexResponsesAdapter", () => {
   test("reports the adapter as terminating on response.completed", () => {
     const adapter = createCodexResponsesAdapter(source);
     expect(adapter.isStreamTerminal).toBe(isResponsesStreamTerminal);
+  });
+
+  test("bridge message points at Codex tool proxies instead of neutralizing them", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const turns: ConversationTurn[] = [
+      { role: "user", timestamp: 0, content: [{ type: "text", text: "hi" }] },
+    ];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {
+      systemPrompt: "operating prompt body",
+    });
+    const body = JSON.parse(request.body) as {
+      input: { role?: string; content?: { text?: string }[] }[];
+    };
+    const bridgeText = body.input[0]?.content?.[0]?.text ?? "";
+
+    expect(bridgeText).toContain(`${PRODUCT_NAME} is the harness, not the Codex CLI.`);
+    expect(bridgeText).toContain("apply_patch, update_plan, shell");
+    expect(bridgeText).toContain("proxy onto");
+    expect(bridgeText).toContain("prefer whichever name appears in the current tool list");
+    expect(bridgeText).toContain("operating prompt body");
+    expect(bridgeText).not.toContain("DO NOT EXIST");
+    expect(bridgeText).not.toContain("Ignore every tool reference");
   });
 });
 
@@ -110,21 +136,13 @@ describe("createCodexResponsesAdapter usage parsing", () => {
 
 describe("isResponsesStreamTerminal", () => {
   test("is true for the Responses end-of-turn events", () => {
-    for (const type of [
-      "response.completed",
-      "response.incomplete",
-      "response.done",
-    ]) {
+    for (const type of ["response.completed", "response.incomplete", "response.done"]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(true);
     }
   });
 
   test("is false for streaming and lifecycle events", () => {
-    for (const type of [
-      "response.output_text.delta",
-      "response.created",
-      "response.in_progress",
-    ]) {
+    for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
       expect(isResponsesStreamTerminal(JSON.stringify({ type }))).toBe(false);
     }
   });

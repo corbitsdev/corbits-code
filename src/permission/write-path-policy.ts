@@ -4,7 +4,8 @@ import { realpathNearestOr, UNRESOLVABLE } from "./path-restriction.js";
 
 /**
  * Director write-path allowlist (authz, not prompt policy).
- * When set on a sub-agent identity, write_file / edit_file / delete_file must
+ * When set on a sub-agent identity, write_file / edit_file / delete_file /
+ * apply_patch must
  * target a path matching one of these patterns. Enforced in the permission
  * gate; skipPermissions (yolo) bypasses the whole gate before this runs.
  *
@@ -56,8 +57,7 @@ export function matchesWritePathAllowlist(
     // Bare filename (no path separators, no glob metacharacters): root-only.
     // Matching on the basename would re-open any-depth matching for bare names,
     // so a bare pattern is compared only against the workspace-relative path.
-    const isBareName =
-      !pattern.includes("/") && !pattern.includes("*") && !pattern.includes("?");
+    const isBareName = !pattern.includes("/") && !pattern.includes("*") && !pattern.includes("?");
     if (isBareName) {
       if (rel === pattern) return true;
       continue;
@@ -67,9 +67,6 @@ export function matchesWritePathAllowlist(
   return false;
 }
 
-export function writePathDeniedReason(
-  path: string,
-  allowlist: readonly string[],
-): string {
+export function writePathDeniedReason(path: string, allowlist: readonly string[]): string {
   return `Write path denied by director authz allowlist (not prompt policy). Allowed: ${allowlist.join(", ")}. Got: ${path || "(empty)"}. auto mode still enforces this; yolo (skipPermissions) bypasses.`;
 }

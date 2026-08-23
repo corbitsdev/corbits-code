@@ -16,117 +16,109 @@
  * also set `option`.
  */
 
-import { getTreeSitterClient } from "@opentui/core"
-import type { KeyInput } from "@opentui/core/testing"
+import { getTreeSitterClient } from "@opentui/core";
+import type { KeyInput } from "@opentui/core/testing";
 import {
   createTestRenderer,
   type MockInput,
   type MockMouse,
   type TestRenderer,
   type TestRendererSetup,
-} from "@opentui/core/testing"
+} from "@opentui/core/testing";
 
-export type HarnessOptions = {
-  readonly width?: number
-  readonly height?: number
+export interface HarnessOptions {
+  readonly width?: number;
+  readonly height?: number;
   /**
    * When true, Ctrl+C destroys/exits via the renderer default path.
    * Defaults to **false** so interrupt-shape tests do not kill the process.
    */
-  readonly exitOnCtrlC?: boolean
+  readonly exitOnCtrlC?: boolean;
 }
 
-export type KeyModifiers = {
-  readonly shift?: boolean
-  readonly ctrl?: boolean
-  readonly meta?: boolean
-  readonly super?: boolean
-  readonly hyper?: boolean
+export interface KeyModifiers {
+  readonly shift?: boolean;
+  readonly ctrl?: boolean;
+  readonly meta?: boolean;
+  readonly super?: boolean;
+  readonly hyper?: boolean;
 }
 
 /** Named chords used by Corbits steering / interrupt design. */
-export type NamedKey =
-  | "Enter"
-  | "Alt+Enter"
-  | "Ctrl+C"
-  | "Escape"
-  | "Tab"
-  | "Backspace"
+export type NamedKey = "Enter" | "Alt+Enter" | "Ctrl+C" | "Escape" | "Tab" | "Backspace";
 
-export type Harness = {
-  readonly renderer: TestRenderer
-  readonly mockInput: MockInput
-  readonly mockMouse: MockMouse
+export interface Harness {
+  readonly renderer: TestRenderer;
+  readonly mockInput: MockInput;
+  readonly mockMouse: MockMouse;
   /** Shortcut for `renderer.root`. */
-  readonly root: TestRenderer["root"]
-  readonly renderOnce: () => Promise<void>
-  readonly flush: TestRendererSetup["flush"]
-  readonly waitFor: TestRendererSetup["waitFor"]
-  readonly waitForFrame: TestRendererSetup["waitForFrame"]
-  readonly captureCharFrame: () => string
-  readonly captureSpans: TestRendererSetup["captureSpans"]
-  readonly resize: (width: number, height: number) => void
+  readonly root: TestRenderer["root"];
+  readonly renderOnce: () => Promise<void>;
+  readonly flush: TestRendererSetup["flush"];
+  readonly waitFor: TestRendererSetup["waitFor"];
+  readonly waitForFrame: TestRendererSetup["waitForFrame"];
+  readonly captureCharFrame: () => string;
+  readonly captureSpans: TestRendererSetup["captureSpans"];
+  readonly resize: (width: number, height: number) => void;
   /**
    * Press a named chord or a raw key via mock input.
    * Named: Enter | Alt+Enter | Ctrl+C | Escape | Tab | Backspace.
    * Anything else delegates to `mockInput.pressKey(name, mods)`.
    */
-  readonly pressKey: (name: NamedKey | KeyInput, mods?: KeyModifiers) => void
+  readonly pressKey: (name: NamedKey | KeyInput, mods?: KeyModifiers) => void;
   /** Destroy the underlying renderer (idempotent-safe to call once from finally). */
-  readonly destroy: () => void
+  readonly destroy: () => void;
 }
 
-const DEFAULT_WIDTH = 60
-const DEFAULT_HEIGHT = 20
+const DEFAULT_WIDTH = 60;
+const DEFAULT_HEIGHT = 20;
 
 /**
  * Create a headless test renderer + helpers. Caller must `destroy()` (prefer
  * `withTestRenderer` which always cleans up).
  */
-export async function createHarness(
-  opts: HarnessOptions = {},
-): Promise<Harness> {
-  const width = opts.width ?? DEFAULT_WIDTH
-  const height = opts.height ?? DEFAULT_HEIGHT
-  const exitOnCtrlC = opts.exitOnCtrlC ?? false
+export async function createHarness(opts: HarnessOptions = {}): Promise<Harness> {
+  const width = opts.width ?? DEFAULT_WIDTH;
+  const height = opts.height ?? DEFAULT_HEIGHT;
+  const exitOnCtrlC = opts.exitOnCtrlC ?? false;
 
   const setup = await createTestRenderer({
     width,
     height,
     exitOnCtrlC,
-  })
+  });
 
   const pressKey = (name: NamedKey | KeyInput, mods?: KeyModifiers): void => {
     switch (name) {
       case "Enter":
-        if (mods === undefined) setup.mockInput.pressEnter()
-        else setup.mockInput.pressEnter(mods)
-        return
+        if (mods === undefined) setup.mockInput.pressEnter();
+        else setup.mockInput.pressEnter(mods);
+        return;
       case "Alt+Enter":
         // meta: true is the mock/mac Alt surface (see module comment).
-        if (mods === undefined) setup.mockInput.pressEnter({ meta: true })
-        else setup.mockInput.pressEnter({ ...mods, meta: true })
-        return
+        if (mods === undefined) setup.mockInput.pressEnter({ meta: true });
+        else setup.mockInput.pressEnter({ ...mods, meta: true });
+        return;
       case "Ctrl+C":
-        setup.mockInput.pressCtrlC()
-        return
+        setup.mockInput.pressCtrlC();
+        return;
       case "Escape":
-        if (mods === undefined) setup.mockInput.pressEscape()
-        else setup.mockInput.pressEscape(mods)
-        return
+        if (mods === undefined) setup.mockInput.pressEscape();
+        else setup.mockInput.pressEscape(mods);
+        return;
       case "Tab":
-        if (mods === undefined) setup.mockInput.pressTab()
-        else setup.mockInput.pressTab(mods)
-        return
+        if (mods === undefined) setup.mockInput.pressTab();
+        else setup.mockInput.pressTab(mods);
+        return;
       case "Backspace":
-        if (mods === undefined) setup.mockInput.pressBackspace()
-        else setup.mockInput.pressBackspace(mods)
-        return
+        if (mods === undefined) setup.mockInput.pressBackspace();
+        else setup.mockInput.pressBackspace(mods);
+        return;
       default:
-        if (mods === undefined) setup.mockInput.pressKey(name)
-        else setup.mockInput.pressKey(name, mods)
+        if (mods === undefined) setup.mockInput.pressKey(name);
+        else setup.mockInput.pressKey(name, mods);
     }
-  }
+  };
 
   return {
     renderer: setup.renderer,
@@ -142,13 +134,13 @@ export async function createHarness(
     resize: setup.resize,
     pressKey,
     destroy: () => {
-      setup.renderer.destroy()
+      setup.renderer.destroy();
       // renderer.destroy() tears down the process-global tree-sitter client
       // once no renderers remain. Eagerly recreate it so the next test file's
       // markdown/code highlighting doesn't hit the destroyed singleton.
-      getTreeSitterClient()
+      getTreeSitterClient();
     },
-  }
+  };
 }
 
 /**
@@ -158,10 +150,10 @@ export async function withTestRenderer<T>(
   fn: (harness: Harness) => Promise<T> | T,
   opts?: HarnessOptions,
 ): Promise<T> {
-  const harness = await createHarness(opts)
+  const harness = await createHarness(opts);
   try {
-    return await fn(harness)
+    return await fn(harness);
   } finally {
-    harness.destroy()
+    harness.destroy();
   }
 }

@@ -7,9 +7,10 @@ import {
   type WorktreeExec,
 } from "./worktree.js";
 
-function recordingExec(
-  responses: Record<string, { stdout?: string; error?: Error }>,
-): { exec: WorktreeExec; calls: string[][] } {
+function recordingExec(responses: Record<string, { stdout?: string; error?: Error }>): {
+  exec: WorktreeExec;
+  calls: string[][];
+} {
   const calls: string[][] = [];
   const exec: WorktreeExec = async (args) => {
     calls.push(args);

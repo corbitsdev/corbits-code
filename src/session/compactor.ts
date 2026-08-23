@@ -31,13 +31,13 @@ export type TaskBoundary =
   | { kind: "new_task"; reason: string }
   | { kind: "unclear"; reason: string };
 
-export type SessionMetadata = {
+export interface SessionMetadata {
   turnCount: number;
   currentTaskLabel: string | undefined;
   lastTaskSummary: string | undefined;
   minutesElapsed: number;
   toolCallCount: number;
-};
+}
 
 // The classifier is a two-tier approach:
 //   Tier 1 — deterministic heuristics (fast, no LLM cost)
@@ -136,7 +136,7 @@ export const CONTEXT_ENVELOPE_SECTIONS = [
   "unresolved-errors",
 ] as const;
 
-export type ContextEnvelope = {
+export interface ContextEnvelope {
   /** Label for the current active task, e.g. "Fix login bug" */
   activeTask?: string;
   /** Compacted summary of prior completed tasks */
@@ -149,7 +149,7 @@ export type ContextEnvelope = {
   fileReferences?: string[];
   /** Any unresolved errors from the current task */
   unresolvedErrors?: string[];
-};
+}
 
 /**
  * Build the context-envelope text that gets placed between the system prompt
@@ -189,7 +189,7 @@ export function buildContextEnvelope(envelope: ContextEnvelope): string {
 // Compactor
 // ---------------------------------------------------------------------------
 
-export type CompactorConfig = {
+export interface CompactorConfig {
   keepRecentTurns: number;
   summaryMaxChars: number;
   summarize?: (turns: ConversationTurn[], ctx?: SummaryContext) => Promise<string>;
@@ -203,7 +203,7 @@ export type CompactorConfig = {
   // before the summary stub. Selected from the end of the older set so the
   // most-recent anchors survive; pair partners count against the cap too.
   maxAnchorTurns: number;
-};
+}
 
 // Recent turns kept verbatim by both real pruning-compactor registrations
 // (the main session and sub-agents). Exported so callers that need to know
@@ -243,7 +243,7 @@ function isReplayableResultTool(name: string): boolean {
 }
 
 // Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
-type ToolCallInfo = {
+interface ToolCallInfo {
   name: string;
   /** Display path for stubs (always the raw path arg when present). */
   pathArg?: string;
@@ -253,14 +253,14 @@ type ToolCallInfo = {
    * file do not hollow each other.
    */
   readKey?: string;
-};
+}
 
-type PathRead = {
+interface PathRead {
   callId: string;
   /** Monotonic order across the turn list; higher = later in the session. */
   order: number;
   isError: boolean;
-};
+}
 
 function scalarArg(value: unknown): string {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
@@ -404,7 +404,10 @@ function supersededReadCallIds(pathToReads: ReadonlyMap<string, PathRead[]>): Se
 // Locate the turn index of each tool_call and its matching tool_result. In this
 // runtime a call lives on one turn and its result on the following turn, so the
 // two halves of a pair can straddle a keep/summarize boundary.
-type PairLocation = { callIdx?: number; resultIdx?: number };
+interface PairLocation {
+  callIdx?: number;
+  resultIdx?: number;
+}
 function buildPairIndex(turns: ConversationTurn[]): Map<string, PairLocation> {
   const pairs = new Map<string, PairLocation>();
   turns.forEach((turn, idx) => {
@@ -957,9 +960,7 @@ export async function buildLLMTurnSummary(
 /**
  * Build the current-plan text from a plan steps array.
  */
-export function formatPlan(
-  steps: Array<{ file: string; action: string; reason?: string }>,
-): string {
+export function formatPlan(steps: { file: string; action: string; reason?: string }[]): string {
   return steps
     .map((s, i) => `${i + 1}. ${s.file} — ${s.action}${s.reason ? ` (${s.reason})` : ""}`)
     .join("\n");

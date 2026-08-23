@@ -7,7 +7,13 @@ import type { MCPClient } from "./client.js";
 function fakeClient(reply: string): MCPClient {
   return {
     serverName: "acme",
-    tools: [{ name: "fetch_secret", description: "returns a value", inputSchema: { type: "object", properties: {} } }],
+    tools: [
+      {
+        name: "fetch_secret",
+        description: "returns a value",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
     call: async () => reply,
     close: async () => undefined,
   };
