@@ -32,8 +32,9 @@ import {
 
 export const GROK_RESPONSES_PROVIDER = "grok-responses";
 
-// Key the source stashes in defaults.providerOptions for this adapter.
+// Keys the source stashes in defaults.providerOptions for this adapter.
 export const GROK_USER_ID_OPTION = "grokUserId";
+export const GROK_SESSION_ID_OPTION = "grokSessionId";
 
 type ResponsesInputContentPart =
   | { type: "input_text"; text: string }
@@ -172,6 +173,10 @@ function buildRequest(
     body["tools"] = tools;
     body["tool_choice"] = "auto";
   }
+  // With store:false this is the only cache-routing signal; keying it to the
+  // inference thread's session id keeps every request on the same cache shard.
+  const sessionId = optionString(options, GROK_SESSION_ID_OPTION);
+  if (sessionId !== undefined) body["prompt_cache_key"] = sessionId;
 
   const headers: Record<string, string> = {
     "content-type": "application/json",

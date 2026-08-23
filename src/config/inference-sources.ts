@@ -98,6 +98,7 @@ export function buildInferenceSourceForRef(
       id: ref.provider,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
+      sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
@@ -118,6 +119,7 @@ export function buildInferenceSourceForRef(
           ? { apiKey: providerSettings.apiKey }
           : {}),
       model: ref.model,
+      sessionId: ctx.sessionId,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
   }
