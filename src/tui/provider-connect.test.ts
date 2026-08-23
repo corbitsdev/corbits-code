@@ -1,9 +1,9 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createHarness } from "./harness.js";
+import { createHarness, type Harness } from "./harness.js";
 import { connectProviderInline } from "./provider-connect.js";
 import { loadSettings } from "../config/settings.js";
 
@@ -12,17 +12,24 @@ import { loadSettings } from "../config/settings.js";
 // pins that an empty key on a key-required preset is rejected here too,
 // rather than silently downgraded to a keyless credential.
 describe("connectProviderInline", () => {
+  let harness: Harness | undefined;
+
+  afterEach(() => {
+    harness?.destroy();
+    harness = undefined;
+  });
+
   test("rejects an empty key on a key-required preset without persisting", async () => {
     const dir = await mkdtemp(join(tmpdir(), "provider-connect-"));
     const settingsPath = join(dir, "settings.json");
     try {
-      const harness = await createHarness({ width: 80, height: 30 });
+      harness = await createHarness({ width: 80, height: 30 });
       const resultPromise = connectProviderInline({
         providerId: "openai",
         settingsPath,
         localSettingsPath: join(dir, "local.json"),
         existing: null,
-        createRenderer: async () => harness.renderer,
+        createRenderer: async () => harness!.renderer,
       });
       await harness.renderOnce();
 
