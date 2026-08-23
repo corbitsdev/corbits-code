@@ -97,6 +97,8 @@ describe("createToolIndex", () => {
       expect(CORE_TOOL_NAMES).toContain(name);
       expect(CATALOG_TOOL_NAMES).not.toContain(name);
     }
+    expect(CORE_TOOL_NAMES).not.toContain("apply_patch");
+    expect(CATALOG_TOOL_NAMES).not.toContain("apply_patch");
   });
 
   test("catalog advertises web_fetch and web_search so URL work needs no tool_search", () => {

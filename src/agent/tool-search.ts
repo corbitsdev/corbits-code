@@ -20,6 +20,8 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 // the primary Skywalker session can DIY tiny/bounded edits without a
 // tool_search round-trip. Substantial work still spawns build / docs
 // directors — that is a prompt judgment call, not a toolset strip.
+// Codex `apply_patch` is mounted only when isCodex and kept on build/docs
+// leaves — it is intentionally absent from CORE/CATALOG.
 export const CORE_TOOL_NAMES: readonly string[] = [
   "read_file",
   "write_file",
