@@ -36,7 +36,6 @@ function statePath(cwd: string, sessionId: string, home?: string): string {
   return join(sessionDir(cwd, sessionId, home), "run.json");
 }
 
-
 let tmpWriteCounter = 0;
 
 // Write atomically: serialize to a unique temp file, then rename into place so a
@@ -53,7 +52,9 @@ export async function atomicWrite(path: string, content: string): Promise<void> 
 // A corrupt or shape-invalid state file means resume is silently starting over
 // and prior progress is being discarded. Surface it rather than swallowing it.
 export function warnUnreadableState(path: string, reason: string): void {
-  process.stderr.write(`${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`);
+  process.stderr.write(
+    `${COMMAND_NAME}: ignoring unreadable state at ${path} (${reason}); starting fresh\n`,
+  );
 }
 
 // Concurrent saveState calls for the same session (a straggler progress

@@ -16,7 +16,7 @@ import { agentProgress, clockLabel, DEFAULT_STALL_MS } from "../tui/agent-progre
 import type { SubAgentSessionStatus } from "./session-store.js";
 
 /** The lane fields a report is written from. `SubAgentSession` satisfies it. */
-export type FleetLane = {
+export interface FleetLane {
   readonly id: string;
   readonly description: string;
   readonly status: SubAgentSessionStatus;
@@ -27,9 +27,11 @@ export type FleetLane = {
   readonly currentToolStartedAt: number | null;
   readonly report?: string;
   readonly error?: string;
-};
+  /** Machine-readable forced-stop reason (see SubAgentSession.stopReason). */
+  readonly stopReason?: string;
+}
 
-type LaneMark = {
+interface LaneMark {
   readonly status: SubAgentSessionStatus;
   /**
    * Sticky once set. A lane that flaps either side of the stall threshold
@@ -37,14 +39,14 @@ type LaneMark = {
    * wall of noise this module exists to avoid.
    */
   readonly stallReported: boolean;
-};
+}
 
-export type FleetWatch = {
+export interface FleetWatch {
   readonly lanes: ReadonlyMap<string, LaneMark>;
   readonly running: number;
   /** False until the first observation, so a resumed fleet is not re-announced. */
   readonly seeded: boolean;
-};
+}
 
 export function createFleetWatch(): FleetWatch {
   return { lanes: new Map(), running: 0, seeded: false };
@@ -112,11 +114,11 @@ type Change =
   | { readonly kind: "failed"; readonly line: string }
   | { readonly kind: "stalled"; readonly line: string };
 
-export type FleetObservation = {
+export interface FleetObservation {
   readonly watch: FleetWatch;
   /** Ready-to-print lines, already coalesced. Usually empty. */
   readonly updates: readonly string[];
-};
+}
 
 export function observeFleet(
   previous: FleetWatch,
@@ -147,14 +149,26 @@ export function observeFleet(
 
     if (before.status !== lane.status) {
       if (lane.status === "done") {
-        changes.push({ kind: "done", line: `${lane.description} done` });
+        // A forced stop (repetition / stall / salvage caps) lands as "done"
+        // with a stopReason — that is attention, not a success line.
+        if (lane.stopReason !== undefined) {
+          changes.push({
+            kind: "failed",
+            line: `${lane.description} stopped — ${clip(lane.stopReason, OUTCOME_CHARS)}`,
+          });
+        } else {
+          changes.push({ kind: "done", line: `${lane.description} done` });
+        }
       } else if (lane.status === "failed") {
         changes.push({
           kind: "failed",
           line: `${lane.description} failed — ${clip(firstLine(lane.error) || "no error reported", OUTCOME_CHARS)}`,
         });
       } else if (lane.status === "cancelled") {
-        changes.push({ kind: "failed", line: `${lane.description} cancelled` });
+        changes.push({
+          kind: "failed",
+          line: `${lane.description} stopped — ${clip(lane.stopReason ?? "cancelled", OUTCOME_CHARS)}`,
+        });
       }
       continue;
     }
@@ -174,9 +188,7 @@ export function observeFleet(
   if (wentDry) {
     return {
       watch,
-      updates: [
-        clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS),
-      ],
+      updates: [clip(`${idleSummary(lanes)} · nothing running`, MAX_UPDATE_CHARS)],
     };
   }
 
@@ -186,9 +198,7 @@ export function observeFleet(
   }
 
   const lines: string[] =
-    attention.length > COALESCE_ABOVE
-      ? [tally(attention)]
-      : attention.map((c) => c.line);
+    attention.length > COALESCE_ABOVE ? [tally(attention)] : attention.map((c) => c.line);
 
   return {
     watch,
@@ -197,8 +207,7 @@ export function observeFleet(
 }
 
 function tally(changes: readonly Change[]): string {
-  const count = (kind: Change["kind"]): number =>
-    changes.filter((c) => c.kind === kind).length;
+  const count = (kind: Change["kind"]): number => changes.filter((c) => c.kind === kind).length;
   const parts: string[] = [];
   const done = count("done");
   const failed = count("failed");
@@ -239,15 +248,13 @@ export function fleetDigest(
     const named = running
       .slice(0, DIGEST_NAMED_LANES)
       .map((lane) => {
-        void isStalled
-        void stallMs
+        void isStalled;
+        void stallMs;
         return `${lane.description} ${clockLabel(nowMs - lane.startedAt)}`;
       })
       .join(", ");
     const extra = running.length - Math.min(running.length, DIGEST_NAMED_LANES);
-    parts.push(
-      `${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`,
-    );
+    parts.push(`${running.length} running (${named}${extra > 0 ? `, +${extra} more` : ""})`);
   }
   if (done > 0) parts.push(`${done} done`);
   if (failed > 0) parts.push(`${failed} failed`);

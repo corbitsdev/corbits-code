@@ -82,10 +82,9 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("env endpoint overrides settings", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://settings.example" }),
-      { [OTEL_ENV.endpoint]: "https://env.example/otlp" },
-    );
+    const result = resolveOtelExportConfig(baseSettings({ endpoint: "https://settings.example" }), {
+      [OTEL_ENV.endpoint]: "https://env.example/otlp",
+    });
     expect(result.ok).toBe(true);
     if (result.ok && result.config.enabled) {
       expect(result.config.endpoint).toBe("https://env.example/otlp");
@@ -241,7 +240,10 @@ describe("resolveOtelExportConfig", () => {
   });
 
   test("fail closed: non-http protocol", () => {
-    const result = resolveOtelExportConfig(baseSettings({ endpoint: "ftp://collector.example" }), {});
+    const result = resolveOtelExportConfig(
+      baseSettings({ endpoint: "ftp://collector.example" }),
+      {},
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toContain("http or https");
@@ -356,7 +358,7 @@ describe("otelConfigForDump", () => {
         endpoint: "https://collector.example",
         resourceAttributes: {
           "deployment.environment": "prod",
-          "api_key": "should-not-leak",
+          api_key: "should-not-leak",
           "auth.token": "tok-secret",
           "db.password": "p@ss",
           team: "corbits",

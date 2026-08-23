@@ -11,7 +11,7 @@ import {
 } from "./auth/codex/usage-limit-error.js";
 import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
 
-export type InferenceErrorLike = {
+export interface InferenceErrorLike {
   category: string;
   message?: string;
   statusCode?: number;
@@ -23,14 +23,14 @@ export type InferenceErrorLike = {
   providerId?: string;
   /** Explicit OpenCode Go provider flag when known. */
   opencodeGo?: boolean;
-};
+}
 
 /** Optional Go context callers may attach so bare 429s reclassify without body markers. */
-export type OpenCodeGoErrorContext = {
+export interface OpenCodeGoErrorContext {
   requestURL?: string;
   providerId?: string;
   opencodeGo?: boolean;
-};
+}
 
 export type InferenceErrorWithGoContext = InferenceError & OpenCodeGoErrorContext;
 
@@ -45,8 +45,7 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 ] as const;
 
 /** User-visible line while the harness retries a transient gateway overload. */
-export const GATEWAY_OVERLOAD_USER_MESSAGE =
-  "Inference gateway overloaded — retrying…";
+export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
 
 function stringFromRaw(raw: unknown): string {
   if (typeof raw === "string") return raw;
@@ -101,7 +100,11 @@ export function isGatewayOverloadInferenceError(error: InferenceErrorLike): bool
   if (htmlLike && hasGatewayOverloadStatus(error)) return true;
 
   // Malformed SSE where the first chunk is a plain HTML 503 page (no doctype).
-  if (hasGatewayOverloadStatus(error) && rawText.length > 0 && !rawText.trimStart().startsWith("{")) {
+  if (
+    hasGatewayOverloadStatus(error) &&
+    rawText.length > 0 &&
+    !rawText.trimStart().startsWith("{")
+  ) {
     return textSuggestsGatewayOverload(rawText) || htmlLike;
   }
 
@@ -121,7 +124,11 @@ function tryParseJSON(text: string): unknown {
  * provider context (id / flag / request URL) or Go-specific body markers.
  * Do not match bare `provider_rate_limit_exceeded` alone; other proxies use it.
  */
-function isKnownOpenCodeGoError(error: InferenceErrorWithGoContext, rawText: string, messageText: string): boolean {
+function isKnownOpenCodeGoError(
+  error: InferenceErrorWithGoContext,
+  rawText: string,
+  messageText: string,
+): boolean {
   if (error.opencodeGo === true) return true;
   if (isOpenCodeGoProviderId(error.providerId)) return true;
   if (isOpenCodeGoURL(error.requestURL)) return true;
@@ -165,15 +172,10 @@ export function normalizeOpenCodeGoInferenceError(
   const parsed = parseGoAPIError({ statusCode, body });
   if (parsed === undefined) return error;
 
-  const category =
-    parsed.category === "auth"
-      ? ("credential_failure" as const)
-      : parsed.category;
+  const category = parsed.category === "auth" ? ("credential_failure" as const) : parsed.category;
 
   const retryAfterMs =
-    parsed.retryAfterSec !== undefined
-      ? parsed.retryAfterSec * 1000
-      : error.retryAfterMs;
+    parsed.retryAfterSec !== undefined ? parsed.retryAfterSec * 1000 : error.retryAfterMs;
 
   return {
     category,
@@ -192,9 +194,7 @@ export function normalizeOpenCodeGoInferenceError(
  * When providerId is known and not a Codex source, leave the error alone so
  * OpenAI/Go/etc. quota bodies never get Codex-branded copy.
  */
-function normalizeCodexUsageLimitError(
-  error: InferenceErrorWithGoContext,
-): InferenceError {
+function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): InferenceError {
   if (error.providerId !== undefined && !isCodexProviderName(error.providerId)) {
     return error;
   }
@@ -213,9 +213,7 @@ function normalizeCodexUsageLimitError(
   if (parsed === undefined) return error;
 
   const profile =
-    error.providerId !== undefined
-      ? codexProfileFromProviderName(error.providerId)
-      : undefined;
+    error.providerId !== undefined ? codexProfileFromProviderName(error.providerId) : undefined;
   const retryAfterMs = codexUsageLimitRetryAfterMs(parsed) ?? error.retryAfterMs;
 
   return {

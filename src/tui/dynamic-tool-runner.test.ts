@@ -5,7 +5,11 @@ import { advertisedTools } from "../agent/tool-search.js";
 
 const stringTool = (name: string, reply: string): AgentTool => ({
   kind: "string",
-  definition: { name, description: name, inputSchema: { type: "object", properties: {}, required: [] } },
+  definition: {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
   handler: async () => reply,
 });
 

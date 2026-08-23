@@ -1,18 +1,17 @@
 import { resolve } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
-import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import type { RootsProvider } from "../permission/worktree-roots.js";
 
-export type PathEscapeOptions = {
+export interface PathEscapeOptions {
   // When true (yolo / --dangerously-skip-permissions), paths outside the
   // workspace still resolve to absolute form and pass through. Secret-guard and
   // authz remain the hard-deny layers; the permission gate already auto-allows.
   // A getter is resolved per call so `/yolo` mid-session takes effect without
   // rebuilding the plugin stack.
   allowOutside?: boolean | (() => boolean);
-};
+}
 
 function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
   if (typeof value === "function") return value();
@@ -29,7 +28,8 @@ export function pathEscapePlugin(
       if ("_raw" in call.arguments) {
         return {
           callId: call.id,
-          content: "Tool call arguments were malformed JSON (likely truncated). Retry with a smaller payload.",
+          content:
+            "Tool call arguments were malformed JSON (likely truncated). Retry with a smaller payload.",
           isError: true,
         };
       }

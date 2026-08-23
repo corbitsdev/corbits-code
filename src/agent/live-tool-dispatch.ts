@@ -1,9 +1,4 @@
-import {
-  createAgent,
-  type Agent,
-  type AgentDefinition,
-  type BaseEnv,
-} from "@intx/agent";
+import { createAgent, type Agent, type AgentDefinition, type BaseEnv } from "@intx/agent";
 
 // XXX — @intx/agent resolveTools snapshots `byName` from each bundle's
 // definitions at createAgent and never consults a live getter. MCP tools

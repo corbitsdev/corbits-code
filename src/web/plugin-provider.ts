@@ -7,13 +7,13 @@ import type { PluginCredentialField } from "../plugins/manifest.js";
 // A discovered plugin that can back the web tools: a "web"-kind manifest plus
 // the factory the loader captured. Kept separate from the raw PluginModule so
 // callers (runner, /plugins UI) work with a flat, validated shape.
-export type WebPluginCandidate = {
+export interface WebPluginCandidate {
   id: string;
   name: string;
   description?: string;
   credentials: PluginCredentialField[];
   factory: (options: unknown) => WebProvider | Promise<WebProvider>;
-};
+}
 
 export function collectWebPlugins(modules: PluginModule[]): WebPluginCandidate[] {
   const out: WebPluginCandidate[] = [];
@@ -52,7 +52,10 @@ export function webBrand(name: string): string {
   return name.replace(/\s+(search|fetch)$/i, "").trim();
 }
 
-export type ActiveWebProvider = { provider: WebProvider; name: string };
+export interface ActiveWebProvider {
+  provider: WebProvider;
+  name: string;
+}
 
 // Build the active web provider from the discovered candidates and stored
 // config. On failure logs to stderr and returns undefined so the run proceeds

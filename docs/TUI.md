@@ -64,6 +64,16 @@ stays easy to find while scrolling through denser assistant and tool rows —
 the pad is part of the bubble itself, not an extra turn-boundary gap, and
 assistant/tool rows are unchanged.
 
+Parent live reasoning paints through the existing thinking row — never a
+third mid-turn stream lane. While `inference.thinking.delta` arrives,
+`thinkingLivePreviewLines` (`src/tui/thinking.ts`) wraps the newest revealed
+prose into a hard-capped inset paragraph (`LIVE_THINKING_MAX_LINES`, currently 10) at a bounded reveal rate (`REVEAL_CHARS_PER_SEC`). When the turn moves on
+(assistant text, a tool call, or settle), the row collapses to its opening
+clause with the rest behind expand. Mid-turn thinking bursts fold onto that
+same one row per turn (`reasoning-fold`); `inference.text.delta` grows the
+open assistant streaming row in place. Sub-agent Task-row thinking is a
+separate path and is unchanged by this preview.
+
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule as
 `profile · model · effort` (empty segments omitted), and a
@@ -93,12 +103,12 @@ of truth for what the slot can say, not this list. It is led by a single density
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
-| State | Cell | Reads as |
-|---|---|---|
-| `working` | cycles `░ ▒ ▓ █` on `RAMP_CYCLE_MS` | moving |
-| `done` | static `█` | finished |
-| `blocked` | static `▌` | waiting on the operator |
-| `stalled` | `!` blinking against `█`, then a static `!` | a problem |
+| State     | Cell                                        | Reads as                |
+| --------- | ------------------------------------------- | ----------------------- |
+| `working` | cycles `░ ▒ ▓ █` on `RAMP_CYCLE_MS`         | moving                  |
+| `done`    | static `█`                                  | finished                |
+| `blocked` | static `▌`                                  | waiting on the operator |
+| `stalled` | `!` blinking against `█`, then a static `!` | a problem               |
 
 Every state is separated by glyph and motion before colour, so all four survive
 a monochrome terminal and are readable without stopping to read the word. A
@@ -107,9 +117,9 @@ printed identically, so the only way to tell them apart was to wait.
 
 `blocked` and `stalled` share the orange deliberately — both name a turn
 waiting on something outside itself — and are told apart by motion: `blocked`
-holds perfectly still, which is the signal that the session is waiting on *you*.
+holds perfectly still, which is the signal that the session is waiting on _you_.
 
-While sub-agents are running, the slot reports the *fleet*, not the parent.
+While sub-agents are running, the slot reports the _fleet_, not the parent.
 `resolveTurnLabel` and `resolveRampPhase` take a `FleetProgress` roll-up and
 rank it above the parent's own stall clock: with live lanes the parent is
 idle by design, so its silence says nothing about whether the session is
@@ -135,7 +145,7 @@ a stall that breaks and re-arms bursts again.
 
 Auto-abort (`shouldAbortForStall`) is reserved for a stream that had already
 started producing tokens and then went dead mid-flight — not for a run that
-is merely *awaiting* the model's next response (right after submit, or the
+is merely _awaiting_ the model's next response (right after submit, or the
 instant a tool batch resolves and `awaitingResponse` flips back to true).
 That wait has no signal to tell "still coming" from "never coming" apart, so
 it is never auto-aborted no matter how long it runs; it still surfaces via
@@ -163,15 +173,9 @@ removed line), not a decision marker, and no decision-marker shares that row.
 ## The live task list panel
 
 **Parked pending rebuild.** `formatChromeZones` (`src/tui/chrome-state.ts`)
-always returns `{ task: null, agents: null }` — neither the checklist strip nor
-the agents/fleet board auto-paints. Live work stays on transcript `● Task …`
-rows (see below). `formatTasksPanel` / `formatAgentsPanel` remain for a future
-rebuild; demos and shell tests may still feed preformatted rows via
-`setChromeZones` directly, and Alt+T (`toggleTasksPanel`) still toggles the
-shell's hidden flag for those manual paints.
-
-A task is a unit of work with a status; an agent is an executor with its own
-context and transcript. They are never merged into one panel. When the
+keeps the task checklist parked (`task: null`) while the agents strip paints
+live. A task is a unit of work with a status; an agent is an executor with its
+own context and transcript. They are never merged into one panel. When the
 checklist strip is rebuilt, each row will show a bracket status marker (`[ ]`
 todo, `[~]` doing, `[x]` done, `[-]` cancelled) ahead of the title, bounded to
 `TASKS_PANEL_MAX_VISIBLE` with a trailing `+N more` under overflow, and
@@ -184,7 +188,7 @@ box a row on a short terminal, and they guarantee different things.
 `prompt` — that loop only runs when the transcript floor is not yet met, and
 it never touches a zone later in the order while an earlier one still has
 rows to give up. Separately, `PROMPT_CAP_FRACTION` in `desiredHeights` caps
-how tall a *requested* prompt is allowed to start at (`PROMPT_CAP_FRACTION *
+how tall a _requested_ prompt is allowed to start at (`PROMPT_CAP_FRACTION *
 terminal.rows`), independent of collapse and before it ever runs. Neither
 mechanism substitutes for the other: the cap bounds the prompt's own growth
 on any terminal, tall or short; the collapse order bounds what other zones
@@ -194,34 +198,40 @@ The panel stays **hidden by default** (CL-5847): a fresh shell does not paint
 the checklist. `toggleTasksPanel` (bound to Alt+T) opts in for the shell's
 lifetime — it flips a hidden flag held on the shell in memory only — so demos
 and tests that call `setChromeZones` with task rows can still show them.
-Because `formatChromeZones` parks auto-paint, Alt+T alone does not surface a
-live `manage_tasks` list today.
+Because `formatChromeZones` parks task auto-paint, Alt+T alone does not
+surface a live `manage_tasks` list today.
 
 The task tool writes state through `ChatDirectorImpl` (`src/agent/director.ts`),
 which calls `onTasksChange` on every `manage_tasks` tool call and on session
-hydrate. `manage_tasks` calls paint no transcript rows; with chrome strips
+hydrate. `manage_tasks` calls paint no transcript rows; with the checklist
 parked, that list has no standing chrome surface until rebuild.
 
-## Live sub-agent rows (Task tool)
+## Live agents chrome (strip above the prompt)
 
-Live workers paint as pending `task` tool rows in the transcript — the
-operator-preferred Amp/Codex-style lines:
+Live workers paint as a **flat agents strip** above the prompt (label /
+status / current tool) — Amp/Codex-style lanes without a FLEET header board:
 
 ```
-● Task Design Lab interview 1:07 · AskUserQuestion
-● Task UI variations 0:59 · write_file
+● explore  map callers  · 0:59 · grep
+● general  write tests  · 1:07 · write_file
 ```
 
-`runtime-bridge` paints each `task` call as a stream row and rewrites it in
-place via `syncAgentProgress` / `agentProgress` (elapsed clock, current tool,
-stall marker). Ordinary in-flight tool rows get the same elapsed clock
-(`syncToolElapsed`) without the current-tool suffix, so a slow MCP or
-network call is distinguishable from a hung turn. There is no standing
-FLEET board and no dual-rail agents chrome:
-`formatChromeZones` always returns both zones null (`task` and `agents`), and
-geometry is stack-only (`layoutMode: "stack"`, `railWidth: 0`). Checklist and
-agents strips are parked pending rebuild; Alt+T / direct `setChromeZones` may
-still paint for demos and tests.
+`formatChromeZones` → `formatAgentsPanel` owns that paint. Geometry stays
+stack-only (`layoutMode: "stack"`, `railWidth: 0`); the zone max is
+`AGENTS_PANEL_MAX_VISIBLE + 1` (lanes plus a trailing `+N more`). Terminal
+lanes (done / failed / cancelled) linger for `AGENTS_PANEL_LINGER_MS` (4s)
+after `finishedAt`, then drop. Product-host sticky poll uses
+`agentsChromeNeedsSticky` so clocks and linger stay fresh; while sticky is
+needed it **does not** call `bridge.syncAgentProgress` — chrome owns the live
+clocks.
+
+### Transcript Task rows (history anchors)
+
+`runtime-bridge` still paints each `task` call as a transcript stream row for
+**spawn / final / fail anchors**. While the agents strip is sticky, sticky-poll
+`syncAgentProgress` rewrites are gated off so the transcript is not a dual live
+rail. Ordinary in-flight tool rows keep their own elapsed clock
+(`syncToolElapsed`) without the current-tool suffix.
 
 ### Unprompted fleet reports
 
@@ -370,11 +380,12 @@ recent and favorite provider+model pairs sit at the top, then every
 for this session. Escape closes the picker. The row matching the session's
 live active model gets a `(current)` suffix. **Alt+D** persists the focused
 pair as the default (global `defaultProvider` + that provider's `defaultModel`
-+ project-local selection) without switching the live session or closing the
-picker. Alt+F on a model row
-still toggles favorite when a favorite hook is wired. While type-to-filter is
-active, bare `j`/`k` type into the filter rather than moving the highlight —
-use arrow keys (or the filtered list's navigation) to move.
+
+- project-local selection) without switching the live session or closing the
+  picker. Alt+F on a model row
+  still toggles favorite when a favorite hook is wired. While type-to-filter is
+  active, bare `j`/`k` type into the filter rather than moving the highlight —
+  use arrow keys (or the filtered list's navigation) to move.
 
 The list itself never nests by provider, but connecting a new provider is not
 a flat-list row either: the picker used to grow a "connect →" row per
@@ -527,7 +538,7 @@ default), the wheel scrolls the transcript, clicking a collapsed tool row or
 diff arrow expands it in place, and dragging across selectable text starts an
 OpenTUI selection that **auto-copies to the system clipboard on mouse-up**.
 Dragging on non-selectable chrome still scrolls. The cost of holding the
-mouse this way is that *native* terminal drag-select is unavailable while
+mouse this way is that _native_ terminal drag-select is unavailable while
 reporting is on: the terminal hands drag events to the app instead of
 running its own selection. Two chords cover remaining copy needs:
 
@@ -624,7 +635,6 @@ terminal. It cannot observe:
   through a synthetic `SELECTION` event (`copy-wire.test.ts`); a real
   mouse-up path still needs a manual terminal check.
 
-
 Concretely, whole defect classes — a DEC mouse-reporting toggle that silently
 no-ops, an Alt+key chord a given terminal never actually delivers, a
 clipboard write that fails silently on a machine with no clipboard helper
@@ -649,4 +659,4 @@ asserted as fact:
   emulator Corbits Code targets (Shift+Enter and Alt+letter reporting depend
   on kitty-protocol negotiation the harness cannot test — see Test-harness
   blind spots above); this document states what the code does when a chord
-  *is* delivered, not which terminals reliably deliver it.
+  _is_ delivered, not which terminals reliably deliver it.

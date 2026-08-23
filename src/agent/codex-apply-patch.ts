@@ -27,19 +27,19 @@ const END_OF_FILE = "*** End of File";
 
 export type HunkLineKind = " " | "-" | "+";
 
-export type PatchHunkLine = {
+export interface PatchHunkLine {
   kind: HunkLineKind;
   text: string;
-};
+}
 
-export type PatchHunk = {
+export interface PatchHunk {
   /** Optional text after `@@` (class/method anchor). */
   header?: string;
   lines: PatchHunkLine[];
   endOfFile?: boolean;
-};
+}
 
-export type PatchAddOp = {
+export interface PatchAddOp {
   type: "add";
   path: string;
   /**
@@ -48,25 +48,25 @@ export type PatchAddOp = {
    * An Add File with no `+` lines yields `""`.
    */
   content: string;
-};
+}
 
-export type PatchDeleteOp = {
+export interface PatchDeleteOp {
   type: "delete";
   path: string;
-};
+}
 
-export type PatchUpdateOp = {
+export interface PatchUpdateOp {
   type: "update";
   path: string;
   moveTo?: string;
   hunks: PatchHunk[];
-};
+}
 
 export type PatchOp = PatchAddOp | PatchDeleteOp | PatchUpdateOp;
 
-export type ParsedPatch = {
+export interface ParsedPatch {
   ops: PatchOp[];
-};
+}
 
 export class CodexApplyPatchError extends Error {
   constructor(message: string) {

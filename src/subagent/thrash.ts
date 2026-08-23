@@ -12,7 +12,7 @@
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 
 /** Tunable thresholds for thrash / force-report detection. */
-export type ThrashConfig = {
+export interface ThrashConfig {
   /** Same path read this many times triggers hard re-read thrash stop. */
   reReadLimit: number;
   /**
@@ -32,7 +32,7 @@ export type ThrashConfig = {
    * still issuing tools, inject a one-shot wrap-up nudge.
    */
   forceReportWithin: number;
-};
+}
 
 /** Conservative defaults: 20 unique single-path reads must not thrash. */
 export const DEFAULT_THRASH_CONFIG: ThrashConfig = {
@@ -43,11 +43,11 @@ export const DEFAULT_THRASH_CONFIG: ThrashConfig = {
 };
 
 /** Accumulated thrash bookkeeping across turns (immutable snapshots). */
-export type ThrashState = {
+export interface ThrashState {
   readonly readCounts: ReadonlyMap<string, number>;
   readonly editedPaths: ReadonlySet<string>;
   readonly totalToolCalls: number;
-};
+}
 
 export const EMPTY_THRASH_STATE: ThrashState = {
   readCounts: new Map(),
@@ -61,17 +61,14 @@ export const EMPTY_THRASH_STATE: ThrashState = {
  * - "report-forced" is a near-budget wrap-up-nudge signal
  * - "re-read-nudge" is a mid-run redirect (one-shot, not a stop)
  */
-export type ThrashStopReason =
-  | "thrash"
-  | "report-forced"
-  | "re-read-nudge";
+export type ThrashStopReason = "thrash" | "report-forced" | "re-read-nudge";
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
-export type ThrashToolCallBlock = {
+export interface ThrashToolCallBlock {
   type: string;
   name?: string;
   arguments?: unknown;
-};
+}
 
 const READ_TOOLS = new Set(["read_file"]);
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
@@ -138,7 +135,7 @@ function decayReadsForPath(readCounts: Map<string, number>, path: string): void 
  */
 export function nextThrashState(
   prev: ThrashState,
-  content: ReadonlyArray<ThrashToolCallBlock>,
+  content: readonly ThrashToolCallBlock[],
 ): ThrashState {
   let totalToolCalls = prev.totalToolCalls;
   let readCounts: Map<string, number> | null = null;
@@ -187,11 +184,7 @@ export function nextThrashState(
  * True when any path's re-read count meets `limit` and total tool volume clears
  * the min-tools gate. Shared by hard thrash and soft re-read-nudge.
  */
-function reReadPressureAt(
-  state: ThrashState,
-  limit: number,
-  minTotalTools: number,
-): boolean {
+function reReadPressureAt(state: ThrashState, limit: number, minTotalTools: number): boolean {
   if (state.totalToolCalls < minTotalTools) return false;
   for (const count of state.readCounts.values()) {
     if (count >= limit) return true;
@@ -255,8 +248,7 @@ function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
   return {
     reReadLimit: partial.reReadLimit ?? DEFAULT_THRASH_CONFIG.reReadLimit,
     reReadSoftLimit: partial.reReadSoftLimit ?? DEFAULT_THRASH_CONFIG.reReadSoftLimit,
-    reReadMinTotalTools:
-      partial.reReadMinTotalTools ?? DEFAULT_THRASH_CONFIG.reReadMinTotalTools,
+    reReadMinTotalTools: partial.reReadMinTotalTools ?? DEFAULT_THRASH_CONFIG.reReadMinTotalTools,
     forceReportWithin: partial.forceReportWithin ?? DEFAULT_THRASH_CONFIG.forceReportWithin,
   };
 }
@@ -280,9 +272,7 @@ export function evaluateThrashStop(input: {
   if (!input.hasToolCalls) return null;
   const config = resolveConfig(input.config);
   if (thrashFromReRead(input.state, config)) return "thrash";
-  if (
-    thrashForceReport(input.turnsCompleted, input.maxTurns, input.hasToolCalls, config)
-  ) {
+  if (thrashForceReport(input.turnsCompleted, input.maxTurns, input.hasToolCalls, config)) {
     return "report-forced";
   }
   if (thrashSoftReRead(input.state, config)) return "re-read-nudge";
