@@ -7,7 +7,11 @@
 
 import { describe, expect, test } from "bun:test"
 
-import { advanceRevealChars, thinkingLivePreviewLines } from "./thinking"
+import {
+  advanceRevealChars,
+  LIVE_THINKING_MAX_LINES,
+  thinkingLivePreviewLines,
+} from "./thinking"
 import { withTestRenderer } from "./harness"
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge"
 import { createAppShell } from "./shell"
@@ -83,10 +87,21 @@ describe("thinkingLivePreviewLines with a reveal position", () => {
 
   test("omitting revealChars wraps whatever has arrived, capped to max lines", () => {
     const lines = thinkingLivePreviewLines(text, 10)
-    expect(lines.length).toBeLessThanOrEqual(3)
+    expect(lines.length).toBeLessThanOrEqual(LIVE_THINKING_MAX_LINES)
     expect(lines.length).toBeGreaterThan(0)
     expect(lines.every((line) => line.length <= 10)).toBe(true)
     expect(lines.join(" ")).toContain("running")
+  })
+
+  test("a long burst fills more than three lines and still respects the hard cap", () => {
+    const long = Array.from({ length: 40 }, (_, i) => `clause-${i}`).join(" ")
+    const lines = thinkingLivePreviewLines(long, 20)
+    expect(lines.length).toBeGreaterThan(3)
+    expect(lines.length).toBeLessThanOrEqual(LIVE_THINKING_MAX_LINES)
+    expect(lines.every((line) => line.length <= 20)).toBe(true)
+    // Newest prose wins when the wrap exceeds the cap.
+    expect(lines.join(" ")).toContain("clause-39")
+    expect(lines.join(" ")).not.toContain("clause-0")
   })
 
   test("sample frames across a few rates, printed for eyeballing", () => {

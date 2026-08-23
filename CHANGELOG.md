@@ -11,6 +11,18 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### TUI
+
+- **Taller live chain-of-thought preview.** Parent reasoning still paints
+  through the existing thinking row (one fold per turn, settle-to-opener +
+  expand) — no separate mid-turn stream lane. The hard-capped live wrap rises
+  from 3 to 10 inset lines (`LIVE_THINKING_MAX_LINES`) so mid-turn CoT is
+  glanceable; reveal rate stays 28 chars/sec. Sub-agent Task-row thinking is
+  unchanged. Assistant mid-turn text continues to grow the open streaming
+  assistant row from `inference.text.delta`.
+
 ## [0.2.103] - 2026-08-23
 
 ### TUI
