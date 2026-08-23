@@ -485,8 +485,10 @@ describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)
     const turns: ConversationTurn[] = [
       makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
     ];
-    // 10 edit_file call/result pairs, well separated from each other and from
-    // the recent window, each independently clearing the anchor threshold.
+    // 10 write-pair call/result turns, well separated from each other and from
+    // the recent window. A single edit_file scores 3 (below the threshold of
+    // 5); two writes on the same assistant turn score 6, so each pair
+    // independently clears the scored-anchor bar.
     for (let i = 0; i < 10; i++) {
       turns.push(
         makeTurn({
@@ -494,9 +496,15 @@ describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)
           content: [
             {
               type: "tool_call",
-              id: `edit${i}`,
+              id: `edit${i}a`,
               name: "edit_file",
-              arguments: { path: `f${i}.ts` },
+              arguments: { path: `f${i}a.ts` },
+            },
+            {
+              type: "tool_call",
+              id: `edit${i}b`,
+              name: "edit_file",
+              arguments: { path: `f${i}b.ts` },
             },
           ],
         }),
@@ -505,8 +513,13 @@ describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)
           content: [
             {
               type: "tool_result",
-              callId: `edit${i}`,
-              content: [{ type: "text", text: `edited f${i}.ts` }],
+              callId: `edit${i}a`,
+              content: [{ type: "text", text: `edited f${i}a.ts` }],
+            },
+            {
+              type: "tool_result",
+              callId: `edit${i}b`,
+              content: [{ type: "text", text: `edited f${i}b.ts` }],
             },
           ],
         }),
