@@ -592,47 +592,45 @@ describe("attachSessionBridge", () => {
           terminal: { columns: 80, rows: 24 },
           wireKeys: false,
           run: "idle",
-        })
-        const bridge = attachSessionBridge(shell, createRecordingPort())
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
         try {
-          bridge.handle({ type: "inference.start", data: {} })
+          bridge.handle({ type: "inference.start", data: {} });
           bridge.handle({
             type: "inference.thinking.delta",
             data: { token: "planning the reply" },
-          })
+          });
           bridge.handle({
             type: "inference.tool_call.end",
             data: { name: "run_shell", callId: "c1", arguments: "{}" },
-          })
+          });
           bridge.handle({
             type: "tool.done",
             data: { result: { callId: "c1", content: "ok", isError: false } },
-          })
+          });
           bridge.handle({
             type: "inference.text.delta",
             data: { token: "Here is " },
-          })
+          });
           bridge.handle({
             type: "inference.text.delta",
             data: { token: "the answer." },
-          })
+          });
 
-          const assistant = shell.streamLog.filter((r) => r.role === "assistant")
-          expect(assistant).toHaveLength(1)
-          expect(assistant[0]?.streaming).toBe(true)
-          expect(assistant[0]?.text).toBe("Here is the answer.")
+          const assistant = shell.streamLog.filter((r) => r.role === "assistant");
+          expect(assistant).toHaveLength(1);
+          expect(assistant[0]?.streaming).toBe(true);
+          expect(assistant[0]?.text).toBe("Here is the answer.");
           // Still one thinking row for the turn — no third mid-turn stream lane.
-          expect(
-            shell.streamLog.filter((r) => r.meta === "thinking"),
-          ).toHaveLength(1)
+          expect(shell.streamLog.filter((r) => r.meta === "thinking")).toHaveLength(1);
         } finally {
-          bridge.dispose()
-          shell.dispose()
+          bridge.dispose();
+          shell.dispose();
         }
       },
       { width: 80, height: 24 },
-    )
-  })
+    );
+  });
 
   test("thinking deltas coalesce and never become plain system rows", async () => {
     await withTestRenderer(

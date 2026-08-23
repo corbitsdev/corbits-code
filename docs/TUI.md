@@ -67,8 +67,7 @@ assistant/tool rows are unchanged.
 Parent live reasoning paints through the existing thinking row — never a
 third mid-turn stream lane. While `inference.thinking.delta` arrives,
 `thinkingLivePreviewLines` (`src/tui/thinking.ts`) wraps the newest revealed
-prose into a hard-capped inset paragraph (`LIVE_THINKING_MAX_LINES`, currently
-10) at a bounded reveal rate (`REVEAL_CHARS_PER_SEC`). When the turn moves on
+prose into a hard-capped inset paragraph (`LIVE_THINKING_MAX_LINES`, currently 10) at a bounded reveal rate (`REVEAL_CHARS_PER_SEC`). When the turn moves on
 (assistant text, a tool call, or settle), the row collapses to its opening
 clause with the rest behind expand. Mid-turn thinking bursts fold onto that
 same one row per turn (`reasoning-fold`); `inference.text.delta` grows the
