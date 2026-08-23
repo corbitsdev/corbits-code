@@ -815,12 +815,16 @@ describe("sub-agent stop helpers", () => {
     expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
   });
 
-  test("repetitionStopDetail formats the looped window snippet and repeat count", () => {
-    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 })).toBe(
-      'window "Groaning. " × 1363',
+  test("repetitionStopDetail reports period length and repeat count, never the looped text", () => {
+    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 }, null)).toBe(
+      "period 10ch × 1363",
     );
-    const long = repetitionStopDetail({ window: "x".repeat(500), repeats: 7 });
-    expect(long).toBe(`window "${"x".repeat(80)}" × 7`);
+    expect(
+      repetitionStopDetail(
+        { window: "x".repeat(500), repeats: 7 },
+        { windowMinChars: 8, repeatThreshold: 16, probeChars: 8192 },
+      ),
+    ).toBe("period 500ch × 7 (threshold 16)");
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {
