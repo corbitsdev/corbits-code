@@ -217,7 +217,9 @@ export function detectToolFingerprintThrash(
 // narration-sensitive counter. Model-emitted text does not reset this
 // counter; only a genuine user/operator message does (see director.ts). That
 // is deliberate: this answers "how long since the operator last saw a real
-// checkpoint," not "is the model narrating."
+// checkpoint," not "is the model narrating." (CL-5893: a successful leaf
+// task completion also resets it, bounded by MAX_LEAF_PROGRESS_BACKSTOP_RESETS
+// below — see director.ts.)
 //
 // Because narration no longer resets it, reaching this threshold does not
 // hard-pause on its own — it only fires a nudge asking for a progress
@@ -244,6 +246,16 @@ export function detectToolFingerprintThrash(
 // legitimate long autonomous stretches, or if turns-since-user-message is
 // ever actually measured.
 export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
+
+// CL-5893: cap on how many times a successful leaf task completion may
+// re-arm the backstop interval before a genuine operator message is
+// required. Without a cap, a loop of trivial always-succeeding leaf tasks
+// would reset the backstop forever and never force an operator checkpoint.
+// At 5 resets (~500 turns of headroom before this bound, vs. the plain
+// 100-turn threshold) a runaway trivial-success loop still nudges then
+// pauses, while genuine fleet-heavy work gets meaningfully more room than
+// the unbounded reset before this cap existed.
+export const MAX_LEAF_PROGRESS_BACKSTOP_RESETS = 5;
 
 /** True once turns-since-last-user-message reaches the backstop threshold. */
 export function detectTurnsSinceUserMessageBackstop(turnsSinceUserMessage: number): boolean {
