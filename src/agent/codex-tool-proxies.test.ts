@@ -120,7 +120,11 @@ describe("createCodexToolProxies", () => {
 
   test("add forwards write_file with Codex trailing newline", async () => {
     const { calls, files, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -143,7 +147,11 @@ describe("createCodexToolProxies", () => {
 
   test("delete forwards delete_file", async () => {
     const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -159,7 +167,12 @@ describe("createCodexToolProxies", () => {
 
   test("allowDelete false refuses Delete without calling delete_file", async () => {
     const { calls, files, runTool } = makeRecorder({ "obsolete.txt": "gone" });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      allowDelete: false,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -179,7 +192,12 @@ describe("createCodexToolProxies", () => {
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      allowDelete: false,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -203,7 +221,12 @@ print("Hi")
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowDelete: false, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      allowDelete: false,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -227,7 +250,11 @@ print("Hi")
 print("bye")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -253,7 +280,11 @@ print("bye")
 print("Hi")
 `;
     const { calls, files, runTool } = makeRecorder({ "src/app.py": original });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -284,7 +315,11 @@ print("Hello, world!")
       "src/app.py": "old\n",
       "obsolete.txt": "x",
     });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -312,7 +347,11 @@ print("Hello, world!")
 
   test("parse failure surfaces as tool error (isError)", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Add File: a.txt
@@ -342,7 +381,11 @@ print("Hello, world!")
 
   test("runTool isError aborts the patch with isError", async () => {
     const { runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeApplyPatch(
       tools,
       `*** Begin Patch
@@ -361,7 +404,11 @@ print("Hello, world!")
 describe("shell proxy", () => {
   test("string command forwards to run_shell", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeTool(tools, "shell", { command: "ls -la" });
     expect(result.isError).toBeFalsy();
     expect(calls).toEqual([{ name: "run_shell", args: { command: "ls -la" } }]);
@@ -369,21 +416,33 @@ describe("shell proxy", () => {
 
   test("bash -lc argv triple unwraps to the script", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     await invokeTool(tools, "shell", { command: ["bash", "-lc", "echo 'hi there'"] });
     expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hi there'" } }]);
   });
 
   test("other argv arrays are shell-quoted and joined", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     await invokeTool(tools, "shell", { command: ["echo", "hello world"] });
     expect(calls).toEqual([{ name: "run_shell", args: { command: "echo 'hello world'" } }]);
   });
 
   test("workdir and timeout_ms translate to cwd and timeout", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     await invokeTool(tools, "shell", {
       command: "pwd",
       workdir: "/tmp/work",
@@ -396,7 +455,11 @@ describe("shell proxy", () => {
 
   test("missing command surfaces as tool error", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeTool(tools, "shell", {});
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/command/);
@@ -405,7 +468,12 @@ describe("shell proxy", () => {
 
   test("allowShell false refuses without calling run_shell", async () => {
     const { calls, runTool } = makeRecorder();
-    const tools = createCodexToolProxies({ isCodex: true, runTool, allowShell: false, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      allowShell: false,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeTool(tools, "shell", { command: "ls" });
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/not allowed/);
@@ -414,7 +482,11 @@ describe("shell proxy", () => {
 
   test("run_shell isError propagates as tool error", async () => {
     const runTool: CodexRunTool = async () => ({ content: "boom", isError: true });
-    const tools = createCodexToolProxies({ isCodex: true, runTool, runManageTasks: unusedManageTasks });
+    const tools = createCodexToolProxies({
+      isCodex: true,
+      runTool,
+      runManageTasks: unusedManageTasks,
+    });
     const result = await invokeTool(tools, "shell", { command: "ls" });
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/boom/);
@@ -497,19 +569,11 @@ describe("update_plan proxy", () => {
 
 describe("allowDeleteFromCapabilities", () => {
   test("docs allowlist (no delete_file) → false; build → true", () => {
-    expect(
-      allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS }),
-    ).toBe(false);
-    expect(
-      allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
-    ).toBe(true);
+    expect(allowDeleteFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(false);
+    expect(allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS })).toBe(true);
     expect(allowDeleteFromCapabilities(undefined)).toBe(true);
-    expect(
-      allowDeleteFromCapabilities({ mode: "exclude", tools: ["run_shell"] }),
-    ).toBe(true);
-    expect(
-      allowDeleteFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
-    ).toBe(false);
+    expect(allowDeleteFromCapabilities({ mode: "exclude", tools: ["run_shell"] })).toBe(true);
+    expect(allowDeleteFromCapabilities({ mode: "exclude", tools: ["delete_file"] })).toBe(false);
   });
 });
 
@@ -518,11 +582,7 @@ describe("allowShellFromCapabilities", () => {
     expect(allowShellFromCapabilities({ mode: "allow", tools: DOCS_TOOLS })).toBe(false);
     expect(allowShellFromCapabilities({ mode: "allow", tools: BUILD_TOOLS })).toBe(true);
     expect(allowShellFromCapabilities(undefined)).toBe(true);
-    expect(
-      allowShellFromCapabilities({ mode: "exclude", tools: ["delete_file"] }),
-    ).toBe(true);
-    expect(
-      allowShellFromCapabilities({ mode: "exclude", tools: ["run_shell"] }),
-    ).toBe(false);
+    expect(allowShellFromCapabilities({ mode: "exclude", tools: ["delete_file"] })).toBe(true);
+    expect(allowShellFromCapabilities({ mode: "exclude", tools: ["run_shell"] })).toBe(false);
   });
 });

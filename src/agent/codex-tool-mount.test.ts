@@ -132,11 +132,7 @@ describe("Codex tool proxy mount", () => {
       runTool: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
     });
-    expect(proxies.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "shell",
-      "update_plan",
-    ]);
+    expect(proxies.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
 
     const allow = new Set<string>(BUILD_TOOLS);
     const kept = proxies.filter((t) => allow.has(t.definition.name));
@@ -160,11 +156,7 @@ describe("Codex tool proxy mount", () => {
       allowDelete: allowDeleteFromCapabilities(docsCapabilities),
       allowShell: allowShellFromCapabilities(docsCapabilities),
     });
-    expect(proxies.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "shell",
-      "update_plan",
-    ]);
+    expect(proxies.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
 
     const docsAllow = new Set<string>(DOCS_TOOLS);
     const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
