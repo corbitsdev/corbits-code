@@ -81,6 +81,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
   and skips degenerate assistant text.
 
+- **Prefix-stable summaries and growth hysteresis.** Existing compacted user
+  turns stay byte-identical across later passes; new folds become later summary
+  turns with an assistant spacer so the prompt prefix can stay in the KV cache.
+  After a compact that remains over the high watermark, the governor waits for
+  usage to grow by 10% of the window before re-arming. Overflow recovery still
+  compacts immediately.
+
 ### Plugins
 
 - **`run_shell` no longer defaults to a 15s timeout.** Omitted timeout arms no
