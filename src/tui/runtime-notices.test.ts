@@ -4,6 +4,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  compactionFoldInfo,
+  compactionNotice,
   grantApproval,
   grantNotice,
   hookNotice,
@@ -104,6 +106,15 @@ describe("grantNotice", () => {
   });
 });
 
+describe("compactionNotice", () => {
+  test("flashes before → after turn counts", () => {
+    expect(compactionNotice({ turnsBefore: 42, turnsAfter: 8 })).toEqual({
+      kind: "flash",
+      text: "context compacted · 42 → 8 turns",
+    });
+  });
+});
+
 describe("payload validation", () => {
   test("hook events that are not hook.updated are dropped", () => {
     expect(lifecycleHookEvent({ type: "hooks.loaded", hooks: [] })).toBeNull();
@@ -139,5 +150,15 @@ describe("payload validation", () => {
       toolName: "grep",
     });
     expect(subAgentProgress({ description: "map callers" })).toBeNull();
+  });
+
+  test("compaction payloads require both turn counts and reject junk", () => {
+    expect(compactionFoldInfo({ turnsBefore: 42, turnsAfter: 8 })).toEqual({
+      turnsBefore: 42,
+      turnsAfter: 8,
+    });
+    expect(compactionFoldInfo({ turnsBefore: 42 })).toBeNull();
+    expect(compactionFoldInfo(null)).toBeNull();
+    expect(compactionFoldInfo("nope")).toBeNull();
   });
 });
