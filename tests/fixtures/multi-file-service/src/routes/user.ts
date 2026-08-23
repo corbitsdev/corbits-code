@@ -9,7 +9,7 @@ export function handleUsers(method: string, path: string): string {
   if (method === "GET" && path.startsWith("/users/")) {
     const id = path.slice("/users/".length);
     const user = getUser(id);
-    return user ? JSON.stringify(user) : "{\"error\":\"not found\"}";
+    return user ? JSON.stringify(user) : '{"error":"not found"}';
   }
-  return "{\"error\":\"bad request\"}";
+  return '{"error":"bad request"}';
 }

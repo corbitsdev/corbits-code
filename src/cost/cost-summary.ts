@@ -6,7 +6,7 @@ import { contextWindowFor } from "../provider/context-window.js";
 import { costHiddenReason, type CostHiddenReason } from "./cost-visibility.js";
 import type { PricingCache } from "./pricing-fetcher.js";
 
-export type CostSummaryInput = {
+export interface CostSummaryInput {
   modelId: string;
   baseURL?: string | undefined;
   providerFree?: boolean | undefined;
@@ -23,7 +23,7 @@ export type CostSummaryInput = {
   // approximate instead of implying provider-grade precision. The caller
   // building this input owns the decision; nothing downstream re-derives it.
   contextIsEstimate: boolean;
-};
+}
 
 export type CostSummary = CostSummaryInput & {
   costHiddenReason: CostHiddenReason | null;
@@ -35,9 +35,10 @@ export type CostSummary = CostSummaryInput & {
 
 export function buildCostSummary(input: CostSummaryInput): CostSummary {
   const contextWindow = contextWindowFor(input.modelId);
-  const contextPercentUsed = contextWindow > 0
-    ? Math.min(100, Math.round((input.contextTokens / contextWindow) * 100))
-    : null;
+  const contextPercentUsed =
+    contextWindow > 0
+      ? Math.min(100, Math.round((input.contextTokens / contextWindow) * 100))
+      : null;
 
   return {
     ...input,
@@ -52,12 +53,12 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
   };
 }
 
-export type StatusBarCostSegments = {
+export interface StatusBarCostSegments {
   costLabel?: string;
   contextLabel: string;
   // Integer 0–100, or null when the window is unknown — drives meter color.
   contextPercentUsed: number | null;
-};
+}
 
 // "~" flags a locally estimated number so the operator doesn't read it as
 // provider-confirmed. The one place this rule is encoded; every renderer of

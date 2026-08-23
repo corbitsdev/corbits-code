@@ -8,16 +8,8 @@
  * responses requests only; everything else keeps the loud failure.
  */
 import { describe, expect, test } from "bun:test";
-import {
-  createDefaultScheduler,
-  runInference,
-  type Dependencies,
-} from "@intx/inference";
-import type {
-  ConversationTurn,
-  InferenceEvent,
-  InferenceSource,
-} from "@intx/types/runtime";
+import { createDefaultScheduler, runInference, type Dependencies } from "@intx/inference";
+import type { ConversationTurn, InferenceEvent, InferenceSource } from "@intx/types/runtime";
 import { createInferenceDependencies } from "../../src/provider/inference-dependencies.js";
 import {
   CODEX_RESPONSES_PROVIDER,
@@ -193,8 +185,7 @@ describe("withCodexContentTypeRepair boundaries", () => {
       { preconnect: () => undefined },
     ) as typeof globalThis.fetch;
     try {
-      const specifier =
-        "../../src/provider/inference-dependencies.js" + "?wiring-regression";
+      const specifier = "../../src/provider/inference-dependencies.js" + "?wiring-regression";
       const mod = (await import(specifier)) as {
         createInferenceDependencies: () => Promise<Dependencies>;
       };

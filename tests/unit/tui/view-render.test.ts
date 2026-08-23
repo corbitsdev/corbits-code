@@ -99,6 +99,7 @@ describe("View rendering", () => {
     const columns = 80;
     // The viewport cuts by line, so each produced line must paint as a single
     // row no wider than the budget — otherwise it would overflow.
-    for (const line of textLines(node, columns)) expect(line.length).toBeLessThanOrEqual(columns - 2);
+    for (const line of textLines(node, columns))
+      expect(line.length).toBeLessThanOrEqual(columns - 2);
   });
 });

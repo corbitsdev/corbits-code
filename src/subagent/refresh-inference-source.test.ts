@@ -41,7 +41,12 @@ describe("refresh-inference-source", () => {
     const { ensureFreshInferenceSource } = await import("./refresh-inference-source.js");
     const source = baseSource("custom-gateway", "key-abc");
     const out = await ensureFreshInferenceSource(source, [
-      { name: "custom-gateway", baseURL: "https://example.com/v1", models: ["gpt-4o"], apiKey: "key-abc" },
+      {
+        name: "custom-gateway",
+        baseURL: "https://example.com/v1",
+        models: ["gpt-4o"],
+        apiKey: "key-abc",
+      },
     ]);
     expect(out.apiKey).toBe("key-abc");
   });

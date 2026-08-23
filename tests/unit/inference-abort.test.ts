@@ -15,13 +15,17 @@ test("isInternalRecoveryAbortRaw matches internal-recovery origin", () => {
 test("isNonTerminalInferenceError distinguishes internal abort from user-stop", () => {
   expect(isNonTerminalInferenceError({ category: "timeout" })).toBe(true);
   expect(isNonTerminalInferenceError({ category: "retryable" })).toBe(true);
-  expect(isNonTerminalInferenceError({
-    category: "aborted",
-    raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
-  })).toBe(true);
-  expect(isNonTerminalInferenceError({
-    category: "aborted",
-    raw: { origin: INFERENCE_ABORT_USER_STOP },
-  })).toBe(false);
+  expect(
+    isNonTerminalInferenceError({
+      category: "aborted",
+      raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
+    }),
+  ).toBe(true);
+  expect(
+    isNonTerminalInferenceError({
+      category: "aborted",
+      raw: { origin: INFERENCE_ABORT_USER_STOP },
+    }),
+  ).toBe(false);
   expect(isNonTerminalInferenceError({ category: "fatal" })).toBe(false);
 });

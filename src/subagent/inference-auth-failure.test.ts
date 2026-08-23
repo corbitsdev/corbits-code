@@ -9,14 +9,10 @@ import {
 describe("sub-agent inference auth failures", () => {
   test("classifies Codex and xAI auth errors", () => {
     expect(
-      classifySubAgentInferenceAuthFailure(
-        new CodexAuthError("work", "refresh-failed", "expired"),
-      ),
+      classifySubAgentInferenceAuthFailure(new CodexAuthError("work", "refresh-failed", "expired")),
     ).toBe("codex");
     expect(
-      classifySubAgentInferenceAuthFailure(
-        new XaiAuthError("default", "refresh-failed", "401"),
-      ),
+      classifySubAgentInferenceAuthFailure(new XaiAuthError("default", "refresh-failed", "401")),
     ).toBe("xai");
     expect(classifySubAgentInferenceAuthFailure(new Error("nope"))).toBeNull();
   });

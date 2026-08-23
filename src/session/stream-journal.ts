@@ -43,7 +43,7 @@ export type PartialFlushReason =
   | "send-failed"
   | "inference-error";
 
-export type CycleTextRecorder = {
+export interface CycleTextRecorder {
   /** Feed every stream event; buffers deltas, resets on done, flushes on error. */
   handleEvent: (event: ReactorEmittedEvent) => void;
   /** The buffered visible text of the current (unfinished) cycle. */
@@ -64,7 +64,7 @@ export type CycleTextRecorder = {
   dispose: (reason: PartialFlushReason, opts?: { drain?: Promise<unknown> }) => Promise<string>;
   /** Reopen a closed recorder with an empty buffer for the next session. */
   reset: () => void;
-};
+}
 
 export function createCycleTextRecorder(
   // Resolved per flush because the TUI rotates its session context dir in
@@ -91,7 +91,11 @@ export function createCycleTextRecorder(
       record.thinkingText = thinkingText;
     }
     try {
-      await appendFile(join(resolveContextDir(), PARTIAL_FILE), `${JSON.stringify(record)}\n`, "utf8");
+      await appendFile(
+        join(resolveContextDir(), PARTIAL_FILE),
+        `${JSON.stringify(record)}\n`,
+        "utf8",
+      );
     } catch (err) {
       getLogger([LOG_NAMESPACE_ROOT, "session", "partial"]).warn(
         "failed to write partial stream output: {error}",

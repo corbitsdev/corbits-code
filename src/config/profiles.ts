@@ -91,8 +91,10 @@ export async function resolveProfile(cwd: string, profileName?: string): Promise
     if (projectProfile.systemPromptExtensions !== undefined) {
       merged.systemPromptExtensions = projectProfile.systemPromptExtensions;
     }
-    if (projectProfile.inactivityTimeoutMs !== undefined) merged.inactivityTimeoutMs = projectProfile.inactivityTimeoutMs;
-    if (projectProfile.totalTimeoutMs !== undefined) merged.totalTimeoutMs = projectProfile.totalTimeoutMs;
+    if (projectProfile.inactivityTimeoutMs !== undefined)
+      merged.inactivityTimeoutMs = projectProfile.inactivityTimeoutMs;
+    if (projectProfile.totalTimeoutMs !== undefined)
+      merged.totalTimeoutMs = projectProfile.totalTimeoutMs;
   }
 
   const resolvedName = profileName ?? projectProfile?.profile;

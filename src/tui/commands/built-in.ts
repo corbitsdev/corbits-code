@@ -226,5 +226,4 @@ export function registerBuiltInCommands(): void {
       };
     },
   });
-
 }

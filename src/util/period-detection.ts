@@ -12,29 +12,29 @@
  * delegate here rather than each hand-rolling the search.
  */
 
-export type SequencePeriodCheck = {
-  readonly repeating: boolean
-  readonly period: number | null
-  readonly repeats: number
+export interface SequencePeriodCheck {
+  readonly repeating: boolean;
+  readonly period: number | null;
+  readonly repeats: number;
 }
 
-export type SequencePeriodOptions<T> = {
-  readonly minPeriod: number
-  readonly maxPeriod: number
+export interface SequencePeriodOptions<T> {
+  readonly minPeriod: number;
+  readonly maxPeriod: number;
   /**
    * Repeats required for a period to count as a cycle. A fixed number, or a
    * function of the candidate period when different period lengths warrant
    * different bars.
    */
-  readonly minRepeats: number | ((period: number) => number)
-  readonly equals?: (a: T, b: T) => boolean
+  readonly minRepeats: number | ((period: number) => number);
+  readonly equals?: (a: T, b: T) => boolean;
   /**
    * Minimum distinct units required within the repeating span itself, as a
    * function of period. Omit to skip the check.
    */
-  readonly minDistinct?: (period: number) => number
+  readonly minDistinct?: (period: number) => number;
   /** Key used for the distinct-unit count when T is not itself string-safe. */
-  readonly keyOf?: (item: T) => string
+  readonly keyOf?: (item: T) => string;
 }
 
 /**
@@ -47,29 +47,29 @@ function periodicSuffixLength<T>(
   period: number,
   equals: (a: T, b: T) => boolean,
 ): number {
-  let i = seq.length - 1
-  let j = i - period
-  let matched = 0
+  let i = seq.length - 1;
+  let j = i - period;
+  let matched = 0;
   while (j >= 0 && equals(seq[i] as T, seq[j] as T)) {
-    matched++
-    i--
-    j--
+    matched++;
+    i--;
+    j--;
   }
-  return matched + period
+  return matched + period;
 }
 
 export function detectSequencePeriod<T>(
   seq: readonly T[],
   options: SequencePeriodOptions<T>,
 ): SequencePeriodCheck {
-  const equals = options.equals ?? ((a: T, b: T) => a === b)
+  const equals = options.equals ?? ((a: T, b: T) => a === b);
   const minRepeatsFor =
     typeof options.minRepeats === "function"
       ? options.minRepeats
       : (() => {
-          const fixed = options.minRepeats as number
-          return () => fixed
-        })()
+          const fixed = options.minRepeats as number;
+          return () => fixed;
+        })();
   // Periods longer than seq.length / minRepeats cannot mathematically reach
   // the occurrence threshold, so they are skipped rather than scanned — same
   // optimization as the original character-stream detector. Only applies
@@ -78,20 +78,20 @@ export function detectSequencePeriod<T>(
   const maxPeriod =
     typeof options.minRepeats === "number"
       ? Math.min(options.maxPeriod, Math.floor(seq.length / options.minRepeats))
-      : options.maxPeriod
+      : options.maxPeriod;
 
   for (let period = options.minPeriod; period <= maxPeriod; period++) {
-    const matched = periodicSuffixLength(seq, period, equals)
-    const repeats = matched / period
-    if (repeats < minRepeatsFor(period)) continue
+    const matched = periodicSuffixLength(seq, period, equals);
+    const repeats = matched / period;
+    if (repeats < minRepeatsFor(period)) continue;
     if (options.minDistinct !== undefined) {
-      const unit = seq.slice(seq.length - period)
+      const unit = seq.slice(seq.length - period);
       const distinct = new Set(
         unit.map((item) => (options.keyOf ? options.keyOf(item) : (item as unknown as string))),
-      ).size
-      if (distinct < options.minDistinct(period)) continue
+      ).size;
+      if (distinct < options.minDistinct(period)) continue;
     }
-    return { repeating: true, period, repeats }
+    return { repeating: true, period, repeats };
   }
-  return { repeating: false, period: null, repeats: 0 }
+  return { repeating: false, period: null, repeats: 0 };
 }
