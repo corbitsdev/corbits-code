@@ -5,11 +5,7 @@ import {
   createAttachmentRehydrateTransform,
   rehydrateAttachmentImages,
 } from "./attachment-store.js";
-import {
-  attachmentUri,
-  formatAgedImageMarker,
-  parseAgedImageMarker,
-} from "./attachment-uri.js";
+import { attachmentUri, formatAgedImageMarker, parseAgedImageMarker } from "./attachment-uri.js";
 
 const PNG_B64 = "iVBORw0KGgo=";
 
@@ -41,7 +37,9 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     expect(aged.blobs[0]!.contentType).toBe("image/png");
     expect(new TextDecoder().decode(aged.blobs[0]!.bytes)).toBe(PNG_B64);
 
-    const markerText = aged.turn.content.find((b) => b.type === "text" && b.text.includes("attachment:///"));
+    const markerText = aged.turn.content.find(
+      (b) => b.type === "text" && b.text.includes("attachment:///"),
+    );
     expect(markerText?.type).toBe("text");
 
     const blobMap = new Map(aged.blobs.map((b) => [b.key, b.bytes]));

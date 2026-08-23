@@ -6,10 +6,7 @@ import { tool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { type } from "arktype";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type {
-  ToolDefinition,
-  ToolResult,
-} from "@intx/types/runtime";
+import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
 import { formatSubAgentTaskAuthFailureMessage } from "./inference-auth-failure.js";
@@ -37,10 +34,7 @@ import {
 } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import type { SubAgentSessionStore } from "./session-store.js";
-import {
-  buildDispatchBrief,
-  type TaskIntent,
-} from "./report.js";
+import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import { appendSubAgentParentHints } from "./stop-policy.js";
 import {
   classifyBriefSalvage,
@@ -76,17 +70,17 @@ export const TaskToolArgs = type({
   "maxTurns?": "number",
 });
 
-
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    "Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session's permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration (\"map every caller of X\") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.",
+    'Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). After thrash / no-progress / repetition / never-acted salvage, re-dispatching the identical brief (same prompt/agent/intent/success_criteria/do_not) is refused — change the brief to retry; maxTurns alone does not unlock it. Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.',
   inputSchema: {
     type: "object",
     properties: {
       description: {
         type: "string",
-        description: "A short label for the sub-agent job (a few words), shown in the Agents strip.",
+        description:
+          "A short label for the sub-agent job (a few words), shown in the Agents strip.",
       },
       context: {
         type: "string",
@@ -212,7 +206,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const args = call.arguments;
       const parsed = TaskToolArgs(args);
       if (parsed instanceof type.errors) {
-        return taskToolResult(call.id, "Error: task requires description (string) and prompt (string).");
+        return taskToolResult(
+          call.id,
+          "Error: task requires description (string) and prompt (string).",
+        );
       }
       const {
         description: rawDesc,
@@ -229,19 +226,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
       const prompt = rawPrompt.trim();
-      const goals =
-        rawGoals
-          ?.map((g) => g.trim())
-          .filter((g) => g.length > 0) ?? [];
+      const goals = rawGoals?.map((g) => g.trim()).filter((g) => g.length > 0) ?? [];
       const intent = rawIntent as TaskIntent | undefined;
       const successCriteria =
-        rawSuccessCriteria
-          ?.map((c) => c.trim())
-          .filter((c) => c.length > 0) ?? [];
-      const doNot =
-        rawDoNot
-          ?.map((d) => d.trim())
-          .filter((d) => d.length > 0) ?? [];
+        rawSuccessCriteria?.map((c) => c.trim()).filter((c) => c.length > 0) ?? [];
+      const doNot = rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
       if (description.length === 0 || prompt.length === 0) {
         return taskToolResult(call.id, "Error: task requires a non-empty description and prompt.");
@@ -270,9 +259,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       // OAuth providers live in the live catalog, not settings.json. Overlay so
       // inference resolution can target Codex/xAI the same way the TUI does.
       const settings =
-        catalog !== undefined
-          ? runtimeSettingsWithCatalog(diskSettings, catalog)
-          : diskSettings;
+        catalog !== undefined ? runtimeSettingsWithCatalog(diskSettings, catalog) : diskSettings;
       const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
 
       // Rebuild provider from a resolved provider/model assignment. Shared by
@@ -312,12 +299,8 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           providerName: resolved.provider,
           baseURL: providerSettings.baseURL,
           ...(providerSettings.keyless === true ? { keyless: true } : {}),
-          ...(providerSettings.bifrostVirtualKey === true
-            ? { bifrostVirtualKey: true }
-            : {}),
-          ...(providerSettings.apiKey !== undefined
-            ? { apiKey: providerSettings.apiKey }
-            : {}),
+          ...(providerSettings.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+          ...(providerSettings.apiKey !== undefined ? { apiKey: providerSettings.apiKey } : {}),
           model: resolved.model,
         };
         return null;
@@ -459,9 +442,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       // Parent director spawn matrix (e.g. greybeard → intern/explore/critique only).
       if (deps.spawnAllowlist !== undefined && deps.spawnAllowlist.length > 0) {
         const childId =
-          agentId !== undefined && agentId.length > 0
-            ? agentId
-            : (resolvedDirectorId ?? "");
+          agentId !== undefined && agentId.length > 0 ? agentId : (resolvedDirectorId ?? "");
         if (childId.length === 0 || !deps.spawnAllowlist.includes(childId)) {
           const allowed = deps.spawnAllowlist.join(", ");
           return taskToolResult(
@@ -476,9 +457,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       // multiply the latency cliff across every spawned worker.
       {
         const roleDefault =
-          resolvedPackage !== undefined
-            ? defaultEffortForDirector(resolvedPackage)
-            : undefined;
+          resolvedPackage !== undefined ? defaultEffortForDirector(resolvedPackage) : undefined;
         const effort = resolveEffortForRole({
           orchestrator,
           ...(effortPin !== undefined ? { pin: effortPin } : {}),
@@ -509,7 +488,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
       });
 
-            const brief = buildDispatchBrief({
+      const brief = buildDispatchBrief({
         description,
         prompt,
         ...(context !== undefined && context.length > 0 ? { context } : {}),
@@ -535,18 +514,17 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       const dispatchCount = admission.dispatchCount;
 
       const agentLabel =
-        agentId !== undefined && agentId.length > 0
-          ? agentId
-          : (resolvedDirectorId ?? "worker");
+        agentId !== undefined && agentId.length > 0 ? agentId : (resolvedDirectorId ?? "worker");
       const session =
-
         deps.sessions !== undefined
           ? deps.sessions.start({
               id: call.id,
               description,
               agentId: agentLabel,
               brief,
-              ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
+              ...(deps.parentSessionId !== undefined
+                ? { parentSessionId: deps.parentSessionId }
+                : {}),
             })
           : undefined;
       const recordEvent =
@@ -585,9 +563,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             ...(session !== undefined ? { parentSessionId: session.id } : {}),
             ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
-            ...(nestedSpawnAllowlist !== undefined
-              ? { spawnAllowlist: nestedSpawnAllowlist }
-              : {}),
+            ...(nestedSpawnAllowlist !== undefined ? { spawnAllowlist: nestedSpawnAllowlist } : {}),
           }
         : undefined;
       // Per-spawn controller so strip cancel and parent stop share one abort
@@ -688,9 +664,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
             ...(writePaths !== undefined ? { writePaths } : {}),
-            ...(orchestrator
-              ? { orchestrator: true, nestedDispatch: nestedDispatch! }
-              : {}),
+            ...(orchestrator ? { orchestrator: true, nestedDispatch: nestedDispatch! } : {}),
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
           };
@@ -699,8 +673,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // when requested, but never discard a returned body (including salvage).
           const wasCancelled =
             childCtl.signal.aborted ||
-            (session !== undefined &&
-              deps.sessions?.get(session.id)?.status === "cancelled");
+            (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
           const salvage = classifyBriefSalvage(result);
           briefLedger.recordOutcome(fingerprint, salvage);
           const hintOptions = {
@@ -709,10 +682,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           };
           if (wasCancelled) {
             subagentStatus = "cancelled";
-            if (
-              session !== undefined &&
-              deps.sessions?.get(session.id)?.status === "running"
-            ) {
+            if (session !== undefined && deps.sessions?.get(session.id)?.status === "running") {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
             const reported = appendSubAgentParentHints(result, hintOptions);
@@ -725,22 +695,19 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           return await finishWithWorktree(
             taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
           );
-
         } catch (err) {
           if (
             isSubAgentCancelError(err, childCtl.signal) ||
-            (session !== undefined &&
-              deps.sessions?.get(session.id)?.status === "cancelled")
+            (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled")
           ) {
             subagentStatus = "cancelled";
             briefLedger.recordOutcome(fingerprint, "cancelled");
-            if (
-              session !== undefined &&
-              deps.sessions?.get(session.id)?.status === "running"
-            ) {
+            if (session !== undefined && deps.sessions?.get(session.id)?.status === "running") {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
-            return await finishWithWorktree(taskToolResult(call.id, cancelledSubAgentMessage(description)));
+            return await finishWithWorktree(
+              taskToolResult(call.id, cancelledSubAgentMessage(description)),
+            );
           }
           subagentStatus = "failed";
           // Run never produced a body — undo the admit so turn-budget retry budget
@@ -759,7 +726,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         } finally {
           signal.removeEventListener("abort", onParentAbort);
         }
-
       } finally {
         end(subagentSpanId);
         telemetry.capture("subagent_end", {

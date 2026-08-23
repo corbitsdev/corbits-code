@@ -1,8 +1,4 @@
-import {
-  CREDENTIAL_SENTINEL,
-  type BuiltRequest,
-  type ProviderAdapter,
-} from "@intx/inference";
+import { CREDENTIAL_SENTINEL, type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 
 // Small adapter for Bifrost (https://docs.getbifrost.ai).

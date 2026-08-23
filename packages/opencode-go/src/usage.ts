@@ -1,20 +1,20 @@
 import { OPENCODE_GO_BASE_URL, OPENCODE_GO_USAGE_PATH } from "./constants.js";
 
-export type GoUsageWindow = {
+export interface GoUsageWindow {
   usageDollars?: number;
   limitDollars?: number;
   usagePercent?: number;
   resetInSec?: number;
-};
+}
 
-export type GoUsage = {
+export interface GoUsage {
   rolling5h?: GoUsageWindow;
   weekly?: GoUsageWindow;
   monthly?: GoUsageWindow;
   /** Raw status when the endpoint is missing or auth fails. */
   status: "ok" | "unavailable" | "unauthorized" | "error";
   message?: string;
-};
+}
 
 /** Minimal fetch shape so tests can inject stubs without matching full DOM fetch. */
 export type GoFetch = (
@@ -42,8 +42,7 @@ export async function fetchGoUsage(
   opts?: { fetchImpl?: GoFetch; signal?: AbortSignal },
 ): Promise<GoUsage> {
   const fetchImpl: GoFetch =
-    opts?.fetchImpl ??
-    ((input, init) => globalThis.fetch(input, init as RequestInit));
+    opts?.fetchImpl ?? ((input, init) => globalThis.fetch(input, init as RequestInit));
   const url = `${OPENCODE_GO_BASE_URL}${OPENCODE_GO_USAGE_PATH}`;
   try {
     const init: {
@@ -103,6 +102,7 @@ export function formatGoUsage(usage: GoUsage): string {
       : w.usageDollars !== undefined && w.limitDollars !== undefined
         ? `$${w.usageDollars.toFixed(2)}/$${w.limitDollars.toFixed(0)}`
         : "ok";
-  const window = usage.rolling5h !== undefined ? "5h" : usage.weekly !== undefined ? "week" : "month";
+  const window =
+    usage.rolling5h !== undefined ? "5h" : usage.weekly !== undefined ? "week" : "month";
   return `Go ${window} ${pct}`;
 }

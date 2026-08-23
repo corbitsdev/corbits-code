@@ -9,7 +9,7 @@
  */
 
 /** Tunable thresholds for the trailing-window repetition check. */
-export type RepetitionConfig = {
+export interface RepetitionConfig {
   /** Smallest normalized window (chars) considered a loop unit. */
   windowMinChars: number;
   /** Consecutive repeats of the window required to trigger. */
@@ -27,7 +27,7 @@ export type RepetitionConfig = {
    * the long, prose-shaped ones. Ignored when normalizeDigits is false.
    */
   maxFoldedPeriodChars?: number;
-};
+}
 
 // windowMinChars * repeatThreshold = 8 * 16 = 128 chars of exactly periodic
 // text — far beyond anything legitimate prose or code produces by accident.

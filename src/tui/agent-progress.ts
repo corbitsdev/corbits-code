@@ -14,7 +14,7 @@
  */
 
 /** Minimal session shape this module reads — avoids a hard dep on the store. */
-export type AgentProgressSession = {
+export interface AgentProgressSession {
   readonly status: "running" | "done" | "failed" | "cancelled";
   readonly currentToolName: string | null;
   /**
@@ -33,7 +33,7 @@ export type AgentProgressSession = {
   readonly currentToolStartedAt: number | null;
   readonly startedAt: number;
   readonly lastActivityAt: number;
-};
+}
 
 /**
  * What a lane is actually doing, as opposed to how long it has been alive.
@@ -46,7 +46,7 @@ export type AgentProgressSession = {
  */
 export type LaneState = "working" | "in_tool" | "stalled";
 
-export type AgentProgress = {
+export interface AgentProgress {
   /** Dim trailer painted after the row's subject, e.g. "0:42 · grep". */
   readonly stat: string;
   readonly state: LaneState;
@@ -54,7 +54,7 @@ export type AgentProgress = {
   readonly working: boolean;
   /** True once silence has run longer than the stall window with nothing to explain it. */
   readonly stalled: boolean;
-};
+}
 
 /**
  * Silence after which a running worker reads as hung rather than thinking.
@@ -66,7 +66,6 @@ export type AgentProgress = {
  * stall nudge so UI and salvage agree on what "quiet too long" means.
  */
 export const DEFAULT_STALL_MS = 300_000;
-
 
 /**
  * Second, far longer bound: how long one tool call may stay outstanding before
@@ -171,12 +170,12 @@ export function agentProgress(
  * "working" permanently, including while every lane is stuck. Counting lanes
  * here is what lets the indicator speak for the fleet instead.
  */
-export type FleetProgress = {
+export interface FleetProgress {
   readonly running: number;
   readonly working: number;
   readonly inTool: number;
   readonly stalled: number;
-};
+}
 
 export function fleetProgress(
   sessions: readonly AgentProgressSession[],

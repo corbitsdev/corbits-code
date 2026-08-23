@@ -1,4 +1,7 @@
-export type RowRange = { start: number; end: number };
+export interface RowRange {
+  start: number;
+  end: number;
+}
 
 /**
  * East Asian Ambiguous characters count as one column, not two.

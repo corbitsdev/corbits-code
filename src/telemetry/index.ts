@@ -30,11 +30,11 @@ const DEFAULT_BATCH_INTERVAL_MS = 10_000;
 const DEFAULT_QUEUE_LIMIT = 500;
 const REQUEST_TIMEOUT_MS = 3000;
 
-export type BatchTuning = {
+export interface BatchTuning {
   size?: number;
   intervalMs?: number;
   queueLimit?: number;
-};
+}
 
 // Shown once per installation, in whichever surface a new user reaches
 // first: the onboarding panel on a fresh install (so disclosure accompanies
@@ -61,7 +61,6 @@ export type TelemetryEvent =
   // blocked by env kill switches. See captureIntentional.
   | "survey sent";
 
-
 // Fixed enum of AI observability span names. The raw tool name is never sent
 // as a property: an MCP tool name carries the server identifier it was
 // configured under (`mcp__<server>__<tool>`), which can be a local path or
@@ -74,7 +73,13 @@ export type AiSpanKind = (typeof AI_SPAN_KINDS)[number];
 // free text that routinely carries request URLs, prompt excerpts, and file
 // paths, so the message itself never leaves the process — callers classify
 // it into one of these before capturing.
-export const AI_ERROR_KINDS = ["rate_limit", "auth", "timeout", "cancelled", "inference_failed"] as const;
+export const AI_ERROR_KINDS = [
+  "rate_limit",
+  "auth",
+  "timeout",
+  "cancelled",
+  "inference_failed",
+] as const;
 export type AiErrorKind = (typeof AI_ERROR_KINDS)[number];
 
 // One id per interactive process (TUI session or CLI invocation), generated
@@ -152,14 +157,8 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // Intentional /feedback survey response (PostHog custom survey capture shape).
   // Free text is only sent because the operator typed it for that purpose.
   // turn_trace_id links to the last $ai_generation in this session when known.
-  "survey sent": [
-    "$survey_id",
-    "$survey_questions",
-    "$survey_response",
-    "turn_trace_id",
-  ],
+  "survey sent": ["$survey_id", "$survey_questions", "$survey_response", "turn_trace_id"],
 };
-
 
 const FALSY_ENV_FLAG_VALUES = new Set(["", "0", "false", "off", "no"]);
 
@@ -189,7 +188,10 @@ export function resolveTelemetryEnabled(
 ): boolean {
   if (settings?.telemetry?.enabled === false) return false;
   if (telemetryDisabledByEnv(env)) return false;
-  if (typeof settings?.telemetry?.installationId !== "string" || settings.telemetry.installationId.length === 0) {
+  if (
+    typeof settings?.telemetry?.installationId !== "string" ||
+    settings.telemetry.installationId.length === 0
+  ) {
     return false;
   }
   if (apiKey.length === 0) return false;
@@ -211,22 +213,22 @@ function allowedProperties(
   return result;
 }
 
-export type CreateTelemetryOptions = {
+export interface CreateTelemetryOptions {
   settings: Settings | null | undefined;
   env?: NodeJS.ProcessEnv;
   fetchFn?: typeof fetch;
   host?: string;
   apiKey?: string;
   batch?: BatchTuning;
-};
+}
 
-type QueuedEvent = {
+interface QueuedEvent {
   event: TelemetryEvent;
   properties: Record<string, unknown>;
   timestamp: string;
-};
+}
 
-export type Telemetry = {
+export interface Telemetry {
   enabled: boolean;
   /**
    * Installation distinct id used as PostHog `distinct_id`. Empty when the
@@ -255,9 +257,7 @@ export type Telemetry = {
   // activity they have already generated sent, which makes discarding the
   // queue the honest reading of that intent and flushing it a betrayal.
   discard(): void;
-};
-
-
+}
 
 // Stand-in for callers that were constructed without a telemetry handle —
 // tests, and any code path that runs before startup has built the real one.
@@ -272,8 +272,6 @@ export const NOOP_TELEMETRY: Telemetry = {
   flush: async () => {},
   discard: () => {},
 };
-
-
 
 // Fire-and-forget PostHog batch client. Never throws, never blocks the
 // caller — errors (including timeouts) are swallowed silently since
@@ -389,7 +387,10 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     enqueue(event, properties);
   }
 
-  function captureIntentional(event: TelemetryEvent, properties?: Record<string, unknown>): boolean {
+  function captureIntentional(
+    event: TelemetryEvent,
+    properties?: Record<string, unknown>,
+  ): boolean {
     // One intentional door: free-text survey only. Ambient product/AI events
     // must never ride the ambient-bypass path.
     if (event !== "survey sent") return false;
