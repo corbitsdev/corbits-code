@@ -5,13 +5,13 @@ import { dirname, join } from "node:path";
 import { type } from "arktype";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
-export type ModelPricing = {
+export interface ModelPricing {
   inputPricePerToken: number;
   outputPricePerToken: number;
   cacheReadPricePerToken: number;
-};
+}
 
-export type PricingCache = {
+export interface PricingCache {
   timestamp: number;
   models: Record<string, ModelPricing>;
   // models.dev also publishes a per-model `reasoning` boolean. Captured here so
@@ -22,16 +22,16 @@ export type PricingCache = {
   // compaction can target a fraction of the real window instead of a fixed
   // constant. Optional for backward compatibility with older caches.
   contextWindows?: Record<string, number>;
-};
+}
 
-export type PricingFetcherOptions = {
+export interface PricingFetcherOptions {
   cachePath?: string;
   endpoint?: string;
   fetchImpl?: typeof fetch;
   fetchTimeoutMs?: number;
   now?: () => number;
   refreshIntervalMs?: number;
-};
+}
 
 /** Default models-pricing cache under the tool home dir (not project cwd). */
 export function defaultPricingCachePath(home: string = homedir()): string {
@@ -88,7 +88,8 @@ function* walkModelNodes(value: unknown): Generator<[id: string, node: Record<st
   }
   if (!isRecord(value)) return;
 
-  const id = typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
+  const id =
+    typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
   if (id !== null) yield [id, value];
 
   for (const child of Object.values(value)) {
@@ -118,7 +119,8 @@ export function parseModelsDevContextWindows(payload: unknown): Record<string, n
   for (const [id, node] of walkModelNodes(payload)) {
     // models.dev nests the window under `limit.context`.
     const limit = isRecord(node.limit) ? node.limit : undefined;
-    const context = limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
+    const context =
+      limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
     if (context !== undefined && Number.isFinite(context) && context > 0) {
       windows[id] = context;
     }
@@ -126,7 +128,9 @@ export function parseModelsDevContextWindows(payload: unknown): Record<string, n
   return windows;
 }
 
-export async function readPricingCache(cachePath = defaultPricingCachePath()): Promise<PricingCache | null> {
+export async function readPricingCache(
+  cachePath = defaultPricingCachePath(),
+): Promise<PricingCache | null> {
   try {
     const payload = JSON.parse(await Bun.file(cachePath).text());
     const parsed = pricingCacheHeaderValidator(payload);
@@ -162,7 +166,10 @@ export async function readPricingCache(cachePath = defaultPricingCachePath()): P
   }
 }
 
-export async function writePricingCache(cache: PricingCache, cachePath = defaultPricingCachePath()): Promise<void> {
+export async function writePricingCache(
+  cache: PricingCache,
+  cachePath = defaultPricingCachePath(),
+): Promise<void> {
   try {
     await mkdir(dirname(cachePath), { recursive: true });
     await Bun.write(cachePath, `${JSON.stringify(cache, null, 2)}\n`);
@@ -175,7 +182,9 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
-  const response = await fetchImpl(endpoint, { signal: AbortSignal.timeout(options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS) });
+  const response = await fetchImpl(endpoint, {
+    signal: AbortSignal.timeout(options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
@@ -194,7 +203,9 @@ export async function fetchPricing(options: PricingFetcherOptions = {}): Promise
   };
 }
 
-export async function loadPricing(options: PricingFetcherOptions = {}): Promise<PricingCache | null> {
+export async function loadPricing(
+  options: PricingFetcherOptions = {},
+): Promise<PricingCache | null> {
   const cachePath = options.cachePath ?? defaultPricingCachePath();
   try {
     const pricing = await fetchPricing(options);
@@ -205,7 +216,10 @@ export async function loadPricing(options: PricingFetcherOptions = {}): Promise<
   }
 }
 
-export function lookupModelPricing(cache: PricingCache | null, modelId: string): ModelPricing | null {
+export function lookupModelPricing(
+  cache: PricingCache | null,
+  modelId: string,
+): ModelPricing | null {
   return cache?.models[modelId] ?? null;
 }
 

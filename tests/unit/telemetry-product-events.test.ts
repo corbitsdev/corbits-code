@@ -24,16 +24,17 @@ import {
 
 import { createTelemetry, type Telemetry } from "../../src/telemetry/index.js";
 import { captureSlashCommand } from "../../src/telemetry/product-events.js";
-import {
-  captureAuthFailure,
-  classifyAgentSendFailure,
-} from "../../src/tui/session-chrome.js";
+import { captureAuthFailure, classifyAgentSendFailure } from "../../src/tui/session-chrome.js";
 
-type BatchBody = {
+interface BatchBody {
   batch: { event: string; properties: Record<string, unknown> }[];
-};
+}
 
-function harness(): { telemetry: Telemetry; wire: () => Promise<string>; events: () => Promise<BatchBody["batch"]> } {
+function harness(): {
+  telemetry: Telemetry;
+  wire: () => Promise<string>;
+  events: () => Promise<BatchBody["batch"]>;
+} {
   const bodies: BatchBody[] = [];
   const fetchFn = ((_url: string, init: RequestInit) => {
     bodies.push(JSON.parse(init.body as string) as BatchBody);
@@ -73,7 +74,7 @@ async function tempDir(prefix: string): Promise<string> {
 // 1. permission_kind — an MCP tool id embeds the server key from settings
 // ---------------------------------------------------------------------------
 
-test("permission_prompt buckets an MCP tool to \"mcp\" and never ships the server key", async () => {
+test('permission_prompt buckets an MCP tool to "mcp" and never ships the server key', async () => {
   const { telemetry, wire, events } = harness();
   const gate = createPermissionGate({
     approvals: [],
@@ -97,7 +98,7 @@ test("permission_prompt buckets an MCP tool to \"mcp\" and never ships the serve
   expect(await wire()).not.toContain("acme-internal");
 });
 
-test("permission_prompt buckets an unrecognised tool id to \"custom\"", async () => {
+test('permission_prompt buckets an unrecognised tool id to "custom"', async () => {
   const { telemetry, wire, events } = harness();
   const gate = createPermissionGate({
     approvals: [],
@@ -158,9 +159,16 @@ test("plugin_loaded carries only the discovery origin, never the manifest id", a
   await mkdir(join(pluginDir, "commands"), { recursive: true });
   await writeFile(
     join(pluginDir, "plugin.json"),
-    JSON.stringify({ id: "acmecorp/internal-tools", name: "acmecorp internal tools", version: "1.0.0" }),
+    JSON.stringify({
+      id: "acmecorp/internal-tools",
+      name: "acmecorp internal tools",
+      version: "1.0.0",
+    }),
   );
-  await writeFile(join(pluginDir, "commands", "ship.md"), "---\ndescription: ship it\n---\n\nShip.\n");
+  await writeFile(
+    join(pluginDir, "commands", "ship.md"),
+    "---\ndescription: ship it\n---\n\nShip.\n",
+  );
 
   const mod = await loadPluginEntry(pluginDir, { cwd: root, origin: "project", telemetry });
 
@@ -176,7 +184,7 @@ test("plugin_loaded carries only the discovery origin, never the manifest id", a
 // 4. agent_name — agent profiles are user-definable per project
 // ---------------------------------------------------------------------------
 
-test("subagent events bucket a project-defined profile id to \"custom\"", async () => {
+test('subagent events bucket a project-defined profile id to "custom"', async () => {
   const { telemetry, wire, events } = harness();
   const cwd = await tempDir("corbits-agent-");
   const gate = createPermissionGate({ approvals: [], interactive: false, skipPermissions: true });
@@ -222,7 +230,7 @@ test("the built-in worker label is reported by name", () => {
 // 5. command_name — plugins register into the same slash-command registry
 // ---------------------------------------------------------------------------
 
-test("slash_command buckets a plugin-registered command to \"custom\"", async () => {
+test('slash_command buckets a plugin-registered command to "custom"', async () => {
   const { telemetry, wire, events } = harness();
 
   // Shared product-event helper — not the TUI runner — so headless and TUI
@@ -252,7 +260,10 @@ test("crash reports language error types by name and buckets everything else", a
     kind: "unhandledRejection",
     error_class: classifyErrorClass(new TypeError("boom")),
   });
-  telemetry.capture("crash", { kind: "uncaughtException", error_class: classifyErrorClass("boom") });
+  telemetry.capture("crash", {
+    kind: "uncaughtException",
+    error_class: classifyErrorClass("boom"),
+  });
 
   const captured = await events();
   expect(captured.map((e) => e.properties.error_class)).toEqual([
@@ -276,14 +287,11 @@ test("auth_failure names the provider and never ships the rejection message", as
   const rejections = [
     codexRejection,
     new Error('xai profile "acmecorp-eng" is not authorized.'),
-    new Error('anthropic authentication_error: invalid x-api-key for acmecorp-eng'),
+    new Error("anthropic authentication_error: invalid x-api-key for acmecorp-eng"),
     new Error("connection reset by /Users/someone/acmecorp"),
   ];
   for (const err of rejections) {
-    captureAuthFailure(
-      telemetry,
-      classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth),
-    );
+    captureAuthFailure(telemetry, classifyAgentSendFailure(err, false, isCodexAuth, isXaiAuth));
   }
   // An aborted send outranks the auth match, so it must emit nothing.
   captureAuthFailure(
@@ -292,16 +300,8 @@ test("auth_failure names the provider and never ships the rejection message", as
   );
 
   const captured = await events();
-  expect(captured.map((e) => e.event)).toEqual([
-    "auth_failure",
-    "auth_failure",
-    "auth_failure",
-  ]);
-  expect(captured.map((e) => e.properties.auth_provider)).toEqual([
-    "codex",
-    "xai",
-    "anthropic",
-  ]);
+  expect(captured.map((e) => e.event)).toEqual(["auth_failure", "auth_failure", "auth_failure"]);
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual(["codex", "xai", "anthropic"]);
   const body = await wire();
   expect(body).not.toContain("acmecorp");
   expect(body).not.toContain("error_class");

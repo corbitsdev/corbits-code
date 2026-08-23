@@ -20,14 +20,22 @@ const NO_AVAILABILITY: ToolAvailability = {
 };
 
 const defs: ToolDefinition[] = [
-  { name: "read_file", description: "read a file", inputSchema: { type: "object", properties: {}, required: [] } },
+  {
+    name: "read_file",
+    description: "read a file",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
   // Unadvertised built-in stand-in for ranking tests (web_search is now catalog).
   {
     name: "present",
     description: "search and render layout primitives for pages",
     inputSchema: { type: "object", properties: {}, required: [] },
   },
-  { name: "lsp", description: "resolve symbols, find references", inputSchema: { type: "object", properties: {}, required: [] } },
+  {
+    name: "lsp",
+    description: "resolve symbols, find references",
+    inputSchema: { type: "object", properties: {}, required: [] },
+  },
   {
     name: "mcp__linear__create_issue",
     description: "Create an issue in the tracker",
@@ -70,7 +78,9 @@ describe("createToolIndex", () => {
 
   test("orchestrator mode advertises task and search_agents", () => {
     expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("task");
-    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain("search_agents");
+    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain(
+      "search_agents",
+    );
   });
 
   test("manage_tasks is advertised regardless of availability", () => {
@@ -123,7 +133,10 @@ describe("createToolIndex", () => {
   });
 });
 
-function call(tool: ReturnType<typeof createToolSearchTool>, args: Record<string, unknown>): Promise<string> {
+function call(
+  tool: ReturnType<typeof createToolSearchTool>,
+  args: Record<string, unknown>,
+): Promise<string> {
   if (tool.kind !== "string") throw new Error("expected string tool");
   return tool.handler(args, new AbortController().signal);
 }
@@ -160,22 +173,46 @@ describe("createToolSearchTool", () => {
   });
 
   test("rejects an empty query", async () => {
-    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined, promote: () => undefined });
+    const tool = createToolSearchTool({
+      search: () => [],
+      lookup: () => undefined,
+      promote: () => undefined,
+    });
     expect(await call(tool, { query: "  " })).toContain("Error:");
   });
 
   test("reports when nothing matches", async () => {
-    const tool = createToolSearchTool({ search: () => [], lookup: () => undefined, promote: () => undefined });
+    const tool = createToolSearchTool({
+      search: () => [],
+      lookup: () => undefined,
+      promote: () => undefined,
+    });
     expect(await call(tool, { query: "nonsense" })).toContain("No tools matched");
   });
 });
 
 describe("advertisedTools", () => {
   const registry: ToolDefinition[] = [
-    { name: "read_file", description: "read", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "grep", description: "grep", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "write_file", description: "write", inputSchema: { type: "object", properties: {}, required: [] } },
-    { name: "mcp__linear__create_issue", description: "create", inputSchema: { type: "object", properties: {}, required: [] } },
+    {
+      name: "read_file",
+      description: "read",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "grep",
+      description: "grep",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "write_file",
+      description: "write",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "mcp__linear__create_issue",
+      description: "create",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
   ];
 
   test("orchestrator wire prefix names include multi-agent tools", () => {
@@ -202,7 +239,11 @@ describe("advertisedTools", () => {
     const before = JSON.stringify(advertisedTools(registry));
     const grown: ToolDefinition[] = [
       ...registry,
-      { name: "mcp__acme__do", description: "late", inputSchema: { type: "object", properties: {}, required: [] } },
+      {
+        name: "mcp__acme__do",
+        description: "late",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
     ];
     const after = JSON.stringify(advertisedTools(grown));
     expect(after).toBe(before);
@@ -213,7 +254,9 @@ describe("advertisedTools", () => {
     const reversed = advertisedTools([...registry].reverse()).map((d) => d.name);
     expect(reversed).toEqual(forward);
 
-    const withActivation = advertisedTools(registry, ["mcp__linear__create_issue"]).map((d) => d.name);
+    const withActivation = advertisedTools(registry, ["mcp__linear__create_issue"]).map(
+      (d) => d.name,
+    );
     expect(withActivation.slice(0, forward.length)).toEqual(forward);
   });
 
@@ -229,9 +272,10 @@ describe("advertisedTools", () => {
 
   test("repeated activation of the same tool does not reorder or duplicate it", () => {
     const once = advertisedTools(registry, ["mcp__linear__create_issue"]).map((d) => d.name);
-    const twice = advertisedTools(registry, ["mcp__linear__create_issue", "mcp__linear__create_issue"]).map(
-      (d) => d.name,
-    );
+    const twice = advertisedTools(registry, [
+      "mcp__linear__create_issue",
+      "mcp__linear__create_issue",
+    ]).map((d) => d.name);
     expect(twice).toEqual(once);
     expect(twice.filter((n) => n === "mcp__linear__create_issue")).toHaveLength(1);
   });
@@ -239,9 +283,15 @@ describe("advertisedTools", () => {
   test("multiple activations append in first-activation order regardless of registry order", () => {
     const multi: ToolDefinition[] = [
       ...registry,
-      { name: "mcp__acme__do", description: "late", inputSchema: { type: "object", properties: {}, required: [] } },
+      {
+        name: "mcp__acme__do",
+        description: "late",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
     ];
-    const names = advertisedTools(multi, ["mcp__acme__do", "mcp__linear__create_issue"]).map((d) => d.name);
+    const names = advertisedTools(multi, ["mcp__acme__do", "mcp__linear__create_issue"]).map(
+      (d) => d.name,
+    );
     const tailIdx = names.length - 2;
     expect(names.slice(tailIdx)).toEqual(["mcp__acme__do", "mcp__linear__create_issue"]);
   });

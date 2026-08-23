@@ -12,30 +12,30 @@ CLI binary: `corbits` (`./dist/index.js`). Version lives in `package.json` only.
 
 ### Direct (production)
 
-| Package | Version | Usage |
-|---|---|---|
-| `@intx/agent` | workspace | `createAgent`, `fromToolRunner`, `stringTool` — agent runtime |
-| `@intx/inference` | workspace | `DefaultDirector`, inference runner, OpenAI-compatible provider, event types |
-| `@intx/tools-posix` | workspace | `createPosixTools`, `ToolPlugin` middleware — sandboxed shell/file tools |
-| `@intx/types` | workspace | Runtime types (`ReactorDirector`, `ReactorState`, `ToolDefinition`, `ToolCall`, `ToolResult`, …) |
-| `@intx/storage-isogit` | workspace | Git-backed context persistence |
-| `@opentui/core` | 0.5.1 | Terminal UI renderer |
-| `@opentui/keymap` | 0.5.1 | OpenTUI keybinding support |
-| `@opentui/solid` | 0.5.1 | Solid bindings for OpenTUI |
-| `solid-js` | 1.9.14 | Reactive primitives used by the OpenTUI bindings |
-| `arktype` | catalog ^2.1.29 | Runtime validation |
+| Package                | Version         | Usage                                                                                            |
+| ---------------------- | --------------- | ------------------------------------------------------------------------------------------------ |
+| `@intx/agent`          | workspace       | `createAgent`, `fromToolRunner`, `stringTool` — agent runtime                                    |
+| `@intx/inference`      | workspace       | `DefaultDirector`, inference runner, OpenAI-compatible provider, event types                     |
+| `@intx/tools-posix`    | workspace       | `createPosixTools`, `ToolPlugin` middleware — sandboxed shell/file tools                         |
+| `@intx/types`          | workspace       | Runtime types (`ReactorDirector`, `ReactorState`, `ToolDefinition`, `ToolCall`, `ToolResult`, …) |
+| `@intx/storage-isogit` | workspace       | Git-backed context persistence                                                                   |
+| `@opentui/core`        | 0.5.1           | Terminal UI renderer                                                                             |
+| `@opentui/keymap`      | 0.5.1           | OpenTUI keybinding support                                                                       |
+| `@opentui/solid`       | 0.5.1           | Solid bindings for OpenTUI                                                                       |
+| `solid-js`             | 1.9.14          | Reactive primitives used by the OpenTUI bindings                                                 |
+| `arktype`              | catalog ^2.1.29 | Runtime validation                                                                               |
 
 Other Interchange workspace packages (`@intx/inference-discovery`, `@intx/mime`, `@intx/log`, `@intx/crypto-node`) are pulled transitively via the above.
 
 ### Dev
 
-| Package | Version | Usage |
-|---|---|---|
-| `@intx/inference-testing` | workspace | Deterministic agent-loop test harness |
-| `@types/bun` | 1.3.9 | Bun types |
-| `ws` | ^8.21.0 | WebSocket support |
-| `typescript` | 5.9.3 | Type checking |
-| `typescript-language-server` | ^4.3.4 | TS/JS language server for the `lsp` tool (`bin/check-env` checks for it) |
+| Package                      | Version   | Usage                                                                    |
+| ---------------------------- | --------- | ------------------------------------------------------------------------ |
+| `@intx/inference-testing`    | workspace | Deterministic agent-loop test harness                                    |
+| `@types/bun`                 | 1.3.9     | Bun types                                                                |
+| `ws`                         | ^8.21.0   | WebSocket support                                                        |
+| `typescript`                 | 5.9.3     | Type checking                                                            |
+| `typescript-language-server` | ^4.3.4    | TS/JS language server for the `lsp` tool (`bin/check-env` checks for it) |
 
 ## Interchange packages
 
@@ -161,6 +161,7 @@ Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTR
 5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn build/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. Optional `writePaths` (when a profile sets it) only gate path-keyed product tools.
 
    **Codex tool proxies.** When the active provider is Codex (`isCodexProviderName`), `createAgentToolset` and `runSubAgent` mount `apply_patch`, `shell`, and `update_plan` stringTools from `createCodexToolProxies`, all forwarding through the same posix `ToolRunner` seam (`runTool`) so permission plugins still apply. `apply_patch` parses the Codex envelope and forwards each op (`write_file` / `delete_file` / `read_file`). `shell` — the native Codex name is `shell`, not `exec_command`, per the pinned base-instructions text quoted in `codex-responses-adapter.ts`'s bridge message — normalizes Codex's `command` (string or `["bash","-lc",script]`-style argv array), `workdir`, and `timeout_ms` onto `run_shell`'s `{command, cwd?, timeout?}` and is gated by `allowShellFromCapabilities` (mirrors `allowDeleteFromCapabilities` against `run_shell`). `update_plan` maps Codex's `plan: [{step, status}]` onto `manage_tasks(action: "create")`; `pending`/`in_progress`/`completed` map to `todo`/`doing`/`done` — `manage_tasks`'s `cancelled` status has no Codex equivalent and is never produced by this proxy. Primary strips `apply_patch` after mount (Corbits DIY stays on `write_file` / `edit_file` / `delete_file`); `shell` and `update_plan` stay on primary (same classification as `run_shell` / `manage_tasks`). Build and docs leaf allowlists (`BUILD_TOOLS` / `DOCS_TOOLS`) include `apply_patch` so Codex workers keep the proxy after the capability filter. `CORE_TOOL_NAMES` does not list it.
+
 6. Shipped directors omit `writePaths`. The optional field is still enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`) when a plugin/custom profile sets it.
 7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/worker binary > parent inheritance. Optional skills are listed in the identity header for awareness; workers do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
 
@@ -172,10 +173,10 @@ Auto mode defaults **on** (`config.auto = true` from `loadConfig`; pass `--no-au
 
 When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOLS` and any `run_shell` that does not match the auto-shell policy. The policy (`autoShellRuleForCall` / `AUTO_SHELL_RULES` in `src/permission/auto-shell-policy.ts`) peels wrappers via `expandShellSubjects` (`bash`/`sh`/`zsh -c`, `xargs`, transparent prefixes), then applies:
 
-| Effect | Categories |
-|---|---|
-| **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc) |
-| **ask** | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
+| Effect   | Categories                                                                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc)                                                                                                         |
+| **ask**  | Dependency installs / remote runners, recursive `rm`, git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
 Unmatched shell auto-allows. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
@@ -249,7 +250,6 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
 
-
 - Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
@@ -260,12 +260,12 @@ Provider and model configuration lives in JSON settings files. The global file h
 
 All `tools.*` keys live in the global settings file only — there is no per-repo override in `.corbits/settings.json` (unlike `sessionMode`).
 
-| Key | Default | Effect |
-|---|---|---|
-| `tools.timeoutMs` | unset (watchdog unarmed) | Outer wall-clock budget per tool `run()` when set |
-| `tools.maxTimeoutMs` | unset | Cap on the outer budget when set; does not cap a longer requested `run_shell` |
-| `tools.waitForApproval` | `true` | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
-| `mcp.timeoutMs` | **300000** (5 min) — armed even when unset | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set |
+| Key                     | Default                                    | Effect                                                                                                                                                 |
+| ----------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tools.timeoutMs`       | unset (watchdog unarmed)                   | Outer wall-clock budget per tool `run()` when set                                                                                                      |
+| `tools.maxTimeoutMs`    | unset                                      | Cap on the outer budget when set; does not cap a longer requested `run_shell`                                                                          |
+| `tools.waitForApproval` | `true`                                     | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
+| `mcp.timeoutMs`         | **300000** (5 min) — armed even when unset | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set                                                  |
 
 The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
 
@@ -314,31 +314,30 @@ Providers and credentials are read exclusively from settings files: the global `
 Printed by `corbits --help` / `-h` from `CLI_HELP_TEXT` in `src/config/index.ts`
 (that constant is the source of truth; keep this table in sync when flags change).
 
-| Verb / Flag | Default | Description |
-|---|---|---|
-| _(no verb)_ | — | Interactive session; optional trailing task text |
-| `exec` / `run` | — | Run a prompt (non-interactive / one-shot) |
-| `resume` / `continue` | — | Open the session picker for this folder (project-keyed to this checkout's git toplevel) |
-| `--resume` | — | Open the interactive session picker |
-| `resume <session-id>` | — | Reopen a specific session |
-| `resume --pick` / `--list` | — | Interactive session picker |
-| `--cwd <dir>` | `process.cwd()` | Working directory |
-| `--config <path>` | `~/.corbits/settings.json` | Settings file to use |
-| `--provider <name>` | from settings | Select a configured provider |
-| `--model <id>` | provider default | Select a model for the active provider |
-| `--profile <name>` | — | Settings profile |
-| `--force` | false | Override an existing run state |
-| `--dangerously-skip-permissions` | false | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain). This launch flag still forces this process; `/yolo [on\|off\|toggle]` persists as the user-global default via `setSkipPermissions` |
-| `--auto` | true (default) | Force auto mode on (workspace writes + unconstrained shell without prompts) |
-| `--no-auto` | false | Start with auto mode off (ask on every consequential action); no in-session key toggles it |
-| `--help`, `-h` | — | Show help (exit 0 via `CliHelpError`) |
+| Verb / Flag                      | Default                    | Description                                                                                                                                                                                                                                                                  |
+| -------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(no verb)_                      | —                          | Interactive session; optional trailing task text                                                                                                                                                                                                                             |
+| `exec` / `run`                   | —                          | Run a prompt (non-interactive / one-shot)                                                                                                                                                                                                                                    |
+| `resume` / `continue`            | —                          | Open the session picker for this folder (project-keyed to this checkout's git toplevel)                                                                                                                                                                                      |
+| `--resume`                       | —                          | Open the interactive session picker                                                                                                                                                                                                                                          |
+| `resume <session-id>`            | —                          | Reopen a specific session                                                                                                                                                                                                                                                    |
+| `resume --pick` / `--list`       | —                          | Interactive session picker                                                                                                                                                                                                                                                   |
+| `--cwd <dir>`                    | `process.cwd()`            | Working directory                                                                                                                                                                                                                                                            |
+| `--config <path>`                | `~/.corbits/settings.json` | Settings file to use                                                                                                                                                                                                                                                         |
+| `--provider <name>`              | from settings              | Select a configured provider                                                                                                                                                                                                                                                 |
+| `--model <id>`                   | provider default           | Select a model for the active provider                                                                                                                                                                                                                                       |
+| `--profile <name>`               | —                          | Settings profile                                                                                                                                                                                                                                                             |
+| `--force`                        | false                      | Override an existing run state                                                                                                                                                                                                                                               |
+| `--dangerously-skip-permissions` | false                      | Auto-allow anything not denied by the authorization layer (gate + pre-gate workspace sandboxes; secret-guard / authz hard denies remain). This launch flag still forces this process; `/yolo [on\|off\|toggle]` persists as the user-global default via `setSkipPermissions` |
+| `--auto`                         | true (default)             | Force auto mode on (workspace writes + unconstrained shell without prompts)                                                                                                                                                                                                  |
+| `--no-auto`                      | false                      | Start with auto mode off (ask on every consequential action); no in-session key toggles it                                                                                                                                                                                   |
+| `--help`, `-h`                   | —                          | Show help (exit 0 via `CliHelpError`)                                                                                                                                                                                                                                        |
 
 Positional arguments after flags are joined into the optional initial task delivered when the TUI mounts. With no positional task, the operator starts from an empty prompt.
 
 ### Agent Source
 
 `createAgent` is configured with a single OpenAI-compatible source built from the resolved config, `defaults.maxTokens = 16384`, and a git-backed `contextDir` at `~/.corbits/projects/<project-key>/<session-id>/context`.
-
 
 ## Protocols and Formats
 
@@ -416,23 +415,23 @@ Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests
 
 ### Child-supervisor IPC awaiter deadlines
 
-| Field | Detail |
-|---|---|
-| **Status** | Not applicable in Corbits Code; deferred to upstream Interchange |
-| **Risk** | Cross-process tool handlers can hang indefinitely when a supervisor reply is lost or stalled (mail submit, substrate write, pack transfer ack paths). |
+| Field                                           | Detail                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**                                      | Not applicable in Corbits Code; deferred to upstream Interchange                                                                                                                                                                                                                                                                                                                                                 |
+| **Risk**                                        | Cross-process tool handlers can hang indefinitely when a supervisor reply is lost or stalled (mail submit, substrate write, pack transfer ack paths).                                                                                                                                                                                                                                                            |
 | **Why Corbits Code-only scope cannot close it** | Corbits Code does not run the workflow-host child supervisor or pack-transport sender loops. There is no `src/` surface that registers pending IPC awaiters for `outbound.result`, `substrate.write.response`, or `repo.pack.ack`. Chat and sub-agent sessions use in-process `@intx/agent` reactors, not the child bridges under `interchange/packages/workflow-host` or `interchange/packages/pack-transport`. |
-| **Upstream owner** | Interchange `workflow-host` (outbound mail and substrate write bridges) and `pack-transport` (pack sender). Deadline behavior should align with existing gated correlation timeouts in the supervisor stack. |
-| **Operator note** | Corbits Code operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo. |
+| **Upstream owner**                              | Interchange `workflow-host` (outbound mail and substrate write bridges) and `pack-transport` (pack sender). Deadline behavior should align with existing gated correlation timeouts in the supervisor stack.                                                                                                                                                                                                     |
+| **Operator note**                               | Corbits Code operators are not exposed to this stall vector unless a future product mode embeds workflow-host children; track closure in Interchange, not in this repo.                                                                                                                                                                                                                                          |
 
 ### Bounded audit collector retention between checkpoints
 
-| Field | Detail |
-|---|---|
-| **Status** | Not applicable on the default path; deferred until real audit persistence is enabled |
-| **Risk** | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs. |
+| Field                                           | Detail                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Status**                                      | Not applicable on the default path; deferred until real audit persistence is enabled                                                                                                                                                                                                      |
+| **Risk**                                        | A live audit collector that buffers full tool results in memory until `flush()` on checkpoint/shutdown can grow without bound on long, checkpoint-sparse runs.                                                                                                                            |
 | **Why Corbits Code-only scope cannot close it** | Production agent setup wires `noopAuditStore()` from `@intx/agent/testing` in `src/tui/runner.ts` and `src/subagent/index.ts`. No `AuditCollector` from `@intx/inference` is instantiated, so bounding `completed` retention in `audit-collector` does not change shipped behavior today. |
-| **Upstream owner** | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata. |
-| **Future Corbits Code work** | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only. |
+| **Upstream owner**                              | `@intx/inference` audit collector (`audit-collector` module): opportunistic flush or capped result bodies while preserving metadata.                                                                                                                                                      |
+| **Future Corbits Code work**                    | If settings later select a persistent audit store, add a bounded wrapper or configuration in `src/` and re-run hardening tests; until then, document the noop path only.                                                                                                                  |
 
 Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; only the two rows above remain upstream or product-gated.
 

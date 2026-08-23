@@ -63,13 +63,16 @@ describe("loadDataOnlyCommands", () => {
       "commands/greet.md":
         "---\ndescription: Greet someone\nargument-hint: <name>\n---\nHello $ARGUMENTS!",
     });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find((c) => c.name === "greet")!;
+    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find(
+      (c) => c.name === "greet",
+    )!;
     expect(cmd.argumentHint).toBe("<name>");
   });
 
-
   test("falls back to the first body line when frontmatter omits a description", async () => {
-    const dir = await makePlugin({ "commands/plain.md": "Summarize the working tree.\nMore detail." });
+    const dir = await makePlugin({
+      "commands/plain.md": "Summarize the working tree.\nMore detail.",
+    });
     const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands[0]!;
     expect(cmd.description).toBe("Summarize the working tree.");
   });
@@ -85,7 +88,9 @@ describe("loadDataOnlyCommands", () => {
       "commands/repo/init.md": "---\ndescription: init a repo\n---\nInit $ARGUMENTS",
       "commands/repo/scan.md": "---\ndescription: scan a repo\n---\nScan it",
     });
-    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find((c) => c.name === "repo");
+    const cmd = (await loadDataOnlyCommands(dir))!.commandPlugin.commands.find(
+      (c) => c.name === "repo",
+    );
     expect(cmd).toBeDefined();
     expect(cmd!.subcommands?.map((s) => s.name).sort()).toEqual(["init", "scan"]);
 
@@ -95,7 +100,7 @@ describe("loadDataOnlyCommands", () => {
     const missing = cmd!.handler("nope", ctx);
     expect(missing).toEqual({
       type: "message",
-      text: "Unknown repo subcommand \"nope\". Available: init, scan",
+      text: 'Unknown repo subcommand "nope". Available: init, scan',
     });
   });
 
@@ -138,7 +143,9 @@ describe("loadDataOnlyPlugin command routing", () => {
   });
 
   test("returns null when the directory has neither agents nor commands", async () => {
-    const dir = await makePlugin({ "manifest.json": JSON.stringify({ id: "x", name: "x", kind: "command" }) });
+    const dir = await makePlugin({
+      "manifest.json": JSON.stringify({ id: "x", name: "x", kind: "command" }),
+    });
     expect(await loadDataOnlyPlugin(dir)).toBeNull();
   });
 
