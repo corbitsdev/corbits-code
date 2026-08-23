@@ -330,6 +330,11 @@ export function wireGates(
 
     const open = (): void => {
       openedGeneration = overlayGeneration;
+      // The gate may have sat behind another overlay in `pending` — this is
+      // the moment it actually reaches the operator's screen, distinct from
+      // when it was raised (see PermissionRequest.markDisplayed and
+      // src/permission/approval-log.ts).
+      ev.request.markDisplayed?.();
       if (ev.timeoutMs !== undefined) {
         timer = setTimeout(() => {
           autoDeny(ev.timeoutMessage ?? "approval timed out; request denied");

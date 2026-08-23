@@ -51,6 +51,7 @@ import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createChatDirector } from "../agent/director.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
 import { createPermissionGate } from "../permission/gate.js";
+import { createApprovalLog } from "../permission/approval-log.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
 import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
@@ -366,6 +367,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       requestApproval: (request: PermissionRequest): Promise<ApprovalOutcome> =>
         promptPermission(request, interactive),
       persist: createApprovalPersist(config.cwd, activeProviderModel),
+      approvalLog: createApprovalLog(sessionDir(config.cwd, sessionId)),
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
