@@ -1,7 +1,19 @@
 import { describe, expect, it } from "bun:test";
+import type { AdapterRegistry } from "@intx/inference";
 import { createBuiltinRegistry } from "@intx/inference/providers";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
-import { sanitizeReplayTurns, withReplaySanitizer } from "./replay-sanitizer.js";
+import {
+  CODEX_RESPONSES_PROVIDER,
+  createCodexResponsesAdapter,
+  tagSignature,
+} from "./codex-responses-adapter.js";
+import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
+import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
+import {
+  sanitizeReplayTurns,
+  THINKING_ONLY_OMITTED,
+  withReplaySanitizer,
+} from "./replay-sanitizer.js";
 
 const GROK_SIGNATURE = "grok-opaque-signature-blob";
 
@@ -32,6 +44,66 @@ function grokThinkingHistory(): ConversationTurn[] {
 function resolveSanitized(source: LastCycleSource) {
   return withReplaySanitizer(createBuiltinRegistry()).resolve(source);
 }
+
+function corbitsRegistry(): AdapterRegistry {
+  const builtin = createBuiltinRegistry();
+  return {
+    has: (provider) =>
+      provider === "openai-compatible" || provider === "grok-responses" || builtin.has(provider),
+    resolve(source, quirks) {
+      if (source.provider === "openai-compatible") {
+        return createOpenAICompatibleAdapter(source);
+      }
+      if (source.provider === "grok-responses") {
+        return createGrokResponsesAdapter(source);
+      }
+      return builtin.resolve(source, quirks);
+    },
+  };
+}
+
+function codexRegistry(): AdapterRegistry {
+  return {
+    has: (provider) => provider === CODEX_RESPONSES_PROVIDER,
+    resolve: (source) => createCodexResponsesAdapter(source),
+  };
+}
+
+function thinkingOnlyHistory(): ConversationTurn[] {
+  return [
+    {
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      timestamp: 1,
+    },
+    {
+      role: "assistant",
+      model: "grok-4",
+      content: [{ type: "thinking", thinking: "pondering" }],
+      timestamp: 2,
+    },
+    {
+      role: "user",
+      content: [{ type: "text", text: "continue" }],
+      timestamp: 3,
+    },
+  ];
+}
+
+const USER_ONLY: ConversationTurn[] = [
+  {
+    role: "user",
+    content: [{ type: "text", text: "hello" }],
+    timestamp: 1,
+  },
+];
+
+const THINKING_ONLY_TAIL: ConversationTurn = {
+  role: "assistant",
+  model: "grok-4",
+  content: [{ type: "thinking", thinking: "pondering" }],
+  timestamp: 2,
+};
 
 describe("sanitizeReplayTurns", () => {
   it("strips foreign thinking blocks and signatures", () => {
@@ -100,6 +172,68 @@ describe("sanitizeReplayTurns", () => {
     const results = turns.flatMap((t) => t.content.filter((b) => b.type === "tool_result"));
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ callId: "call_1", isError: true });
+  });
+
+  it("replaces a thinking-only assistant between users with a marker and keeps roles", () => {
+    const turns = sanitizeReplayTurns(thinkingOnlyHistory(), "claude-opus-4");
+    expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
+    expect(turns[1]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+  });
+
+  it("replaces empty and leftover-only assistant turns with the same marker", () => {
+    const empty = sanitizeReplayTurns(
+      [
+        {
+          role: "assistant",
+          model: "grok-4",
+          content: [],
+          timestamp: 1,
+        },
+      ],
+      "claude-opus-4",
+    );
+    expect(empty[0]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+
+    const leftovers = sanitizeReplayTurns(
+      [
+        {
+          role: "assistant",
+          model: "claude-opus-4",
+          content: [
+            { type: "thinking", thinking: "pondering" },
+            { type: "redacted_thinking", data: "opaque" },
+            { type: "citation", citedText: "quote", source: {} },
+          ],
+          timestamp: 1,
+        },
+      ],
+      "gemini-2.5-pro",
+    );
+    expect(leftovers[0]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+    expect(JSON.stringify(leftovers)).not.toContain("pondering");
+    expect(JSON.stringify(leftovers)).not.toContain("opaque");
+  });
+
+  it("leaves assistant turns with text and/or tool_call unchanged", () => {
+    const withText = sanitizeReplayTurns(grokThinkingHistory(), "grok-4");
+    expect(withText[1]?.content).toEqual([
+      { type: "thinking", thinking: "pondering", signature: GROK_SIGNATURE },
+      { type: "text", text: "answer", signature: GROK_SIGNATURE },
+    ]);
+
+    const withTool = [
+      {
+        role: "assistant" as const,
+        model: "grok-4",
+        content: [
+          { type: "thinking" as const, thinking: "need a tool" },
+          { type: "tool_call" as const, id: "call_1", name: "ls", arguments: {} },
+        ],
+        timestamp: 1,
+      },
+    ];
+    const kept = sanitizeReplayTurns(withTool, "grok-4");
+    expect(kept[0]?.content).toEqual(withTool[0]?.content);
   });
 });
 
@@ -185,5 +319,85 @@ describe("withReplaySanitizer", () => {
     );
     expect(request.body).toContain("tool_result");
     expect(request.body).toContain("call_1");
+  });
+
+  it("changes buildRequest bodies after a thinking-only turn for builtin and Corbits adapters", () => {
+    const sanitized = withReplaySanitizer(corbitsRegistry());
+    const cases: LastCycleSource[] = [
+      { sourceId: "s1", provider: "anthropic", model: "claude-opus-4" },
+      { sourceId: "s1", provider: "google-genai", model: "gemini-2.5-pro" },
+      { sourceId: "s1", provider: "openai", model: "gpt-5" },
+      { sourceId: "s1", provider: "openai-compatible", model: "kimi-k2" },
+      { sourceId: "s1", provider: "grok-responses", model: "grok-4.5" },
+    ];
+    for (const source of cases) {
+      const adapter = sanitized.resolve(source);
+      const without = adapter.buildRequest(USER_ONLY, source.model, {});
+      const withThinking = adapter.buildRequest(
+        [...USER_ONLY, THINKING_ONLY_TAIL],
+        source.model,
+        {},
+      );
+      expect(withThinking.body).not.toEqual(without.body);
+      expect(withThinking.body).toContain(THINKING_ONLY_OMITTED);
+    }
+  });
+
+  it("builds requests for thinking-only and leftover-only assistant turns", () => {
+    const adapter = resolveSanitized({
+      sourceId: "s1",
+      provider: "anthropic",
+      model: "claude-opus-4",
+    });
+    const leftoverHistory: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        model: "grok-4",
+        content: [
+          { type: "thinking", thinking: "pondering" },
+          { type: "redacted_thinking", data: "opaque" },
+          { type: "citation", citedText: "quote", source: {} },
+        ],
+        timestamp: 2,
+      },
+    ];
+    expect(() => adapter.buildRequest(thinkingOnlyHistory(), "claude-opus-4", {})).not.toThrow();
+    expect(() => adapter.buildRequest(leftoverHistory, "claude-opus-4", {})).not.toThrow();
+  });
+
+  // Regression for CL-6912: sanitizeReplayTurns runs INSIDE buildRequest,
+  // before the adapter's own toResponsesItems ever sees a turn. A turn
+  // missing `model` must survive stripForeignBlocks's foreign-turn gate, not
+  // just signatureForModel's gate inside the adapter — otherwise the
+  // signature never reaches the adapter's own (correctly fixed) check.
+  it("carries a reasoning signature through the real buildRequest path when the turn has no model", () => {
+    const adapter = withReplaySanitizer(codexRegistry()).resolve({
+      sourceId: "s1",
+      provider: CODEX_RESPONSES_PROVIDER,
+      model: "gpt-5.1-codex",
+    });
+    const signature = tagSignature(CODEX_RESPONSES_PROVIDER, "cipher");
+    const turns: ConversationTurn[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "ponder", signature },
+          { type: "tool_call", id: "call_1", name: "shell", arguments: {} },
+        ],
+        timestamp: 2,
+      } as unknown as ConversationTurn,
+    ];
+
+    const request = adapter.buildRequest(turns, "gpt-5.1-codex", {});
+    const body = JSON.parse(request.body) as { input: { type: string }[] };
+
+    expect(body.input.some((item) => item.type === "reasoning")).toBe(true);
+    expect(body.input.some((item) => item.type === "function_call")).toBe(true);
   });
 });

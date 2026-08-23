@@ -13,6 +13,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+## [0.2.106] - 2026-08-23
+
 ### Agent
 
 - **xAI short HTTP 429s are rate limits, not quota exhaustion.** Bare 429s from
@@ -20,11 +22,76 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   longer aborts as a long-window quota. Clear usage/quota body markers still
   abort. Transcript shows "Rate limited — retrying…" instead of "Quota exhausted".
 
+- **Resuming a session no longer shows a blank error when the saved history
+  has one corrupted line.** A malformed or schema-invalid line anywhere in the
+  saved transcript used to abort the entire resume load. The TUI's resume view
+  now skips just the bad line (logging it) and still shows the rest of the
+  history; a corrupt file still surfaces as an error during live conversation
+  loading, where correctness matters more than availability.
+
+- **Every stop and nudge is now logged, and so is what each dispatch produced.**
+  `interventions.jsonl` in the worker's trace dir records each intervention with
+  its measured value beside the threshold it crossed, the model family it fired
+  on, and the run state at that moment — plus refused parent re-dispatches and,
+  now, one outcome record per completed dispatch (the salvage kind or a
+  clean-complete marker, plus the dispatch count). `bun run
+  scripts/intervention-forensics.ts` aggregates them: counts by family, value
+  distribution against threshold, two context columns (stops on runs that had
+  already edited files, stops before half the turn budget — not a measured
+  false-positive rate), and outcome counts by kind. Threshold changes can now
+  cite data instead of judgment.
+
+- **Shell file work counts as evidence.** A worker that edited with `sed -i`, a
+  heredoc, or `>` redirection had `editedPaths` empty and salvaged as
+  `never-edited` — a sticky hard block that then refused the parent an identical
+  re-dispatch; one that read with `cat`/`head` salvaged as `incomplete-report`.
+  Both are real work classified as no work. `run_shell` commands are now scanned
+  for file reads and writes using the same subject expansion the auto-shell
+  policy uses, so `bash -c` and `env -S` payloads are inspected rather than
+  trusted.
+
+- **Re-read pressure no longer stops a worker.** The `reReadLimit` thrash hard
+  stop and its soft `re-read-nudge` are removed: reading one file four times
+  while editing another, paging a large file, or re-running a grep to verify an
+  edit could all end a healthy worker with a sticky hard block that refused
+  re-dispatch. Fingerprint period detection already catches a genuinely
+  repeating read cycle, on the evidence that it repeats. `src/subagent/thrash.ts`
+  now only tracks read/edit evidence for the `intent=implement` and critique
+  completeness checks, plus the near-budget wrap-up nudge.
+
+## [0.2.105] - 2026-08-23
+
+### Permissions
+
+- **Every approval ask and how it settles is now logged.** `approvals.jsonl`
+  in the session dir records each consequential decision — auto-mode
+  allow/deny, or an operator prompt's allow-once / allow-with-scope / deny /
+  timeout / abort — with the classifier rule that triggered it, queued /
+  displayed / settled timestamps, and shell chain segment count. No command
+  text, path, or credential is ever recorded; writes are fire-and-forget and
+  never fail a run. `scripts/approval-forensics.ts` aggregates across local
+  sessions.
+
+### Agent
+
+- **Context estimate syncs incrementally on append.** `syncFromTurns` keys
+  prefix turns by object identity and estimates only the new suffix. A rewrite,
+  shrink, or middle-turn identity break still fully recomputes so image-aging
+  cannot leave a stale total.
+- **Thinking-only replay no longer collapses into an identical request.** Assistant turns with no text or tool_call (empty content, leftover thinking/citation) are replaced with a stable `[thinking-only turn omitted]` marker so the turn is kept, roles still alternate, and the next `buildRequest` body differs from the previous one.
+
 - **Compaction keeps scored work, not retry loops.** Errored tool results are no
   longer auto-pinned; identical errors collapse to one representative. Anchors
   are scored (writes, successful task completions, plan updates) and pair
   closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
   and skips degenerate assistant text.
+
+- **Prefix-stable summaries and growth hysteresis.** Existing compacted user
+  turns stay byte-identical across later passes; new folds become later summary
+  turns with an assistant spacer so the prompt prefix can stay in the KV cache.
+  After a compact that remains over the high watermark, the governor waits for
+  usage to grow by 10% of the window before re-arming. Overflow recovery still
+  compacts immediately.
 
 ### Plugins
 
@@ -39,6 +106,21 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - **Sub-agent `maxTurns` no longer hard-caps at 100.** Default remains 30 when
   unset; values must still be integers ≥1. `task(maxTurns)`, profile
   `maxTurns`, and `settings.subagentMaxTurns` may exceed 100 for long jobs.
+
+### Internal
+
+- **`inference.error` partials keep the provider error.** `partial.jsonl`
+  records for `inference-error` now include `error` (`category`, `message`,
+  `statusCode` when present) even when the cycle streamed no text.
+- **Exec `turnsUsed` follows the run-sink.** Mid-run and terminal `run.json`
+  snapshots use `getTurnCount()` the same way the TUI does, instead of
+  writing the initial zero until send finishes.
+
+### Docs
+
+- **`latest` is a symlink, not a session.** Naive globs of a project
+  sessions directory double-count unless they skip `latest` (`listSessions`
+  already does).
 
 ## [0.2.104] - 2026-08-23
 

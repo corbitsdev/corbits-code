@@ -11,5 +11,39 @@
       "@intx/types/*": ["./vendor/intx-types/src/*"]
     }
   },
-  "include": ["src/**/*.ts", "packages/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "packages/**/*.ts",
+    "tests/**/*.ts",
+    "evals/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  // Excluded: hermetic sandbox repos for the capability eval suite, not real
+  // application code. They own their own package.json and are copied into
+  // per-run eval workdirs rather than imported, and tests/fixtures/buggy-service
+  // deliberately ships a bug as fixture content for an eval case.
+  //
+  // tests/fixtures/crash-run and tests/fixtures/plugins/implement-feature are
+  // NOT listed here on purpose: they import real production modules by
+  // relative path (src/index.ts, src/session/active-run.ts, src/session/state.ts,
+  // src/tui/runner.ts, src/workflows/definition.ts, src/tui/commands/registry.ts)
+  // and tests/integration/crash-finalize.test.ts spawns them as live exercises
+  // of that code. Excluding them would recreate exactly the silent-drift gap
+  // this config change exists to close.
+  "exclude": [
+    "tests/fixtures/codex-sse/**",
+    "tests/fixtures/flaky-baseline/**",
+    "tests/fixtures/marketplace/**",
+    "tests/fixtures/plugins/exa/**",
+    "tests/fixtures/plugins/example-agent/**",
+    "tests/fixtures/plugins/example-commands/**",
+    "tests/fixtures/plugins/example-tool/**",
+    "tests/fixtures/rawmode-sigint/**",
+    "tests/fixtures/skill-workspace/**",
+    "tests/fixtures/tier-easy/**",
+    "tests/fixtures/tier-hard/**",
+    "tests/fixtures/tier-med/**",
+    "tests/fixtures/tier-xhard/**",
+    "evals/capability/cases/**"
+  ]
 }

@@ -79,11 +79,18 @@ function sanitizeCallId(callId: string): string {
  * so a poisoned segment can still yield its usable turns on resume. Errors name
  * `fileName` when provided so diagnostics point at the on-disk file, not a bare
  * Bun JSON token.
+ *
+ * `skipMalformed` is for display-only reads (see loadRecentTurns): a bad line
+ * anywhere in any segment drops that line and keeps the surrounding history,
+ * because a blank transcript is a worse answer than a transcript with a hole in
+ * it. The reactor's own load() must never use it — there, history *is* the live
+ * conversation state and silently dropping a turn would corrupt it (CL-5935).
  */
 function parseSegmentTurns(
   text: string,
   tolerateTornTail: boolean,
   fileName = "turns segment",
+  skipMalformed = false,
 ): ConversationTurn[] {
   if (text.length === 0) return [];
   // POSIX truncate past EOF pads with `\0`. Strip them so the rest of the JSONL
@@ -103,10 +110,18 @@ function parseSegmentTurns(
       raw = JSON.parse(line);
     } catch (cause) {
       if (tolerateTornTail && isLast) break;
+      if (skipMalformed) {
+        log.warn?.(`skipping malformed JSON at ${fileName} line ${i + 1}`);
+        continue;
+      }
       throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, { cause });
     }
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
+      if (skipMalformed) {
+        log.warn?.(`skipping unexpected structure at ${fileName} line ${i + 1}`);
+        continue;
+      }
       throw new Error(`${fileName} has unexpected structure at line ${i + 1}: ${result.summary}`);
     }
     turns.push(result);
@@ -233,9 +248,13 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
   const collectedNewestFirst: ConversationTurn[][] = [];
   let total = 0;
   for (let i = segments.length - 1; i >= 0; i--) {
-    const text = await fs.promises.readFile(path.join(dir, segments[i]!), "utf-8");
+    const name = segments[i]!;
+    const text = await fs.promises.readFile(path.join(dir, name), "utf-8");
     // Only the active (last) segment can be mid-write; sealed ones are complete.
-    const turns = parseSegmentTurns(text, i === segments.length - 1);
+    // Display-only: skip lines that will not parse rather than losing the whole
+    // transcript to one bad line, and name the segment in any error that does
+    // escape (CL-5935).
+    const turns = parseSegmentTurns(text, i === segments.length - 1, name, true);
     collectedNewestFirst.push(turns);
     total += turns.length;
     if (total >= minTurns) break;
@@ -368,7 +387,11 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
     if (extraTexts.length === 0) return baseTurns;
 
     const parsedExtras = extraTexts.map((text, index) =>
-      parseSegmentTurns(text, index === extraTexts.length - 1),
+      parseSegmentTurns(
+        text,
+        index === extraTexts.length - 1,
+        segmentFileName(TURNS_FILE, index + 1),
+      ),
     );
     const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
 
@@ -447,7 +470,7 @@ export async function createOptimizedContextStore(dir: string): Promise<ContextS
       const parsedExtras: ConversationTurn[][] = [];
       for (const name of extraNames) {
         const text = await runGit(dir, ["show", `${hash}:${name}`]);
-        parsedExtras.push(parseSegmentTurns(text, false));
+        parsedExtras.push(parseSegmentTurns(text, false, name));
       }
       const keepExtras = longestWellFormedExtraCount(baseTurns, parsedExtras);
       if (keepExtras === 0) return baseTurns;

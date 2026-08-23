@@ -68,6 +68,29 @@ describe("formatPluginWarningsSummary", () => {
     expect(summary).toBe("plugins: 3 skills missing: brand-identity, style, philosophy");
   });
 
+  test("dedupes a skill across warnings from independent collectors, not just within one", () => {
+    // The startup path runs several separate PluginLoadDiagnostics collectors
+    // (discovery, tool-plugins, trust, verify, add-path, profile resolution),
+    // each with its own warnings array. If a future collector starts
+    // reporting the same "skill missing" shape as another, whatever merges
+    // their warnings before summarizing must still collapse to one entry per
+    // skill — formatPluginWarningsSummary itself must not care which
+    // collector instance a warning came from.
+    const discoveryDiag = createPluginLoadDiagnostics();
+    discoveryDiag.warnings.push(
+      'agent a: skill "style" referenced but not found in skill search path',
+    );
+    const profileResolutionDiag = createPluginLoadDiagnostics();
+    profileResolutionDiag.warnings.push(
+      'agent b: skill "style" referenced but not found in skill search path',
+      'agent b: skill "philosophy" referenced but not found in skill search path',
+    );
+
+    const merged = [...discoveryDiag.warnings, ...profileResolutionDiag.warnings];
+    const summary = formatPluginWarningsSummary(merged);
+    expect(summary).toBe("plugins: 2 skills missing: style, philosophy");
+  });
+
   test("mixed-warning count also counts distinct skills", () => {
     const summary = formatPluginWarningsSummary([
       'agent a: skill "style" referenced but not found in skill search path',
