@@ -4,7 +4,7 @@ export function isTokenExpired(tokens: BaseTokens, now: number, skewMs: number):
   return now >= tokens.expiresAt - skewMs;
 }
 
-export type TokenSessionDeps<TTokens extends BaseTokens, TAccess> = {
+export interface TokenSessionDeps<TTokens extends BaseTokens, TAccess> {
   skewMs: number;
   loadProfile: (name: string, home?: string) => Promise<{ tokens: TTokens } | undefined>;
   updateTokens: (name: string, tokens: TTokens, home?: string) => Promise<void>;
@@ -16,12 +16,12 @@ export type TokenSessionDeps<TTokens extends BaseTokens, TAccess> = {
   mergeRefreshed?: (refreshed: TTokens, previous: TTokens) => TTokens;
   missingError: (name: string) => Error;
   refreshFailedError: (name: string, cause: unknown) => Error;
-};
+}
 
-export type TokenSession<TTokens extends BaseTokens, TAccess> = {
+export interface TokenSession<TTokens extends BaseTokens, TAccess> {
   isExpired: (tokens: TTokens, now: number) => boolean;
   getValidToken: (name: string, now?: number, home?: string) => Promise<TAccess>;
-};
+}
 
 // Resolve a valid access token for a named profile, refreshing transparently
 // when the stored token is at or near expiry. Multiple concurrent calls for
@@ -51,7 +51,9 @@ export function createTokenSession<TTokens extends BaseTokens, TAccess>(
       throw deps.refreshFailedError(name, err);
     }
     const merged =
-      deps.mergeRefreshed !== undefined ? deps.mergeRefreshed(refreshed, profile.tokens) : refreshed;
+      deps.mergeRefreshed !== undefined
+        ? deps.mergeRefreshed(refreshed, profile.tokens)
+        : refreshed;
     await deps.updateTokens(name, merged, home);
     return deps.toAccess(merged);
   }

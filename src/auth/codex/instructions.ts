@@ -21,7 +21,8 @@ const PROMPT_SENTINEL = "You are Codex";
 const MIN_PROMPT_LENGTH = 1000;
 
 // Bounds both network calls below so a black-holed connection can never hang
-// exec boot, which awaits refreshCodexInstructions before first inference.
+// exec boot or the TUI's first deliver, both of which wait on
+// refreshCodexInstructions settling before first inference.
 const CODEX_INSTRUCTIONS_TIMEOUT_MS = 10_000;
 
 export function isValidCodexPrompt(text: string): boolean {

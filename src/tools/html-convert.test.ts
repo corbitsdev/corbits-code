@@ -15,7 +15,7 @@ describe("htmlToText", () => {
 describe("htmlToMarkdown", () => {
   test("converts headings, bold, links, and list items", () => {
     const html =
-      "<h1>Title</h1><p>See <a href=\"https://example.com\">the docs</a> and <strong>note</strong>.</p><ul><li>one</li><li>two</li></ul>";
+      '<h1>Title</h1><p>See <a href="https://example.com">the docs</a> and <strong>note</strong>.</p><ul><li>one</li><li>two</li></ul>';
     const md = htmlToMarkdown(html);
     expect(md).toContain("# Title");
     expect(md).toContain("[the docs](https://example.com)");

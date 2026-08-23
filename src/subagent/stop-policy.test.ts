@@ -8,12 +8,17 @@ import {
 
 describe("detectToolFingerprintThrash", () => {
   test("does not flag 4 identical fingerprints — legitimate polling", () => {
-    const history = ["read_file:{\"path\":\"a.ts\"}", "read_file:{\"path\":\"a.ts\"}", "read_file:{\"path\":\"a.ts\"}", "read_file:{\"path\":\"a.ts\"}"];
+    const history = [
+      'read_file:{"path":"a.ts"}',
+      'read_file:{"path":"a.ts"}',
+      'read_file:{"path":"a.ts"}',
+      'read_file:{"path":"a.ts"}',
+    ];
     expect(detectToolFingerprintThrash(history).repeating).toBe(false);
   });
 
   test("flags 5 identical fingerprints", () => {
-    const history = Array.from({ length: 5 }, () => "read_file:{\"path\":\"a.ts\"}");
+    const history = Array.from({ length: 5 }, () => 'read_file:{"path":"a.ts"}');
     const result = detectToolFingerprintThrash(history);
     expect(result).toEqual({ repeating: true, period: 1, repeats: 5 });
   });
@@ -21,7 +26,7 @@ describe("detectToolFingerprintThrash", () => {
   test("flags an alternating A,B cycle after 3 full cycles", () => {
     const history: string[] = [];
     for (let i = 0; i < 3; i++) {
-      history.push("read_file:{\"path\":\"a.ts\"}", "read_file:{\"path\":\"b.ts\"}");
+      history.push('read_file:{"path":"a.ts"}', 'read_file:{"path":"b.ts"}');
     }
     const result = detectToolFingerprintThrash(history);
     expect(result).toEqual({ repeating: true, period: 2, repeats: 3 });
@@ -30,7 +35,7 @@ describe("detectToolFingerprintThrash", () => {
   test("an alternating cycle over 200 turns still resolves to a repeating period", () => {
     const history: string[] = [];
     for (let i = 0; i < 100; i++) {
-      history.push("read_file:{\"path\":\"a.ts\"}", "read_file:{\"path\":\"b.ts\"}");
+      history.push('read_file:{"path":"a.ts"}', 'read_file:{"path":"b.ts"}');
     }
     // The director caps its rolling buffer; simulate the same cap here.
     const capped = history.slice(-TOOL_FINGERPRINT_HISTORY_CAP);
@@ -41,9 +46,9 @@ describe("detectToolFingerprintThrash", () => {
     const history: string[] = [];
     for (let i = 0; i < 3; i++) {
       history.push(
-        "read_file:{\"path\":\"a.ts\"}",
-        "read_file:{\"path\":\"b.ts\"}",
-        "read_file:{\"path\":\"c.ts\"}",
+        'read_file:{"path":"a.ts"}',
+        'read_file:{"path":"b.ts"}',
+        'read_file:{"path":"c.ts"}',
       );
     }
     const result = detectToolFingerprintThrash(history);
@@ -60,10 +65,7 @@ describe("detectToolFingerprintThrash", () => {
   // detectTurnsSinceUserMessageBackstop below exists to close.
   test("a 9-element rotation never flags, regardless of length", () => {
     const paths = Array.from({ length: 9 }, (_, i) => `file-${i}.ts`);
-    const history = Array.from(
-      { length: 90 },
-      (_, i) => `read_file:{"path":"${paths[i % 9]}"}`,
-    );
+    const history = Array.from({ length: 90 }, (_, i) => `read_file:{"path":"${paths[i % 9]}"}`);
     expect(detectToolFingerprintThrash(history).repeating).toBe(false);
   });
 });

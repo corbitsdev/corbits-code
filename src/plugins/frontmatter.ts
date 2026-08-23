@@ -2,12 +2,12 @@
 // commands both ship as markdown with optional YAML frontmatter, so the split
 // logic lives here once rather than being duplicated (and drifting) per kind.
 
-export type ParsedMarkdown = {
+export interface ParsedMarkdown {
   // Parsed YAML frontmatter, an empty object when no block is present, or null
   // only when a block is present but malformed (callers skip the file).
   frontmatter: Record<string, unknown> | null;
   body: string;
-};
+}
 
 // Strip a leading `---\n...\n---` YAML block. Returns { frontmatter, body }.
 // No frontmatter block -> empty-object frontmatter (an agent/command can

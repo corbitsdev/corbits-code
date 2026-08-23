@@ -2,26 +2,24 @@ import { readFile, writeFile } from "node:fs/promises";
 import { hasCode } from "@intx/types";
 import type { ToolDefinition } from "@intx/types/runtime";
 
-export type EditFileSubstringMode = {
+export interface EditFileSubstringMode {
   kind: "substring";
   path: string;
   old_string: string;
   new_string: string;
   replace_all: boolean;
-};
+}
 
-export type EditFileLineRangeMode = {
+export interface EditFileLineRangeMode {
   kind: "line_range";
   path: string;
   start_line: number;
   end_line: number;
   new_string: string;
-};
+}
 
 export type EditFileModeParse =
-  | EditFileSubstringMode
-  | EditFileLineRangeMode
-  | { kind: "invalid"; message: string };
+  EditFileSubstringMode | EditFileLineRangeMode | { kind: "invalid"; message: string };
 
 function optionalInt(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)
@@ -29,17 +27,42 @@ function optionalInt(value: unknown): number | undefined {
     : undefined;
 }
 
+// Models pad the unused mode's fields with fillers (old_string: "", start_line: 0).
+// For mode selection a filler counts as absent: "" is never a valid old_string and
+// 0/null/non-integers are never valid 1-based lines. Treating them as present made
+// filler-padded calls look like "both edit modes" and rejected them (CL-6900).
 function hasOldStringArg(args: Record<string, unknown>): boolean {
-  return typeof args.old_string === "string";
+  return typeof args.old_string === "string" && args.old_string.length > 0;
+}
+
+function validLineNumber(value: unknown): number | undefined {
+  const n = optionalInt(value);
+  return n !== undefined && n >= 1 ? n : undefined;
 }
 
 function hasLineRangeArgs(args: Record<string, unknown>): boolean {
-  return optionalInt(args.start_line) !== undefined || optionalInt(args.end_line) !== undefined;
+  return (
+    validLineNumber(args.start_line) !== undefined || validLineNumber(args.end_line) !== undefined
+  );
 }
 
-const MIXED_MODE_MESSAGE =
-  "edit_file: received both old_string and start_line/end_line; only one edit mode is allowed. " +
-  "Omit old_string to use line-range mode, or omit start_line/end_line to use substring mode.";
+function describeReceived(args: Record<string, unknown>): string {
+  const old = args.old_string;
+  return [
+    typeof old === "string" ? `old_string (len ${old.length})` : "no old_string",
+    args.start_line === undefined
+      ? "no start_line"
+      : `start_line=${JSON.stringify(args.start_line)}`,
+    args.end_line === undefined ? "no end_line" : `end_line=${JSON.stringify(args.end_line)}`,
+  ].join(", ");
+}
+
+function mixedModeMessage(args: Record<string, unknown>): string {
+  return (
+    `edit_file: received ${describeReceived(args)}; only one edit mode is allowed. ` +
+    "Omit old_string to use line-range mode, or omit start_line/end_line to use substring mode."
+  );
+}
 
 export function parseLineRangeFields(
   path: string,
@@ -51,14 +74,18 @@ export function parseLineRangeFields(
   if (start_line === undefined || end_line === undefined) {
     return {
       kind: "invalid",
-      message: "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
+      message:
+        "edit_file line-range mode requires both start_line and end_line (1-based inclusive)",
     };
   }
   if (start_line < 1 || end_line < 1) {
     return { kind: "invalid", message: "start_line and end_line must be >= 1" };
   }
   if (start_line > end_line) {
-    return { kind: "invalid", message: `start_line (${start_line}) must be <= end_line (${end_line})` };
+    return {
+      kind: "invalid",
+      message: `start_line (${start_line}) must be <= end_line (${end_line})`,
+    };
   }
   return { kind: "line_range", path, start_line, end_line, new_string };
 }
@@ -86,7 +113,7 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   // slice, producing a confusing "old_string does not match" error even when the caller
   // meant plain substring mode (CL-4399). One explicit error beats a wrong guess.
   if (substring && lineRange) {
-    return { kind: "invalid", message: MIXED_MODE_MESSAGE };
+    return { kind: "invalid", message: mixedModeMessage(args) };
   }
 
   if (lineRange) {
@@ -94,43 +121,40 @@ export function parseEditFileMode(args: Record<string, unknown>): EditFileModePa
   }
 
   if (!substring) {
+    const emptyOldString = typeof args.old_string === "string";
     return {
       kind: "invalid",
-      message:
-        'edit_file requires old_string (substring mode) or start_line and end_line (line-range mode)',
+      message: emptyOldString
+        ? "edit_file: old_string is empty; provide the exact text to replace (substring mode), " +
+          "or omit it and send start_line/end_line >= 1 (line-range mode). " +
+          `Received ${describeReceived(args)}.`
+        : "edit_file requires old_string (substring mode) or start_line and end_line (line-range mode); " +
+          `received ${describeReceived(args)}`,
     };
-  }
-
-  const old_string = String(args.old_string);
-  if (old_string.length === 0) {
-    return { kind: "invalid", message: "old_string must not be empty" };
   }
 
   return {
     kind: "substring",
     path,
-    old_string,
+    old_string: String(args.old_string),
     new_string,
     replace_all: Boolean(args.replace_all),
   };
 }
 
-export type SplitFileLines = {
+export interface SplitFileLines {
   lines: string[];
   newline: "\n" | "\r\n";
   /** File ended with a newline before the edit. */
   trailingNewline: boolean;
-};
+}
 
 export function splitFileLines(content: string): SplitFileLines {
   const newline: "\n" | "\r\n" = content.includes("\r\n") ? "\r\n" : "\n";
   const trailingNewline =
     content.length > 0 && (newline === "\r\n" ? content.endsWith("\r\n") : content.endsWith("\n"));
 
-  let lines =
-    newline === "\r\n"
-      ? content.split("\r\n")
-      : content.split("\n");
+  let lines = newline === "\r\n" ? content.split("\r\n") : content.split("\n");
 
   if (trailingNewline && lines.length > 0 && lines[lines.length - 1] === "") {
     lines = lines.slice(0, -1);
@@ -149,7 +173,11 @@ function splitNewStringLines(newString: string): string[] {
   return parts;
 }
 
-export function joinFileLines(lines: string[], newline: "\n" | "\r\n", trailingNewline: boolean): string {
+export function joinFileLines(
+  lines: string[],
+  newline: "\n" | "\r\n",
+  trailingNewline: boolean,
+): string {
   if (lines.length === 0) {
     return trailingNewline ? newline : "";
   }

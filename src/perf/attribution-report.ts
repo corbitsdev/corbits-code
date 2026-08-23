@@ -38,7 +38,7 @@ const EXCLUSIVE_SPAN_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /** One exclusive category and its share of a denominator wall. */
-export type CategoryShare = {
+export interface CategoryShare {
   category: AttributionCategory;
   /** Total nanoseconds attributed to this category. */
   ns: number;
@@ -46,22 +46,22 @@ export type CategoryShare = {
   share: number;
   /** Span count contributing to this category (0 for synthetic "other"). */
   count: number;
-};
+}
 
 /**
  * TTFT vs stream split. Shares use (ttft + stream) as the denominator —
  * not inference wall (gaps / un-instrumented inference time are excluded).
  */
-export type InferenceSplit = {
+export interface InferenceSplit {
   ttftNs: number;
   streamNs: number;
   /** Share of (ttft + stream). 0 when both are zero. */
   ttftShare: number;
   streamShare: number;
-};
+}
 
 /** Per-turn exclusive attribution. */
-export type TurnAttribution = {
+export interface TurnAttribution {
   turnId: string;
   turnNs: number;
   open: boolean;
@@ -82,10 +82,10 @@ export type TurnAttribution = {
   transportNs: number;
   /** transportNs / inferenceNs, or 0 when inference is 0. */
   transportShareOfInference: number;
-};
+}
 
 /** Session-level attribution report. */
-export type AttributionReport = {
+export interface AttributionReport {
   session: {
     /**
      * Denominator for shares: sum of turn walls (completed turns use end−start;
@@ -109,9 +109,9 @@ export type AttributionReport = {
     transportShareOfInference: number;
   };
   turns: TurnAttribution[];
-};
+}
 
-type ExclusiveBucket = {
+interface ExclusiveBucket {
   inferenceNs: number;
   toolNs: number;
   permissionWaitNs: number;
@@ -121,7 +121,7 @@ type ExclusiveBucket = {
   ttftNs: number;
   streamNs: number;
   transportNs: number;
-};
+}
 
 function emptyBucket(): ExclusiveBucket {
   return {
@@ -148,10 +148,7 @@ function spanById(spans: readonly PerfSpan[]): Map<string, PerfSpan> {
  * Nested exclusive children (e.g. tool under subagent) must not also fill the
  * exclusive tools bucket — their wall is already inside the parent exclusive.
  */
-function hasExclusiveAncestor(
-  span: PerfSpan,
-  byId: Map<string, PerfSpan>,
-): boolean {
+function hasExclusiveAncestor(span: PerfSpan, byId: Map<string, PerfSpan>): boolean {
   let parentId = span.parentId;
   while (parentId !== undefined) {
     const parent = byId.get(parentId);
@@ -215,11 +212,7 @@ function openPhasesUnder(
  * nested tool under subagent does not double-count against turn wall.
  * Nested diagnostics (ttft / stream / transport) and counts always accumulate.
  */
-function accumulate(
-  bucket: ExclusiveBucket,
-  span: PerfSpan,
-  skipExclusiveNs: boolean,
-): void {
+function accumulate(bucket: ExclusiveBucket, span: PerfSpan, skipExclusiveNs: boolean): void {
   const dur = spanDurationNs(span) ?? 0;
   switch (span.name as SpanName) {
     case "inference":
@@ -289,10 +282,7 @@ function categorySharesFromBucket(
   permissionWaitCount: number,
 ): CategoryShare[] {
   const attributed =
-    bucket.inferenceNs +
-    bucket.toolNs +
-    bucket.permissionWaitNs +
-    bucket.subagentNs;
+    bucket.inferenceNs + bucket.toolNs + bucket.permissionWaitNs + bucket.subagentNs;
   const otherNs = wallNs > 0 ? Math.max(0, wallNs - attributed) : 0;
 
   return [
@@ -378,33 +368,16 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
     accumulateTree(turn.id, byParent, byId, bucket);
 
     const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
-    const openPhases = open
-      ? openPhasesUnder(turn.id, byParent, turn)
-      : [];
-    const inferenceCount = countTopExclusiveUnder(
-      turn.id,
-      byParent,
-      byId,
-      "inference",
-    );
-    const permissionWaitCount = countTopExclusiveUnder(
-      turn.id,
-      byParent,
-      byId,
-      "permission.wait",
-    );
+    const openPhases = open ? openPhasesUnder(turn.id, byParent, turn) : [];
+    const inferenceCount = countTopExclusiveUnder(turn.id, byParent, byId, "inference");
+    const permissionWaitCount = countTopExclusiveUnder(turn.id, byParent, byId, "permission.wait");
 
     return {
       turnId: turn.id,
       turnNs,
       open,
       openPhases,
-      categories: categorySharesFromBucket(
-        bucket,
-        turnNs,
-        inferenceCount,
-        permissionWaitCount,
-      ),
+      categories: categorySharesFromBucket(bucket, turnNs, inferenceCount, permissionWaitCount),
       inference: inferenceSplit(bucket.ttftNs, bucket.streamNs),
       toolCount: bucket.toolCount,
       subagentCount: bucket.subagentCount,
@@ -434,18 +407,8 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       }
     }
     accumulateTree(turn.id, byParent, byId, sessionBucket);
-    inferenceCount += countTopExclusiveUnder(
-      turn.id,
-      byParent,
-      byId,
-      "inference",
-    );
-    permissionWaitCount += countTopExclusiveUnder(
-      turn.id,
-      byParent,
-      byId,
-      "permission.wait",
-    );
+    inferenceCount += countTopExclusiveUnder(turn.id, byParent, byId, "inference");
+    permissionWaitCount += countTopExclusiveUnder(turn.id, byParent, byId, "permission.wait");
   }
 
   // No turn roots (partial / orphan snapshot): fall back to flat exclusive sums
@@ -457,10 +420,7 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       if (span.name === "inference" && !hasExclusiveAncestor(span, byId)) {
         inferenceCount += 1;
       }
-      if (
-        span.name === "permission.wait" &&
-        !hasExclusiveAncestor(span, byId)
-      ) {
+      if (span.name === "permission.wait" && !hasExclusiveAncestor(span, byId)) {
         permissionWaitCount += 1;
       }
       if (span.endNs === undefined) sessionOpenPhases.add(span.name);
@@ -472,9 +432,7 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       sessionBucket.subagentNs;
   }
 
-  const openPhases = [...sessionOpenPhases].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const openPhases = [...sessionOpenPhases].sort((a, b) => a.localeCompare(b));
 
   return {
     session: {
@@ -494,9 +452,7 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       completedTurnCount,
       transportNs: sessionBucket.transportNs,
       transportShareOfInference:
-        sessionBucket.inferenceNs === 0
-          ? 0
-          : sessionBucket.transportNs / sessionBucket.inferenceNs,
+        sessionBucket.inferenceNs === 0 ? 0 : sessionBucket.transportNs / sessionBucket.inferenceNs,
     },
     turns,
   };
@@ -561,8 +517,7 @@ function ms(ns: number): string {
 }
 
 function categoryLine(c: CategoryShare): string {
-  const count =
-    c.count > 0 && c.category !== "other" ? `  n=${c.count}` : "";
+  const count = c.count > 0 && c.category !== "other" ? `  n=${c.count}` : "";
   return `  ${c.category.padEnd(18)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}${count}`;
 }
 
@@ -581,9 +536,7 @@ export function formatAttributionReport(report: AttributionReport): string {
     `Session wall: ${ms(s.wallNs)}  turns=${s.turnCount} (completed=${s.completedTurnCount})`,
   );
   if (s.open) {
-    lines.push(
-      `Open (incomplete): still-running phases: ${formatOpenPhases(s.openPhases)}`,
-    );
+    lines.push(`Open (incomplete): still-running phases: ${formatOpenPhases(s.openPhases)}`);
     lines.push(
       "  Exclusive shares below use completed descendants only — not a full stall diagnosis.",
     );
@@ -617,9 +570,7 @@ export function formatAttributionReport(report: AttributionReport): string {
         `  turn ${t.turnId}${openTag}  wall=${ms(t.turnNs)}  tools=${t.toolCount}  subagents=${t.subagentCount}`,
       );
       if (t.open) {
-        lines.push(
-          `    open phases: ${formatOpenPhases(t.openPhases)}  (shares incomplete)`,
-        );
+        lines.push(`    open phases: ${formatOpenPhases(t.openPhases)}  (shares incomplete)`);
       }
       for (const c of t.categories) {
         lines.push(`    ${c.category.padEnd(16)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}`);

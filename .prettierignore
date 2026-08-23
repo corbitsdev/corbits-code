@@ -4,5 +4,6 @@ vendor/
 scratch/
 node_modules/
 CHANGELOG.md
-# Intentionally corrupt eval fixture (CL-6882) — Prettier cannot parse it.
+# Intentionally invalid source: the broken-toolchain eval fixture.
 tests/fixtures/broken-toolchain/
+

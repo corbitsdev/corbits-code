@@ -21,11 +21,11 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 ## What's vendored
 
-| Package | Vendor path | License | Synced from upstream commit | Retrieved | Local patches |
-|---|---|---|---|---|---|
-| `@intx/inference` | `vendor/intx-inference/` | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types` | `vendor/intx-types/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim |
-| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim |
+| Package                | Vendor path                   | License       | Synced from upstream commit                | Retrieved  | Local patches                                |
+| ---------------------- | ----------------------------- | ------------- | ------------------------------------------ | ---------- | -------------------------------------------- |
+| `@intx/inference`      | `vendor/intx-inference/`      | LGPL-2.1-only | `ad0f99e7977b3ad4f28d8cc8d446ac52a4a2d685` | 2026-08-10 | Yes — see `vendor/intx-inference/PATCHES.md` |
+| `@intx/types`          | `vendor/intx-types/`          | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim                              |
+| `@intx/storage-isogit` | `vendor/intx-storage-isogit/` | LGPL-2.1-only | `55c4431e60cc97dae2f63bfd52de56166e42b13b` | 2026-08-22 | None — verbatim                              |
 
 `@intx/inference` is temporarily behind `@intx/types` and
 `@intx/storage-isogit` as of the 2026-08-22 sync: this is stage 2 of a
@@ -75,6 +75,7 @@ one.
 ## How a vendored package resolves
 
 Root `package.json`:
+
 - `workspaces` lists each `vendor/intx-*` directory as a workspace member.
 - `overrides` pins the package name to `workspace:*`, so every transitive
   consumer (including other published `@intx/*` packages that declare a

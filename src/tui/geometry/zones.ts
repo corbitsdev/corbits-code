@@ -19,7 +19,7 @@ export const ZONE_IDS = [
 
 export type ZoneId = (typeof ZONE_IDS)[number];
 
-export type ZoneDeclaration = {
+export interface ZoneDeclaration {
   readonly id: ZoneId;
   /** Hard minimum rows when the zone is present. */
   readonly min: number;
@@ -32,14 +32,14 @@ export type ZoneDeclaration = {
   readonly idleDefault: number;
   /** Fixed chrome that is always considered unless collapse forces shrink. */
   readonly alwaysOn: boolean;
-};
+}
 
 /**
  * Bound on rendered agent rows in the live agents panel. A large fan-out
  * degrades to a trailing "+N more" row instead of growing the zone (and
  * therefore the chrome budget) without limit.
  */
-export const AGENTS_PANEL_MAX_VISIBLE = 13;
+export const AGENTS_PANEL_MAX_VISIBLE = 10;
 
 /**
  * Share of the terminal the fleet board may take before it starts hiding
@@ -74,7 +74,7 @@ export const TASKS_PANEL_MAX_VISIBLE = 5;
  * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
  * actual heights are assigned by the geometry resolver.
  */
-export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
+export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   progress: { id: "progress", min: 0, max: 2, idleDefault: 0, alwaysOn: false },
   progress_divider: {
     id: "progress_divider",
@@ -106,12 +106,11 @@ export const ZONE_REGISTRY: { readonly [K in ZoneId]: ZoneDeclaration } = {
     alwaysOn: false,
   },
   // Live agents strip under the transcript when present (max = visible lanes +
-  // trailing "+N more" + header slack). Live chrome keeps this zone empty —
-  // fleet status paints as ● Task transcript rows instead.
+  // trailing "+N more"). Auto-paint comes from formatChromeZones → formatAgentsPanel.
   agents: {
     id: "agents",
     min: 0,
-    max: AGENTS_PANEL_MAX_VISIBLE + 2,
+    max: AGENTS_PANEL_MAX_VISIBLE + 1,
     idleDefault: 0,
     alwaysOn: false,
   },

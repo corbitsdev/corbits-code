@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createFleetWatch,
-  fleetDigest,
-  observeFleet,
-  type FleetLane,
-} from "./fleet-report.js";
+import { createFleetWatch, fleetDigest, observeFleet, type FleetLane } from "./fleet-report.js";
 
 const T0 = 1_000_000;
 
@@ -33,8 +28,11 @@ describe("observeFleet", () => {
   });
 
   test("a finished lane does not dump a done-summary into the transcript", () => {
-    const seeded = observeFleet(createFleetWatch(), [lane({ id: "api" }), lane({ id: "docs" })], T0)
-      .watch;
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
     const { updates } = observeFleet(
       seeded,
       [
@@ -73,10 +71,7 @@ describe("observeFleet", () => {
     ).watch;
     const { updates } = observeFleet(
       seeded,
-      [
-        lane({ id: "build", status: "failed", error: "typecheck exited 1" }),
-        lane({ id: "docs" }),
-      ],
+      [lane({ id: "build", status: "failed", error: "typecheck exited 1" }), lane({ id: "docs" })],
       T0 + 1000,
     );
     expect(updates[0]).toContain("build failed — typecheck exited 1");
@@ -139,9 +134,47 @@ describe("fleetDigest", () => {
   });
 
   test("a fleet with nothing left running says so rather than going blank", () => {
-    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
-      "nothing running · 1 done",
-    );
+    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("nothing running · 1 done");
     expect(fleetDigest([], T0)).toBe("nothing running");
+  });
+});
+
+describe("forced-stop reasons", () => {
+  test("a lane finished by a forced stop announces the reason, not a bare done", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({
+          id: "api",
+          status: "done",
+          stopReason: 'repetition — window "Groaning. " × 1363',
+        }),
+        lane({ id: "docs" }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(['api stopped — repetition — window "Groaning. " × 1363']);
+  });
+
+  test("a cancelled lane carries its recorded reason", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({ id: "api", status: "cancelled", stopReason: "cancelled — Session closed" }),
+        lane({ id: "docs" }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["api stopped — cancelled — Session closed"]);
   });
 });
