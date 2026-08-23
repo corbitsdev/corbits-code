@@ -2,15 +2,13 @@ import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  loadProfile,
-  projectProfilePath,
-  profilesDir,
-  resolveProfile,
-} from "./config/profiles.js";
+import { loadProfile, projectProfilePath, profilesDir, resolveProfile } from "./config/profiles.js";
 
 function makeTmp(): string {
-  return join(tmpdir(), `interchange-profiles-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  return join(
+    tmpdir(),
+    `interchange-profiles-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 }
 
 test("profilesDir returns ~/.corbits/profiles", () => {
@@ -89,7 +87,10 @@ test("resolveProfile applies project profile fields", async () => {
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "profile.json"), JSON.stringify({ model: "claude-sonnet", maxTurns: 30 }));
+  await writeFile(
+    join(dir, "profile.json"),
+    JSON.stringify({ model: "claude-sonnet", maxTurns: 30 }),
+  );
   const result = await resolveProfile(cwd);
   expect(result.model).toBe("claude-sonnet");
   expect(result.maxTurns).toBe(30);
@@ -109,10 +110,16 @@ test("resolveProfile: project profile fields override named profile fields", asy
   const cwd = makeTmp();
   const namedDir = join(home, ".corbits", "profiles");
   await mkdir(namedDir, { recursive: true });
-  await writeFile(join(namedDir, "work.json"), JSON.stringify({ model: "base-model", maxTurns: 10 }));
+  await writeFile(
+    join(namedDir, "work.json"),
+    JSON.stringify({ model: "base-model", maxTurns: 10 }),
+  );
   const localDir = join(cwd, ".corbits");
   await mkdir(localDir, { recursive: true });
-  await writeFile(join(localDir, "profile.json"), JSON.stringify({ profile: "work", model: "override-model" }));
+  await writeFile(
+    join(localDir, "profile.json"),
+    JSON.stringify({ profile: "work", model: "override-model" }),
+  );
 
   // We can't easily inject profilesDir home in resolveProfile without additional plumbing,
   // so test the merge logic directly via the exported functions.

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
-export type EnvironmentInfo = {
+export interface EnvironmentInfo {
   cwd: string;
   platform: string;
   /** CPU architecture (e.g. arm64, x64). */
@@ -18,7 +18,7 @@ export type EnvironmentInfo = {
   gitDirtyCount?: number;
   gitStatusSummary?: string;
   topLevel?: string;
-};
+}
 
 const GIT_STATUS_LINES = 12;
 const TOP_LEVEL_ENTRIES = 40;
@@ -83,9 +83,7 @@ async function gatherTopLevel(cwd: string): Promise<string | undefined> {
 export async function gatherEnvironment(cwd: string, date = new Date()): Promise<EnvironmentInfo> {
   const [gitInfo, topLevel] = await Promise.all([gatherGit(cwd), gatherTopLevel(cwd)]);
   const runtime =
-    typeof Bun !== "undefined"
-      ? `Bun ${Bun.version}`
-      : `Node ${process.versions.node}`;
+    typeof Bun !== "undefined" ? `Bun ${Bun.version}` : `Node ${process.versions.node}`;
   return {
     cwd,
     platform: `${osType()} ${release()}`,

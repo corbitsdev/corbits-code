@@ -31,7 +31,11 @@ describe("CODEX_DEFAULT_MODELS", () => {
 describe("codexProvidersAsSettings", () => {
   test("projects profiles into provider settings seeded with the access token", () => {
     const profiles: CodexProfile[] = [
-      { name: "personal", createdAt: 0, tokens: { access: "tok-personal", refresh: "r", expiresAt: 1 } },
+      {
+        name: "personal",
+        createdAt: 0,
+        tokens: { access: "tok-personal", refresh: "r", expiresAt: 1 },
+      },
     ];
     const settings = codexProvidersAsSettings(profiles);
     expect(settings["codex/personal"]?.apiKey).toBe("tok-personal");

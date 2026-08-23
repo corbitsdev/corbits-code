@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createPermissionGate } from "../../../src/permission/gate.js";
 import { autoShellRuleForCall } from "../../../src/permission/auto-shell-policy.js";
-import { stripCommentLines, splitChainedCommand, tokenize } from "../../../src/permission/command.js";
+import {
+  stripCommentLines,
+  splitChainedCommand,
+  tokenize,
+} from "../../../src/permission/command.js";
 import { buildRequests, MEGA_CHAIN_SEGMENT_THRESHOLD } from "../../../src/permission/classify.js";
 import type { RequestApproval } from "../../../src/permission/types.js";
 
@@ -41,7 +45,9 @@ describe("comment normalization x exact full-command grants", () => {
   });
 
   test("a real chain hidden after comments still reaches the threshold", () => {
-    const cmd = Array.from({ length: MEGA_CHAIN_SEGMENT_THRESHOLD }, (_, i) => `cmd${i} run`).join(" && ");
+    const cmd = Array.from({ length: MEGA_CHAIN_SEGMENT_THRESHOLD }, (_, i) => `cmd${i} run`).join(
+      " && ",
+    );
     const [req] = buildRequests(call(cmd));
     expect(req?.scopes.length).toBe(0); // mega-chain: accept-once only
   });

@@ -27,36 +27,27 @@ import {
   PROMPT_BORDER_ROWS,
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_INPUT_ROWS,
-} from "./geometry/index.js"
+} from "./geometry/index.js";
 
 /** Tallest bordered box the prompt may ask for on a terminal of `rows` rows. */
 export function promptBoxCapRows(terminalRows: number): number {
-  const rows = Math.max(1, Math.floor(terminalRows))
-  return Math.max(PROMPT_BASE_ROWS, Math.floor(rows * PROMPT_CAP_FRACTION))
+  const rows = Math.max(1, Math.floor(terminalRows));
+  return Math.max(PROMPT_BASE_ROWS, Math.floor(rows * PROMPT_CAP_FRACTION));
 }
 
 /** Input rows to show for `visualLines` of wrapped content. */
-export function promptInputRows(
-  visualLines: number,
-  terminalRows: number,
-): number {
-  const wanted = Math.max(PROMPT_IDLE_INPUT_ROWS, Math.floor(visualLines))
-  const cap = promptBoxCapRows(terminalRows) - PROMPT_BORDER_ROWS
-  return Math.max(1, Math.min(wanted, cap))
+export function promptInputRows(visualLines: number, terminalRows: number): number {
+  const wanted = Math.max(PROMPT_IDLE_INPUT_ROWS, Math.floor(visualLines));
+  const cap = promptBoxCapRows(terminalRows) - PROMPT_BORDER_ROWS;
+  return Math.max(1, Math.min(wanted, cap));
 }
 
 /** Bordered box rows to request from the geometry resolver. */
-export function promptBoxRows(
-  visualLines: number,
-  terminalRows: number,
-): number {
-  return promptInputRows(visualLines, terminalRows) + PROMPT_BORDER_ROWS
+export function promptBoxRows(visualLines: number, terminalRows: number): number {
+  return promptInputRows(visualLines, terminalRows) + PROMPT_BORDER_ROWS;
 }
 
 /** True once the content no longer fits and the input is scrolling itself. */
-export function promptIsScrolling(
-  visualLines: number,
-  terminalRows: number,
-): boolean {
-  return Math.floor(visualLines) > promptInputRows(visualLines, terminalRows)
+export function promptIsScrolling(visualLines: number, terminalRows: number): boolean {
+  return Math.floor(visualLines) > promptInputRows(visualLines, terminalRows);
 }

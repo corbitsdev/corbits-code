@@ -18,9 +18,10 @@ export const commandPlugin: CommandPlugin = {
 
         const msg = ctx.startWorkflow("implement-feature");
         const target = args.trim();
-        const send = target.length > 0
-          ? `Begin the implement-feature workflow for: ${target}`
-          : "Begin the implement-feature workflow.";
+        const send =
+          target.length > 0
+            ? `Begin the implement-feature workflow for: ${target}`
+            : "Begin the implement-feature workflow.";
 
         if (msg.startsWith("Started")) {
           return { type: "send", text: send };

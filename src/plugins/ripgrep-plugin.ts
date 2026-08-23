@@ -73,7 +73,11 @@ function searchLocation(path: string, fallbackCwd: string): { cwd: string; targe
   }
 }
 
-export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: SpawnRg): ToolPlugin {
+export function ripgrepPlugin(
+  cwd: string,
+  limits: RgLimits = {},
+  spawnChild?: SpawnRg,
+): ToolPlugin {
   const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   return {
     middleware: (next) => async (call, signal) => {
@@ -120,7 +124,10 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
           return { callId: call.id, content: result.message, isError: true };
         }
         if (result.kind === "partial") {
-          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
+          return {
+            callId: call.id,
+            content: partialContent(result.stdout, maxResults, result.notice),
+          };
         }
         return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
@@ -156,7 +163,10 @@ export function ripgrepPlugin(cwd: string, limits: RgLimits = {}, spawnChild?: S
           return { callId: call.id, content: result.message, isError: true };
         }
         if (result.kind === "partial") {
-          return { callId: call.id, content: partialContent(result.stdout, maxResults, result.notice) };
+          return {
+            callId: call.id,
+            content: partialContent(result.stdout, maxResults, result.notice),
+          };
         }
         return { callId: call.id, content: capLines(result.stdout, maxResults) };
       }
