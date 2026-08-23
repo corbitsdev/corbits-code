@@ -42,22 +42,19 @@ function isWithin(root: string, path: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-export type DeleteFilePluginOptions = {
+export interface DeleteFilePluginOptions {
   // When true (yolo / --dangerously-skip-permissions), delete outside the
   // working directory. A getter is resolved per call so `/yolo` mid-session
   // takes effect without rebuilding the plugin stack.
   allowOutside?: boolean | (() => boolean);
-};
+}
 
 function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
   if (typeof value === "function") return value();
   return value === true;
 }
 
-export function deleteFilePlugin(
-  cwd: string,
-  options: DeleteFilePluginOptions = {},
-): ToolPlugin {
+export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions = {}): ToolPlugin {
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
     handler: async (call: ToolCall): Promise<ToolResult> => {
@@ -69,13 +66,19 @@ export function deleteFilePlugin(
       const allowOutside = resolveAllowOutside(options.allowOutside);
       const target = resolve(cwd, args.path);
       try {
-        const [physicalRoot, physicalParent] = await Promise.all([realpath(cwd), realpath(dirname(target))]);
+        const [physicalRoot, physicalParent] = await Promise.all([
+          realpath(cwd),
+          realpath(dirname(target)),
+        ]);
         if (!allowOutside && !isWithin(physicalRoot, physicalParent)) {
           return errorResult(call.id, `${args.path} resolves outside the working directory`);
         }
         const info = await lstat(target);
         if (info.isDirectory()) {
-          return errorResult(call.id, `${args.path} is a directory; delete_file only deletes files`);
+          return errorResult(
+            call.id,
+            `${args.path} is a directory; delete_file only deletes files`,
+          );
         }
         await unlink(target);
         return { callId: call.id, content: `Deleted file: ${args.path}` };

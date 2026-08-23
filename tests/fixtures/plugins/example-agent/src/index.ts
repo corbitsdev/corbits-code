@@ -6,15 +6,17 @@
 // of the AgentProfile contract it needs, so the same pattern works for an
 // out-of-tree plugin without importing core types.
 
-type AgentProfile = {
+interface AgentProfile {
   id: string;
   description?: string;
   tier?: "fast" | "standard" | "clever";
   capabilities?: { mode: "exclude" | "allow"; tools: string[] };
   systemPromptRole?: string;
-};
+}
 
-type AgentPlugin = { agents: AgentProfile[] };
+interface AgentPlugin {
+  agents: AgentProfile[];
+}
 
 // Self-description for the loader and the /plugins UI. An agent plugin is gated
 // by enable only (no consent) — profiles are configuration data, not code.

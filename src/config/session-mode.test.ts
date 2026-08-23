@@ -1,15 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  isSessionMode,
-  resolveSessionMode,
-  sessionModeEnablesSubAgents,
-} from "./session-mode.js";
+import { isSessionMode, resolveSessionMode, sessionModeEnablesSubAgents } from "./session-mode.js";
 
 describe("resolveSessionMode", () => {
   test("always returns orchestrator regardless of settings", () => {
     expect(
-      resolveSessionMode({ providers: {}, sessionMode: "orchestrator" }, { sessionMode: "single" as never }),
+      resolveSessionMode(
+        { providers: {}, sessionMode: "orchestrator" },
+        { sessionMode: "single" as never },
+      ),
     ).toBe("orchestrator");
     expect(resolveSessionMode({ providers: {}, sessionMode: "single" as never }, null)).toBe(
       "orchestrator",

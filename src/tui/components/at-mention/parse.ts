@@ -1,9 +1,9 @@
-export type AtState = {
+export interface AtState {
   // The text the user has typed after the @ (may include path separators).
   prefix: string;
   // Index of the @ character in the full input string. Used for splice-completion.
   atStart: number;
-};
+}
 
 // Pure function: returns non-null when the cursor is inside an @token — i.e.
 // there is an @ somewhere before the cursor with no whitespace between it and

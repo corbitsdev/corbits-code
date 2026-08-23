@@ -14,13 +14,13 @@
 // module-level slot (see getActiveRun below). There is no separate "active"
 // flag on the handle itself — a second field would just be a copy of the
 // same fact, free to drift from the slot it's meant to describe.
-export type RunStateHandle = {
+export interface RunStateHandle {
   sessionId: string;
   cwd: string;
   task: string;
   startedAt: number;
   model?: string;
-};
+}
 
 let activeRun: RunStateHandle | null = null;
 

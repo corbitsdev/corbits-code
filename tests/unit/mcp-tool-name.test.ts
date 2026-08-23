@@ -1,5 +1,10 @@
 import { test, expect, describe } from "bun:test";
-import { isMcpToolName, parseMcpToolName, humanizeMcpTool, isReadOnlyMcpTool } from "../../src/mcp/tool-name.js";
+import {
+  isMcpToolName,
+  parseMcpToolName,
+  humanizeMcpTool,
+  isReadOnlyMcpTool,
+} from "../../src/mcp/tool-name.js";
 
 describe("MCP tool name helpers", () => {
   test("detects mcp tool names", () => {
@@ -8,7 +13,10 @@ describe("MCP tool name helpers", () => {
   });
 
   test("parses server and tool", () => {
-    expect(parseMcpToolName("mcp__acme__list_widgets")).toEqual({ server: "acme", tool: "list_widgets" });
+    expect(parseMcpToolName("mcp__acme__list_widgets")).toEqual({
+      server: "acme",
+      tool: "list_widgets",
+    });
     expect(parseMcpToolName("read_file")).toBeNull();
     expect(parseMcpToolName("mcp__only")).toBeNull();
   });

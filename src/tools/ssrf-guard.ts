@@ -75,7 +75,10 @@ export async function checkUrlForSsrf(rawUrl: string): Promise<SsrfCheckResult> 
     return { ok: false, reason: `Invalid URL: ${rawUrl}` };
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return { ok: false, reason: `Unsupported protocol "${parsed.protocol}"; only http and https are allowed.` };
+    return {
+      ok: false,
+      reason: `Unsupported protocol "${parsed.protocol}"; only http and https are allowed.`,
+    };
   }
 
   const hostname = parsed.hostname;
@@ -86,7 +89,10 @@ export async function checkUrlForSsrf(rawUrl: string): Promise<SsrfCheckResult> 
   const literalVersion = isIP(hostname);
   if (literalVersion !== 0) {
     if (isPrivateAddress(hostname)) {
-      return { ok: false, reason: `Requests to private/loopback/link-local address ${hostname} are not allowed.` };
+      return {
+        ok: false,
+        reason: `Requests to private/loopback/link-local address ${hostname} are not allowed.`,
+      };
     }
     return { ok: true };
   }
@@ -95,14 +101,20 @@ export async function checkUrlForSsrf(rawUrl: string): Promise<SsrfCheckResult> 
   try {
     addresses = await lookup(hostname, { all: true });
   } catch (err) {
-    return { ok: false, reason: `Could not resolve host "${hostname}": ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      reason: `Could not resolve host "${hostname}": ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
   if (addresses.length === 0) {
     return { ok: false, reason: `Host "${hostname}" resolved to no addresses.` };
   }
   for (const { address } of addresses) {
     if (isPrivateAddress(address)) {
-      return { ok: false, reason: `Host "${hostname}" resolves to private/loopback/link-local address ${address}; refusing.` };
+      return {
+        ok: false,
+        reason: `Host "${hostname}" resolves to private/loopback/link-local address ${address}; refusing.`,
+      };
     }
   }
   return { ok: true };

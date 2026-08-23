@@ -93,12 +93,12 @@ of truth for what the slot can say, not this list. It is led by a single density
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
-| State | Cell | Reads as |
-|---|---|---|
-| `working` | cycles `░ ▒ ▓ █` on `RAMP_CYCLE_MS` | moving |
-| `done` | static `█` | finished |
-| `blocked` | static `▌` | waiting on the operator |
-| `stalled` | `!` blinking against `█`, then a static `!` | a problem |
+| State     | Cell                                        | Reads as                |
+| --------- | ------------------------------------------- | ----------------------- |
+| `working` | cycles `░ ▒ ▓ █` on `RAMP_CYCLE_MS`         | moving                  |
+| `done`    | static `█`                                  | finished                |
+| `blocked` | static `▌`                                  | waiting on the operator |
+| `stalled` | `!` blinking against `█`, then a static `!` | a problem               |
 
 Every state is separated by glyph and motion before colour, so all four survive
 a monochrome terminal and are readable without stopping to read the word. A
@@ -107,9 +107,9 @@ printed identically, so the only way to tell them apart was to wait.
 
 `blocked` and `stalled` share the orange deliberately — both name a turn
 waiting on something outside itself — and are told apart by motion: `blocked`
-holds perfectly still, which is the signal that the session is waiting on *you*.
+holds perfectly still, which is the signal that the session is waiting on _you_.
 
-While sub-agents are running, the slot reports the *fleet*, not the parent.
+While sub-agents are running, the slot reports the _fleet_, not the parent.
 `resolveTurnLabel` and `resolveRampPhase` take a `FleetProgress` roll-up and
 rank it above the parent's own stall clock: with live lanes the parent is
 idle by design, so its silence says nothing about whether the session is
@@ -135,7 +135,7 @@ a stall that breaks and re-arms bursts again.
 
 Auto-abort (`shouldAbortForStall`) is reserved for a stream that had already
 started producing tokens and then went dead mid-flight — not for a run that
-is merely *awaiting* the model's next response (right after submit, or the
+is merely _awaiting_ the model's next response (right after submit, or the
 instant a tool batch resolves and `awaitingResponse` flips back to true).
 That wait has no signal to tell "still coming" from "never coming" apart, so
 it is never auto-aborted no matter how long it runs; it still surfaces via
@@ -184,7 +184,7 @@ box a row on a short terminal, and they guarantee different things.
 `prompt` — that loop only runs when the transcript floor is not yet met, and
 it never touches a zone later in the order while an earlier one still has
 rows to give up. Separately, `PROMPT_CAP_FRACTION` in `desiredHeights` caps
-how tall a *requested* prompt is allowed to start at (`PROMPT_CAP_FRACTION *
+how tall a _requested_ prompt is allowed to start at (`PROMPT_CAP_FRACTION *
 terminal.rows`), independent of collapse and before it ever runs. Neither
 mechanism substitutes for the other: the cap bounds the prompt's own growth
 on any terminal, tall or short; the collapse order bounds what other zones
@@ -370,11 +370,12 @@ recent and favorite provider+model pairs sit at the top, then every
 for this session. Escape closes the picker. The row matching the session's
 live active model gets a `(current)` suffix. **Alt+D** persists the focused
 pair as the default (global `defaultProvider` + that provider's `defaultModel`
-+ project-local selection) without switching the live session or closing the
-picker. Alt+F on a model row
-still toggles favorite when a favorite hook is wired. While type-to-filter is
-active, bare `j`/`k` type into the filter rather than moving the highlight —
-use arrow keys (or the filtered list's navigation) to move.
+
+- project-local selection) without switching the live session or closing the
+  picker. Alt+F on a model row
+  still toggles favorite when a favorite hook is wired. While type-to-filter is
+  active, bare `j`/`k` type into the filter rather than moving the highlight —
+  use arrow keys (or the filtered list's navigation) to move.
 
 The list itself never nests by provider, but connecting a new provider is not
 a flat-list row either: the picker used to grow a "connect →" row per
@@ -527,7 +528,7 @@ default), the wheel scrolls the transcript, clicking a collapsed tool row or
 diff arrow expands it in place, and dragging across selectable text starts an
 OpenTUI selection that **auto-copies to the system clipboard on mouse-up**.
 Dragging on non-selectable chrome still scrolls. The cost of holding the
-mouse this way is that *native* terminal drag-select is unavailable while
+mouse this way is that _native_ terminal drag-select is unavailable while
 reporting is on: the terminal hands drag events to the app instead of
 running its own selection. Two chords cover remaining copy needs:
 
@@ -624,7 +625,6 @@ terminal. It cannot observe:
   through a synthetic `SELECTION` event (`copy-wire.test.ts`); a real
   mouse-up path still needs a manual terminal check.
 
-
 Concretely, whole defect classes — a DEC mouse-reporting toggle that silently
 no-ops, an Alt+key chord a given terminal never actually delivers, a
 clipboard write that fails silently on a machine with no clipboard helper
@@ -649,4 +649,4 @@ asserted as fact:
   emulator Corbits Code targets (Shift+Enter and Alt+letter reporting depend
   on kitty-protocol negotiation the harness cannot test — see Test-harness
   blind spots above); this document states what the code does when a chord
-  *is* delivered, not which terminals reliably deliver it.
+  _is_ delivered, not which terminals reliably deliver it.

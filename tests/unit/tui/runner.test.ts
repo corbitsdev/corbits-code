@@ -40,9 +40,9 @@ test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async ()
   expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual({});
 
   // Readable → merge base.
-  expect(
-    await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "single" })),
-  ).toEqual({ sessionMode: "single" });
+  expect(await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "single" }))).toEqual({
+    sessionMode: "single",
+  });
 
   // Unreadable/invalid → null so the caller skips the write instead of
   // overwriting the file with only sessionMode.
@@ -63,7 +63,13 @@ test("rotation resets run-sink so a new session starts from a clean state", () =
   const hookManager = {
     dispatchPostTurn: () => {},
     getStatuses: () => [
-      { id: "h1", name: "log.ts", type: "typescript" as const, path: "/hooks/log.ts", enabled: true },
+      {
+        id: "h1",
+        name: "log.ts",
+        type: "typescript" as const,
+        path: "/hooks/log.ts",
+        enabled: true,
+      },
     ],
   };
   const runSink = createRunSink({ emitter, hookManager });

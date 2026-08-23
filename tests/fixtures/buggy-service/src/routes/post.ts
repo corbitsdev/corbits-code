@@ -26,7 +26,7 @@ export function handlePosts(method: string, path: string): string {
         return JSON.stringify(author);
       }
     }
-    return "{\"error\":\"not found\"}";
+    return '{"error":"not found"}';
   }
-  return "{\"error\":\"bad request\"}";
+  return '{"error":"bad request"}';
 }
