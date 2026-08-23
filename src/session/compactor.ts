@@ -212,6 +212,16 @@ export interface CompactorConfig {
 // an independent literal that can silently drift out of sync.
 export const COMPACTOR_KEEP_RECENT_TURNS = 6;
 
+// Marker on every folded-history user turn. Subsequent compact cycles treat a
+// leading run of these (plus the assistant spacers between them) as a frozen
+// prefix whose object identity and bytes must not change — rewriting the head
+// would invalidate the entire prompt-cache KV for that prefix.
+export const COMPACTED_PREFIX = "[Compacted prior context]";
+
+// Inserted between a frozen prefix that ends on a user summary and a newly
+// appended user summary so the assembled history stays role-alternating.
+export const COMPACT_SPACER_TEXT = "[compaction]";
+
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
   summaryMaxChars: 2000,
@@ -682,6 +692,45 @@ function coalesceAdjacentTextTurns(turns: ConversationTurn[]): ConversationTurn[
   return out;
 }
 
+function firstTextBlock(turn: ConversationTurn): string | undefined {
+  for (const block of turn.content) {
+    if (block.type === "text") return block.text;
+  }
+  return undefined;
+}
+
+function isCompactedSummaryTurn(turn: ConversationTurn): boolean {
+  if (turn.role !== "user") return false;
+  const text = firstTextBlock(turn);
+  return text !== undefined && text.startsWith(COMPACTED_PREFIX);
+}
+
+function isCompactSpacerTurn(turn: ConversationTurn): boolean {
+  if (turn.role !== "assistant") return false;
+  return firstTextBlock(turn) === COMPACT_SPACER_TEXT;
+}
+
+// Leading run of prior summaries plus the spacers between them. Walks from
+// index 0: a compacted user turn, then an immediately following assistant
+// spacer when present, then repeat. The newest summary has no trailing spacer
+// until the next compact inserts one.
+function frozenPrefixLength(turns: readonly ConversationTurn[]): number {
+  let i = 0;
+  while (i < turns.length && isCompactedSummaryTurn(turns[i]!)) {
+    i++;
+    if (i < turns.length && isCompactSpacerTurn(turns[i]!)) i++;
+  }
+  return i;
+}
+
+function compactSpacerTurn(timestamp: number): ConversationTurn {
+  return {
+    role: "assistant",
+    content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
+    timestamp,
+  };
+}
+
 export function createPruningCompactor(config: Partial<CompactorConfig> = {}): Compactor {
   const cfg = { ...DEFAULT_COMPACTOR_CONFIG, ...config };
 
@@ -692,13 +741,23 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       turns: ConversationTurn[],
       _ctx: StrategyContext,
     ): Promise<StrategyResult<ConversationTurn[]>> {
+      // Frozen prefix: prior compacted summaries (and spacers) keep their
+      // object references. Image aging, stubbing, and coalescing run only on
+      // the live suffix so the prompt-cache KV for the prefix stays valid.
+      // When there is no prefix, pass `turns` through (not slice(0)) so a
+      // no-op still returns the same array identity.
+      const frozenLen = frozenPrefixLength(turns);
+      const frozen = frozenLen === 0 ? [] : turns.slice(0, frozenLen);
+      const live = frozenLen === 0 ? turns : turns.slice(frozenLen);
+
       // Eager image aging runs before the compact/no-op branch so base64 pastes
       // leave the inference-facing context as soon as they exit the recent window.
-      const aged = await ageImagesOutsideRecentWindow(turns, cfg.keepRecentTurns);
+      const aged = await ageImagesOutsideRecentWindow(live, cfg.keepRecentTurns);
 
       if (aged.turns.length <= compactorNoOpFloor(cfg.keepRecentTurns)) {
+        const output = frozenLen === 0 ? aged.turns : [...frozen, ...aged.turns];
         return {
-          output: aged.turns,
+          output,
           record: {
             strategy: this.name,
             version: this.version,
@@ -777,6 +836,22 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       const anchorTurns = sortedAnchorIndices.map((i) => olderTurns[i]!);
       const summarizedTurns = olderTurns.filter((_, i) => !anchorIndices.has(i));
 
+      // Keep-set covered the whole live suffix: nothing to fold. Leave the
+      // input (including any frozen prefix) untouched rather than rewriting
+      // the head with an empty summary.
+      if (summarizedTurns.length === 0) {
+        return {
+          output: turns,
+          record: {
+            strategy: this.name,
+            version: this.version,
+            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            reason: "no compaction needed",
+            decisions: { summarizedTurnCount: 0, agedImageCount: aged.agedImageCount },
+          },
+        };
+      }
+
       // Path-dedup only among turns that survive. Supersession over the full
       // transcript would hollow a kept older read when the newer re-read is only
       // in the summary (CL-4374 review follow-up).
@@ -795,7 +870,7 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       // content keeps it in the conversation on every provider.
       const summaryTurn: ConversationTurn = {
         role: "user",
-        content: [{ type: "text", text: `[Compacted prior context]\n${summary}` }],
+        content: [{ type: "text", text: `${COMPACTED_PREFIX}\n${summary}` }],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
@@ -807,11 +882,27 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
       // turns keep live base64 so a just-pasted screenshot still reaches the model.
       const process = (t: ConversationTurn): ConversationTurn =>
         stubSupersededReads(t, supersededReads, callIndex);
-      const output = coalesceAdjacentTextTurns([
+      const liveOutput = coalesceAdjacentTextTurns([
         summaryTurn,
         ...anchorTurns.map(process),
         ...recentTurns.map(process),
       ]);
+
+      // First compact (no frozen prefix): today's shape — summary leads.
+      // Later cycles append an additional summary after the frozen prefix
+      // and never splice into output[0].
+      let output: ConversationTurn[];
+      if (frozenLen === 0) {
+        output = liveOutput;
+      } else {
+        const lastFrozen = frozen[frozen.length - 1]!;
+        const firstLive = liveOutput[0];
+        const spacer =
+          lastFrozen.role === "user" && firstLive?.role === "user"
+            ? [compactSpacerTurn(summaryTurn.timestamp)]
+            : [];
+        output = [...frozen, ...spacer, ...liveOutput];
+      }
 
       return {
         output,

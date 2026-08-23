@@ -6,9 +6,18 @@ import {
   formatPlan,
   classifyTaskBoundary,
   buildLLMTurnSummary,
+  buildTurnSummary,
+  COMPACTED_PREFIX,
+  COMPACT_SPACER_TEXT,
   type SessionMetadata,
 } from "./session/compactor.js";
-import type { ConversationTurn, ReactorState, StrategyContext } from "@intx/types/runtime";
+import { createModelSummarizer } from "./session/summarizer.js";
+import type {
+  ConversationTurn,
+  InferenceSource,
+  ReactorState,
+  StrategyContext,
+} from "@intx/types/runtime";
 
 const mockStrategyCtx: StrategyContext = {
   state: {} as ReactorState,
@@ -574,6 +583,104 @@ describe("createPruningCompactor — summarize receives the workflow context (CL
     ];
     await compactor.apply(turns, mockStrategyCtx);
     expect(capturedCtx).toBe(workflowCtx);
+  });
+});
+
+describe("createPruningCompactor — prefix-stable summaries (CL-6914)", () => {
+  function firstText(turn: ConversationTurn): string {
+    const block = turn.content.find((b) => b.type === "text");
+    return block !== undefined && block.type === "text" ? block.text : "";
+  }
+
+  function compactedTurns(output: ConversationTurn[]): ConversationTurn[] {
+    return output.filter((t) => firstText(t).startsWith(COMPACTED_PREFIX));
+  }
+
+  function grow(base: ConversationTurn[], count: number, label: string): ConversationTurn[] {
+    const extra: ConversationTurn[] = [];
+    for (let i = 0; i < count; i++) {
+      extra.push(
+        makeTurn({
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: [{ type: "text", text: `${label} ${i}` }],
+        }),
+      );
+    }
+    return [...base, ...extra];
+  }
+
+  test("second apply leaves output[0] bytes identical and appends a later summary", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2, summaryMaxChars: 500 });
+    const turns = grow([], 16, "round1");
+    const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
+    expect(firstText(output1[0]!)).toContain(COMPACTED_PREFIX);
+
+    const output2 = (await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)).output;
+
+    expect(firstText(output2[0]!)).toBe(firstText(output1[0]!));
+    expect(output2[0]).toBe(output1[0]);
+    const summaries = compactedTurns(output2);
+    expect(summaries.length).toBeGreaterThanOrEqual(2);
+    expect(output2.indexOf(summaries[1]!)).toBeGreaterThan(0);
+    expect(hasConsecutiveSameRole(output2)).toBe(false);
+    expect(
+      output2.some((t) => t.role === "assistant" && firstText(t) === COMPACT_SPACER_TEXT),
+    ).toBe(true);
+  });
+
+  test("empty-fold keep-set returns the input unchanged", async () => {
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 1,
+      maxAnchorTurns: 8,
+      summaryMaxChars: 500,
+    });
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "user", content: [{ type: "text", text: "the initiating task" }] }),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "c1", name: "edit_file", arguments: { path: "src/a.ts" } },
+        ],
+      }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.output).toBe(turns);
+    expect(result.record.reason).toBe("no compaction needed");
+  });
+
+  test("failing then succeeding summarizer does not rewrite output[0]", async () => {
+    const source: InferenceSource = {
+      id: "test",
+      provider: "openai",
+      model: "test-model",
+      baseURL: "http://localhost:1",
+      apiKey: "k",
+    };
+    let calls = 0;
+    const summarize = createModelSummarizer({
+      getSource: () => source,
+      complete: async () => {
+        calls++;
+        if (calls === 1) throw new Error("model unreachable");
+        return "UNIQUE_SUCCESS_SUMMARY";
+      },
+    });
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 500,
+      summarize,
+    });
+    const turns = grow([], 16, "fail");
+    const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
+    expect(firstText(output1[0]!)).toContain("Turns compacted:");
+    expect(firstText(output1[0]!)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
+    expect(firstText(output1[0]!)).not.toContain("Model summary unavailable");
+
+    const output2 = (await compactor.apply(grow(output1, 16, "ok"), mockStrategyCtx)).output;
+    expect(firstText(output2[0]!)).toBe(firstText(output1[0]!));
+    expect(allText(output2)).toContain("UNIQUE_SUCCESS_SUMMARY");
+    expect(hasConsecutiveSameRole(output2)).toBe(false);
   });
 });
 

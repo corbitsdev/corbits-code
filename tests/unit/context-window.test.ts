@@ -3,9 +3,11 @@ import type { TokenUsage } from "@intx/types/runtime";
 import {
   contextWindowFor,
   compactionThresholdFor,
+  compactionResumeDeltaFor,
   contextTokensFromUsage,
   contextMeterBand,
   COMPACTION_WINDOW_FRACTION,
+  COMPACTION_RESUME_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
 } from "../../src/provider/context-window.js";
@@ -43,6 +45,22 @@ describe("compactionThresholdFor", () => {
 
   test("falls back to the default window when the model is unknown", () => {
     expect(compactionThresholdFor(undefined)).toBe(76_800);
+  });
+});
+
+describe("compactionResumeDeltaFor", () => {
+  test("is 10 percent of the model window", () => {
+    expect(COMPACTION_RESUME_FRACTION).toBe(0.1);
+    expect(compactionResumeDeltaFor("claude-sonnet-4-6")).toBe(20_000);
+  });
+
+  test("uses models.dev window when available", () => {
+    setModelContextWindows({ "small-model": 32_000 });
+    expect(compactionResumeDeltaFor("small-model")).toBe(3_200);
+  });
+
+  test("falls back to the default window when the model is unknown", () => {
+    expect(compactionResumeDeltaFor(undefined)).toBe(12_800);
   });
 });
 

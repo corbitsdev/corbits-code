@@ -201,10 +201,7 @@ export function createModelSummarizer(
   const maxChars = options.maxChars ?? 4000;
 
   return async (turns, ctx) => {
-    // The marker tells the model (and anyone reading a transcript) that the
-    // compacted region is a lossy stats stub, not a real handoff summary.
-    const fallback = (reason: string): string =>
-      `[Model summary unavailable (${reason}); deterministic fallback]\n${buildTurnSummary(turns, maxChars)}`;
+    const fallback = (): string => buildTurnSummary(turns, maxChars);
     try {
       const promptTurns: ConversationTurn[] = [
         {
@@ -222,14 +219,14 @@ export function createModelSummarizer(
       const text = await complete(promptTurns, options.getSource(), signal);
       if (text.length === 0) {
         logger.warn("compaction summary call returned empty text; using deterministic fallback");
-        return fallback("empty model output");
+        return fallback();
       }
       return text.length > maxChars ? text.slice(0, maxChars) : text;
     } catch (error) {
       logger.warn("compaction summary call failed; using deterministic fallback: {error}", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return fallback("summary call failed");
+      return fallback();
     }
   };
 }
