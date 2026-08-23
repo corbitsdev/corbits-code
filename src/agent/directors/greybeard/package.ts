@@ -36,7 +36,5 @@ Focus on:
 - Misalignment between product, architecture, and implementation
 - Duplication that should be refactor/API expansion instead
 
-OUT OF LANE: shipping product code, pedantic style-only nitpicking, being a second primary orchestrator.
-
-Report: Summary, Findings, Blockers, Paths.`,
+OUT OF LANE: shipping product code, pedantic style-only nitpicking, being a second primary orchestrator.`,
 };

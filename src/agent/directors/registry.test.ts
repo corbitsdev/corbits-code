@@ -190,6 +190,53 @@ describe("director registry", () => {
     }
   });
 
+  // CL-6807: a prompt naming a tool the worker cannot actually call wastes
+  // turns on rejected tool calls. Skywalker is excluded — it is the primary
+  // session role text, not a sub-agent filtered by its `tools.allow` field.
+  const KNOWN_TOOL_NAMES = [
+    "read_file",
+    "write_file",
+    "edit_file",
+    "delete_file",
+    "run_shell",
+    "search_files",
+    "grep",
+    "list_dir",
+    "lsp",
+    "web_search",
+    "web_fetch",
+    "task",
+    "search_agents",
+    "manage_tasks",
+    "submit_output",
+    "ask_operator",
+    "present",
+    "tool_search",
+    "apply_patch",
+    "update_plan",
+  ] as const;
+
+  test("no director prompt references a tool its tool set does not mount", () => {
+    for (const id of DIRECTOR_IDS) {
+      if (id === "skywalker") continue;
+      const pkg = DIRECTOR_REGISTRY[id];
+      const mounted = new Set(pkg.tools?.allow ?? []);
+      mounted.add("manage_tasks"); // always mounted by runSubAgent, omitted from packages
+      if (pkg.spawn.maySpawn) {
+        mounted.add("task");
+        mounted.add("search_agents");
+      }
+      for (const toolName of KNOWN_TOOL_NAMES) {
+        const mentioned = new RegExp(`\\b${toolName}\\b`).test(pkg.systemPrompt);
+        if (mentioned && !mounted.has(toolName)) {
+          throw new Error(
+            `${id} prompt mentions "${toolName}" but does not mount it (allow: ${[...mounted].join(", ")})`,
+          );
+        }
+      }
+    }
+  });
+
   test("every director profile declares matching agent id in system prompt", () => {
     for (const id of DIRECTOR_IDS) {
       const profile = packageToProfile(DIRECTOR_REGISTRY[id]);

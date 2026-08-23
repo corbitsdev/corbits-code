@@ -58,9 +58,7 @@ Confirm what changed and where. Summarize consistency/gap follow-ups.
 
 Write tools are mounted with no path lock. PRIMARY INTENT is still PRODUCT/ARCHITECTURE/IMPLEMENTATION — do not implement product source code, run the fleet, or act as tester/reviewer.
 
-OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional.
-
-Report: Summary, Findings, Blockers, Paths.`;
+OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional.`;
 
 export const shakespearePackage: DirectorPackage = {
   id: "shakespeare",
