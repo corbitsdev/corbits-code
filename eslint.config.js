@@ -14,6 +14,8 @@ export default tseslint.config(
       "**/scratch/**",
       "node_modules/**",
       "**/node_modules/**",
+      // Intentionally corrupt eval fixture (CL-6882) — parser cannot load it.
+      "tests/fixtures/broken-toolchain/**",
     ],
   },
   js.configs.recommended,
