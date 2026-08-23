@@ -132,7 +132,7 @@ The exact turn thresholds are model-family-dependent (tighter for models with ob
 
 ## Configuration
 
-Providers and models are configured in `~/.corbits/settings.json` (holds providers + credentials), with a selection-only per-repo `.corbits/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. Credentials are read only from these settings files — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
+Providers and models are configured in `~/.corbits/settings.json` (holds providers + credentials), with a selection-only per-repo `.corbits/settings.json` override. Select at launch with `--provider` / `--model`, or point at an alternate file with `--config <path>`. `--config` only overrides where provider _definitions_ come from; it composes with, rather than replaces, credentials for codex/xai OAuth-profile providers, which live in separate home-level auth stores (`~/.corbits/codex-auth.json`, `xai-auth.json`) and are merged into the catalog regardless of `--config`. Credentials are read only from these settings files and the OAuth auth stores — there is no environment-variable override and `.env` files are not loaded, so a stale or exported key can't shadow the configured provider. The agent is denied read access to both settings files.
 
 ## Optional Capabilities (plugins)
 
