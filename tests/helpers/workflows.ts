@@ -1,6 +1,9 @@
 import { beforeAll } from "bun:test";
 import type { Workflow } from "../../src/workflows/definition.js";
-import { clearWorkflowRegistryForTests, registerWorkflowPlugin } from "../../src/workflows/index.js";
+import {
+  clearWorkflowRegistryForTests,
+  registerWorkflowPlugin,
+} from "../../src/workflows/index.js";
 
 // Sample workflows for runtime unit tests. The `Workflow` shape is plain data,
 // so these live inline rather than depending on any bundled plugin. They

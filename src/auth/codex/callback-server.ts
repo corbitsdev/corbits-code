@@ -9,7 +9,9 @@ export type CodexCallbackServer = CallbackServer;
 
 // Codex registers a fixed loopback redirect on port 1455; the authorization
 // server only accepts this exact redirect_uri for this client.
-export async function startCodexCallbackServer(expectedState: string): Promise<CodexCallbackServer> {
+export async function startCodexCallbackServer(
+  expectedState: string,
+): Promise<CodexCallbackServer> {
   return startCallbackServer(expectedState, {
     port: CODEX_CALLBACK_PORT,
     path: CODEX_CALLBACK_PATH,

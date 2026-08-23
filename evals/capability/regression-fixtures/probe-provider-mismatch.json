@@ -3,9 +3,7 @@
   "version": 3,
   "provider": "xai/thegreataxios",
   "model": "grok-4.5",
-  "variants": [
-    { "id": "default:default" }
-  ],
+  "variants": [{ "id": "default:default" }],
   "cases": [
     {
       "resultKey": "default:default::simple-health",

@@ -3,17 +3,36 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { buildBifrostSource, buildOpenAISource, buildXaiSource, buildProviderCatalog, catalogEntryAsProviderSettings, CliHelpError, CLI_HELP_TEXT, KEYLESS_API_KEY, loadConfig, providerCatalogToSettings, runtimeSettingsWithCatalog, SOURCE_MAX_TOKENS } from "./config/index.js";
+import {
+  buildBifrostSource,
+  buildOpenAISource,
+  buildXaiSource,
+  buildProviderCatalog,
+  catalogEntryAsProviderSettings,
+  CliHelpError,
+  CLI_HELP_TEXT,
+  KEYLESS_API_KEY,
+  loadConfig,
+  providerCatalogToSettings,
+  runtimeSettingsWithCatalog,
+  SOURCE_MAX_TOKENS,
+} from "./config/index.js";
 import { DIRECTOR_IDS } from "./agent/directors/types.js";
 import type { Config, UnconfiguredConfig } from "./config/index.js";
-import { mergeProviderIntoSettings, type ResolvedProvider, type Settings } from "./config/settings.js";
+import {
+  mergeProviderIntoSettings,
+  type ResolvedProvider,
+  type Settings,
+} from "./config/settings.js";
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
 import { generateSessionId, initSessionDir } from "./session/index.js";
 import { saveState } from "./session/state.js";
 
 function assertConfigured(config: Config | UnconfiguredConfig): asserts config is Config {
   if (config.configured === false) {
-    throw new Error(`Expected configured Config but got UnconfiguredConfig: ${config.providerError}`);
+    throw new Error(
+      `Expected configured Config but got UnconfiguredConfig: ${config.providerError}`,
+    );
   }
 }
 
@@ -223,16 +242,18 @@ describe("loadConfig", () => {
 
   test("--director implement is unknown and lists closed-fleet ids including build", async () => {
     await expect(
-      loadConfig(["exec", "--director", "implement", "ship it"], { globalSettingsPath: NO_SETTINGS }),
+      loadConfig(["exec", "--director", "implement", "ship it"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
     ).rejects.toThrow(new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`));
     expect(DIRECTOR_IDS).toContain("build");
     expect(DIRECTOR_IDS).not.toContain("implement");
   });
 
   test("--director without a value errors", async () => {
-    await expect(loadConfig(["exec", "--director"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
-      "--director requires a value",
-    );
+    await expect(
+      loadConfig(["exec", "--director"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow("--director requires a value");
   });
 
   test("--director without exec/run is rejected", async () => {
@@ -462,9 +483,9 @@ describe("loadConfig", () => {
   });
 
   test("--help throws CliHelpError with exitCode 0 and full help text", async () => {
-    await expect(loadConfig(["--help"], { globalSettingsPath: NO_SETTINGS })).rejects.toBeInstanceOf(
-      CliHelpError,
-    );
+    await expect(
+      loadConfig(["--help"], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toBeInstanceOf(CliHelpError);
     try {
       await loadConfig(["-h"], { globalSettingsPath: NO_SETTINGS });
       expect.unreachable("expected CliHelpError");
@@ -478,9 +499,9 @@ describe("loadConfig", () => {
   });
 
   test("rejects unknown flags", async () => {
-    await expect(
-      loadConfig(["--unknown"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow(/unrecognized flag/);
+    await expect(loadConfig(["--unknown"], { globalSettingsPath: NO_SETTINGS })).rejects.toThrow(
+      /unrecognized flag/,
+    );
   });
 
   test("defaults dangerouslySkipPermissions to false", async () => {
@@ -768,9 +789,12 @@ describe("loadConfig", () => {
         join(cwd, ".corbits", "profile.json"),
         JSON.stringify({ model: "profile-model" }),
       );
-      const config = await loadConfig(["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"], {
-        globalSettingsPath: globalPath,
-      });
+      const config = await loadConfig(
+        ["--cwd", cwd, "--model", "accounts/fireworks/routers/kimi-k2p6-turbo", "task"],
+        {
+          globalSettingsPath: globalPath,
+        },
+      );
       assertConfigured(config);
       expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
     } finally {
@@ -818,7 +842,9 @@ describe("loadConfig", () => {
       const globalPath = join(cwd, "global.json");
       await writeFile(
         globalPath,
-        JSON.stringify({ providers: { a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] } } }),
+        JSON.stringify({
+          providers: { a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] } },
+        }),
       );
       await expect(
         loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath }),
@@ -841,7 +867,12 @@ describe("buildOpenAISource", () => {
   });
 
   test("omits reasoning_effort when effort is absent", () => {
-    const source = buildOpenAISource({ id: "fp", baseURL: "https://fp/v1", apiKey: "k", model: "m" });
+    const source = buildOpenAISource({
+      id: "fp",
+      baseURL: "https://fp/v1",
+      apiKey: "k",
+      model: "m",
+    });
     expect(source.defaults).toEqual({ maxTokens: SOURCE_MAX_TOKENS });
   });
 
@@ -860,7 +891,11 @@ describe("buildOpenAISource", () => {
   });
 
   test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
-    const source = buildOpenAISource({ id: "ollama", baseURL: "http://localhost:11434/v1", model: "llama3" });
+    const source = buildOpenAISource({
+      id: "ollama",
+      baseURL: "http://localhost:11434/v1",
+      model: "llama3",
+    });
     expect(source.apiKey).toBe(KEYLESS_API_KEY);
   });
 });
@@ -892,7 +927,12 @@ describe("buildBifrostSource", () => {
 
 describe("buildXaiSource", () => {
   test("omits reasoning_effort when effort is absent", () => {
-    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
     expect(source.provider).toBe("grok-responses");
     expect(source.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
   });
@@ -902,14 +942,30 @@ describe("buildXaiSource", () => {
       id: "xai/work",
       apiKey: "tok",
       model: "grok-4.6",
+      sessionId: "sess-1",
       reasoningEffort: "low",
     });
     expect(source.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
   });
 
   test("does not invent high when effort is absent", () => {
-    const source = buildXaiSource({ id: "xai/work", apiKey: "tok", model: "grok-4.6" });
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
     expect(source.defaults?.providerOptions?.["reasoning_effort"]).toBeUndefined();
+  });
+
+  test("stashes the session id for the adapter's prompt_cache_key", () => {
+    const source = buildXaiSource({
+      id: "xai/work",
+      apiKey: "tok",
+      model: "grok-4.6",
+      sessionId: "sess-1",
+    });
+    expect(source.defaults?.providerOptions).toMatchObject({ grokSessionId: "sess-1" });
   });
 });
 
@@ -925,7 +981,12 @@ describe("buildProviderCatalog", () => {
     const settings: Settings = {
       defaultProvider: "fp",
       providers: {
-        fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large", "fp-small"],
+          defaultModel: "fp-large",
+        },
         oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
       },
     };
@@ -954,7 +1015,12 @@ describe("buildProviderCatalog", () => {
   test("preserves bifrostVirtualKey flag from settings", () => {
     const settings: Settings = {
       providers: {
-        bf: { baseURL: "http://b:8080/v1", apiKey: "sk-bf-k", models: ["m"], bifrostVirtualKey: true },
+        bf: {
+          baseURL: "http://b:8080/v1",
+          apiKey: "sk-bf-k",
+          models: ["m"],
+          bifrostVirtualKey: true,
+        },
       },
     };
     const catalog = buildProviderCatalog(settings, resolved);
@@ -1041,12 +1107,21 @@ describe("buildProviderCatalog", () => {
       models: ["grok-4"],
     });
     // Disk persist path still strips OAuth.
-    expect(providerCatalogToSettings(catalog, "openai", disk).providers["xai/work"]).toBeUndefined();
+    expect(
+      providerCatalogToSettings(catalog, "openai", disk).providers["xai/work"],
+    ).toBeUndefined();
   });
 
   test("normalizes provider catalog URLs when converting back to settings", () => {
     const settings = providerCatalogToSettings(
-      [{ name: "fp", baseURL: "https://fp/v1/chat/completions", apiKey: "fp-key", models: ["fp-large"] }],
+      [
+        {
+          name: "fp",
+          baseURL: "https://fp/v1/chat/completions",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
+      ],
       undefined,
     );
     expect(settings.providers.fp?.baseURL).toBe("https://fp/v1");
@@ -1075,7 +1150,13 @@ describe("buildProviderCatalog", () => {
 
   test("persists bifrostVirtualKey flag for virtual-key providers", () => {
     const catalog = [
-      { name: "bf-prod", baseURL: "http://b:8080/v1", apiKey: "sk-bf-xyz", models: ["m1"], bifrostVirtualKey: true as const },
+      {
+        name: "bf-prod",
+        baseURL: "http://b:8080/v1",
+        apiKey: "sk-bf-xyz",
+        models: ["m1"],
+        bifrostVirtualKey: true as const,
+      },
     ];
     const settings = providerCatalogToSettings(catalog, "bf-prod");
     expect(settings.providers["bf-prod"]).toEqual({
@@ -1108,7 +1189,13 @@ describe("buildProviderCatalog", () => {
     };
     const settings = providerCatalogToSettings(
       [
-        { name: "fp", baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+        {
+          name: "fp",
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large", "fp-small"],
+          defaultModel: "fp-large",
+        },
         { name: "oa", baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
       ],
       "oa",
@@ -1118,7 +1205,12 @@ describe("buildProviderCatalog", () => {
     const { providers: outProviders, defaultProvider: outDefault, ...restOut } = settings;
     expect(outDefault).toBe("oa");
     expect(outProviders).toEqual({
-      fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large", "fp-small"], defaultModel: "fp-large" },
+      fp: {
+        baseURL: "https://fp/v1",
+        apiKey: "fp-key",
+        models: ["fp-large", "fp-small"],
+        defaultModel: "fp-large",
+      },
       oa: { baseURL: "https://oa/v1", apiKey: "oa-key", models: ["o-1"] },
     });
     expect(restOut).toEqual(restExisting);

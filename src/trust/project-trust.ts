@@ -28,12 +28,12 @@ export function originRequiresTrust(origin: PluginOrigin): boolean {
   return origin === "project" || origin === "path";
 }
 
-export type ProjectTrustStore = {
+export interface ProjectTrustStore {
   /** Absolute plugin directory paths the user has trusted for this project. */
   trustedPluginPaths: string[];
   /** MCP fingerprints (see mcpServerFingerprint) trusted for this project. */
   trustedMcpFingerprints: string[];
-};
+}
 
 const emptyStore = (): ProjectTrustStore => ({
   trustedPluginPaths: [],
@@ -45,7 +45,11 @@ const emptyStore = (): ProjectTrustStore => ({
  * absent) by ProjectTrustRecordSchema: missing → [], mixed types keep only
  * strings. Hand-edited partial files must not wipe consent.
  */
-function extractStringArrayField(value: unknown[] | undefined, field: string, path: string): string[] {
+function extractStringArrayField(
+  value: unknown[] | undefined,
+  field: string,
+  path: string,
+): string[] {
   if (value === undefined) {
     logger.warn`project trust store missing ${field} at ${path}; defaulting to []`;
     return [];
@@ -179,14 +183,21 @@ export async function readProjectTrustStore(
   };
 }
 
-export async function loadProjectTrust(cwd: string, home: string = homedir()): Promise<ProjectTrustStore> {
+export async function loadProjectTrust(
+  cwd: string,
+  home: string = homedir(),
+): Promise<ProjectTrustStore> {
   return (await readProjectTrustStore(cwd, home)).store;
 }
 
 // Written via temp-file + rename (same pattern as path-trust.ts / saveGlobalSettings)
 // so a concurrent reader never sees a truncated or half-written store — a torn
 // read would be indistinguishable from a corrupt file and wipe consent.
-async function saveProjectTrust(cwd: string, store: ProjectTrustStore, home: string = homedir()): Promise<void> {
+async function saveProjectTrust(
+  cwd: string,
+  store: ProjectTrustStore,
+  home: string = homedir(),
+): Promise<void> {
   const path = projectTrustPath(cwd, home);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const record = { repo: canonicalizeCwd(cwd), ...store };
@@ -224,7 +235,11 @@ function resolveAgainstProjectCwd(cwd: string, pluginPath: string): string {
   return resolve(canonicalizeCwd(cwd), pluginPath);
 }
 
-export function isPluginTrusted(store: ProjectTrustStore, pluginPath: string, cwd: string = process.cwd()): boolean {
+export function isPluginTrusted(
+  store: ProjectTrustStore,
+  pluginPath: string,
+  cwd: string = process.cwd(),
+): boolean {
   const abs = resolveAgainstProjectCwd(cwd, pluginPath);
   return store.trustedPluginPaths.includes(abs);
 }

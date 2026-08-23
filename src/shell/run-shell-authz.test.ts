@@ -56,7 +56,7 @@ describe("recursive rm detection", () => {
     // The rejoin must round-trip through tokenize() (no backslash escapes), so a
     // payload token containing a literal quote is re-wrapped in the other quote
     // character rather than the POSIX '\'' idiom, which would re-split it.
-    const cmd = "echo x | xargs -I{} sh -c \"don't stop; rm -rf /\"";
+    const cmd = 'echo x | xargs -I{} sh -c "don\'t stop; rm -rf /"';
     expect(commandHasRecursiveRm(cmd)).toBe(true);
     expect(runShellAuthzBlockReason(cmd)).toMatch(/Destructive command blocked/);
   });
@@ -68,8 +68,10 @@ describe("recursive rm detection", () => {
 
   test("authz hard-blocks catastrophic recursive rm inside shell -c wrappers", () => {
     expect(runShellAuthzBlockReason("bash -c 'rm -rf /'")).toMatch(/Destructive command blocked/);
-    expect(runShellAuthzBlockReason("sh -c \"rm -rf ~\"")).toMatch(/Destructive command blocked/);
-    expect(runShellAuthzBlockReason("bash -c 'rm -rf $HOME'")).toMatch(/Destructive command blocked/);
+    expect(runShellAuthzBlockReason('sh -c "rm -rf ~"')).toMatch(/Destructive command blocked/);
+    expect(runShellAuthzBlockReason("bash -c 'rm -rf $HOME'")).toMatch(
+      /Destructive command blocked/,
+    );
     // Non-catastrophic recursive rm remains for the permission gate, not authz hard-deny.
     expect(runShellAuthzBlockReason("bash -c 'rm -rf node_modules'")).toBeUndefined();
   });
@@ -277,7 +279,9 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(reason).toMatch(/OOM the host/);
     expect(reason).toMatch(/walk huge trees/);
     expect(reason).toMatch(/Prefer the bounded grep\/search_files tools/);
-    expect(reason).toMatch(/not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/);
+    expect(reason).toMatch(
+      /not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/,
+    );
     expect(reason).not.toMatch(/Do not use find/);
   });
 
@@ -291,7 +295,7 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(expandShellSubjects(`env -S "cat"`).subjects).toContain("cat");
   });
 
-  test("G4: glued -S\"find /\" peels and hard-denies", () => {
+  test('G4: glued -S"find /" peels and hard-denies', () => {
     expect(runShellAuthzBlockReason(`env -S"find /"`)).toMatch(openEnded);
     expect(expandShellSubjects(`env -S"find /"`).subjects.some((s) => /\bfind\b/.test(s))).toBe(
       true,
@@ -300,9 +304,9 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
 
   test("G5: glued -Sfind peels and hard-denies", () => {
     expect(runShellAuthzBlockReason(`env -Sfind`)).toMatch(openEnded);
-    expect(expandShellSubjects(`env -Sfind`).subjects.some((s) => s === "find" || s.startsWith("find "))).toBe(
-      true,
-    );
+    expect(
+      expandShellSubjects(`env -Sfind`).subjects.some((s) => s === "find" || s.startsWith("find ")),
+    ).toBe(true);
   });
 
   test("G6: trailing utility after -S arg is visible (env -S FOO=bar find /)", () => {
@@ -389,8 +393,7 @@ describe("quoted arguments are not command-position eval", () => {
   test("git commit -m containing '; eval' is allowed", () => {
     // CMD treated `;` as a new command even inside quotes, so a commit
     // message that said "; eval workdirs" was hard-denied as shell eval.
-    const live =
-      `git commit -m "Stop refusing work when a folder is not a git repository" -m "Required style skill told models to refuse if cwd had no .git. Eval fixtures are tmp copies, so GPT stopped on simple-health. Edits are allowed without a repo; eval workdirs get an unsigned fixture commit so isolated workers have HEAD."`;
+    const live = `git commit -m "Stop refusing work when a folder is not a git repository" -m "Required style skill told models to refuse if cwd had no .git. Eval fixtures are tmp copies, so GPT stopped on simple-health. Edits are allowed without a repo; eval workdirs get an unsigned fixture commit so isolated workers have HEAD."`;
     expect(runShellAuthzBlockReason(live)).toBeUndefined();
     expect(runShellAuthzBlockReason(`git commit -m "fix; eval workdirs"`)).toBeUndefined();
     expect(runShellAuthzBlockReason(`git commit -m 'fix; eval workdirs'`)).toBeUndefined();
@@ -404,10 +407,18 @@ describe("quoted arguments are not command-position eval", () => {
   });
 
   test("nested quoted substitution does not hide sibling eval", () => {
-    expect(runShellAuthzBlockReason(`echo "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(destructive);
-    expect(runShellAuthzBlockReason(`git commit -m "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(destructive);
-    expect(runShellAuthzBlockReason(`bash -c "$(echo "$(true)"; eval echo pwned)"`)).toMatch(destructive);
-    expect(runShellAuthzBlockReason(`echo "$(echo "$(true)" && eval echo pwned)"`)).toMatch(destructive);
+    expect(runShellAuthzBlockReason(`echo "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(
+      destructive,
+    );
+    expect(runShellAuthzBlockReason(`git commit -m "$(foo "$(true)" ; eval echo pwned)"`)).toMatch(
+      destructive,
+    );
+    expect(runShellAuthzBlockReason(`bash -c "$(echo "$(true)"; eval echo pwned)"`)).toMatch(
+      destructive,
+    );
+    expect(runShellAuthzBlockReason(`echo "$(echo "$(true)" && eval echo pwned)"`)).toMatch(
+      destructive,
+    );
   });
 
   test("eval after a closed quoted -m is still denied", () => {

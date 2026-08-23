@@ -263,8 +263,12 @@ describe("compaction governor", () => {
   test("only intercepts on tool.done with a pending infer", () => {
     const governor = createCompactionGovernor(() => {});
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(governor.interceptActions(inferenceDone(overThreshold), inferAction, capabilities)).toBeNull();
-    expect(governor.interceptActions(toolDone(), [{ type: "reply", content: "x" }], capabilities)).toBeNull();
+    expect(
+      governor.interceptActions(inferenceDone(overThreshold), inferAction, capabilities),
+    ).toBeNull();
+    expect(
+      governor.interceptActions(toolDone(), [{ type: "reply", content: "x" }], capabilities),
+    ).toBeNull();
   });
 
   test("stays inert below the minimum-turn floor no matter how far over threshold", () => {

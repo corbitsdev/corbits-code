@@ -1,16 +1,7 @@
 import path from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 
-const TS_LIKE = new Set([
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".mts",
-  ".cts",
-]);
+const TS_LIKE = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
 
 const LSP_UNAVAILABLE = "no LSP server available for this file type";
 const INSTALL_HINT =

@@ -22,26 +22,26 @@
  * Pure: no renderer access, so the wording is testable without a frame.
  */
 
-const SEP = "    "
+const SEP = "    ";
 
-export const STEER_WAIT_NOTICE_MS = 3_000
+export const STEER_WAIT_NOTICE_MS = 3_000;
 
-export type NoticeState = {
+export interface NoticeState {
   /** Soft-steer pending (Enter mid-run → drain at tool.boundary). */
-  readonly steer: number
+  readonly steer: number;
   /** Follow-up pending (Alt+Enter mid-run → drain only when idle). */
-  readonly followUp: number
+  readonly followUp: number;
   /**
    * Parent tool name to surface after `STEER_WAIT_NOTICE_MS`, or null.
    * Gated by `resolveWaitingOn`; this field only controls wording.
    */
-  readonly waitingOn: string | null
-  readonly interrupt: boolean
+  readonly waitingOn: string | null;
+  readonly interrupt: boolean;
   /** Transcript scrolled off the tail (non-default follow state). */
-  readonly pinned: boolean
+  readonly pinned: boolean;
   /** Transient feedback (copy result, attach failure, exit arming). */
-  readonly flash: string | null
-  readonly attachments: number
+  readonly flash: string | null;
+  readonly attachments: number;
 }
 
 /**
@@ -53,26 +53,24 @@ export function resolveWaitingOn(
   inFlight: { name: string; startedAt: number } | null,
   nowMs: number,
 ): string | null {
-  if (steer <= 0 || inFlight === null) return null
-  if (nowMs - inFlight.startedAt < STEER_WAIT_NOTICE_MS) return null
-  const name = inFlight.name.trim()
-  return name.length > 0 ? name : null
+  if (steer <= 0 || inFlight === null) return null;
+  if (nowMs - inFlight.startedAt < STEER_WAIT_NOTICE_MS) return null;
+  const name = inFlight.name.trim();
+  return name.length > 0 ? name : null;
 }
 
 export function composeNoticeLine(state: NoticeState): string {
-  const segments: string[] = []
-  if (state.steer > 0) segments.push(`steer ${state.steer}`)
-  if (state.followUp > 0) segments.push(`follow-up ${state.followUp}`)
-  if (state.waitingOn) segments.push(`waiting on ${state.waitingOn}`)
-  if (state.pinned) segments.push("pinned")
+  const segments: string[] = [];
+  if (state.steer > 0) segments.push(`steer ${state.steer}`);
+  if (state.followUp > 0) segments.push(`follow-up ${state.followUp}`);
+  if (state.waitingOn) segments.push(`waiting on ${state.waitingOn}`);
+  if (state.pinned) segments.push("pinned");
   // "interrupt" is not a standing notice. Mid-run stop feedback is a system
   // row (wording without "interrupt"); empty-prompt Ctrl+C arms exit via flash.
   if (state.attachments > 0) {
-    segments.push(
-      `${state.attachments} image${state.attachments === 1 ? "" : "s"}`,
-    )
+    segments.push(`${state.attachments} image${state.attachments === 1 ? "" : "s"}`);
   }
-  const flash = state.flash?.trim() ?? ""
-  if (flash.length > 0) segments.push(flash)
-  return segments.join(SEP)
+  const flash = state.flash?.trim() ?? "";
+  if (flash.length > 0) segments.push(flash);
+  return segments.join(SEP);
 }

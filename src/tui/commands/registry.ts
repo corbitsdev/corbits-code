@@ -1,6 +1,6 @@
 import type { CostSummary } from "../../cost/cost-summary.js";
 
-export type CommandContext = {
+export interface CommandContext {
   signalClear: () => void;
   getCostSummary?: () => CostSummary;
   /**
@@ -27,7 +27,7 @@ export type CommandContext = {
   getSkipPermissions?: () => boolean;
   /** Live-flip skip-permissions and persist `/yolo` as the user-global default. */
   setSkipPermissions?: (value: boolean) => void;
-};
+}
 
 export type CommandResult =
   | { type: "message"; text: string }
@@ -39,12 +39,12 @@ export type CommandResult =
   | { type: "paste-image" }
   | { type: "noop" };
 
-export type SubcommandDefinition = {
+export interface SubcommandDefinition {
   name: string;
   description: string;
-};
+}
 
-export type CommandDefinition = {
+export interface CommandDefinition {
   name: string;
   description: string;
   /**
@@ -59,11 +59,11 @@ export type CommandDefinition = {
   // omitted from listCommands (the slash menu) but still callable via
   // getCommand.
   available?: () => boolean;
-};
+}
 
-export type CommandPlugin = {
+export interface CommandPlugin {
   commands: CommandDefinition[];
-};
+}
 
 const registry = new Map<string, CommandDefinition>();
 const hidden = new Set<string>();
@@ -97,7 +97,9 @@ export function listCommands(): CommandDefinition[] {
 }
 
 /** Read Claude-style `argument-hint` from parsed frontmatter. */
-export function argumentHintFromFrontmatter(frontmatter: Record<string, unknown>): string | undefined {
+export function argumentHintFromFrontmatter(
+  frontmatter: Record<string, unknown>,
+): string | undefined {
   const raw = frontmatter["argument-hint"];
   if (typeof raw !== "string") return undefined;
   const trimmed = raw.trim();

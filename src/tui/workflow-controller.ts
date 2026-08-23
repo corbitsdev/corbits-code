@@ -15,21 +15,21 @@ import {
 import type { CapabilityName, StepStatus, Workflow } from "../workflows/types.js";
 import type { WorkflowEvent } from "../workflows/runtime.js";
 
-export type CapabilityStatus = {
+export interface CapabilityStatus {
   name: CapabilityName;
   description: string;
   connected: boolean;
   disabled: boolean;
   source: string | undefined;
-};
+}
 
-export type WorkflowStepStatus = {
+export interface WorkflowStepStatus {
   label: string;
   status: StepStatus;
   capability: CapabilityName | undefined;
-};
+}
 
-export type WorkflowStatus = {
+export interface WorkflowStatus {
   active: boolean;
   name: string | undefined;
   stepIndex: number;
@@ -38,16 +38,16 @@ export type WorkflowStatus = {
   steps: WorkflowStepStatus[];
   capabilities: CapabilityStatus[];
   completedAt?: number;
-};
+}
 
-export type WorkflowControllerState = {
+export interface WorkflowControllerState {
   current: WorkflowStatus;
   history: WorkflowStatus[];
-};
+}
 
 type SetCoordinator = (coordinator: WorkflowCoordinator | undefined) => void;
 
-export type WorkflowControllerArgs = {
+export interface WorkflowControllerArgs {
   cwd: string;
   emitter: EventEmitter;
   getSessionId: () => string;
@@ -55,7 +55,7 @@ export type WorkflowControllerArgs = {
   // The live chat director; the workflow coordinator is attached to it when a
   // workflow starts. Returns undefined before the director is built.
   getDirector: () => { setWorkflowCoordinator: SetCoordinator } | undefined;
-};
+}
 
 // Owns the workflow lifecycle for the TUI: starting, capability overrides,
 // resume, and publishing status to the UI via the "workflow" emitter event.
@@ -102,7 +102,7 @@ export class WorkflowController {
     return this.runtime?.isActive() === true;
   }
 
-  list(): Array<{ name: string; description: string }> {
+  list(): { name: string; description: string }[] {
     return WORKFLOWS.map((w) => ({ name: w.name, description: w.description }));
   }
 
@@ -211,25 +211,37 @@ export class WorkflowController {
     else this.overrides.add(name);
     this.runtime?.setCapabilities(this.capabilityMap());
     this.publish();
-    return this.overrides.has(name) ? `Disabled capability: ${name}.` : `Enabled capability: ${name}.`;
+    return this.overrides.has(name)
+      ? `Disabled capability: ${name}.`
+      : `Enabled capability: ${name}.`;
   }
 
   status(): WorkflowStatus {
     const detected = detectCapabilities(this.args.getToolDefinitions());
-    const capabilities: CapabilityStatus[] = (Object.keys(CAPABILITIES) as CapabilityName[]).map((name) => {
-      const tools = detected.get(name);
-      const source = tools?.[0]?.name;
-      return {
-        name,
-        description: CAPABILITIES[name].description,
-        connected: tools !== undefined && tools.length > 0,
-        disabled: this.overrides.has(name),
-        source,
-      };
-    });
+    const capabilities: CapabilityStatus[] = (Object.keys(CAPABILITIES) as CapabilityName[]).map(
+      (name) => {
+        const tools = detected.get(name);
+        const source = tools?.[0]?.name;
+        return {
+          name,
+          description: CAPABILITIES[name].description,
+          connected: tools !== undefined && tools.length > 0,
+          disabled: this.overrides.has(name),
+          source,
+        };
+      },
+    );
     const view = this.runtime?.view() ?? null;
     if (view === null || this.runtime?.isActive() !== true) {
-      return { active: false, name: undefined, stepIndex: 0, total: 0, label: "", steps: [], capabilities };
+      return {
+        active: false,
+        name: undefined,
+        stepIndex: 0,
+        total: 0,
+        label: "",
+        steps: [],
+        capabilities,
+      };
     }
     return {
       active: true,

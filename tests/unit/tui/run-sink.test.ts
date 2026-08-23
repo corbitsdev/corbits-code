@@ -7,7 +7,13 @@ function makeArgs() {
   const hookManager = {
     dispatchPostTurn: (_ctx: unknown) => {},
     getStatuses: () => [
-      { id: "h1", name: "log.ts", type: "typescript" as const, path: "/hooks/log.ts", enabled: true },
+      {
+        id: "h1",
+        name: "log.ts",
+        type: "typescript" as const,
+        path: "/hooks/log.ts",
+        enabled: true,
+      },
     ],
   };
   return { emitter, hookManager };
@@ -45,7 +51,10 @@ test("reactor.error event → getStatus returns failed with error", () => {
 test("inference.error event → getStatus returns failed with message", () => {
   const args = makeArgs();
   const runSink = createRunSink(args);
-  runSink.sink({ type: "inference.error", data: { error: { message: "inference failed" } } } as never);
+  runSink.sink({
+    type: "inference.error",
+    data: { error: { message: "inference failed" } },
+  } as never);
   expect(runSink.getStatus()).toBe("failed");
   expect(runSink.getRunError()).toBe("inference failed");
 });

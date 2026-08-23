@@ -27,11 +27,20 @@ function checkTone(v: unknown, path: string): true | { ok: false; error: string 
   return fail(path, `invalid tone "${String(v)}"`);
 }
 
-type Counter = { nodes: number };
+interface Counter {
+  nodes: number;
+}
 
-function validateNode(value: unknown, path: string, depth: number, counter: Counter): ViewValidation {
-  if (depth > VIEW_MAX_DEPTH) return fail(path, `nesting exceeds the max depth of ${VIEW_MAX_DEPTH}`);
-  if (++counter.nodes > VIEW_MAX_NODES) return fail(path, `spec exceeds the max of ${VIEW_MAX_NODES} nodes`);
+function validateNode(
+  value: unknown,
+  path: string,
+  depth: number,
+  counter: Counter,
+): ViewValidation {
+  if (depth > VIEW_MAX_DEPTH)
+    return fail(path, `nesting exceeds the max depth of ${VIEW_MAX_DEPTH}`);
+  if (++counter.nodes > VIEW_MAX_NODES)
+    return fail(path, `spec exceeds the max of ${VIEW_MAX_NODES} nodes`);
   if (!isObject(value)) return fail(path, "expected a node object");
   const type = value.type;
   if (typeof type !== "string") return fail(path, "missing node type");
@@ -68,7 +77,10 @@ function validateNode(value: unknown, path: string, depth: number, counter: Coun
       }
       const g = value.gap;
       const gap = g === 0 || g === 1 ? (g as 0 | 1) : undefined;
-      return { ok: true, node: { type: type as "stack" | "row", children, ...(gap !== undefined ? { gap } : {}) } };
+      return {
+        ok: true,
+        node: { type: type as "stack" | "row", children, ...(gap !== undefined ? { gap } : {}) },
+      };
     }
 
     case "box": {
@@ -82,7 +94,15 @@ function validateNode(value: unknown, path: string, depth: number, counter: Coun
       const border = value.border === true ? true : undefined;
       const p = value.padding;
       const padding = p === 0 || p === 1 ? (p as 0 | 1) : undefined;
-      return { ok: true, node: { type, children, ...(border ? { border } : {}), ...(padding !== undefined ? { padding } : {}) } };
+      return {
+        ok: true,
+        node: {
+          type,
+          children,
+          ...(border ? { border } : {}),
+          ...(padding !== undefined ? { padding } : {}),
+        },
+      };
     }
 
     case "grid": {
@@ -100,7 +120,7 @@ function validateNode(value: unknown, path: string, depth: number, counter: Coun
         }
         rows.push(row);
       }
-      let columns: Array<{ align?: "left" | "right" | "center" }> | undefined;
+      let columns: { align?: "left" | "right" | "center" }[] | undefined;
       if (value.columns !== undefined) {
         if (!Array.isArray(value.columns)) return fail(`${path}.columns`, "expected an array");
         columns = [];

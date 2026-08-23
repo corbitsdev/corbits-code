@@ -121,10 +121,16 @@ describe("formatCodexUsageLimitMessage", () => {
 
 describe("codexUsageLimitRetryAfterMs / formatResetETA", () => {
   test("converts seconds to ms", () => {
-    expect(codexUsageLimitRetryAfterMs({ code: "usage_limit_reached", message: "", resetsInSeconds: 3435 })).toBe(
-      3_435_000,
-    );
-    expect(codexUsageLimitRetryAfterMs({ code: "usage_limit_reached", message: "" })).toBeUndefined();
+    expect(
+      codexUsageLimitRetryAfterMs({
+        code: "usage_limit_reached",
+        message: "",
+        resetsInSeconds: 3435,
+      }),
+    ).toBe(3_435_000);
+    expect(
+      codexUsageLimitRetryAfterMs({ code: "usage_limit_reached", message: "" }),
+    ).toBeUndefined();
   });
 
   test("formats human ETAs", () => {
@@ -132,6 +138,5 @@ describe("codexUsageLimitRetryAfterMs / formatResetETA", () => {
     expect(formatResetETA(45)).toBe("45s");
     expect(formatResetETA(120)).toBe("~2m");
     expect(formatResetETA(3435)).toBe("~58m");
-
   });
 });
