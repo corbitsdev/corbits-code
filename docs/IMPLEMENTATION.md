@@ -246,7 +246,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   On expiry the call returns a normal tool-error result ("MCP tool `<name>` timed out after `<n>`s — the server may be wedged; retry or continue without it") that the model can react to; the turn itself is never aborted. `tools.maxTimeoutMs`, if set, still caps `mcp.timeoutMs`.
 
-  Optional `subagentMaxTurns` (integer **1–100**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; values above **100** are rejected on `task` and clamped for profiles. Always applies — the primary session is always orchestrator-capable (CL-5814).
+  Optional `subagentMaxTurns` (integer **≥1**, default **30**) sets the default inference-turn budget for dispatched workers (not the parent chat session limit). Per-dispatch `task(maxTurns)` and agent profile `maxTurns` override this default; there is no hard upper cap (values are floor-sanitized to ≥1). Always applies — the primary session is always orchestrator-capable (CL-5814).
 
   Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap is otherwise a forked copy of the TUI path (shared stack, intentional deltas documented under Architecture → Exec Runner).
 
