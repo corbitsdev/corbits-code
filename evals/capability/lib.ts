@@ -15,7 +15,20 @@ import {
   type NumericBehaviorMetric,
 } from "./behaviors.js";
 
-export type EvalTier = "simple" | "complex" | "bait";
+/**
+ * Difficulty tiers. The suite is deliberately four cases, one per tier, with a
+ * target pass band each: easy ~100% (floor tripwire), med 70-90%, hard 30-60%,
+ * xhard 0-25% (headroom). A case that saturates its band gets promoted or
+ * retired -- never kept as-is. See CL-6963 for why: the previous 19-case suite
+ * scored 92/95 with every failure on one case, so it measured nothing.
+ */
+export type EvalTier = "easy" | "med" | "hard" | "xhard";
+
+export const EVAL_TIERS: readonly EvalTier[] = ["easy", "med", "hard", "xhard"];
+
+function isEvalTier(value: string): value is EvalTier {
+  return EVAL_TIERS.includes(value as EvalTier);
+}
 
 /**
  * A bait declaration marks a case that exists to reproduce a known
@@ -246,8 +259,8 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
   if (typeof id !== "string" || id.length === 0) {
     throw new Error(`case.json missing id (${caseDir})`);
   }
-  if (tier !== "simple" && tier !== "complex" && tier !== "bait") {
-    throw new Error(`case ${id}: tier must be simple|complex|bait`);
+  if (typeof tier !== "string" || !isEvalTier(tier)) {
+    throw new Error(`case ${id}: tier must be ${EVAL_TIERS.join("|")}`);
   }
   if (typeof title !== "string" || title.length === 0) {
     throw new Error(`case ${id}: missing title`);
@@ -685,7 +698,7 @@ function parseCaseResult(raw: unknown): CaseResult {
   if (!isRecord(raw)) throw new Error("case result must be an object");
   const id = raw.id;
   if (typeof id !== "string") throw new Error("case result missing id");
-  const tier = raw.tier === "complex" ? "complex" : "simple";
+  const tier: EvalTier = EVAL_TIERS.includes(raw.tier as EvalTier) ? (raw.tier as EvalTier) : "med";
   const title = typeof raw.title === "string" ? raw.title : id;
   const provider = typeof raw.provider === "string" ? raw.provider : "(unknown)";
   const model = typeof raw.model === "string" ? raw.model : "(unknown)";
