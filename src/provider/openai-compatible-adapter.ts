@@ -28,23 +28,7 @@ export function createOpenAICompatibleAdapter(source: AdapterSource): ProviderAd
   };
 
   const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
-    // Strip assistant turns with no text or tool_call content (e.g. a turn that
-    // produced only thinking blocks). transform.ts should handle this but misses
-    // the case where filteredContent is non-empty; the API rejects such turns
-    // with HTTP 400. Fast-path: only allocate when a bad turn is actually found.
-    const needsSanitize = messages.some(
-      (msg) =>
-        msg.role === "assistant" &&
-        !msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
-    );
-    const sanitized = needsSanitize
-      ? messages.filter(
-          (msg) =>
-            msg.role !== "assistant" ||
-            msg.content.some((b) => b.type === "text" || b.type === "tool_call"),
-        )
-      : messages;
-    const built = base.buildRequest(sanitized, model, options);
+    const built = base.buildRequest(messages, model, options);
     const providerOptions = options.providerOptions;
     const hasProviderOptions =
       providerOptions !== undefined && Object.keys(providerOptions).length > 0;
