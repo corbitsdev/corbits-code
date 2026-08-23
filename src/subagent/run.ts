@@ -229,6 +229,22 @@ export function createSubAgentRunController(
   };
 }
 
+/** Stopped-line detail for a repetition abort: the looped window plus repeat count. */
+export function repetitionStopDetail(hit: RepetitionHit): string {
+  return `window ${JSON.stringify(hit.window.slice(0, 80))} × ${hit.repeats}`;
+}
+
+/** String form of an abort signal's reason (cancel detail), or undefined. */
+function abortReasonText(signal: AbortSignal): string | undefined {
+  const reason: unknown = signal.reason;
+  if (typeof reason === "string" && reason.length > 0) return reason;
+  // A bare abort() carries a default AbortError — no operator-written cause.
+  if (reason instanceof Error && reason.name !== "AbortError" && reason.message.length > 0) {
+    return reason.message;
+  }
+  return undefined;
+}
+
 /**
  * Arm requireEvidence only for CritiqueDirector. Greybeard is also
  * intent=review and may spawn-only then envelope; that is not a fake
@@ -756,7 +772,15 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
               : repetition.contentless
                 ? `Contentless output: the stream grew with only invisible characters (zero-width flood).\n\n${tail}`
                 : tail;
-          return appendActivitySummary(forcedStopReport(reason, partial), toolNamesUsed);
+          const detail =
+            repetition.hit !== null
+              ? repetitionStopDetail(repetition.hit)
+              : repetition.contentless
+                ? "contentless/zero-width flood"
+                : reason === "deadline" && resolvedDeadlineMs !== undefined
+                  ? `${resolvedDeadlineMs}ms elapsed`
+                  : abortReasonText(runController.signal);
+          return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
         }
       }
       throw err;
