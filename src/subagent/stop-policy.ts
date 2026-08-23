@@ -530,12 +530,6 @@ export function isDeadlineSubAgentReport(report: string): boolean {
   return parsed.summary.includes("deadline reached");
 }
 
-/** True when the worker returned a progressive-thrash salvage report. */
-export function isThrashSubAgentReport(report: string): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary.includes("progressive thrash");
-}
-
 /** True when the worker returned a streamed-repetition salvage report. */
 export function isRepetitionSubAgentReport(report: string): boolean {
   const parsed = parseSubAgentReport(report);
@@ -557,9 +551,6 @@ const NEVER_EDITED_PARENT_HINT =
 
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
-
-const THRASH_PARENT_HINT =
-  "[Sub-agent stopped for progressive thrash (re-read pressure). Do not re-dispatch the identical brief (it will be refused) — change scope, success_criteria, and do_not; continue from Findings.]";
 
 const NO_SHIP_PARENT_HINT =
   "[Sub-agent stopped after searching many files without writing any. Do not search the repo yourself and do not re-dispatch the identical brief (it will be refused) — change success_criteria and do_not, or treat findings as unexecuted.]";
@@ -611,11 +602,6 @@ export function appendDeadlineParentHint(report: string): string {
   return `${DEADLINE_PARENT_HINT}\n\n${report}`;
 }
 
-export function appendThrashParentHint(report: string): string {
-  if (!isThrashSubAgentReport(report)) return report;
-  return `${THRASH_PARENT_HINT}\n\n${report}`;
-}
-
 /** True when the worker returned a no-ship (search-tour) salvage report. */
 export function isNoShipSubAgentReport(report: string): boolean {
   const parsed = parseSubAgentReport(report);
@@ -643,7 +629,7 @@ export function appendNoProgressParentHint(report: string): string {
   return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
 }
 
-/** Stack parent-visible salvage hints for thrash / budget / never-acted / deadline / repetition / no-progress. */
+/** Stack parent-visible salvage hints for budget / never-acted / deadline / repetition / no-progress. */
 export function appendSubAgentParentHints(
   report: string,
   options: SubAgentParentHintOptions = {},
@@ -652,9 +638,7 @@ export function appendSubAgentParentHints(
     appendNeverEditedParentHint(
       appendNeverActedParentHint(
         appendTurnBudgetParentHint(
-          appendNoProgressParentHint(
-            appendNoShipParentHint(appendThrashParentHint(appendRepetitionParentHint(report))),
-          ),
+          appendNoProgressParentHint(appendNoShipParentHint(appendRepetitionParentHint(report))),
           options,
         ),
       ),
