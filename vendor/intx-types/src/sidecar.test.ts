@@ -91,7 +91,7 @@ describe("AgentDeployFrame", () => {
           id: "wf_demo",
           triggers: [{ type: "manual" }],
           stepOrder: ["plan", "act"],
-          steps: { plan: {}, act: {} },
+          steps: { plan: { kind: "step" }, act: { kind: "step" } },
         },
         sources: { plan: [stepSource], act: [stepSource] },
       },
@@ -107,7 +107,7 @@ describe("AgentDeployFrame", () => {
           id: "wf_demo",
           triggers: [{ type: "manual" }],
           stepOrder: ["plan"],
-          steps: { plan: {} },
+          steps: { plan: { kind: "step" } },
         },
       },
     });
@@ -122,7 +122,7 @@ describe("AgentDeployFrame", () => {
           id: "wf_demo",
           triggers: [{ type: "manual" }],
           stepOrder: ["plan", "act"],
-          steps: { plan: {}, act: {} },
+          steps: { plan: { kind: "step" }, act: { kind: "step" } },
         },
         sources: { plan: [stepSource] },
       },
@@ -141,7 +141,7 @@ describe("AgentDeployFrame", () => {
         definition: {
           id: "wf_demo",
           stepOrder: ["plan"],
-          steps: { plan: {} },
+          steps: { plan: { kind: "step" } },
         },
         sources: { plan: [stepSource] },
       },
@@ -237,8 +237,8 @@ describe("SignalCorrelationRegisterFrame snapshot requirement", () => {
     type: "signal.correlation.register",
     correlationId: "corr-1",
     runId: "run-1",
-    deploymentId: "dep-1",
-    agentAddress: "ins_dep@integration.interchange",
+    anchorRunId: "dep-1",
+    agentAddress: "run_dep@integration.interchange",
     kind: "approval",
   };
   const snapshot = {
