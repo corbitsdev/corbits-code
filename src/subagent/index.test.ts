@@ -773,7 +773,7 @@ describe("sub-agent stop helpers", () => {
   test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
     const repetition = forcedStopReport(
       "repetition",
-      'Looped window (repeated 1363x): Groaning. ',
+      "Looped window (repeated 1363x): Groaning. ",
       'window "Groaning. " × 1363',
     );
     expect(repetition.startsWith('Stopped: repetition — window "Groaning. " × 1363\n')).toBe(true);
@@ -795,7 +795,10 @@ describe("sub-agent stop helpers", () => {
 
     // A nested forced-stop quoted in Findings must not leak its Stopped line
     // as the outer report's reason.
-    const nested = forcedStopReport("never-acted", forcedStopReport("cancelled", "inner", "inner reason"));
+    const nested = forcedStopReport(
+      "never-acted",
+      forcedStopReport("cancelled", "inner", "inner reason"),
+    );
     expect(stopReasonFromReport(nested)).toBe("never-acted");
     // A clean report has no Stopped line.
     expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
