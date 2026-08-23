@@ -1,25 +1,22 @@
-import { describe, test, expect, afterEach, afterAll, mock } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { OAuthScopeCheckResult } from "../auth/oauth-scope-check.js";
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 // The oauth branch probes real provider scope over the network; stub the
 // check so these tests exercise buildProviderSubmitHandler's own branching
-// (ok / insufficient-scope / unavailable) without a live call. Restored after
-// this file's tests run so a mock never leaks into another suite that
-// imports provider-setup-submit.js and expects the real probe.
-const realOAuthScopeCheck = { ...(await import("../auth/oauth-scope-check.js")) };
+// (ok / insufficient-scope / unavailable) without a live call.
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
-mock.module("../auth/oauth-scope-check.js", () => ({
-  ...realOAuthScopeCheck,
-  checkOAuthProviderScope: async () => scopeCheckResult,
-}));
-
-afterAll(() => {
-  mock.module("../auth/oauth-scope-check.js", () => realOAuthScopeCheck);
-});
+await withMockedModule(
+  import.meta.resolve("../auth/oauth-scope-check.js"),
+  (real: typeof import("../auth/oauth-scope-check.js")) => ({
+    ...real,
+    checkOAuthProviderScope: async () => scopeCheckResult,
+  }),
+);
 
 const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
 const { loadLocalSettings, loadSettings, localSettingsPath } =
