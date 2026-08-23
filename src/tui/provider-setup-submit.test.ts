@@ -1,4 +1,4 @@
-import { describe, test, expect, afterEach, mock } from "bun:test";
+import { describe, test, expect, afterEach, afterAll, mock } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,16 +7,23 @@ import type { OAuthScopeCheckResult } from "../auth/oauth-scope-check.js";
 
 // The oauth branch probes real provider scope over the network; stub the
 // check so these tests exercise buildProviderSubmitHandler's own branching
-// (ok / insufficient-scope / unavailable) without a live call.
+// (ok / insufficient-scope / unavailable) without a live call. Restored after
+// this file's tests run so a mock never leaks into another suite that
+// imports provider-setup-submit.js and expects the real probe.
+const realOAuthScopeCheck = { ...(await import("../auth/oauth-scope-check.js")) };
 let scopeCheckResult: OAuthScopeCheckResult = { status: "ok" };
 mock.module("../auth/oauth-scope-check.js", () => ({
+  ...realOAuthScopeCheck,
   checkOAuthProviderScope: async () => scopeCheckResult,
 }));
 
+afterAll(() => {
+  mock.module("../auth/oauth-scope-check.js", () => realOAuthScopeCheck);
+});
+
 const { buildProviderSubmitHandler } = await import("./provider-setup-submit.js");
-const { loadLocalSettings, loadSettings, localSettingsPath } = await import(
-  "../config/settings.js"
-);
+const { loadLocalSettings, loadSettings, localSettingsPath } =
+  await import("../config/settings.js");
 import type { ProviderFormValues, SubmitPhase } from "./provider-setup.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => {};
@@ -226,7 +233,10 @@ describe("buildProviderSubmitHandler", () => {
             oauthProfile: "work",
           },
           noopSetPhase,
-          { skipValidation: false, oauth: { kind: "codex", providerName: "codex/work", profile: "work" } },
+          {
+            skipValidation: false,
+            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+          },
         );
 
         const local = await loadLocalSettings(localPath);
@@ -286,7 +296,10 @@ describe("buildProviderSubmitHandler", () => {
             oauthProfile: "work",
           },
           noopSetPhase,
-          { skipValidation: false, oauth: { kind: "codex", providerName: "codex/work", profile: "work" } },
+          {
+            skipValidation: false,
+            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+          },
         );
 
         const local = await loadLocalSettings(localPath);
@@ -310,7 +323,10 @@ describe("buildProviderSubmitHandler", () => {
             oauthProfile: "work",
           },
           noopSetPhase,
-          { skipValidation: true, oauth: { kind: "codex", providerName: "codex/work", profile: "work" } },
+          {
+            skipValidation: true,
+            oauth: { kind: "codex", providerName: "codex/work", profile: "work" },
+          },
         );
 
         const local = await loadLocalSettings(localPath);
