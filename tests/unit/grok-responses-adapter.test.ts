@@ -105,8 +105,12 @@ describe("grok-responses buildRequest", () => {
       ...baseOptions,
       providerOptions: { ...baseOptions.providerOptions, [GROK_SESSION_ID_OPTION]: "sess-1" },
     };
-    const first = JSON.parse(adapter().buildRequest([userTurn("a")], "grok-4.5", options).body) as Record<string, unknown>;
-    const second = JSON.parse(adapter().buildRequest([userTurn("b")], "grok-4.5", options).body) as Record<string, unknown>;
+    const first = JSON.parse(
+      adapter().buildRequest([userTurn("a")], "grok-4.5", options).body,
+    ) as Record<string, unknown>;
+    const second = JSON.parse(
+      adapter().buildRequest([userTurn("b")], "grok-4.5", options).body,
+    ) as Record<string, unknown>;
     expect(first["prompt_cache_key"]).toBe("sess-1");
     expect(second["prompt_cache_key"]).toBe("sess-1");
   });
@@ -123,7 +127,9 @@ describe("grok-responses buildRequest", () => {
   });
 
   test("omits prompt_cache_key when no session id is present", () => {
-    const body = JSON.parse(adapter().buildRequest([userTurn("hi")], "grok-4.5", baseOptions).body) as Record<string, unknown>;
+    const body = JSON.parse(
+      adapter().buildRequest([userTurn("hi")], "grok-4.5", baseOptions).body,
+    ) as Record<string, unknown>;
     expect(body).not.toHaveProperty("prompt_cache_key");
   });
 
