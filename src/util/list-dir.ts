@@ -25,12 +25,12 @@ export const listDirDefinition: ToolDefinition = {
 
 const MAX_ENTRIES = 200;
 
-export type ListDirectoryOptions = {
+export interface ListDirectoryOptions {
   // When true (--dangerously-skip-permissions / yolo), list paths outside the
   // workspace. A getter is resolved per call so `/yolo` mid-session takes
   // effect without rebuilding the tool.
   allowOutside?: boolean | (() => boolean);
-};
+}
 
 function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
   if (typeof value === "function") return value();
@@ -80,10 +80,7 @@ export async function listDirectory(
   return shown.join("\n") + (remaining > 0 ? `\n… (${remaining} more entries)` : "");
 }
 
-export function createListDirTool(
-  cwd: string,
-  options: ListDirectoryOptions = {},
-): AgentTool {
+export function createListDirTool(cwd: string, options: ListDirectoryOptions = {}): AgentTool {
   return stringTool({
     definition: listDirDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {

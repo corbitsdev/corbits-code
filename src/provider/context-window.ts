@@ -59,7 +59,9 @@ function lookupCandidates(model: string): string[] {
 /** True when the registry has an entry for `model` under any known form, so a
  * caller can distinguish a confident lookup from the heuristic fallback. */
 export function hasContextWindowFor(model: string): boolean {
-  return lookupCandidates(model).some((candidate) => contextWindowRegistry[candidate] !== undefined);
+  return lookupCandidates(model).some(
+    (candidate) => contextWindowRegistry[candidate] !== undefined,
+  );
 }
 
 export function contextWindowFor(model: string): number {

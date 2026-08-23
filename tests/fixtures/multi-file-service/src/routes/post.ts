@@ -9,7 +9,7 @@ export function handlePosts(method: string, path: string): string {
   if (method === "GET" && path.startsWith("/posts/")) {
     const id = path.slice("/posts/".length);
     const post = getPost(id);
-    return post ? JSON.stringify(post) : "{\"error\":\"not found\"}";
+    return post ? JSON.stringify(post) : '{"error":"not found"}';
   }
-  return "{\"error\":\"bad request\"}";
+  return '{"error":"bad request"}';
 }

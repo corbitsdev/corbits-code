@@ -17,7 +17,7 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import type { TaskIntent } from "./report.js";
 
-export type SubAgentProvider = {
+export interface SubAgentProvider {
   providerName: string;
   baseURL: string;
   apiKey?: string;
@@ -31,12 +31,12 @@ export type SubAgentProvider = {
   // path builds a plain openai-compatible source and the gateway never
   // receives the x-bf-vk header.
   bifrostVirtualKey?: boolean;
-};
+}
 
 // Dependencies an orchestrator sub-agent needs to spawn further workers via
 // `task`. Nested dispatch always sets allowOrchestrator: false so the
 // recursion bottoms out at one hop of orchestration.
-export type SubAgentSandboxDeps = {
+export interface SubAgentSandboxDeps {
   permissionGate: PermissionGate;
   inheritMcpTools?: () => readonly AgentTool[];
   shellTimeout?: ShellTimeoutConfig;
@@ -45,7 +45,7 @@ export type SubAgentSandboxDeps = {
   getBlobReader?: () => BlobReader | undefined;
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
-};
+}
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
   getWorkdirBase: () => string;

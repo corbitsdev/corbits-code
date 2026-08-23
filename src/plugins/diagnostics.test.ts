@@ -65,9 +65,7 @@ describe("formatPluginWarningsSummary", () => {
       'agent c: skill "style" referenced but not found in skill search path',
       'agent c: skill "brand-identity" referenced but not found in skill search path',
     ]);
-    expect(summary).toBe(
-      "plugins: 3 skills missing: brand-identity, style, philosophy",
-    );
+    expect(summary).toBe("plugins: 3 skills missing: brand-identity, style, philosophy");
   });
 
   test("mixed-warning count also counts distinct skills", () => {
@@ -88,9 +86,7 @@ describe("pluginWarningSubjectId / warningsForPluginEntry", () => {
         'agent a: skill "style" referenced but not found in skill search path',
       ),
     ).toBe("a");
-    expect(
-      pluginWarningSubjectId('tool-plugin: failed to start "exa": boom'),
-    ).toBe("exa");
+    expect(pluginWarningSubjectId('tool-plugin: failed to start "exa": boom')).toBe("exa");
     expect(pluginWarningSubjectId("other problem")).toBeUndefined();
   });
 
@@ -105,9 +101,7 @@ describe("pluginWarningSubjectId / warningsForPluginEntry", () => {
         id: "pack",
         agentProfiles: [{ id: "a" }],
       }),
-    ).toEqual([
-      'agent a: skill "style" referenced but not found in skill search path',
-    ]);
+    ).toEqual(['agent a: skill "style" referenced but not found in skill search path']);
     expect(warningsForPluginEntry(warnings, { id: "exa" })).toEqual([
       'tool-plugin: failed to start "exa": boom',
     ]);
@@ -173,9 +167,7 @@ describe("plugin load diagnostics wiring", () => {
     });
     expect(mod).not.toBeNull();
     expect(diag.warnings.length).toBeGreaterThanOrEqual(2);
-    expect(diag.warnings.every((w) => w.includes("referenced but not found"))).toBe(
-      true,
-    );
+    expect(diag.warnings.every((w) => w.includes("referenced but not found"))).toBe(true);
 
     const summary = formatPluginWarningsSummary(diag.warnings);
     expect(summary).toBeDefined();

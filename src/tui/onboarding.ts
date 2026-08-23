@@ -20,11 +20,7 @@ export async function runOnboarding(config: UnconfiguredConfig): Promise<number>
   const submitted = await runProviderSetup({
     showTelemetryNotice,
     existingProviderNames: Object.keys(existing?.providers ?? {}),
-    onSubmit: buildProviderSubmitHandler(
-      settingsPath,
-      existing,
-      localSettingsPath(config.cwd),
-    ),
+    onSubmit: buildProviderSubmitHandler(settingsPath, existing, localSettingsPath(config.cwd)),
   });
 
   // If the user cancelled (Ctrl+C) onSubmit was never called and settings were

@@ -76,7 +76,9 @@ export function buildHarnessFacts(
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
           "- Turn budget is real; near the end a wrap-up nudge may fire — stop tooling and write the structured report (Summary/Findings/Blockers/Paths). Do not thrash re-reads as the budget ends.",
         ]
-      : ["- Dependency installs, paths outside the workspace, and session-state writes need operator approval."]),
+      : [
+          "- Dependency installs, paths outside the workspace, and session-state writes need operator approval.",
+        ]),
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools
       ? [
@@ -93,7 +95,9 @@ export function buildHarnessFacts(
   ].join("\n");
 }
 
-export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: SessionMode } = {}): string {
+export function buildGuidelines(
+  opts: { subAgent?: boolean; sessionMode?: SessionMode } = {},
+): string {
   const subAgent = opts.subAgent ?? false;
   return [
     "Guidelines:",
@@ -117,7 +121,9 @@ export function buildGuidelines(opts: { subAgent?: boolean; sessionMode?: Sessio
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(subAgent
       ? []
-      : ["- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill."]),
+      : [
+          "- tool_search before assuming a plugin or MCP tool exists; use_skill before work covered by a listed skill.",
+        ]),
     "",
     subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
     ...(subAgent
@@ -200,21 +206,23 @@ const TOOL_SUMMARIES: Record<string, string> = {
   edit_file:
     "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
   delete_file: "delete one file with an explicit outcome (never shell rm)",
-  run_shell: "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
-  search_files: "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
+  run_shell:
+    "run a shell command (builds, tests, git; 15s default timeout — pass timeout ms to override; never to read/write/delete files, search trees, or talk to the user)",
+  search_files:
+    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
   grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
   list_dir: "list a directory's entries (bounded listing)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
   web_search: "search the web (use instead of curl or wget)",
   web_fetch: "fetch the content of a URL",
-  task:
-    "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
+  task: "spawn a sub-agent for a self-contained job (not a checklist item); pass intent/success_criteria/do_not/report_focus when possible; optional maxTurns sets the worker inference budget; when launching several task calls in one turn, give each a distinct lens so they do not duplicate work",
   search_agents:
     "find agent profiles by role or team before spawning with task(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
   manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
   submit_output: "signal the task is complete — the only way to finish",
   ask_operator: "pause and ask the user when blocked or genuinely ambiguous",
-  present: "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
+  present:
+    "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
   use_skill: "load a listed skill's full instructions before doing work it covers",
 };
@@ -250,7 +258,9 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
   } else if ((env.gitDirtyCount ?? 0) === 0) {
     lines.push(`Git: on ${env.gitBranch ?? "(detached HEAD)"}, working tree clean`);
   } else {
-    lines.push(`Git: on ${env.gitBranch ?? "(detached HEAD)"}, ${env.gitDirtyCount} uncommitted change(s):`);
+    lines.push(
+      `Git: on ${env.gitBranch ?? "(detached HEAD)"}, ${env.gitDirtyCount} uncommitted change(s):`,
+    );
     if (env.gitStatusSummary) lines.push(env.gitStatusSummary);
   }
   if (env.topLevel) lines.push(`Top level: ${env.topLevel}`);
@@ -334,7 +344,7 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
   // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? "- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent=\"greybeard\", prompt=\"...\")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
+      ? '- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent="greybeard", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
       : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,
@@ -363,10 +373,10 @@ export function buildSubAgentReportContract(): string {
     "The substance the parent needs — results, decisions, evidence.",
     "",
     "## Blockers",
-    "Open questions, assumptions, or blockers. Write \"None.\" if clear.",
+    'Open questions, assumptions, or blockers. Write "None." if clear.',
     "",
     "## Paths",
-    "Key file paths you read or changed (one per line). Write \"None.\" if none.",
+    'Key file paths you read or changed (one per line). Write "None." if none.',
     "",
     "- This message is the only thing returned to the parent. Do not ask the parent questions; you cannot receive answers. Make the best-judgment call, act, and note assumptions under Blockers.",
   ].join("\n");
@@ -422,4 +432,3 @@ export function buildSubAgentSystemPrompt(
   sections.push(buildSubAgentAppendix(opts));
   return joinSections(sections);
 }
-

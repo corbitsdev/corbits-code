@@ -1,5 +1,4 @@
 import {
-  OPENCODE_GO_AUTH_HINT,
   OPENCODE_GO_BASE_URL,
   OPENCODE_GO_DEFAULT_MODEL,
   OPENCODE_GO_DISPLAY_NAME,
@@ -53,8 +52,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     baseURL: OPENCODE_GO_BASE_URL,
     models: OPENCODE_GO_MODEL_IDS,
     defaultModel: OPENCODE_GO_DEFAULT_MODEL,
-    authHint:
-      "OpenCode Go subscription — paste your API key from https://opencode.ai/auth",
+    authHint: "OpenCode Go subscription — paste your API key from https://opencode.ai/auth",
     opencodeGo: true,
     billingProduct: "subscription",
   },
@@ -91,11 +89,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     label: "Anthropic",
     auth: "api-key",
     baseURL: "https://api.anthropic.com",
-    models: [
-      "claude-opus-4-5",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5",
-    ],
+    models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
     defaultModel: "claude-sonnet-4-5",
     authHint: "Paste your Anthropic API key (sk-ant-...)",
     anthropic: true,

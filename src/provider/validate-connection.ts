@@ -6,11 +6,11 @@
 
 import { requestModelsEndpoint } from "./models-endpoint.js";
 
-export type ConnectionCheck = {
+export interface ConnectionCheck {
   baseURL: string;
   apiKey?: string | undefined;
   timeoutMs?: number;
-};
+}
 
 export type ConnectionCheckResult = { ok: true } | { ok: false; error: string };
 
@@ -44,7 +44,9 @@ export async function validateProviderConnection({
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     const detail = body.trim().length > 0 ? ` — ${body.trim().slice(0, 200)}` : "";
-    return connectionFailure(`Connection test failed (${response.status} ${response.statusText})${detail}`);
+    return connectionFailure(
+      `Connection test failed (${response.status} ${response.statusText})${detail}`,
+    );
   }
 
   return { ok: true };

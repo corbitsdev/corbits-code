@@ -13,10 +13,7 @@ import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
 import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
 import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
-import {
-  shellGuardPlugin,
-  type ShellTimeoutConfig,
-} from "../plugins/shell-guard-plugin.js";
+import { shellGuardPlugin, type ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
 import {
   readFileGuardPlugin,
   type ReadFileGuardPluginOptions,
@@ -24,7 +21,7 @@ import {
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 
-export type CorePosixToolPluginsArgs = {
+export interface CorePosixToolPluginsArgs {
   cwd: string;
   permissionGate: PermissionGate;
   shellTimeout?: ShellTimeoutConfig;
@@ -32,7 +29,7 @@ export type CorePosixToolPluginsArgs = {
   readFileGuard?: ReadFileGuardPluginOptions;
   // Per-project settings.env, merged into the run_shell spawn environment.
   shellEnv?: Record<string, string>;
-};
+}
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
 // with shell-guard after permission so blocked commands never spawn.

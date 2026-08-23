@@ -82,7 +82,7 @@ or release notes from commit types. This project does not:
 - Reviewers and `git log` readers need a sentence that stands alone years later,
   not a taxonomy debate (`chore` vs `refactor` vs `fix`).
 - An imperative subject already encodes the action: `Fix race in the approval
-  queue` is clearer than `fix: race in the approval queue`.
+queue` is clearer than `fix: race in the approval queue`.
 - Prefixes train agents and humans to smuggle scope, ticket IDs, and file names
   into the subject — noise we already reject elsewhere.
 
@@ -93,8 +93,8 @@ Angular-style prefixes is not a reason to adopt them here.
 
 Most commits need **no** body. A clear subject plus a coherent diff is enough.
 
-Add a body only when a future reader of `git log` could not answer *why this
-change* from the subject and the diff alone. When present:
+Add a body only when a future reader of `git log` could not answer _why this
+change_ from the subject and the diff alone. When present:
 
 - Blank line between subject and body
 - Wrap body lines at 72 characters
@@ -187,6 +187,7 @@ Link trackers at the **PR boundary**, not inside every commit.
 
    Full Linear URLs also work. Prefer the body over stuffing the ID into the
    PR title so the title stays a plain-English sentence.
+
 3. Do **not** put `CL-…` in commit subjects or bodies.
 
 **Closing magic words** (issue moves to Done on merge when automation is

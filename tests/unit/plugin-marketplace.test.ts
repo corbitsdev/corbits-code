@@ -27,7 +27,10 @@ test("marketplace members load with their full data (agents + tagged skills)", a
 });
 
 test("a normal plugin directory is not expanded (no marketplace.json, no plugins/ root)", async () => {
-  const mods = await loadPluginsFromPaths(["tests/fixtures/plugins/example-commands"], process.cwd());
+  const mods = await loadPluginsFromPaths(
+    ["tests/fixtures/plugins/example-commands"],
+    process.cwd(),
+  );
   expect(mods.length).toBe(1);
   expect(mods[0]!.manifest?.id).toBe("example-commands");
 });
@@ -71,14 +74,8 @@ test("mixed catalog: relative sibling loads; absolute and escape are skipped", a
     const members = await expandPluginPath(root, {
       onSkip: (s) => skips.push(s),
     });
-    expect(members).toEqual([
-      join(root, "plugins", "alpha"),
-      sibling,
-    ]);
-    expect(skips.map((s) => s.reason).sort()).toEqual([
-      "absolute",
-      "outside-contain-root",
-    ]);
+    expect(members).toEqual([join(root, "plugins", "alpha"), sibling]);
+    expect(skips.map((s) => s.reason).sort()).toEqual(["absolute", "outside-contain-root"]);
   } finally {
     await rm(base, { recursive: true, force: true });
   }
@@ -208,8 +205,12 @@ test("onSkip is required — every skip reaches the caller's handler, none silen
       const members = await expandPluginPath(root, { onSkip: (s) => skips.push(s) });
       expect(members).toEqual([]);
       expect(writes).toEqual([]);
-      expect(skips.some((s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin")).toBe(true);
-      expect(skips.some((s) => s.reason === "missing" && s.source === "./plugins/missing")).toBe(true);
+      expect(skips.some((s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin")).toBe(
+        true,
+      );
+      expect(skips.some((s) => s.reason === "missing" && s.source === "./plugins/missing")).toBe(
+        true,
+      );
     } finally {
       process.stderr.write = origWrite;
     }

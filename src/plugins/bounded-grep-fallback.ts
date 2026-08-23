@@ -15,35 +15,35 @@ export const BOUNDED_GREP_MAX_PER_FILE_BYTES = 512_000;
 export const BOUNDED_GREP_DEFAULT_MAX_RESULTS = 500;
 export const BOUNDED_SEARCH_DEFAULT_MAX_RESULTS = 1000;
 
-export type BoundedGrepLimits = {
+export interface BoundedGrepLimits {
   maxDirectoryEntries?: number;
   maxPerFileBytes?: number;
-};
+}
 
-export type BoundedGrepArgs = {
+export interface BoundedGrepArgs {
   pattern: string;
   path?: string;
   glob?: string;
   context?: number;
   max_results?: number;
-};
+}
 
-export type BoundedSearchFilesArgs = {
+export interface BoundedSearchFilesArgs {
   pattern: string;
   path?: string;
   max_results?: number;
-};
+}
 
-type Match = {
+interface Match {
   file: string;
   lineNumber: number;
   line: string;
-};
+}
 
-type FileSearchResult = {
+interface FileSearchResult {
   matches: Match[];
   lines: string[];
-};
+}
 
 function shouldSkip(relativePath: string): boolean {
   const segments = relativePath.split("/");
@@ -165,10 +165,7 @@ async function searchFile(
     const handle = await readFile(filePath, { signal });
     buf = handle.length > maxPerFileBytes ? handle.subarray(0, maxPerFileBytes) : handle;
   } catch (err) {
-    if (
-      hasCode(err) &&
-      (err.code === "EISDIR" || err.code === "EACCES" || err.code === "ENOENT")
-    ) {
+    if (hasCode(err) && (err.code === "EISDIR" || err.code === "EACCES" || err.code === "ENOENT")) {
       return null;
     }
     throw err;
@@ -337,7 +334,8 @@ export async function runBoundedSearchFiles(
     info = await stat(basePath);
   } catch (err) {
     if (hasCode(err)) {
-      if (err.code === "ENOENT") throw new Error(`directory not found: ${basePath}`, { cause: err });
+      if (err.code === "ENOENT")
+        throw new Error(`directory not found: ${basePath}`, { cause: err });
       if (err.code === "EACCES") throw new Error(`permission denied: ${basePath}`, { cause: err });
     }
     throw err;
@@ -378,4 +376,3 @@ export async function runBoundedSearchFiles(
   }
   return result;
 }
-

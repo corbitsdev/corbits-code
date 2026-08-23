@@ -1,5 +1,8 @@
 import { test, expect } from "bun:test";
-import { createTelemetryToggleHandler, type TelemetryToggleDeps } from "../../src/telemetry/toggle.js";
+import {
+  createTelemetryToggleHandler,
+  type TelemetryToggleDeps,
+} from "../../src/telemetry/toggle.js";
 import { createTelemetry, getSessionId } from "../../src/telemetry/index.js";
 import type { Settings } from "../../src/config/settings.js";
 import type { Telemetry } from "../../src/telemetry/index.js";
@@ -25,7 +28,10 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
     setTelemetry: (t) => {
       instance = t;
     },
-    loadSettings: async () => ({ providers: {}, telemetry: { enabled: true, installationId: "id" } }),
+    loadSettings: async () => ({
+      providers: {},
+      telemetry: { enabled: true, installationId: "id" },
+    }),
     telemetryDisabledByEnv: () => false,
     ensureTelemetrySettings: async () => ({
       providers: {},
@@ -34,7 +40,8 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
     saveGlobalSettings: async () => {},
     // env is pinned to {} (matching telemetry.test.ts) so a developer's real
     // DO_NOT_TRACK / CORBITS_TELEMETRY never bleeds into these tests.
-    createTelemetry: (opts) => createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
+    createTelemetry: (opts) =>
+      createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
     ...overrides,
   };
   return { deps, getInstance: () => instance, fetchCalls: () => calls };
