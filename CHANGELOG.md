@@ -15,6 +15,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **Thinking-only replay no longer collapses into an identical request.** Assistant turns with no text or tool_call (empty content, leftover thinking/citation) are replaced with a stable `[thinking-only turn omitted]` marker so the turn is kept, roles still alternate, and the next `buildRequest` body differs from the previous one.
+
 - **Compaction keeps scored work, not retry loops.** Errored tool results are no
   longer auto-pinned; identical errors collapse to one representative. Anchors
   are scored (writes, successful task completions, plan updates) and pair
