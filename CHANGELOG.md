@@ -15,6 +15,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **xAI short HTTP 429s are rate limits, not quota exhaustion.** Bare 429s from
+  known xAI/Grok providers remapped to retryable so moderate Retry-After no
+  longer aborts as a long-window quota. Clear usage/quota body markers still
+  abort. Transcript shows "Rate limited — retrying…" instead of "Quota exhausted".
+
 - **Compaction keeps scored work, not retry loops.** Errored tool results are no
   longer auto-pinned; identical errors collapse to one representative. Anchors
   are scored (writes, successful task completions, plan updates) and pair
