@@ -20,6 +20,7 @@ import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js"
 import { wireGates } from "./gate-wire.js"
 import { createSystemClipboard } from "./system-clipboard.js"
 import {
+  agentsChromeNeedsSticky,
   formatChromeZones,
   type ChromeLiveState,
 } from "./chrome-state.js"
@@ -363,30 +364,40 @@ export async function mountProductHost(
   // The poll outlives the renderer whenever a caller tears the renderer down
   // without disposing the host. Painting into freed buffers throws, and a host
   // that can no longer paint has nothing left to keep fresh, so it stands down.
+  // Track sticky so a true→false falling edge still paints once — otherwise the
+  // strip never clears when linger expires without a store notify.
+  let stickyWasNeeded =
+    chromeState !== null &&
+    agentsChromeNeedsSticky(chromeState.agents, Date.now())
   const stickyPoll = setInterval(() => {
     if (disposed) return
     try {
       paintChrome(shell)
-      if (config.subAgentSessions !== undefined) {
+      const stickyNeeded =
+        chromeState !== null &&
+        agentsChromeNeedsSticky(chromeState.agents, Date.now())
+      // While the agents strip owns live clocks / linger, skip transcript
+      // syncAgentProgress rewrites — spawn/final/fail anchors still arrive via
+      // event paths; only the sticky clock tick is frozen here.
+      if (config.subAgentSessions !== undefined && !stickyNeeded) {
         bridge.syncAgentProgress(config.subAgentSessions())
       }
-      // The agents panel's elapsed clock and stalled flag are a function of
-      // wall time, not just of the last event — repaint on the same tick as
-      // the transcript trailer so a worker that goes quiet still flips to
-      // "stalled" without waiting on an unrelated chrome push. Gated on a
-      // running agent existing: paintChromeZones() re-enters setChromeZones,
-      // which already calls paintChrome(shell) on its own unchanged-zone
-      // path, so calling it unconditionally would repaint chrome twice a
-      // tick for the common case (task only, no agents) that has nothing
-      // time-based to refresh.
-      if (chromeState !== null && (chromeState.agents ?? []).some((a) => a.status === "running")) {
+      // Elapsed clock, stall flip, and post-finish linger are wall-time — repaint
+      // the strip on this tick while sticky is needed. paintChromeZones re-enters
+      // setChromeZones (which may paintChrome again on an unchanged-zone path),
+      // so gate on sticky rather than calling it every tick for idle chrome.
+      // Falling edge (stickyWasNeeded && !stickyNeeded) clears the zone when
+      // formatAgentsPanel returns null after linger without a setChrome push.
+      if (stickyNeeded || stickyWasNeeded) {
         paintChromeZones()
       }
+      stickyWasNeeded = stickyNeeded
     } catch {
       clearInterval(stickyPoll)
     }
   }, 200)
   if (typeof stickyPoll.unref === "function") stickyPoll.unref()
+
 
   function dispose(): void {
     if (disposed) return
