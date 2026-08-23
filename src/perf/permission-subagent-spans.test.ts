@@ -95,9 +95,7 @@ describe("permission.wait spans", () => {
     const verdict = await gate.evaluate(shellCall("curl example.com"));
     expect(verdict.allowed).toBe(false);
     // Free text reaches the operator-facing reason only (not span tags).
-    expect(
-      !verdict.allowed && "reason" in verdict ? verdict.reason : "",
-    ).toContain(freeText);
+    expect(!verdict.allowed && "reason" in verdict ? verdict.reason : "").toContain(freeText);
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
@@ -106,7 +104,15 @@ describe("permission.wait spans", () => {
     expect(Object.keys(tags).sort()).toEqual(["decision", "tool_id"]);
     expect(tags).toEqual({ tool_id: "run_shell", decision: "deny" });
     // Explicit privacy fence: no free-text keys, and free text never appears in values.
-    for (const key of ["reason", "prompt", "message", "path", "error", "action", "subject"] as const) {
+    for (const key of [
+      "reason",
+      "prompt",
+      "message",
+      "path",
+      "error",
+      "action",
+      "subject",
+    ] as const) {
       expect(Object.hasOwn(tags, key)).toBe(false);
     }
     for (const value of Object.values(tags)) {
@@ -146,9 +152,7 @@ describe("permission.wait spans", () => {
       },
     });
 
-    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow(
-      "ui aborted",
-    );
+    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow("ui aborted");
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
@@ -237,7 +241,11 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     const result = await tool.handler(
-      { id: "call-sa-1", name: "task", arguments: { description: "Job", prompt: "Do it", intent: "explore" } },
+      {
+        id: "call-sa-1",
+        name: "task",
+        arguments: { description: "Job", prompt: "Do it", intent: "explore" },
+      },
       new AbortController().signal,
     );
     expect(runEntered).toBe(true);
@@ -278,7 +286,11 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     await tool.handler(
-      { id: "call-child", name: "task", arguments: { description: "Child", prompt: "Work", intent: "explore" } },
+      {
+        id: "call-child",
+        name: "task",
+        arguments: { description: "Child", prompt: "Work", intent: "explore" },
+      },
       new AbortController().signal,
     );
 
@@ -308,7 +320,11 @@ describe("subagent spans", () => {
     if (tool.kind !== "full") throw new Error("expected full tool");
 
     const result = await tool.handler(
-      { id: "call-fail", name: "task", arguments: { description: "Fail", prompt: "Work", intent: "explore" } },
+      {
+        id: "call-fail",
+        name: "task",
+        arguments: { description: "Fail", prompt: "Work", intent: "explore" },
+      },
       new AbortController().signal,
     );
     expect(typeof result.content === "string" ? result.content : "").toContain("Error:");
@@ -352,4 +368,3 @@ describe("subagent spans", () => {
     expect(agents[0]!.endNs).toBeDefined();
   });
 });
-

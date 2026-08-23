@@ -23,29 +23,29 @@ export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 export type CapabilityMode = "exclude" | "allow";
 
-export type CapabilityFilter = {
+export interface CapabilityFilter {
   mode: CapabilityMode;
   tools: string[];
-};
+}
 
 // A single provider/model/effort combo an agent can run on, so an agent can
 // pin "Sonnet + medium" or "Grok + high".
-export type InferenceLeg = {
+export interface InferenceLeg {
   provider: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
-};
+}
 
 // Per-agent model selection spec, evaluated at dispatch time against the user's
 // configured providers. `mode: "pin"` requires one of the legs to be available
 // (else error / fallback per settings.agentModelFallback); `mode: "prefer"`
 // (default) walks the chain and falls back if none are viable.
-export type InferenceSpec = {
+export interface InferenceSpec {
   mode?: "pin" | "prefer";
   order: InferenceLeg[];
-};
+}
 
-export type AgentProfile = {
+export interface AgentProfile {
   // Unique identifier, used in workflow steps as `agent: "greybeard"`.
   id: string;
   description?: string;
@@ -79,9 +79,9 @@ export type AgentProfile = {
   // Where the profile came from, for search_agents labeling (e.g. "claude",
   // "plugin:<id>", "local"). Omitted for built-in defaults.
   source?: string;
-};
+}
 
 // The shape an agent-kind plugin contributes: a list of profiles.
-export type AgentPlugin = {
+export interface AgentPlugin {
   agents: AgentProfile[];
-};
+}

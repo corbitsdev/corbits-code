@@ -46,10 +46,7 @@ async function makeAgentPluginWithMissingSkill(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "diag-behavior-"));
   const agentsDir = join(dir, "agents");
   await mkdir(agentsDir, { recursive: true });
-  await writeFile(
-    join(agentsDir, "a.md"),
-    "---\nskills: [does-not-exist]\n---\nbody\n",
-  );
+  await writeFile(join(agentsDir, "a.md"), "---\nskills: [does-not-exist]\n---\nbody\n");
   await writeFile(
     join(dir, "plugin.json"),
     JSON.stringify({ id: "diag-behavior", name: "diag-behavior", kind: "agent" }),
@@ -129,7 +126,9 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
       const diag = createPluginLoadDiagnostics();
       const members = await expandPluginPath(marketDir, {
         onSkip: (skip: ExpandPluginPathSkip) => {
-          diag.warnings.push(`marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})`);
+          diag.warnings.push(
+            `marketplace source ${JSON.stringify(skip.source)} skipped (${skip.reason})`,
+          );
         },
       });
       expect(members).toEqual([]);

@@ -22,7 +22,8 @@ const FRIENDLY_BY_CATEGORY: Record<string, string> = {
   // of the provider's raw 401 JSON.
   credential_failure: "Session expired — re-authenticating…",
   quota_exhausted: "Quota exhausted — usage limit reached.",
-  context_overflow: "Context window full — compaction could not keep up. Try /clear to start fresh.",
+  context_overflow:
+    "Context window full — compaction could not keep up. Try /clear to start fresh.",
   retryable: "Request failed — will retry.",
   aborted: "Request aborted.",
   timeout: "Request timed out.",
@@ -78,9 +79,7 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
     const parsed = parseCodexUsageLimitError(candidate);
     if (parsed === undefined) continue;
     const profile =
-      error.providerId !== undefined
-        ? codexProfileFromProviderName(error.providerId)
-        : undefined;
+      error.providerId !== undefined ? codexProfileFromProviderName(error.providerId) : undefined;
     return formatCodexUsageLimitMessage(parsed, {
       ...(profile !== undefined ? { profile } : {}),
     });

@@ -45,9 +45,7 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
     case "refusal":
       return estimateTokensFromChars(block.reason.length);
     case "tool_call":
-      return estimateTokensFromChars(
-        block.name.length + JSON.stringify(block.arguments).length,
-      );
+      return estimateTokensFromChars(block.name.length + JSON.stringify(block.arguments).length);
     case "tool_result":
       return block.content.reduce((sum, part) => sum + estimateContentBlockTokens(part), 0);
     case "image":

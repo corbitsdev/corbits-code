@@ -1,15 +1,15 @@
 import { createServer, type Server } from "node:http";
 import { callbackPageHtml } from "../callback-page.js";
 
-export type CallbackServer = {
+export interface CallbackServer {
   // Resolves with the validated authorization code once the browser redirects
   // back, or rejects if the server reports an error, the state mismatches, or
   // the signal aborts.
   waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
-};
+}
 
-export type CallbackServerConfig = {
+export interface CallbackServerConfig {
   port: number;
   path: string;
   // Host used in the listen bind (always loopback).
@@ -20,7 +20,7 @@ export type CallbackServerConfig = {
   doneHtml: string;
   // Product label for the EADDRINUSE error ("Codex", "xAI", …).
   label: string;
-};
+}
 
 // Start a fixed-port loopback server that receives an OAuth redirect. The port
 // is fixed because authorization servers only accept the registered redirect_uri
@@ -73,13 +73,19 @@ export async function startCallbackServer(
     if (state !== expectedState) {
       res.statusCode = 400;
       res.end("Authorization failed: state mismatch");
-      finish({ error: new Error("Authorization state did not match; possible CSRF — login aborted.") });
+      finish({
+        error: new Error("Authorization state did not match; possible CSRF — login aborted."),
+      });
       return;
     }
 
     res.statusCode = error !== null || code === null ? 400 : 200;
     res.setHeader("content-type", "text/html; charset=utf-8");
-    res.end(error !== null || code === null ? `Authorization failed: ${error ?? "no code returned"}` : config.doneHtml);
+    res.end(
+      error !== null || code === null
+        ? `Authorization failed: ${error ?? "no code returned"}`
+        : config.doneHtml,
+    );
 
     if (error !== null) finish({ error: new Error(`Authorization failed: ${error}`) });
     else if (code === null) finish({ error: new Error("Authorization redirect carried no code.") });
@@ -104,7 +110,10 @@ export async function startCallbackServer(
   return {
     waitForCode: (signal: AbortSignal) => {
       if (signal.aborted) finish({ error: new Error("aborted") });
-      else signal.addEventListener("abort", () => finish({ error: new Error("aborted") }), { once: true });
+      else
+        signal.addEventListener("abort", () => finish({ error: new Error("aborted") }), {
+          once: true,
+        });
       return codePromise;
     },
     close: () => server.close(),

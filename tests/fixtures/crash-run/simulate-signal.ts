@@ -10,11 +10,7 @@
 // the signal's terminal "failed" write — the same race the crash path already
 // fences.
 import { installSignalHandlers } from "../../../src/index.js";
-import {
-  isCrashed,
-  setActiveRun,
-  setTestWriteGate,
-} from "../../../src/session/active-run.js";
+import { isCrashed, setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { saveState } from "../../../src/session/state.js";
 

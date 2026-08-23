@@ -9,7 +9,10 @@ import type { RunState } from "../../src/session/state.js";
 import { isResumableByDefault } from "../../src/tui/pick-session.js";
 
 const FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-crash.ts");
-const RUN_END_FIXTURE = join(import.meta.dirname, "../fixtures/crash-run/simulate-run-end-crash.ts");
+const RUN_END_FIXTURE = join(
+  import.meta.dirname,
+  "../fixtures/crash-run/simulate-run-end-crash.ts",
+);
 
 describe("integration — crash finalizes run.json", () => {
   test("uncaughtException writes status: crashed with finishedAt, racing in-flight snapshot writes", async () => {

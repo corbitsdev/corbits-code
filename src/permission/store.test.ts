@@ -104,8 +104,16 @@ describe("provider-model store", () => {
     await saveProviderModelApproval("openai:gpt-5", { tool: "run_shell", pattern: "npm *" }, dir);
     await saveProviderModelApproval("anthropic:opus", { tool: "run_shell", pattern: "ls *" }, dir);
     const loaded = await loadProviderModelApprovals(dir);
-    expect(loaded).toContainEqual({ tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-5" });
-    expect(loaded).toContainEqual({ tool: "run_shell", pattern: "ls *", providerModel: "anthropic:opus" });
+    expect(loaded).toContainEqual({
+      tool: "run_shell",
+      pattern: "npm *",
+      providerModel: "openai:gpt-5",
+    });
+    expect(loaded).toContainEqual({
+      tool: "run_shell",
+      pattern: "ls *",
+      providerModel: "anthropic:opus",
+    });
   });
 
   test("global and provider-model grants share one file without clobbering", async () => {
