@@ -1,33 +1,26 @@
-import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-
-// Bun mutates the imported namespace object in place when a module is
-// mocked, so the capture is shallow-copied immediately -- holding onto the
-// live namespace would turn into the mocked exports as soon as mock.module
-// below runs, making a later restore a no-op.
-const realFs = { ...(await import("node:fs/promises")) };
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 // Simulates the straggler write's real await point (e.g. cycleRecorder.dispose
 // during the terminal path) landing its writeFile after a later-issued
 // terminal write's writeFile, so rename-order alone would let it win.
-const realWriteFile = realFs.writeFile;
 let delayNextWrite = false;
-mock.module("node:fs/promises", () => ({
-  ...realFs,
-  writeFile: async (path: string, data: string) => {
-    if (delayNextWrite) {
-      delayNextWrite = false;
-      await new Promise((resolve) => setTimeout(resolve, 30));
-    }
-    return realWriteFile(path, data);
-  },
-}));
-
-afterAll(() => {
-  mock.module("node:fs/promises", () => realFs);
-});
+await withMockedModule(
+  import.meta.resolve("node:fs/promises"),
+  (real: typeof import("node:fs/promises")) => ({
+    ...real,
+    writeFile: async (path: string, data: string) => {
+      if (delayNextWrite) {
+        delayNextWrite = false;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+      return real.writeFile(path, data);
+    },
+  }),
+);
 
 const { finalizeRunState, loadState, saveState } = await import("./state.js");
 const { getActiveRun, setActiveRun } = await import("./active-run.js");

@@ -53,4 +53,22 @@ export default tseslint.config(
       "no-control-regex": "off",
     },
   },
+  {
+    // A bare `mock.module` call has no teardown of its own, so a mock left
+    // installed by one test file silently replaces a real module for every
+    // other file in the same `bun test` process (see CL-6967). Route through
+    // withMockedModule/withMockedModuleDuring (tests/helpers/mock-module.ts)
+    // instead, which register their own restore.
+    files: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.object.name='mock'][callee.property.name='module']",
+          message:
+            "Use withMockedModule/withMockedModuleDuring from tests/helpers/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
+        },
+      ],
+    },
+  },
 );

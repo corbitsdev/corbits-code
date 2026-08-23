@@ -1,7 +1,8 @@
-import { afterAll, test, expect, mock } from "bun:test";
+import { test, expect, mock } from "bun:test";
 import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
 import { TOOL_NAMES } from "@intx/tools-posix";
 import type { PermissionGate } from "../../../src/permission/gate.js";
+import { withMockedModule } from "../../helpers/mock-module.js";
 
 const mockDispose = mock(async () => {});
 
@@ -36,36 +37,16 @@ const mockPosixTools = {
   dispose: mockDispose,
 };
 
-// mock.module replaces the shared module cache for the whole test process, so
-// every other file that imports these modules runs against the mock until it
-// is put back. Capture the real modules up front and restore them in
-// afterAll so this file's mocking is invisible outside its own tests. Bun
-// mutates the imported namespace object in place when a module is mocked, so
-// each capture is shallow-copied immediately -- holding onto the live
-// namespace instead would silently turn into the mocked exports as soon as
-// mock.module below runs, making the "restore" a no-op.
-const realToolsPosix = { ...(await import("@intx/tools-posix")) };
-const realPosixToolPlugins = { ...(await import("../../../src/agent/posix-tool-plugins.js")) };
-const realMcpClient = { ...(await import("../../../src/mcp/client.js")) };
-const realMcpPlugin = { ...(await import("../../../src/mcp/plugin.js")) };
-const realPathEscapePlugin = { ...(await import("../../../src/plugins/path-escape-plugin.js")) };
-const realAuthzPlugin = { ...(await import("../../../src/plugins/authz-plugin.js")) };
-const realVerifyPlugin = { ...(await import("../../../src/plugins/verify-plugin.js")) };
-const realPermissionPlugin = { ...(await import("../../../src/plugins/permission-plugin.js")) };
-const realSecretGuardPlugin = { ...(await import("../../../src/plugins/secret-guard-plugin.js")) };
-const realShellGuardPlugin = { ...(await import("../../../src/plugins/shell-guard-plugin.js")) };
-const realReadFileGuardPlugin = {
-  ...(await import("../../../src/plugins/read-file-guard-plugin.js")),
-};
-const realEditFileLineRange = { ...(await import("../../../src/plugins/edit-file-line-range.js")) };
-const realDirector = { ...(await import("../../../src/agent/director.js")) };
-
-mock.module("@intx/tools-posix", () => ({
+// withMockedModule captures each real module and registers its own afterAll
+// restore, so none of these mocks can outlive this file (Bun runs every test
+// file in one process, and an un-restored mock.module silently replaces the
+// real module for every file that runs after this one).
+await withMockedModule(import.meta.resolve("@intx/tools-posix"), () => ({
   createPosixTools: () => mockPosixTools,
   TOOL_NAMES,
 }));
 
-mock.module("../../../src/agent/posix-tool-plugins.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/agent/posix-tool-plugins.js"), () => ({
   buildCorePosixToolPlugins: () => [],
 }));
 
@@ -80,28 +61,31 @@ const mockConnectMCPServer = mock(
   }),
 );
 
-mock.module("../../../src/mcp/client.js", () => ({
-  ...realMcpClient,
-  connectMCPServer: mockConnectMCPServer,
-}));
+await withMockedModule(
+  import.meta.resolve("../../../src/mcp/client.js"),
+  (real: typeof import("../../../src/mcp/client.js")) => ({
+    ...real,
+    connectMCPServer: mockConnectMCPServer,
+  }),
+);
 
-mock.module("../../../src/mcp/plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/mcp/plugin.js"), () => ({
   mcpClientToAgentTools: () => [],
 }));
 
-mock.module("../../../src/plugins/path-escape-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/path-escape-plugin.js"), () => ({
   pathEscapePlugin: () => ({}),
 }));
 
-mock.module("../../../src/plugins/authz-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/authz-plugin.js"), () => ({
   authzPlugin: () => ({}),
 }));
 
-mock.module("../../../src/plugins/verify-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/verify-plugin.js"), () => ({
   verifyPlugin: () => ({}),
 }));
 
-mock.module("../../../src/plugins/permission-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/permission-plugin.js"), () => ({
   permissionPlugin: () => ({}),
   gateToolCall: async (
     _gate: unknown,
@@ -111,24 +95,27 @@ mock.module("../../../src/plugins/permission-plugin.js", () => ({
   ) => next(call, signal),
 }));
 
-mock.module("../../../src/plugins/secret-guard-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/secret-guard-plugin.js"), () => ({
   secretGuardPlugin: () => ({}),
 }));
 
-mock.module("../../../src/plugins/shell-guard-plugin.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/shell-guard-plugin.js"), () => ({
   shellGuardPlugin: () => ({}),
   advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
 }));
 
-mock.module("../../../src/plugins/read-file-guard-plugin.js", () => ({
-  readFileGuardPlugin: () => ({}),
-}));
+await withMockedModule(
+  import.meta.resolve("../../../src/plugins/read-file-guard-plugin.js"),
+  () => ({
+    readFileGuardPlugin: () => ({}),
+  }),
+);
 
-mock.module("../../../src/plugins/edit-file-line-range.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/plugins/edit-file-line-range.js"), () => ({
   advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
 }));
 
-mock.module("../../../src/agent/director.js", () => ({
+await withMockedModule(import.meta.resolve("../../../src/agent/director.js"), () => ({
   askOperatorDefinition: {
     name: "ask_operator",
     description: "Ask operator",
@@ -146,22 +133,6 @@ mock.module("../../../src/agent/director.js", () => ({
   } as ToolDefinition,
   createChatDirector: mock(() => ({})),
 }));
-
-afterAll(() => {
-  mock.module("@intx/tools-posix", () => realToolsPosix);
-  mock.module("../../../src/agent/posix-tool-plugins.js", () => realPosixToolPlugins);
-  mock.module("../../../src/mcp/client.js", () => realMcpClient);
-  mock.module("../../../src/mcp/plugin.js", () => realMcpPlugin);
-  mock.module("../../../src/plugins/path-escape-plugin.js", () => realPathEscapePlugin);
-  mock.module("../../../src/plugins/authz-plugin.js", () => realAuthzPlugin);
-  mock.module("../../../src/plugins/verify-plugin.js", () => realVerifyPlugin);
-  mock.module("../../../src/plugins/permission-plugin.js", () => realPermissionPlugin);
-  mock.module("../../../src/plugins/secret-guard-plugin.js", () => realSecretGuardPlugin);
-  mock.module("../../../src/plugins/shell-guard-plugin.js", () => realShellGuardPlugin);
-  mock.module("../../../src/plugins/read-file-guard-plugin.js", () => realReadFileGuardPlugin);
-  mock.module("../../../src/plugins/edit-file-line-range.js", () => realEditFileLineRange);
-  mock.module("../../../src/agent/director.js", () => realDirector);
-});
 
 const { createAgentToolset } = await import("../../../src/agent/tools.js");
 
