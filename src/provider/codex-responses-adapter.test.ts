@@ -72,7 +72,7 @@ describe("createCodexResponsesAdapter", () => {
       systemPrompt: "operating prompt body",
     });
     const body = JSON.parse(request.body) as {
-      input: Array<{ role?: string; content?: Array<{ text?: string }> }>;
+      input: { role?: string; content?: { text?: string }[] }[];
     };
     const bridgeText = body.input[0]?.content?.[0]?.text ?? "";
 
