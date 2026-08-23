@@ -35,7 +35,10 @@ describe("dedupePluginModules", () => {
   });
 
   test("does not stamp shadowedRepoDefaultEnabled when the repo module wasn't defaultEnabled", () => {
-    const repo: PluginModule = { manifest: { id: "scout", name: "scout", kind: "agent" }, origin: "repo" };
+    const repo: PluginModule = {
+      manifest: { id: "scout", name: "scout", kind: "agent" },
+      origin: "repo",
+    };
     const user = userInstall("scout");
     const [result] = dedupePluginModules([repo, user]);
     expect(result!.shadowedRepoDefaultEnabled).toBeUndefined();
@@ -45,13 +48,18 @@ describe("dedupePluginModules", () => {
     const repo = repoDefaultEnabled("scout");
     const other = userInstall("other");
     const result = dedupePluginModules([repo, other]);
-    expect(result.find((m) => m.manifest?.id === "other")!.shadowedRepoDefaultEnabled).toBeUndefined();
+    expect(
+      result.find((m) => m.manifest?.id === "other")!.shadowedRepoDefaultEnabled,
+    ).toBeUndefined();
   });
 
   test("propagates the shadow stamp through a chain of later installs", () => {
     const repo = repoDefaultEnabled("scout");
     const user = userInstall("scout");
-    const path: PluginModule = { manifest: { id: "scout", name: "scout", kind: "agent" }, origin: "path" };
+    const path: PluginModule = {
+      manifest: { id: "scout", name: "scout", kind: "agent" },
+      origin: "path",
+    };
     const [result] = dedupePluginModules([repo, user, path]);
     expect(result).toMatchObject({ origin: "path" });
     expect(result!.shadowedRepoDefaultEnabled).toBe(true);

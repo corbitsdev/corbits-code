@@ -3,7 +3,7 @@ import path from "node:path";
 
 const DEFAULT_MAX_SEGMENT_BYTES = 256 * 1024;
 
-type WriterState = {
+interface WriterState {
   // Records already on disk, held by reference to detect history rewrites.
   refs: readonly unknown[];
   // Global byte offset where each record's line starts; offsets[refs.length] is
@@ -15,13 +15,13 @@ type WriterState = {
   // Serialized form of the final record, re-checked on every write because the
   // caller may mutate the newest record in place between writes.
   lastLine: string;
-};
+}
 
-export type SegmentedWriteResult = {
+export interface SegmentedWriteResult {
   // Segment files touched (written or deleted) this call, relative to `dir`.
   // The caller stages exactly these so `git add` re-hashes only what changed.
   modifiedPaths: string[];
-};
+}
 
 function lineFor(record: unknown): string {
   return JSON.stringify(record) + "\n";
@@ -105,10 +105,7 @@ export async function highestSegmentIndex(dir: string, baseName: string): Promis
  * order. The base segment is read separately by the underlying store, so this
  * returns only the tail segments the store does not already know about.
  */
-export async function readExtraSegmentTexts(
-  dir: string,
-  baseName: string,
-): Promise<string[]> {
+export async function readExtraSegmentTexts(dir: string, baseName: string): Promise<string[]> {
   const names = await listSegmentFiles(dir, baseName);
   const texts: string[] = [];
   for (const name of names.slice(1)) {
@@ -148,7 +145,11 @@ export function createSegmentedJSONLWriter(
     if (state !== null) {
       const max = Math.min(state.refs.length, records.length);
       while (prefix < max && state.refs[prefix] === records[prefix]) prefix++;
-      if (prefix === state.refs.length && prefix > 0 && lineFor(records[prefix - 1]) !== state.lastLine) {
+      if (
+        prefix === state.refs.length &&
+        prefix > 0 &&
+        lineFor(records[prefix - 1]) !== state.lastLine
+      ) {
         prefix -= 1;
       }
     }
@@ -174,13 +175,17 @@ export function createSegmentedJSONLWriter(
     }
 
     const firstSegStartRecord = prevSegStarts[firstSeg]!;
-    const firstSegEndRecord = prevSegStarts[firstSeg + 1] ?? (state?.refs.length ?? 0);
+    const firstSegEndRecord = prevSegStarts[firstSeg + 1] ?? state?.refs.length ?? 0;
     const prevFirstSegBytes = prevOffsets[firstSegEndRecord]! - prevOffsets[firstSegStartRecord]!;
 
     const offsets = prevOffsets.slice(0, prefix + 1);
     const keepBytesInFirstSeg = offsets[prefix]! - prevOffsets[firstSegStartRecord]!;
 
-    type PlanEntry = { index: number; keepBytes: number; text: string };
+    interface PlanEntry {
+      index: number;
+      keepBytes: number;
+      text: string;
+    }
     const plan: PlanEntry[] = [{ index: firstSeg, keepBytes: keepBytesInFirstSeg, text: "" }];
     const newSegStarts = prevSegStarts.slice(0, firstSeg + 1);
 
@@ -204,7 +209,8 @@ export function createSegmentedJSONLWriter(
     for (const entry of plan) {
       const isFirst = entry.index === firstSeg;
       const existingBytes = isFirst ? prevFirstSegBytes : 0;
-      const untouched = isFirst && entry.text === "" && entry.keepBytes === existingBytes && state !== null;
+      const untouched =
+        isFirst && entry.text === "" && entry.keepBytes === existingBytes && state !== null;
       if (untouched) continue;
 
       const name = segmentFileName(baseName, entry.index);

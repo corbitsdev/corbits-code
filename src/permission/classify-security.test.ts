@@ -5,7 +5,11 @@ import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { createPermissionGate } from "./gate.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
-const shellCall = (command: string): ToolCall => ({ id: "c", name: "run_shell", arguments: { command } });
+const shellCall = (command: string): ToolCall => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 describe("isAutoAllowedShellCall — code-executing flags", () => {
   test("does not auto-allow rg --pre (arbitrary binary execution)", () => {
@@ -114,7 +118,9 @@ describe("isAutoAllowedShellCall — workspace containment", () => {
     expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe("unbounded-listing");
     expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe("unbounded-listing");
-    expect(autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name).toBe("unbounded-listing");
+    expect(autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name).toBe(
+      "unbounded-listing",
+    );
     // Bounded forms stay free of the ask rule.
     expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
     expect(autoShellRuleForCall(shellCall("tree -L 2 packages"))).toBeUndefined();
@@ -179,12 +185,12 @@ describe("isAutoAllowedShellSegment — command substitution", () => {
 
 describe("credential-print shell commands force ask in auto mode", () => {
   test("macOS keychain find-*-password subcommands", () => {
-    expect(autoShellRuleForCall(shellCall("security find-generic-password -w -s myservice"))?.name).toBe(
-      "credential-print",
-    );
-    expect(autoShellRuleForCall(shellCall("security find-internet-password -w -s example.com"))?.name).toBe(
-      "credential-print",
-    );
+    expect(
+      autoShellRuleForCall(shellCall("security find-generic-password -w -s myservice"))?.name,
+    ).toBe("credential-print");
+    expect(
+      autoShellRuleForCall(shellCall("security find-internet-password -w -s example.com"))?.name,
+    ).toBe("credential-print");
   });
 
   test("gpg secret-key export", () => {
@@ -197,7 +203,9 @@ describe("credential-print shell commands force ask in auto mode", () => {
     expect(autoShellRuleForCall(shellCall("aws configure get aws_secret_access_key"))?.name).toBe(
       "credential-print",
     );
-    expect(autoShellRuleForCall(shellCall("gcloud auth print-access-token"))?.name).toBe("credential-print");
+    expect(autoShellRuleForCall(shellCall("gcloud auth print-access-token"))?.name).toBe(
+      "credential-print",
+    );
   });
 
   test("does not flag ordinary security/gcloud/aws usage", () => {
@@ -223,14 +231,16 @@ describe("git config mutation outside the repo forces ask in auto mode", () => {
   });
 
   test("--edit opens an editor on a config file, which can write anything", () => {
-    expect(autoShellRuleForCall(shellCall("git config --global --edit"))?.name).toBe("git-global-config");
+    expect(autoShellRuleForCall(shellCall("git config --global --edit"))?.name).toBe(
+      "git-global-config",
+    );
     expect(autoShellRuleForCall(shellCall("git config --edit"))?.name).toBe("git-global-config");
   });
 
   test("--file to a path outside the workspace asks (via the outside-workspace rule)", () => {
-    expect(autoShellRuleForCall(shellCall("git config --file ~/.gitconfig user.name foo"))?.effect).toBe(
-      "ask",
-    );
+    expect(
+      autoShellRuleForCall(shellCall("git config --file ~/.gitconfig user.name foo"))?.effect,
+    ).toBe("ask");
   });
 
   test("--file to a workspace-relative path still asks on its own", () => {
@@ -240,7 +250,9 @@ describe("git config mutation outside the repo forces ask in auto mode", () => {
   });
 
   test("unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig", () => {
-    expect(autoShellRuleForCall(shellCall("unset GIT_CONFIG_GLOBAL"))?.name).toBe("git-global-config");
+    expect(autoShellRuleForCall(shellCall("unset GIT_CONFIG_GLOBAL"))?.name).toBe(
+      "git-global-config",
+    );
   });
 
   test("reassigning GIT_CONFIG_GLOBAL is caught by the general env-assignment rule", () => {
@@ -408,9 +420,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
   test("provider-model grant does not authorize secret-path shell", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [
-        { tool: "run_shell", pattern: "cat *", providerModel: "openai:gpt-4o" },
-      ],
+      approvals: [{ tool: "run_shell", pattern: "cat *", providerModel: "openai:gpt-4o" }],
       requestApproval: async () => {
         asked++;
         return { allow: true };
@@ -479,7 +489,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
   });
 
   test("secret-path approval strips persist scopes and ignores persist payloads", async () => {
-    const seenScopes: Array<Array<{ pattern: string | null }>> = [];
+    const seenScopes: { pattern: string | null }[][] = [];
     const persisted: unknown[] = [];
     let asked = 0;
     const gate = createPermissionGate({
@@ -559,9 +569,9 @@ describe("env-assignment shell commands force ask in auto mode", () => {
   });
 
   test("env -S with an embedded assignment asks (the assignment lives inside the quoted argument)", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "FOO=bar sh -c 'echo got:$FOO'"`))?.name,
-    ).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall(`env -S "FOO=bar sh -c 'echo got:$FOO'"`))?.name).toBe(
+      "env-assignment",
+    );
   });
 
   test("env --split-string sibling forms with an embedded assignment ask", () => {
@@ -574,11 +584,15 @@ describe("env-assignment shell commands force ask in auto mode", () => {
   });
 
   test("env -i with a plain assignment argument asks", () => {
-    expect(autoShellRuleForCall(shellCall("env -i FOO=bar npm start"))?.name).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall("env -i FOO=bar npm start"))?.name).toBe(
+      "env-assignment",
+    );
   });
 
   test("stacked short flags (env -iS) with an embedded assignment ask", () => {
-    expect(autoShellRuleForCall(shellCall(`env -iS "FOO=bar npm start"`))?.name).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall(`env -iS "FOO=bar npm start"`))?.name).toBe(
+      "env-assignment",
+    );
   });
 
   test("env -S with no embedded assignment does not over-trigger", () => {
@@ -629,10 +643,12 @@ describe("content inside an env -S payload never receives a weaker tier than it 
 
 describe("upload-shaped network shell commands force ask in auto mode", () => {
   test("curl with a data flag asks", () => {
-    expect(autoShellRuleForCall(shellCall("curl -d 'x=1' https://example.com"))?.name).toBe("network-upload");
-    expect(autoShellRuleForCall(shellCall("curl --data-binary @file.bin https://example.com"))?.name).toBe(
+    expect(autoShellRuleForCall(shellCall("curl -d 'x=1' https://example.com"))?.name).toBe(
       "network-upload",
     );
+    expect(
+      autoShellRuleForCall(shellCall("curl --data-binary @file.bin https://example.com"))?.name,
+    ).toBe("network-upload");
     expect(autoShellRuleForCall(shellCall("curl -F file=@a.txt https://example.com"))?.name).toBe(
       "network-upload",
     );
@@ -646,12 +662,12 @@ describe("upload-shaped network shell commands force ask in auto mode", () => {
   });
 
   test("wget posting a file or payload asks", () => {
-    expect(autoShellRuleForCall(shellCall("wget --post-file=data.json https://example.com"))?.name).toBe(
-      "network-upload",
-    );
-    expect(autoShellRuleForCall(shellCall("wget --post-data='a=1' https://example.com"))?.name).toBe(
-      "network-upload",
-    );
+    expect(
+      autoShellRuleForCall(shellCall("wget --post-file=data.json https://example.com"))?.name,
+    ).toBe("network-upload");
+    expect(
+      autoShellRuleForCall(shellCall("wget --post-data='a=1' https://example.com"))?.name,
+    ).toBe("network-upload");
   });
 
   test("scp/rsync to a remote target asks", () => {
@@ -670,7 +686,9 @@ describe("upload-shaped network shell commands force ask in auto mode", () => {
 
   test("netcat in any form asks", () => {
     expect(autoShellRuleForCall(shellCall("nc -l 1234"))?.name).toBe("network-upload");
-    expect(autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name).toBe("network-upload");
+    expect(autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name).toBe(
+      "network-upload",
+    );
   });
 });
 

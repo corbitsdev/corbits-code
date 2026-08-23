@@ -11,10 +11,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
-  lint:
+  # Prettier and eslint run un-cached in CI: restored result caches can mark
+  # files clean against a stale tool version or config, masking real failures.
+  # The --cache flags in the package.json lint script remain for local speed.
+  prettier:
     runs-on: ubuntu-latest
-    # TODO(CL-6802 stage 2): flip blocking after the mechanical fix batch
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,18 +34,31 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Cache lint
+      - name: Prettier
+        run: bunx prettier --check .
+
+  eslint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache dependencies
         uses: actions/cache@v4
         with:
-          path: |
-            .eslintcache
-            node_modules/.cache/prettier
-          key: lint-${{ github.sha }}
-          restore-keys: |
-            lint-
+          path: node_modules
+          key: bun-${{ hashFiles('bun.lock') }}
 
-      - name: Lint
-        run: bun run lint
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: ESLint
+        run: bunx eslint .
 
   typecheck:
     runs-on: ubuntu-latest

@@ -21,7 +21,7 @@ product's on-hand `stock` field. Callers reserve units ahead of checkout;
 on-hand stock is only ever adjusted by restocking or (in a future release)
 by fulfillment — reservations never write to it.
 
-A product's *available* quantity is its on-hand `stock` minus the sum of
+A product's _available_ quantity is its on-hand `stock` minus the sum of
 `quantity` across that product's reservations that are currently `active`
 (a reservation past its expiry is no longer active for this purpose, even
 before anything reads it — see lazy expiry below).

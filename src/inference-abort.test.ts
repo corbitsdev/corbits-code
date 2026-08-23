@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { INFERENCE_ABORT_INTERNAL_RECOVERY, isNonTerminalInferenceError } from "./inference-abort.js";
+import {
+  INFERENCE_ABORT_INTERNAL_RECOVERY,
+  isNonTerminalInferenceError,
+} from "./inference-abort.js";
 
 const HTML_503 = "<!DOCTYPE html><html><body>503 Service Unavailable</body></html>";
 

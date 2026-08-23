@@ -19,7 +19,10 @@ const base = `http://127.0.0.1:${String(CODEX_CALLBACK_PORT)}${CODEX_CALLBACK_PA
 function settle(server: { waitForCode: (s: AbortSignal) => Promise<string> }, signal: AbortSignal) {
   return server.waitForCode(signal).then(
     (code) => ({ ok: true as const, code }),
-    (err: unknown) => ({ ok: false as const, message: err instanceof Error ? err.message : String(err) }),
+    (err: unknown) => ({
+      ok: false as const,
+      message: err instanceof Error ? err.message : String(err),
+    }),
   );
 }
 

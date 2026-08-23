@@ -32,7 +32,9 @@ describe("summarizeToolResult for MCP tools", () => {
     expect(r.preview).toBe("2 projects");
   });
   test("bounds an enormous payload so it cannot freeze the renderer", () => {
-    const raw = JSON.stringify({ results: Array.from({ length: 1000 }, (_, i) => ({ name: `n${i}` })) });
+    const raw = JSON.stringify({
+      results: Array.from({ length: 1000 }, (_, i) => ({ name: `n${i}` })),
+    });
     const r = summarizeToolResult("mcp__acme__list_projects", raw);
     expect(r.full.length).toBeLessThan(4200);
     expect(r.isJSONDocument).toBe(false);
@@ -78,7 +80,10 @@ describe("describeToolCall has no per-tool glyph field", () => {
 
 describe("summarizeToolArgs", () => {
   test("renders key: value pairs, not JSON, for tools without a path headline", () => {
-    const { summary } = summarizeToolArgs("list_dir", JSON.stringify({ path: "src/foo.ts", limit: 100 }));
+    const { summary } = summarizeToolArgs(
+      "list_dir",
+      JSON.stringify({ path: "src/foo.ts", limit: 100 }),
+    );
     expect(summary).toBe("path: src/foo.ts, limit: 100");
     expect(summary).not.toContain("{");
     expect(summary).not.toContain('"');
@@ -86,7 +91,10 @@ describe("summarizeToolArgs", () => {
 
   test("file tools collapse to a bare path, never key: value or content", () => {
     const long = "#!/usr/bin/env python3\n" + "y".repeat(200);
-    const { summary, full } = summarizeToolArgs("write_file", JSON.stringify({ path: "a/b.ts", content: long }));
+    const { summary, full } = summarizeToolArgs(
+      "write_file",
+      JSON.stringify({ path: "a/b.ts", content: long }),
+    );
     expect(summary).toBe("a/b.ts");
     expect(full).toBe("a/b.ts");
     expect(summary).not.toContain("content");
@@ -120,18 +128,24 @@ describe("mergedToolCollapsedPreview", () => {
   test("read_file merges path and line count", () => {
     const content = ["     1\tfoo", "     2\tbar"].join("\n");
     const args = JSON.stringify({ path: "src/foo.ts" });
-    expect(mergedToolCollapsedPreview("read_file", args, content, false)).toBe("Read 2 lines of src/foo.ts");
+    expect(mergedToolCollapsedPreview("read_file", args, content, false)).toBe(
+      "Read 2 lines of src/foo.ts",
+    );
   });
 
   test("grep merges scope and match count", () => {
     const args = JSON.stringify({ pattern: "foo", path: "src" });
     const content = "a.ts:1:foo\nb.ts:2:foo";
-    expect(mergedToolCollapsedPreview("grep", args, content, false)).toBe("Found 2 matches with Grep in src");
+    expect(mergedToolCollapsedPreview("grep", args, content, false)).toBe(
+      "Found 2 matches with Grep in src",
+    );
   });
 
   test("run_shell merges command and output preview", () => {
     const args = JSON.stringify({ command: "npm test" });
-    expect(mergedToolCollapsedPreview("run_shell", args, "ok\nmore", false)).toBe("npm test → ok (+1 more lines)");
+    expect(mergedToolCollapsedPreview("run_shell", args, "ok\nmore", false)).toBe(
+      "npm test → ok (+1 more lines)",
+    );
   });
 });
 
@@ -142,7 +156,9 @@ describe("summarizeToolResult", () => {
   });
 
   test("write_file extracts path", () => {
-    expect(summarizeToolResult("write_file", "wrote 42 bytes to src/foo.ts").preview).toBe("Wrote src/foo.ts");
+    expect(summarizeToolResult("write_file", "wrote 42 bytes to src/foo.ts").preview).toBe(
+      "Wrote src/foo.ts",
+    );
   });
 
   test("edit_file extracts path", () => {
@@ -152,7 +168,9 @@ describe("summarizeToolResult", () => {
   });
 
   test("run_shell success previews the first output line", () => {
-    expect(summarizeToolResult("run_shell", "line a\nline b").preview).toBe("line a (+1 more lines)");
+    expect(summarizeToolResult("run_shell", "line a\nline b").preview).toBe(
+      "line a (+1 more lines)",
+    );
     expect(summarizeToolResult("run_shell", "only one").preview).toBe("only one");
     expect(summarizeToolResult("run_shell", "").preview).toBe("(no output)");
   });
@@ -162,7 +180,9 @@ describe("summarizeToolResult", () => {
   });
 
   test("search_files no match", () => {
-    expect(summarizeToolResult("search_files", 'no files matching "*.foo"').preview).toBe("No files matched");
+    expect(summarizeToolResult("search_files", 'no files matching "*.foo"').preview).toBe(
+      "No files matched",
+    );
   });
 
   test("search_files counts files", () => {
@@ -179,9 +199,7 @@ describe("summarizeToolResult", () => {
 
   test("web_search counts and formats structured results", () => {
     const raw = JSON.stringify({
-      results: [
-        { title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" },
-      ],
+      results: [{ title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" }],
     });
     const result = summarizeToolResult("web_search", raw);
     expect(result.preview).toBe("Found 1 web result");
@@ -199,7 +217,10 @@ describe("summarizeToolResult", () => {
   });
 
   test("web_fetch unwraps structured markdown content", () => {
-    const result = summarizeToolResult("web_fetch", JSON.stringify({ content: "# Hono\n\nFast framework" }));
+    const result = summarizeToolResult(
+      "web_fetch",
+      JSON.stringify({ content: "# Hono\n\nFast framework" }),
+    );
     expect(result.preview).toBe("Fetched 3 lines");
     expect(result.full).toContain("# Hono");
     expect(result.isJSONDocument).toBe(false);
@@ -246,13 +267,15 @@ describe("isUserFacingJSON", () => {
   // A huge API dump must not be treated as a document: the markdown renderer is
   // roughly quadratic and would freeze the TUI on it. It falls back to plain text.
   test("oversized JSON is not treated as a document", () => {
-    const huge = JSON.stringify({ data: Array.from({ length: 4000 }, (_, i) => ({ id: i, name: "agent" })) });
+    const huge = JSON.stringify({
+      data: Array.from({ length: 4000 }, (_, i) => ({ id: i, name: "agent" })),
+    });
     expect(huge.length).toBeGreaterThan(32 * 1024);
     expect(isUserFacingJSON(huge)).toBe(false);
   });
 
   test("read_file of a .json file surfaces as JSON document (line numbers stripped)", () => {
-    const lineNumbered = ['     1\t{', '     2\t  "strict": true', "     3\t}"].join("\n");
+    const lineNumbered = ["     1\t{", '     2\t  "strict": true', "     3\t}"].join("\n");
     expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(true);
   });
 
@@ -264,7 +287,11 @@ describe("isUserFacingJSON", () => {
 
 describe("describeToolCall for task tool", () => {
   test("named agent call uses agent name as display with description separate", () => {
-    const args = JSON.stringify({ agent: "greybeard", description: "review the diff", prompt: "..." });
+    const args = JSON.stringify({
+      agent: "greybeard",
+      description: "review the diff",
+      prompt: "...",
+    });
     const result = describeToolCall("task", args);
     expect(result.display).toBe("Greybeard");
     expect(result.summary).toBe("review the diff");

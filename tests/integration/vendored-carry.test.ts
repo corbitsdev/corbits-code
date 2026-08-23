@@ -4,12 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  createAgent,
-  createDirectorRegistry,
-  defineAgent,
-  defineDirector,
-} from "@intx/agent";
+import { createAgent, createDirectorRegistry, defineAgent, defineDirector } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { ExtendedInferenceOptions } from "@intx/inference";
 import { setupHarness } from "@intx/inference-testing";
@@ -149,10 +144,7 @@ describe("integration — vendored feature carry", () => {
 
     try {
       harness.scenario.replyOnce("anthropic", { text: "ok" });
-      await Promise.all([
-        agent.send("hello"),
-        harness.run({ wallClockBudgetMs: Infinity }),
-      ]);
+      await Promise.all([agent.send("hello"), harness.run({ wallClockBudgetMs: Infinity })]);
 
       const requests = harness.scenario.matchedRequests();
       expect(requests.length).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import type { User } from "../types/index.js";
 
-const users: Map<string, User> = new Map([
+const users = new Map<string, User>([
   ["u1", { id: "u1", name: "Alice", email: "alice@example.com" }],
   ["u2", { id: "u2", name: "Bob", email: "bob@example.com" }],
 ]);

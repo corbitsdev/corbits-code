@@ -9,15 +9,15 @@
  * Pure and clock-injected: every transition takes `nowMs` from the caller.
  */
 
-import { type } from "arktype"
+import { type } from "arktype";
 
-import { detectRepetition } from "./stall-watchdog.js"
-import type { TurnStatus } from "./session-chrome.js"
+import { detectRepetition } from "./stall-watchdog.js";
+import type { TurnStatus } from "./session-chrome.js";
 
 // Bound on the accumulated stream text kept for repetition checks. Comfortably
 // larger than the periods `detectRepetition` can confirm, so trimming never
 // drops content the check still needs.
-const STREAM_TEXT_BUFFER_CHARS = 8_000
+const STREAM_TEXT_BUFFER_CHARS = 8_000;
 
 // `detectRepetition` walks a character-level period search; cheap per call,
 // but the reactor loop can emit a delta per token, and running it on every
@@ -25,13 +25,13 @@ const STREAM_TEXT_BUFFER_CHARS = 8_000
 // repeating tail does not appear or disappear between two three-character
 // tokens. Checking once per chunk of newly streamed text instead keeps the
 // cost proportional to output, not token count.
-const REPETITION_CHECK_INTERVAL_CHARS = 40
+const REPETITION_CHECK_INTERVAL_CHARS = 40;
 
 // Cycles shorter than this are skipped when updating the cross-cycle streak:
 // a bare tool call with no preceding text, or a one-word aside, is too little
 // signal to compare — matching by coincidence is common at this length, and
 // skipping neither breaks nor extends a streak already in progress.
-const CYCLE_FINGERPRINT_MIN_CHARS = 24
+const CYCLE_FINGERPRINT_MIN_CHARS = 24;
 
 // How many consecutive cycles must fingerprint identically before it counts
 // as a loop rather than ordinary phrasing. The fingerprint covers the whole
@@ -51,7 +51,7 @@ const CYCLE_FINGERPRINT_MIN_CHARS = 24
 // explicit: an exact, invariant line of at least `CYCLE_FINGERPRINT_MIN_CHARS`
 // chars repeated with zero variation for this many cycles running straight
 // through tool calls — contentless boilerplate, not narration.
-const CYCLE_REPETITION_MIN_CONSECUTIVE = 20
+const CYCLE_REPETITION_MIN_CONSECUTIVE = 20;
 
 /**
  * Cheap 32-bit fingerprint (FNV-1a) of one completed cycle's text, so the
@@ -60,48 +60,48 @@ const CYCLE_REPETITION_MIN_CONSECUTIVE = 20
  * the cross-cycle false positive this replaces.
  */
 function cycleFingerprint(text: string): string {
-  let hash = 0x811c9dc5
+  let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
   }
-  return (hash >>> 0).toString(16)
+  return (hash >>> 0).toString(16);
 }
 
-export type QuotaWait = {
-  readonly retryAfterMs: number
-  readonly retryAt: number
+export interface QuotaWait {
+  readonly retryAfterMs: number;
+  readonly retryAt: number;
 }
 
-export type TurnState = {
-  readonly status: TurnStatus
-  readonly isProcessing: boolean
+export interface TurnState {
+  readonly status: TurnStatus;
+  readonly isProcessing: boolean;
   /** Between a request and its first streamed token. */
-  readonly awaitingResponse: boolean
-  readonly streamingType: "text" | "thinking" | "tool" | null
-  readonly currentToolName: string | null
+  readonly awaitingResponse: boolean;
+  readonly streamingType: "text" | "thinking" | "tool" | null;
+  readonly currentToolName: string | null;
   /**
    * Text deltas seen so far this turn — the only live count available: usage
    * totals only land on `inference.done`, well after the turn has finished
    * streaming. Counts delta events, not a real tokenizer, so it is a proxy
    * for "how much has arrived" rather than an exact token count.
    */
-  readonly streamTokenCount: number
-  readonly lastActivityAt: number
+  readonly streamTokenCount: number;
+  readonly lastActivityAt: number;
   /** Set while a provider rate limit is cooling down. */
-  readonly quota: QuotaWait | null
+  readonly quota: QuotaWait | null;
   /**
    * Tool calls streamed by the current cycle that have not reported a result.
    * `connector.reply` closes a cycle but not the turn when tools are still out,
    * so the settle decision needs the outstanding ids, not just the last name.
    */
-  readonly activeToolCalls: readonly string[]
+  readonly activeToolCalls: readonly string[];
   /**
    * Real id for a tool name once one has been seen this turn, so a
    * name-only announcement and its later id-bearing counterpart collapse
    * onto one `activeToolCalls` entry. See `registerActiveCall`.
    */
-  readonly callIdByName: Readonly<Record<string, string>>
+  readonly callIdByName: Readonly<Record<string, string>>;
   /**
    * Tail of the text/thinking output streamed in the current uninterrupted
    * streaming cycle. A tool call ends the cycle and clears it: a model
@@ -110,37 +110,37 @@ export type TurnState = {
    * genuinely degenerate model repeats within one unbroken stream. Bounded to
    * `STREAM_TEXT_BUFFER_CHARS`; feeds `detectRepetition`, nothing else.
    */
-  readonly streamText: string
+  readonly streamText: string;
   /**
    * Total characters streamed this turn, uncapped — unlike `streamText.length`
    * this keeps climbing after the buffer fills, which is what lets the
    * throttle below tell "40 more chars arrived" from "the buffer is full."
    */
-  readonly streamCharsSeen: number
+  readonly streamCharsSeen: number;
   /** `streamCharsSeen` as of the last `detectRepetition` call. */
-  readonly repetitionCheckedAt: number
+  readonly repetitionCheckedAt: number;
   /** Result of the most recent `detectRepetition` check on `streamText`. */
-  readonly repeating: boolean
+  readonly repeating: boolean;
   /**
    * `streamTokenCount` at the moment repetition was first observed this turn.
    * Latched, not recomputed, so the abort can report tokens spent looping
    * rather than the whole turn's count.
    */
-  readonly repeatingSinceTokenCount: number | null
+  readonly repeatingSinceTokenCount: number | null;
   /**
    * Fingerprint of the most recently completed streaming cycle (set at each
    * tool-call boundary), used only to compare against the next cycle's
    * fingerprint. Not the raw text — carrying that across cycles is what
    * caused repeats to accumulate into a false positive across tool calls.
    */
-  readonly cycleFingerprint: string | null
+  readonly cycleFingerprint: string | null;
   /**
    * Consecutive completed cycles whose fingerprint matched the one before it.
    * A model repeating the same block every cycle, with a tool call in
    * between each, builds this streak even though no single cycle's text ever
    * gets long enough to trip `detectRepetition` on its own.
    */
-  readonly consecutiveMatchingCycles: number
+  readonly consecutiveMatchingCycles: number;
   /**
    * Outstanding approval/operator gates, counted from the moment each is
    * raised — queued behind another overlay or already on screen, both count.
@@ -150,7 +150,7 @@ export type TurnState = {
    * clock is concerned. Painter and watchdog both read this one field rather
    * than each re-deriving blocked-ness from the shell's overlay.
    */
-  readonly blockedGateCount: number
+  readonly blockedGateCount: number;
 }
 
 export function initialTurnState(nowMs: number): TurnState {
@@ -173,7 +173,7 @@ export function initialTurnState(nowMs: number): TurnState {
     cycleFingerprint: null,
     consecutiveMatchingCycles: 0,
     blockedGateCount: 0,
-  }
+  };
 }
 
 /**
@@ -191,7 +191,7 @@ export function initialTurnState(nowMs: number): TurnState {
 function carryBlockedGateCount(prior: TurnState, fresh: TurnState): TurnState {
   return prior.blockedGateCount === 0
     ? fresh
-    : { ...fresh, blockedGateCount: prior.blockedGateCount }
+    : { ...fresh, blockedGateCount: prior.blockedGateCount };
 }
 
 /** Operator submitted a prompt: the run is live and awaiting first tokens. */
@@ -216,7 +216,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     repeatingSinceTokenCount: null,
     cycleFingerprint: null,
     consecutiveMatchingCycles: 0,
-  }
+  };
 }
 
 /** Ctrl+C / watchdog abort: nothing is in flight and no prompt may be replayed. */
@@ -224,7 +224,7 @@ export function turnStateOnInterrupt(state: TurnState, nowMs: number): TurnState
   return carryBlockedGateCount(state, {
     ...initialTurnState(nowMs),
     status: "stopped",
-  })
+  });
 }
 
 /**
@@ -233,13 +233,13 @@ export function turnStateOnInterrupt(state: TurnState, nowMs: number): TurnState
  * gates just add to the count so the turn stays blocked until all clear.
  */
 export function turnStateGateOpened(state: TurnState): TurnState {
-  const blockedGateCount = state.blockedGateCount + 1
+  const blockedGateCount = state.blockedGateCount + 1;
   return {
     ...state,
     status: "blocked",
     isProcessing: true,
     blockedGateCount,
-  }
+  };
 }
 
 /**
@@ -249,18 +249,18 @@ export function turnStateGateOpened(state: TurnState): TurnState {
  * actually answered, rather than crediting silence spent reading the prompt.
  */
 export function turnStateGateClosed(state: TurnState, nowMs: number): TurnState {
-  const blockedGateCount = Math.max(0, state.blockedGateCount - 1)
-  if (blockedGateCount > 0) return { ...state, blockedGateCount }
+  const blockedGateCount = Math.max(0, state.blockedGateCount - 1);
+  if (blockedGateCount > 0) return { ...state, blockedGateCount };
   return {
     ...state,
     status: state.status === "blocked" ? "running" : state.status,
     lastActivityAt: nowMs,
     blockedGateCount,
-  }
+  };
 }
 
 export function clearQuotaWait(state: TurnState): TurnState {
-  return state.quota === null ? state : { ...state, quota: null }
+  return state.quota === null ? state : { ...state, quota: null };
 }
 
 const inferenceErrorData = type({
@@ -268,34 +268,34 @@ const inferenceErrorData = type({
     category: "string",
     "retryAfterMs?": "number",
   },
-})
+});
 
-const tokenData = type({ "token?": "string" })
+const tokenData = type({ "token?": "string" });
 
 /**
  * Text carried by a delta event. Reactor-shaped deltas carry it as
  * `data.token`; canonical bridge deltas carry it as a top-level `text`.
  */
 function deltaText(event: { readonly data?: unknown; readonly text?: string }): string {
-  const parsed = tokenData(event.data)
+  const parsed = tokenData(event.data);
   if (!(parsed instanceof type.errors) && parsed.token !== undefined) {
-    return parsed.token
+    return parsed.token;
   }
-  return event.text ?? ""
+  return event.text ?? "";
 }
 
-function quotaFromInferenceError(
-  data: unknown,
-  nowMs: number,
-): QuotaWait | null {
-  const parsed = inferenceErrorData(data)
-  if (parsed instanceof type.errors) return null
-  const { category, retryAfterMs } = parsed.error
-  if (category !== "quota_exhausted" || retryAfterMs === undefined) return null
-  return { retryAfterMs, retryAt: nowMs + retryAfterMs }
+function quotaFromInferenceError(data: unknown, nowMs: number): QuotaWait | null {
+  const parsed = inferenceErrorData(data);
+  if (parsed instanceof type.errors) return null;
+  const { category, retryAfterMs } = parsed.error;
+  if (category !== "quota_exhausted" || retryAfterMs === undefined) return null;
+  return { retryAfterMs, retryAt: nowMs + retryAfterMs };
 }
 
-type CallIdentity = { readonly id?: string; readonly name?: string }
+interface CallIdentity {
+  readonly id?: string;
+  readonly name?: string;
+}
 
 // Both flat streamed shapes (`{ callId?, name? }`) and the nested tool.start
 // shape (`{ call: { id?, callId?, name? } }`) are parsed here so every call
@@ -305,59 +305,53 @@ const callEventData = type({
   "callId?": "string",
   "name?": "string",
   "call?": { "id?": "string", "callId?": "string", "name?": "string" },
-})
+});
 
 function streamedCallIdentity(data: unknown): CallIdentity {
-  const parsed = callEventData(data)
-  if (parsed instanceof type.errors) return {}
-  const id = parsed.callId ?? parsed.call?.id ?? parsed.call?.callId
-  const name = parsed.name ?? parsed.call?.name
+  const parsed = callEventData(data);
+  if (parsed instanceof type.errors) return {};
+  const id = parsed.callId ?? parsed.call?.id ?? parsed.call?.callId;
+  const name = parsed.name ?? parsed.call?.name;
   return {
     ...(id !== undefined ? { id } : {}),
     ...(name !== undefined ? { name } : {}),
-  }
+  };
 }
 
 function toolName(data: unknown): string | null {
-  return streamedCallIdentity(data).name ?? null
+  return streamedCallIdentity(data).name ?? null;
 }
 
 const toolDoneData = type({
   result: { "callId?": "string", "name?": "string" },
-})
+});
 
 function resultIdentity(data: unknown): CallIdentity {
-  const parsed = toolDoneData(data)
-  if (parsed instanceof type.errors) return {}
-  const { callId, name } = parsed.result
+  const parsed = toolDoneData(data);
+  if (parsed instanceof type.errors) return {};
+  const { callId, name } = parsed.result;
   return {
     ...(callId !== undefined ? { id: callId } : {}),
     ...(name !== undefined ? { name } : {}),
-  }
+  };
 }
 
-function withActiveCall(
-  active: readonly string[],
-  id: string,
-): readonly string[] {
-  return active.includes(id) ? active : [...active, id]
+function withActiveCall(active: readonly string[], id: string): readonly string[] {
+  return active.includes(id) ? active : [...active, id];
 }
 
 /**
  * Drop one outstanding call. An unmatched id still consumes an entry: a
  * mismatched pair would otherwise leave the turn permanently "working".
  */
-function withoutActiveCall(
-  active: readonly string[],
-  id: string,
-): readonly string[] {
-  const index = active.indexOf(id)
-  if (index !== -1) return active.filter((_, i) => i !== index)
-  return active.slice(1)
+function withoutActiveCall(active: readonly string[], id: string): readonly string[] {
+  const index = active.indexOf(id);
+  if (index !== -1) return active.filter((_, i) => i !== index);
+  return active.slice(1);
 }
 
-type CallTracking = {
-  readonly activeToolCalls: readonly string[]
+interface CallTracking {
+  readonly activeToolCalls: readonly string[];
   /**
    * Real id for a tool name once one has been seen. A name-only announcement
    * (start/end with no callId) and the id-bearing tool.start for the same
@@ -367,7 +361,7 @@ type CallTracking = {
    * apart until both have real ids — but that ambiguity predates this fix:
    * the original name-keyed tracking collapsed them identically.
    */
-  readonly callIdByName: Readonly<Record<string, string>>
+  readonly callIdByName: Readonly<Record<string, string>>;
 }
 
 /**
@@ -375,45 +369,40 @@ type CallTracking = {
  * name-only announcement (no callId yet) and a later id-bearing one for the
  * same call must collapse onto a single activeToolCalls entry, not two.
  */
-function registerActiveCall(
-  tracking: CallTracking,
-  identity: CallIdentity,
-): CallTracking {
-  const { activeToolCalls, callIdByName } = tracking
+function registerActiveCall(tracking: CallTracking, identity: CallIdentity): CallTracking {
+  const { activeToolCalls, callIdByName } = tracking;
 
   if (identity.id !== undefined) {
     const nextCallIdByName =
       identity.name !== undefined
         ? { ...callIdByName, [identity.name]: identity.id }
-        : callIdByName
+        : callIdByName;
     // A provisional entry may already be tracking this call under its name —
     // promote it onto the real id in place instead of adding a duplicate.
     const withoutPlaceholder =
       identity.name !== undefined && activeToolCalls.includes(identity.name)
         ? activeToolCalls.filter((c) => c !== identity.name)
-        : activeToolCalls
+        : activeToolCalls;
     return {
       activeToolCalls: withActiveCall(withoutPlaceholder, identity.id),
       callIdByName: nextCallIdByName,
-    }
+    };
   }
 
   if (identity.name !== undefined) {
-    const id = callIdByName[identity.name] ?? identity.name
-    return { activeToolCalls: withActiveCall(activeToolCalls, id), callIdByName }
+    const id = callIdByName[identity.name] ?? identity.name;
+    return { activeToolCalls: withActiveCall(activeToolCalls, id), callIdByName };
   }
 
-  return { activeToolCalls: withActiveCall(activeToolCalls, "tool"), callIdByName }
+  return { activeToolCalls: withActiveCall(activeToolCalls, "tool"), callIdByName };
 }
 
 function withoutCallIdByName(
   callIdByName: Readonly<Record<string, string>>,
   name: string,
 ): Readonly<Record<string, string>> {
-  if (!(name in callIdByName)) return callIdByName
-  return Object.fromEntries(
-    Object.entries(callIdByName).filter(([n]) => n !== name),
-  )
+  if (!(name in callIdByName)) return callIdByName;
+  return Object.fromEntries(Object.entries(callIdByName).filter(([n]) => n !== name));
 }
 
 /**
@@ -425,39 +414,34 @@ function nameForCallId(
   callIdByName: Readonly<Record<string, string>>,
   id: string,
 ): string | undefined {
-  return Object.entries(callIdByName).find(([, v]) => v === id)?.[0]
+  return Object.entries(callIdByName).find(([, v]) => v === id)?.[0];
 }
 
-function unregisterActiveCall(
-  tracking: CallTracking,
-  identity: CallIdentity,
-): CallTracking {
-  const { activeToolCalls, callIdByName } = tracking
+function unregisterActiveCall(tracking: CallTracking, identity: CallIdentity): CallTracking {
+  const { activeToolCalls, callIdByName } = tracking;
 
   if (identity.id !== undefined) {
     // Clear the mapping once its call resolves, or a later call reusing the
     // same tool name would resolve straight to this now-finished id instead
     // of tracking its own — reproducing the leak this function exists to fix.
-    const resolvedName = identity.name ?? nameForCallId(callIdByName, identity.id)
+    const resolvedName = identity.name ?? nameForCallId(callIdByName, identity.id);
     const nextCallIdByName =
-      resolvedName !== undefined
-        ? withoutCallIdByName(callIdByName, resolvedName)
-        : callIdByName
+      resolvedName !== undefined ? withoutCallIdByName(callIdByName, resolvedName) : callIdByName;
     return {
       activeToolCalls: withoutActiveCall(activeToolCalls, identity.id),
       callIdByName: nextCallIdByName,
-    }
+    };
   }
 
   if (identity.name !== undefined) {
-    const id = callIdByName[identity.name] ?? identity.name
+    const id = callIdByName[identity.name] ?? identity.name;
     return {
       activeToolCalls: withoutActiveCall(activeToolCalls, id),
       callIdByName: withoutCallIdByName(callIdByName, identity.name),
-    }
+    };
   }
 
-  return { activeToolCalls: withoutActiveCall(activeToolCalls, "tool"), callIdByName }
+  return { activeToolCalls: withoutActiveCall(activeToolCalls, "tool"), callIdByName };
 }
 
 const streaming = (
@@ -466,20 +450,15 @@ const streaming = (
   nowMs: number,
   text: string,
 ): TurnState => {
-  const streamTokenCount =
-    kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount
-  const streamText = `${state.streamText}${text}`.slice(
-    -STREAM_TEXT_BUFFER_CHARS,
-  )
-  const streamCharsSeen = state.streamCharsSeen + text.length
-  const due =
-    streamCharsSeen - state.repetitionCheckedAt >= REPETITION_CHECK_INTERVAL_CHARS
+  const streamTokenCount = kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount;
+  const streamText = `${state.streamText}${text}`.slice(-STREAM_TEXT_BUFFER_CHARS);
+  const streamCharsSeen = state.streamCharsSeen + text.length;
+  const due = streamCharsSeen - state.repetitionCheckedAt >= REPETITION_CHECK_INTERVAL_CHARS;
   // Once true, stays true for the rest of the turn — a fresh cycle's buffer
   // starts empty (see `runningTool`) and would otherwise read back false on
   // the next check, un-latching a real detection the moment a tool call
   // interrupts the stream.
-  const repeating =
-    state.repeating || (due && detectRepetition(streamText).repeating)
+  const repeating = state.repeating || (due && detectRepetition(streamText).repeating);
   return {
     ...state,
     status: state.status === "blocked" ? "blocked" : "running",
@@ -496,8 +475,8 @@ const streaming = (
       repeating && state.repeatingSinceTokenCount === null
         ? streamTokenCount
         : state.repeatingSinceTokenCount,
-  }
-}
+  };
+};
 
 // A tool call ends the current streaming cycle. The raw text buffer is
 // discarded here, rather than only on a fresh turn, so repeats never
@@ -509,27 +488,21 @@ const streaming = (
 // completed cycle is kept and compared against the next one: several
 // consecutive cycles fingerprinting alike is what that shape of loop looks
 // like, and nine different narration lines never do.
-const runningTool = (
-  state: TurnState,
-  name: string | null,
-  nowMs: number,
-): TurnState => {
-  const cycleText = state.streamText
-  const longEnoughToCompare = cycleText.length >= CYCLE_FINGERPRINT_MIN_CHARS
-  const fingerprint = longEnoughToCompare
-    ? cycleFingerprint(cycleText)
-    : null
+const runningTool = (state: TurnState, name: string | null, nowMs: number): TurnState => {
+  const cycleText = state.streamText;
+  const longEnoughToCompare = cycleText.length >= CYCLE_FINGERPRINT_MIN_CHARS;
+  const fingerprint = longEnoughToCompare ? cycleFingerprint(cycleText) : null;
   const matchedPrevious =
     longEnoughToCompare &&
     state.cycleFingerprint !== null &&
-    fingerprint === state.cycleFingerprint
+    fingerprint === state.cycleFingerprint;
   const consecutiveMatchingCycles = matchedPrevious
     ? state.consecutiveMatchingCycles + 1
     : longEnoughToCompare
       ? 1
-      : state.consecutiveMatchingCycles
+      : state.consecutiveMatchingCycles;
   const repeating =
-    state.repeating || consecutiveMatchingCycles >= CYCLE_REPETITION_MIN_CONSECUTIVE
+    state.repeating || consecutiveMatchingCycles >= CYCLE_REPETITION_MIN_CONSECUTIVE;
 
   return {
     ...state,
@@ -549,8 +522,8 @@ const runningTool = (
         : state.repeatingSinceTokenCount,
     cycleFingerprint: longEnoughToCompare ? fingerprint : state.cycleFingerprint,
     consecutiveMatchingCycles,
-  }
-}
+  };
+};
 
 /**
  * Fold one inbound event (reactor-shaped or canonical bridge-shaped) into the
@@ -559,18 +532,18 @@ const runningTool = (
 export function turnStateFromEvent(
   state: TurnState,
   event: {
-    readonly type: string
-    readonly data?: unknown
+    readonly type: string;
+    readonly data?: unknown;
     /** Canonical bridge shapes carry these instead of `data`. */
-    readonly state?: string
-    readonly name?: string
-    readonly text?: string
+    readonly state?: string;
+    readonly name?: string;
+    readonly text?: string;
   },
   nowMs: number,
 ): TurnState {
   switch (event.type) {
     case "message.received":
-      return turnStateOnSubmit(state, nowMs)
+      return turnStateOnSubmit(state, nowMs);
 
     case "inference.start":
       return {
@@ -581,43 +554,40 @@ export function turnStateFromEvent(
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
-      }
+      };
 
     case "inference.text.delta":
     case "assistant.delta":
-      return streaming(state, "text", nowMs, deltaText(event))
+      return streaming(state, "text", nowMs, deltaText(event));
 
     case "inference.thinking.delta":
     case "thinking.delta":
-      return streaming(state, "thinking", nowMs, deltaText(event))
+      return streaming(state, "thinking", nowMs, deltaText(event));
 
     case "inference.tool_call.delta":
-      return runningTool(state, toolName(event.data), nowMs)
+      return runningTool(state, toolName(event.data), nowMs);
 
     case "inference.tool_call.start":
     case "inference.tool_call.end":
     case "tool.start": {
-      const identity = streamedCallIdentity(event.data)
-      const running = runningTool(state, identity.name ?? null, nowMs)
-      const tracking = registerActiveCall(running, identity)
-      return { ...running, ...tracking }
+      const identity = streamedCallIdentity(event.data);
+      const running = runningTool(state, identity.name ?? null, nowMs);
+      const tracking = registerActiveCall(running, identity);
+      return { ...running, ...tracking };
     }
 
     case "tool_call": {
-      const running = runningTool(state, event.name ?? null, nowMs)
+      const running = runningTool(state, event.name ?? null, nowMs);
       return {
         ...running,
-        activeToolCalls: withActiveCall(
-          state.activeToolCalls,
-          event.name ?? "tool",
-        ),
-      }
+        activeToolCalls: withActiveCall(state.activeToolCalls, event.name ?? "tool"),
+      };
     }
 
     // Tool finished: the model is being called again, so the awaiting-response
     // clock restarts rather than the tool clock continuing.
     case "tool.done": {
-      const tracking = unregisterActiveCall(state, resultIdentity(event.data))
+      const tracking = unregisterActiveCall(state, resultIdentity(event.data));
       return {
         ...state,
         ...tracking,
@@ -625,7 +595,7 @@ export function turnStateFromEvent(
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
-      }
+      };
     }
 
     case "tool_result":
@@ -635,11 +605,8 @@ export function turnStateFromEvent(
         streamingType: null,
         currentToolName: null,
         lastActivityAt: nowMs,
-        activeToolCalls: withoutActiveCall(
-          state.activeToolCalls,
-          event.name ?? "tool",
-        ),
-      }
+        activeToolCalls: withoutActiveCall(state.activeToolCalls, event.name ?? "tool"),
+      };
 
     /**
      * A cycle with no active tool calls left is also a turn's real
@@ -658,13 +625,13 @@ export function turnStateFromEvent(
           awaitingResponse: false,
           streamingType: null,
           lastActivityAt: nowMs,
-        }
+        };
       }
       return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "done",
         quota: state.quota,
-      })
+      });
 
     /**
      * The other turn terminator: `agent.send()` resolves on connector.reply,
@@ -674,34 +641,34 @@ export function turnStateFromEvent(
      */
     case "connector.reply":
       if (state.activeToolCalls.length > 0) {
-        return { ...state, awaitingResponse: false, lastActivityAt: nowMs }
+        return { ...state, awaitingResponse: false, lastActivityAt: nowMs };
       }
       return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "done",
         quota: state.quota,
-      })
+      });
 
     case "inference.error": {
-      const quota = quotaFromInferenceError(event.data, nowMs)
+      const quota = quotaFromInferenceError(event.data, nowMs);
       return {
         ...state,
         lastActivityAt: nowMs,
         ...(quota !== null ? { quota } : {}),
-      }
+      };
     }
 
     case "reactor.done":
       return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         quota: state.quota,
-      })
+      });
 
     case "reactor.error":
       return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "failed",
-      })
+      });
 
     case "run":
       return event.state === "busy"
@@ -709,9 +676,9 @@ export function turnStateFromEvent(
         : carryBlockedGateCount(state, {
             ...initialTurnState(nowMs),
             quota: state.quota,
-          })
+          });
 
     default:
-      return state
+      return state;
   }
 }
