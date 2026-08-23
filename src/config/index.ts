@@ -33,10 +33,14 @@ import {
 } from "../provider/codex-responses-adapter.js";
 import {
   GROK_RESPONSES_PROVIDER,
+  GROK_SESSION_ID_OPTION,
   GROK_USER_ID_OPTION,
 } from "../provider/grok-responses-adapter.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
-import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses-adapter.js";
+import {
+  OPENAI_RESPONSES_PROVIDER,
+  OPENAI_SESSION_ID_OPTION,
+} from "../provider/openai-responses-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
   OPENCODE_GO_BASE_URL,
@@ -169,14 +173,19 @@ export function buildCodexSource(fields: {
 // "grok-responses" adapter (the grok-cli proxy speaks the Responses API, not
 // Chat Completions). The access token is the apiKey; the caller's user id is
 // decoded from it and lifted into the x-grok-user-id header by the adapter.
+// The session id becomes the request's prompt_cache_key so every call in the
+// thread routes to the same cache shard (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
   apiKey: string;
   model: string;
+  sessionId: string;
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
   const userId = xaiUserIdFromAccessToken(fields.apiKey);
-  const providerOptions: Record<string, unknown> = {};
+  const providerOptions: Record<string, unknown> = {
+    [GROK_SESSION_ID_OPTION]: fields.sessionId,
+  };
   if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
@@ -234,10 +243,12 @@ export function buildAnthropicSource(fields: {
 }
 
 // OpenCode Go: per-model protocol routing (chat completions / responses / messages).
+// sessionId feeds the Responses-protocol prompt_cache_key (see buildXaiSource).
 export function buildGoSource(fields: {
   id: string;
   apiKey?: string;
   model: string;
+  sessionId?: string;
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
   const endpoint = resolveGoEndpoint(fields.model);
@@ -258,7 +269,12 @@ export function buildGoSource(fields: {
       baseURL: endpoint.baseURL,
       apiKey,
       model: fields.model,
-      defaults: { maxTokens: SOURCE_MAX_TOKENS },
+      defaults: {
+        maxTokens: SOURCE_MAX_TOKENS,
+        ...(fields.sessionId !== undefined
+          ? { providerOptions: { [OPENAI_SESSION_ID_OPTION]: fields.sessionId } }
+          : {}),
+      },
     };
   }
   // chat-completions (default)
