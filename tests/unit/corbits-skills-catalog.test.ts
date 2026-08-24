@@ -106,6 +106,19 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("style skill is guidance, not ceremony or tool-contract restatement", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/style/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("Guidance for code and commit quality");
+  expect(skill).toContain("git-rebase");
+  expect(skill).toContain("Do not refuse the task");
+  expect(skill).not.toContain("I have reviewed the style skill");
+  expect(skill).not.toContain("good taste");
+  expect(skill).not.toContain("ask_operator");
+  expect(skill).not.toContain("git rebase -i");
+  expect(skill).not.toContain("## Acknowledgment");
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
