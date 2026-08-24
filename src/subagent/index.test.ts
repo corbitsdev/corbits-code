@@ -808,12 +808,16 @@ describe("sub-agent stop helpers", () => {
     expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
   });
 
-  test("repetitionStopDetail formats the looped window snippet and repeat count", () => {
-    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 })).toBe(
-      'window "Groaning. " × 1363',
+  test("repetitionStopDetail reports period length and repeat count, never the looped text", () => {
+    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 }, null)).toBe(
+      "period 10ch × 1363",
     );
-    const long = repetitionStopDetail({ window: "x".repeat(500), repeats: 7 });
-    expect(long).toBe(`window "${"x".repeat(80)}" × 7`);
+    expect(
+      repetitionStopDetail(
+        { window: "x".repeat(500), repeats: 7 },
+        { windowMinChars: 8, repeatThreshold: 16, probeChars: 8192 },
+      ),
+    ).toBe("period 500ch × 7 (threshold 16)");
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {
@@ -2139,19 +2143,19 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(changed).not.toBe(a);
   });
 
-  test("hard-blocks identical brief after thrash salvage; allows changed brief", () => {
+  test("hard-blocks identical brief after no-progress salvage; allows changed brief", () => {
     const ledger = createBriefDispatchLedger();
-    const fp = fingerprintTaskBrief({ prompt: "fix thrash", intent: "implement" });
+    const fp = fingerprintTaskBrief({ prompt: "fix no-progress job", intent: "implement" });
     expect(ledger.admit(fp).ok).toBe(true);
-    ledger.recordOutcome(fp, "thrash");
+    ledger.recordOutcome(fp, "no-progress");
     const blocked = ledger.admit(fp);
     expect(blocked.ok).toBe(false);
     if (blocked.ok) throw new Error("expected block");
     expect(blocked.message).toContain("refused re-dispatch");
-    expect(blocked.message).toContain("thrash");
+    expect(blocked.message).toContain("no-progress");
 
     const other = fingerprintTaskBrief({
-      prompt: "fix thrash with narrower scope",
+      prompt: "fix no-progress job with narrower scope",
       intent: "implement",
       successCriteria: ["one file only"],
     });
@@ -2176,7 +2180,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(second.dispatchCount).toBe(2);
   });
 
-  test("successful complete resets retry budget; thrash hard-block is sticky", () => {
+  test("successful complete resets retry budget and clears soft salvage", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "ok job" });
     expect(ledger.admit(fp).ok).toBe(true);
@@ -2188,13 +2192,24 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(afterSuccess.ok).toBe(true);
     if (!afterSuccess.ok) throw new Error("expected admit");
     expect(afterSuccess.dispatchCount).toBe(1);
+  });
 
-    // Thrash is sticky for the session — success on a concurrent twin must not clear it.
-    const thrashFp = fingerprintTaskBrief({ prompt: "thrash sticky" });
-    ledger.admit(thrashFp);
-    ledger.recordOutcome(thrashFp, "thrash");
-    ledger.recordOutcome(thrashFp, null);
-    expect(ledger.admit(thrashFp).ok).toBe(false);
+  test("CL-6710: a parallel sibling success clears a hard-block salvage on the same fingerprint", () => {
+    const ledger = createBriefDispatchLedger();
+    const fp = fingerprintTaskBrief({ prompt: "parallel identical brief" });
+
+    // Two concurrent identical-brief dispatches both admit before either finishes.
+    expect(ledger.admit(fp).ok).toBe(true);
+    expect(ledger.admit(fp).ok).toBe(true);
+
+    // One sibling salvages (hard-block class)...
+    ledger.recordOutcome(fp, "no-progress");
+    // ...but the other sibling succeeds in the same wave.
+    ledger.recordOutcome(fp, null);
+
+    // The brief already produced a good report this wave — it must stay
+    // re-dispatchable, not stuck behind the losing sibling's hard-block.
+    expect(ledger.admit(fp).ok).toBe(true);
   });
 
   test("release undoes admit when run never produces a body", () => {
@@ -2226,6 +2241,39 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(classifyBriefSalvage(forcedStopReport("incomplete-report", "x"))).toBe(
       "incomplete-report",
     );
+  });
+
+  test("CL-6704: a successful Summary containing forced-stop phrases is not classified as a salvage", () => {
+    const noProgressPhrase = formatSubAgentReport({
+      summary: "Investigated the flaky test; root cause is a race, not no progress on our side.",
+      findings: "Fixed the race in retry logic.",
+      blockers: "None",
+      paths: "src/retry.ts",
+    });
+    expect(classifyBriefSalvage(noProgressPhrase)).toBeNull();
+
+    const cancelledPhrase = formatSubAgentReport({
+      summary: "Implemented the cancelled-order refund flow end to end.",
+      findings: "Added refund handler and tests.",
+      blockers: "None",
+      paths: "src/refunds.ts",
+    });
+    expect(classifyBriefSalvage(cancelledPhrase)).toBeNull();
+
+    const longSilencePhrase = formatSubAgentReport({
+      summary: "Reduced UI flicker with a long silence period before re-render.",
+      findings: "Debounced the re-render.",
+      blockers: "None",
+      paths: "src/ui.ts",
+    });
+    expect(classifyBriefSalvage(longSilencePhrase)).toBeNull();
+  });
+
+  test("CL-6704: true forced-stop Summary strings still classify as their salvage kind", () => {
+    expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
+    expect(classifyBriefSalvage(forcedStopReport("cancelled", "x"))).toBe("cancelled");
+    expect(classifyBriefSalvage(forcedStopReport("stalled", "x"))).toBe("stalled");
+    expect(classifyBriefSalvage(forcedStopReport("deadline", "x"))).toBe("deadline");
   });
 
   test("turn-budget parent hint flips after re-dispatch threshold", () => {

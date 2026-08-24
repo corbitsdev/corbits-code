@@ -20,7 +20,6 @@ export const critiquePackage: DirectorPackage = {
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 45 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "review",
   systemPrompt: `You are CritiqueDirector, a specialist in Corbits Code.
 

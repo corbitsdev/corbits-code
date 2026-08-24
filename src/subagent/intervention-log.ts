@@ -35,9 +35,11 @@ export const INTERVENTION_FILE = "interventions.jsonl";
  * independent of any stop/nudge/block — it is the log's real outcome signal:
  * a `block` record can be read alongside the `outcome` record(s) for later
  * dispatches of the same brief fingerprint to see what, if anything, the
- * parent's re-dispatch after a mutated brief actually produced.
+ * parent's re-dispatch after a mutated brief actually produced. `conflict`
+ * records a detected overlap between two concurrently running lanes; it is
+ * advisory only — the dispatch that triggered it was never blocked.
  */
-export type InterventionClass = "stop" | "nudge" | "block" | "outcome";
+export type InterventionClass = "stop" | "nudge" | "block" | "outcome" | "conflict";
 
 /** What a completed dispatch produced, for correlating against earlier stops. */
 export interface InterventionOutcome {
@@ -96,7 +98,13 @@ export type InterventionContext = Pick<
 >;
 
 export type InterventionSink = (
-  event: Omit<InterventionRecord, "ts" | "role" | "provider" | "model" | "family" | "intent">,
+  event: Omit<InterventionRecord, "ts" | "role" | "provider" | "model" | "family" | "intent"> &
+    // Outcome records are written parent-side, one per completed dispatch, so
+    // provider/model/family are not fixed at sink construction like a leaf's
+    // context — they vary per call with the child that was actually dispatched.
+    // Omitting these keys (not passing them as undefined) leaves the sink's
+    // bound context untouched for callers that do have a fixed context.
+    Partial<Pick<InterventionRecord, "provider" | "model" | "family">>,
 ) => void;
 
 /** Sink that drops everything — the default, so logging is never required. */

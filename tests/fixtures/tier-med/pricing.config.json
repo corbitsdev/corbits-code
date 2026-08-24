@@ -1,0 +1,5 @@
+{
+  "environment": "production",
+  "feeBasisPoints": 200,
+  "currency": "usd"
+}

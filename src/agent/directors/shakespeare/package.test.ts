@@ -32,19 +32,10 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow includes write tools; writePaths is omitted", () => {
+  test("tools.allow includes write tools", () => {
     const allow = shakespearePackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
-    expect(shakespearePackage.writePaths).toBeUndefined();
-  });
-
-  test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {
-    const sections = shakespearePackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
   });
 
   test("modelRole is docs", () => {

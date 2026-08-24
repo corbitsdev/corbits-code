@@ -234,8 +234,11 @@ function visibleLength(token: string): number {
 
 /**
  * Fold one streamed token into the contentless-growth window. Returns the
- * next state and whether the just-completed window was contentless: raw text
- * grew by a full window while visible content grew less than the epsilon.
+ * next state, whether the just-completed window was contentless (raw text
+ * grew by a full window while visible content grew less than the epsilon),
+ * and the window's own raw/visible counts (`measured`) — reported alongside
+ * `state`, which resets to zero on completion, so a caller that wants to log
+ * what tripped the guard can read it before the reset erases it.
  * Pure reducer — the caller owns the state across deltas; the window resets
  * on completion either way, so one visible-rich window re-arms the guard.
  */
@@ -243,15 +246,17 @@ export function trackContentlessGrowth(
   state: ContentlessGrowthState,
   token: string,
   config: ContentlessGrowthConfig = DEFAULT_CONTENTLESS_GROWTH_CONFIG,
-): { state: ContentlessGrowthState; hit: boolean } {
+): { state: ContentlessGrowthState; hit: boolean; measured: ContentlessGrowthState } {
   const rawChars = state.rawChars + token.length;
   const visibleChars = state.visibleChars + visibleLength(token);
+  const measured = { rawChars, visibleChars };
   if (rawChars < config.rawWindowChars) {
-    return { state: { rawChars, visibleChars }, hit: false };
+    return { state: measured, hit: false, measured };
   }
   return {
     state: INITIAL_CONTENTLESS_GROWTH_STATE,
     hit: visibleChars < config.minVisibleChars,
+    measured,
   };
 }
 

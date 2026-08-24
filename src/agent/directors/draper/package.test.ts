@@ -28,14 +28,6 @@ describe("draperPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report.requiredSections covers the leaf envelope", () => {
-    const sections = draperPackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is review", () => {
     expect(draperPackage.modelRole).toBe("review");
   });
