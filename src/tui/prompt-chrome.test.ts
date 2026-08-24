@@ -317,6 +317,28 @@ describe("no permanent hint strip", () => {
     });
   });
 
+  test("a lapsed flash does not paint after the renderer is torn down without dispose", async () => {
+    await withTestRenderer(async (h) => {
+      const lapse: (() => void)[] = [];
+      const shell = createAppShell(h.renderer, {
+        title: "test",
+        cwd: "/src/corbits-code",
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        flashSchedule: (fn, ms) => {
+          expect(ms).toBe(RUNTIME_FLASH_MS);
+          lapse.push(fn);
+          return () => {};
+        },
+      });
+      setStatusFlash(shell, "copied 3 lines", { ttlMs: RUNTIME_FLASH_MS });
+      h.destroy();
+      expect(h.renderer.isDestroyed).toBe(true);
+      expect(shell.disposed).toBe(false);
+      expect(() => lapse[0]?.()).not.toThrow();
+    });
+  });
+
   test("the keys strip is gone from the frame entirely", async () => {
     await withShell((shell) => {
       const painted = [

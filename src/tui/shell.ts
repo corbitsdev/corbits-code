@@ -859,6 +859,10 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
 /** Repaint the prompt borders and the transient notice row from live state. */
 export function paintChrome(shell: AppShell): void {
   if (shell.disposed) return;
+  // Headless tests often destroy the renderer without dispose
+  // (`withTestRenderer` cleanup). A TTL flash armed before that teardown
+  // must not write a TextBuffer the harness already freed.
+  if (shell.renderer.isDestroyed || shell.notice.isDestroyed) return;
   syncPending(shell);
   const notice = noticeText(shell);
   shell.notice.content = new StyledText([
@@ -1058,6 +1062,7 @@ export function setStatusFlash(
   paintChrome(shell);
   const ttlMs = options?.ttlMs;
   if (message === null || ttlMs === undefined || ttlMs <= 0) return;
+  if (shell.disposed || shell.renderer.isDestroyed) return;
   const schedule = options?.schedule ?? shellFlashSchedules.get(shell) ?? defaultFlashSchedule;
   flashTimers.set(
     shell,
