@@ -197,7 +197,7 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
     profiles: [
       { id: "acmecorp-release-captain", description: "release", systemPromptRole: "release" },
     ],
-    run: async () => "done",
+    run: async () => ({ report: "done" }),
     telemetry,
   });
   if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);

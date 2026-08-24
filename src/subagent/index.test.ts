@@ -20,8 +20,6 @@ import {
   parseSubAgentReport,
   repetitionStopDetail,
   stopReasonFromReport,
-  appendDeadlineParentHint,
-  appendNeverActedParentHint,
   appendSubAgentParentHints,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
@@ -694,7 +692,7 @@ describe("sub-agent stop helpers", () => {
 
     const neverEdited = forcedStopReport("never-edited", "I mapped the files; ready to code next");
     expect(neverEdited).toContain("without writing any files");
-    expect(appendSubAgentParentHints(neverEdited)).toContain("edit-first");
+    expect(appendSubAgentParentHints(neverEdited, "never-edited")).toContain("edit-first");
 
     // Nested agent envelope must not clobber the outer never-acted Summary when
     // runSubAgent re-parses the forced stop (the common planning-only path).
@@ -729,7 +727,7 @@ describe("sub-agent stop helpers", () => {
     expect(messyFields.summary).toContain("without using any tools");
     expect(messyFields.findings.toLowerCase()).toContain("### summary");
 
-    const withHint = appendNeverActedParentHint(reparsed);
+    const withHint = appendSubAgentParentHints(reparsed, "never-acted");
     expect(withHint).toContain("planning/prose only");
     expect(withHint).toContain("without using any tools");
 
@@ -762,13 +760,13 @@ describe("sub-agent stop helpers", () => {
     expect(deadlineParsed.findings).toContain("Refactored half of gate.ts");
     expect(deadlineParsed.blockers).toContain("re-dispatch");
 
-    const deadlineWithHint = appendDeadlineParentHint(deadline);
+    const deadlineWithHint = appendSubAgentParentHints(deadline, "deadline");
     expect(deadlineWithHint).toContain("wall-clock deadline");
     expect(deadlineWithHint).toContain("deadline reached");
     // Only fires for a deadline report, not for other forced-stop reasons.
-    expect(appendDeadlineParentHint(forcedStopReport("cancelled", "x"))).not.toContain(
-      "wall-clock deadline",
-    );
+    expect(
+      appendSubAgentParentHints(forcedStopReport("cancelled", "x"), "cancelled"),
+    ).not.toContain("wall-clock deadline");
   });
 
   test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
@@ -784,7 +782,9 @@ describe("sub-agent stop helpers", () => {
     const roundTripped = formatSubAgentReport(parseSubAgentReport(repetition));
     expect(stopReasonFromReport(roundTripped)).toBe('repetition — window "Groaning. " × 1363');
     // Classifiers and hints still fire on the unchanged Summary text.
-    expect(appendSubAgentParentHints(repetition)).toContain("degenerated into a loop");
+    expect(appendSubAgentParentHints(repetition, "repetition")).toContain(
+      "degenerated into a loop",
+    );
 
     const cancelled = forcedStopReport("cancelled", "partial", "Session closed");
     expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
@@ -927,7 +927,7 @@ describe("sub-agent stop helpers", () => {
     expect(parsed.findings).toContain("dig footer/chrome");
     expect(parsed.blockers).toContain("will be refused");
     expect(parsed.blockers).toContain("not maxTurns alone");
-    const hinted = appendSubAgentParentHints(report);
+    const hinted = appendSubAgentParentHints(report, "repetition");
     expect(hinted).toContain("Do not re-dispatch the identical brief");
   });
 
@@ -1364,7 +1364,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "leaf" }],
       run: async () => {
         await gate;
-        return report;
+        return { report };
       },
     });
 
@@ -1399,7 +1399,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     } as Parameters<typeof createTaskTool>[0] & { maxTurns: number });
 
@@ -1426,7 +1426,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1449,7 +1449,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "leaf" }],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1488,7 +1488,7 @@ describe("createTaskTool", () => {
       ],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
     await callTask(tool, {
@@ -1529,7 +1529,7 @@ describe("createTaskTool", () => {
       ],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
     await callTask(tool, { description: "oauth-profile-inference", prompt: "x", agent: "deep" });
@@ -1555,7 +1555,7 @@ describe("createTaskTool", () => {
           inference: { mode: "pin", order: [{ provider: "xai/missing", model: "grok-4" }] },
         },
       ],
-      run: async () => "done",
+      run: async () => ({ report: "done" }),
     });
     const out = await callTask(tool, {
       description: "missing-oauth",
@@ -1575,7 +1575,7 @@ describe("createTaskTool", () => {
       provider,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1596,7 +1596,7 @@ describe("createTaskTool", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
-      run: async () => "done",
+      run: async () => ({ report: "done" }),
     });
 
     const result = await callTask(tool, {
@@ -1620,7 +1620,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "deep", maxTurns: 45 }],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1643,7 +1643,7 @@ describe("createTaskTool", () => {
       profiles: [{ id: "deep", maxTurns: 45 }],
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1663,7 +1663,10 @@ describe("createTaskTool", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
-      run: async () => forcedStopReport("turn-budget", "partial"),
+      run: async () => ({
+        report: forcedStopReport("turn-budget", "partial"),
+        stopReason: "turn-budget",
+      }),
     });
 
     const result = await callTask(tool, {
@@ -1693,7 +1696,7 @@ describe("createTaskTool", () => {
       inheritMcpTools: () => inherited,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1713,7 +1716,7 @@ describe("createTaskTool", () => {
       shellEnv: { FOO: "bar" },
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1754,7 +1757,10 @@ describe("createTaskTool", () => {
           parent.abort();
         });
         // Injected run returns salvage after cancel-with-progress; task must keep it.
-        return forcedStopReport("cancelled", "partial from tools");
+        return {
+          report: forcedStopReport("cancelled", "partial from tools"),
+          stopReason: "cancelled",
+        };
       },
     });
     const out = await callTask(
@@ -1780,7 +1786,7 @@ describe("createTaskTool", () => {
       run: async () => {
         const row = sessions.list().find((s) => s.description === "race");
         if (row !== undefined) sessions.cancel(row.id, "Cancelled by operator");
-        return forcedStopReport("cancelled", "salvaged work");
+        return { report: forcedStopReport("cancelled", "salvaged work"), stopReason: "cancelled" };
       },
     });
     const out = await callTask(tool, { description: "race", prompt: "x", intent: "explore" });
@@ -1841,7 +1847,10 @@ describe("createTaskTool", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
-      run: async () => forcedStopReport("cancelled", "Found path in gate.ts"),
+      run: async () => ({
+        report: forcedStopReport("cancelled", "Found path in gate.ts"),
+        stopReason: "cancelled",
+      }),
     });
     const out = await callTask(tool, { description: "salvage", prompt: "x", intent: "explore" });
     expect(out).toContain("## Summary");
@@ -1897,7 +1906,10 @@ describe("createTaskTool", () => {
       deadlineMs: 45_000,
       run: async (params) => {
         captured = params;
-        return forcedStopReport("deadline", "partial before wall clock");
+        return {
+          report: forcedStopReport("deadline", "partial before wall clock"),
+          stopReason: "deadline",
+        };
       },
     });
     const out = await callTask(tool, { description: "deadline", prompt: "x", intent: "explore" });
@@ -1925,7 +1937,10 @@ describe("createTaskTool", () => {
           params.signal?.addEventListener("abort", () => resolve(), { once: true });
         });
         await new Promise((r) => setTimeout(r, 10));
-        return forcedStopReport("cancelled", "Found path in gate.ts");
+        return {
+          report: forcedStopReport("cancelled", "Found path in gate.ts"),
+          stopReason: "cancelled",
+        };
       },
     });
     const runner = createDynamicToolRunner([task], { defaultMs: 10_000 });
@@ -1956,7 +1971,7 @@ describe("createTaskTool", () => {
       provider,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -1986,7 +2001,7 @@ describe("createTaskTool", () => {
       provider,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -2006,7 +2021,7 @@ describe("createTaskTool", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
-      run: async () => "done",
+      run: async () => ({ report: "done" }),
     });
     const out = await callTask(tool, {
       description: "bad-intent",
@@ -2220,65 +2235,26 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(again.dispatchCount).toBe(1);
   });
 
-  test("classifyBriefSalvage maps forced-stop envelopes", () => {
-    expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
-    expect(classifyBriefSalvage(forcedStopReport("repetition", "x"))).toBe("repetition");
-    expect(classifyBriefSalvage(forcedStopReport("never-acted", "x"))).toBe("never-acted");
-    expect(classifyBriefSalvage(forcedStopReport("never-edited", "x"))).toBe("never-edited");
-    expect(classifyBriefSalvage(forcedStopReport("no-ship", "x"))).toBe("no-ship");
-    expect(classifyBriefSalvage(forcedStopReport("turn-budget", "x"))).toBe("turn-budget");
-    expect(
-      classifyBriefSalvage(
-        "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n",
-      ),
-    ).toBeNull();
-  });
-
-  test("classifyBriefSalvage maps incomplete-report salvage", () => {
-    expect(classifyBriefSalvage(forcedStopReport("incomplete-report", "x"))).toBe(
-      "incomplete-report",
+  test("classifyBriefSalvage decides purely from the structured stop reason, never from report prose", () => {
+    // classifyBriefSalvage takes no report text at all — only the structured
+    // stopReason and an independently-observed wasCancelled flag.
+    expect(classifyBriefSalvage({ wasCancelled: false })).toBeNull();
+    expect(classifyBriefSalvage({ stopReason: "no-progress", wasCancelled: false })).toBe(
+      "no-progress",
     );
-  });
-
-  test("CL-6704: a successful Summary containing forced-stop phrases is not classified as a salvage", () => {
-    const noProgressPhrase = formatSubAgentReport({
-      summary: "Investigated the flaky test; root cause is a race, not no progress on our side.",
-      findings: "Fixed the race in retry logic.",
-      blockers: "None",
-      paths: "src/retry.ts",
-    });
-    expect(classifyBriefSalvage(noProgressPhrase)).toBeNull();
-
-    const cancelledPhrase = formatSubAgentReport({
-      summary: "Implemented the cancelled-order refund flow end to end.",
-      findings: "Added refund handler and tests.",
-      blockers: "None",
-      paths: "src/refunds.ts",
-    });
-    expect(classifyBriefSalvage(cancelledPhrase)).toBeNull();
-
-    const longSilencePhrase = formatSubAgentReport({
-      summary: "Reduced UI flicker with a long silence period before re-render.",
-      findings: "Debounced the re-render.",
-      blockers: "None",
-      paths: "src/ui.ts",
-    });
-    expect(classifyBriefSalvage(longSilencePhrase)).toBeNull();
-  });
-
-  test("CL-6704: true forced-stop Summary strings still classify as their salvage kind", () => {
-    expect(classifyBriefSalvage(forcedStopReport("no-progress", "x"))).toBe("no-progress");
-    expect(classifyBriefSalvage(forcedStopReport("cancelled", "x"))).toBe("cancelled");
-    expect(classifyBriefSalvage(forcedStopReport("stalled", "x"))).toBe("stalled");
-    expect(classifyBriefSalvage(forcedStopReport("deadline", "x"))).toBe("deadline");
+    // An operator cancel wins even when the run's own reason disagrees.
+    expect(classifyBriefSalvage({ stopReason: "no-progress", wasCancelled: true })).toBe(
+      "cancelled",
+    );
+    expect(classifyBriefSalvage({ stopReason: "deadline", wasCancelled: false })).toBe("deadline");
   });
 
   test("turn-budget parent hint flips after re-dispatch threshold", () => {
     const report = forcedStopReport("turn-budget", "partial");
-    const first = appendSubAgentParentHints(report, { dispatchCount: 1 });
+    const first = appendSubAgentParentHints(report, "turn-budget", { dispatchCount: 1 });
     expect(first).toContain("higher maxTurns");
     expect(first).not.toContain("re-dispatch cap");
-    const third = appendSubAgentParentHints(report, {
+    const third = appendSubAgentParentHints(report, "turn-budget", {
       dispatchCount: TURN_BUDGET_STOP_AFTER_DISPATCHES,
     });
     expect(third).toContain("re-dispatch cap");
@@ -2286,7 +2262,10 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
   });
 
   test("createTaskTool refuses identical re-dispatch after no-progress salvage", async () => {
-    const thrash = forcedStopReport("no-progress", "Repeated the same call");
+    const thrash = {
+      report: forcedStopReport("no-progress", "Repeated the same call"),
+      stopReason: "no-progress" as const,
+    };
     let runs = 0;
     const sessions = createSubAgentSessionStore();
     const tool = createTaskTool({
@@ -2336,7 +2315,10 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
   });
 
   test("createTaskTool flips turn-budget hint on third same-brief dispatch", async () => {
-    const budget = forcedStopReport("turn-budget", "partial work");
+    const budget = {
+      report: forcedStopReport("turn-budget", "partial work"),
+      stopReason: "turn-budget" as const,
+    };
     let runs = 0;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
@@ -2359,8 +2341,13 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
   });
 
   test("createTaskTool success resets turn-budget retry budget", async () => {
-    const budget = forcedStopReport("turn-budget", "partial");
-    const ok = "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n";
+    const budget = {
+      report: forcedStopReport("turn-budget", "partial"),
+      stopReason: "turn-budget" as const,
+    };
+    const ok = {
+      report: "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n",
+    };
     let runs = 0;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,
@@ -2385,7 +2372,10 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
   });
 
   test("createTaskTool auth failure does not burn turn-budget count", async () => {
-    const budget = forcedStopReport("turn-budget", "partial");
+    const budget = {
+      report: forcedStopReport("turn-budget", "partial"),
+      stopReason: "turn-budget" as const,
+    };
     let runs = 0;
     const tool = createTaskTool({
       permissionGate: testPermissionGate,

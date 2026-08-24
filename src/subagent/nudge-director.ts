@@ -29,6 +29,7 @@ import {
   forcedStopReport,
   lastText,
   nextToolCallStreak,
+  type ForcedStopReason,
   type ToolCallStreak,
 } from "./stop-policy.js";
 
@@ -129,10 +130,19 @@ export class SubAgentDirector extends DefaultDirector {
   // threshold, so a later threshold change can cite data instead of judgment
   // (CL-6938). Defaults to a no-op: logging is diagnostic, never required.
   private interventions: InterventionSink = NOOP_INTERVENTION_SINK;
+  // Structured stop-reason side channel (CL-6946 part 2): fired synchronously
+  // whenever this director force-stops, so the caller learns the reason as a
+  // typed value rather than re-parsing the forcedStopReport prose it returns.
+  private onForcedStop: (reason: ForcedStopReason) => void = () => {};
 
   /** Route this leaf's stop/nudge decisions to an intervention log. */
   observeInterventions(sink: InterventionSink): void {
     this.interventions = sink;
+  }
+
+  /** Route this leaf's forced-stop reason to the caller as a typed value. */
+  observeForcedStop(callback: (reason: ForcedStopReason) => void): void {
+    this.onForcedStop = callback;
   }
 
   /** Run state every intervention record carries, for judging it afterwards. */
@@ -276,6 +286,7 @@ export class SubAgentDirector extends DefaultDirector {
           state: this.interventionState(),
           detail: "no report envelope after the wrap-up nudge",
         });
+        this.onForcedStop("incomplete-report");
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
           capabilities.reply(forcedStopReport("incomplete-report", this.lastAssistantText)),
@@ -335,6 +346,7 @@ export class SubAgentDirector extends DefaultDirector {
           state: this.interventionState(),
           ...(detail !== undefined ? { detail } : {}),
         });
+        this.onForcedStop(stop);
         const terminal: ReactorAction[] = [
           capabilities.checkpoint(checkpoint),
           capabilities.reply(forcedStopReport(stop, lastText(content), detail)),
@@ -412,6 +424,7 @@ export class SubAgentDirector extends DefaultDirector {
       state: this.interventionState(),
       detail: `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
     });
+    this.onForcedStop("stalled");
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
       capabilities.reply(

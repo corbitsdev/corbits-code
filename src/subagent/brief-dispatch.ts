@@ -12,23 +12,15 @@
  */
 
 import type { TaskIntent } from "./report.js";
-import {
-  isDeadlineSubAgentReport,
-  isForcedStopSubAgentReport,
-  isNeverActedSubAgentReport,
-  isNeverEditedSubAgentReport,
-  isNoProgressSubAgentReport,
-  isNoShipSubAgentReport,
-  isRepetitionSubAgentReport,
-  isTurnBudgetSubAgentReport,
-} from "./stop-policy.js";
+import type { ForcedStopReason } from "./stop-policy.js";
 
 /** Salvage classes that must not be re-dispatched with an identical brief. */
 export type HardBlockSalvage =
   "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
 
-export type BriefSalvageKind =
-  HardBlockSalvage | "turn-budget" | "deadline" | "stalled" | "cancelled" | "incomplete-report";
+// Every forced-stop reason a leaf can report maps 1:1 onto a salvage kind
+// the parent ledger cares about.
+export type BriefSalvageKind = ForcedStopReason;
 
 export interface TaskBriefFingerprintInput {
   prompt: string;
@@ -64,38 +56,19 @@ export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSal
   return HARD_BLOCK_SALVAGES.has(kind);
 }
 
-/** True when the worker returned a stall salvage report. */
-export function isStalledSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "stalled");
-}
-
-/** True when the worker returned a cancel salvage report. */
-export function isCancelledSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "cancelled");
-}
-
-/** True when the worker returned an incomplete-report salvage (narration, no envelope). */
-export function isIncompleteReportSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "incomplete-report");
-}
-
 /**
- * Classify a sub-agent tool result body as a salvage kind the parent ledger cares
- * about. Returns null for normal completes (or unrecognized envelopes).
+ * Classify a completed dispatch as a salvage kind the parent ledger cares
+ * about, from the structured stop reason the run reported directly — never
+ * by matching the report body's prose. `wasCancelled` (observed independently,
+ * e.g. via the parent's own abort signal) takes precedence since a parent
+ * cancel can race a run that never got to report its own reason.
  */
-export function classifyBriefSalvage(report: string): BriefSalvageKind | null {
-  // Order: more specific salvage phrases first.
-  if (isNoShipSubAgentReport(report)) return "no-ship";
-  if (isRepetitionSubAgentReport(report)) return "repetition";
-  if (isNeverEditedSubAgentReport(report)) return "never-edited";
-  if (isNeverActedSubAgentReport(report)) return "never-acted";
-  if (isNoProgressSubAgentReport(report)) return "no-progress";
-  if (isTurnBudgetSubAgentReport(report)) return "turn-budget";
-  if (isDeadlineSubAgentReport(report)) return "deadline";
-  if (isStalledSubAgentReport(report)) return "stalled";
-  if (isCancelledSubAgentReport(report)) return "cancelled";
-  if (isIncompleteReportSubAgentReport(report)) return "incomplete-report";
-  return null;
+export function classifyBriefSalvage(input: {
+  stopReason?: ForcedStopReason;
+  wasCancelled: boolean;
+}): BriefSalvageKind | null {
+  if (input.wasCancelled) return "cancelled";
+  return input.stopReason ?? null;
 }
 
 /**

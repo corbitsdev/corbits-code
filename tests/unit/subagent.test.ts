@@ -54,7 +54,7 @@ test("handler rejects empty description or prompt, naming only the empty field",
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
-    run: async () => "should not run",
+    run: async () => ({ report: "should not run" }),
   });
   const emptyDesc = await callHandler(tool, { description: "", prompt: "do it" });
   expect(emptyDesc).toContain("Error: task requires a non-empty description");
@@ -72,7 +72,7 @@ test("handler rejects missing required fields, naming only the missing ones", as
     cwd: "/repo",
     getWorkdirBase: () => "/repo/.ctx",
     provider,
-    run: async () => "should not run",
+    run: async () => ({ report: "should not run" }),
   });
   const missingPrompt = await callHandler(tool, { description: "Add GET /health route" });
   expect(missingPrompt).toContain(
@@ -103,7 +103,7 @@ test("generic leaf gets role-default medium even when parent effort is high", as
     provider: { ...provider, reasoningEffort: "high" },
     run: async (params) => {
       receivedEffort = params;
-      return "done";
+      return { report: "done" };
     },
   });
 
@@ -122,7 +122,7 @@ test("a provider getter is resolved at spawn time, so a live switch reaches suba
     provider: () => current,
     run: async (params) => {
       received = params;
-      return "done";
+      return { report: "done" };
     },
   });
 
@@ -144,7 +144,7 @@ test("handler forwards trimmed args to the runner and wraps the result", async (
     provider,
     run: async (params) => {
       received = params;
-      return "found three callers in foo.ts";
+      return { report: "found three callers in foo.ts" };
     },
   });
 
@@ -201,7 +201,7 @@ test("unknown agent id fails closed instead of silent generic fall-through", asy
     profiles: [{ id: "greybeard", systemPromptRole: "You are greybeard." }],
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   const result = await callHandler(tool, {
@@ -226,7 +226,7 @@ test("unknown agent id fails closed when no profiles are loaded", async () => {
     provider,
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   // Non-director ids still require profiles; directors resolve from the closed registry.
@@ -249,7 +249,7 @@ test("closed director resolves without profiles loaded", async () => {
     provider,
     run: async (params) => {
       received = params;
-      return "ok";
+      return { report: "ok" };
     },
   });
   const result = await callHandler(tool, {
@@ -271,7 +271,7 @@ test("intent maps to closed director without profiles", async () => {
     provider,
     run: async (params) => {
       received = params;
-      return "ok";
+      return { report: "ok" };
     },
   });
   const result = await callHandler(tool, {
@@ -297,7 +297,7 @@ test("intent general is refused (no general director)", async () => {
     provider,
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   const result = await callHandler(tool, {
@@ -319,7 +319,7 @@ test("bare task without agent or intent is refused (no catch-all worker)", async
     provider,
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   const result = await callHandler(tool, {
@@ -341,7 +341,7 @@ test("spawnAllowlist rejects children outside the parent director matrix", async
     spawnAllowlist: ["intern", "explore", "critique"],
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   const denied = await callHandler(tool, {
@@ -371,7 +371,7 @@ test("task refuses skywalker as a spawned worker", async () => {
     provider,
     run: async () => {
       ran = true;
-      return "should not run";
+      return { report: "should not run" };
     },
   });
   const result = await callHandler(tool, {
@@ -394,7 +394,7 @@ test("greybeard nestedDispatch carries spawn allowlist into nested task", async 
     provider,
     run: async (params) => {
       nestedAllow = params.nestedDispatch?.spawnAllowlist;
-      return "reviewed";
+      return { report: "reviewed" };
     },
   });
   await callHandler(tool, {
@@ -421,7 +421,7 @@ test("orchestrator profile installs nestedDispatch so task can be re-dispatched"
     ],
     run: async (params) => {
       received = params;
-      return "coordinated";
+      return { report: "coordinated" };
     },
   });
   await callHandler(tool, {
@@ -453,7 +453,7 @@ test("nested dispatch forwards the external sink, not the orchestrator recorder"
         type: "inference.text.delta",
         data: { token: "grandchild" },
       } as ReactorEmittedEvent);
-      return "coordinated";
+      return { report: "coordinated" };
     },
   });
   await callHandler(tool, { description: "fan out", prompt: "dispatch", agent: "dispatch" });
@@ -475,7 +475,7 @@ test("allowOrchestrator false strips orchestrator even when the profile is marke
     profiles: [{ id: "dispatch", orchestrator: true }],
     run: async (params) => {
       received = params;
-      return "leaf";
+      return { report: "leaf" };
     },
   });
   await callHandler(tool, {
@@ -514,7 +514,7 @@ test("handler injects context and goals into runner params when provided", async
     provider,
     run: async (params) => {
       received = params;
-      return "task completed";
+      return { report: "task completed" };
     },
   });
 
@@ -543,7 +543,7 @@ test("handler omits context and goals when empty", async () => {
     provider,
     run: async (params) => {
       receivedNoContext = params;
-      return "done";
+      return { report: "done" };
     },
   });
 
@@ -554,7 +554,7 @@ test("handler omits context and goals when empty", async () => {
     provider,
     run: async (params) => {
       receivedEmptyContext = params;
-      return "done";
+      return { report: "done" };
     },
   });
 
@@ -708,7 +708,7 @@ test("a profile-resolved provider carries the bifrost virtual-key marker", async
     ],
     run: async (params) => {
       received = params;
-      return "ran";
+      return { report: "ran" };
     },
   });
 
@@ -757,7 +757,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async () => {
         runs += 1;
-        return "should-not-be-called";
+        return { report: "should-not-be-called" };
       },
     });
 
@@ -796,7 +796,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async (params) => {
         received = params;
-        return "ran";
+        return { report: "ran" };
       },
     });
 
@@ -834,7 +834,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async () => {
         runs += 1;
-        return "should-not-be-called";
+        return { report: "should-not-be-called" };
       },
     });
 
@@ -873,7 +873,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async (params) => {
         received = params;
-        return "ran";
+        return { report: "ran" };
       },
     });
 
@@ -906,7 +906,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async (params) => {
         received = params;
-        return "ran";
+        return { report: "ran" };
       },
     });
 
@@ -938,7 +938,7 @@ describe("createTaskTool profile resolution", () => {
       ],
       run: async (params) => {
         received = params;
-        return "ran";
+        return { report: "ran" };
       },
     });
 
@@ -965,7 +965,7 @@ describe("createTaskTool profile resolution", () => {
       profiles: [{ id: "karen", systemPromptRole: "You are karen.", orchestrator: true }],
       run: async (params) => {
         received = params;
-        return "ran";
+        return { report: "ran" };
       },
     });
 
