@@ -835,10 +835,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
             // submit_result mount gate (CL-6946): only a resolved Tier 3 leaf
-            // director gets tier here, and only if it declared an outputSchema.
+            // director gets tier here, and only if it declared an outputType.
             ...(resolvedPackage !== undefined ? { tier: resolvedPackage.tier } : {}),
-            ...(resolvedPackage?.reportContract?.outputSchema !== undefined
-              ? { reportSchema: resolvedPackage.reportContract.outputSchema }
+            ...(resolvedPackage?.reportContract?.outputType !== undefined
+              ? { reportType: resolvedPackage.reportContract.outputType }
               : {}),
           };
           const result = await run(params);

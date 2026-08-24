@@ -1,6 +1,8 @@
 // Closed director package contract for the v1 fleet (CL-5818).
 // Prompt-first: system prompt is the opinionated core; skills are optional.
 
+import type { OutputType } from "../../subagent/submit-result.js";
+
 export const DIRECTOR_IDS = [
   "skywalker",
   "build",
@@ -68,8 +70,8 @@ export interface NudgePolicy {
  * Omit entirely to keep a director on the markdown-only path.
  */
 export interface ReportContract {
-  /** JSON Schema for submit_result's payload, validated with ajv (see subagent/submit-result.ts). */
-  readonly outputSchema?: Record<string, unknown>;
+  /** Shape of submit_result's payload, validated with arktype (see subagent/submit-result.ts). */
+  readonly outputType?: OutputType;
 }
 
 /**
