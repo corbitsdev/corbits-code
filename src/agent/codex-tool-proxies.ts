@@ -55,8 +55,8 @@ export interface CreateCodexToolProxiesOpts {
   runManageTasks: CodexRunManageTasks;
   /**
    * When false, Delete File and Update+Move refuse without calling `delete_file`.
-   * Defaults to true (implement / unconstrained). Docs leaves pass false because
-   * DOCS_TOOLS includes apply_patch but not delete_file.
+   * Defaults to true (implement / unconstrained). Pass false when the
+   * director allowlist omits delete_file (docs leaves mount it today).
    */
   allowDelete?: boolean;
   /**

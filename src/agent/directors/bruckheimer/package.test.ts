@@ -26,6 +26,7 @@ describe("bruckheimerPackage", () => {
     const allow = bruckheimerPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is docs", () => {

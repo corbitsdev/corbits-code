@@ -73,6 +73,7 @@ describe("brandReviewerPackage", () => {
     const allow = brandReviewerPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("systemPrompt mentions DESIGN.md", () => {

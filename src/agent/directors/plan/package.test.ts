@@ -66,12 +66,12 @@ describe("planPackage", () => {
     expect(planPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow is review surface without product writes", () => {
+  test("tools.allow is review surface with product writes", () => {
     const allow = planPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is plan", () => {

@@ -1,5 +1,5 @@
 import type { DirectorPackage } from "../types.js";
-import { READ_TOOLS } from "../tool-sets.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Explorer leaf (CL-7020).
@@ -33,7 +33,7 @@ FINDINGS SHAPE: Findings must be a scannable map — key paths, symbols, call fl
 FINISH BIAS: Prefer one thorough pass then report. Expand Findings, change approach, or write the final report — do not keep re-reading the same paths.
 
 OUT OF LANE: product writes, drive-by fixes, shipping features, review severity theater, orchestration, spawning specialists, fleet discovery, becoming Builder/Critic/orchestrator as primary.`,
-  tools: { allow: READ_TOOLS },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "explore",
