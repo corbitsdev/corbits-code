@@ -46,6 +46,7 @@ import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-searc
 import { createUseSkillTool } from "./use-skill.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
 import { createSearchAgentsTool } from "./agent-search.js";
+import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import {
   createCodexToolProxies,
   type CodexRunManageTasks,
@@ -309,6 +310,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
                 }),
               ]
             : []),
+          // Tier 1: the primary session is always an orchestrator and may
+          // target any worker (assertCanTargetAgent's rule), so no authority
+          // context is passed here — omitting it is treated as unrestricted,
+          // matching Tier 1's actual authority.
+          createReadAgentTraceTool(args.subAgent.getWorkdirBase),
         ]
       : []),
     stringTool({

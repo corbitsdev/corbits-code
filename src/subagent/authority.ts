@@ -5,9 +5,10 @@
  * in a prompt. This module owns two checks:
  *
  *  - assertTierMayMountFleetVerb: a Tier 3 leaf may never mount a fleet verb
- *    (today: task, search_agents; the spawn_agent/wait_agents/list_agents/
- *    send_input/interrupt_agent/close_agent/resume_agent/read_agent_trace
- *    verbs land in later child issues against this same gate).
+ *    (today: task, search_agents, read_agent_trace; the spawn_agent/
+ *    wait_agents/list_agents/send_input/interrupt_agent/close_agent/
+ *    resume_agent/followup_task verbs land in later child issues against
+ *    this same gate).
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
  *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
