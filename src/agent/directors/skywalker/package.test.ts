@@ -87,12 +87,22 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("or builder (substantial code)");
   });
 
-  test("systemPrompt has effort scaling / fan-out ladder", () => {
+  test("systemPrompt has effort scaling / named non-overlapping lanes (no numeric soft ceiling)", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Effort scaling");
     expect(p).toContain("fan-out");
     expect(p).toContain("0–1 worker");
-    expect(p).toContain("2–4 workers");
+    expect(p).toContain("named, non-overlapping lanes");
+    expect(p).not.toContain("2–4 workers");
+  });
+
+  test("systemPrompt prefers spawn_agent then wait_agents (idle-orchestrator)", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("spawn_agent");
+    expect(p).toContain("wait_agents");
+    expect(p).toContain("Idle-orchestrator");
+    expect(p).toContain("deprecated fused spawn+wait");
+    expect(p).not.toContain("Present the plan when the change is large or ambiguous");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {
