@@ -1,7 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
-import { formatSearchTimeoutMessage } from "./tool-time-budget.js";
+import { formatSearchTimeoutMessage, TIMEOUT_PREFIX } from "./tool-time-budget.js";
+import { BUDGET_EXPIRED, budgetExpiry, withTimeout } from "../util/budget-race.js";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   assertShellCwdUsable,
@@ -325,38 +326,6 @@ function optionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function withTimeout(
-  signal: AbortSignal,
-  timeoutMs: number,
-): { signal: AbortSignal; dispose: () => void } {
-  const controller = new AbortController();
-  const onParentAbort = () => controller.abort();
-  signal.addEventListener("abort", onParentAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  if (signal.aborted) controller.abort();
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onParentAbort);
-    },
-  };
-}
-
-const BUDGET_EXPIRED = Symbol("search-budget-expired");
-
-function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve(BUDGET_EXPIRED);
-      return;
-    }
-    signal.addEventListener("abort", () => resolve(BUDGET_EXPIRED), {
-      once: true,
-    });
-  });
-}
-
 /**
  * Replaces stock run_shell with a hard-capped implementation, and applies a
  * 10s wall-clock budget to grep/search_files when the agent does not abort
@@ -510,7 +479,7 @@ export function shellGuardPlugin(
           if (
             outcome.isError === true &&
             typeof outcome.content === "string" &&
-            outcome.content.includes("[timed out before completing]")
+            outcome.content.includes(TIMEOUT_PREFIX)
           ) {
             return outcome;
           }

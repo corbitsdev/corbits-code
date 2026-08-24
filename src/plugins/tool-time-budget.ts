@@ -2,7 +2,7 @@
 
 export type ScopedSearchTool = "grep" | "search_files";
 
-const TIMEOUT_PREFIX = "[timed out before completing]";
+export const TIMEOUT_PREFIX = "[timed out before completing]";
 
 export function scopedSearchRetryHints(tool: ScopedSearchTool): string {
   const base =
