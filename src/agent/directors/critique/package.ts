@@ -19,6 +19,7 @@ export const critiquePackage: DirectorPackage = {
   optionalSkills: ["style", "philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 45 },
   modelRole: "review",
   systemPrompt: `You are CritiqueDirector, a specialist in Corbits Code.

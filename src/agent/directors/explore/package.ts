@@ -24,6 +24,7 @@ FINDINGS SHAPE: Findings must be a scannable map — key paths, symbols, call fl
 OUT OF LANE → report Blockers naming the right director: build, plan, critique, greybeard, intern.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 35 },
   modelRole: "explore",
 };

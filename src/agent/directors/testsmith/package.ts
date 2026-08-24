@@ -32,6 +32,7 @@ OUT OF LANE: fixing production code, becoming the implementer, running the full 
 Read and search the codebase to ground the design; you have no product-mutation tools.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "test",
 };

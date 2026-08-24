@@ -104,6 +104,8 @@ import {
   resolveSubAgentDeadlineMs,
 } from "./stop-policy.js";
 import { SubAgentDirector } from "./nudge-director.js";
+import { assertTierMayMountFleetVerb } from "./authority.js";
+import { tierForDirectorId } from "../agent/directors/registry.js";
 import {
   abortError,
   createSubAgentSpawnRegistryPlugin,
@@ -425,6 +427,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     // the prompt. Nested dispatch always forbids further orchestration so the
     // tree bottoms out after one hop.
     if (params.orchestrator === true) {
+      // Tier enforcement at the mount point (CL-6941), not the prompt: a
+      // closed director resolved to Tier 3 must never reach here holding
+      // orchestrator=true — fail closed instead of silently installing fleet
+      // verbs on a leaf. Non-director profiles (params.directorId unset)
+      // are outside the closed-director tier system and are not checked here.
+      const tier =
+        params.directorId !== undefined ? tierForDirectorId(params.directorId) : undefined;
+      if (tier !== undefined) {
+        for (const verb of ["task", "search_agents"]) {
+          assertTierMayMountFleetVerb(tier, verb);
+        }
+      }
       if (params.nestedDispatch === undefined) {
         throw new Error(
           "runSubAgent: orchestrator=true requires nestedDispatch so the task tool can be installed",
