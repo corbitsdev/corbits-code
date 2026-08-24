@@ -11,11 +11,19 @@
 //   edited  — stops that fired on a run which had already edited files.
 //   early   — stops that fired before half the turn budget was spent.
 //
-// Also aggregates outcome records (CL-6938): what each completed dispatch
-// actually produced (a salvage kind, or clean-complete), by kind. This is the
-// log's only outcome signal, letting a stop record be read alongside what the
+// Also aggregates outcome records: what each completed dispatch actually
+// produced (a salvage kind, or clean-complete), by kind. This is the log's
+// only outcome signal, letting a stop record be read alongside what the
 // dispatch it touched actually produced — it is still not gate-pass or
 // retry-success tracking.
+//
+// Outcome records are now tagged with the dispatched child's provider/model/
+// family (CL-6968), so they double as the per-model dispatch denominator:
+// interventions per model, divided by dispatches per model, is the one table
+// below that is an actual rate. Everything else in this script stays a raw
+// count — do not add another table that looks like a rate without a tracked
+// denominator behind it (that mistake shipped once already and had to be
+// stripped, see CL-6968).
 //
 // Run: bun run scripts/intervention-forensics.ts
 //
@@ -88,6 +96,12 @@ findAll(root, INTERVENTION_FILE, files);
 
 const buckets = new Map<string, Bucket>();
 const outcomes = new Map<string, number>();
+// Dispatch counts per model (the outcome record's denominator, CL-6968) and
+// intervention counts per model (stop+nudge only — block/outcome are not
+// leaf signals), so a rate can be computed instead of a bare count.
+const dispatchesByModel = new Map<string, number>();
+const interventionsByModel = new Map<string, number>();
+let untaggedOutcomes = 0;
 let records = 0;
 let malformed = 0;
 
@@ -115,6 +129,12 @@ for (const file of files) {
     if (record.class === "outcome" && record.outcome !== undefined) {
       const kind = record.outcome.kind;
       outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
+      if (record.model !== undefined) {
+        dispatchesByModel.set(record.model, (dispatchesByModel.get(record.model) ?? 0) + 1);
+      } else {
+        // Written before CL-6968 tagged outcome records with model identity.
+        untaggedOutcomes++;
+      }
       continue;
     }
     const key = `${record.class ?? "?"}/${record.id}`;
@@ -128,6 +148,9 @@ for (const file of files) {
     bucket.byFamily.set(family, (bucket.byFamily.get(family) ?? 0) + 1);
     const model = record.model ?? "unknown";
     bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + 1);
+    if (record.class === "stop" || record.class === "nudge") {
+      interventionsByModel.set(model, (interventionsByModel.get(model) ?? 0) + 1);
+    }
     if (record.measurement !== undefined) {
       bucket.values.push(record.measurement.value);
       if (record.measurement.threshold !== undefined) {
@@ -178,10 +201,10 @@ for (const [key, bucket] of rows) {
 
 // CL-6775: streamed degenerate-repetition aborts (mid-stream, not a turn-level
 // stop) get their own model breakdown — "repetition-<detector>" ids, one row
-// per model, so "which model loops most" reads off directly. This is a count,
-// not a rate normalized by dispatch volume: the log's outcome records (total
-// completed dispatches) are written from the parent side without a model tag,
-// so a per-model denominator is not yet tracked — see the PR description.
+// per model, so "which model loops most" reads off directly. Still a raw
+// count, not a rate — see the "interventions per dispatch by model" table
+// below for the rate version, computed from the same per-model dispatch
+// denominator (outcome records, CL-6968).
 const repetitionRows = rows.filter(([key]) => key.includes("/repetition-"));
 if (repetitionRows.length > 0) {
   const totalsByModel = new Map<string, number>();
@@ -208,6 +231,32 @@ if (repetitionRows.length > 0) {
 console.log(
   "\nedited = stops on runs that had already edited files; early = stops before half the turn budget (context, not a false-positive rate).",
 );
+
+// The one real rate in this script: interventions per dispatch, per model.
+// dispatches = outcome records tagged with that model (CL-6968); interventions
+// = stop+nudge records for that model. Everything above this is a count.
+if (dispatchesByModel.size > 0 || interventionsByModel.size > 0) {
+  console.log("\ninterventions per dispatch by model (stop+nudge count / dispatch count = rate)");
+  const models = new Set([...dispatchesByModel.keys(), ...interventionsByModel.keys()]);
+  const modelRows = [...models]
+    .map((model) => {
+      const dispatches = dispatchesByModel.get(model) ?? 0;
+      const interventions = interventionsByModel.get(model) ?? 0;
+      const rate = dispatches > 0 ? (interventions / dispatches).toFixed(3) : "-";
+      return { model, dispatches, interventions, rate };
+    })
+    .sort((a, b) => b.interventions - a.interventions);
+  for (const { model, dispatches, interventions, rate } of modelRows) {
+    console.log(
+      `${model.padEnd(33)} interventions=${String(interventions).padStart(4)} dispatches=${String(dispatches).padStart(5)} rate=${rate}`,
+    );
+  }
+  if (untaggedOutcomes > 0) {
+    console.log(
+      `(${untaggedOutcomes} outcome record(s) predate model tagging (CL-6968) and are excluded from every dispatch count above.)`,
+    );
+  }
+}
 
 if (outcomes.size > 0) {
   console.log("\ndispatch outcomes");
