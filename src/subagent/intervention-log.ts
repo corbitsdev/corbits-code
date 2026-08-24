@@ -35,9 +35,11 @@ export const INTERVENTION_FILE = "interventions.jsonl";
  * independent of any stop/nudge/block — it is the log's real outcome signal:
  * a `block` record can be read alongside the `outcome` record(s) for later
  * dispatches of the same brief fingerprint to see what, if anything, the
- * parent's re-dispatch after a mutated brief actually produced.
+ * parent's re-dispatch after a mutated brief actually produced. `conflict`
+ * records a detected overlap between two concurrently running lanes; it is
+ * advisory only — the dispatch that triggered it was never blocked.
  */
-export type InterventionClass = "stop" | "nudge" | "block" | "outcome";
+export type InterventionClass = "stop" | "nudge" | "block" | "outcome" | "conflict";
 
 /** What a completed dispatch produced, for correlating against earlier stops. */
 export interface InterventionOutcome {
