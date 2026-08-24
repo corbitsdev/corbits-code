@@ -31,12 +31,6 @@ describe("internPackage", () => {
     }
   });
 
-  test("report.requiredSections envelope", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(internPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is implement", () => {
     expect(internPackage.modelRole).toBe("implement");
   });

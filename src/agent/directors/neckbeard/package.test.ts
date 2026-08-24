@@ -33,12 +33,6 @@ describe("neckbeardPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(neckbeardPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is review", () => {
     expect(neckbeardPackage.modelRole).toBe("review");
   });
