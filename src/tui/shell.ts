@@ -261,7 +261,8 @@ export interface ItemDescription {
   readonly what: string;
   /** What choosing it costs or changes. One line. Omit when there is nothing true to say. */
   readonly impact?: string;
-  /** "consequence" paints impact in UI.action — billing, trust, anything that spends or extends reach. */
+  /** "consequence" paints impact in UI.warning — billing, trust, anything that spends or extends reach. */
+
   readonly tone?: "plain" | "consequence";
 }
 
@@ -1280,12 +1281,21 @@ function overlayTitleLine(
   interior: number,
   hints: readonly string[] = DEFAULT_OVERLAY_HINTS,
 ): string {
+  const trimmed = title.trim();
+  // Empty/blank title: paint hints alone — no leading " · " from a missing title.
+  if (trimmed.length === 0) {
+    for (const hint of hints) {
+      const line = ` ${hint}`;
+      if (line.length <= interior) return line;
+    }
+    return " ";
+  }
   const suffixes = [...hints.map((h) => ` · ${h}`), ""];
   for (const suffix of suffixes) {
-    const line = ` ${title}${suffix}`;
+    const line = ` ${trimmed}${suffix}`;
     if (line.length <= interior) return line;
   }
-  return ` ${middleEllipsis(title, Math.max(1, interior - 1))}`;
+  return ` ${middleEllipsis(trimmed, Math.max(1, interior - 1))}`;
 }
 
 const DEFAULT_OVERLAY_HINTS = ["Esc cancel · Enter choose", "Esc · Enter"] as const;
@@ -1419,7 +1429,8 @@ export function describeZoneLines(
       fgs.push(UI.textDim);
     }
     if (desc.impact !== undefined && width >= DESCRIPTION_ZONE_IMPACT_MIN_WIDTH) {
-      const impactFg = desc.tone === "consequence" ? UI.action : UI.textFaint;
+      const impactFg = desc.tone === "consequence" ? UI.warning : UI.textFaint;
+
       for (const line of wrapWords(desc.impact, width)) {
         if (lines.length >= DESCRIPTION_ZONE_LINES) break;
         lines.push(line);
@@ -5401,14 +5412,14 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     // which would leave a half-overlay the operator cannot dismiss.
     overflow: "hidden",
     border: true,
-    borderColor: UI.action,
+    borderColor: UI.textDim,
     backgroundColor: UI.ground,
     visible: false,
   });
   const overlayTitle = new TextRenderable(ctx, {
     id: "shell-overlay-title",
     content: " overlay",
-    fg: UI.action,
+    fg: UI.textDim,
   });
   const overlayBody = new BoxRenderable(ctx, {
     id: "shell-overlay-body",

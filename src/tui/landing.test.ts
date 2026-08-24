@@ -442,7 +442,7 @@ describe("landing screen", () => {
           expect(nowAt.every((index) => index > 0)).toBe(true);
           expect(nowAt).toEqual([...nowAt].sort((a, b) => a - b));
           expect(new Set(nowAt).size).toBe(nowAt.length);
-          expect(h.captureCharFrame()).toContain("operator");
+          expect(h.captureCharFrame()).toContain("Esc cancel");
         } finally {
           shell.dispose();
         }
