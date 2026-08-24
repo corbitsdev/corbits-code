@@ -192,8 +192,5 @@ export const skywalkerPackage: DirectorPackage = {
     ],
   },
   nudge: { maxTurns: 100 },
-  report: {
-    requiredSections: ["Summary", "Findings", "Blockers", "Paths"],
-  },
   modelRole: "orchestrator",
 };

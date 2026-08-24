@@ -29,14 +29,6 @@ describe("testsmithPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {
-    const sections = testsmithPackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is test", () => {
     expect(testsmithPackage.modelRole).toBe("test");
   });

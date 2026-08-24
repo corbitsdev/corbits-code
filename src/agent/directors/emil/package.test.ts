@@ -28,14 +28,6 @@ describe("emilPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report.requiredSections covers the leaf envelope", () => {
-    const sections = emilPackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is review", () => {
     expect(emilPackage.modelRole).toBe("review");
   });
