@@ -7,7 +7,6 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 const ProfileSchema = type({
   "profile?": "string",
   "model?": "string",
-  "maxTurns?": "number.integer >= 1",
   "systemPromptExtensions?": "string[]",
   "workflow?": "string",
   // Per-call inactivity timeout in milliseconds. If the provider yields no
@@ -87,7 +86,6 @@ export async function resolveProfile(cwd: string, profileName?: string): Promise
   const merged: ProfileConfig = { ...namedProfile };
   if (projectProfile !== null && projectProfile !== undefined) {
     if (projectProfile.model !== undefined) merged.model = projectProfile.model;
-    if (projectProfile.maxTurns !== undefined) merged.maxTurns = projectProfile.maxTurns;
     if (projectProfile.systemPromptExtensions !== undefined) {
       merged.systemPromptExtensions = projectProfile.systemPromptExtensions;
     }

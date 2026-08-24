@@ -283,7 +283,7 @@ function fleetResult(callId: string, content: string): ToolResult {
 }
 
 /** Resolve agent=/intent= to a closed director. Mirrors task()'s director-only branch. */
-function resolveDirectorDispatch(
+export function resolveDirectorDispatch(
   agentId: string | undefined,
   intent: TaskIntent | undefined,
 ):
@@ -293,6 +293,7 @@ function resolveDirectorDispatch(
       systemPromptRole: string;
       capabilities: ReturnType<typeof packageToCapabilities>;
       roleDefault: ReturnType<typeof defaultEffortForDirector>;
+      profileMaxTurns: number | undefined;
     }
   | { ok: false; error: string } {
   if (agentId !== undefined && agentId.length > 0) {
@@ -311,6 +312,7 @@ function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
+      profileMaxTurns: pkg.nudge?.maxTurns,
     };
   }
   if (intent !== undefined) {
@@ -323,6 +325,7 @@ function resolveDirectorDispatch(
       systemPromptRole: formatDirectorSystemPrompt(pkg),
       capabilities: packageToCapabilities(pkg),
       roleDefault: defaultEffortForDirector(pkg),
+      profileMaxTurns: pkg.nudge?.maxTurns,
     };
   }
   return {
@@ -383,6 +386,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const resolvedMaxTurns = resolveSubAgentMaxTurns({
         ...(settings !== undefined ? { settings } : {}),
         ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
+        ...(resolved.profileMaxTurns !== undefined
+          ? { profileMaxTurns: resolved.profileMaxTurns }
+          : {}),
       });
 
       let provider: SubAgentProvider = resolveDep(deps.provider);

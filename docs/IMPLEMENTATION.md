@@ -286,7 +286,7 @@ OpenAI-compatible `baseURL` values are normalized during provider resolution. A 
 
 ### Profiles (`src/config/profiles.ts`)
 
-Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
+Profiles supply per-project or named-profile overrides for `model` and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
 
 - Project profile: `.corbits/profile.json` in the repo root — committed, credential-free.
 - Named profiles: `~/.corbits/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag.
@@ -295,12 +295,11 @@ Profiles supply per-project or named-profile overrides for `model`, `maxTurns`, 
 {
   "profile": "work",
   "model": "claude-opus-4-8",
-  "maxTurns": 50,
   "systemPromptExtensions": ["no-destructive-migrations"]
 }
 ```
 
-`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` / `maxTurns` feed into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. Workflow profile metadata is deprecated because workflows are started only by explicit slash commands. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
+`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` feeds into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. Workflow profile metadata is deprecated because workflows are started only by explicit slash commands. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
 
 ### Provider Configuration
 
