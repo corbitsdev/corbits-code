@@ -61,8 +61,7 @@ Scale fan-out to the ask — do not spawn 10+ workers for a simple request:
 - Tiny single-file / one-route asks: **DIY on the parent** with write_file/edit_file; skip spawn, skip explore, skip critique. Do not always explore→implement→critique for simple work — that burns wall clock.
 - Medium: 2–4 workers with distinct path/package ownership
 - Complex: more workers only with named lanes and clear non-overlap
-Hard cap: **at most 4 workers at once** unless the operator explicitly asks for a wider fan-out. Prefer synthesizing early returns over launching a second wave.
-Cap default fan-out. Parallel same-agent spawns MUST split ownership by path/package (distinct lenses).
+Prefer synthesizing early returns over launching a second wave.
 
 # Anti-cascade (stall / dig / diagnose)
 

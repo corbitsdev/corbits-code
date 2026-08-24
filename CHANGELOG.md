@@ -19,6 +19,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   format, so it was declared but unreachable. Fail-closed behavior is
   unchanged — a profile-sourced orchestrator is still denied `task`/
   `search_agents` with no supported opt-in.
+- Removed the default 30-turn leaf sub-agent ceiling; an unset `maxTurns` now runs unbounded (explicit budgets still apply).
+- Deleted two unenforced orchestrator prompt rules: a "4 workers at once" fan-out cap and a same-agent lane-disjointness rule.
 
 ## [0.2.108] - 2026-08-24
 
