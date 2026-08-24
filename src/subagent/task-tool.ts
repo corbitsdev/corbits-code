@@ -262,6 +262,22 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
     outcomeLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
     outcomeLog({ id: "dispatch-outcome", class: "outcome", outcome: { kind, dispatchCount } });
   };
+  // Concurrent-lane overlap detection (CL-6952), replacing the static
+  // per-package writePaths lock. There is no field in the task() contract a
+  // caller uses to declare which files a dispatch will touch, so the only
+  // honestly knowable "intended scope" at spawn is the working directory the
+  // dispatch will run in — worktree-isolated lanes always get a fresh,
+  // disjoint path here, so this can only ever fire in the shared-cwd fallback,
+  // which is exactly where two lanes really can stomp each other's writes.
+  // Keyed by call.id so a completed lane (removed in the outer finally below)
+  // is never mistaken for one still running: sequential dispatches to the
+  // same cwd are always clean.
+  const activeLanes = new Map<string, { description: string; cwd: string }>();
+  let conflictLog: InterventionSink | null = null;
+  const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
+    conflictLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    conflictLog(event);
+  };
   return tool({
     definition: taskToolDefinition,
     handler: async (call, signal): Promise<ToolResult> => {
@@ -314,7 +330,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
-      let writePaths: readonly string[] | undefined;
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
@@ -388,9 +403,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           systemPromptRole = formatDirectorSystemPrompt(pkg);
           const caps = packageToCapabilities(pkg);
           if (caps !== undefined) capabilities = caps;
-          if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
-            writePaths = pkg.writePaths;
-          }
           if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
@@ -437,9 +449,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.capabilities !== undefined) {
             capabilities = profile.capabilities;
           }
-          if (profile.writePaths !== undefined && profile.writePaths.length > 0) {
-            writePaths = profile.writePaths;
-          }
           if (profile.maxTurns !== undefined) {
             profileMaxTurns = profile.maxTurns;
           }
@@ -481,9 +490,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         systemPromptRole = formatDirectorSystemPrompt(pkg);
         const caps = packageToCapabilities(pkg);
         if (caps !== undefined) capabilities = caps;
-        if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
-          writePaths = pkg.writePaths;
-        }
         if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
@@ -700,6 +706,26 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             return taskToolResult(call.id, `Error: ${message}`);
           }
         }
+        // Detect, don't lock: warn when another lane still running right now
+        // is already working in this same cwd. Worktree-isolated lanes never
+        // collide here (each gets its own directory); this only fires in the
+        // shared-cwd fallback, where two lanes genuinely can overwrite each
+        // other's writes. Never blocks the spawn — the least destructive
+        // response that still tells the operator something true, since a
+        // shared cwd does not by itself prove the two lanes touch the same
+        // files, only that they could.
+        const laneCwd = worktreeCwd ?? deps.cwd;
+        for (const [otherId, other] of activeLanes) {
+          if (other.cwd !== laneCwd) continue;
+          recordConflict({
+            id: "concurrent-lane-overlap",
+            class: "conflict",
+            detail:
+              `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
+              `are both running against ${laneCwd} at once`,
+          });
+        }
+        activeLanes.set(call.id, { description, cwd: laneCwd });
         // Cleanup runs once the sub-agent's report is ready, regardless of
         // outcome, so a cancelled or failed run's worktree is still reclaimed
         // (or preserved with a notice) rather than leaked.
@@ -736,7 +762,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
-            ...(writePaths !== undefined ? { writePaths } : {}),
             ...(orchestrator ? { orchestrator: true, nestedDispatch: nestedDispatch! } : {}),
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
@@ -806,6 +831,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           signal.removeEventListener("abort", onParentAbort);
         }
       } finally {
+        activeLanes.delete(call.id);
         end(subagentSpanId);
         telemetry.capture("subagent_end", {
           agent_name: agentName,
