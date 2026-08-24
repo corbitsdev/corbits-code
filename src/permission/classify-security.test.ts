@@ -749,9 +749,7 @@ describe("CL-6703 — quoted redirect targets still deny file-mutation", () => {
     // touches the `\s-c` junction later in the string; a naive quote-pairing
     // scanner (ignoring the backslash) would consume that junction as part
     // of a fake quoted span and hide the -c flag entirely.
-    expect(autoShellRuleForCall(shellCall('python3 \\" -c print(1)"'))?.name).toBe(
-      "file-mutation",
-    );
+    expect(autoShellRuleForCall(shellCall('python3 \\" -c print(1)"'))?.name).toBe("file-mutation");
   });
 });
 
