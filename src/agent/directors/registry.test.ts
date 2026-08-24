@@ -9,6 +9,7 @@ import {
   listDirectors,
   packageToProfile,
   resolveDirector,
+  tierForDirectorId,
 } from "./registry.js";
 
 describe("director registry", () => {
@@ -168,6 +169,20 @@ describe("director registry", () => {
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
     expect(s.spawn.allowlist).toHaveLength(15);
+  });
+
+  // CL-6941: tier and spawn.maySpawn independently encode "may this package
+  // spawn", hand-set across 16 files. This pins their agreement so drift
+  // (adding maySpawn: true without bumping tier, or vice versa) fails a test
+  // instead of surfacing as an unexplained FleetAuthorityError at dispatch.
+  test("tier agrees with spawn.maySpawn for every director", () => {
+    for (const id of DIRECTOR_IDS) {
+      const pkg = DIRECTOR_REGISTRY[id];
+      expect(pkg.tier !== "leaf").toBe(pkg.spawn.maySpawn);
+      expect(tierForDirectorId(id)).toBe(pkg.tier);
+    }
+    expect(DIRECTOR_REGISTRY.skywalker.tier).toBe("orchestrator");
+    expect(DIRECTOR_REGISTRY.greybeard.tier).toBe("nested-orchestrator");
   });
 
   test("every director profile declares matching agent id in system prompt", () => {
