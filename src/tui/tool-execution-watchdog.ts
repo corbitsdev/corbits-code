@@ -2,7 +2,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import {
   formatMcpToolTimeoutMessage,
   formatToolExecutionTimeoutMessage,
+  TIMEOUT_PREFIX,
 } from "../plugins/tool-time-budget.js";
+import { BUDGET_EXPIRED, budgetExpiry, withTimeout } from "../util/budget-race.js";
+export { withTimeout };
 import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
@@ -57,8 +60,6 @@ export const TOOL_EXECUTION_SALVAGE_GRACE_MS = 5_000;
  * budget cannot hang a tool run indefinitely.
  */
 export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
-
-const BUDGET_EXPIRED = Symbol("tool-execution-budget-expired");
 
 /**
  * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
@@ -130,24 +131,6 @@ function resolveSettingsWatchdogTimeoutMs(
 /** Default true: freeze tool budget while a permission prompt is open. */
 export function resolveWaitForApproval(config?: ToolWatchdogConfig): boolean {
   return config?.waitForApproval !== false;
-}
-
-export function withTimeout(
-  signal: AbortSignal,
-  timeoutMs: number,
-): { signal: AbortSignal; dispose: () => void } {
-  const controller = new AbortController();
-  const onParentAbort = () => controller.abort();
-  signal.addEventListener("abort", onParentAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  if (signal.aborted) controller.abort();
-  return {
-    signal: controller.signal,
-    dispose: () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onParentAbort);
-    },
-  };
 }
 
 /**
@@ -311,16 +294,6 @@ export function getToolApprovalBudget(): ToolApprovalBudget | undefined {
   return toolApprovalBudgetAls.getStore();
 }
 
-function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve(BUDGET_EXPIRED);
-      return;
-    }
-    signal.addEventListener("abort", () => resolve(BUDGET_EXPIRED), { once: true });
-  });
-}
-
 function isAbortLikeToolError(content: string): boolean {
   return /abort/i.test(content);
 }
@@ -458,7 +431,7 @@ export async function runWithToolExecutionWatchdog(
       if (
         outcome.isError === true &&
         typeof outcome.content === "string" &&
-        outcome.content.includes("[timed out before completing]")
+        outcome.content.includes(TIMEOUT_PREFIX)
       ) {
         return outcome;
       }

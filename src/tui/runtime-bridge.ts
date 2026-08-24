@@ -86,14 +86,15 @@ import {
   PRODUCTION_REACTOR_TYPES,
   createStreamMapContext,
   mapProductionEvent,
-  mapReactorLike as mapReactorLikeImpl,
+  mapReactorLike,
   type BridgeInboundEvent,
   type ReactorLikeEvent,
   type StreamMapContext,
 } from "./stream-event-map.js";
 
-/** Re-export map types so existing `from "./runtime-bridge"` imports keep working. */
+/** Re-export map types/fn so existing `from "./runtime-bridge"` imports keep working. */
 export type { BridgeInboundEvent, ReactorLikeEvent, StreamMapContext };
+export { mapReactorLike };
 
 /** Outbound actions the UI asks the session runtime to perform. */
 export interface SessionPort {
@@ -258,14 +259,6 @@ function isBridgeInbound(event: { type: string }): event is BridgeInboundEvent {
     default:
       return false;
   }
-}
-
-/**
- * Map a reactor-like event into zero or more canonical bridge events.
- * Stateless (fixture-friendly). Live sessions use a StreamMapContext via handle.
- */
-export function mapReactorLike(event: ReactorLikeEvent): readonly BridgeInboundEvent[] {
-  return mapReactorLikeImpl(event);
 }
 
 function rowFromInbound(event: BridgeInboundEvent): StreamRow | null {
