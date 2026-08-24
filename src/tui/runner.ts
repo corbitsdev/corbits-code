@@ -1388,6 +1388,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
               enqueueAgentDeliver(() => currentAgent.deliver(buildCompactionContinuationMessage()));
             },
             provider: { providerName: config.providerName, model: config.model },
+            // Live id so mid-session `/model` updates xAI bare-429 remapping
+            // without rebuilding the agent (aligned with transcript stamp).
+            getProviderId: () => config.providerName,
           },
         );
         directorHolder.instance = d;
@@ -1723,6 +1726,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Stable handle handed to the App so the underlying agent can be swapped out
     // from under it without a remount; method calls always target the live agent.
+    // Host mounts later; stampProvider.fn is wired once the bridge exists.
+    const stampProvider: { fn: ((id: string | undefined) => void) | undefined } = {
+      fn: undefined,
+    };
     const agentProxy: Agent = {
       send: async (content, opts) => {
         await sessionOps.awaitTail();
@@ -1758,6 +1765,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         liveSources = [source];
         liveDefaultSource = source.id;
         setAgentSourceUnlessClosed(currentAgent, source);
+        stampProvider.fn?.(source.id);
         void persistRunSnapshot("running");
       },
       setSources: (sources, defaultSource) => {
@@ -1773,6 +1781,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           activeXaiSource =
             xaiProfile !== undefined ? { profile: xaiProfile, source: head } : undefined;
           liveSource = head;
+          stampProvider.fn?.(head.id);
         }
         void persistRunSnapshot("running");
       },
@@ -2276,6 +2285,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         const provider = id.slice(0, sep);
         const model = id.slice(sep + 1);
         config = { ...config, providerName: provider, model };
+        host.bridge.setInferenceProviderId(provider);
         const bundle = buildSessionSources();
         agentProxy.setSources(bundle.sources, bundle.defaultSource);
 
@@ -2511,6 +2521,11 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       void shutdownRuntime();
     };
     setActiveDisposeHost(disposeHost);
+
+    // Harness inference.error events omit providerId; stamp the live catalog id
+    // onto the stream map so transcript copy can identify known-xAI short 429s.
+    stampProvider.fn = (id) => host.bridge.setInferenceProviderId(id);
+    stampProvider.fn(config.providerName);
 
     setMentionSuggestionSource(host.shell, (prefix) => listPathSuggestions(prefix, config.cwd));
 
