@@ -58,6 +58,14 @@ describe("greybeardPackage", () => {
     expect(p).toMatch(/enforcement theater/i);
   });
 
+  test("systemPrompt distinguishes Greybeard from Critic and Builder (series naming)", () => {
+    const p = greybeardPackage.systemPrompt;
+    expect(p).toMatch(/not Critic/);
+    expect(p).toMatch(/not Builder/);
+    expect(p).not.toMatch(/not Critique/);
+    expect(p).not.toMatch(/not Build\b/);
+  });
+
   test("systemPrompt forbids spawning build and names off-list directors", () => {
     expect(greybeardPackage.systemPrompt).toContain("Do not spawn build");
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
