@@ -58,6 +58,21 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the tool at all. `progress_note` for leaf workers is a separate,
   not-yet-implemented follow-up.
 
+### Permissions
+
+- **Quoting or backslash-escaping a redirect target, a dangerous flag, or a
+  program name no longer bypasses auto mode's shell rules.** The auto-shell
+  policy used to blank out quoted text before matching its rules, so `echo hi
+  > "file"`, `echo hi >|file`, a quoted `-c`/`-i` flag, a quoted `install`
+  subcommand, or a quoted upload-tool name all slipped past the
+  file-mutation, dependency-install, and network-upload rules — including one
+  level of quoting inside a `bash -c` payload. Matching now dequotes the
+  command the way a real shell would (only the operator characters `> < | &
+  ; \`` are neutralized when they occur inside a quote, everything else stays
+  literal, and a backslash-escaped quote never opens or closes a span), and
+  the file-mutation redirect pattern now also recognizes the `>|` / `>>|`
+  clobber form.
+
 ### Fixed
 
 - **Interrupting a turn no longer risks a startup crash.** If an interrupt hit

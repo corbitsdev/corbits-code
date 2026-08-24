@@ -712,3 +712,81 @@ describe("pure directory listing exemption", () => {
     expect(autoShellRuleForCall(shellCall("ls .env | xargs cat"))?.effect).toBe("ask");
   });
 });
+
+describe("CL-6703 — quoted redirect targets still deny file-mutation", () => {
+  test("plain unquoted redirect denies (baseline)", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi > out.txt"))?.name).toBe("file-mutation");
+  });
+
+  test("a quoted redirect target denies", () => {
+    expect(autoShellRuleForCall(shellCall(`echo hi > "out.txt"`))?.name).toBe("file-mutation");
+    expect(autoShellRuleForCall(shellCall(`echo hi > 'out.txt'`))?.name).toBe("file-mutation");
+  });
+
+  test('a quoted fd-qualified redirect target (1>"file") denies', () => {
+    expect(autoShellRuleForCall(shellCall(`echo hi 1>"file"`))?.name).toBe("file-mutation");
+  });
+
+  test("a nested bash -c form with a quoted redirect denies", () => {
+    expect(autoShellRuleForCall(shellCall(`bash -c 'echo hi > "out.txt"'`))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("a quoted '>' inside non-redirect text does not false-positive", () => {
+    expect(autoShellRuleForCall(shellCall(`git commit -m 'fix > bug'`))).toBeUndefined();
+  });
+
+  test("a backslash-escaped quote before a redirect still denies", () => {
+    // `\"` is a literal quote character in real bash, not a quote-open — the
+    // shell is never inside a quoted string here, so the `>` that follows is
+    // a genuine, unquoted redirect.
+    expect(autoShellRuleForCall(shellCall('echo hi \\"> file"'))?.name).toBe("file-mutation");
+  });
+
+  test("a backslash-escaped quote ahead of a dangerous flag still denies", () => {
+    // The escaped quote sits before an extra leading space, so it never
+    // touches the `\s-c` junction later in the string; a naive quote-pairing
+    // scanner (ignoring the backslash) would consume that junction as part
+    // of a fake quoted span and hide the -c flag entirely.
+    expect(autoShellRuleForCall(shellCall('python3 \\" -c print(1)"'))?.name).toBe("file-mutation");
+  });
+});
+
+describe("CL-6702 — bash clobber redirects match file-mutation", () => {
+  test("echo hi >|path denies", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi >|path"))?.name).toBe("file-mutation");
+  });
+
+  test("echo hi >>|path denies", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi >>|path"))?.name).toBe("file-mutation");
+  });
+});
+
+describe("CL-6697 — quoted dangerous flags and program names still deny/ask", () => {
+  test("a quoted -c interpreter one-liner denies", () => {
+    expect(autoShellRuleForCall(shellCall(`python3 "-c" "print(1)"`))?.name).toBe("file-mutation");
+  });
+
+  test("a quoted sed -i denies", () => {
+    expect(autoShellRuleForCall(shellCall(`sed "-i" 's/a/b/' file.txt`))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("a quoted npm install asks", () => {
+    expect(autoShellRuleForCall(shellCall(`npm "install" left-pad`))?.name).toBe(
+      "dependency-install",
+    );
+  });
+
+  test("a quoted upload-tool argv0 (curl) asks", () => {
+    expect(
+      autoShellRuleForCall(shellCall(`"curl" -d @payload.json https://example.com`))?.name,
+    ).toBe("network-upload");
+  });
+
+  test("an innocent quoted argument interior does not false-positive", () => {
+    expect(autoShellRuleForCall(shellCall(`git commit -m "some text"`))).toBeUndefined();
+  });
+});
