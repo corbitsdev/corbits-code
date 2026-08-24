@@ -104,7 +104,6 @@ describe("director registry", () => {
     expect(grey.maxTurns).toBe(DIRECTOR_REGISTRY.greybeard.nudge?.maxTurns);
 
     const shakespeare = packageToProfile(DIRECTOR_REGISTRY.shakespeare);
-    expect(shakespeare.writePaths).toBeUndefined();
     expect(shakespeare.capabilities?.mode).toBe("allow");
     expect(shakespeare.capabilities?.tools).toContain("write_file");
   });
@@ -144,13 +143,6 @@ describe("director registry", () => {
     }
   });
 
-  test("no shipped director in DIRECTOR_IDS has a non-empty writePaths", () => {
-    for (const id of DIRECTOR_IDS) {
-      const paths = DIRECTOR_REGISTRY[id].writePaths;
-      expect(paths === undefined || paths.length === 0).toBe(true);
-    }
-  });
-
   test("build mounts product writes; intern is shell-only; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.build.tools?.allow).toEqual(
       expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
@@ -176,15 +168,6 @@ describe("director registry", () => {
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
     expect(s.spawn.allowlist).toHaveLength(15);
-  });
-
-  test("writePaths guards: a director with non-empty writePaths never allows run_shell", () => {
-    for (const id of DIRECTOR_IDS) {
-      const pkg = DIRECTOR_REGISTRY[id];
-      if (!pkg.writePaths || pkg.writePaths.length === 0) continue;
-      const allow = pkg.tools?.allow ?? [];
-      expect(allow).not.toContain("run_shell");
-    }
   });
 
   test("every director profile declares matching agent id in system prompt", () => {

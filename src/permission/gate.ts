@@ -26,12 +26,7 @@ import { splitChainedCommand, isShellCommentOnly, stripCommentLines } from "./co
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider, type RootsProvider } from "./worktree-roots.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
-import { matchesWritePathAllowlist, writePathDeniedReason } from "./write-path-policy.js";
-import {
-  isProductMutationTool,
-  productMutationPaths,
-  PRODUCT_MUTATION_TOOLS,
-} from "../agent/product-mutation-tools.js";
+import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -431,31 +426,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // match what the shell will open.
     const subAgentIdentity = getSubAgentIdentity();
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
-
-    // Director write-path authz (not prompt policy). Leaves with writePaths only
-    // mutate matching subjects. auto mode still enforces; yolo already returned.
-    if (
-      subAgentIdentity?.writePaths !== undefined &&
-      subAgentIdentity.writePaths.length > 0 &&
-      isProductMutationTool(call.name)
-    ) {
-      const paths = productMutationPaths(call.name, call.arguments);
-      // Fail-closed: no extractable subject is the same as an empty path deny.
-      if (paths.length === 0) {
-        return {
-          allowed: false,
-          reason: writePathDeniedReason("", subAgentIdentity.writePaths),
-        };
-      }
-      for (const path of paths) {
-        if (!matchesWritePathAllowlist(path, subAgentIdentity.writePaths, effectiveCwd)) {
-          return {
-            allowed: false,
-            reason: writePathDeniedReason(path, subAgentIdentity.writePaths),
-          };
-        }
-      }
-    }
 
     const isRestrictedHere = bindRestrictedToProcessCwd(isRestricted, effectiveCwd);
     // A call targeting a restricted path (outside the workspace, or a write

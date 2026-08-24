@@ -64,15 +64,6 @@ export interface DirectorPackage {
   /** Optional skills the worker may load dynamically (ordered). */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
-  /**
-   * Authz write-path allowlist for write_file/edit_file/delete_file.
-   * Enforced by the permission gate (not prompt policy). A bare filename (no
-   * slash) matches only at the workspace root; a glob matches the resolved
-   * workspace-relative path; anything outside the worker cwd is denied. yolo
-   * mode bypasses this gate. Omitted = no path lock (tool allow/deny alone
-   * decides whether writes exist).
-   */
-  readonly writePaths?: readonly string[];
   readonly spawn: SpawnRights;
   readonly nudge?: NudgePolicy;
   readonly modelRole: ModelRole;

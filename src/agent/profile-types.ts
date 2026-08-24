@@ -55,11 +55,6 @@ export interface AgentProfile {
   inference?: InferenceSpec;
   // Optional tool restriction. Controls which tools the sub-agent can call.
   capabilities?: CapabilityFilter;
-  /**
-   * Authz write-path allowlist for write_file/edit_file/delete_file (director
-   * packages). Enforced by the permission gate, not prompt policy.
-   */
-  writePaths?: readonly string[];
   // Appended to the sub-agent's base system prompt to specialize its behavior.
   systemPromptRole?: string;
   // Relative path to a markdown file whose content is loaded as systemPromptRole
