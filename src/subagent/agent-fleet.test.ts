@@ -195,8 +195,11 @@ describe("spawn_agent + wait_agents", () => {
   test("reports survive well past the session store's display cap (20) until wait_agents collects them", async () => {
     // DEFAULT_MAX_COMPLETED on SubAgentSessionStore is 20 finished sessions;
     // spawn (and complete) enough workers to blow well past it before any of
-    // them is collected, proving fleetRecords — not the store — is what
-    // wait_agents actually reads from.
+    // them is collected, proving fleetRecords does not depend on the store's
+    // cap either. CL-6943: a spawn_agent session is now retained (exempt
+    // from the cap) until close_agent runs, so — unlike the pre-CL-6943
+    // version of this test — the store also keeps every one of them; that
+    // is covered by session-store.test.ts's own cap tests.
     const COUNT = 25;
     const deps = makeDeps(async () => ({ report: "irrelevant" }));
     const spawn = createSpawnAgentTool(deps);
@@ -215,10 +218,10 @@ describe("spawn_agent + wait_agents", () => {
     // Let every spawn's run() resolve and complete() land before collecting.
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // The store itself has already evicted all but the most recent 20.
-    expect(deps.sessions.get(ids[0]!)).toBeUndefined();
+    // Retained sessions are exempt from the display cap.
+    expect(deps.sessions.get(ids[0]!)).toBeDefined();
 
-    // But every single one is still retrievable through wait_agents.
+    // Every single one is retrievable through wait_agents too.
     const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
     const results = waited.results as { agent_id: string; status: string; report?: string }[];
     expect(results).toHaveLength(COUNT);
