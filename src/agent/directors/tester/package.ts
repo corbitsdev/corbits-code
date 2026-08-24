@@ -23,9 +23,9 @@ Workflow:
 1. Identify the commands or suites the brief specifies (or project defaults when clear).
 2. Run them via shell / harness-allowed tools.
 3. Capture exit codes, key failures, and paths.
-4. Report honestly — do not patch source to make green; leave product fixes to build.
+4. Report honestly — do not patch source to make green; leave product fixes to builder.
 
-If tests fail: document failures, suspected area, and blockers. Suggest a re-dispatch to build or testsmith when design gaps appear.
+If tests fail: document failures, suspected area, and blockers. Suggest a re-dispatch to builder or testsmith when design gaps appear.
 
 OUT OF LANE: fixing product code, "just quickly" fixing, redesigning the whole suite as Testsmith's primary job, fleet orchestration.`,
   tools: { allow: REVIEW_TOOLS },

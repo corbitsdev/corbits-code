@@ -303,7 +303,7 @@ describe("mountProductHost", () => {
       chrome: {
         agents: [
           {
-            agentId: "explore",
+            agentId: "explorer",
             currentToolStartedAt: null,
             description: "map callers",
             status: "running",
@@ -334,7 +334,7 @@ describe("mountProductHost", () => {
       chrome: {
         agents: [
           {
-            agentId: "explore",
+            agentId: "explorer",
             currentToolStartedAt: null,
             description: "map callers",
             status: "done",

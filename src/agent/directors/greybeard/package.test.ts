@@ -18,24 +18,24 @@ describe("greybeardPackage", () => {
 
   test("spawn.maySpawn is true with limited allowlist", () => {
     expect(greybeardPackage.spawn.maySpawn).toBe(true);
-    expect(greybeardPackage.spawn.allowlist).toEqual(["intern", "explore", "critique"]);
+    expect(greybeardPackage.spawn.allowlist).toEqual(["intern", "explorer", "critic"]);
   });
 
-  test("allowlist is only intern, explore, critique", () => {
+  test("allowlist is only intern, explorer, critic", () => {
     const allow = greybeardPackage.spawn.allowlist ?? [];
     expect(allow).toHaveLength(3);
     expect(allow).toContain("intern");
-    expect(allow).toContain("explore");
-    expect(allow).toContain("critique");
+    expect(allow).toContain("explorer");
+    expect(allow).toContain("critic");
     expect(allow).not.toContain("implement");
-    expect(allow).not.toContain("build");
+    expect(allow).not.toContain("builder");
     expect(allow).not.toContain("skywalker");
-    expect(allow).not.toContain("plan");
+    expect(allow).not.toContain("counsel");
   });
 
-  test("systemPrompt forbids spawning implement and names build as off-list", () => {
+  test("systemPrompt forbids spawning implement and names builder as off-list", () => {
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
-    expect(greybeardPackage.systemPrompt).toContain("Do not spawn build");
+    expect(greybeardPackage.systemPrompt).toContain("Do not spawn builder");
   });
 
   test("systemPrompt forbids parallel diagnostic fleets", () => {

@@ -1,8 +1,8 @@
 import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
-export const planPackage: DirectorPackage = {
-  id: "plan",
+export const counselPackage: DirectorPackage = {
+  id: "counsel",
   primaryIntent: "Author eng change plans; do not implement",
   outOfLane: ["shipping code", "architecture gate sign-off as Greybeard", "running the fleet"],
   description: "Planning leaf — eng plans only; Greybeard reviews",
@@ -11,7 +11,7 @@ export const planPackage: DirectorPackage = {
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "plan",
-  systemPrompt: `You are PlanDirector, a specialist in Corbits Code.
+  systemPrompt: `You are CounselDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: author concrete engineering change plans. Do not implement product code. Do not act as architecture gate (that is Greybeard).
 

@@ -853,7 +853,7 @@ describe("Wave 6: keyboard copy path", () => {
           appendStreamRow(shell, { role: "user", text: "parent only" });
           enterSubagentObserve(shell, {
             sessionId: "s1",
-            agentId: "explore",
+            agentId: "explorer",
             description: "scan",
             lines: [{ role: "assistant", text: "child line" }],
           });

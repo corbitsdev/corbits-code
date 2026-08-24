@@ -18,7 +18,7 @@ describe("neckbeardPackage", () => {
   test("systemPrompt names NeckbeardDirector and never-fix stance", () => {
     expect(neckbeardPackage.systemPrompt).toMatch(/NeckbeardDirector/);
     expect(neckbeardPackage.systemPrompt).toMatch(/never fix/i);
-    expect(neckbeardPackage.systemPrompt).toContain("build (to fix)");
+    expect(neckbeardPackage.systemPrompt).toContain("builder (to fix)");
   });
 
   test("spawn.maySpawn is false", () => {

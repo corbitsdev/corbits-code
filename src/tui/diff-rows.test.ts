@@ -117,7 +117,7 @@ describe("diff transcript rows", () => {
 
   test("a task/dispatch call paints a sentence, never the full spawn JSON (CL-5762)", async () => {
     const brief = {
-      agent: "explore",
+      agent: "explorer",
       description: "map callers of leaveObserve",
       prompt: "Find every call site of leaveObserve.\nReport paths and line numbers.",
       intent: "explore",
@@ -159,7 +159,7 @@ describe("diff transcript rows", () => {
   test("a task without description still collapses — falls back to prompt, not raw JSON", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
     const args = JSON.stringify({
-      agent: "explore",
+      agent: "explorer",
       prompt,
       intent: "explore",
       success_criteria: ["list sites"],

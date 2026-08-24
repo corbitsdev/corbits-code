@@ -13,7 +13,7 @@ describe("emilPackage", () => {
 
   test("systemPrompt states PRIMARY INTENT", () => {
     expect(emilPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(emilPackage.systemPrompt).toContain("build (fixes)");
+    expect(emilPackage.systemPrompt).toContain("builder (fixes)");
   });
 
   test("spawn.maySpawn is false", () => {

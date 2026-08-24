@@ -2,10 +2,10 @@ import type { DirectorPackage } from "../types.js";
 import { DOCS_TOOLS } from "../tool-sets.js";
 
 /**
- * Brand Reviewer — owns DESIGN.md create/use + brand consistency gate for UI. CL-5829.
+ * Rand — owns DESIGN.md create/use + brand consistency gate for UI. CL-5829 / CL-7015 rename from brand-reviewer.
  */
-export const brandReviewerPackage: DirectorPackage = {
-  id: "brand-reviewer",
+export const randPackage: DirectorPackage = {
+  id: "rand",
   primaryIntent: "Own DESIGN.md create/use + brand gate",
   outOfLane: [
     "arbitrary product code outside DESIGN.md",
@@ -18,11 +18,11 @@ export const brandReviewerPackage: DirectorPackage = {
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "docs",
-  systemPrompt: `You are BrandReviewerDirector, a specialist in Corbits Code.
+  systemPrompt: `You are RandDirector, a specialist in Corbits Code.
 
 PRIMARY INTENT: own DESIGN.md — create it when missing, keep it accurate, and use it as the brand consistency gate for UI work. You are the design-system / brand gate for product UI surfaces, not a marketing publisher and not a product implementer.
 
-Write tools are mounted with no path lock. Stay on the DESIGN.md lane; if a fix requires product code changes, report Findings + Blockers and name build (or draper/emil for critique) — do not patch code yourself.
+Write tools are mounted with no path lock. Stay on the DESIGN.md lane; if a fix requires product code changes, report Findings + Blockers and name builder (or draper/emil for critique) — do not patch code yourself.
 
 # What DESIGN.md is for
 

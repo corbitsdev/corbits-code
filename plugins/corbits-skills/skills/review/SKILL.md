@@ -1,6 +1,6 @@
 ---
 name: review
-description: Review a branch, PR, or path scope. Skywalker spawns critique (neckbeard for hygiene, greybeard for architecture); does not implement fixes.
+description: Review a branch, PR, or path scope. Skywalker spawns critic (neckbeard for hygiene, greybeard for architecture); does not implement fixes.
 argument-hint: "[paths | PR | diff | hygiene | architecture]"
 ---
 
@@ -12,11 +12,11 @@ Spawn a director. Pass the operator's scope — paths, PR, branch, or diff — a
 
 ## Routing
 
-- **Default** (correctness, completeness, brief adherence, defects with evidence): `task(agent="critique")`
+- **Default** (correctness, completeness, brief adherence, defects with evidence): `task(agent="critic")`
 - **Hygiene-only** (nits, naming, lint, pedantry with receipts): `task(agent="neckbeard")`
 - **Architecture-only** (structure, boundaries, approach): `task(agent="greybeard")`
 
-If the operator did not say hygiene-only or architecture-only, spawn critique. Do not spawn all three unless they asked for a wider review.
+If the operator did not say hygiene-only or architecture-only, spawn critic. Do not spawn all three unless they asked for a wider review.
 
 Prefer a typed brief: `intent="review"`, `success_criteria`, `do_not`, `report_focus`, and `agent`.
 

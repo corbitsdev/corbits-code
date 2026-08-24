@@ -51,7 +51,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   const facts = buildHarnessFacts();
   expect(facts).toContain("write_file/edit_file");
   expect(facts).toContain("tiny/single-file/one-route");
-  expect(facts).toContain("Spawn build");
+  expect(facts).toContain("Spawn builder");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
   expect(facts).toContain("no default timeout");

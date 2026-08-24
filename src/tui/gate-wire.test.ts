@@ -146,11 +146,11 @@ describe("permissionBodyFromRequest", () => {
     expect(
       permissionBodyFromRequest(
         baseRequest({
-          agentLabel: "explore",
+          agentLabel: "explorer",
           notice: "mega-chain",
         }),
       ),
-    ).toBe("run_shell\nRun shell command\nbun test\nagent: explore\nmega-chain");
+    ).toBe("run_shell\nRun shell command\nbun test\nagent: explorer\nmega-chain");
   });
 
   test("a chained command stays visibly chained, one numbered line per segment", () => {

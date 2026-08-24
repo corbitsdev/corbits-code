@@ -194,8 +194,8 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
-  test("shouldRequireEvidence is armed for the critique director id", () => {
-    expect(shouldRequireEvidence({ directorId: "critique" })).toBe(true);
+  test("shouldRequireEvidence is armed for the critic director id", () => {
+    expect(shouldRequireEvidence({ directorId: "critic" })).toBe(true);
   });
 
   test("shouldRequireEvidence is off for greybeard even with intent=review", () => {

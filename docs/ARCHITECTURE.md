@@ -237,11 +237,11 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 | Director    | Owns                                                                    | Does not own                       |
 | ----------- | ----------------------------------------------------------------------- | ---------------------------------- |
-| build       | Ship product code                                                       | Pure docs, pure review             |
-| explore     | Map/read codebase                                                       | Product edits                      |
-| plan        | Eng change plan (steps, paths, tests, risks)                            | Arch gate, product discovery, code |
+| builder     | Ship product code                                                       | Pure docs, pure review             |
+| explorer    | Map/read codebase                                                       | Product edits                      |
+| counsel     | Eng change plan (steps, paths, tests, risks)                            | Arch gate, product discovery, code |
 | intern      | Mechanical commands only                                                | Ambiguous or product-design work   |
-| critique    | Evidence-based code review                                              | Fixing product code                |
+| critic      | Evidence-based code review                                              | Fixing product code                |
 | greybeard   | Architecture/approach review of plans/docs; limited spawn               | Authoring eng plans, implementing  |
 | neckbeard   | Adversarial hygiene / refactor stress                                   | Real review substitute             |
 | bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code                     |
@@ -249,11 +249,11 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Design trio (dev perspective)**
 
-| Director       | Owns                                                  |
-| -------------- | ----------------------------------------------------- |
-| draper         | Product visual / design-system critique               |
-| emil           | Design-engineering + software laws on product UI/code |
-| brand-reviewer | **DESIGN.md** create-if-missing + alignment gate      |
+| Director | Owns                                                  |
+| -------- | ----------------------------------------------------- |
+| draper   | Product visual / design-system critique               |
+| emil     | Design-engineering + software laws on product UI/code |
+| rand     | **DESIGN.md** create-if-missing + alignment gate      |
 
 **Docs + QA**
 
@@ -265,25 +265,25 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Intent → director** (`task(intent=…)` when `agent` is omitted)
 
-| Intent    | Default director                   |
-| --------- | ---------------------------------- |
-| implement | build                              |
-| explore   | explore                            |
-| plan      | plan                               |
-| review    | critique (override with `agent=…`) |
-| general   | **none** — reclassify only         |
+| Intent    | Default director                  |
+| --------- | --------------------------------- |
+| implement | builder                           |
+| explore   | explorer                          |
+| plan      | counsel                           |
+| review    | critic (override with `agent=…`)  |
+| general   | **none** — reclassify only        |
 
 **Spawn matrix**
 
-| Who                         | Spawn rights                   |
-| --------------------------- | ------------------------------ |
-| skywalker (primary session) | Full closed fleet              |
-| greybeard                   | intern, explore, critique only |
-| All other directors         | no `task`                      |
+| Who                         | Spawn rights                     |
+| --------------------------- | -------------------------------- |
+| skywalker (primary session) | Full closed fleet                |
+| greybeard                   | intern, explorer, critic only    |
+| All other directors         | no `task`                        |
 
-**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, brand-reviewer, bruckheimer) mount write tools with no path-level lock. Lane routing is spawn policy (shakespeare = P/A/I docs, brand-reviewer = DESIGN.md, bruckheimer = product discovery), not a file lock. There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one); instead the task tool records, without blocking, when two concurrently running dispatches land on the same cwd (see `intervention-log.ts`'s `conflict` class).
+**Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, rand, bruckheimer) mount write tools with no path-level lock. Lane routing is spawn policy (shakespeare = P/A/I docs, rand = DESIGN.md, bruckheimer = product discovery), not a file lock. There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one); instead the task tool records, without blocking, when two concurrently running dispatches land on the same cwd (see `intervention-log.ts`'s `conflict` class).
 
-**Typical chain:** bruckheimer → plan → greybeard → build (+ intern) → critique (+ optional neckbeard), with skywalker coordinating throughout.
+**Typical chain:** bruckheimer → counsel → greybeard → builder (+ intern) → critic (+ optional neckbeard), with skywalker coordinating throughout.
 
 **Reasoning effort by role** (`src/provider/reasoning-effort.ts` → `resolveEffortForRole` / `defaultEffortForDirector`): package `modelRole` defaults are orchestrator/plan/review → `high`, implement/explore/docs/test → `medium`, with **intern** pinned to `low`. Spawn-time binary fallback is orchestrator → `high`, worker → `medium`, clamped to the model. Explicit profile inference pins win; parent session effort is only a fallback when the role default is unsupported. This keeps multi-agent fleets off the sol+high latency cliff — see `docs/plans/reasoning-effort-by-role.md`.
 
@@ -298,7 +298,7 @@ Data-only agent plugins (`src/plugins/data-only-agent.ts`) synthesize `agentPlug
 The primary session identity is **Skywalker** (`buildChatRole` → `createSkywalkerSystemPrompt`). Product name remains Corbits Code; when asked its name, the primary answers Skywalker. Role: orchestrate — classify, DIY tiny/single-file/one-route product edits, dispatch closed directors via `task` for substantial work, track the fleet, synthesize. Product mutation tools (`write_file` / `edit_file` / `delete_file`) are mounted on the primary session (CORE and `SKYWALKER_TOOLS`) so Skywalker can DIY bounded edits; spawn remains the default for substantial, multi-file, parallel, or specialist work. Shell file-writes stay denied by auto-shell policy. MCP tools are not re-filtered by a product-write deny list (that list is gone). There is no static per-leaf write-path lock; concurrent lanes sharing a cwd are instead flagged (not blocked) as a `conflict` intervention. A frontier model already knows how to code; the static prompt carries harness-specific facts and the closed-fleet orchestration policy. The base is three individually-exported sections:
 
 - `buildChatRole` — Skywalker primary identity (orchestrate; DIY tiny/bounded product edits; spawn for substantial work).
-- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked, path tools are the DIY surface on primary (spawn build/docs directors for substantial work), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
+- `buildHarnessFacts` — the non-derivable rules: shell file-writes are blocked, path tools are the DIY surface on primary (spawn builder/docs directors for substantial work), dependency installs and off-limits paths need approval, images are native multimodal input, only core tools are resident (load the rest via `tool_search`; use `search_agents` before dispatching specialists), workflows run only from slash-command steps, and session memory lives at `.corbits/MEMORY.md`.
 - `buildGuidelines` — be concise, prefer `task` for substantial product work, DIY tiny/bounded edits on the parent, answer questions and diagnose visual/product feedback before editing, work autonomously for explicit coding tasks, use `lsp` for symbol work, and verify changes when practical.
 - `buildPromptDisciplineBlock` — a shared, prohibition-form section appended exactly once to every built prompt (chat and sub-agent, every provider family). Primary vs leaf wording differs for product writes: leaves are told to use `read_file`/`edit_file`/`write_file`; Skywalker is told to DIY tiny/bounded edits with those path tools and spawn directors for substantial work. Shared rules: never `cat`/`sed`/heredoc/`echo` for file work, no setting or exporting environment variables (recurring needs belong in project settings), `web_fetch`/`web_search` instead of `curl`/`wget`/hand-rolled queries, one operation per `run_shell` call, turn semantics (a tool-less reply is the final answer, no repeat searches, stop and change approach after three failed attempts, batch independent reads in parallel), and TTY output rules (short bold headers, one-line bullets, backticks for paths/commands, no wide tables).
 
@@ -403,7 +403,7 @@ Corbits Code **ships a bundled catalog** as the first-party data-only plugin `pl
 
 `discoverRepoPlugins` locates `plugins/` next to the source root, at `dist/plugins`, or at `dirname(execPath)/plugins`. It never scans the session cwd for the bundled catalog.
 
-Primary is Skywalker. Bundled skill bodies that are operator slashes are **action** recipes that tell it to `task(agent="<director>")` — there is no catch-all worker. Default slashes: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. `/scribe` dispatches shakespeare; `/implement` spawns build / greybeard / critique as the recipe specifies; `/plan` dispatches plan director (eng change plan; does not implement; does not file tracker issues); `/review` is a code-review action (not a director name); `/create-issue` remains the tracker command — Linear MCP when available, otherwise `ask_operator` for the platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`. Dispatch is `use_skill` only, not a default slash. Draper and emil are closed directors via `task(agent=…)`, not slashes. The operator types the slash; Skywalker reads the body and dispatches.
+Primary is Skywalker. Bundled skill bodies that are operator slashes are **action** recipes that tell it to `task(agent="<director>")` — there is no catch-all worker. Default slashes: `/implement`, `/plan`, `/refactor`, `/review`, `/pull-request-review`, `/create-issue`, `/scribe`, `/interview`, `/ast-grep`. `/scribe` dispatches shakespeare; `/implement` spawns builder / greybeard / critic as the recipe specifies; `/plan` dispatches counsel director (eng change plan; does not implement; does not file tracker issues); `/review` is a code-review action (not a director name); `/create-issue` remains the tracker command — Linear MCP when available, otherwise `ask_operator` for the platform and persists `Preferred issue tracker` in `.corbits/MEMORY.md`. Dispatch is `use_skill` only, not a default slash. Draper and emil are closed directors via `task(agent=…)`, not slashes. The operator types the slash; Skywalker reads the body and dispatches.
 
 #### Discovery and precedence
 
