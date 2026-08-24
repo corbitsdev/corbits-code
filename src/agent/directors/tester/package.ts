@@ -30,6 +30,7 @@ If tests fail: document failures, suspected area, and blockers. Suggest a re-dis
 OUT OF LANE: fixing product code, "just quickly" fixing, redesigning the whole suite as Testsmith's primary job, fleet orchestration.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "test",
 };

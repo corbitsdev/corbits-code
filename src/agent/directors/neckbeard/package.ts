@@ -18,6 +18,7 @@ export const neckbeardPackage: DirectorPackage = {
   optionalSkills: ["style", "philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "review",
   systemPrompt: `You are NeckbeardDirector, a specialist in Corbits Code.
