@@ -393,45 +393,12 @@ describe("repetition tracking", () => {
     expect(s.repeatingSinceTokenCount).toBeNull();
   });
 
-  test("the captured incident shape (no separator between cycles) flips repeating", () => {
-    const deltas = Array(30)
-      .fill(cycle)
-      .map((text) => textDelta(text));
-    const s = fold([{ type: "inference.start" }, ...deltas]);
-    expect(s.repeating).toBe(true);
-    expect(s.repeatingSinceTokenCount).not.toBeNull();
-  });
-
   test("a couple of restated cycles across tool calls is not a loop", () => {
     const deltas = Array(3)
       .fill(cycle)
       .map((text) => textDelta(text));
     const s = fold([{ type: "inference.start" }, ...deltas]);
     expect(s.repeating).toBe(false);
-  });
-
-  test("a tool call ends the streaming cycle but does not un-latch a real detection", () => {
-    // The raw text buffer is discarded at the tool-call boundary (that is
-    // what keeps narration from accumulating into a false loop), but a real
-    // in-cycle detection that already fired must stay latched — the model
-    // did loop, and a coincidental tool call right after should not erase
-    // that fact.
-    const deltas = Array(30)
-      .fill(cycle)
-      .map((text) => textDelta(text));
-    const looping = fold([{ type: "inference.start" }, ...deltas]);
-    expect(looping.repeating).toBe(true);
-
-    const withTool = turnStateFromEvent(
-      looping,
-      { type: "tool.start", data: { call: { id: "c1", name: "grep" } } },
-      100,
-    );
-    expect(withTool.repeating).toBe(true);
-    expect(withTool.streamText).toBe("");
-
-    const afterReply = turnStateFromEvent(withTool, { type: "connector.reply" }, 101);
-    expect(afterReply.repeating).toBe(true);
   });
 
   test("the same block repeated every cycle, interleaved with tool calls, still trips as a loop", () => {

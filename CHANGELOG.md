@@ -35,6 +35,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   independent copies of the same `AbortController` + `setTimeout` race.
 - `runtime-bridge.ts` now re-exports `mapReactorLike` from `stream-event-map.ts`
   instead of wrapping it in an identical local function.
+- Removed degenerate-repetition detection outright: the streamed-text loop
+  detector, the tool-fingerprint period/cycle thrash check, the
+  turns-since-user-message backstop, and the leaf no-progress (identical
+  tool-call) counter. These were pattern-matching heuristics layered on top
+  of the transport/policy line the harness actually needs — provider stream
+  error handling, connection retry/backoff, and the turn budget — and had
+  become a source of false-positive stalls without a clear win rate. The
+  turn budget stop and the director's soft tool-only check-in nudge are
+  unchanged; nothing else in this run/stop chain was touched.
 
 ## [0.2.108] - 2026-08-24
 

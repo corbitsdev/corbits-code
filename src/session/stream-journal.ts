@@ -33,7 +33,6 @@ export function appendCycleText(
 }
 
 export type PartialFlushReason =
-  | "repetition"
   | "deadline"
   | "cancelled"
   | "interrupted"
