@@ -88,9 +88,9 @@ src/
     hooks.ts              Lifecycle hooks: discovery, turn collector, run summary
   subagent/
     index.ts              Sub-agent spawn + SubAgentDirector
-    task-tool.ts          task() — resolveDirector first; writePaths on child
+    task-tool.ts          task() — resolveDirector first; concurrent-lane-overlap check on spawn
     session-store.ts      Retained child session transcripts for observe UI
-    identity-context.ts   ALS: worker cwd + optional writePaths for gate
+    identity-context.ts   ALS: worker description + cwd for gate attribution
   config/
     index.ts              Config resolution (settings files + flags) (was config.ts)
     settings.ts           Settings schema, validators, loaders, resolveProvider
@@ -106,8 +106,7 @@ src/
     classify.ts           Tool tier + approval-request construction
     command.ts            Chained-command split + command scopes
     auto-shell-policy.ts  Auto-mode run_shell deny/ask rule table
-    gate.ts               Permission gate evaluation (+ director writePaths)
-    write-path-policy.ts  Basename/glob match for worker write allowlists
+    gate.ts               Permission gate evaluation
     matcher.ts            Approval glob matching
     store.ts              Per-directory approval persistence
     types.ts              Approval / scope / request / outcome types
@@ -155,14 +154,14 @@ docs/
 Sixteen packages under `src/agent/directors/<id>/` register in `DIRECTOR_REGISTRY` (`registry.ts`). Wire path:
 
 1. `task(agent=…)` / `task(intent=…)` → `resolveDirector` in `task-tool.ts` before tools and system prompt are built. Bare `task` (neither field) and `intent=general` fail closed.
-2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities`, `spawn.maySpawn` → `orchestrator`, and optional `writePaths`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
+2. `packageToProfile` maps envelope (`tools.allow`/`deny`) to `AgentProfile.capabilities` and `spawn.maySpawn` → `orchestrator`. System prompts are prefixed with a stable identity block (`formatDirectorSystemPrompt`: agent id, model role, optional skills).
 3. Nested spawn: packages with `spawn.allowlist` forward that list into nested `task` (`spawnAllowlist` on nestedDispatch). Off-list `agent` is refused. `task(agent=skywalker)` is refused (primary is not a spawned worker). Primary omits the list so plugin profiles stay reachable.
 4. `directorProfiles()` is the spawn catalog (`default-agents.ts`) — closed set minus skywalker; plugin agent profiles still load and can override by id.
-5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn build/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. Optional `writePaths` (when a profile sets it) only gate path-keyed product tools.
+5. Primary chat role is Skywalker: `buildChatRole()` → `createSkywalkerSystemPrompt()`. Product mutation tools (`write_file` / `edit_file` / `delete_file`) live in CORE (and `SKYWALKER_TOOLS`) so they are advertised on the primary without a `tool_search` round-trip. DIY tiny/bounded edits on the parent; spawn build/docs directors for substantial work — a prompt judgment call, not a toolset strip. `PRIMARY_DENIED_PRODUCT_TOOLS` is gone. Shell file-writes stay denied; MCP tools are not re-filtered by a product-write deny list. There is no static per-profile write-path lock (CL-6952).
 
    **Codex tool proxies.** When the active provider is Codex (`isCodexProviderName`), `createAgentToolset` and `runSubAgent` mount `apply_patch`, `shell`, and `update_plan` stringTools from `createCodexToolProxies`, all forwarding through the same posix `ToolRunner` seam (`runTool`) so permission plugins still apply. `apply_patch` parses the Codex envelope and forwards each op (`write_file` / `delete_file` / `read_file`). `shell` — the native Codex name is `shell`, not `exec_command`, per the pinned base-instructions text quoted in `codex-responses-adapter.ts`'s bridge message — normalizes Codex's `command` (string or `["bash","-lc",script]`-style argv array), `workdir`, and `timeout_ms` onto `run_shell`'s `{command, cwd?, timeout?}` and is gated by `allowShellFromCapabilities` (mirrors `allowDeleteFromCapabilities` against `run_shell`). `update_plan` maps Codex's `plan: [{step, status}]` onto `manage_tasks(action: "create")`; `pending`/`in_progress`/`completed` map to `todo`/`doing`/`done` — `manage_tasks`'s `cancelled` status has no Codex equivalent and is never produced by this proxy. Primary strips `apply_patch` after mount (Corbits DIY stays on `write_file` / `edit_file` / `delete_file`); `shell` and `update_plan` stay on primary (same classification as `run_shell` / `manage_tasks`). Build and docs leaf allowlists (`BUILD_TOOLS` / `DOCS_TOOLS`) include `apply_patch` so Codex workers keep the proxy after the capability filter. `CORE_TOOL_NAMES` does not list it.
 
-6. Shipped directors omit `writePaths`. The optional field is still enforced in the permission gate via ALS identity (`identity-context.ts` + `write-path-policy.ts`) when a plugin/custom profile sets it.
+6. There is no static write-path declaration on packages or profiles (CL-6952 removed it — no shipped director ever set one). Instead, `task-tool.ts` tracks each running dispatch by cwd; a new dispatch that lands on the same cwd as a still-running lane records a `concurrent-lane-overlap` entry in `intervention-log.ts` (class `conflict`). This is advisory only — it never blocks the spawn, since cwd overlap does not prove the two lanes touch the same files.
 7. Spawn effort: pin > package `modelRole` default (`defaultEffortForDirector`; intern=low; plan/review/orchestrator=high; implement/explore/docs/test=medium) > orchestrator/worker binary > parent inheritance. Optional skills are listed in the identity header for awareness; workers do not mount `use_skill` (guidance is baked into package system prompts). Primary mounts `use_skill` for its own skill list.
 
 Intent defaults: `intent=implement` → director `build`; explore/plan → same-named director; review → critique; general → error. Spawn: skywalker full fleet; greybeard intern/explore/critique only; all other directors no `task`. Live `<env>` injects cwd, platform, arch, runtime, date, and git status on every chat and worker prompt.
