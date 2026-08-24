@@ -61,6 +61,18 @@ export interface NudgePolicy {
 }
 
 /**
+ * Optional structured-output contract for a director's worker (CL-6946).
+ * Additive alongside the markdown envelope (Summary/Findings/Blockers/Paths,
+ * see subagent/report.ts) — declaring `outputSchema` lets a Tier 3 leaf also
+ * submit a JSON payload via `submit_result`, validated against this schema.
+ * Omit entirely to keep a director on the markdown-only path.
+ */
+export interface ReportContract {
+  /** JSON Schema for submit_result's payload, validated with ajv (see subagent/submit-result.ts). */
+  readonly outputSchema?: Record<string, unknown>;
+}
+
+/**
  * One shipped director: hard primary intent + package fields.
  * Packages land in later levels; registry holds the closed set.
  */
@@ -81,6 +93,8 @@ export interface DirectorPackage {
   readonly modelRole: ModelRole;
   /** Fleet authority tier — data on the package, gated at mount, not prose. */
   readonly tier: SubagentTier;
+  /** Optional typed output contract (CL-6946); Tier 3 leaves only. */
+  readonly reportContract?: ReportContract;
 }
 
 export interface ResolveDirectorInput {
