@@ -65,6 +65,7 @@ import { promptBoxRows } from "./prompt-rows.js";
 import { composeNoticeLine, resolveWaitingOn } from "./notice-line.js";
 import { lockupCells, lockupText, lockupWidth, type LockupInput } from "./lockup.js";
 import type { RampPhase, StallAge } from "./ramp.js";
+import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import type { ActivityState } from "./session-chrome.js";
 import {
   BORDER,
@@ -516,6 +517,11 @@ export interface AppShellOptions {
    * mouse-up; Alt+M hands the mouse back for native terminal selection.
    */
   readonly mouseCapture?: MouseCapturePort;
+  /**
+   * How timed flashes arm their expiry. Injectable so tests can lapse a
+   * confirmation window without waiting out `RUNTIME_FLASH_MS`.
+   */
+  readonly flashSchedule?: FlashSchedule;
 }
 
 /**
@@ -967,24 +973,31 @@ export function clearPendingAttachments(shell: AppShell): void {
  */
 export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
   const source = shellPromptImageSource.get(shell) ?? readClipboardImage;
+  // Sticky until the read resolves — mid-async progress, not a confirmation.
   setStatusFlash(shell, "reading clipboard image…");
   const result = await source();
   // Quitting while the clipboard read is pending tears down the shell's
   // renderables; a stale continuation must not mutate them on resume.
   if (shell.disposed) return false;
   if (!result.ok) {
-    setStatusFlash(shell, `image attach failed: ${result.reason}`);
+    setStatusFlash(shell, `image attach failed: ${result.reason}`, {
+      ttlMs: RUNTIME_FLASH_MS,
+    });
     return false;
   }
   const duplicate = shell.pendingAttachments.find(
     (attachment) => attachment.contentHash === result.attachment.contentHash,
   );
   if (duplicate !== undefined) {
-    setStatusFlash(shell, `${duplicate.name} is already attached`);
+    setStatusFlash(shell, `${duplicate.name} is already attached`, {
+      ttlMs: RUNTIME_FLASH_MS,
+    });
     return false;
   }
   addPendingAttachment(shell, result.attachment);
-  setStatusFlash(shell, `attached ${result.attachment.name}`);
+  setStatusFlash(shell, `attached ${result.attachment.name}`, {
+    ttlMs: RUNTIME_FLASH_MS,
+  });
   return true;
 }
 
@@ -1021,6 +1034,9 @@ export interface FlashOptions {
 /** Cancel for the flash currently counting down, per shell. */
 const flashTimers = new WeakMap<AppShell, () => void>();
 
+/** Per-shell override for how timed flashes arm their expiry (tests). */
+const shellFlashSchedules = new WeakMap<AppShell, FlashSchedule>();
+
 /**
  * Set a non-destructive flash and repaint (does not touch streamLog).
  *
@@ -1028,6 +1044,8 @@ const flashTimers = new WeakMap<AppShell, () => void>();
  * wording is only true for a moment ("press ctrl+c again to exit") must say so
  * for exactly that moment: left on screen it becomes a claim about a keypress
  * the operator never made, and it holds a transcript row hostage for it.
+ * Omit `ttlMs` for live conditions that stay true until something replaces them
+ * (stall notice, landing hold).
  */
 export function setStatusFlash(
   shell: AppShell,
@@ -1040,7 +1058,7 @@ export function setStatusFlash(
   paintChrome(shell);
   const ttlMs = options?.ttlMs;
   if (message === null || ttlMs === undefined || ttlMs <= 0) return;
-  const schedule = options?.schedule ?? defaultFlashSchedule;
+  const schedule = options?.schedule ?? shellFlashSchedules.get(shell) ?? defaultFlashSchedule;
   flashTimers.set(
     shell,
     schedule(() => {
@@ -4612,7 +4630,7 @@ export function enterCopyMode(shell: AppShell): boolean {
 
   const targets = buildCopyTargets(shell.streamLog);
   if (targets.length === 0) {
-    setStatusFlash(shell, "nothing to copy");
+    setStatusFlash(shell, "nothing to copy", { ttlMs: RUNTIME_FLASH_MS });
     return false;
   }
 
@@ -4632,14 +4650,14 @@ export function enterCopyMode(shell: AppShell): boolean {
 export function confirmCopySelection(shell: AppShell): boolean {
   const targets = shell.copyTargets;
   if (!targets || targets.length === 0 || !shell.overlayList) {
-    setStatusFlash(shell, "nothing to copy");
+    setStatusFlash(shell, "nothing to copy", { ttlMs: RUNTIME_FLASH_MS });
     closeInsetOverlay(shell);
     return false;
   }
   const idx = Math.max(0, Math.min(targets.length - 1, shell.overlayList.activeIndex));
   const target = targets[idx];
   if (!target) {
-    setStatusFlash(shell, "nothing to copy");
+    setStatusFlash(shell, "nothing to copy", { ttlMs: RUNTIME_FLASH_MS });
     closeInsetOverlay(shell);
     return false;
   }
@@ -4647,10 +4665,12 @@ export function confirmCopySelection(shell: AppShell): boolean {
     target.text.length > 48 ? `${target.text.slice(0, 45).replace(/\s+/g, " ")}…` : target.text;
   writeClipboard(shell.clipboard, target.text, {
     onSuccess: () => {
-      setStatusFlash(shell, `Copied ${target.label} (${target.text.length} chars): ${preview}`);
+      setStatusFlash(shell, `Copied ${target.label} (${target.text.length} chars): ${preview}`, {
+        ttlMs: RUNTIME_FLASH_MS,
+      });
     },
     onFailure: () => {
-      setStatusFlash(shell, "Copy failed");
+      setStatusFlash(shell, "Copy failed", { ttlMs: RUNTIME_FLASH_MS });
     },
   });
   closeInsetOverlay(shell);
@@ -4661,17 +4681,19 @@ export function confirmCopySelection(shell: AppShell): boolean {
 export function copyAllTargets(shell: AppShell): boolean {
   const targets = shell.copyTargets;
   if (!targets || targets.length === 0) {
-    setStatusFlash(shell, "nothing to copy");
+    setStatusFlash(shell, "nothing to copy", { ttlMs: RUNTIME_FLASH_MS });
     if (shell.overlayKind === "copy") closeInsetOverlay(shell);
     return false;
   }
   const text = streamLogMarkdown(targets);
   writeClipboard(shell.clipboard, text, {
     onSuccess: () => {
-      setStatusFlash(shell, `Copied all (${targets.length} items, ${text.length} chars)`);
+      setStatusFlash(shell, `Copied all (${targets.length} items, ${text.length} chars)`, {
+        ttlMs: RUNTIME_FLASH_MS,
+      });
     },
     onFailure: () => {
-      setStatusFlash(shell, "Copy failed");
+      setStatusFlash(shell, "Copy failed", { ttlMs: RUNTIME_FLASH_MS });
     },
   });
   closeInsetOverlay(shell);
@@ -4687,7 +4709,9 @@ export function copyAllTargets(shell: AppShell): boolean {
 export function toggleMouseCapture(shell: AppShell): boolean | null {
   const port = shell.mouseCapture;
   if (!port) {
-    setStatusFlash(shell, "mouse reporting is not controllable here");
+    setStatusFlash(shell, "mouse reporting is not controllable here", {
+      ttlMs: RUNTIME_FLASH_MS,
+    });
     return null;
   }
   const next = !port.get();
@@ -4697,6 +4721,7 @@ export function toggleMouseCapture(shell: AppShell): boolean | null {
     next
       ? "Mouse captured · drag text to copy · click to expand · Alt+M for native select"
       : "Mouse released · drag to select and copy as usual · Alt+M to click rows",
+    { ttlMs: RUNTIME_FLASH_MS },
   );
   return next;
 }
@@ -6006,7 +6031,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     copyFinishedSelection(
       {
         clipboard: shell.clipboard,
-        flash: (text) => setStatusFlash(shell, text),
+        flash: (text) => setStatusFlash(shell, text, { ttlMs: RUNTIME_FLASH_MS }),
         clearSelection: () => {
           renderer.clearSelection();
         },
@@ -6095,6 +6120,10 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       destroySubtree(root);
     },
   };
+
+  if (options?.flashSchedule) {
+    shellFlashSchedules.set(shell, options.flashSchedule);
+  }
 
   internals.set(shell, {
     visibility,

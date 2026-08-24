@@ -8,8 +8,10 @@ import {
   createAppShell,
   enterCopyMode,
   toggleMouseCapture,
+  type FlashSchedule,
 } from "./shell";
 import { createRecordingClipboard } from "./copy-path";
+import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
 // One renderer for the whole file: harness renderers are a scarce native
 // resource and the suite exhausts them when every test claims its own.
@@ -22,6 +24,15 @@ beforeAll(async () => {
 afterAll(() => {
   harness.destroy();
 });
+
+/** Capture scheduled flash expiries so tests can lapse without wall time. */
+function capturingSchedule(lapse: (() => void)[], expectedMs = RUNTIME_FLASH_MS): FlashSchedule {
+  return (fn, ms) => {
+    expect(ms).toBe(expectedMs);
+    lapse.push(fn);
+    return () => {};
+  };
+}
 
 describe("Alt+C reaches the injected clipboard", () => {
   test("confirming a copy target writes its text", () => {
@@ -46,6 +57,36 @@ describe("Alt+C reaches the injected clipboard", () => {
     expect(clipboard.writes[0]).toContain("two");
     shell.dispose();
   });
+
+  test("copy confirmation clears itself when the flash window lapses", () => {
+    const lapse: (() => void)[] = [];
+    const clipboard = createRecordingClipboard();
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: capturingSchedule(lapse),
+    });
+    appendStreamRow(shell, { role: "assistant", text: "copy me" });
+    enterCopyMode(shell);
+    expect(confirmCopySelection(shell)).toBe(true);
+    expect(shell.statusFlash).toContain("Copied");
+    expect(lapse).toHaveLength(1);
+    lapse[0]?.();
+    expect(shell.statusFlash).toBeNull();
+    shell.dispose();
+  });
+
+  test("nothing-to-copy flash clears itself when the window lapses", () => {
+    const lapse: (() => void)[] = [];
+    const shell = createAppShell(harness.renderer, {
+      flashSchedule: capturingSchedule(lapse),
+    });
+    expect(enterCopyMode(shell)).toBe(false);
+    expect(shell.statusFlash).toBe("nothing to copy");
+    expect(lapse).toHaveLength(1);
+    lapse[0]?.();
+    expect(shell.statusFlash).toBeNull();
+    shell.dispose();
+  });
 });
 
 describe("drag-select auto-copy", () => {
@@ -59,6 +100,24 @@ describe("drag-select auto-copy", () => {
     expect(clipboard.writes).toEqual(["dragged snippet"]);
     expect(shell.statusFlash).toContain("Copied 15 chars");
     expect(shell.statusFlash).toContain("dragged snippet");
+    shell.dispose();
+  });
+
+  test("SELECTION flash clears itself when the window lapses", () => {
+    const lapse: (() => void)[] = [];
+    const clipboard = createRecordingClipboard();
+    const shell = createAppShell(harness.renderer, {
+      clipboard,
+      flashSchedule: capturingSchedule(lapse),
+    });
+    harness.renderer.emit(CliRenderEvents.SELECTION, {
+      isDragging: false,
+      getSelectedText: () => "dragged snippet",
+    });
+    expect(shell.statusFlash).toContain("Copied 15 chars");
+    expect(lapse).toHaveLength(1);
+    lapse[0]?.();
+    expect(shell.statusFlash).toBeNull();
     shell.dispose();
   });
 
@@ -102,6 +161,26 @@ describe("Alt+M mouse capture", () => {
     expect(shell.statusFlash).toContain("drag text to copy");
     expect(toggleMouseCapture(shell)).toBe(false);
     expect(enabled).toBe(false);
+    shell.dispose();
+  });
+
+  test("mouse-toggle flash clears itself when the window lapses", () => {
+    const lapse: (() => void)[] = [];
+    let enabled = false;
+    const shell = createAppShell(harness.renderer, {
+      flashSchedule: capturingSchedule(lapse),
+      mouseCapture: {
+        get: () => enabled,
+        set: (v) => {
+          enabled = v;
+        },
+      },
+    });
+    expect(toggleMouseCapture(shell)).toBe(true);
+    expect(shell.statusFlash).toContain("drag text to copy");
+    expect(lapse).toHaveLength(1);
+    lapse[0]?.();
+    expect(shell.statusFlash).toBeNull();
     shell.dispose();
   });
 
