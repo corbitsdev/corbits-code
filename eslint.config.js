@@ -14,9 +14,6 @@ export default tseslint.config(
       "**/scratch/**",
       "node_modules/**",
       "**/node_modules/**",
-      // Intentionally invalid source: the broken-toolchain eval fixture.
-
-      "tests/fixtures/broken-toolchain/**",
     ],
   },
   js.configs.recommended,
@@ -54,6 +51,24 @@ export default tseslint.config(
       // This module's job is matching C0/C1 bytes; the patterns are the
       // product, not a lint accident.
       "no-control-regex": "off",
+    },
+  },
+  {
+    // A bare `mock.module` call has no teardown of its own, so a mock left
+    // installed by one test file silently replaces a real module for every
+    // other file in the same `bun test` process (see CL-6967). Route through
+    // withMockedModule/withMockedModuleDuring (tests/helpers/mock-module.ts)
+    // instead, which register their own restore.
+    files: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.object.name='mock'][callee.property.name='module']",
+          message:
+            "Use withMockedModule/withMockedModuleDuring from tests/helpers/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
+        },
+      ],
     },
   },
 );

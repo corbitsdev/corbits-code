@@ -75,6 +75,5 @@ export const shakespearePackage: DirectorPackage = {
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 50 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "docs",
 };

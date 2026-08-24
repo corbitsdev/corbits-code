@@ -22,17 +22,10 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow includes write tools; writePaths is omitted", () => {
+  test("tools.allow includes write tools", () => {
     const allow = bruckheimerPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
-    expect(bruckheimerPackage.writePaths).toBeUndefined();
-  });
-
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(bruckheimerPackage.report.requiredSections).toContain(section);
-    }
   });
 
   test("modelRole is docs", () => {

@@ -16,7 +16,6 @@ export const buildDirectorPackage: DirectorPackage = {
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 60 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "implement",
   systemPrompt: `You are BuildDirector, a specialist in Corbits Code.
 

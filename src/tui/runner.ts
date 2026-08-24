@@ -127,7 +127,11 @@ import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import { createFaremeter, formatCost } from "../cost/faremeter.js";
-import { buildCostSummary, type CostSummary } from "../cost/cost-summary.js";
+import {
+  buildCostSummary,
+  maskContextMeterWhenNoTurns,
+  type CostSummary,
+} from "../cost/cost-summary.js";
 import { contextTokensFromUsage } from "../provider/context-window.js";
 import {
   advertisedToolNamesForSessionMode,
@@ -147,7 +151,12 @@ import {
   observeFleet,
   taskToolDefinition,
 } from "../subagent/index.js";
-import type { InferenceSource, ToolDefinition, InboundMessage } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  InferenceSource,
+  ToolDefinition,
+  InboundMessage,
+} from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { setAgentSourceUnlessClosed } from "./agent-source-sync.js";
@@ -1205,6 +1214,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     // Assigned before any tool runs; getter wires session blob reads into posix tools.
     let currentAgent!: Agent;
+    // Set alongside currentAgent in buildAgent; getter wires the session's own
+    // blob store into the truncation spill path (see result-truncation-plugin.ts).
+    let currentStorage: ContextStore | null = null;
 
     const toolset = await createAgentToolset({
       cwd: config.cwd,
@@ -1216,6 +1228,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       ...(localSettingsForEnv?.env !== undefined ? { shellEnv: localSettingsForEnv.env } : {}),
       toolWatchdog: liveToolWatchdog,
       getBlobReader: () => currentAgent.blobReader,
+      getBlobWriter: () => currentStorage?.writeBlob,
       isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
       onOperatorGate: (question, options) =>
@@ -1292,6 +1305,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
 
     const directorHolder: { instance?: ReturnType<typeof createChatDirector> } = {};
+    const hostHolder: { instance?: Awaited<ReturnType<typeof mountRunnerHost>> } = {};
 
     // Owns the workflow lifecycle: slash-command starts, capability overrides,
     // resume, and publishing status to the App via the emitter.
@@ -1484,6 +1498,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
 
     const buildAgent = async (): Promise<Agent> => {
       const storage = await createOptimizedContextStore(workdir);
+      currentStorage = storage;
       const sources = liveSources.length > 0 ? liveSources : [liveSource];
       const defaultSource = liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id;
       return createAgentWithLiveToolDispatch(def, {
@@ -1510,6 +1525,8 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             summarize: compactionSummarize,
             summaryContext,
             telemetry: liveTelemetry,
+            // Main-session folds only — exec runner and subagents stay silent.
+            onFolded: (info) => emitter.emit("compaction", info),
           }),
         },
       });
@@ -1869,6 +1886,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           // A fresh session drops any active workflow.
           workflowController.reset();
           fatalBuildError = null;
+          // Sink and director are empty now — repaint so the meter stays hidden
+          // rather than showing the pre-clear occupancy until the next turn.
+          hostHolder.instance?.refreshCostContext();
         } catch (err) {
           recordRunError(err);
           fatalBuildError = err instanceof Error ? err : new Error(String(err));
@@ -1987,7 +2007,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         // that decision rather than re-deriving it from a second usage read.
         const contextEstimate = directorHolder.instance?.getContextEstimate();
         const isEstimate = contextEstimate !== undefined && contextEstimate.isEstimate;
-        return buildCostSummary({
+        const summary = buildCostSummary({
           modelId: config.model,
           baseURL: config.baseURL,
           pricingCache,
@@ -2001,6 +2021,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             : contextTokensFromUsage(lastTurnUsage),
           contextIsEstimate: isEstimate,
         });
+        return maskContextMeterWhenNoTurns(summary, runSink.getTurnCount());
       },
       startWorkflow: (name) => workflowController.start(name),
       getFleetStatus: () => fleetDigest(subAgentSessions.list(), Date.now()),
@@ -2477,6 +2498,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         },
       },
     });
+    hostHolder.instance = host;
 
     const shutdownRuntime = createRuntimeShutdown({
       disposeHost: host.dispose,

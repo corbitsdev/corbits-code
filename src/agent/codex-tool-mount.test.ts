@@ -130,6 +130,7 @@ describe("Codex tool proxy mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
+      readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
     });
     expect(proxies.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
@@ -152,6 +153,7 @@ describe("Codex tool proxy mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
+      readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
       allowDelete: allowDeleteFromCapabilities(docsCapabilities),
       allowShell: allowShellFromCapabilities(docsCapabilities),
@@ -167,6 +169,7 @@ describe("Codex tool proxy mount", () => {
     const proxies = createCodexToolProxies({
       isCodex: false,
       runTool: async () => ({ content: "ok" }),
+      readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
       allowDelete: allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
       allowShell: allowShellFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),

@@ -25,6 +25,5 @@ OUT OF LANE → report Blockers naming the right director: build, plan, critique
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "explore",
 };

@@ -17,6 +17,73 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **`apply_patch` can update files again.** Its Update operation read the target
+  through the line-numbered `read_file` view and then tried to match the patch's
+  raw context lines against it, so every context-bearing update failed with
+  "failed to find expected lines in file." Updates now read the file's real
+  content. This was the codex-family edit path, and its most likely symptom was
+  the model retrying the identical patch.
+
+- **A worker that succeeds is no longer refused on its next dispatch.** Salvage
+  classification matched free-text substrings, so a finished report whose Summary
+  merely mentioned "no progress," "cancelled," or "long silence" was recorded as a
+  forced stop and blocked an identical re-dispatch for the rest of the session.
+  Classification is now exact. A parallel wave where one worker salvages and
+  another succeeds also stops leaving the brief blocked.
+
+- **Large files read in one pass instead of many.** A truncated `read_file` now
+  returns a continuation handle that resumes exactly where it stopped, rather
+  than telling the model to re-read the same path at a new offset. Following a
+  spent handle explains what happened and names the file and offset to resume
+  from, instead of a bare "not found."
+
+- **Edits show what changed.** `edit_file`, `write_file`, `delete_file`, and
+  `apply_patch` return a bounded diff of the change, so nothing needs a
+  verification read to confirm the edit landed. The harness already re-read and
+  compared after every write; that result now reaches the operator and the model.
+
+- **Reasoning survives resume, and corrected retries win.** On the Responses
+  adapters, reasoning items were dropped whenever a turn carried no model field —
+  including on resume — while the tool calls they produced were kept, a shape
+  known to degenerate reasoning models. Duplicate tool results also kept the
+  stale first copy, discarding a corrected retry. Tool names now route through
+  the wire-safe codec on all three adapters.
+
+- **Compaction stops discarding the prompt cache.** Compacted prompt prefixes are
+  byte-stable across passes, so a compaction no longer invalidates the cache in
+  full, and a shallow reclaim no longer re-triggers compaction immediately.
+
+- **Per-model loop visibility.** Mid-stream degenerate-repetition aborts are
+  recorded per detector with the measured value beside its threshold, so the loop
+  rate can be read per model instead of inferred.
+
+### Interface
+
+- **The context meter tells the truth after `/new`, `/clear`, and compaction.**
+  It resets rather than reporting pre-clear usage, and re-syncs to the compacted
+  size rather than blanking to zero.
+
+- **Compaction is visible when it happens.** Folding turns away now shows in the
+  TUI instead of the transcript quietly shrinking.
+
+- **The status indicator no longer flashes "awaiting response" mid-fan-out.**
+  During parallel tool calls the first tool to finish used to mark the turn idle
+  while its siblings were still running.
+
+### Safety
+
+- **Connecting a provider verifies the token can actually be used.** OAuth
+  onboarding completed on tokens carrying no API scope, so the first real request
+  failed in a way that looked like a Corbits bug. Onboarding now probes the
+  provider and blocks with an actionable message when the token definitively
+  lacks access — a network failure or rate limit does not block.
+
+- **Approval volume is measurable.** Every permission ask and how it settled is
+  recorded — tool, rule, mode, outcome, and timings, with no command text, path,
+  or argument in the record — with `bun run scripts/approval-forensics.ts` to
+  read it back.
+
+
 - **Resuming a session no longer shows a blank error when the saved history
   has one corrupted line.** A malformed or schema-invalid line anywhere in the
   saved transcript used to abort the entire resume load. The TUI's resume view
@@ -80,6 +147,13 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   are scored (writes, successful task completions, plan updates) and pair
   closures count against `maxAnchorTurns`. The LLM summary is workflow-aware
   and skips degenerate assistant text.
+
+- **Prefix-stable summaries and growth hysteresis.** Existing compacted user
+  turns stay byte-identical across later passes; new folds become later summary
+  turns with an assistant spacer so the prompt prefix can stay in the KV cache.
+  After a compact that remains over the high watermark, the governor waits for
+  usage to grow by 10% of the window before re-arming. Overflow recovery still
+  compacts immediately.
 
 ### Plugins
 

@@ -11,7 +11,10 @@ import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.
 import { ripgrepPlugin } from "../plugins/ripgrep-plugin.js";
 import { toolOutputUriPlugin } from "../plugins/tool-output-uri-plugin.js";
 import { lspHintPlugin } from "../plugins/lsp-hint-plugin.js";
-import { resultTruncationPlugin } from "../plugins/result-truncation-plugin.js";
+import {
+  resultTruncationPlugin,
+  type SpillBlobWriter,
+} from "../plugins/result-truncation-plugin.js";
 import { toolResultSecretScrubPlugin } from "../plugins/tool-result-secret-scrub-plugin.js";
 import { shellGuardPlugin, type ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
 import {
@@ -27,6 +30,9 @@ export interface CorePosixToolPluginsArgs {
   shellTimeout?: ShellTimeoutConfig;
   extraToolPlugins?: ToolPlugin[];
   readFileGuard?: ReadFileGuardPluginOptions;
+  // Session blob-store writer oversized tool results spill their full content
+  // into. See result-truncation-plugin.ts.
+  getBlobWriter?: () => SpillBlobWriter | undefined;
   // Per-project settings.env, merged into the run_shell spawn environment.
   shellEnv?: Record<string, string>;
 }
@@ -60,6 +66,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
     shellTimeout,
     extraToolPlugins = [],
     readFileGuard = {},
+    getBlobWriter,
     shellEnv,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
@@ -69,7 +76,7 @@ export function buildCorePosixToolPlugins(args: CorePosixToolPluginsArgs): ToolP
   // regardless.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
   return [
-    resultTruncationPlugin(),
+    resultTruncationPlugin(getBlobWriter !== undefined ? { getBlobWriter } : {}),
     toolResultSecretScrubPlugin(),
     pathEscapePlugin(cwd, createWorktreeRootsProvider(cwd), { allowOutside }),
     deleteFilePlugin(cwd, { allowOutside }),

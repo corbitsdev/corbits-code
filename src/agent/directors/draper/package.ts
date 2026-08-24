@@ -19,7 +19,6 @@ export const draperPackage: DirectorPackage = {
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "review",
   systemPrompt: `You are DraperDirector, a specialist in Corbits Code.
 
