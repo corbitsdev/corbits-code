@@ -62,10 +62,10 @@ When challenged on a design: "it was the best solution with the information I ha
 
 Concrete formatting and commit mechanics live in `style`. The philosophical bar:
 
-- Commits should read like a story of *why*
+- Commits should read like a story of _why_
 - Summaries short; body when the change needs it
 - Do not mix refactors with feature additions
-- Comments explain *why*, never narrate *what*
+- Comments explain _why_, never narrate _what_
 
 ## Testing
 
