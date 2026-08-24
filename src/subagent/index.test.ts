@@ -10,15 +10,11 @@ import {
   createSubAgentRunController,
   createSubAgentSessionStore,
   createSubAgentSpawnRegistryPlugin,
-  DEFAULT_SUBAGENT_REPEAT_LIMIT,
   disposeSubAgentSession,
   evaluateSubAgentStop,
-  fingerprintToolCalls,
   forcedStopReport,
   formatSubAgentReport,
-  nextToolCallStreak,
   parseSubAgentReport,
-  repetitionStopDetail,
   stopReasonFromReport,
   appendSubAgentParentHints,
   createBriefDispatchLedger,
@@ -36,7 +32,6 @@ import {
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
-  subAgentNoProgress,
   subAgentTurnLimitExceeded,
   SubAgentDirector,
   TaskToolArgs,
@@ -153,81 +148,6 @@ describe("sub-agent stop helpers", () => {
     expect(subAgentTurnLimitExceeded(1_000_000, Infinity)).toBe(false);
   });
 
-  test("no-progress trips at the default repeat limit", () => {
-    expect(DEFAULT_SUBAGENT_REPEAT_LIMIT).toBe(5);
-    expect(subAgentNoProgress(4, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
-    expect(subAgentNoProgress(5, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
-  });
-
-  test("legitimate polling (2-4 identical fingerprints) does not hard-stop (CL-6776)", () => {
-    // A worker rerunning `git status` or polling a build a few times while
-    // waiting must not be hard-blocked on identical re-dispatch.
-    for (const consecutive of [2, 3, 4]) {
-      expect(subAgentNoProgress(consecutive, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(false);
-      expect(
-        evaluateSubAgentStop({
-          hasToolCalls: true,
-          everHadToolCalls: true,
-          turnsCompleted: consecutive,
-          maxTurns: TEST_MAX_TURNS,
-          consecutiveIdentical: consecutive,
-          repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
-        }),
-      ).toBeNull();
-    }
-  });
-
-  test("a true runaway (>5 identical fingerprints) still hard-stops", () => {
-    expect(subAgentNoProgress(6, DEFAULT_SUBAGENT_REPEAT_LIMIT)).toBe(true);
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        everHadToolCalls: true,
-        turnsCompleted: 6,
-        maxTurns: TEST_MAX_TURNS,
-        consecutiveIdentical: 6,
-        repeatLimit: DEFAULT_SUBAGENT_REPEAT_LIMIT,
-      }),
-    ).toBe("no-progress");
-  });
-
-  test("fingerprint is null when a turn has no tool calls", () => {
-    expect(fingerprintToolCalls([{ type: "text" }])).toBeNull();
-  });
-
-  test("fingerprint is stable across argument key order and multi-call order", () => {
-    const a = fingerprintToolCalls([
-      { type: "tool_call", name: "read_file", arguments: { path: "a.ts", offset: 1 } },
-      { type: "tool_call", name: "grep", arguments: { pattern: "x", path: "src" } },
-    ]);
-    const b = fingerprintToolCalls([
-      { type: "tool_call", name: "grep", arguments: { path: "src", pattern: "x" } },
-      { type: "tool_call", name: "read_file", arguments: { offset: 1, path: "a.ts" } },
-    ]);
-    expect(a).toBe(b);
-    expect(a).not.toBeNull();
-  });
-
-  test("fingerprint normalizes JSON-string arguments", () => {
-    const objectArgs = fingerprintToolCalls([
-      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-    ]);
-    const stringArgs = fingerprintToolCalls([
-      { type: "tool_call", name: "read_file", arguments: JSON.stringify({ path: "a.ts" }) },
-    ]);
-    expect(objectArgs).toBe(stringArgs);
-  });
-
-  test("changing arguments produces a different fingerprint", () => {
-    const first = fingerprintToolCalls([
-      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-    ]);
-    const second = fingerprintToolCalls([
-      { type: "tool_call", name: "read_file", arguments: { path: "b.ts" } },
-    ]);
-    expect(first).not.toBe(second);
-  });
-
   test("evaluateSubAgentStop returns complete when tools were used and the final turn has none", () => {
     expect(
       evaluateSubAgentStop({
@@ -235,8 +155,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
       }),
     ).toBe("complete");
   });
@@ -268,8 +186,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
       }),
     ).toBe("incomplete-report");
@@ -282,8 +198,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 3,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
         incompleteReportNudgeFired: true,
       }),
@@ -297,8 +211,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: FULL_REPORT_ENVELOPE,
       }),
     ).toBe("complete");
@@ -333,8 +245,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: true,
@@ -354,8 +264,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: true,
@@ -375,8 +283,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 2,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: false,
@@ -391,8 +297,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: false,
         turnsCompleted: 1,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
       }),
     ).toBe("never-acted");
   });
@@ -409,8 +313,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 30,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         thrashState,
         requireEdit: true,
       }),
@@ -430,8 +332,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 40,
         maxTurns: 60,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         thrashState: thrash,
         requireEdit: true,
       }),
@@ -442,8 +342,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 40,
         maxTurns: 60,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         thrashState: thrash,
       }),
     ).toBeNull();
@@ -461,8 +359,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 30,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         thrashState,
         requireEdit: true,
       }),
@@ -476,24 +372,9 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: false,
         turnsCompleted: 1,
         maxTurns: 10,
-        consecutiveIdentical: 0,
-        repeatLimit: 2,
         requireEdit: true,
       }),
     ).toBe("never-acted");
-  });
-
-  test("evaluateSubAgentStop prefers no-progress over turn-budget", () => {
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        everHadToolCalls: true,
-        turnsCompleted: 10,
-        maxTurns: 10,
-        consecutiveIdentical: 2,
-        repeatLimit: 2,
-      }),
-    ).toBe("no-progress");
   });
 
   test("evaluateSubAgentStop trips turn-budget when the leaf is still making progress", () => {
@@ -503,8 +384,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
       }),
     ).toBe("turn-budget");
   });
@@ -516,36 +395,8 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
       }),
     ).toBeNull();
-  });
-
-  test("evaluateSubAgentStop prefers no-progress over the turn budget", () => {
-    let thrash = EMPTY_THRASH_STATE;
-    for (let i = 0; i < 4; i++) {
-      thrash = nextThrashState(thrash, [
-        { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-      ]);
-    }
-    thrash = nextThrashState(thrash, [
-      { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
-    ]);
-    thrash = nextThrashState(thrash, [
-      { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-    ]);
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        everHadToolCalls: true,
-        turnsCompleted: 5,
-        maxTurns: 20,
-        consecutiveIdentical: 2,
-        repeatLimit: 2,
-        thrashState: thrash,
-      }),
-    ).toBe("no-progress");
   });
 
   test("shell-only work is not never-edited or incomplete-report (CL-6937)", () => {
@@ -565,8 +416,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 4,
         maxTurns: 30,
-        consecutiveIdentical: 0,
-        repeatLimit: 5,
         thrashState: shellState,
         requireEdit: true,
         requireEvidence: true,
@@ -591,8 +440,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
         thrashState: thrash,
       }),
     ).toBe("turn-budget");
@@ -605,8 +452,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 8,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
         thrashState: EMPTY_THRASH_STATE,
       }),
     ).toBe("report-forced");
@@ -617,8 +462,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 9,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
         thrashState: EMPTY_THRASH_STATE,
       }),
     ).toBeNull();
@@ -628,8 +471,6 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 10,
         maxTurns: 10,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
         thrashState: EMPTY_THRASH_STATE,
       }),
     ).toBe("turn-budget");
@@ -648,35 +489,12 @@ describe("sub-agent stop helpers", () => {
         everHadToolCalls: true,
         turnsCompleted: 5,
         maxTurns: 20,
-        consecutiveIdentical: 1,
-        repeatLimit: 2,
         thrashState: thrash,
       }),
     ).toBeNull();
   });
 
-  test("nextToolCallStreak increments on identical fingerprints and resets on change", () => {
-    let streak = nextToolCallStreak(
-      { lastFingerprint: undefined, consecutiveIdentical: 0 },
-      'read_file:{"path":"a.ts"}',
-    );
-    expect(streak.consecutiveIdentical).toBe(1);
-    streak = nextToolCallStreak(streak, 'read_file:{"path":"a.ts"}');
-    expect(streak.consecutiveIdentical).toBe(2);
-    streak = nextToolCallStreak(streak, 'read_file:{"path":"b.ts"}');
-    expect(streak.consecutiveIdentical).toBe(1);
-    streak = nextToolCallStreak(streak, null);
-    expect(streak).toEqual({ lastFingerprint: undefined, consecutiveIdentical: 0 });
-  });
-
   test("forcedStopReport is a real envelope with salvage findings, not a summarize instruction", () => {
-    const noProgress = forcedStopReport("no-progress", "Found auth in gate.ts");
-    const parsed = parseSubAgentReport(noProgress);
-    expect(parsed.summary).toContain("no progress");
-    expect(parsed.findings).toContain("gate.ts");
-    expect(parsed.blockers.length).toBeGreaterThan(0);
-    expect(noProgress.toLowerCase()).not.toContain("summarize what you found");
-
     const budget = forcedStopReport("turn-budget", "");
     const budgetParsed = parseSubAgentReport(budget);
     expect(budgetParsed.summary).toContain("Turn budget");
@@ -770,22 +588,6 @@ describe("sub-agent stop helpers", () => {
   });
 
   test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
-    const repetition = forcedStopReport(
-      "repetition",
-      "Looped window (repeated 1363x): Groaning. ",
-      'window "Groaning. " × 1363',
-    );
-    expect(repetition.startsWith('Stopped: repetition — window "Groaning. " × 1363\n')).toBe(true);
-    expect(parseSubAgentReport(repetition).stopped).toBe('repetition — window "Groaning. " × 1363');
-    expect(stopReasonFromReport(repetition)).toBe('repetition — window "Groaning. " × 1363');
-    // Survives runSubAgent's parse/format normalization round-trip.
-    const roundTripped = formatSubAgentReport(parseSubAgentReport(repetition));
-    expect(stopReasonFromReport(roundTripped)).toBe('repetition — window "Groaning. " × 1363');
-    // Classifiers and hints still fire on the unchanged Summary text.
-    expect(appendSubAgentParentHints(repetition, "repetition")).toContain(
-      "degenerated into a loop",
-    );
-
     const cancelled = forcedStopReport("cancelled", "partial", "Session closed");
     expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
     // Without a detail the line is the bare reason token.
@@ -803,18 +605,6 @@ describe("sub-agent stop helpers", () => {
     expect(stopReasonFromReport(nested)).toBe("never-acted");
     // A clean report has no Stopped line.
     expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
-  });
-
-  test("repetitionStopDetail reports period length and repeat count, never the looped text", () => {
-    expect(repetitionStopDetail({ window: "Groaning. ", repeats: 1363 }, null)).toBe(
-      "period 10ch × 1363",
-    );
-    expect(
-      repetitionStopDetail(
-        { window: "x".repeat(500), repeats: 7 },
-        { windowMinChars: 8, repeatThreshold: 16, probeChars: 8192 },
-      ),
-    ).toBe("period 500ch × 7 (threshold 16)");
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {
@@ -910,27 +700,6 @@ describe("sub-agent stop helpers", () => {
     expect(resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false })).toBe("rethrow");
   });
 
-  test("resolveSubAgentCatchOutcome salvages a repetition abort even with zero progress", () => {
-    expect(
-      resolveSubAgentCatchOutcome({
-        deadlineHit: false,
-        hadProgress: false,
-        repetitionHit: true,
-      }),
-    ).toBe("salvage-repetition");
-  });
-
-  test("repetition forced stop reports the loop and warns against identical re-dispatch", () => {
-    const report = forcedStopReport("repetition", "dig footer/chrome... 0/1.0 done. 1 remaining.");
-    const parsed = parseSubAgentReport(report);
-    expect(parsed.summary).toContain("degenerate repetition");
-    expect(parsed.findings).toContain("dig footer/chrome");
-    expect(parsed.blockers).toContain("will be refused");
-    expect(parsed.blockers).toContain("not maxTurns alone");
-    const hinted = appendSubAgentParentHints(report, "repetition");
-    expect(hinted).toContain("Do not re-dispatch the identical brief");
-  });
-
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {
     const text = partialTextFromEvent({
       type: "inference.done",
@@ -1007,8 +776,6 @@ describe("thrash edge cases", () => {
       everHadToolCalls: true,
       turnsCompleted,
       maxTurns,
-      consecutiveIdentical: 0,
-      repeatLimit: 2,
       thrashState,
     });
 
@@ -1134,8 +901,8 @@ describe("SubAgentDirector report-forced wiring", () => {
       });
     });
 
-    // Turn 1 of 3 fires report-forced (a nudge); repeating one identical call
-    // to the repeat limit then fires no-progress (a stop).
+    // Turn 1 of 3 fires report-forced (a nudge); continuing past maxTurns
+    // then fires turn-budget (a stop).
     for (let i = 0; i < 6; i++) {
       await director.decide(
         makeInferenceDoneEvent([{ id: "r1", name: "read_file", args: { path: "a.ts" } }]),
@@ -1146,7 +913,7 @@ describe("SubAgentDirector report-forced wiring", () => {
 
     const nudge = recorded.find((r) => r.id === "report-forced");
     expect(nudge?.class).toBe("nudge");
-    const stop = recorded.find((r) => r.id === "no-progress");
+    const stop = recorded.find((r) => r.id === "turn-budget");
     expect(stop?.class).toBe("stop");
     expect(stop?.value).toBeGreaterThanOrEqual(stop?.threshold ?? 0);
   });
@@ -1264,7 +1031,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("no nudge fires before the stall timeout elapses", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -1283,7 +1050,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("first stall past the timeout gets one continuation nudge", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -1302,7 +1069,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("a second consecutive stall escalates to the salvage report", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -1322,7 +1089,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("real activity between pings resets the stall streak", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, undefined, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -2155,27 +1922,27 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(changed).not.toBe(a);
   });
 
-  test("hard-blocks identical brief after no-progress salvage; allows changed brief", () => {
+  test("hard-blocks identical brief after no-ship salvage; allows changed brief", () => {
     const ledger = createBriefDispatchLedger();
-    const fp = fingerprintTaskBrief({ prompt: "fix no-progress job", intent: "implement" });
+    const fp = fingerprintTaskBrief({ prompt: "fix no-ship job", intent: "implement" });
     expect(ledger.admit(fp).ok).toBe(true);
-    ledger.recordOutcome(fp, "no-progress");
+    ledger.recordOutcome(fp, "no-ship");
     const blocked = ledger.admit(fp);
     expect(blocked.ok).toBe(false);
     if (blocked.ok) throw new Error("expected block");
     expect(blocked.message).toContain("refused re-dispatch");
-    expect(blocked.message).toContain("no-progress");
+    expect(blocked.message).toContain("no-ship");
 
     const other = fingerprintTaskBrief({
-      prompt: "fix no-progress job with narrower scope",
+      prompt: "fix no-ship job with narrower scope",
       intent: "implement",
       successCriteria: ["one file only"],
     });
     expect(ledger.admit(other).ok).toBe(true);
   });
 
-  test("hard-blocks no-progress, repetition, never-acted, never-edited; not turn-budget", () => {
-    for (const salvage of ["no-progress", "repetition", "never-acted", "never-edited"] as const) {
+  test("hard-blocks no-ship, never-acted, never-edited; not turn-budget", () => {
+    for (const salvage of ["no-ship", "never-acted", "never-edited"] as const) {
       const ledger = createBriefDispatchLedger();
       const fp = fingerprintTaskBrief({ prompt: `job ${salvage}` });
       expect(ledger.admit(fp).ok).toBe(true);
@@ -2215,7 +1982,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(ledger.admit(fp).ok).toBe(true);
 
     // One sibling salvages (hard-block class)...
-    ledger.recordOutcome(fp, "no-progress");
+    ledger.recordOutcome(fp, "no-ship");
     // ...but the other sibling succeeds in the same wave.
     ledger.recordOutcome(fp, null);
 
@@ -2239,13 +2006,9 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     // classifyBriefSalvage takes no report text at all — only the structured
     // stopReason and an independently-observed wasCancelled flag.
     expect(classifyBriefSalvage({ wasCancelled: false })).toBeNull();
-    expect(classifyBriefSalvage({ stopReason: "no-progress", wasCancelled: false })).toBe(
-      "no-progress",
-    );
+    expect(classifyBriefSalvage({ stopReason: "no-ship", wasCancelled: false })).toBe("no-ship");
     // An operator cancel wins even when the run's own reason disagrees.
-    expect(classifyBriefSalvage({ stopReason: "no-progress", wasCancelled: true })).toBe(
-      "cancelled",
-    );
+    expect(classifyBriefSalvage({ stopReason: "no-ship", wasCancelled: true })).toBe("cancelled");
     expect(classifyBriefSalvage({ stopReason: "deadline", wasCancelled: false })).toBe("deadline");
   });
 
@@ -2261,10 +2024,10 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(third).toContain(TURN_BUDGET_STOP_PARENT_HINT.slice(1, 40));
   });
 
-  test("createTaskTool refuses identical re-dispatch after no-progress salvage", async () => {
+  test("createTaskTool refuses identical re-dispatch after no-ship salvage", async () => {
     const thrash = {
-      report: forcedStopReport("no-progress", "Repeated the same call"),
-      stopReason: "no-progress" as const,
+      report: forcedStopReport("no-ship", "Repeated the same call"),
+      stopReason: "no-ship" as const,
     };
     let runs = 0;
     const sessions = createSubAgentSessionStore();
@@ -2285,14 +2048,14 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
       intent: "implement",
     };
     const first = await callTask(tool, args);
-    expect(first).toContain("no progress");
+    expect(first).toContain("without writing any");
     expect(first).toContain("identical brief");
     expect(runs).toBe(1);
     expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
 
     const second = await callTask(tool, args);
     expect(second).toContain("refused re-dispatch");
-    expect(second).toContain("no-progress");
+    expect(second).toContain("no-ship");
     expect(runs).toBe(1);
     // Refuse must not leave a ghost running session on the Agents strip.
     expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
@@ -2310,7 +2073,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
       prompt: "do the thrashy work with a narrower scope",
       success_criteria: ["one file"],
     });
-    expect(third).toContain("no progress");
+    expect(third).toContain("without writing any");
     expect(runs).toBe(2);
   });
 

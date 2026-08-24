@@ -45,25 +45,20 @@ export {
   type TaskIntent,
 } from "./report.js";
 export {
-  DEFAULT_SUBAGENT_REPEAT_LIMIT,
   SUBAGENT_DEADLINE_MARGIN_MS,
   appendSubAgentParentHints,
   evaluateSubAgentStop,
-  fingerprintToolCalls,
   forcedStopReport,
-  nextToolCallStreak,
   partialTextFromEvent,
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
-  subAgentNoProgress,
   subAgentTurnLimitExceeded,
   TURN_BUDGET_STOP_PARENT_HINT,
   type ForcedStopReason,
   type SubAgentCatchOutcome,
   type SubAgentParentHintOptions,
   type SubAgentStopReason,
-  type ToolCallStreak,
 } from "./stop-policy.js";
 
 export {
@@ -105,7 +100,6 @@ export {
   buildSubAgentPrimarySource,
   coreSubAgentWebTools,
   createSubAgentRunController,
-  repetitionStopDetail,
   runSubAgent,
   shouldRequireEvidence,
   type SubAgentRunController,

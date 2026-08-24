@@ -12,7 +12,6 @@ import { createDefaultDependencies } from "@intx/inference/providers";
 import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { detectRepetition } from "../subagent/repetition.js";
 import { buildTurnSummary } from "./compactor.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
@@ -75,13 +74,7 @@ export function condenseTurns(turns: ConversationTurn[]): string {
         if (turn.role === "user") {
           userMessages.push(block.text.slice(0, 400));
         } else if (turn.role === "assistant" && block.text.length > 0) {
-          // Compaction often fires mid-degeneration, when the tail of the
-          // history is the model looping one phrase. Seeding the summary from
-          // those turns hands the looped text to the summarizer verbatim, so
-          // repetition-flagged turns are dropped from the excerpt entirely.
-          if (detectRepetition(block.text) === null) {
-            assistantSnippets.push(block.text.slice(0, 300));
-          }
+          assistantSnippets.push(block.text.slice(0, 300));
         }
       }
       if (block.type === "tool_call") {

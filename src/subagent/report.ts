@@ -124,7 +124,7 @@ export interface SubAgentReport {
   paths: string;
   /**
    * Machine-readable termination reason for a forced stop (e.g.
-   * `repetition — window "Groaning. " × 1363`). Rendered as a dedicated
+   * `turn-budget — 40/40 turns`). Rendered as a dedicated
    * `Stopped:` line above the envelope; absent on successful completes.
    */
   stopped?: string;
