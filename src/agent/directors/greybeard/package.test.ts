@@ -98,7 +98,6 @@ describe("greybeardPackage", () => {
     expect(allow).toContain("delete_file");
   });
 
-
   test("modelRole is review", () => {
     expect(greybeardPackage.modelRole).toBe("review");
   });

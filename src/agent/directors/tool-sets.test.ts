@@ -96,7 +96,6 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
   });
 });
 
-
 describe("BUILD_TOOLS", () => {
   test("includes apply_patch alongside path mutation tools", () => {
     expect(BUILD_TOOLS).toContain("write_file");

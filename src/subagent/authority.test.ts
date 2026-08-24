@@ -53,7 +53,6 @@ describe("assertTierMayMountFleetVerb", () => {
   });
 });
 
-
 describe("assertCanTargetAgent", () => {
   // Tree: skywalker(root) -> greybeard -> intern
   //                       -> build (sibling of greybeard)
