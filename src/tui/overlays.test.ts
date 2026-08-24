@@ -2,6 +2,7 @@
  * Wave 5: primary overlays — open / navigate / Esc restore + resize floors.
  */
 import { describe, expect, test } from "bun:test";
+import { rgbToHex } from "@opentui/core";
 import { IDLE_TRANSCRIPT_FLOOR, OVERLAY_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";
@@ -25,6 +26,38 @@ import {
   type OverlaySelection,
 } from "./shell";
 import { visibleSlice } from "./list-viewport";
+import { UI } from "./theme";
+
+function colorHex(c: unknown): string {
+  if (typeof c === "string") return c.toLowerCase();
+  return rgbToHex(c as Parameters<typeof rgbToHex>[0])
+    .toLowerCase()
+    .slice(0, 7);
+}
+
+describe("overlay host chrome", () => {
+  test("border and title stay textDim after create and open", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
+          expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
+
+          openOperatorOverlay(shell);
+          expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
+          expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
 
 describe("wrapOverlayBody", () => {
   test("splits long lines and caps", () => {
@@ -165,13 +198,16 @@ describe("operator question overlay", () => {
 
           await h.renderOnce();
           const frame = h.captureCharFrame();
-          expect(frame).toContain("operator");
-          // Body fragment visible
+          // Title chrome dropped — subject + hints carry the ask.
+          expect(frame).not.toContain("operator question");
+          // Body / subject fragment visible
           expect(frame).toMatch(/destructive|working tree|git reset/i);
           // Choice visible
           expect(frame).toMatch(/Cancel|Allow/);
           // The overlay carries its own keys now that there is no hint strip.
           expect(frame).toContain("Esc cancel");
+          // Empty title must not leave a leading middle-dot before the hints.
+          expect(frame).not.toMatch(/·\s*Esc cancel/);
 
           // Esc restore: closeInsetOverlay is the Esc path (same as key handler).
           closeInsetOverlay(shell);
