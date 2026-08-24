@@ -91,6 +91,8 @@ import {
 import {
   FLEET_FLOOR_MIN_LANES,
   FLEET_TRANSCRIPT_FLOOR,
+  OVERLAY_MAX_FRACTION,
+  PROMPT_BASE_ROWS,
   PROMPT_IDLE_ROWS,
   resolveBottomMarginRows,
   resolveGeometry,
@@ -1909,6 +1911,12 @@ interface ShellInternals {
   overlayMode: OverlayMode;
   overlayBodyRows: number | undefined;
   overlayMinBodyRows: number | undefined;
+  /**
+   * Raw (unwrapped) text last passed to `applyOverlayBodyText`, kept so a
+   * resize can re-shape a decision overlay's body against the new height's
+   * context budget instead of leaving it fixed at whatever it opened with.
+   */
+  overlayRawBodyText: string;
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null;
   /** Optional stable ids aligned with overlayItems for the open primary. */
@@ -3339,22 +3347,94 @@ export function wrapShellOverlayBody(text: string, width: number, maxLines = 8):
 }
 
 /**
- * Context rows a decision overlay's body may occupy. The shaped body charges
- * its header and its two rows of air on top of this, so the spacing never
- * costs the operator a row of the command they are being asked to approve.
+ * Context rows a decision overlay's body may occupy on a terminal with room
+ * to spare. The shaped body charges its header and its two rows of air on
+ * top of this, so the spacing never costs the operator a row of the command
+ * they are being asked to approve.
  */
 const DECISION_CONTEXT_ROWS = 8;
 
+/**
+ * Rows the shaped body always spends, budget or not: one header line plus
+ * the trailing blank row. Approximate (a header long enough to wrap costs
+ * one more), but an underestimate here only makes `decisionContextBudget`
+ * more generous than it should be, which the fraction cap downstream still
+ * catches — the failure mode this guards against is starving the choices,
+ * never overshooting the frame.
+ */
+const DECISION_HEADER_AND_TRAILER_ROWS = 2;
+
+/**
+ * Extra rows a non-zero context budget costs on top of the header/trailer:
+ * the blank row of air between the header and the context lines themselves.
+ */
+const DECISION_CONTEXT_BLANK_ROWS = 1;
+
+/**
+ * Shrink the decision body's context budget so its own chrome never crowds
+ * out the one thing this fix guarantees down to a 10-row terminal: at least
+ * one choice row, with the prompt box still seated at its floor below it. A
+ * generous, fixed context budget reads fine on a tall terminal, but on a
+ * short one it can consume the entire overlay host, leaving no room to paint
+ * a single option — the operator is then asked to decide between choices
+ * they cannot see. Shrinking the context first, down to dropping it entirely
+ * on the shortest terminals, is the deliberate trade: the header (which tool,
+ * which question) and the choices are the two things an approval cannot
+ * render without; the surrounding detail can give way first.
+ *
+ * Below 10 rows this budget alone cannot save the frame: the resolver's own
+ * collapse fallback (`resolveGeometry` in geometry/resolve.ts) can still hand
+ * the overlay host fewer rows than its render minimum once every other zone
+ * is already at floor, which is a pre-existing gap in the resolver, not
+ * something this budget controls.
+ */
+function decisionContextBudget(
+  shell: AppShell,
+  kind: PrimaryOverlayKind | null,
+  terminalHeight = shell.renderer.height,
+): number {
+  const fixedChrome =
+    OVERLAY_HOST_BORDER_ROWS + overlayTitleRows(kind) + DECISION_HEADER_AND_TRAILER_ROWS;
+  // The resolver never lets the overlay host past the fraction cap even when
+  // the transcript floor and every other zone have already given up their
+  // rows, so that cap — not just the prompt floor — bounds how much context
+  // this budget can safely ask for.
+  const fracCap = Math.floor(terminalHeight * OVERLAY_MAX_FRACTION);
+  const maxOverlayRows = Math.min(terminalHeight - PROMPT_BASE_ROWS, fracCap);
+  const baseline =
+    maxOverlayRows - DECISION_CHOICE_ROWS - fixedChrome - DECISION_CONTEXT_BLANK_ROWS;
+  return Math.max(0, Math.min(DECISION_CONTEXT_ROWS, baseline));
+}
+
 /** Re-shape and store the open overlay's body rows for the current width. */
-function applyOverlayBodyText(shell: AppShell, text: string, maxLines: number): void {
+function applyOverlayBodyText(
+  shell: AppShell,
+  text: string,
+  maxLines: number,
+  terminalHeight = shell.renderer.height,
+): void {
   const width = overlayRowWidth(shell);
+  const bag = internals.get(shell);
+  // Scoped to decision overlays: a palette stacked over an open approval
+  // calls this too, with its own (usually empty) body text. Caching that
+  // would overwrite the approval's cached raw text with the palette's, and
+  // popping the palette restores the approval's `overlayBodyLines` but not
+  // this cache (`PriorOverlaySnapshot` never carried it) — so a resize right
+  // after would re-shape the approval's body from the palette's stale empty
+  // string instead of its own, blanking it. The palette itself never reads
+  // this cache (not a decision overlay), so it never needs to be cached.
+  if (bag && isDecisionOverlay(shell.overlayKind)) bag.overlayRawBodyText = text;
   if (text.length === 0) {
     shell.overlayBodyLines = [];
     shell.overlayBodyFgs = [];
     return;
   }
   if (isDecisionOverlay(shell.overlayKind)) {
-    const rows = composeDecisionBody(text, width, DECISION_CONTEXT_ROWS);
+    const rows = composeDecisionBody(
+      text,
+      width,
+      decisionContextBudget(shell, shell.overlayKind, terminalHeight),
+    );
     shell.overlayBodyLines = rows.map((r) => r.text);
     shell.overlayBodyFgs = rows.map((r) => r.fg);
     return;
@@ -5896,6 +5976,13 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   const onResize = (width: number, height: number): void => {
     if (disposed) return;
     const bag = internals.get(shell);
+    // A decision overlay's body was shaped against the old height's context
+    // budget; a shorter terminal can no longer afford as much of it without
+    // crowding out the choices, so it is re-shaped before asking for rows.
+    if (shell.overlayList && isDecisionOverlay(shell.overlayKind) && bag) {
+      applyOverlayBodyText(shell, bag.overlayRawBodyText, 0, height);
+      relayoutOverlayHost(shell, shell.overlayItems.length);
+    }
     relayout(shell, {
       columns: width,
       rows: height,
@@ -6015,6 +6102,7 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     overlayMode: "closed",
     overlayBodyRows: undefined,
     overlayMinBodyRows: undefined,
+    overlayRawBodyText: "",
     priorOverlay: null,
     overlayItemIds: [],
     overlayItemValues: [],

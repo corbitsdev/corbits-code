@@ -152,7 +152,11 @@ export function composeDecisionBody(
   width: number,
   contextLines: number,
 ): OverlayBodyRow[] {
-  const budget = Math.max(1, Math.floor(contextLines));
+  // Zero is a valid budget: on a terminal too short to spare a row of air
+  // plus a line of context on top of the header, the context section is
+  // dropped entirely rather than forced to cost at least one row it cannot
+  // afford — the choices below it must win that row instead.
+  const budget = Math.max(0, Math.floor(contextLines));
   const lines = text.split("\n");
   const headIndex = lines.findIndex((l) => l.trim().length > 0);
   if (headIndex < 0) return [];
@@ -168,7 +172,7 @@ export function composeDecisionBody(
     });
   });
 
-  const rest = lines.slice(headIndex + 1).filter((l) => l.trim().length > 0);
+  const rest = budget > 0 ? lines.slice(headIndex + 1).filter((l) => l.trim().length > 0) : [];
   if (rest.length > 0) {
     rows.push({ text: "", fg: UI.textDim });
     // Continuation rows are indented so a wrapped chain segment can never be
