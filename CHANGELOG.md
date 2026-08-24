@@ -11,7 +11,20 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.0] - 2026-08-24
+
+### Breaking
+
+- **Turn budgets are gone entirely.** `settings.subagentMaxTurns`, `AgentProfile.maxTurns`, and
+  the `maxTurns` argument on `task()` / `spawn_agent` no longer exist. Unknown config keys are
+  ignored rather than rejected, so an existing `corbits.json` carrying `maxTurns` will load
+  without error and simply stop having any effect. A run now ends on the model's own finish
+  signal, an operator interrupt, or a hard error.
+- **`AgentProfile.fleetTier` removed** — it was declared but never populated by any loader.
+- **`task()` is deprecated** in favour of `spawn_agent` / `wait_agents`. It still works and much
+  still routes through it; it will be removed in a later release.
+- **Eval harness:** the global soft turn-budget rubric (`--max-turns`, `maxTurns` in case files,
+  `overBudget`) is removed. `--agent-timeout-ms` remains as the per-eval bound.
 
 ### Agent
 
