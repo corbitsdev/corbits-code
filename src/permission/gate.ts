@@ -15,7 +15,6 @@ import {
   isSingleShellCommand,
   callTargetsRestricted,
   commandTargetsRestricted,
-  MEGA_CHAIN_SEGMENT_THRESHOLD,
 } from "./classify.js";
 import { autoShellRuleForCall, safeWorktreeCommand } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
@@ -74,30 +73,6 @@ function finishApprovalWait(
 }
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };
-
-// Multi-segment shell may only short-circuit on an exact full-command grant.
-// Prefix globs like `npm *` must not match `npm i && curl x` — the unapproved
-// tail still needs a full-block operator decision. String equality (not glob)
-// keeps exact multi-segment reuse without reopening that hole.
-function hasExactFullCommandGrant(
-  tool: string,
-  fullCommand: string,
-  approvals: readonly Approval[],
-  activeProviderModel: string | undefined,
-  requestCwd: string | undefined,
-  workspace: GrantWorkspace,
-): boolean {
-  // Comment-insensitive: a model-authored "# why" line prepended to an
-  // otherwise-identical command must still replay against a grant minted
-  // for that command (see mintGrant, which normalizes the same way before
-  // storing a run_shell pattern).
-  const normalized = stripCommentLines(fullCommand).trim();
-  return approvals.some(
-    (a) =>
-      a.pattern === normalized &&
-      grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
-  );
-}
 
 // One shell segment's forced-ask guard: a secret-path reference or a
 // restricted target, either of which forces an operator decision no matter
@@ -370,33 +345,45 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
     // multi-segment "exact full command" scope persists the command
     // verbatim). Strip it here, at the single place a grant comes into
     // existence, so every stored run_shell pattern is already in the same
-    // normalized space hasExactFullCommandGrant matches against.
-    const pattern =
+    // normalized space grant matching works against.
+    //
+    // The exact-chain scope covers the whole command as one string, but a
+    // grant that coarse would replay for any future chain containing the
+    // same segments, blind to how many there were. Decompose it into one
+    // Approval per real segment (reusing the same quote-aware splitter the
+    // gate's own evaluation loop uses) so approving `a && b` grants `a` and
+    // `b` individually — reusable on their own, and strictly no broader than
+    // the whole-string approval it replaces.
+    const patterns =
       tool === "run_shell"
-        ? stripCommentLines(outcome.persist.pattern).trim()
-        : outcome.persist.pattern;
-    const approval: Approval =
-      grant === "provider-model" && activeProviderModel !== undefined
-        ? { tool, pattern, providerModel: activeProviderModel }
-        : grant === "project"
-          ? { tool, pattern, cwd: resolvedCwd }
-          : { tool, pattern };
-    approvals.push(approval);
-    if (grant === "session") {
-      sessionGrants.push(approval);
-    } else {
-      persist?.(approval, grant);
+        ? splitChainedCommand(stripCommentLines(outcome.persist.pattern).trim())
+            .filter((segment) => !isShellCommentOnly(segment))
+            .map((segment) => segment.trim())
+        : [outcome.persist.pattern];
+    for (const pattern of patterns) {
+      const approval: Approval =
+        grant === "provider-model" && activeProviderModel !== undefined
+          ? { tool, pattern, providerModel: activeProviderModel }
+          : grant === "project"
+            ? { tool, pattern, cwd: resolvedCwd }
+            : { tool, pattern };
+      approvals.push(approval);
+      if (grant === "session") {
+        sessionGrants.push(approval);
+      } else {
+        persist?.(approval, grant);
+      }
+      options.onGrant?.(approval, (request) =>
+        isRequestCoveredByGrant(
+          request,
+          approval,
+          activeProviderModel,
+          isRestricted,
+          grantWorkspace(),
+          rootsProvider,
+        ),
+      );
     }
-    options.onGrant?.(approval, (request) =>
-      isRequestCoveredByGrant(
-        request,
-        approval,
-        activeProviderModel,
-        isRestricted,
-        grantWorkspace(),
-        rootsProvider,
-      ),
-    );
   };
 
   // An auto-mode (or non-interactive-unavailable) decision settles the
@@ -510,30 +497,6 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
           return { allowed: false, reason: blockReason };
         }
 
-        const fullReferencesSecret = commandReferencesSensitivePath(fullCommand) !== undefined;
-        // Multi-segment: only an exact stored pattern for the full command may
-        // short-circuit. Never glob-match the unsplit string — a grant like
-        // `npm *` would otherwise swallow `npm i && curl evil`. Single-segment
-        // grants are applied per segment in the loop below. A restricted target
-        // always requires a fresh operator decision, so no grant — however it
-        // matched — ever replays for a restricted command; see the per-segment
-        // restriction check below for the same rule applied within a chain.
-        if (
-          !fullReferencesSecret &&
-          !commandTargetsRestricted(fullCommand, isRestrictedHere) &&
-          segments.length > 1 &&
-          hasExactFullCommandGrant(
-            request.tool,
-            fullCommand,
-            approvals,
-            activeProviderModel,
-            effectiveCwd,
-            grantWorkspace(),
-          )
-        ) {
-          continue;
-        }
-
         let needsOperator = false;
         let anySecret = false;
         for (const segment of segments) {
@@ -570,14 +533,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
         }
         if (!needsOperator) continue;
 
-        // A mega-chain (see MEGA_CHAIN_SEGMENT_THRESHOLD) is accept-once only:
-        // no scope is offered for it (buildRequests already returns none), and
-        // this check is the belt to that suspenders — the gate itself refuses
-        // to mint a grant for one even if a persist scope somehow arrived.
-        // Computed ahead of the non-interactive branch too, so both settle
-        // paths tag the same ask with the same rule.
-        const isMegaChain = segments.length >= MEGA_CHAIN_SEGMENT_THRESHOLD;
-        const askRule = anySecret ? "sensitive-path" : isMegaChain ? "mega-chain" : undefined;
+        const askRule = anySecret ? "sensitive-path" : undefined;
 
         if (!interactive || requestApproval === undefined) {
           recordAutoDecision(request.tool, askRule ?? "non-interactive", "deny");
@@ -621,7 +577,7 @@ export function createPermissionGate(options: PermissionGateOptions): Permission
             reason: `Operator declined: ${request.action} (${request.subject})${suffix}`,
           };
         }
-        if (!anySecret && !isMegaChain) {
+        if (!anySecret) {
           mintGrant(request.tool, outcome);
         }
         continue;

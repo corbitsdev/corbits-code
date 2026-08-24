@@ -81,13 +81,14 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
   }
 });
 
-// hasExactFullCommandGrant (gate.ts) is the third live call site grantScopeMatches
-// unifies, but it is not exported — it only surfaces through the exact-full-command
-// replay path inside evaluate(). This drives that path directly with grants that
-// grantScopeMatches would refuse (wrong cwd, wrong providerModel) to confirm the
-// replay never fires when the shared predicate says no, matching the coverage the
-// other two call sites get above.
-describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
+// Grant minting now decomposes a multi-segment exact-chain scope into one
+// grant per real segment (see mintGrant in gate.ts) rather than persisting a
+// single whole-string pattern, so a grant scoped to the full chain string is
+// legacy shape and no longer the replay path — per-segment grants are (see
+// permission.test.ts). This confirms a grant scoped to a mismatched cwd or
+// provider model still never replays, consistent with grantScopeMatches
+// everywhere else.
+describe("a scope-mismatched grant never replays a multi-segment chain", () => {
   const full = "npm i && curl x";
   const shellCall = (command: string): ToolCall => ({
     id: "c",
@@ -98,7 +99,7 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
   test("does not replay a grant scoped to a different cwd", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: full, cwd: "/other-project" }],
+      approvals: [{ tool: "run_shell", pattern: "npm i", cwd: "/other-project" }],
       requestApproval: async () => {
         asked++;
         return { allow: true };
@@ -107,15 +108,13 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
       skipPermissions: false,
     });
     expect((await gate.evaluate(shellCall(full))).allowed).toBe(true);
-    // grantScopeMatches would refuse this grant (cwd mismatch), so the
-    // exact-full-command shortcut must not fire — the operator is still asked.
     expect(asked).toBeGreaterThan(0);
   });
 
   test("does not replay a grant scoped to a different provider model", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: full, providerModel: "openai:gpt-5" }],
+      approvals: [{ tool: "run_shell", pattern: "npm i", providerModel: "openai:gpt-5" }],
       providerName: "anthropic",
       model: "opus",
       requestApproval: async () => {
@@ -129,10 +128,13 @@ describe("hasExactFullCommandGrant agrees with grantScopeMatches", () => {
     expect(asked).toBeGreaterThan(0);
   });
 
-  test("replays a grant whose scope grantScopeMatches accepts", async () => {
+  test("replays per-segment grants whose scope grantScopeMatches accepts", async () => {
     let asked = 0;
     const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: full }],
+      approvals: [
+        { tool: "run_shell", pattern: "npm i" },
+        { tool: "run_shell", pattern: "curl x" },
+      ],
       requestApproval: async () => {
         asked++;
         return { allow: true };
