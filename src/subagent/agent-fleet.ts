@@ -467,25 +467,31 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       deps
         .run(params)
         .then((result) => {
-          if (childCtl.signal.aborted) return;
           // interrupt_agent already flipped this session to "interrupted"
           // synchronously (session-store.interruptOne) — do not let the
           // settling promise's normal bookkeeping overwrite that with a
           // "completed" status.
           if (result.interrupted === true) return;
+          // Operator cancel may race after run resolves (childCtl aborted).
+          // Keep strip status cancelled when sessions.cancel already flipped
+          // it, but never discard a returned body (including salvage) —
+          // wait_agents reads fleetRecords, not the strip.
           deps.fleetRecords.resolve(session.id, result.report);
           // result.agentRetained is only true on run.ts's clean-completion
           // path when persist actually skipped teardown — a deadline/cancel
           // salvage resolves through the same promise but always disposed
           // its agent first, so the store must not treat it as resumable
           // just because retained:true was requested at spawn.
+          // complete() no-ops when status is already cancelled.
           deps.sessions.complete(session.id, result.report, {
             agentRetained: result.agentRetained === true,
             ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
           });
         })
         .catch((err) => {
-          if (childCtl.signal.aborted) return;
+          // Always terminalize fleetRecords — including pre-progress cancel that
+          // rethrows with no salvage — so wait_agents does not hang. fail()
+          // no-ops when cancel already flipped the strip status.
           const message = err instanceof Error ? err.message : String(err);
           deps.fleetRecords.reject(session.id, message);
           deps.sessions.fail(session.id, message);
