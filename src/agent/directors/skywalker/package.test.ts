@@ -105,6 +105,18 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("Present the plan when the change is large or ambiguous");
   });
 
+  test("systemPrompt requires frequent operator updates and staying free for Enter", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("Operator updates");
+    expect(p).toContain("only surface that talks to the operator");
+    expect(p).toContain("frequent short status updates");
+    expect(p).toContain("reply to the operator");
+    expect(p).toContain("before you block");
+    expect(p).toContain("timeout_ms");
+    expect(p).toContain("answer them first");
+    expect(p).toContain("Enter can land");
+  });
+
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Anti-cascade");
