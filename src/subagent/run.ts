@@ -466,7 +466,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
               turnToken: turnToken!,
               submittedToken: rawArgs.turn_token,
               result: rawArgs.result,
-              ...(params.reportSchema !== undefined ? { schema: params.reportSchema } : {}),
+              ...(params.reportType !== undefined ? { outputType: params.reportType } : {}),
               state: submitResultState,
             });
             return outcome.message;

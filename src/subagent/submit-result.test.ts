@@ -1,24 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
+import { type } from "arktype";
+
 import { createSubmitResultState, evaluateSubmitResult } from "./submit-result.js";
 
 const TOKEN = "turn-abc123";
 
 describe("evaluateSubmitResult", () => {
-  test("a valid submission against a declared schema succeeds", () => {
+  test("a valid submission against a declared output type succeeds", () => {
     const state = createSubmitResultState();
     const outcome = evaluateSubmitResult({
       turnToken: TOKEN,
       submittedToken: TOKEN,
       result: { verdict: "pass", score: 5 },
-      schema: {
-        type: "object",
-        required: ["verdict", "score"],
-        properties: {
-          verdict: { type: "string", enum: ["pass", "fail"] },
-          score: { type: "number", minimum: 0, maximum: 10 },
-        },
-      },
+      outputType: type({ verdict: "'pass'|'fail'", score: "0<=number<=10" }),
       state,
     });
     expect(outcome.ok).toBe(true);
@@ -28,17 +23,13 @@ describe("evaluateSubmitResult", () => {
 
   test("an invalid submission returns a correction and a resubmit then succeeds", () => {
     const state = createSubmitResultState();
-    const schema = {
-      type: "object" as const,
-      required: ["verdict"],
-      properties: { verdict: { type: "string", enum: ["pass", "fail"] } },
-    };
+    const outputType = type({ verdict: "'pass'|'fail'" });
 
     const first = evaluateSubmitResult({
       turnToken: TOKEN,
       submittedToken: TOKEN,
       result: { verdict: "maybe" },
-      schema,
+      outputType,
       state,
     });
     expect(first.ok).toBe(false);
@@ -49,7 +40,7 @@ describe("evaluateSubmitResult", () => {
       turnToken: TOKEN,
       submittedToken: TOKEN,
       result: { verdict: "pass" },
-      schema,
+      outputType,
       state,
     });
     expect(second.ok).toBe(true);
@@ -71,13 +62,13 @@ describe("evaluateSubmitResult", () => {
 
   test("correction cap refuses further attempts once reached", () => {
     const state = createSubmitResultState();
-    const schema = { type: "object" as const, required: ["x"] };
+    const outputType = type({ x: "number" });
     for (let i = 0; i < 3; i++) {
       evaluateSubmitResult({
         turnToken: TOKEN,
         submittedToken: TOKEN,
         result: {},
-        schema,
+        outputType,
         state,
       });
     }
@@ -85,7 +76,7 @@ describe("evaluateSubmitResult", () => {
       turnToken: TOKEN,
       submittedToken: TOKEN,
       result: { x: 1 },
-      schema,
+      outputType,
       state,
     });
     expect(capped.ok).toBe(false);
