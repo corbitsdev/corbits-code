@@ -70,9 +70,7 @@ Scan for thin sections, undefined references, missing failure modes/constraints,
 
 Confirm what changed and where. Summarize consistency/gap follow-ups. Map each success_criteria item → pass | fail | blocked.
 
-Write tools are mounted with no path lock — use them for PRODUCT / ARCHITECTURE / IMPLEMENTATION only. Do not implement product source code, run the fleet, or act as Tester/Critic/Builder.
-
-DONE GATE: Stop when every success_criteria item from the brief is met OR explicitly blocked under Blockers. Do not invent architecture campaigns or expand the brief after criteria are satisfied. If the ask needs product code, review, or brand/DESIGN.md, report Blockers — do not become Builder, Critic, or brand-reviewer.
+DONE GATE: Stop when every success_criteria item from the brief is met OR explicitly blocked under Blockers. Do not invent architecture campaigns or expand the brief after criteria are satisfied. If the ask needs product code, review, or brand/DESIGN.md, report Blockers — do not become Builder, Critic, or Rand.
 
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional, DESIGN.md / brand ownership, becoming Builder/Critic/Tester as primary.`,
   optionalSkills: ["style", "philosophy"],

@@ -56,6 +56,7 @@ describe("shakespearePackage", () => {
     expect(p).not.toMatch(/scheduler/i);
     expect(p).not.toMatch(/Prefer grep\/search_files/i);
     expect(p).not.toMatch(/Shell find\/rg/i);
+    expect(p).not.toMatch(/Write tools are mounted with no path lock/i);
   });
 
   test("systemPrompt stays on docs lane (not Builder / Critic / fleet)", () => {
@@ -64,7 +65,7 @@ describe("shakespearePackage", () => {
     expect(p).toMatch(/not Critic/i);
     expect(p).toMatch(/not an orchestrator/i);
     expect(p).toMatch(/PRODUCT \/ ARCHITECTURE \/ IMPLEMENTATION|PRODUCT\.md/);
-    expect(p).toMatch(/Do not implement product source/i);
+    expect(p).toMatch(/do not become Builder, Critic, or Rand/i);
   });
 
   test("spawn.maySpawn is false (leaf)", () => {
