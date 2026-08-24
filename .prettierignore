@@ -5,3 +5,6 @@ scratch/
 node_modules/
 CHANGELOG.md
 
+tmp/
+.claude/
+.tmp/
