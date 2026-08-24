@@ -25,7 +25,14 @@ const SKILL_DIRS = [
   "plan",
 ] as const;
 
-const SPAWN_RECIPE_SKILLS = ["implement", "scribe", "review", "dispatch", "plan"] as const;
+const SPAWN_RECIPE_SKILLS = [
+  "implement",
+  "scribe",
+  "review",
+  "dispatch",
+  "plan",
+  "linear-issue-workflow",
+] as const;
 
 const USE_SKILL_ONLY = [
   "dispatch",
@@ -104,6 +111,23 @@ test("spawn-recipe skills contain task(agent=", async () => {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
     expect(skill).toContain("task(agent=");
   }
+});
+
+test("linear-issue-workflow is a Skywalker recipe with DIY vs spawn build and no false caps", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/linear-issue-workflow/SKILL.md")).text();
+  expect(skill).toContain("You are Skywalker");
+  expect(skill).toContain('use_skill("linear-issue-workflow")');
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("mcp__linear__get_issue");
+  expect(skill).toContain("**DIY**");
+  expect(skill).toContain("**Spawn build**");
+  expect(skill).toContain('task(agent="build")');
+  expect(skill).toContain("No false caps");
+  expect(skill).toContain("No worker-count or fan-out ceiling");
+  expect(skill).not.toContain("Do not implement on Skywalker");
+  expect(skill).not.toContain("cap two re-fix");
+  expect(skill).not.toContain("Cap three whole-branch");
+  expect(skill).not.toContain("hard cap");
 });
 
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
