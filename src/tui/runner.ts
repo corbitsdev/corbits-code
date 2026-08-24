@@ -6,6 +6,7 @@ import {
   defineTool,
   createDirectorRegistry,
   defineDirector,
+  AgentContextLockError,
   type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
@@ -281,6 +282,42 @@ export function resumeTranscriptLoadErrorBlock(err: unknown): {
 } {
   const message = err instanceof Error ? err.message : String(err);
   return { type: "error", message: `Could not load prior session transcript: ${message}` };
+}
+
+// The agent package releases its workdir lock at the very end of close(),
+// after reactor.abort()/sendQueue.drain() and the shutdown-complete race have
+// all run. If any of that throws (most likely right when an operator
+// interrupts mid-inference, which is exactly when those paths are under
+// stress), the lock is never released — and because the agent is already
+// marked closed internally, retrying close() is a silent no-op that can
+// never release it either. Every rebuild site must treat that as fatal for
+// the current rebuild instead of calling buildAgent() again: a second
+// createAgent() for the same workdir is then guaranteed to throw
+// AgentContextLockError for a lock nothing will ever free, which is the
+// "agent already open" crash.
+export async function closeAgentForRebuild(agent: Agent, context: string): Promise<boolean> {
+  try {
+    await agent.close();
+    return true;
+  } catch (err) {
+    tuiLogger.debug(`agent.close during ${context} teardown failed: {error}`, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+// Every rebuild site funnels its failure (a lock left held by a failed
+// close, or any other buildAgent failure) through here so it surfaces as a
+// plain-language, caught error rather than an unhandled rejection.
+export function agentRebuildFailure(err: unknown): Error {
+  return err instanceof AgentContextLockError
+    ? new Error(
+        "Could not start a new agent: the previous one did not shut down cleanly. Restart Corbits to continue.",
+      )
+    : err instanceof Error
+      ? err
+      : new Error(String(err));
 }
 
 export interface ResumeSeed {
@@ -1646,21 +1683,25 @@ export async function runTUI(initialConfig: Config): Promise<number> {
       if (!pendingReload || inFlight > 0) return;
       pendingReload = false;
       void enqueueOp(async () => {
-        const old = currentAgent;
-        await old.close().catch((err: unknown) => {
-          tuiLogger.debug("agent.close during reload teardown failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
+        try {
+          const old = currentAgent;
+          const closedCleanly = await closeAgentForRebuild(old, "reload");
+          await streamPromise.catch((err: unknown) => {
+            tuiLogger.debug("stream drain during reload teardown failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
-        await streamPromise.catch((err: unknown) => {
-          tuiLogger.debug("stream drain during reload teardown failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-        currentAgent = await buildAgent();
-        streamPromise = consumeStream(currentAgent.stream(), streamSink);
-        // The rebuild made a fresh director; re-attach the active workflow.
-        workflowController.reattach();
+          if (!closedCleanly) {
+            throw new AgentContextLockError(workdir);
+          }
+          currentAgent = await buildAgent();
+          streamPromise = consumeStream(currentAgent.stream(), streamSink);
+          // The rebuild made a fresh director; re-attach the active workflow.
+          workflowController.reattach();
+        } catch (err) {
+          recordRunError(err);
+          fatalBuildError = agentRebuildFailure(err);
+        }
       });
     };
 
@@ -1812,16 +1853,15 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           // and salvages the buffer before that teardown, so it is never lost
           // or misattributed to the rebuilt agent's next cycle.
           await cycleRecorder.dispose("interrupted");
-          await currentAgent.close().catch((err: unknown) => {
-            tuiLogger.debug("agent.close during interrupt teardown failed: {error}", {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
+          const closedCleanly = await closeAgentForRebuild(currentAgent, "interrupt");
           await streamPromise.catch((err: unknown) => {
             tuiLogger.debug("stream drain during interrupt teardown failed: {error}", {
               error: err instanceof Error ? err.message : String(err),
             });
           });
+          if (!closedCleanly) {
+            throw new AgentContextLockError(workdir);
+          }
           currentAgent = await buildAgent();
           cycleRecorder.reset();
           streamPromise = consumeStream(currentAgent.stream(), streamSink);
@@ -1829,7 +1869,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           fatalBuildError = null;
         } catch (err) {
           recordRunError(err);
-          fatalBuildError = err instanceof Error ? err : new Error(String(err));
+          fatalBuildError = agentRebuildFailure(err);
         }
       });
     };
