@@ -46,10 +46,6 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.optionalSkills).toEqual(["style", "philosophy"]);
   });
 
-  test("nudge.maxTurns is 50", () => {
-    expect(shakespearePackage.nudge?.maxTurns).toBe(50);
-  });
-
   test("primaryIntent is docs maintain", () => {
     expect(shakespearePackage.primaryIntent).toMatch(/docs|documentation|PRODUCT|product/i);
   });

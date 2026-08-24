@@ -131,7 +131,6 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     // Nested spawn is still gated by allowOrchestrator on the parent task tool.
     // Greybeard/skywalker maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,
-    ...(pkg.nudge?.maxTurns !== undefined ? { maxTurns: pkg.nudge.maxTurns } : {}),
     ...(capabilities !== undefined ? { capabilities } : {}),
   };
 }

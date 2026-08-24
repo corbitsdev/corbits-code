@@ -40,8 +40,4 @@ describe("brandReviewerPackage", () => {
     expect(brandReviewerPackage.primaryIntent).toBe("Own DESIGN.md create/use + brand gate");
     expect(brandReviewerPackage.outOfLane).toContain("arbitrary product code outside DESIGN.md");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(brandReviewerPackage.nudge?.maxTurns).toBe(40);
-  });
 });

@@ -14,7 +14,6 @@ import {
   makeResultKey,
   defaultVariantId,
   emptyTokenUsage,
-  evaluateSoftBudget,
   checkBehaviorRequirements,
   computeCellAggregates,
   baitReproduces,
@@ -70,8 +69,6 @@ function sampleResult(over: Partial<CaseResult> = {}): CaseResult {
       cacheWrite: 0,
       thinking: 0,
     },
-    maxTurns: over.maxTurns ?? 20,
-    overBudget: over.overBudget ?? false,
     skipPermissions: over.skipPermissions ?? true,
     error: over.error ?? null,
     repeat: over.repeat ?? 0,
@@ -114,7 +111,6 @@ describe("parseCaseJson", () => {
     );
     expect(c.id).toBe("simple-health");
     expect(c.verify).toBe("verify.sh");
-    expect(c.maxTurns).toBeUndefined();
   });
 
   test("parses a bait case with http fixture", () => {
@@ -401,34 +397,6 @@ describe("summarizeRun", () => {
     expect(s.toolCallCount).toBe(10);
     expect(s.tokenUsage.input).toBe(110);
     expect(s.tokenUsage.output).toBe(70);
-  });
-});
-
-describe("evaluateSoftBudget", () => {
-  test("null maxTurns means budget not in force", () => {
-    expect(evaluateSoftBudget({ maxTurns: null, turnsUsed: 99 })).toEqual({
-      overBudget: null,
-      budgetError: null,
-    });
-  });
-
-  test("fails closed when maxTurns set but turnsUsed missing", () => {
-    const r = evaluateSoftBudget({ maxTurns: 10, turnsUsed: null });
-    expect(r.overBudget).toBe(true);
-    expect(r.budgetError).toMatch(/not reported/);
-  });
-
-  test("over budget when turns exceed max", () => {
-    const r = evaluateSoftBudget({ maxTurns: 5, turnsUsed: 6 });
-    expect(r.overBudget).toBe(true);
-    expect(r.budgetError).toMatch(/over turn budget/);
-  });
-
-  test("within budget", () => {
-    expect(evaluateSoftBudget({ maxTurns: 10, turnsUsed: 10 })).toEqual({
-      overBudget: false,
-      budgetError: null,
-    });
   });
 });
 

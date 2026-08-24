@@ -47,8 +47,4 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.outOfLane).toContain("product implementation");
     expect(neckbeardPackage.outOfLane).toContain("architecture ownership");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(neckbeardPackage.nudge?.maxTurns).toBe(40);
-  });
 });

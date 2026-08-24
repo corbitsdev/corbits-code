@@ -21,16 +21,7 @@ export {
   type FleetObservation,
   type FleetWatch,
 } from "./fleet-report.js";
-export {
-  DEFAULT_THRASH_CONFIG,
-  EMPTY_THRASH_STATE,
-  evaluateThrashStop,
-  nextThrashState,
-  thrashForceReport,
-  type ThrashConfig,
-  type ThrashState,
-  type ThrashStopReason,
-} from "./thrash.js";
+export { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
 export {
   appendActivitySummary,
   buildDispatchBrief,
@@ -53,8 +44,6 @@ export {
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
-  subAgentTurnLimitExceeded,
-  TURN_BUDGET_STOP_PARENT_HINT,
   type ForcedStopReason,
   type SubAgentCatchOutcome,
   type SubAgentParentHintOptions,
@@ -62,11 +51,9 @@ export {
 } from "./stop-policy.js";
 
 export {
-  TURN_BUDGET_STOP_AFTER_DISPATCHES,
   classifyBriefSalvage,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
-  shouldStopTurnBudgetRedispatch,
   type BriefDispatchLedger,
   type BriefDispatchRecord,
   type BriefSalvageKind,

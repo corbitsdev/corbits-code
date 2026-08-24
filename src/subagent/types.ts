@@ -130,12 +130,10 @@ export type RunSubAgentParams = {
   // Present only when orchestrator is true. Installs task + search_agents so
   // the orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
-  /** Inference-turn budget for this worker only (not the parent session limit). */
-  maxTurns?: number;
   /**
    * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
-   * there is no default leaf death clock; omit to bound the run with maxTurns
-   * and operator cancel alone.
+   * there is no default leaf death clock; omit to bound the run with
+   * operator cancel alone.
    */
   deadlineMs?: number;
   /**

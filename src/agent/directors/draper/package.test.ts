@@ -39,8 +39,4 @@ describe("draperPackage", () => {
     expect(draperPackage.outOfLane).toContain("shipping product code");
     expect(draperPackage.outOfLane).toContain("marketing copy pipeline");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(draperPackage.nudge?.maxTurns).toBe(40);
-  });
 });

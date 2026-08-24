@@ -190,7 +190,6 @@ export const skywalkerPackage: DirectorPackage = {
       "tester",
     ],
   },
-  nudge: { maxTurns: 100 },
   modelRole: "orchestrator",
   tier: "orchestrator",
 };

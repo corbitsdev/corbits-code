@@ -17,10 +17,6 @@ describe("internPackage", () => {
     expect(internPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("nudge.maxTurns is 20", () => {
-    expect(internPackage.nudge?.maxTurns).toBe(20);
-  });
-
   test("tools.allow is shell-first minimal surface", () => {
     const allow = internPackage.tools?.allow ?? [];
     expect(allow).toContain("run_shell");

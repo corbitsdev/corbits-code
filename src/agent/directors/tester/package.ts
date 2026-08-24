@@ -31,6 +31,5 @@ OUT OF LANE: fixing product code, "just quickly" fixing, redesigning the whole s
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
-  nudge: { maxTurns: 40 },
   modelRole: "test",
 };

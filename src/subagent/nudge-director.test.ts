@@ -199,22 +199,6 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(ephemeralTexts(later)).toBeUndefined();
   });
 
-  test("near-budget wrap-up nudge wins over failed-tool recovery", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 3);
-    const caps = capabilities();
-
-    await director.decide(inferenceDone(["near-budget-failure"]), state, caps);
-    const texts = ephemeralTexts(
-      inferAction(await director.decide(toolDone("near-budget-failure", true), state, caps)),
-    );
-
-    expect(texts).toHaveLength(1);
-    expect(texts?.[0]).toContain("close to your turn budget");
-    expect(texts?.[0]).toContain("write your final report now");
-    expect(texts?.[0]).not.toContain("A tool call failed");
-    expect(texts?.[0]).not.toContain("change the arguments or approach");
-  });
-
   test("failed-tool recovery supersedes soft re-read guidance", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
@@ -313,40 +297,6 @@ describe("SubAgentDirector tool failure recovery", () => {
 
     const resumed = inferAction(await director.decide(messageReceived(""), state, caps));
     expect(ephemeralTexts(resumed)).toBeUndefined();
-  });
-
-  test("retains wrap-up through compaction and consumes it once on continuation infer", async () => {
-    let continuations = 0;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      () => {
-        continuations++;
-      },
-      3,
-    );
-    const caps = capabilities();
-
-    await director.decide(inferenceDone(["near-budget-success"], 999_999), longState, caps);
-    const compact = actions(
-      await director.decide(toolDone("near-budget-success"), longState, caps),
-    );
-    expect(compact.some((action) => action.type === "infer")).toBe(false);
-    expect(compact).toEqual([
-      { type: "checkpoint", message: "tool-done" },
-      { type: "compact", compactor: "pruning-compactor", reason: "context-threshold" },
-    ]);
-    expect(continuations).toBe(1);
-
-    const resumed = inferAction(await director.decide(messageReceived(""), longState, caps));
-    const resumedTexts = ephemeralTexts(resumed);
-    expect(resumedTexts).toHaveLength(1);
-    expect(resumedTexts?.[0]).toContain("close to your turn budget");
-    expect(resumedTexts?.[0]).toContain("write your final report now");
-    expect(resumedTexts?.[0]).not.toContain("A tool call failed");
-
-    const later = inferAction(await director.decide(messageReceived(""), longState, caps));
-    expect(ephemeralTexts(later)).toBeUndefined();
   });
 });
 

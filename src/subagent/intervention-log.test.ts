@@ -40,25 +40,25 @@ describe("intervention log (CL-6938)", () => {
     );
 
     sink({
-      id: "no-progress",
+      id: "stalled",
       class: "stop",
-      measurement: { metric: "consecutiveIdentical", value: 5, threshold: 5 },
-      state: { turnsCompleted: 7, maxTurns: 30, editedPaths: 2 },
-      detail: "identical tool call × 5",
+      measurement: { metric: "idleMs", value: 120000, threshold: 120000 },
+      state: { turnsCompleted: 7, editedPaths: 2 },
+      detail: "no output for 120s",
     });
     await flush();
 
     const [record] = await readRecords(dir);
     expect(record).toBeDefined();
     expect(record?.ts).toBe("2026-08-23T12:00:00.000Z");
-    expect(record?.id).toBe("no-progress");
+    expect(record?.id).toBe("stalled");
     expect(record?.class).toBe("stop");
     expect(record?.family).toBe("grok");
     expect(record?.intent).toBe("implement");
     expect(record?.measurement).toEqual({
-      metric: "consecutiveIdentical",
-      value: 5,
-      threshold: 5,
+      metric: "idleMs",
+      value: 120000,
+      threshold: 120000,
     });
     // The false-positive proxy the forensics script reads: a stop that fired on
     // a run which had already edited files.
