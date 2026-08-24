@@ -1,4 +1,6 @@
+import { isAbsolute } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
+import { realpathNearestOr, UNRESOLVABLE } from "../permission/path-restriction.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
 // Files that hold secrets and must never be read or written by path-keyed tools
@@ -81,6 +83,20 @@ export function isSensitivePath(value: string): boolean {
   return SENSITIVE_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+// Secret-guard floor (CL-6971): match the lexical path AND its realpath. Under
+// yolo, pathEscape absolutizes outside paths without resolving symlinks, so an
+// innocuous name (config.txt → .env, or cache/ → ~/.aws) would otherwise pass
+// the denylist. realpathNearestOr also covers write targets that don't exist
+// yet when a parent component is a symlink into a sensitive directory.
+// Absolute-only for the realpath leg — pathEscape absolutizes in the live
+// stack; relative unit-test args still match on the lexical form.
+export function isSensitivePathResolved(value: string): boolean {
+  if (isSensitivePath(value)) return true;
+  if (!isAbsolute(value)) return false;
+  const real = realpathNearestOr(value);
+  return real !== UNRESOLVABLE && isSensitivePath(real);
+}
+
 // Break a shell command into the bare path-like tokens it references so each can
 // be matched against the secret-file denylist. Quote, backtick and backslash
 // characters are stripped first so split obfuscations (`.e''nv`, `'.env'`,
@@ -126,12 +142,13 @@ export function commandReferencesSensitivePath(command: string): string | undefi
 // permission gate (and auto-shell policy in auto mode).
 //
 // Path-arg hard deny runs before the permission plugin, so it holds even under
-// --dangerously-skip-permissions.
+// --dangerously-skip-permissions. Symlink resolution is part of that floor
+// (CL-6971): yolo must not let an innocuous link name defeat the denylist.
 export function secretGuardPlugin(): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
       for (const [key, value] of Object.entries(call.arguments)) {
-        if (typeof value === "string" && looksLikePath(key) && isSensitivePath(value)) {
+        if (typeof value === "string" && looksLikePath(key) && isSensitivePathResolved(value)) {
           return {
             callId: call.id,
             content: `Access to sensitive file blocked by policy: ${value}`,
