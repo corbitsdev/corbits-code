@@ -546,7 +546,12 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         return fleetResult(call.id, JSON.stringify({ results: [], timed_out: false }));
       }
 
-      const timedOut = await waitForAnyTerminal(deps.sessions, deps.fleetRecords, targets, timeoutMs);
+      const timedOut = await waitForAnyTerminal(
+        deps.sessions,
+        deps.fleetRecords,
+        targets,
+        timeoutMs,
+      );
 
       // Terminal records are consumed (removed) once delivered here; a
       // running record is only peeked, so it stays waitable.
