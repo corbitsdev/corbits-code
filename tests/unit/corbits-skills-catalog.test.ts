@@ -119,6 +119,22 @@ test("style skill is guidance, not ceremony or tool-contract restatement", async
   expect(skill).not.toContain("## Acknowledgment");
 });
 
+test("review skill routes critique/neckbeard/greybeard via task or spawn_agent/wait_agents", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/review/SKILL.md")).text();
+  expect(skill).toContain("task(agent=");
+  expect(skill).toContain("spawn_agent");
+  expect(skill).toContain("wait_agents");
+  expect(skill).toContain("returned `agent_id`");
+  expect(skill).toContain("critique");
+  expect(skill).toContain("neckbeard");
+  expect(skill).toContain("greybeard");
+  expect(skill).toContain("Do not implement fixes");
+  expect(skill).toContain("Findings only");
+  expect(skill).not.toContain('task(agent="critique")');
+  expect(skill).not.toContain('task(agent="neckbeard")');
+  expect(skill).not.toContain('task(agent="greybeard")');
+});
+
 test("create-issue is Linear-first without restated MCP tool contracts", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
