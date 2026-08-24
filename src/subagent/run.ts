@@ -103,9 +103,11 @@ import {
   createSubAgentSpawnRegistryPlugin,
   disposeSubAgentSession,
   isSubAgentCancelError,
+  DEFAULT_CLOSE_DEADLINE_MS,
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
 import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import { createCloseAgentTool, createResumeAgentTool } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
 import type { TaskIntent } from "./report.js";
@@ -324,6 +326,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   let agent: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
+  // Set only on the clean-completion return path; read by the finally block
+  // to decide whether a persisted session's teardown is skipped (CL-6943).
+  let turnSucceeded = false;
   // Declared before try (same reasoning as closeOnAbort above): assigned once
   // requestContinuation/modelFamilyPolicy exist inside the try, but must be
   // visible to the finally block, which is a sibling scope, not a child.
@@ -457,6 +462,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         "read_agent_trace",
         "spawn_agent",
         "wait_agents",
+        "close_agent",
+        "resume_agent",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -547,6 +554,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         ...tools,
         createSpawnAgentTool(fleetDeps),
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
+        createCloseAgentTool({ sessions: fleetSessions }),
+        createResumeAgentTool({ sessions: fleetSessions }),
       ];
     }
 
@@ -780,6 +789,33 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       runController.signal.addEventListener("abort", closeOnAbort, { once: true });
     }
 
+    // CL-6943: hand the caller a bounded, idempotent close it can call at any
+    // time (close_agent) — independent of whether this run ends up retained.
+    // Aborting first stops a still-running turn before tearing down; on an
+    // already-finished turn the abort is a no-op and disposeSubAgentSession
+    // just releases resources. The timeout races teardown itself so a wedged
+    // descendant cannot hang the caller — see dispose.ts's documented
+    // close()-ordering issue (CL-6984) for why teardown itself can stall.
+    if (params.onAgentReady !== undefined) {
+      const boundedClose = async (deadlineMs = DEFAULT_CLOSE_DEADLINE_MS): Promise<void> => {
+        if (!runController.signal.aborted) runController.abort(new Error("closed by close_agent"));
+        const teardown = disposeSubAgentSession({
+          signal: runController.signal,
+          ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+          agent,
+          ...(streamPromise !== undefined ? { streamPromise } : {}),
+          posixTools,
+        }).catch(() => {
+          // Best-effort: a wedged descendant must not reject the caller.
+        });
+        await Promise.race([
+          teardown,
+          new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
+        ]);
+      };
+      params.onAgentReady(boundedClose);
+    }
+
     const fullPrompt = buildDispatchBrief({
       description: params.description,
       prompt: params.prompt,
@@ -824,6 +860,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       // Normalize into the structured envelope so the parent always gets a
       // consistent shape even when the model rambling-returns free-form prose.
       const report = formatSubAgentReport(parseSubAgentReport(reply));
+      // A clean completion is the only outcome CL-6943 retains: an aborted or
+      // salvaged run below falls through without setting this, so the finally
+      // block still tears down exactly as before for those.
+      turnSucceeded = true;
       return {
         report: appendActivitySummary(report, toolNamesUsed),
         ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
@@ -874,12 +914,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   } finally {
     if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
     runController.dispose();
-    await disposeSubAgentSession({
-      signal: runController.signal,
-      ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
-      agent,
-      ...(streamPromise !== undefined ? { streamPromise } : {}),
-      posixTools,
-    });
+    // CL-6943: a persisted, cleanly-completed session skips teardown here —
+    // it stays open until close_agent (or a later failed/aborted run) tears
+    // it down. Everything else (no persist, a thrown error, an
+    // aborted/salvaged run) disposes exactly as before.
+    if (!(params.persist === true && turnSucceeded)) {
+      await disposeSubAgentSession({
+        signal: runController.signal,
+        ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+        agent,
+        ...(streamPromise !== undefined ? { streamPromise } : {}),
+        posixTools,
+      });
+    }
   }
 }

@@ -291,3 +291,106 @@ describe("terminal stop reasons", () => {
     expect(store.get(bare.id)?.stopReason).toBe("cancelled");
   });
 });
+
+describe("CL-6943 reusable worker sessions", () => {
+  test("a completed retained session stays open and reusable; resume_agent reopens it", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.markRunning(session.id);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+    expect(store.get(session.id)?.retained).toBe(true);
+
+    const outcome = store.resumeOne(session.id);
+    expect(outcome).toEqual({ ok: true });
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("resume_agent fails on a session that was never retained", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "completed" });
+  });
+
+  test("resume_agent fails on an unknown id with not_found", () => {
+    const store = createSubAgentSessionStore();
+    expect(store.resumeOne("missing")).toEqual({ ok: false, status: "not_found" });
+  });
+
+  test("closeOne is bounded by its deadline when the registered close hangs forever", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.registerClose(session.id, () => new Promise<void>(() => {})); // never resolves
+
+    const started = Date.now();
+    const status = await store.closeOne(session.id, 25);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(status).toBe("shutdown");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("shutdown");
+    expect(store.get(session.id)?.retained).toBe(false);
+  });
+
+  test("closeOne is idempotent and returns not_found for an unknown id", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    let closeCalls = 0;
+    store.registerClose(session.id, async () => {
+      closeCalls += 1;
+    });
+
+    expect(await store.closeOne(session.id, 1000)).toBe("shutdown");
+    expect(await store.closeOne(session.id, 1000)).toBe("shutdown");
+    expect(closeCalls).toBe(1);
+    expect(await store.closeOne("missing", 1000)).toBe("not_found");
+  });
+
+  test("resume_agent fails on a session close_agent already shut down (close is permanent)", async () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    store.complete(session.id, "## Summary\nDone.");
+    await store.closeOne(session.id, 1000);
+    expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "shutdown" });
+  });
+
+  test("pruneCompleted does not evict a retained, still-open session past maxCompleted", () => {
+    const store = createSubAgentSessionStore({ maxCompleted: 1 });
+    const retained = store.start({
+      description: "keep-me",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.complete(retained.id, "## Summary\nDone.");
+
+    for (let i = 0; i < 3; i++) {
+      const s = store.start({ description: `fill-${i}`, agentId: "a", brief: "b" });
+      store.complete(s.id, "## Summary\nDone.");
+    }
+
+    expect(store.get(retained.id)).toBeDefined();
+    expect(store.get(retained.id)?.lifecycleStatus).toBe("completed");
+  });
+
+  test("once closed, a retained session becomes a normal finished record subject to the cap", async () => {
+    const store = createSubAgentSessionStore({ maxCompleted: 1 });
+    const retained = store.start({
+      description: "keep-me",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.complete(retained.id, "## Summary\nDone.");
+    await store.closeOne(retained.id, 1000);
+
+    for (let i = 0; i < 3; i++) {
+      const s = store.start({ description: `fill-${i}`, agentId: "a", brief: "b" });
+      store.complete(s.id, "## Summary\nDone.");
+    }
+
+    // No longer exempt — the cap may have evicted it like any other record.
+    expect(store.get(retained.id)).toBeUndefined();
+  });
+});

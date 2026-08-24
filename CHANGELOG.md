@@ -28,6 +28,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   delivered to a caller is compacted to a status-only tombstone pointing at
   `read_agent_trace` for the detail, so an uncollected report is never
   evicted ahead of one that's already been picked up.
+- Worker sessions spawned via `spawn_agent` now persist after their turn ends
+  instead of being torn down: a clean completion leaves the session open and
+  reusable. Added `close_agent(target)` to permanently close a session
+  (descendants closed first, bounded by a ~30s cleanup deadline per session
+  so a wedged descendant cannot hang the call) and `resume_agent(id)` to
+  reopen a retained, completed session. Sessions now carry an explicit
+  lifecycle status (`pending_init | running | interrupted | completed |
+  shutdown | not_found`) alongside the existing display status; a retained
+  session is exempt from the finished-session display cap until it is
+  actually closed.
 
 ## [0.2.109] - 2026-08-24
 
