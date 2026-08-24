@@ -415,6 +415,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       const params: RunSubAgentParams = {
+        // Name the trace directory after the session-store id so the
+        // descendant-scoping check behind read_agent_trace can resolve this
+        // worker's parent chain (matches task-tool.ts).
+        id: session.id,
         permissionGate: deps.permissionGate,
         ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
         ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
