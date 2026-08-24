@@ -20,11 +20,15 @@ import {
   openPalette,
   replaceStreamRowAt,
   setChromeZones,
+  setEffortCycleHandler,
+  setStatusFlash,
+  shellFocusPrompt,
   streamRowAt,
   streamRowCount,
   toggleTasksPanel,
 } from "./shell";
 import { createRecordingClipboard } from "./copy-path";
+import { RUNTIME_FLASH_MS } from "./runtime-notices";
 import { stringWidth } from "./view/height";
 import type { PaletteCommand } from "./command-catalog";
 
@@ -865,6 +869,43 @@ describe("Wave 6: keyboard copy path", () => {
           expect(clip.writes).toEqual(["child line"]);
           expect(shell.streamLog.length).toBe(childLen);
           expect(shell.parentStreamLog).toEqual(parentSnap);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
+describe("reasoning effort flash TTL", () => {
+  test("effort confirmation flash expires via flashSchedule", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const lapse: (() => void)[] = [];
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+          run: "idle",
+          flashSchedule: (fn, ms) => {
+            expect(ms).toBe(RUNTIME_FLASH_MS);
+            lapse.push(fn);
+            return () => {};
+          },
+        });
+        try {
+          // Mirrors runner.ts Shift+Tab handler: confirmation flash with TTL.
+          setEffortCycleHandler(shell, () => {
+            setStatusFlash(shell, "reasoning effort: medium", {
+              ttlMs: RUNTIME_FLASH_MS,
+            });
+          });
+          shellFocusPrompt(shell);
+          h.pressKey("Tab", { shift: true });
+          expect(shell.statusFlash).toBe("reasoning effort: medium");
+          expect(lapse).toHaveLength(1);
+          lapse[0]?.();
+          expect(shell.statusFlash).toBeNull();
         } finally {
           shell.dispose();
         }
