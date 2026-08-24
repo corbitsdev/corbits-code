@@ -13,14 +13,50 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
-## [0.2.106] - 2026-08-23
+## [0.2.107] - 2026-08-24
 
 ### Agent
 
-- **xAI short HTTP 429s are rate limits, not quota exhaustion.** Bare 429s from
-  known xAI/Grok providers remapped to retryable so moderate Retry-After no
-  longer aborts as a long-window quota. Clear usage/quota body markers still
-  abort. Transcript shows "Rate limited — retrying…" instead of "Quota exhausted".
+- **Oversized tool output is recoverable instead of lost.** When a result from
+  grep, `run_shell`, `search_files`, `web_fetch`, or an MCP tool exceeds the
+  inline cap, the full output is now written into the session's blob store —
+  committed alongside the turn that produced it — and the truncation notice
+  names the `tool-output:///` URI to read it back with `read_file`. Previously
+  the tail was discarded, so recovering it meant re-running the command.
+
+- **A worker's write scope is checked against other live workers, not declared
+  up front.** The static per-director write-path allowlist is gone; it could
+  never express what actually matters (this dispatch owns these paths), and no
+  shipped director ever set it. Concurrent lanes sharing a working directory are
+  now recorded as a conflict the operator can see, rather than pre-locked.
+
+### Interface
+
+- **Short xAI rate limits are no longer reported as quota exhaustion.** A brief
+  HTTP 429 from xAI/Grok was classified as a spent plan, so the transcript said
+  "Quota exhausted — usage limit reached" when the operator could retry
+  immediately. Those are now retryable rate limits with the matching copy, and
+  genuine usage-limit responses still surface as quota exhaustion.
+
+### Internal
+
+- Reasoning effort is a first-class axis for the capability eval runner
+  (`--effort`, or a third segment in a matrix cell), and `--config` now composes
+  with provider OAuth credentials instead of silently discarding them — every
+  authenticated run with a settings override previously failed before its first
+  turn.
+- Dispatch outcome records carry the model that actually served the run, so
+  intervention figures have a denominator and can be read as rates.
+- Tool-name classification is unified behind one module; auto-allow membership
+  is unchanged and pinned by a test.
+- Director prompts no longer reference tools their tier cannot call, and the
+  four-heading report contract is stated once rather than three times.
+- Removed `report.requiredSections`, which every director declared and nothing
+  read.
+
+## [0.2.106] - 2026-08-23
+
+### Agent
 
 - **`apply_patch` can update files again.** Its Update operation read the target
   through the line-numbered `read_file` view and then tried to match the patch's
