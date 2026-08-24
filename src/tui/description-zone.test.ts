@@ -111,12 +111,12 @@ describe("describeZoneLines", () => {
     expect(fgs[1]).toBe(UI.textFaint);
   });
 
-  test("consequence tone paints the impact line in UI.action", () => {
+  test("consequence tone paints the impact line in UI.warning", () => {
     const { fgs } = describeZoneLines(
       { what: "sub-agent cap.", impact: "raising it spends more tokens.", tone: "consequence" },
       60,
     );
-    expect(fgs[1]).toBe(UI.action);
+    expect(fgs[1]).toBe(UI.warning);
   });
 
   test("a what that wraps to both lines drops impact, same as narrow width would", () => {

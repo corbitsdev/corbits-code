@@ -15,7 +15,6 @@ import {
   forcedStopReport,
   formatSubAgentReport,
   parseSubAgentReport,
-  stopReasonFromReport,
   appendSubAgentParentHints,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
@@ -396,24 +395,21 @@ describe("sub-agent stop helpers", () => {
     ).not.toContain("wall-clock deadline");
   });
 
-  test("forcedStopReport carries a machine-readable Stopped line the parent sees verbatim", () => {
-    const cancelled = forcedStopReport("cancelled", "partial", "Session closed");
-    expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
-    // Without a detail the line is the bare reason token.
-    expect(stopReasonFromReport(forcedStopReport("cancelled", "partial"))).toBe("cancelled");
-    expect(stopReasonFromReport(forcedStopReport("deadline", "x", "30s elapsed"))).toBe(
-      "deadline — 30s elapsed",
+  test("forcedStopReport renders a Stopped line for display; classification uses the typed reason", () => {
+    expect(forcedStopReport("cancelled", "partial", "Session closed")).toMatch(
+      /^Stopped: cancelled — Session closed\n/,
     );
-
-    // A nested forced-stop quoted in Findings must not leak its Stopped line
-    // as the outer report's reason.
+    expect(forcedStopReport("cancelled", "partial")).toMatch(/^Stopped: cancelled\n/);
+    expect(forcedStopReport("deadline", "x", "30s elapsed")).toMatch(
+      /^Stopped: deadline — 30s elapsed\n/,
+    );
+    // Nested Stopped: under Findings is display-only; classify via typed reason.
     const nested = forcedStopReport(
       "deadline",
       forcedStopReport("cancelled", "inner", "inner reason"),
     );
-    expect(stopReasonFromReport(nested)).toBe("deadline");
-    // A clean report has no Stopped line.
-    expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
+    expect(nested).toMatch(/^Stopped: deadline\n/);
+    expect(nested).toContain("Stopped: cancelled — inner reason");
   });
 
   test("createSubAgentRunController aborts on an explicit deadline and reports deadlineHit", async () => {

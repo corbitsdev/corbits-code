@@ -143,7 +143,7 @@ export function openOperatorOverlay(shell: AppShell, opts?: OpenOperatorOpts): v
   const stranded = choices.length === 0 && opts?.onTextAnswer === undefined;
   openListOverlay(shell, {
     kind: "operator",
-    title: "operator question",
+    title: "",
     body: stranded ? `${body}\n\n${NO_WAY_TO_ANSWER}` : body,
     items: choices,
     activeIndex: opts?.activeIndex ?? 0,

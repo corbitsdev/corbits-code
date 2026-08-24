@@ -161,10 +161,10 @@ Color is a small, deliberate palette, not decoration
 (`src/tui/theme.ts`). Dimmed text is a dimmed cream, never a neutral
 gray, so every emphasis level keeps the same warm hue. Orange
 (`UI.action`) is spent once per screen: it marks the session identity,
-a leading `/command` or `@mention` in the prompt, and whatever is currently
-awaiting a human decision (an approval subject, an active choice) — nothing
-else competes with it. Standing caution (`mcp !`, `plugin !`, the context
-meter's 61–80 band) uses `UI.warning`; the meter turns `UI.error` at 81–100.
+a leading `/command` or `@mention` in the prompt, and the dithered subject
+of a decision surface (permission or operator ask) — nothing else competes
+with it. Standing caution (`mcp !`, `plugin !`, the context
+meter's 61–80 band, consequence impact under a list) uses `UI.warning`; the meter turns `UI.error` at 81–100.
 Ongoing, non-decision status uses the bronze/sand/ember chrome ramp and green
 (`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
@@ -292,9 +292,12 @@ approval.
 The decision surfaces (permission approval, operator question) are the one
 framed content in the shell, and they are shaped rather than merely listed
 (`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
-subject in the action color, a blank row separates it from context, and each
-choice gets one row with the active choice marked by a solid block (`█`)
-rather than a background fill.
+subject in the action color — the only Breakthrough Orange on the card.
+The overlay host border and title use calm dim chrome (`UI.textDim`);
+consequence impact in the description zone paints `UI.warning` (sand), not
+orange. A blank row separates the subject from context, and each choice gets
+one row with the active choice marked by a solid block (`█`) rather than a
+background fill (cream text, not orange).
 
 ## How selectors should work
 
@@ -546,7 +549,9 @@ running its own selection. Two chords cover remaining copy needs:
   (`CliRenderEvents.SELECTION` → `copyFinishedSelection` in
   `selection-copy.ts`). On mouse-up, non-empty selected text is written
   through the system clipboard port and the highlight clears with a status
-  flash. Empty clicks do not copy.
+  flash. Empty clicks do not copy. Confirmation flashes pass
+  `ttlMs: RUNTIME_FLASH_MS` so they clear themselves; omit TTL only for
+  live conditions that stay true until replaced (stall notice, landing hold).
 - **Alt+M** toggles DEC mouse reporting off and back on
   (`toggleMouseCapture`, `shell.ts`). Off, the terminal's own drag-select
   and copy work exactly as in any other terminal program; the status flash
