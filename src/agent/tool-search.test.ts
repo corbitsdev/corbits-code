@@ -83,6 +83,17 @@ describe("createToolIndex", () => {
     );
   });
 
+  test("search_agents stays a primary CORE advertisement (Skywalker), not a leaf surface", () => {
+    // Primary session mode always advertises discovery; leaf/nested directors
+    // never receive CORE — their envelopes omit search_agents, and runSubAgent
+    // mounts it only for Tier 1 (see tool-sets.test.ts / authority.test.ts).
+    expect(CORE_TOOL_NAMES).toContain("search_agents");
+    expect(advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY)).toContain(
+      "search_agents",
+    );
+  });
+
+
   test("manage_tasks is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
   });

@@ -52,6 +52,11 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     expect(SKYWALKER_TOOLS).toContain("task");
     expect(ORCHESTRATOR_TOOLS).toContain("task");
   });
+
+  test("search_agents is Skywalker-only; nested orchestrator surface omits discovery", () => {
+    expect(SKYWALKER_TOOLS).toContain("search_agents");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("search_agents");
+  });
 });
 
 describe("BUILD_TOOLS", () => {

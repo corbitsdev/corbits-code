@@ -343,8 +343,9 @@ export function buildSubAgentAppendix(opts: { orchestrator?: boolean } = {}): st
   // rule only.
   const recursionRule =
     opts.orchestrator === true
-      ? '- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent="greybeard", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Prefer search_agents before naming a specialist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
+      ? '- You are an orchestrator: you MAY call `task` to spawn other sub-agents (e.g. task(agent="explore", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own. Stay on your spawn allowlist. `task` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
       : `- Only the primary ${PRODUCT_NAME} session (or an orchestrator profile) may call \`task\` to spawn sub-agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
+
   return [
     `## ${PRODUCT_NAME} notes`,
     "",

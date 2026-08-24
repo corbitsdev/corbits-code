@@ -57,12 +57,17 @@ export const REVIEW_TOOLS = [...READ_TOOLS] as const;
 /** Mechanical intern: shell-first, minimal surface. */
 export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir"] as const;
 
-/** Nested orchestrator surface (greybeard / package filter): dispatch only. */
-export const ORCHESTRATOR_TOOLS = [...READ_TOOLS, "search_agents", "task"] as const;
+/**
+ * Nested orchestrator surface (greybeard / package filter): dispatch only.
+ * search_agents is Tier-1 Skywalker only — nested directors keep task/spawn
+ * but must not discover the fleet (CL-7051).
+ */
+export const ORCHESTRATOR_TOOLS = [...READ_TOOLS, "task"] as const;
 
-/** Skywalker primary: orchestrator surface plus product writes for DIY tiny work. */
+/** Skywalker primary: orchestrator surface plus discovery + product writes for DIY tiny work. */
 export const SKYWALKER_TOOLS = [
   ...ORCHESTRATOR_TOOLS,
+  "search_agents",
   "write_file",
   "edit_file",
   "delete_file",

@@ -122,13 +122,15 @@ export type RunSubAgentParams = {
    * Fleet authority tier for this dispatch, resolved by the caller
    * (task-tool.ts) from either the closed DirectorPackage.tier or an explicit
    * AgentProfile.tier opt-in. Required whenever orchestrator is true:
-   * runSubAgent fails closed (denies task/search_agents) when orchestrator is
+   * runSubAgent fails closed (denies fleet verbs) when orchestrator is
    * true and this is undefined or "leaf" — an unrecognized or unresolved tier
-   * must never mount a fleet verb. See src/subagent/authority.ts.
+   * must never mount a fleet verb. Discovery verbs (search_agents) additionally
+   * require tier === "orchestrator" (Tier 1 Skywalker only). See
+   * src/subagent/authority.ts.
    */
   orchestratorTier?: SubagentTier;
-  // Present only when orchestrator is true. Installs task + search_agents so
-  // the orchestrator can actually dispatch workers.
+  // Present only when orchestrator is true. Installs task (and search_agents
+  // only for Tier 1) so the orchestrator can actually dispatch workers.
   nestedDispatch?: NestedDispatchDeps;
   /**
    * Optional wall-clock budget for this worker's whole run (ms). Opt-in only —
@@ -136,6 +138,7 @@ export type RunSubAgentParams = {
    * operator cancel alone.
    */
   deadlineMs?: number;
+
   /**
    * Resolved director tier, independent of `orchestratorTier` (which
    * is only ever set when `orchestrator` is true). Set by task-tool.ts from

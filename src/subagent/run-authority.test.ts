@@ -80,4 +80,24 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
       expect(String((err as Error).message)).toContain("nestedDispatch");
     }
   });
+
+  test("nested-orchestrator passes the non-discovery gate even when profiles would exist (CL-7051)", async () => {
+    // Before CL-7051 the blanket assert loop included search_agents, so a
+    // Tier-1-only discovery verb would have denied nested-orchestrator here
+    // once discovery became Tier-1-only. nestedDispatch is still omitted so
+    // we stop at the next check — proving search_agents is no longer in the
+    // blanket assert for Tier 2.
+    const cwd = await tmpCwd();
+    try {
+      await runSubAgent({
+        ...baseParams(cwd, join(cwd, ".ctx")),
+        orchestrator: true,
+        orchestratorTier: "nested-orchestrator",
+      });
+      throw new Error("expected runSubAgent to reject (missing nestedDispatch)");
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(FleetAuthorityError);
+      expect(String((err as Error).message)).toContain("nestedDispatch");
+    }
+  });
 });

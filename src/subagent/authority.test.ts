@@ -3,7 +3,9 @@ import {
   assertCanTargetAgent,
   assertTierMayMountFleetVerb,
   FleetAuthorityError,
+  isDiscoveryVerb,
   isFleetVerb,
+  shouldMountSearchAgents,
 } from "./authority.js";
 
 describe("assertTierMayMountFleetVerb", () => {
@@ -25,14 +27,39 @@ describe("assertTierMayMountFleetVerb", () => {
     expect(() => assertTierMayMountFleetVerb("leaf", "read_file")).not.toThrow();
   });
 
-  test("Tier 1 and Tier 2 may mount fleet verbs", () => {
+  test("Tier 1 and Tier 2 may mount non-discovery fleet verbs", () => {
     expect(() => assertTierMayMountFleetVerb("orchestrator", "task")).not.toThrow();
     expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "task")).not.toThrow();
   });
 
-  test("isFleetVerb matches the same set used for the gate", () => {
+  test("discovery verbs are Tier 1 only (CL-7051)", () => {
+    expect(() => assertTierMayMountFleetVerb("orchestrator", "search_agents")).not.toThrow();
+    expect(() => assertTierMayMountFleetVerb("orchestrator", "list_agents")).not.toThrow();
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "search_agents")).toThrow(
+      FleetAuthorityError,
+    );
+    expect(() => assertTierMayMountFleetVerb("nested-orchestrator", "list_agents")).toThrow(
+      FleetAuthorityError,
+    );
+    expect(() => assertTierMayMountFleetVerb("leaf", "search_agents")).toThrow(FleetAuthorityError);
+    expect(() => assertTierMayMountFleetVerb("leaf", "list_agents")).toThrow(FleetAuthorityError);
+  });
+
+  test("isFleetVerb / isDiscoveryVerb match the same sets used for the gate", () => {
     expect(isFleetVerb("task")).toBe(true);
     expect(isFleetVerb("write_file")).toBe(false);
+    expect(isDiscoveryVerb("search_agents")).toBe(true);
+    expect(isDiscoveryVerb("list_agents")).toBe(true);
+    expect(isDiscoveryVerb("task")).toBe(false);
+  });
+});
+
+describe("shouldMountSearchAgents", () => {
+  test("mounts only for Tier 1 when profiles are available", () => {
+    expect(shouldMountSearchAgents("orchestrator", true)).toBe(true);
+    expect(shouldMountSearchAgents("orchestrator", false)).toBe(false);
+    expect(shouldMountSearchAgents("nested-orchestrator", true)).toBe(false);
+    expect(shouldMountSearchAgents("leaf", true)).toBe(false);
   });
 });
 

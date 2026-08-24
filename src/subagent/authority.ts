@@ -8,7 +8,9 @@
  *    (today: task, search_agents, read_agent_trace; the spawn_agent/
  *    wait_agents/list_agents/send_input/interrupt_agent/close_agent/
  *    resume_agent/followup_task verbs land in later child issues against
- *    this same gate).
+ *    this same gate). Discovery verbs (search_agents, list_agents) are
+ *    further restricted to Tier 1 (primary Skywalker) only — nested
+ *    orchestrators keep task/spawn but must not discover the fleet.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.
  *    Tier 1 (the primary orchestrator) may target anyone. Callers pass the
@@ -41,8 +43,19 @@ export const FLEET_VERBS = new Set([
   "followup_task",
 ]);
 
+/**
+ * Fleet discovery verbs — Tier 1 (primary Skywalker) only. Nested
+ * orchestrators may keep task/spawn but must not index or list the fleet.
+ * list_agents is named here so a future mount site inherits the gate.
+ */
+export const DISCOVERY_VERBS = new Set(["search_agents", "list_agents"]);
+
 export function isFleetVerb(toolName: string): boolean {
   return FLEET_VERBS.has(toolName);
+}
+
+export function isDiscoveryVerb(toolName: string): boolean {
+  return DISCOVERY_VERBS.has(toolName);
 }
 
 export class FleetAuthorityError extends Error {
@@ -53,17 +66,36 @@ export class FleetAuthorityError extends Error {
 }
 
 /**
- * Guard at the tool-mount point: throws if a Tier 3 leaf is about to receive
- * a fleet verb. Call this where tools are assembled (run.ts), not from a
- * prompt instruction — a leaf must never even hold the tool.
+ * Guard at the tool-mount point: throws if the caller's tier may not receive
+ * this fleet verb. Call this where tools are assembled (run.ts), not from a
+ * prompt instruction — a denied tier must never even hold the tool.
+ *
+ * Rules:
+ *  - Discovery verbs (search_agents, list_agents): Tier 1 only
+ *  - Other fleet verbs: Tier 1 and Tier 2; Tier 3 leaf denied
  */
 export function assertTierMayMountFleetVerb(tier: SubagentTier, toolName: string): void {
+  if (isDiscoveryVerb(toolName) && tier !== "orchestrator") {
+    throw new FleetAuthorityError(
+      `Only Tier 1 (primary Skywalker) can mount discovery verb "${toolName}". ` +
+        `Nested orchestrators keep task/spawn but do not discover the fleet.`,
+    );
+  }
   if (tier === "leaf" && isFleetVerb(toolName)) {
     throw new FleetAuthorityError(
       `Tier 3 leaf directors cannot mount fleet verb "${toolName}". ` +
         `Leaves get ask_director / submit_result / progress_note only.`,
     );
   }
+}
+
+/**
+ * Whether runSubAgent should install createSearchAgentsTool for this dispatch.
+ * Profiles must exist (otherwise the tool has nothing to search); tier must be
+ * Tier 1. Nested orchestrators and leaves never mount discovery.
+ */
+export function shouldMountSearchAgents(tier: SubagentTier, profilesAvailable: boolean): boolean {
+  return tier === "orchestrator" && profilesAvailable;
 }
 
 /** Minimal shape of a live fleet member — matches SubAgentSessionStore records. */

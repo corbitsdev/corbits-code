@@ -91,7 +91,8 @@ import {
   type ForcedStopReason,
 } from "./stop-policy.js";
 import { SubAgentDirector } from "./nudge-director.js";
-import { assertTierMayMountFleetVerb } from "./authority.js";
+import { assertTierMayMountFleetVerb, shouldMountSearchAgents } from "./authority.js";
+
 import { createReadAgentTraceTool } from "./trace-tool.js";
 import {
   createSubmitResultState,
@@ -466,18 +467,21 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       ];
     }
 
-    // Orchestrators need task + search_agents installed, not just mentioned in
-    // the prompt. Nested dispatch always forbids further orchestration so the
-    // tree bottoms out after one hop.
+    // Orchestrators need task installed, not just mentioned in the prompt.
+    // search_agents is Tier-1 Skywalker only (CL-7051): nested orchestrators
+    // keep task/spawn but must not discover the fleet. Nested dispatch always
+    // forbids further orchestration so the tree bottoms out after one hop.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
       // an unresolved tier defaults to "leaf" rather than skipping the check,
       // so an AgentProfile outside the closed director set cannot mount
-      // task/search_agents just by setting orchestrator: true.
+      // fleet verbs just by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
+      // Assert non-discovery fleet verbs for any non-leaf orchestrator.
+      // Discovery (search_agents) is asserted only when actually mounting —
+      // nested-orchestrator must not fail the blanket gate on a Tier-1 verb.
       for (const verb of [
         "task",
-        "search_agents",
         "read_agent_trace",
         "spawn_agent",
         "wait_agents",
@@ -494,6 +498,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         );
       }
       const nd = params.nestedDispatch;
+      const mountSearchAgents = shouldMountSearchAgents(tier, nd.profiles !== undefined);
+      if (mountSearchAgents) {
+        assertTierMayMountFleetVerb(tier, "search_agents");
+      }
       tools = [
         ...tools,
         createTaskTool({
@@ -523,7 +531,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           ...(nd.useWorktree !== undefined ? { useWorktree: nd.useWorktree } : {}),
           ...(nd.spawnAllowlist !== undefined ? { spawnAllowlist: nd.spawnAllowlist } : {}),
         }),
-        ...(nd.profiles !== undefined
+        ...(mountSearchAgents
           ? [
               createSearchAgentsTool(() => {
                 const profiles = nd.profiles;
