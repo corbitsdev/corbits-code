@@ -23,7 +23,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { BlobReader, InboundMessage } from "@intx/types/runtime";
+import type { BlobReader, InboundMessage, ToolDefinition } from "@intx/types/runtime";
 
 import { seedPricingMetadataFromCache } from "../cost/pricing-metadata.js";
 import { defaultPricingCachePath } from "../cost/pricing-fetcher.js";
@@ -106,6 +106,11 @@ import {
 import { SubAgentDirector } from "./nudge-director.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
 import { createReadAgentTraceTool } from "./trace-tool.js";
+import {
+  createSubmitResultState,
+  evaluateSubmitResult,
+  SUBMIT_RESULT_MAX_CORRECTIONS,
+} from "./submit-result.js";
 import {
   abortError,
   createSubAgentSpawnRegistryPlugin,
@@ -296,6 +301,24 @@ export function shouldRequireEvidence(input: {
   return input.directorId === "critique";
 }
 
+const submitResultDefinition: ToolDefinition = {
+  name: "submit_result",
+  description:
+    "Submit your structured result for this turn. Requires the turn_token from your dispatch " +
+    "brief's Turn token section. If a JSON Schema is declared for this job, result is validated " +
+    "against it; an invalid submission returns a correction so you can fix and resubmit (capped " +
+    `at ${SUBMIT_RESULT_MAX_CORRECTIONS} corrections). This does not replace the markdown report ` +
+    "envelope — still finish with it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      turn_token: { type: "string", description: "Turn token from the dispatch brief." },
+      result: { description: "The structured result payload." },
+    },
+    required: ["turn_token", "result"],
+  },
+};
+
 // Spin up an isolated, autonomous agent loop, hand it one task, and return
 // its final report. `params.cwd` is either the dispatcher's own cwd (shared
 // mode) or a worktree snapshotted from the dispatcher's last commit
@@ -308,6 +331,12 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
   });
 
   const permissionGate = params.permissionGate;
+  // Turn token (CL-6946): identifies this dispatch to submit_result so a
+  // submission survives only for the turn it was spawned under — if the
+  // orchestrator redirects/steers away, a stale submit_result call (echoing
+  // an old token) is rejected rather than silently accepted.
+  const turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
+  const submitResultState = createSubmitResultState();
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
   // Child tools resolve spills against the child's own store first, then the
   // parent's (CL-4323): parent tool-output:// URIs handed in the brief must
@@ -422,6 +451,27 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         },
       }),
     ];
+
+    // submit_result (CL-6946): typed reporting channel, Tier 3 leaves only.
+    // Gated by the existing tier machinery — never invent a parallel check.
+    if (params.tier === "leaf") {
+      tools = [
+        ...tools,
+        stringTool({
+          definition: submitResultDefinition,
+          handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+            const outcome = evaluateSubmitResult({
+              turnToken: turnToken!,
+              submittedToken: rawArgs.turn_token,
+              result: rawArgs.result,
+              ...(params.reportSchema !== undefined ? { schema: params.reportSchema } : {}),
+              state: submitResultState,
+            });
+            return outcome.message;
+          },
+        }),
+      ];
+    }
 
     // Orchestrators need task + search_agents installed, not just mentioned in
     // the prompt. Nested dispatch always forbids further orchestration so the
@@ -846,6 +896,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       ...(params.reportFocus !== undefined && params.reportFocus.trim().length > 0
         ? { reportFocus: params.reportFocus }
         : {}),
+      ...(turnToken !== undefined ? { turnToken } : {}),
     });
     const ensureNotAborted = (): void => {
       // Re-read .aborted after await — control-flow narrowing would wrongly

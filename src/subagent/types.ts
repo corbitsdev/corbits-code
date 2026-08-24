@@ -136,4 +136,14 @@ export type RunSubAgentParams = {
    * and operator cancel alone.
    */
   deadlineMs?: number;
+  /**
+   * Resolved director tier (CL-6946), independent of `orchestratorTier` (which
+   * is only ever set when `orchestrator` is true). Set by task-tool.ts from
+   * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when this
+   * is `"leaf"` — the existing tier machinery (authority.ts / directors/types.ts)
+   * gates it, not a new mechanism.
+   */
+  tier?: SubagentTier;
+  /** DirectorPackage.reportContract.outputSchema, when the resolved leaf declares one. */
+  reportSchema?: Record<string, unknown>;
 } & SubAgentSandboxDeps;
