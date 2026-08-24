@@ -93,7 +93,6 @@ describe("createToolIndex", () => {
     );
   });
 
-
   test("manage_tasks is advertised regardless of availability", () => {
     expect(coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY)).toContain("manage_tasks");
   });

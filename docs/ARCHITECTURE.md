@@ -209,15 +209,13 @@ Profiles with `orchestrator: true` may themselves call `task` (one hop only): ne
 
 #### Fleet authority tiers (`src/subagent/authority.ts`) (CL-6941)
 
-
 Every director package carries a required `tier: SubagentTier` field (`src/agent/directors/types.ts`) — data on the package, never a prompt instruction:
 
-| Tier                      | Who                                             | Fleet surface                                                                                                    |
-| ------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1 — `orchestrator`        | skywalker (primary)                             | Full fleet control over the whole tree.                                                                          |
+| Tier                      | Who                                             | Fleet surface                                                                                                                                         |
+| ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — `orchestrator`        | skywalker (primary)                             | Full fleet control over the whole tree.                                                                                                               |
 | 2 — `nested-orchestrator` | greybeard, or any package with `spawn.maySpawn` | Fleet surface without discovery: may manage only its own descendants via task/spawn, never siblings or ancestors; no `search_agents` / `list_agents`. |
-| 3 — `leaf`                | every other director                            | No fleet verbs at all.                                                                                           |
-
+| 3 — `leaf`                | every other director                            | No fleet verbs at all.                                                                                                                                |
 
 Enforcement is runtime code at the existing tool-mount point, not prompt wording — this is the fix for four prior mechanisms (`writePaths`, `report.requiredSections`, a `--config` comment, the thrash matcher) that were documented-as-enforced while enforcing nothing:
 
