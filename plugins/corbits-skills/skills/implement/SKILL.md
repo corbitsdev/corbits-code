@@ -58,7 +58,7 @@ Do not move forward with a broken build. Failures from this unit → re-dispatch
 
 `task(agent="critique")` on the diff. Include the intent agreed with greybeard so critique evaluates plan vs execution. Limit findings to this unit; pre-existing issues in touched files are out of scope unless they block the gate.
 
-Blocking findings → re-dispatch build once or twice with those findings in `success_criteria` / `do_not`, then re-run the gate and critique. After two re-fix rounds, report Blockers — do not loop forever.
+Blocking findings → re-dispatch build with those findings in `success_criteria` / `do_not`, then re-run the gate and critique. Close the loop; if still blocked, report Blockers — do not loop forever.
 
 When critique is clean (or remaining findings are acknowledged judgment calls), mark the unit done and start the next.
 

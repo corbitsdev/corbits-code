@@ -113,6 +113,9 @@ test("implement skill is a sequential Skywalker spawn recipe without a false 4-c
   expect(skill).toContain('task(agent="build")');
   expect(skill).toContain('task(agent="critique")');
   expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
+  expect(skill).toContain("Close the loop");
+  expect(skill).not.toContain("once or twice");
+  expect(skill).not.toContain("After two re-fix rounds");
   expect(skill).not.toContain("hard cap 4");
   expect(skill).not.toContain("4 workers");
   expect(skill).not.toContain("max-parallel");
