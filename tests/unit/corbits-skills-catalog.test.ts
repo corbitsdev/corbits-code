@@ -106,6 +106,17 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("plan skill spawns Counsel (plan) and does not ship", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/plan/SKILL.md")).text();
+  expect(skill).toContain('task(agent="plan")');
+  expect(skill).toMatch(/Counsel/);
+  expect(skill).toMatch(/agent-proof/);
+  expect(skill).toMatch(/[Dd]o not (implement|ship)/);
+  expect(skill).toContain("/create-issue");
+  expect(skill).toContain("intent=\"plan\"");
+  expect(skill).not.toContain(USER_INVOCABLE_FALSE);
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
