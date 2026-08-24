@@ -19,6 +19,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   omitted-text branch that unconditionally completed a tool-less turn is
   removed, so every call path gets the `incomplete-report` nudge and salvage
   when a tool-using run ends in envelope-less narration.
+- `spawn_agent` no longer refuses a second concurrent implement-intent spawn
+  against the same working directory — running multiple agents against one
+  worktree is allowed by design, and the refusal was guarding against churn
+  that resolves on its own, not corruption.
+- `fleetRecords` (the store behind `wait_agents`) now caps how many full
+  reports it holds in memory; past the cap, the oldest report already
+  delivered to a caller is compacted to a status-only tombstone pointing at
+  `read_agent_trace` for the detail, so an uncollected report is never
+  evicted ahead of one that's already been picked up.
 
 ## [0.2.109] - 2026-08-24
 
