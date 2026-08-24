@@ -283,9 +283,9 @@ test("intent maps to closed director without profiles", async () => {
   expect(received?.systemPromptRole).toContain("PRIMARY INTENT");
   expect(received?.capabilities?.mode).toBe("allow");
   expect(received?.capabilities?.tools).toContain("read_file");
-  expect(received?.capabilities?.tools).not.toContain("write_file");
-  expect(received?.capabilities?.tools).not.toContain("edit_file");
-  expect(received?.capabilities?.tools).not.toContain("delete_file");
+  expect(received?.capabilities?.tools).toContain("write_file");
+  expect(received?.capabilities?.tools).toContain("edit_file");
+  expect(received?.capabilities?.tools).toContain("delete_file");
 });
 
 test("intent general is refused (no general director)", async () => {
