@@ -53,12 +53,6 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(greybeardPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is review", () => {
     expect(greybeardPackage.modelRole).toBe("review");
   });

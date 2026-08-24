@@ -33,14 +33,6 @@ describe("brandReviewerPackage", () => {
     expect(brandReviewerPackage.systemPrompt).not.toMatch(/authz/i);
   });
 
-  test("report.requiredSections covers the leaf envelope", () => {
-    const sections = brandReviewerPackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is docs", () => {
     expect(brandReviewerPackage.modelRole).toBe("docs");
   });

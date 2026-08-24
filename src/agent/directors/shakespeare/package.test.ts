@@ -39,14 +39,6 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.writePaths).toBeUndefined();
   });
 
-  test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {
-    const sections = shakespearePackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is docs", () => {
     expect(shakespearePackage.modelRole).toBe("docs");
   });

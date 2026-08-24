@@ -10,7 +10,6 @@ export const planPackage: DirectorPackage = {
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "plan",
   systemPrompt: `You are PlanDirector, a specialist in Corbits Code.
 
