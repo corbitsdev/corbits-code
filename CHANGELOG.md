@@ -17,6 +17,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
+- **xAI short HTTP 429s are rate limits, not quota exhaustion.** Bare 429s from
+  known xAI/Grok providers remapped to retryable so moderate Retry-After no
+  longer aborts as a long-window quota. Clear usage/quota body markers still
+  abort. Transcript shows "Rate limited — retrying…" instead of "Quota exhausted".
+
 - **`apply_patch` can update files again.** Its Update operation read the target
   through the line-numbered `read_file` view and then tried to match the patch's
   raw context lines against it, so every context-bearing update failed with
