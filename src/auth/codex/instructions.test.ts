@@ -1,20 +1,15 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { withMockedModule } from "../../../tests/helpers/mock-module.js";
 
 // Reused by both the TUI and exec boot paths (src/tui/runner.ts,
 // src/exec/runner.ts) to refresh the pinned Codex instructions before first
 // Codex inference. This exercises the shared refresh/fallback logic directly,
 // with disk I/O faked so tests never touch the real ~/.corbits cache.
-//
-// Shallow-copy + afterAll restore is required: Bun mutates the live module
-// namespace when mock.module runs, and CI loads ./src before ./tests — a leaked
-// node:fs mock turns later suites into ENOENT / missing-settings failures.
-
-const realFs = { ...(await import("node:fs")) };
 
 let fakeDisk = new Map<string, string>();
 
-mock.module("node:fs", () => ({
-  ...realFs,
+await withMockedModule(import.meta.resolve("node:fs"), (real: typeof import("node:fs")) => ({
+  ...real,
   readFileSync: (path: string) => {
     const contents = fakeDisk.get(path);
     if (contents === undefined) {
@@ -29,10 +24,6 @@ mock.module("node:fs", () => ({
   },
   mkdirSync: () => undefined,
 }));
-
-afterAll(() => {
-  mock.module("node:fs", () => realFs);
-});
 
 const { refreshCodexInstructions, codexInstructions, codexInstructionsHash } =
   await import("./instructions.js");

@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-import { initEvalGitRepo, mapPool, parseArgs, buildEvalDiagnostics } from "./eval-capability.js";
+import {
+  initEvalGitRepo,
+  mapPool,
+  parseArgs,
+  buildEvalDiagnostics,
+  validateVariantEfforts,
+} from "./eval-capability.js";
+import { parseMatrix } from "../evals/capability/lib.js";
 import type { Config } from "../src/config/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -91,6 +98,22 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--matrix", ":grok-4.5"])).toThrow(/both provider and model/);
   });
 
+  test("--effort accepts a canonical literal", () => {
+    const opts = parseArgs(["--provider", "foo", "--model", "bar", "--effort", "high"]);
+    expect(opts.effort).toBe("high");
+  });
+
+  test("--effort rejects an unknown literal", () => {
+    expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--effort", "bogus"])).toThrow(
+      /--effort must be one of/,
+    );
+  });
+
+  test("--matrix cell can carry its own effort as a third segment", () => {
+    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-4.6:xhigh"]);
+    expect(opts.matrix).toBe("xai/thegreataxios:grok-4.6:xhigh");
+  });
+
   test("parsed defaults never equal xai/thegreataxios", () => {
     const help = parseArgs(["--help"]);
     const pair = parseArgs(["--provider", "foo", "--model", "bar"]);
@@ -155,6 +178,35 @@ describe("parseArgs", () => {
     expect(() => parseArgs(["--provider", "foo", "--model", "bar", "--director"])).toThrow(
       "--director requires a value",
     );
+  });
+});
+
+describe("validateVariantEfforts", () => {
+  // Wiring-level regression: parseArgs -> parseMatrix -> validateVariantEfforts,
+  // the same path main() runs before any inference. A matrix cell pairing an
+  // effort the model does not accept must fail fast, naming the model and its
+  // accepted levels, rather than silently falling back to the provider default
+  // and poisoning the matrix.
+  test("rejects an unsupported model/effort matrix cell before any inference runs", async () => {
+    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-composer-2.5-fast:xhigh"]);
+    const variants = parseMatrix(opts.matrix, {
+      ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+    });
+    await expect(validateVariantEfforts(variants, opts)).rejects.toThrow(
+      /grok-composer-2\.5-fast.*does not support reasoning effort "xhigh".*supported: low, medium, high/s,
+    );
+  });
+
+  test("accepts a supported model/effort matrix cell", async () => {
+    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-4.6:xhigh"]);
+    const variants = parseMatrix(opts.matrix, {
+      ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+    });
+    await expect(validateVariantEfforts(variants, opts)).resolves.toBeUndefined();
   });
 });
 

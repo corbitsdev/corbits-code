@@ -6,6 +6,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runWithEvalHttpEnv, evalHttpEnvGet } from "../../src/tools/eval-http-env.js";
+import { isReasoningEffort, type ReasoningEffort } from "../../src/provider/reasoning-effort.js";
 import {
   isNumericBehaviorMetric,
   parseBehaviorMetrics,
@@ -100,6 +101,8 @@ export interface EvalVariant {
   id: string;
   provider?: string;
   model?: string;
+  /** Reasoning effort for this cell; overrides the run-level --effort. */
+  effort?: ReasoningEffort;
 }
 
 /**
@@ -149,6 +152,8 @@ export interface CaseResult {
   providerFallback: ProviderFallbackInfo | null;
   /** Per-cell diagnostics for debugging eval failures; null when unavailable. */
   diagnostics: EvalDiagnostics | null;
+  /** Requested reasoning effort for this cell (--effort or matrix cell); null when unset. */
+  effort: ReasoningEffort | null;
   textPreview?: string;
 }
 
@@ -538,15 +543,17 @@ export function defaultVariantId(provider?: string, model?: string): string {
  * Parse a matrix string of variants.
  * Formats (comma-separated cells):
  *   - `provider:model`
+ *   - `provider:model:effort`
  *   - `provider/model` (slash only when no colon)
- *   - `label=provider:model`
- * Empty / omitted → single default variant (caller provider/model flags).
+ *   - `label=provider:model[:effort]`
+ * Empty / omitted → single default variant (caller provider/model/effort flags).
  * Each expanded cell must have both provider and model (after applying
- * `--provider`/`--model` as cell defaults when a side is omitted).
+ * `--provider`/`--model` as cell defaults when a side is omitted); effort
+ * falls back to `--effort` when the cell does not specify its own.
  */
 export function parseMatrix(
   matrix: string | undefined,
-  fallback: { provider?: string; model?: string },
+  fallback: { provider?: string; model?: string; effort?: ReasoningEffort },
 ): EvalVariant[] {
   if (matrix === undefined || matrix.trim().length === 0) {
     const id = defaultVariantId(fallback.provider, fallback.model);
@@ -555,6 +562,7 @@ export function parseMatrix(
         id,
         ...(fallback.provider !== undefined ? { provider: fallback.provider } : {}),
         ...(fallback.model !== undefined ? { model: fallback.model } : {}),
+        ...(fallback.effort !== undefined ? { effort: fallback.effort } : {}),
       },
     ];
   }
@@ -571,7 +579,7 @@ export function parseMatrix(
 function parseMatrixCell(
   cell: string,
   index: number,
-  fallback: { provider?: string; model?: string },
+  fallback: { provider?: string; model?: string; effort?: ReasoningEffort },
 ): EvalVariant {
   let label: string | undefined;
   let rest = cell;
@@ -582,8 +590,17 @@ function parseMatrixCell(
   }
   let provider: string | undefined;
   let model: string | undefined;
+  let effort: ReasoningEffort | undefined;
   if (rest.includes(":")) {
-    const [p, ...mParts] = rest.split(":");
+    const parts = rest.split(":");
+    // provider:model or provider:model:effort — the last segment is treated
+    // as effort only when it parses as a real reasoning-effort literal, so a
+    // model id that happens to contain a colon still falls through cleanly.
+    if (parts.length >= 3 && isReasoningEffort(parts.at(-1)!.trim())) {
+      effort = parts.at(-1)!.trim() as ReasoningEffort;
+      parts.pop();
+    }
+    const [p, ...mParts] = parts;
     provider = p!.trim() || undefined;
     model = mParts.join(":").trim() || undefined;
   } else if (rest.includes("/")) {
@@ -597,11 +614,12 @@ function parseMatrixCell(
   }
   provider = provider ?? fallback.provider;
   model = model ?? fallback.model;
+  effort = effort ?? fallback.effort;
   if (provider === undefined || model === undefined) {
     throw new Error(`matrix cell ${index + 1} "${cell}" must specify both provider and model`);
   }
   const id = label ?? defaultVariantId(provider, model);
-  return { id, provider, model };
+  return { id, provider, model, ...(effort !== undefined ? { effort } : {}) };
 }
 
 /** Cartesian product of cases × variants (cases outer for stable progress). */
@@ -744,6 +762,7 @@ function parseCaseResult(raw: unknown): CaseResult {
     behaviors: parseBehaviorMetrics(raw.behaviors),
     providerFallback: parseProviderFallback(raw.providerFallback),
     diagnostics: parseEvalDiagnostics(raw.diagnostics),
+    effort: isReasoningEffort(raw.effort) ? raw.effort : null,
     ...(typeof raw.textPreview === "string" ? { textPreview: raw.textPreview } : {}),
   };
 }

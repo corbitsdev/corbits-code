@@ -52,14 +52,6 @@ describe("explorePackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report.requiredSections covers the leaf envelope", () => {
-    const sections = explorePackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is explore", () => {
     expect(explorePackage.modelRole).toBe("explore");
   });

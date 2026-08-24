@@ -43,6 +43,7 @@ import {
   TURN_BUDGET_STOP_AFTER_DISPATCHES,
 } from "./brief-dispatch.js";
 import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
+import { detectModelFamily } from "./provider-family.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
 import { generateSessionId } from "../session/index.js";
@@ -257,10 +258,42 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   };
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
+  // Tagged with the dispatched child's provider/model/family (CL-6968) so
+  // per-model intervention counts finally have a denominator: the same
+  // provider/model this dispatch actually ran under, taken after profile/
+  // agent inference resolution — never a name the parent merely intended.
   let outcomeLog: InterventionSink | null = null;
-  const recordOutcome = (kind: string, dispatchCount: number): void => {
+  const recordOutcome = (
+    kind: string,
+    dispatchCount: number,
+    identity: { provider: string; model: string },
+  ): void => {
     outcomeLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
-    outcomeLog({ id: "dispatch-outcome", class: "outcome", outcome: { kind, dispatchCount } });
+    const family = detectModelFamily({ providerName: identity.provider, model: identity.model });
+    outcomeLog({
+      id: "dispatch-outcome",
+      class: "outcome",
+      outcome: { kind, dispatchCount },
+      provider: identity.provider,
+      model: identity.model,
+      family,
+    });
+  };
+  // Concurrent-lane overlap detection (CL-6952), replacing the static
+  // per-package writePaths lock. There is no field in the task() contract a
+  // caller uses to declare which files a dispatch will touch, so the only
+  // honestly knowable "intended scope" at spawn is the working directory the
+  // dispatch will run in — worktree-isolated lanes always get a fresh,
+  // disjoint path here, so this can only ever fire in the shared-cwd fallback,
+  // which is exactly where two lanes really can stomp each other's writes.
+  // Keyed by call.id so a completed lane (removed in the outer finally below)
+  // is never mistaken for one still running: sequential dispatches to the
+  // same cwd are always clean.
+  const activeLanes = new Map<string, { description: string; cwd: string }>();
+  let conflictLog: InterventionSink | null = null;
+  const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
+    conflictLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    conflictLog(event);
   };
   return tool({
     definition: taskToolDefinition,
@@ -314,7 +347,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let effortPin: ReasoningEffort | undefined;
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
-      let writePaths: readonly string[] | undefined;
       let orchestrator = false;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
@@ -388,9 +420,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           systemPromptRole = formatDirectorSystemPrompt(pkg);
           const caps = packageToCapabilities(pkg);
           if (caps !== undefined) capabilities = caps;
-          if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
-            writePaths = pkg.writePaths;
-          }
           if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
@@ -437,9 +466,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.capabilities !== undefined) {
             capabilities = profile.capabilities;
           }
-          if (profile.writePaths !== undefined && profile.writePaths.length > 0) {
-            writePaths = profile.writePaths;
-          }
           if (profile.maxTurns !== undefined) {
             profileMaxTurns = profile.maxTurns;
           }
@@ -481,9 +507,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         systemPromptRole = formatDirectorSystemPrompt(pkg);
         const caps = packageToCapabilities(pkg);
         if (caps !== undefined) capabilities = caps;
-        if (pkg.writePaths !== undefined && pkg.writePaths.length > 0) {
-          writePaths = pkg.writePaths;
-        }
         if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
@@ -608,6 +631,28 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             }
           : deps.onEvent;
 
+      // A dispatch can fail over to a different configured provider/model
+      // mid-run (source priority list, `resolveInferenceWithPolicy` builds the
+      // primary; the reactor retries the next source on error) — so the
+      // provider/model this call resolved before dispatch is only what the
+      // parent *intended*. `inference.done` carries the source that actually
+      // served each cycle; track the last one seen so the outcome record can
+      // prefer it over the resolved-but-possibly-superseded `provider` value.
+      let lastCycleSource: { provider: string; model: string } | undefined;
+      const onEvent = (event: ReactorEmittedEvent): void => {
+        if (event.type === "inference.done") {
+          const source = (event.data as { source?: { provider?: string; model?: string } }).source;
+          if (
+            source !== undefined &&
+            typeof source.provider === "string" &&
+            typeof source.model === "string"
+          ) {
+            lastCycleSource = { provider: source.provider, model: source.model };
+          }
+        }
+        recordEvent?.(event);
+      };
+
       const sandbox: SubAgentSandboxDeps = {
         permissionGate: deps.permissionGate,
         ...(deps.inheritMcpTools !== undefined ? { inheritMcpTools: deps.inheritMcpTools } : {}),
@@ -700,6 +745,26 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             return taskToolResult(call.id, `Error: ${message}`);
           }
         }
+        // Detect, don't lock: warn when another lane still running right now
+        // is already working in this same cwd. Worktree-isolated lanes never
+        // collide here (each gets its own directory); this only fires in the
+        // shared-cwd fallback, where two lanes genuinely can overwrite each
+        // other's writes. Never blocks the spawn — the least destructive
+        // response that still tells the operator something true, since a
+        // shared cwd does not by itself prove the two lanes touch the same
+        // files, only that they could.
+        const laneCwd = worktreeCwd ?? deps.cwd;
+        for (const [otherId, other] of activeLanes) {
+          if (other.cwd !== laneCwd) continue;
+          recordConflict({
+            id: "concurrent-lane-overlap",
+            class: "conflict",
+            detail:
+              `"${description}" (${call.id}) and "${other.description}" (${otherId}) ` +
+              `are both running against ${laneCwd} at once`,
+          });
+        }
+        activeLanes.set(call.id, { description, cwd: laneCwd });
         // Cleanup runs once the sub-agent's report is ready, regardless of
         // outcome, so a cancelled or failed run's worktree is still reclaimed
         // (or preserved with a notice) rather than leaked.
@@ -732,11 +797,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(doNot.length > 0 ? { doNot } : {}),
             ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
             signal: childCtl.signal,
-            ...(recordEvent !== undefined ? { onEvent: recordEvent } : {}),
+            onEvent,
             ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
-            ...(writePaths !== undefined ? { writePaths } : {}),
             ...(orchestrator ? { orchestrator: true, nestedDispatch: nestedDispatch! } : {}),
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
@@ -749,7 +813,15 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
           const salvage = classifyBriefSalvage(result);
           briefLedger.recordOutcome(fingerprint, salvage);
-          recordOutcome(salvage ?? "clean-complete", dispatchCount);
+          // Prefer the last provider/model that actually served inference
+          // (captured off inference.done above) over the pre-dispatch
+          // `provider` this call resolved — a mid-run failover to a backup
+          // source means the two can diverge, and the outcome record should
+          // describe what the child ran under, not what the parent intended.
+          recordOutcome(salvage ?? "clean-complete", dispatchCount, {
+            provider: lastCycleSource?.provider ?? provider.providerName,
+            model: lastCycleSource?.model ?? provider.model,
+          });
           const hintOptions = {
             dispatchCount,
             turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
@@ -806,6 +878,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           signal.removeEventListener("abort", onParentAbort);
         }
       } finally {
+        activeLanes.delete(call.id);
         end(subagentSpanId);
         telemetry.capture("subagent_end", {
           agent_name: agentName,

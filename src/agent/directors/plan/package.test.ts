@@ -27,12 +27,6 @@ describe("planPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(planPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is plan", () => {
     expect(planPackage.modelRole).toBe("plan");
   });

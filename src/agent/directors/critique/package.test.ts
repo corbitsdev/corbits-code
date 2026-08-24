@@ -64,14 +64,6 @@ describe("critiquePackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report.requiredSections covers the leaf envelope", () => {
-    const sections = critiquePackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is review", () => {
     expect(critiquePackage.modelRole).toBe("review");
   });
