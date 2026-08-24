@@ -1,5 +1,5 @@
 /**
- * submit_result evaluation (CL-6946): pure logic, unit-testable without
+ * submit_result evaluation: pure logic, unit-testable without
  * spinning up a full agent loop. run.ts wires this into the tool handler and
  * owns the per-turn `SubmitResultState` (one instance per runSubAgent call).
  */

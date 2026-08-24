@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { classifyShellFileEvidence } from "./shell-evidence.js";
 
-describe("classifyShellFileEvidence (CL-6937)", () => {
+describe("classifyShellFileEvidence", () => {
   test("readers count as reads with their file operand", () => {
     expect(classifyShellFileEvidence("cat src/a.ts").reads).toContain("src/a.ts");
     expect(classifyShellFileEvidence("head -n 5 src/a.ts").reads).toContain("src/a.ts");

@@ -1,5 +1,5 @@
 /**
- * Fleet authority (CL-6941): the runtime boundary between the three tiers.
+ * Fleet authority: the runtime boundary between the three tiers.
  *
  * Tier enforcement lives here and at the tool-mount point in run.ts — never
  * in a prompt. This module owns two checks:
@@ -93,9 +93,8 @@ function isDescendant(
  * No verb in this codebase currently lets one live agent target another
  * (`task` only spawns; it never addresses an existing session), so the
  * subtree rule below is exercised only by authority.test.ts — it is not
- * enforced at runtime yet. It exists now so CL-6942 (split spawn from wait)
- * and CL-6944 (send_input steering) — the first two verbs that make one
- * agent addressable by another — can call it from day one instead of
+ * enforced at runtime yet. It exists now so future verbs that make one
+ * agent addressable by another can call it from day one instead of
  * inventing their own check. Until one of those wires a call site here, do
  * not describe this rule as enforced; only assertTierMayMountFleetVerb is.
  *

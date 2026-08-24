@@ -119,7 +119,7 @@ export type RunSubAgentParams = {
   // advertising permission without the tool is a hard break.
   orchestrator?: boolean;
   /**
-   * Fleet authority tier (CL-6941) for this dispatch, resolved by the caller
+   * Fleet authority tier for this dispatch, resolved by the caller
    * (task-tool.ts) from either the closed DirectorPackage.tier or an explicit
    * AgentProfile.tier opt-in. Required whenever orchestrator is true:
    * runSubAgent fails closed (denies task/search_agents) when orchestrator is
@@ -137,7 +137,7 @@ export type RunSubAgentParams = {
    */
   deadlineMs?: number;
   /**
-   * Resolved director tier (CL-6946), independent of `orchestratorTier` (which
+   * Resolved director tier, independent of `orchestratorTier` (which
    * is only ever set when `orchestrator` is true). Set by task-tool.ts from
    * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when this
    * is `"leaf"` — the existing tier machinery (authority.ts / directors/types.ts)
@@ -147,7 +147,7 @@ export type RunSubAgentParams = {
   /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
   reportType?: OutputType;
   /**
-   * CL-6943: when true, a clean successful completion skips the normal
+   * when true, a clean successful completion skips the normal
    * end-of-turn teardown (agent.close() / posixTools.dispose()) so the
    * session stays open and reusable. A failure or an aborted/cancelled run
    * still tears down as before — only a clean success is retained. A caller
@@ -160,9 +160,9 @@ export type RunSubAgentParams = {
    * sent), with handles the caller can register for later use against this
    * session:
    *
-   *  - `close`: bounded teardown for close_agent (unchanged from CL-6943).
+   *  - `close`: bounded teardown for close_agent.
    *  - `interrupt`: stops the in-flight `agent.send()` by firing a signal
-   *    scoped to that call only (CL-6997) — distinct from `close`'s
+   *    scoped to that call only — distinct from `close`'s
    *    AbortController, so firing it never touches agent.close() or the
    *    workdir lock. The reactor cycle itself keeps running in the
    *    background (same documented behavior as `Agent.send`'s own
@@ -186,12 +186,12 @@ export type RunSubAgentParams = {
   }) => void;
 } & SubAgentSandboxDeps;
 
-/** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why (CL-6946 part 2) — classify outcomes from `stopReason`, never by parsing `report`. */
+/** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why — classify outcomes from `stopReason`, not by parsing `report`. */
 export interface RunSubAgentResult {
   report: string;
   stopReason?: ForcedStopReason;
   /**
-   * CL-7001: true only on the clean-completion path when `persist: true`
+   * true only on the clean-completion path when `persist: true`
    * actually skipped teardown (mirrors run.ts's own turnSucceeded gate). A
    * deadline/cancel salvage returns without throwing but always disposes its
    * agent, so this is absent (falsy) there even though the promise resolves
@@ -200,7 +200,7 @@ export interface RunSubAgentResult {
    */
   agentRetained?: boolean;
   /**
-   * CL-6997: true only when this run ended because interrupt_agent fired
+   * true only when this run ended because interrupt_agent fired
    * (not a plain cancel/deadline) — the caller must not run its normal
    * complete()/fail() bookkeeping over this result, since interrupt_agent
    * already transitioned the session to "interrupted" synchronously.

@@ -47,7 +47,7 @@ export interface DispatchBrief {
   successCriteria?: readonly string[];
   doNot?: readonly string[];
   reportFocus?: string;
-  /** Turn token (CL-6946) a leaf must echo back to `submit_result`. Leaf-tier dispatches only. */
+  /** Turn token a leaf must echo back to `submit_result`. Leaf-tier dispatches only. */
   turnToken?: string;
 }
 

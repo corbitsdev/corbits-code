@@ -107,11 +107,11 @@ export class SubAgentDirector extends DefaultDirector {
   private lastAssistantText = "";
   // Every stop and nudge is recorded with its measured value beside its
   // threshold, so a later threshold change can cite data instead of judgment
-  // (CL-6938). Defaults to a no-op: logging is diagnostic, never required.
+  //. Defaults to a no-op: logging is diagnostic, never required.
   private interventions: InterventionSink = NOOP_INTERVENTION_SINK;
-  // Structured stop-reason side channel (CL-6946 part 2): fired synchronously
-  // whenever this director force-stops, so the caller learns the reason as a
-  // typed value rather than re-parsing the forcedStopReport prose it returns.
+  // Structured stop-reason side channel: fired synchronously whenever this
+  // director force-stops, so the caller learns the reason as a typed value
+  // rather than re-parsing the forcedStopReport prose it returns.
   private onForcedStop: (reason: ForcedStopReason) => void = () => {};
 
   /** Route this leaf's stop/nudge decisions to an intervention log. */

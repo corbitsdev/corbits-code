@@ -67,7 +67,7 @@ export const TaskToolArgs = type({
   "report_focus?": "string",
 });
 
-// Deprecated (CL-7004): task() is the fused, blocking spawn+wait primitive.
+// Deprecated: task() is the fused, blocking spawn+wait primitive.
 // Prefer spawn_agent + wait_agents for new call sites — spawn_agent returns
 // immediately and wait_agents blocks on whichever workers you need next, so
 // multiple workers do not serialize behind one call. task() is not removed —
@@ -198,8 +198,8 @@ function taskToolResult(
     callId,
     content,
     ...(isError ? { isError: true } : {}),
-    // Structured stop-reason side channel (CL-6946 part 2): the parent chat
-    // director classifies salvage outcomes from this, never from `content`.
+    // Structured stop-reason side channel: the parent chat director
+    // classifies salvage outcomes from this, not from `content`.
     ...(stopReason !== undefined ? { detail: { stopReason } } : {}),
   };
 }
@@ -220,7 +220,7 @@ function receivedFieldPreview(value: string): string {
 /**
  * Rejection naming only the actually-bad required fields, echoing the valid
  * one back. A generic "requires description and prompt" hid which field was
- * missing, so models retried the identical call verbatim (CL-6901).
+ * missing, so models retried the identical call verbatim.
  */
 function requiredTaskFieldsError(
   args: Record<string, unknown>,
@@ -256,7 +256,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
   const briefLedger = createBriefDispatchLedger();
   // Every completed dispatch gets an outcome record — the log otherwise
   // carries shape and run state but never what the run actually produced.
-  // Tagged with the dispatched child's provider/model/family (CL-6968) so
+  // Tagged with the dispatched child's provider/model/family so
   // per-model intervention counts finally have a denominator: the same
   // provider/model this dispatch actually ran under, taken after profile/
   // agent inference resolution — never a name the parent merely intended.
@@ -277,7 +277,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       family,
     });
   };
-  // Concurrent-lane overlap detection (CL-6952), replacing the static
+  // Concurrent-lane overlap detection, replacing the static
   // per-package writePaths lock. There is no field in the task() contract a
   // caller uses to declare which files a dispatch will touch, so the only
   // honestly knowable "intended scope" at spawn is the working directory the
@@ -346,7 +346,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let systemPromptRole: string | undefined;
       let orchestrator = false;
       /**
-       * Fleet authority tier (CL-6941) for this dispatch — forwarded to
+       * Fleet authority tier for this dispatch — forwarded to
        * runSubAgent, which fails closed (denies task/search_agents) when
        * orchestrator is true and this is left undefined or resolves to
        * "leaf". Set alongside `orchestrator = true` in every branch below;
@@ -411,7 +411,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       };
 
       if (agentId !== undefined && agentId.length > 0) {
-        // Closed director fleet (CL-5818): resolve package even when profiles
+        // Closed director fleet: resolve package even when profiles
         // are not loaded; profiles may still pin inference for the same id.
         if (isDirectorId(agentId)) {
           const resolved = resolveDirector({ agentId });
@@ -477,7 +477,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // even if their profile is marked orchestrator — recursion bottoms out.
           if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
             orchestrator = true;
-            // Fail closed (CL-6941): a profile is outside the closed director
+            // Fail closed: a profile is outside the closed director
             // set, so orchestrator: true alone does not grant a tier. No
             // profile field opts in; orchestratorTier stays undefined, which
             // runSubAgent treats as "leaf" and denies task/search_agents.
@@ -685,7 +685,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let worktreeCwd: string | undefined;
       let worktreeStashBaseline: readonly string[] | null = [];
       let worktreeHeadAtCreate: string | undefined;
-      // Full child wall: worktree setup → run → teardown (CL-5170 exclusive share).
+      // Full child wall: worktree setup → run → teardown.
       const turnId = currentTurnId();
       const subagentSpanId = start("subagent", {
         ...(turnId !== null && turnId.length > 0 ? { parentId: turnId } : {}),
@@ -794,7 +794,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
                 }
               : {}),
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
-            // submit_result mount gate (CL-6946): only a resolved Tier 3 leaf
+            // submit_result mount gate: only a resolved Tier 3 leaf
             // director gets tier here, and only if it declared an outputType.
             ...(resolvedPackage !== undefined ? { tier: resolvedPackage.tier } : {}),
             ...(resolvedPackage?.reportContract?.outputType !== undefined

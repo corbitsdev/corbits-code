@@ -2,7 +2,7 @@
  * One-line previews of what a live tool call is doing — the subject of a lane
  * row, not a serialisation of its arguments.
  *
- * CL-5765: operators watching a fleet need to tell six shell commands apart;
+ * Operators watching a fleet need to tell six shell commands apart;
  * the bare tool name cannot. Previews are bounded, single-line, and secret-
  * scrubbed so the agents strip never becomes a new leak path for credentials
  * that happen to sit in a command string.
