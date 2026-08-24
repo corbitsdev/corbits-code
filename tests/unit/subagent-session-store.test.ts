@@ -304,7 +304,7 @@ describe("createTaskTool session recording", () => {
       sessions: store,
       run: async (params) => {
         params.onEvent?.(event("inference.text.delta", { token: "working" }));
-        return "## Summary\nDone.";
+        return { report: "## Summary\nDone." };
       },
     });
     const out = await call(tool, {
@@ -351,7 +351,7 @@ describe("createTaskTool session recording", () => {
       cwd: process.cwd(),
       getWorkdirBase: () => "/tmp",
       provider,
-      run: async () => "ok",
+      run: async () => ({ report: "ok" }),
     });
     const out = await call(tool, { description: "no store", prompt: "x", intent: "explore" });
     expect(out).toContain("ok");
@@ -394,7 +394,7 @@ describe("createTaskTool session recording", () => {
             store.cancel(id!, "Cancelled from Agents strip");
           });
         });
-        return "should not complete";
+        return { report: "should not complete" };
       },
     });
     const out = await call(tool, {
@@ -428,7 +428,7 @@ describe("createTaskTool session recording", () => {
           );
           queueMicrotask(() => parent.abort());
         });
-        return "nope";
+        return { report: "nope" };
       },
     });
     const out = await call(

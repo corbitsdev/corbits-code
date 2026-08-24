@@ -8,7 +8,7 @@ import {
 } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
-import type { RunSubAgentParams } from "./types.js";
+import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -37,7 +37,7 @@ function deferred<T>(): {
 }
 
 function makeDeps(
-  run: (params: RunSubAgentParams) => Promise<string>,
+  run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
   opts: { cwd?: string } = {},
 ): AgentFleetDeps {
   return {
@@ -75,7 +75,7 @@ async function callTool(
 
 describe("spawn_agent", () => {
   test("returns immediately with a running agent_id without waiting for the worker", async () => {
-    const gate = deferred<string>();
+    const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
 
@@ -94,13 +94,17 @@ describe("spawn_agent", () => {
     // Worker is still pending; store confirms it has not finished.
     expect(deps.sessions.get(result.agent_id as string)?.status).toBe("running");
 
-    gate.resolve("done");
+    gate.resolve({ report: "done" });
   });
 });
 
 describe("spawn_agent + wait_agents", () => {
   test("wait_agents on one target returns once it completes while siblings keep running", async () => {
-    const gates = [deferred<string>(), deferred<string>(), deferred<string>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
     const deps = makeDeps(async () => {
       const i = callIndex++;
@@ -116,7 +120,7 @@ describe("spawn_agent + wait_agents", () => {
     );
     const ids = spawned.map((s) => s.agent_id as string);
 
-    gates[0]!.resolve("first report");
+    gates[0]!.resolve({ report: "first report" });
 
     const waited = await callTool(wait, { targets: [ids[0]], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
@@ -129,12 +133,12 @@ describe("spawn_agent + wait_agents", () => {
     expect(deps.sessions.get(ids[1]!)?.status).toBe("running");
     expect(deps.sessions.get(ids[2]!)?.status).toBe("running");
 
-    gates[1]!.resolve("second");
-    gates[2]!.resolve("third");
+    gates[1]!.resolve({ report: "second" });
+    gates[2]!.resolve({ report: "third" });
   });
 
   test("wait_agents times out on a still-running agent without cancelling it, and can be called again", async () => {
-    const gate = deferred<string>();
+    const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
@@ -155,7 +159,7 @@ describe("spawn_agent + wait_agents", () => {
     expect(deps.sessions.get(id)?.status).toBe("running");
 
     // A second wait still works cleanly (either another timeout, or completion).
-    gate.resolve("finished");
+    gate.resolve({ report: "finished" });
     const second = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(second.timed_out).toBe(false);
     const secondResults = second.results as {
@@ -168,7 +172,7 @@ describe("spawn_agent + wait_agents", () => {
   });
 
   test("wait_agents with no targets waits on all currently running spawned agents", async () => {
-    const gates = [deferred<string>(), deferred<string>()];
+    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
     let callIndex = 0;
     const deps = makeDeps(async () => gates[callIndex++]!.promise);
     const spawn = createSpawnAgentTool(deps);
@@ -177,14 +181,14 @@ describe("spawn_agent + wait_agents", () => {
     await callTool(spawn, { description: "a", prompt: "do it", intent: "explore" });
     await callTool(spawn, { description: "b", prompt: "do it", intent: "explore" });
 
-    gates[0]!.resolve("a done");
+    gates[0]!.resolve({ report: "a done" });
     const result = await callTool(wait, { timeout_ms: 5000 });
     expect(result.timed_out).toBe(false);
     const results = result.results as { status: string }[];
     expect(results).toHaveLength(2);
     expect(results.some((r) => r.status === "done")).toBe(true);
 
-    gates[1]!.resolve("b done");
+    gates[1]!.resolve({ report: "b done" });
   });
 
   test("reports survive well past the session store's display cap (20) until wait_agents collects them", async () => {
@@ -193,7 +197,7 @@ describe("spawn_agent + wait_agents", () => {
     // them is collected, proving fleetRecords — not the store — is what
     // wait_agents actually reads from.
     const COUNT = 25;
-    const deps = makeDeps(async () => "irrelevant");
+    const deps = makeDeps(async () => ({ report: "irrelevant" }));
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
 
@@ -226,7 +230,7 @@ describe("spawn_agent + wait_agents", () => {
 
 describe("spawn_agent write-lane isolation", () => {
   test("refuses a second concurrent implement-intent spawn against the same cwd", async () => {
-    const gate = deferred<string>();
+    const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async () => gate.promise, { cwd: "/repo" });
     const spawn = createSpawnAgentTool(deps);
 
@@ -246,11 +250,11 @@ describe("spawn_agent write-lane isolation", () => {
     expect(second.content).toContain("Error:");
     expect(second.content).toContain(first.agent_id as string);
 
-    gate.resolve("done");
+    gate.resolve({ report: "done" });
   });
 
   test("does not refuse a second concurrent explore-intent spawn against the same cwd", async () => {
-    const deps = makeDeps(async () => "explored", { cwd: "/repo" });
+    const deps = makeDeps(async () => ({ report: "explored" }), { cwd: "/repo" });
     const spawn = createSpawnAgentTool(deps);
 
     const first = await callTool(spawn, {
@@ -269,7 +273,7 @@ describe("spawn_agent write-lane isolation", () => {
   });
 
   test("releases the write lane once the implement worker finishes, allowing another", async () => {
-    const deps = makeDeps(async () => "built", { cwd: "/repo" });
+    const deps = makeDeps(async () => ({ report: "built" }), { cwd: "/repo" });
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
 

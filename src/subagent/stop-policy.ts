@@ -7,12 +7,7 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { detectSequencePeriod, type SequencePeriodCheck } from "../util/period-detection.js";
 import { evaluateThrashStop, type ThrashConfig, type ThrashState } from "./thrash.js";
-import {
-  demoteNestedReportHeadings,
-  formatSubAgentReport,
-  hasReportEnvelope,
-  parseSubAgentReport,
-} from "./report.js";
+import { demoteNestedReportHeadings, formatSubAgentReport, hasReportEnvelope } from "./report.js";
 
 // Consecutive identical tool-call fingerprints before a leaf is forced to
 // stop. Mirrors IDENTICAL_REPEAT_MIN below (the director-level period-1
@@ -435,13 +430,10 @@ export type ForcedStopReason =
   | "repetition"
   | "incomplete-report";
 
-// Exact Summary text for each forced-stop reason. This is the single source
-// of truth for both forcedStopReport (the producer) and the isXxxSubAgentReport
-// classifiers (the consumers) — CL-6704: classifying on a free-text substring
-// like "no progress" or "cancelled" hard-blocks a SUCCESSFUL report whose
-// Summary happens to contain that phrase. Matching the exact string a forced
-// stop actually produces closes that false-positive path without a report
-// schema change (a typed marker would need one; see CL-6786, out of scope).
+// Exact Summary text rendered for each forced-stop reason. Human-facing only —
+// forcedStopReport is the sole reader; the parent classifies outcomes from the
+// structured ForcedStopReason value itself (see run.ts/task-tool.ts), never by
+// parsing this text back out of the report.
 const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   "no-progress": "Stopped: repeated the same tool calls with no progress.",
   "no-ship": "Stopped: implement intent searched many files without writing any.",
@@ -507,42 +499,6 @@ export function forcedStopReport(
   });
 }
 
-/**
- * True when a report's Summary is exactly the forced-stop text for `reason`
- * (CL-6704: exact match, not a free-text substring — a successful report
- * whose Summary happens to mention the same words must not classify as a
- * forced stop).
- */
-export function isForcedStopSubAgentReport(report: string, reason: ForcedStopReason): boolean {
-  const parsed = parseSubAgentReport(report);
-  return parsed.summary === FORCED_STOP_SUMMARIES[reason];
-}
-
-/** True when the worker returned a turn-budget salvage report for the parent. */
-export function isTurnBudgetSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "turn-budget");
-}
-
-/** True when the worker returned a never-acted salvage report for the parent. */
-export function isNeverActedSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "never-acted");
-}
-
-/** True when implement intent finished without any write/edit tools. */
-export function isNeverEditedSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "never-edited");
-}
-
-/** True when the worker returned a deadline salvage report for the parent. */
-export function isDeadlineSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "deadline");
-}
-
-/** True when the worker returned a streamed-repetition salvage report. */
-export function isRepetitionSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "repetition");
-}
-
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
@@ -583,70 +539,37 @@ export interface SubAgentParentHintOptions {
   turnBudgetStopAfterDispatches?: number;
 }
 
-export function appendTurnBudgetParentHint(
-  report: string,
-  options: SubAgentParentHintOptions = {},
-): string {
-  if (!isTurnBudgetSubAgentReport(report)) return report;
-  const stopAfter = options.turnBudgetStopAfterDispatches ?? 3;
-  const count = options.dispatchCount ?? 1;
-  const hint = count >= stopAfter ? TURN_BUDGET_STOP_PARENT_HINT : TURN_BUDGET_PARENT_HINT;
-  return `${hint}\n\n${report}`;
-}
-
-export function appendNeverActedParentHint(report: string): string {
-  if (!isNeverActedSubAgentReport(report)) return report;
-  return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
-}
-
-export function appendNeverEditedParentHint(report: string): string {
-  if (!isNeverEditedSubAgentReport(report)) return report;
-  return `${NEVER_EDITED_PARENT_HINT}\n\n${report}`;
-}
-
-export function appendDeadlineParentHint(report: string): string {
-  if (!isDeadlineSubAgentReport(report)) return report;
-  return `${DEADLINE_PARENT_HINT}\n\n${report}`;
-}
-
-/** True when the worker returned a no-ship (search-tour) salvage report. */
-export function isNoShipSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "no-ship");
-}
-
-export function appendNoShipParentHint(report: string): string {
-  if (!isNoShipSubAgentReport(report)) return report;
-  return `${NO_SHIP_PARENT_HINT}\n\n${report}`;
-}
-
-export function appendRepetitionParentHint(report: string): string {
-  if (!isRepetitionSubAgentReport(report)) return report;
-  return `${REPETITION_PARENT_HINT}\n\n${report}`;
-}
-
-/** True when the worker returned a no-progress salvage report. */
-export function isNoProgressSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "no-progress");
-}
-
-export function appendNoProgressParentHint(report: string): string {
-  if (!isNoProgressSubAgentReport(report)) return report;
-  return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
-}
-
-/** Stack parent-visible salvage hints for budget / never-acted / deadline / repetition / no-progress. */
+/**
+ * Prepend the parent-facing salvage hint for `reason`, chosen from the
+ * structured ForcedStopReason the run reported directly — never by parsing
+ * `report`'s prose. Reasons with no dedicated hint (cancelled, stalled,
+ * incomplete-report, or a normal complete) pass `report` through unchanged.
+ */
 export function appendSubAgentParentHints(
   report: string,
+  reason: ForcedStopReason | undefined,
   options: SubAgentParentHintOptions = {},
 ): string {
-  return appendDeadlineParentHint(
-    appendNeverEditedParentHint(
-      appendNeverActedParentHint(
-        appendTurnBudgetParentHint(
-          appendNoProgressParentHint(appendNoShipParentHint(appendRepetitionParentHint(report))),
-          options,
-        ),
-      ),
-    ),
-  );
+  switch (reason) {
+    case "turn-budget": {
+      const stopAfter = options.turnBudgetStopAfterDispatches ?? 3;
+      const count = options.dispatchCount ?? 1;
+      const hint = count >= stopAfter ? TURN_BUDGET_STOP_PARENT_HINT : TURN_BUDGET_PARENT_HINT;
+      return `${hint}\n\n${report}`;
+    }
+    case "never-acted":
+      return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
+    case "never-edited":
+      return `${NEVER_EDITED_PARENT_HINT}\n\n${report}`;
+    case "deadline":
+      return `${DEADLINE_PARENT_HINT}\n\n${report}`;
+    case "no-ship":
+      return `${NO_SHIP_PARENT_HINT}\n\n${report}`;
+    case "repetition":
+      return `${REPETITION_PARENT_HINT}\n\n${report}`;
+    case "no-progress":
+      return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
+    default:
+      return report;
+  }
 }

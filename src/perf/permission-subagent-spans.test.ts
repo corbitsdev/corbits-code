@@ -235,7 +235,7 @@ describe("subagent spans", () => {
         const open = snapshot().filter((s) => s.name === "subagent" && s.endNs === undefined);
         expect(open).toHaveLength(1);
         expect(open[0]!.tags?.subagent_id).toBe("call-sa-1");
-        return "## Summary\n\nok\n";
+        return { report: "## Summary\n\nok\n" };
       },
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
@@ -281,7 +281,7 @@ describe("subagent spans", () => {
       cwd: "/repo",
       getWorkdirBase: () => "/repo/.corbits",
       provider,
-      run: async () => "## Summary\n\nchild done\n",
+      run: async () => ({ report: "## Summary\n\nchild done\n" }),
     });
     if (tool.kind !== "full") throw new Error("expected full tool");
 
@@ -346,7 +346,7 @@ describe("subagent spans", () => {
       useWorktree: true,
       run: async () => {
         runEntered = true;
-        return "## Summary\n\nshould not run\n";
+        return { report: "## Summary\n\nshould not run\n" };
       },
     });
     if (tool.kind !== "full") throw new Error("expected full tool");

@@ -62,7 +62,12 @@ import { resolveEffortForRole } from "../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
 import type { SubAgentSessionStore } from "./session-store.js";
-import type { RunSubAgentParams, SubAgentProvider, SubAgentSandboxDeps } from "./types.js";
+import type {
+  RunSubAgentParams,
+  RunSubAgentResult,
+  SubAgentProvider,
+  SubAgentSandboxDeps,
+} from "./types.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 
@@ -212,7 +217,7 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   cwd: string;
   getWorkdirBase: () => string;
   provider: SubAgentProvider | (() => SubAgentProvider);
-  run: (params: RunSubAgentParams) => Promise<string>;
+  run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
   sessions: SubAgentSessionStore;
   fleetRecords: FleetRecordsHandle;
   settings?: Settings | (() => Settings | undefined);
@@ -462,8 +467,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         .then((result) => {
           releaseWriteLane();
           if (childCtl.signal.aborted) return;
-          deps.fleetRecords.resolve(session.id, result);
-          deps.sessions.complete(session.id, result);
+          deps.fleetRecords.resolve(session.id, result.report);
+          deps.sessions.complete(session.id, result.report);
         })
         .catch((err) => {
           releaseWriteLane();

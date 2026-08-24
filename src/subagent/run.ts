@@ -102,6 +102,7 @@ import {
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
+  type ForcedStopReason,
 } from "./stop-policy.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
@@ -120,7 +121,7 @@ import {
 import { createTaskTool } from "./task-tool.js";
 import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
 import { createSubAgentSessionStore } from "./session-store.js";
-import type { RunSubAgentParams, SubAgentProvider } from "./types.js";
+import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
 import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
 
@@ -327,7 +328,7 @@ const submitResultDefinition: ToolDefinition = {
 // (isolated mode, see task-tool.ts's useWorktree) — either way this loop
 // gets its own posix tool instances and its own git-backed context store so
 // the two loops never trample each other's state.
-export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
+export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgentResult> {
   await seedPricingMetadataFromCache({
     cachePath: defaultPricingCachePath(),
   });
@@ -604,6 +605,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     // Assigned once the leaf's trace dir exists; the director factory closes
     // over this binding and only fires after that point.
     let interventions: InterventionSink = NOOP_INTERVENTION_SINK;
+    // Set by the director when it force-stops via capabilities.reply (the
+    // normal agent.send success path) — carried into the returned result
+    // instead of being re-derived by parsing the report text.
+    let directorForcedStopReason: ForcedStopReason | undefined;
     let agentHandle: Awaited<ReturnType<typeof createAgentWithLiveToolDispatch>> | null = null;
     const requestContinuation = (): void => {
       try {
@@ -642,6 +647,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           params.intent === "implement",
           shouldRequireEvidence(params),
         );
+        director.observeForcedStop((reason) => {
+          directorForcedStopReason = reason;
+        });
         director.observeInterventions((event) => {
           interventions(event);
         });
@@ -966,7 +974,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       // Normalize into the structured envelope so the parent always gets a
       // consistent shape even when the model rambling-returns free-form prose.
       const report = formatSubAgentReport(parseSubAgentReport(reply));
-      return appendActivitySummary(report, toolNamesUsed);
+      return {
+        report: appendActivitySummary(report, toolNamesUsed),
+        ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
+      };
     } catch (err) {
       if (isSubAgentCancelError(err, runController.signal)) {
         // Close the recorder against the dead cycle before its inference.error
@@ -1050,7 +1061,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
             state: { totalToolCalls: toolNamesUsed.length },
             ...(detail !== undefined ? { detail } : {}),
           });
-          return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
+          return {
+            report: appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed),
+            stopReason: reason,
+          };
         }
       }
       throw err;
