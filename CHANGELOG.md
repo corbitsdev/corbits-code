@@ -47,6 +47,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   as an unhandled rejection. A failed close now short-circuits the rebuild
   with a clear, catchable error instead of retrying a doomed second
   acquisition.
+### TUI
+
+- **The approval overlay no longer pushes the prompt box off screen or clips
+  itself at the bottom.** On a short terminal the fixed context budget behind
+  a permission/operator approval could ask for more rows than its frame had,
+  so the resolver fell back to sizing it below its own render minimum — the
+  overlay's border and choices painted past the frame, or vanished entirely,
+  while the prompt box was still on screen but the thing the operator needed
+  to answer was not. The overlay's context text now shrinks (down to dropping
+  it entirely on the shortest terminals) so the header, every choice's row
+  budget, and the prompt box at its floor always fit together; choices win the
+  row budget over context detail when a terminal is too short for both.
 
 ## [0.2.107] - 2026-08-24
 
