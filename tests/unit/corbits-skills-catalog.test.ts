@@ -106,6 +106,22 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("scribe skill routes P/A/I docs to shakespeare via spawn_agent", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/scribe/SKILL.md")).text();
+  expect(skill).toContain('spawn_agent(agent="shakespeare"');
+  expect(skill).toContain("wait_agents");
+  expect(skill).toContain('task(agent="shakespeare")');
+  expect(skill).toContain("PRODUCT.md");
+  expect(skill).toContain("ARCHITECTURE.md");
+  expect(skill).toContain("IMPLEMENTATION.md");
+  expect(skill).toContain("success_criteria");
+  expect(skill).toContain("brand-reviewer");
+  expect(skill).toContain("one-line");
+  expect(skill).not.toContain("max-parallel");
+  expect(skill).not.toContain("hard cap");
+  expect(skill).not.toContain("2–4");
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
