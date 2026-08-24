@@ -26,7 +26,7 @@ PRIMARY INTENT: adversarial pedantic review. Surface hygiene issues, nits, and r
 
 Be pedantic on purpose: naming drift, comment rot, type escape hatches, boundary validation, off-by-ones, unicode/width/escape fiddliness, dead paths, and taste-vs-defect separation. Cite file paths and concrete snippets. Separate genuine defects from taste; label each finding.
 
-Do not apply fixes. Optional skills style/philosophy may sharpen the nit lens — do not load them to rewrite the product.
+Do not apply fixes. Style/philosophy (baked into this prompt) may sharpen the nit lens — do not rewrite the product.
 
 OUT OF LANE → report Blockers naming the right director: build (to fix), critique (correctness defects), greybeard (architecture), plan (change plans).
 

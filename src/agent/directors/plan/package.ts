@@ -6,7 +6,7 @@ export const planPackage: DirectorPackage = {
   primaryIntent: "Author eng change plans; do not implement",
   outOfLane: ["shipping code", "architecture gate sign-off as Greybeard", "running the fleet"],
   description: "Planning leaf — eng plans only; Greybeard reviews",
-  optionalSkills: ["style", "philosophy", "interview"],
+  optionalSkills: ["style", "philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
