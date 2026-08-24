@@ -485,8 +485,16 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         // Every worker at every nesting depth is created under the same root
         // workdirBase (nestedDispatch.getWorkdirBase is threaded through
         // unchanged, never rebound to this worker's own dir), so the trace
-        // reader's search root is that same function.
-        createReadAgentTraceTool(nd.getWorkdirBase),
+        // reader's search root is that same function. Descendant-only
+        // scoping is enforced inside the tool via assertCanTargetAgent,
+        // reusing the fleet nodes SubAgentSessionStore already tracks and
+        // this worker's own store id (params.id) — not the disk layout,
+        // which is intentionally flat across the whole fleet.
+        createReadAgentTraceTool(nd.getWorkdirBase, {
+          actorId: params.id,
+          tier,
+          getNodes: () => nd.sessions?.list() ?? [],
+        }),
       ];
     }
 
@@ -584,7 +592,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       },
     });
 
-    const workdir = join(params.workdirBase, "subagents", generateSessionId());
+    // Reuse the caller's session-store id as the on-disk directory name
+    // when it is safe as a path segment, so read_agent_trace's descendant
+    // check can walk the same parentSessionId chain SubAgentSessionStore
+    // already tracks instead of needing a second, disk-only identity
+    // scheme.
+    const safeRequestedId =
+      params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id) ? params.id : undefined;
+    const workdir = join(params.workdirBase, "subagents", safeRequestedId ?? generateSessionId());
     await mkdir(workdir, { recursive: true });
     // One record per stop/nudge, with its measured value beside its threshold,
     // written into this leaf's own trace dir (CL-6938).

@@ -10,10 +10,11 @@
  * SubAgentSessionStore (which a process restart or a killed worker can
  * leave with nothing).
  *
- * Every read here is bounded: a fixed turn window, a fixed entry count, and
- * a per-entry character cap, each capped again by a hard maximum regardless
- * of what the caller asks for. No argument combination can pull an
- * unbounded blob into the parent's context.
+ * Every read here is bounded on four independent axes — turn window, entry
+ * count, per-entry characters, and total output characters (the first three
+ * multiply, so they are each capped again by a total-output ceiling) — each
+ * with a hard maximum regardless of what the caller asks for. No argument
+ * combination can pull an unbounded blob into the parent's context.
  */
 
 import fs from "node:fs";
@@ -29,6 +30,10 @@ export const MAX_TRACE_TURN_WINDOW = 200;
 export const DEFAULT_TRACE_ENTRY_LIMIT = 200;
 export const MAX_TRACE_ENTRY_LIMIT = 500;
 export const MAX_TRACE_ENTRY_CHARS = 4_000;
+// Per-entry/entry-count/turn-window caps each bound one axis, but multiply
+// together (500 entries * 4,000 chars = 2,000,000 chars in one call). This
+// caps the total regardless of how the other axes are combined.
+export const MAX_TRACE_TOTAL_CHARS = 20_000;
 
 // A pathological or runaway fleet tree should fail the search cheaply rather
 // than walk forever; a worker this deep or a fleet this large is itself a
@@ -196,6 +201,18 @@ function parseTurnsTolerant(text: string): { turns: RawTurn[]; warnings: number 
   return { turns, warnings };
 }
 
+/**
+ * Reads and parses every segment before the caller's window/limit bounds
+ * apply, so a not-yet-rotated active segment is loaded whole regardless of
+ * how small a slice the caller actually wants. In practice each segment is
+ * itself bounded to ~256KB by the writer (createSegmentedJSONLWriter's
+ * DEFAULT_MAX_SEGMENT_BYTES), so this cannot grow unboundedly with a
+ * worker's total history the way reading turns.jsonl as one file could —
+ * but avoiding this read entirely (only touching the segments the requested
+ * turn range actually falls in) needs either a cheap line-count index or a
+ * streaming reader, which is a larger change than this fix; tracked as a
+ * follow-up rather than expanding this one.
+ */
 async function readAllTurns(dir: string): Promise<{ turns: RawTurn[]; warnings: number }> {
   const segments = await listSegmentFiles(dir, TURNS_FILE);
   const turns: RawTurn[] = [];
@@ -325,6 +342,8 @@ export async function readAgentTrace(
 
   const entries: TraceEntry[] = [];
   let entriesTruncated = false;
+  let totalChars = 0;
+  let stopReason: "entry-limit" | "total-chars" | null = null;
   let lastReadTurn = fromTurn;
   outer: for (let i = fromTurn; i < toTurn; i++) {
     lastReadTurn = i;
@@ -335,8 +354,15 @@ export async function readAgentTrace(
       if (kindsFilter !== null && !kindsFilter.has(entry.kind)) continue;
       if (entries.length >= limit) {
         entriesTruncated = true;
+        stopReason = "entry-limit";
         break outer;
       }
+      if (totalChars + entry.content.length > MAX_TRACE_TOTAL_CHARS) {
+        entriesTruncated = true;
+        stopReason = "total-chars";
+        break outer;
+      }
+      totalChars += entry.content.length;
       entries.push(entry);
     }
   }
@@ -349,9 +375,12 @@ export async function readAgentTrace(
   const omitted: TraceOmission | null =
     turnsBefore > 0 || turnsAfter > 0
       ? {
-          reason: entriesTruncated
-            ? "entry limit reached before the requested turn range finished reading"
-            : "turn window bounded to the default/requested range",
+          reason:
+            stopReason === "entry-limit"
+              ? "entry limit reached before the requested turn range finished reading"
+              : stopReason === "total-chars"
+                ? `total output cap (${MAX_TRACE_TOTAL_CHARS} chars) reached before the requested turn range finished reading`
+                : "turn window bounded to the default/requested range",
           turnsBefore,
           turnsAfter,
           hint:

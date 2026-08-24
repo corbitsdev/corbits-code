@@ -19,6 +19,27 @@ import {
   type TraceEntryKind,
   type TraceReadResult,
 } from "./trace-reader.js";
+import {
+  assertCanTargetAgent,
+  FleetAuthorityError,
+  type FleetNode,
+  type SubagentTier,
+} from "./authority.js";
+
+/**
+ * Descendant-scoping context for a Tier 2 nested orchestrator's copy of this
+ * tool. `actorId` is this worker's own SubAgentSessionStore id (the same id
+ * used as its on-disk directory name — see run.ts) and `getNodes` returns
+ * the live fleet so `assertCanTargetAgent` can walk the existing
+ * parentSessionId chain rather than trusting a per-caller check that could
+ * be forgotten at a future mount site. Omit entirely for Tier 1 (the
+ * primary orchestrator), which may target anyone.
+ */
+export interface ReadAgentTraceAuthority {
+  actorId: string | undefined;
+  tier: SubagentTier;
+  getNodes: () => readonly FleetNode[];
+}
 
 const TRACE_ENTRY_KINDS: readonly TraceEntryKind[] = [
   "text",
@@ -103,13 +124,37 @@ function formatTraceResult(result: TraceReadResult): string {
   return lines.join("\n");
 }
 
-export function createReadAgentTraceTool(getRootWorkdirBase: () => string): AgentTool {
+export function createReadAgentTraceTool(
+  getRootWorkdirBase: () => string,
+  authority?: ReadAgentTraceAuthority,
+): AgentTool {
   return stringTool({
     definition: readAgentTraceDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = ReadAgentTraceArgs(rawArgs);
       if (parsed instanceof type.errors) {
         return `Error: read_agent_trace requires target (string); ${parsed.summary}`;
+      }
+      if (authority !== undefined) {
+        // Fails closed: an actor whose own store id could not be resolved
+        // (no session record for this dispatch) must never be trusted with
+        // fleet-wide read access, mirroring CL-6941's unresolved-tier rule.
+        if (authority.actorId === undefined) {
+          return (
+            "Error: read_agent_trace is unavailable for this worker (no resolvable session " +
+            "id to scope descendant access)."
+          );
+        }
+        try {
+          assertCanTargetAgent(
+            { id: authority.actorId, tier: authority.tier },
+            parsed.target,
+            authority.getNodes(),
+          );
+        } catch (cause) {
+          if (cause instanceof FleetAuthorityError) return `Error: ${cause.message}`;
+          throw cause;
+        }
       }
       try {
         const result = await readAgentTrace(getRootWorkdirBase(), parsed.target, {

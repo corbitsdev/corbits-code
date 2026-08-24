@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createReadAgentTraceTool } from "./trace-tool.js";
+import type { FleetNode } from "./authority.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "trace-tool-"));
@@ -44,5 +45,75 @@ describe("createReadAgentTraceTool", () => {
     const text = await tool.handler({ target: "worker-1" }, new AbortController().signal);
     expect(text).toContain("worker-1");
     expect(text).toContain("hello");
+  });
+
+  describe("descendant-only scoping (two sibling subtrees under one flat root)", () => {
+    // Every worker at every nesting depth lands under the same root
+    // subagents/ dir (see run.ts), so on disk workerA1 and workerY are
+    // indistinguishable siblings. Authority comes entirely from the fleet
+    // node list (parentSessionId chain), not from directory structure.
+    const nodes: FleetNode[] = [
+      { id: "orchA" },
+      { id: "workerA1", parentSessionId: "orchA" },
+      { id: "orchB" },
+      { id: "workerY", parentSessionId: "orchB" },
+    ];
+
+    function setUpRoot(): string {
+      const root = tempDir();
+      writeTurns(path.join(root, "subagents", "workerA1"), [
+        { role: "assistant", content: [{ type: "text", text: "from A1" }] },
+      ]);
+      writeTurns(path.join(root, "subagents", "workerY"), [
+        { role: "assistant", content: [{ type: "text", text: "from Y" }] },
+      ]);
+      return root;
+    }
+
+    test("orchestratorA can read its own descendant workerA1", async () => {
+      const root = setUpRoot();
+      const tool = createReadAgentTraceTool(() => root, {
+        actorId: "orchA",
+        tier: "nested-orchestrator",
+        getNodes: () => nodes,
+      });
+      if (tool.kind !== "string") throw new Error("expected string tool");
+      const text = await tool.handler({ target: "workerA1" }, new AbortController().signal);
+      expect(text).toContain("from A1");
+    });
+
+    test("orchestratorA cannot read workerY, a sibling subtree's worker", async () => {
+      const root = setUpRoot();
+      const tool = createReadAgentTraceTool(() => root, {
+        actorId: "orchA",
+        tier: "nested-orchestrator",
+        getNodes: () => nodes,
+      });
+      if (tool.kind !== "string") throw new Error("expected string tool");
+      const text = await tool.handler({ target: "workerY" }, new AbortController().signal);
+      expect(text).toContain("Error:");
+      expect(text).not.toContain("from Y");
+    });
+
+    test("an actor with no resolvable session id is denied entirely", async () => {
+      const root = setUpRoot();
+      const tool = createReadAgentTraceTool(() => root, {
+        actorId: undefined,
+        tier: "nested-orchestrator",
+        getNodes: () => nodes,
+      });
+      if (tool.kind !== "string") throw new Error("expected string tool");
+      const text = await tool.handler({ target: "workerA1" }, new AbortController().signal);
+      expect(text).toContain("Error:");
+      expect(text).not.toContain("from A1");
+    });
+
+    test("Tier 1 (no authority context) can read any worker", async () => {
+      const root = setUpRoot();
+      const tool = createReadAgentTraceTool(() => root);
+      if (tool.kind !== "string") throw new Error("expected string tool");
+      const text = await tool.handler({ target: "workerY" }, new AbortController().signal);
+      expect(text).toContain("from Y");
+    });
   });
 });

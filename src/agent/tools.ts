@@ -310,8 +310,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
                 }),
               ]
             : []),
-          // Tier 1: the primary session is always an orchestrator, so this is
-          // unconditional wherever task/search_agents are mounted.
+          // Tier 1: the primary session is always an orchestrator and may
+          // target any worker (assertCanTargetAgent's rule), so no authority
+          // context is passed here — omitting it is treated as unrestricted,
+          // matching Tier 1's actual authority.
           createReadAgentTraceTool(args.subAgent.getWorkdirBase),
         ]
       : []),

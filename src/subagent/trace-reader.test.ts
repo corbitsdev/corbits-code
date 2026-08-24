@@ -9,6 +9,7 @@ import {
   listUniqueSubdirs,
   readAgentTrace,
   MAX_TRACE_ENTRY_LIMIT,
+  MAX_TRACE_TOTAL_CHARS,
   MAX_TRACE_TURN_WINDOW,
 } from "./trace-reader.js";
 
@@ -151,6 +152,27 @@ describe("readAgentTrace", () => {
     expect(result.entriesTruncated).toBe(true);
     expect(result.omitted).not.toBeNull();
     expect(result.omitted!.hint.length).toBeGreaterThan(0);
+  });
+
+  test("never exceeds the total-output character cap regardless of entry/window caps", async () => {
+    const root = tempDir();
+    const childDir = path.join(root, "subagents", "worker-1");
+    const turns = Array.from({ length: 600 }, (_, i) => ({
+      role: "assistant",
+      content: [{ type: "text", text: `turn ${i} `.repeat(1000) }], // ~5,000 chars each
+    }));
+    writeTurns(childDir, turns);
+
+    const result = await readAgentTrace(root, "worker-1", {
+      fromTurn: 0,
+      toTurn: 600,
+      limit: MAX_TRACE_ENTRY_LIMIT,
+    });
+    const totalChars = result.entries.reduce((sum, e) => sum + e.content.length, 0);
+    expect(totalChars).toBeLessThanOrEqual(MAX_TRACE_TOTAL_CHARS);
+    expect(result.entriesTruncated).toBe(true);
+    expect(result.omitted).not.toBeNull();
+    expect(result.omitted!.reason).toContain("total output cap");
   });
 
   test("never exceeds the hard entry-limit cap regardless of requested limit", async () => {
