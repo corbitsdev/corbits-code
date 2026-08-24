@@ -90,8 +90,6 @@ export {
   type TaskBriefFingerprintInput,
 } from "./brief-dispatch.js";
 
-export { DEFAULT_SUBAGENT_MAX_TURNS } from "../config/settings.js";
-
 export { SubAgentDirector } from "./nudge-director.js";
 
 export {
