@@ -15,7 +15,12 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { EMPTY_THRASH_STATE, nextThrashState, salvagePathsFromThrash, type ThrashState } from "./thrash.js";
+import {
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  salvagePathsFromThrash,
+  type ThrashState,
+} from "./thrash.js";
 import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
 import {
   evaluateSubAgentStop,

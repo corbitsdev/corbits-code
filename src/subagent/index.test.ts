@@ -455,7 +455,11 @@ describe("sub-agent stop helpers", () => {
 
   test("salvagePathsFromThrash prefers edited paths then collapses chunked reads", () => {
     const state = nextThrashState(EMPTY_THRASH_STATE, [
-      { type: "tool_call", name: "read_file", arguments: { path: "src/a.ts", offset: 0, limit: 10 } },
+      {
+        type: "tool_call",
+        name: "read_file",
+        arguments: { path: "src/a.ts", offset: 0, limit: 10 },
+      },
       {
         type: "tool_call",
         name: "edit_file",

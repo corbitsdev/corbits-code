@@ -21,7 +21,12 @@ export {
   type FleetObservation,
   type FleetWatch,
 } from "./fleet-report.js";
-export { EMPTY_THRASH_STATE, nextThrashState, salvagePathsFromThrash, type ThrashState } from "./thrash.js";
+export {
+  EMPTY_THRASH_STATE,
+  nextThrashState,
+  salvagePathsFromThrash,
+  type ThrashState,
+} from "./thrash.js";
 export {
   appendActivitySummary,
   buildDispatchBrief,
