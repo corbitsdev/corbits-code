@@ -172,4 +172,13 @@ export type RunSubAgentParams = {
 export interface RunSubAgentResult {
   report: string;
   stopReason?: ForcedStopReason;
+  /**
+   * CL-7001: true only on the clean-completion path when `persist: true`
+   * actually skipped teardown (mirrors run.ts's own turnSucceeded gate). A
+   * deadline/cancel salvage returns without throwing but always disposes its
+   * agent, so this is absent (falsy) there even though the promise resolves
+   * the same way a clean completion does — the session store uses this to
+   * keep a disposed salvage from ever looking resumable.
+   */
+  agentRetained?: boolean;
 }
