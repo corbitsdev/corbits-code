@@ -15,12 +15,29 @@ describe("critiquePackage", () => {
     expect(critiquePackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
   });
 
-  test("systemPrompt is evidence-based and never-fix", () => {
-    expect(critiquePackage.systemPrompt).toMatch(/evidence-based/i);
-    expect(critiquePackage.systemPrompt).toMatch(/never fix/i);
-    expect(critiquePackage.systemPrompt).toMatch(/permanent tests/i);
-    expect(critiquePackage.systemPrompt).toContain("testsmith/build");
-    expect(critiquePackage.systemPrompt).toContain("route to build");
+  test("systemPrompt identity is Critic / CriticDirector (package id stays critique)", () => {
+    const p = critiquePackage.systemPrompt;
+    expect(p).toMatch(/CriticDirector \(Critic\)/);
+    expect(p).toMatch(/review lane only/i);
+    expect(p).not.toMatch(/CritiqueDirector/);
+  });
+
+  test("systemPrompt is evidence-based defects, never-fix", () => {
+    const p = critiquePackage.systemPrompt;
+    expect(p).toMatch(/evidence-based/i);
+    expect(p).toMatch(/defects with evidence/i);
+    expect(p).toMatch(/never fix/i);
+    expect(p).toMatch(/permanent tests/i);
+    expect(p).toContain("testsmith/build");
+    expect(p).toContain("route to build");
+  });
+
+  test("systemPrompt has blinders-on / brief-scoped review", () => {
+    const p = critiquePackage.systemPrompt;
+    expect(p).toMatch(/BLINDERS ON/i);
+    expect(p).toMatch(/success_criteria/i);
+    expect(p).toMatch(/Do not wander/i);
+    expect(p).toMatch(/invent defects from vibes/i);
   });
 
   test("systemPrompt is correctness-only / anti-over-engineering", () => {
@@ -48,6 +65,19 @@ describe("critiquePackage", () => {
       /parameter order\/optionality\/return-type drift/i,
     );
     expect(critiquePackage.systemPrompt).toMatch(/Rank these as blocking, not style nits/i);
+  });
+
+  test("systemPrompt has no tool-schema restatement or fake caps", () => {
+    const p = critiquePackage.systemPrompt;
+    expect(p).not.toMatch(/parameters?:/i);
+    expect(p).not.toMatch(/fan-out/i);
+    expect(p).not.toMatch(/at most \d+/i);
+    expect(p).not.toMatch(/turn budget/i);
+    expect(p).not.toMatch(/scheduler/i);
+    expect(p).not.toMatch(/Prefer grep\/search_files/i);
+    expect(p).not.toMatch(/Shell find\/rg/i);
+    expect(p).not.toMatch(/Write tools are not mounted/i);
+    expect(p).not.toMatch(/via run_shell/i);
   });
 
   test("spawn.maySpawn is false", () => {
