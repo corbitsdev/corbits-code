@@ -39,9 +39,28 @@ export const CORE_TOOL_NAMES: readonly string[] = [
   // round-trip. Catalog-only placement left the model discovering profiles then
   // failing on an unloaded task tool.
   "task",
+  // Fleet verbs (non-blocking spawn + lifecycle). Mounted on primary when
+  // subAgent is wired; advertised here so the model does not tool_search for
+  // them. Package allowlists (ORCHESTRATOR_TOOLS / SKYWALKER_TOOLS) are a
+  // separate, deferred change.
+  "spawn_agent",
+  "wait_agents",
+  "close_agent",
+  "resume_agent",
+  "interrupt_agent",
+  "followup_task",
 ];
 
-const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = ["search_agents", "task"];
+const ORCHESTRATOR_ONLY_TOOL_NAMES: readonly string[] = [
+  "search_agents",
+  "task",
+  "spawn_agent",
+  "wait_agents",
+  "close_agent",
+  "resume_agent",
+  "interrupt_agent",
+  "followup_task",
+];
 
 // Session-start facts that gate a core tool's advertisement. Each must be
 // knowable once, before the first inference call, and must never change for
