@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createSubAgentSessionStore } from "./session-store.js";
+import { forcedStopReport } from "./stop-policy.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -261,16 +262,21 @@ describe("parallel tool calls", () => {
 });
 
 describe("terminal stop reasons", () => {
-  test("complete() records the report's Stopped line as stopReason", () => {
+  test("complete() records the typed stopReason, not report prose", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.complete(session.id, forcedStopReport("stalled", "partial"), { stopReason: "stalled" });
+    expect(store.get(session.id)?.stopReason).toBe("stalled");
+  });
+
+  test("literal Stopped: in report prose does not fabricate stopReason", () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
     store.complete(
       session.id,
-      'Stopped: repetition — window "Groaning. " × 1363\n\n## Summary\nStopped: degenerate repetition in streamed output (same window looping mid-turn).',
+      'Stopped: repetition — window "Groaning. " × 1363\n\n## Summary\nStopped: looping.\n\n## Findings\nx',
     );
-    const stored = store.get(session.id);
-    expect(stored?.status).toBe("done");
-    expect(stored?.stopReason).toBe('repetition — window "Groaning. " × 1363');
+    expect(store.get(session.id)?.stopReason).toBeUndefined();
   });
 
   test("a clean complete has no stopReason", () => {
