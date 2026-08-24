@@ -358,13 +358,19 @@ describe("CL-6943 reusable worker sessions", () => {
     expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "shutdown" });
   });
 
-  // CL-7001: a retained, still-open session used to be exempt from this cap
-  // entirely — no separate cap or TTL — which is exactly why every
-  // spawn_agent worker leaked by default. maxCompleted is now the one bound
-  // the store owns for every finished session, retained or not, and
-  // eviction releases the session's close handle instead of abandoning it.
-  test("pruneCompleted evicts a retained, still-open session past maxCompleted and releases it", () => {
-    const store = createSubAgentSessionStore({ maxCompleted: 1 });
+  // CL-7001 originally folded a retained, still-open session into
+  // maxCompleted (the TUI display cap) with no separate bound at all,
+  // fixing the unbounded leak but creating a new bug: resume_agent /
+  // followup_task fail once more than `maxCompleted` (default 20) workers
+  // have spawned, even though every one of them is still perfectly
+  // reusable. CL-7007 gives open retained sessions their own cap
+  // (`maxRetained`) instead — this test changed from asserting that
+  // `maxCompleted` evicts a retained session (no longer true: retained
+  // sessions are excluded from that cap, see isOpenRetained) to asserting
+  // that `maxRetained` does, with the same "handles still get released"
+  // guarantee.
+  test("pruneRetained evicts a retained, still-open session past maxRetained and releases it", () => {
+    const store = createSubAgentSessionStore({ maxCompleted: 1, maxRetained: 1 });
     const retained = store.start({
       description: "keep-me",
       agentId: "a",
@@ -378,12 +384,112 @@ describe("CL-6943 reusable worker sessions", () => {
     store.complete(retained.id, "## Summary\nDone.");
 
     for (let i = 0; i < 3; i++) {
-      const s = store.start({ description: `fill-${i}`, agentId: "a", brief: "b" });
+      const s = store.start({
+        description: `fill-${i}`,
+        agentId: "a",
+        brief: "b",
+        retained: true,
+      });
+      store.registerClose(s.id, async () => {});
       store.complete(s.id, "## Summary\nDone.");
     }
 
     expect(store.get(retained.id)).toBeUndefined();
     expect(closed).toBe(true);
+  });
+
+  // CL-7002's fix (retained sessions are no longer exempt from any cap) must
+  // survive CL-7007: a non-retained finished session still obeys
+  // maxCompleted exactly as before.
+  test("maxCompleted still evicts an ordinary (non-retained) finished session", () => {
+    const store = createSubAgentSessionStore({ maxCompleted: 1 });
+    const first = store.start({ description: "first", agentId: "a", brief: "b" });
+    store.complete(first.id, "## Summary\nDone.");
+
+    for (let i = 0; i < 3; i++) {
+      const s = store.start({ description: `fill-${i}`, agentId: "a", brief: "b" });
+      store.complete(s.id, "## Summary\nDone.");
+    }
+
+    expect(store.get(first.id)).toBeUndefined();
+  });
+
+  test("resume_agent on a retention-evicted session returns an actionable status, not not_found", () => {
+    const store = createSubAgentSessionStore({ maxRetained: 1 });
+    const retained = store.start({
+      description: "keep-me",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.registerClose(retained.id, async () => {});
+    store.complete(retained.id, "## Summary\nDone.");
+
+    for (let i = 0; i < 3; i++) {
+      const s = store.start({
+        description: `fill-${i}`,
+        agentId: "a",
+        brief: "b",
+        retained: true,
+      });
+      store.registerClose(s.id, async () => {});
+      store.complete(s.id, "## Summary\nDone.");
+    }
+
+    const outcome = store.resumeOne(retained.id);
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.status).toBe("completed");
+      expect(outcome.hint).toMatch(/read_agent_trace/);
+    }
+  });
+
+  test("a running session is never evicted by maxRetained even when the cap is exceeded", () => {
+    const store = createSubAgentSessionStore({ maxRetained: 1 });
+    const running = store.start({
+      description: "keep-me",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(running.id);
+    // Resume it back to "running" so it is an open, actively-driven session.
+    store.registerClose(running.id, async () => {});
+    store.complete(running.id, "## Summary\nDone.");
+    store.resumeOne(running.id);
+    expect(store.get(running.id)?.lifecycleStatus).toBe("running");
+
+    for (let i = 0; i < 5; i++) {
+      const s = store.start({
+        description: `fill-${i}`,
+        agentId: "a",
+        brief: "b",
+        retained: true,
+      });
+      store.registerClose(s.id, async () => {});
+      store.complete(s.id, "## Summary\nDone.");
+    }
+
+    expect(store.get(running.id)).toBeDefined();
+    expect(store.get(running.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("maxRetained bounds memory: many spawned-and-completed retained sessions do not grow without limit", () => {
+    const store = createSubAgentSessionStore({ maxRetained: 5 });
+    for (let i = 0; i < 50; i++) {
+      const s = store.start({
+        description: `worker-${i}`,
+        agentId: "a",
+        brief: "b",
+        retained: true,
+      });
+      store.registerClose(s.id, async () => {});
+      store.complete(s.id, "## Summary\nDone.");
+    }
+    const openRetained = store
+      .list()
+      .filter((s) => s.retained === true && s.lifecycleStatus === "completed");
+    expect(openRetained.length).toBeLessThanOrEqual(5);
   });
 
   test("once closed, a retained session becomes a normal finished record subject to the cap", async () => {

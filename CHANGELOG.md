@@ -11,6 +11,18 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Fixed
+
+- Retained worker sessions (`spawn_agent`, resumable via `resume_agent`/`followup_task`) now have
+  their own retention cap, separate from the TUI's finished-session display cap. Previously they
+  shared that 20-item cap, so `resume_agent` on an early worker failed with a bare `not_found` once
+  a fan-out of more than 20 workers had finished. A session dropped by the retention cap still
+  releases its sidecars/reactor/lock entry, always evicts least-recently-used first, and never
+  evicts a running session. `resume_agent`/`followup_task` against an evicted session now report
+  its terminal status plus a pointer to `read_agent_trace`, instead of `not_found`.
+
 ## [0.3.0] - 2026-08-24
 
 ### Breaking
