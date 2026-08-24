@@ -17,6 +17,7 @@ const SKILL_DIRS = [
   "typescript",
   "interview",
   "git-rebase",
+  "git-worktrees",
   "refactor",
   "pull-request-review",
   "create-issue",
@@ -27,6 +28,7 @@ const SKILL_DIRS = [
 
 const SPAWN_RECIPE_SKILLS = ["implement", "scribe", "review", "dispatch", "plan"] as const;
 
+/** use_skill listing + resolve; not slash. No disable-model-invocation. */
 const USE_SKILL_ONLY = [
   "dispatch",
   "git-rebase",
@@ -36,6 +38,9 @@ const USE_SKILL_ONLY = [
   "typescript",
   "opsh",
 ] as const;
+
+/** Background libs: absent from slash and use_skill listing; explicit resolve only. */
+const BACKGROUND_ONLY = ["git-worktrees"] as const;
 
 const SLASH_SKILLS = [
   "implement",
@@ -52,6 +57,7 @@ const SLASH_SKILLS = [
 const BANNED_TOKENS = ["TaskCreate", "@greybeard", 'intent="general"'] as const;
 
 const USER_INVOCABLE_FALSE = "user-invocable: false";
+const DISABLE_MODEL_INVOCATION = "disable-model-invocation: true";
 
 async function listFilesRecursive(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -82,8 +88,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 16 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(16);
+test("corbits-skills catalog lists 17 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(17);
   const entries = await readdir(join(pluginRoot, "skills"), { withFileTypes: true });
   const dirs = entries
     .filter((entry) => entry.isDirectory())
@@ -114,11 +120,39 @@ test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", asy
   expect(skill).toContain("Preferred issue tracker:");
 });
 
-test("use_skill-only skills set user-invocable: false", async () => {
+test("use_skill-only skills set user-invocable: false without disable-model-invocation", async () => {
   for (const name of USE_SKILL_ONLY) {
     const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
     expect(skill).toContain(USER_INVOCABLE_FALSE);
+    expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
   }
+});
+
+test("background-only skills set both exclusion flags", async () => {
+  for (const name of BACKGROUND_ONLY) {
+    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    expect(skill).toContain(USER_INVOCABLE_FALSE);
+    expect(skill).toContain(DISABLE_MODEL_INVOCATION);
+  }
+});
+
+test("only background libs carry disable-model-invocation", async () => {
+  for (const name of SKILL_DIRS) {
+    const skill = await Bun.file(join(pluginRoot, "skills", name, "SKILL.md")).text();
+    if ((BACKGROUND_ONLY as readonly string[]).includes(name)) {
+      expect(skill).toContain(DISABLE_MODEL_INVOCATION);
+    } else {
+      expect(skill).not.toContain(DISABLE_MODEL_INVOCATION);
+    }
+  }
+});
+
+test("linear-issue-workflow references use_skill(git-worktrees)", async () => {
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/linear-issue-workflow/SKILL.md"),
+  ).text();
+  expect(skill).toContain('use_skill("git-worktrees")');
+  expect(skill).not.toContain("git worktree add");
 });
 
 test("slash skills do not set user-invocable: false", async () => {

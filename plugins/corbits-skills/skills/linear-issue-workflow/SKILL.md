@@ -21,23 +21,15 @@ If the scope is unclear, `ask_operator` before proceeding. Do not guess.
 
 Read `branchName` from the issue (call `mcp__linear__get_issue` again if needed).
 
-Spawn `task(agent="intern")` with this sequenced `run_shell` list copied into the brief. Intern executes; Skywalker does not run the git.
+Load `use_skill("git-worktrees")`. Copy the create-from-origin/<default-branch> recipe into an intern brief (substitute `<branch-name>`). Spawn `task(agent="intern")`. Intern executes; Skywalker does not run the git.
 
-```bash
-git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@'
-git fetch origin
-git worktree add ../worktree/<branch-name> -b <branch-name> origin/<default-branch>
-```
-
-Always base new branches on `origin/<default-branch>` (whatever the repository uses). After creating the worktree, intern `cd`s into it and installs local dependencies from developer documentation. Worktrees do not share `node_modules`.
-
-If intern fails, stop and `ask_operator`. If the operator rejects the issue before implementation, intern tears down the worktree (Phase 7 commands) rather than leaving it stranded.
+If intern fails, stop and `ask_operator`. If the operator rejects the issue before implementation, intern tears down the worktree via the git-worktrees teardown recipe rather than leaving it stranded.
 
 ## Phase 3: Plan, attach, mark In Progress
 
 1. Spawn `task(agent="explore")` if the codebase map is not already known. Brief it with the absolute worktree path (it must work there) and the issue: where changes go, existing patterns, related code.
 2. Follow the `/implement` loop's greybeard step (Phase 4) for the approach. Present the plan to the operator and `ask_operator` whether to proceed. Do not start implementation until approved.
-3. If the operator rejects the plan and the issue cannot be salvaged, intern tears down the worktree (Phase 7) rather than leaving it stranded.
+3. If the operator rejects the plan and the issue cannot be salvaged, intern tears down the worktree via the git-worktrees teardown recipe rather than leaving it stranded.
 4. Attach the plan to the Linear issue. **Do not post the plan as a comment** — comments are for discussion, not archives.
 
    Spawn `task(agent="build")` with a mechanical brief to write the approved plan to the worktree's `tmp/plan-<ISSUE-ID>.md` (do not commit it). Intern captures byte size with `wc -c`. Primary then:
@@ -130,16 +122,7 @@ Phase 6 ends when the PR is open. Phase 7 runs **after the PR is merged** and **
 2. Re-read the issue with `mcp__linear__get_issue`. Flip checkboxes the merged PR actually completed on `main` via `mcp__linear__save_issue`. Never check a box on intent.
 3. `mcp__linear__save_comment` with PR URL, merge SHA, and CI-green confirmation. Short. Present-tense facts.
 4. If every outcome checkbox is checked, set state to `Done` with `mcp__linear__save_issue`. Otherwise leave In Progress.
-5. Only then intern cleans up:
-
-```bash
-cd <path-to-main-repo>
-git fetch origin
-git worktree remove ../worktree/<branch-name>
-git branch -d <branch-name>
-```
-
-If the worktree directory was already deleted: `git worktree prune`.
+5. Only then intern cleans up: load `use_skill("git-worktrees")` and copy the teardown recipe into an intern brief (substitute `<branch-name>` and `<path-to-main-repo>`).
 
 ## Linear MCP tool reference
 
