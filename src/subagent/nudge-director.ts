@@ -305,8 +305,7 @@ export class SubAgentDirector extends DefaultDirector {
         stop === "no-progress" ||
         stop === "turn-budget" ||
         stop === "never-acted" ||
-        stop === "never-edited" ||
-        stop === "no-ship"
+        stop === "never-edited"
       ) {
         const checkpoint =
           stop === "no-progress"
@@ -315,9 +314,7 @@ export class SubAgentDirector extends DefaultDirector {
               ? "subagent-never-acted"
               : stop === "never-edited"
                 ? "subagent-never-edited"
-                : stop === "no-ship"
-                  ? "subagent-no-ship"
-                  : "subagent-turn-budget";
+                : "subagent-turn-budget";
         const detail =
           stop === "no-progress"
             ? `identical tool call × ${this.streak.consecutiveIdentical}`
