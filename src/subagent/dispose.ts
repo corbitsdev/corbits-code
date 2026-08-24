@@ -31,7 +31,7 @@ export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boole
 export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
 
 /**
- * Bounded cleanup deadline for close_agent (CL-6943): a wedged descendant's
+ * Bounded cleanup deadline for close_agent: a wedged descendant's
  * teardown is abandoned (not awaited further), not a reason to hang the
  * caller.
  */

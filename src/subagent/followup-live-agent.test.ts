@@ -1,5 +1,5 @@
 /**
- * CL-6997 regression guard: lifecycle-tools.test.ts proves interrupt_agent /
+ * Regression guard: lifecycle-tools.test.ts proves interrupt_agent /
  * followup_task behave correctly against *fake registered closures* at the
  * tool/store layer — it never exercises run.ts's real wiring, where
  * `followup` calls `agent!.send()` on the same live agent object created by
@@ -82,7 +82,7 @@ function createStubAgent() {
   };
 }
 
-describe("interrupt_agent / followup_task reuse the same live agent (CL-6997)", () => {
+describe("interrupt_agent / followup_task reuse the same live agent", () => {
   test("followup after interrupt sends into the SAME agent instance — not a rebuilt one", async () => {
     const cwd = await tmpCwd();
     let constructions = 0;

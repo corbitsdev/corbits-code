@@ -4,7 +4,7 @@
  * There was no way to tell how often a stop or nudge trigger was wrong. Every
  * threshold in the tree was set by judgment, and the tuning history is a
  * record of that not working — a grok 6/10 pair reverted as miscalibrated,
- * and a grok stall timeout reverted (CL-6938).
+ * and a grok stall timeout reverted.
  *
  * The point of this file is that a threshold change can cite data. Each record
  * carries the trigger's *measured value beside its threshold*, the identity of

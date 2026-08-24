@@ -6,7 +6,7 @@
  * cannot keep: a lane failed or went quiet, and the single moment the fleet runs
  * dry. Per-lane "done — summary" walls are intentionally never printed — they
  * restate the strip and the parent and turn the transcript into a second
- * status log (CL-5846).
+ * status log.
  *
  * Pure and stateless per call — the caller keeps the returned watch and hands
  * it back on the next observation. No painting, no store access.
@@ -175,7 +175,7 @@ export function observeFleet(
 
     // A lane going quiet is no longer emitted to the transcript: the single
     // agents-panel rollup row carries the quiet count instead, so a stalled
-    // fleet stops producing "went quiet" walls (CL-5846). stallReported is
+    // fleet stops producing "went quiet" walls. stallReported is
     // still tracked internally so the strip does not flap.
   }
 
@@ -184,7 +184,7 @@ export function observeFleet(
 
   // Board owns live lanes. Parent prose owns success narratives. Transcript
   // only: fail/stall while work is still running, or one dry-fleet tally.
-  // Never per-lane "done — summary" walls (CL-5846).
+  // Never per-lane "done — summary" walls.
   if (wentDry) {
     return {
       watch,

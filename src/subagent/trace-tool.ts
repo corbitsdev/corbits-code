@@ -1,5 +1,5 @@
 /**
- * `read_agent_trace` tool (CL-6951): lets an orchestrator or nested
+ * `read_agent_trace` tool: lets an orchestrator or nested
  * orchestrator inspect what a worker has actually done on disk — its turns,
  * tool calls, and errors — even if the worker is still running or was
  * cancelled/interrupted and its in-memory session record is gone.
@@ -137,8 +137,8 @@ export function createReadAgentTraceTool(
       }
       if (authority !== undefined) {
         // Fails closed: an actor whose own store id could not be resolved
-        // (no session record for this dispatch) must never be trusted with
-        // fleet-wide read access, mirroring CL-6941's unresolved-tier rule.
+        // (no session record for this dispatch) is denied fleet-wide read
+        // access, mirroring the unresolved-tier rule elsewhere.
         if (authority.actorId === undefined) {
           return (
             "Error: read_agent_trace is unavailable for this worker (no resolvable session " +
