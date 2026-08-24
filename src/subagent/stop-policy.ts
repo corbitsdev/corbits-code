@@ -83,9 +83,9 @@ export type SubAgentStopReason =
  * caller to inject a wrap-up / redirect nudge and keep running; turn-budget
  * remains reachable afterward. A tool-less turn (including one that never
  * called a tool at all) completes only when the assistant text has a
- * four-heading envelope (Summary, Findings, Blockers, Paths). Omitting
- * `lastAssistantText` still completes (back-compat). Missing envelope nudges
- * once (`incomplete-report`) then salvages (`incomplete-report-stop`).
+ * four-heading envelope (Summary, Findings, Blockers, Paths). Missing
+ * envelope nudges once (`incomplete-report`) then salvages
+ * (`incomplete-report-stop`).
  * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
  * is not complete even with all four headings — same incomplete-report
  * nudge then salvage, so a wrap-up envelope cannot fake a real review.
@@ -105,20 +105,17 @@ export function evaluateSubAgentStop(input: {
    */
   requireEvidence?: boolean;
   /**
-   * Final assistant text of this turn. When omitted, a tool-less turn after
-   * tools still completes (back-compat for existing unit tests). When provided,
-   * a missing four-heading envelope (Summary/Findings/Blockers/Paths) nudges
-   * once then salvages.
+   * Final assistant text of this turn. A missing four-heading envelope
+   * (Summary/Findings/Blockers/Paths) nudges once then salvages.
    */
-  lastAssistantText?: string;
+  lastAssistantText: string;
   /** True after the one-shot incomplete-report wrap-up nudge has been injected. */
   incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
-  // A tool-less turn is complete only with a report envelope (or when
-  // lastAssistantText is omitted). CritiqueDirector additionally requires at
-  // least one read/search in thrashState.readCounts.
+  // A tool-less turn is complete only with a report envelope. CritiqueDirector
+  // additionally requires at least one read/search in thrashState.readCounts.
   if (!input.hasToolCalls) {
-    if (input.lastAssistantText !== undefined && !hasReportEnvelope(input.lastAssistantText)) {
+    if (!hasReportEnvelope(input.lastAssistantText)) {
       return input.incompleteReportNudgeFired === true
         ? "incomplete-report-stop"
         : "incomplete-report";
