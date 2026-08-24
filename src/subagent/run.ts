@@ -202,13 +202,11 @@ export interface SubAgentRunController {
   deadlineHit: () => boolean;
   /** Abort the run from inside, distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
-  // CL-7001: normally tears down the timer and the parent-abort forwarding
-  // listener. Pass keepParentListener:true for a run that is persisting
-  // (retained, clean completion) — otherwise a later parent abort (operator
-  // cancel/close reaching this run's own params.signal) would stop
-  // propagating into runController.signal, and closeOnAbort — which is
-  // registered on runController.signal, not the parent's — would never fire
-  // for the still-open session.
+  // Normally tears down the timer and the parent-abort forwarding listener.
+  // Pass keepParentListener:true for a run that is persisting (retained,
+  // clean completion) — otherwise a later parent abort would stop
+  // propagating into runController.signal, and closeOnAbort would never
+  // fire for the still-open session.
   dispose: (opts?: { keepParentListener?: boolean }) => void;
 }
 
@@ -312,15 +310,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   });
 
   const permissionGate = params.permissionGate;
-  // Turn token (CL-6946): identifies this dispatch to submit_result so a
-  // submission survives only for the turn it was spawned under — if the
-  // orchestrator redirects/steers away, a stale submit_result call (echoing
-  // an old token) is rejected rather than silently accepted.
+  // Identifies this dispatch to submit_result so a submission survives
+  // only for the turn it was spawned under — a stale call from a redirected
+  // orchestrator (echoing an old token) is rejected.
   const turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
-  // Child tools resolve spills against the child's own store first, then the
-  // parent's (CL-4323): parent tool-output:// URIs handed in the brief must
+  // Child tools resolve spills against the child's own store first, then
+  // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
   let childBlobReader: BlobReader | undefined;
   const sessionBlobReader = createCompositeBlobReader(() => childBlobReader, params.getBlobReader);
@@ -341,12 +338,12 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   let streamPromise: Promise<void> | undefined;
   let closeOnAbort: (() => void) | undefined;
   // Set only on the clean-completion return path; read by the finally block
-  // to decide whether a persisted session's teardown is skipped (CL-6943).
+  // to decide whether a persisted session's teardown is skipped.
   let turnSucceeded = false;
-  // CL-6997: set only on the interrupt_agent path (a dedicated signal fired
-  // by the `interrupt` handle below, never runController) — the finally
-  // block skips teardown here too, exactly like a persisted clean success,
-  // so the agent and its workdir lock stay live for a later followup_task.
+  // Set only on the interrupt_agent path (a dedicated signal fired by the
+  // `interrupt` handle below, never runController) — the finally block
+  // skips teardown here too, so the agent and its workdir lock stay live
+  // for a later followup_task.
   let interruptedKeepAlive = false;
   // Scoped to this run's `agent.send()` call only. Firing it rejects that
   // one send's promise (per Agent.send's documented signal option) without
@@ -448,8 +445,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       }),
     ];
 
-    // submit_result (CL-6946): typed reporting channel, Tier 3 leaves only.
-    // Gated by the existing tier machinery — never invent a parallel check.
+    // Typed reporting channel, Tier 3 leaves only. Gated by the existing
+    // tier machinery — never invent a parallel check.
     if (params.tier === "leaf") {
       tools = [
         ...tools,
@@ -473,14 +470,10 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     // the prompt. Nested dispatch always forbids further orchestration so the
     // tree bottoms out after one hop.
     if (params.orchestrator === true) {
-      // Tier enforcement at the mount point (CL-6941), not the prompt: FAILS
-      // CLOSED. The caller (task-tool.ts) resolves orchestratorTier from
-      // either the closed DirectorPackage.tier or an explicit
-      // AgentProfile.tier opt-in; an unresolved tier defaults to "leaf" here,
-      // not to "skip the check" — a caller that cannot be identified must be
-      // denied, never silently trusted. This is what stops a project/plugin
-      // AgentProfile with orchestrator: true from mounting task/search_agents
-      // just because it is outside the closed director set.
+      // Tier enforcement at the mount point, not the prompt, fails closed:
+      // an unresolved tier defaults to "leaf" rather than skipping the check,
+      // so an AgentProfile outside the closed director set cannot mount
+      // task/search_agents just by setting orchestrator: true.
       const tier = params.orchestratorTier ?? "leaf";
       for (const verb of [
         "task",
@@ -552,11 +545,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           getNodes: () => nd.sessions?.list() ?? [],
         }),
       ];
-      // spawn_agent/wait_agents (CL-6942) need a session store as their
-      // mailbox; reuse the orchestrator's if it has one, else give this
-      // install its own. fleetRecords is a small never-capped map for
-      // terminal results the session store's display cap would otherwise
-      // evict before wait_agents collects them (see agent-fleet.ts).
+      // spawn_agent/wait_agents need a session store as their mailbox;
+      // reuse the orchestrator's if it has one, else give this install its
+      // own. fleetRecords holds terminal results the session store's
+      // display cap would otherwise evict before wait_agents collects them
+      // (see agent-fleet.ts).
       const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
       const fleetRecords = createFleetRecords();
       const fleetDeps = {
@@ -694,8 +687,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id) ? params.id : undefined;
     const workdir = join(params.workdirBase, "subagents", safeRequestedId ?? generateSessionId());
     await mkdir(workdir, { recursive: true });
-    // One record per stop/nudge, with its measured value beside its threshold,
-    // written into this leaf's own trace dir (CL-6938).
+    // One record per stop/nudge, with its measured value beside its
+    // threshold, written into this leaf's own trace dir.
     interventions = createInterventionLog(workdir, {
       role: params.orchestrator === true ? "orchestrator" : "leaf",
       provider: params.provider.providerName,
@@ -816,13 +809,12 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       runController.signal.addEventListener("abort", closeOnAbort, { once: true });
     }
 
-    // CL-6943: hand the caller a bounded, idempotent close it can call at any
-    // time (close_agent) — independent of whether this run ends up retained.
+    // Hand the caller a bounded, idempotent close it can call at any time
+    // (close_agent) — independent of whether this run ends up retained.
     // Aborting first stops a still-running turn before tearing down; on an
-    // already-finished turn the abort is a no-op and disposeSubAgentSession
-    // just releases resources. The timeout races teardown itself so a wedged
-    // descendant cannot hang the caller — see dispose.ts's documented
-    // close()-ordering issue (CL-6984) for why teardown itself can stall.
+    // already-finished turn the abort is a no-op. The timeout races teardown
+    // itself so a wedged descendant cannot hang the caller — see dispose.ts
+    // for the close()-ordering issue that can stall it.
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (deadlineMs = DEFAULT_CLOSE_DEADLINE_MS): Promise<void> => {
         if (!runController.signal.aborted) runController.abort(new Error("closed by close_agent"));
@@ -839,25 +831,21 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           teardown,
           new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
         ]);
-        // CL-7001: the run's finally block kept the parent-abort forwarding
-        // listener alive for a persisted session (see runController.dispose's
-        // doc); now that this session is actually closing, tear it down for
-        // real so the listener does not outlive the session.
+        // The finally block kept the parent-abort forwarding listener alive
+        // for a persisted session (see runController.dispose's doc); now that
+        // this session is actually closing, tear it down for real.
         runController.dispose();
       };
-      // CL-6997: interrupt only fires interruptController — never
-      // runController/close, so it cannot hit the close()-ordering wedge
-      // documented in dispose.ts (CL-6984).
+      // Interrupt only fires interruptController — never runController/
+      // close, so it cannot hit the close()-ordering wedge documented in
+      // dispose.ts.
       const interrupt = (): void => {
         if (!interruptController.signal.aborted) {
           interruptController.abort(new Error("interrupted by interrupt_agent"));
         }
       };
-      // CL-6997: followup_task's payoff — call agent.send() again on the
-      // same live agent object. The vendored send-queue serializes this
-      // behind whatever cycle was in flight (interrupted or not), and
-      // agent.history()/the context store already hold every prior turn, so
-      // this reuses full context rather than starting fresh.
+      // followup_task's payoff — call agent.send() again on the same live
+      // agent object, reusing full context rather than starting fresh.
       const followup = async (message: string): Promise<string> => {
         const result = await agent!.send(message, { signal: runController.signal });
         return result.reply.trim().length > 0
@@ -889,8 +877,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     };
     try {
       ensureNotAborted();
-      // Combine the run's own controller with the dedicated interrupt signal
-      // (CL-6997) so either one stops this send() call, while only
+      // Combine the run's own controller with the dedicated interrupt
+      // signal so either one stops this send() call, while only
       // runController's abort is wired to closeOnAbort/teardown.
       const sendSignal =
         typeof AbortSignal.any === "function"
@@ -918,23 +906,22 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       // Normalize into the structured envelope so the parent always gets a
       // consistent shape even when the model rambling-returns free-form prose.
       const report = formatSubAgentReport(parseSubAgentReport(reply));
-      // A clean completion is the only outcome CL-6943 retains: an aborted or
-      // salvaged run below falls through without setting this, so the finally
-      // block still tears down exactly as before for those.
+      // A clean completion is the only outcome that retains: an aborted or
+      // salvaged run below falls through without setting this, so the
+      // finally block still tears down for those.
       turnSucceeded = true;
       return {
         report: appendActivitySummary(report, toolNamesUsed),
         ...(directorForcedStopReason !== undefined ? { stopReason: directorForcedStopReason } : {}),
-        // CL-7001: only this path skips teardown below when persist is set —
-        // tell the caller so a salvage below is never mistaken for a still-
-        // live, resumable agent.
+        // Only this path skips teardown below when persist is set — tell
+        // the caller so a salvage below is never mistaken for a still-live,
+        // resumable agent.
         ...(params.persist === true ? { agentRetained: true } : {}),
       };
     } catch (err) {
-      // CL-6997: interrupt_agent fired its own signal, not runController's —
-      // check that first so an interrupted send doesn't fall into the
-      // cancel/deadline salvage path (which tears down in the finally
-      // block) or rethrow as a bare AbortError.
+      // interrupt_agent fired its own signal, not runController's — check
+      // that first so an interrupted send doesn't fall into the cancel/
+      // deadline salvage path or rethrow as a bare AbortError.
       if (interruptController.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
         const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
@@ -993,20 +980,19 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     }
   } finally {
     if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
-    // CL-7001 + CL-6997: a run keeps its agent alive either because it
-    // completed cleanly under persist, or because interrupt_agent fired and
-    // the session must stay reusable. Both skip teardown and both need the
-    // parent-signal listener kept so a later cancel still reaches them.
+    // A run keeps its agent alive either because it completed cleanly
+    // under persist, or because interrupt_agent fired and the session must
+    // stay reusable. Both skip teardown and both need the parent-signal
+    // listener kept so a later cancel still reaches them.
     const persisting = (params.persist === true && turnSucceeded) || interruptedKeepAlive;
-    // CL-7001: a persisting run must keep the parent-signal forwarding alive
-    // (see createSubAgentRunController's dispose doc) — boundedClose (the
+    // A persisting run must keep the parent-signal forwarding alive (see
+    // createSubAgentRunController's dispose doc) — boundedClose (the
     // close_agent handle) fully disposes the runController itself once the
     // session actually tears down.
     runController.dispose({ keepParentListener: persisting });
-    // CL-6943: a persisted, cleanly-completed session skips teardown here —
-    // it stays open until close_agent (or a later failed/aborted run) tears
-    // it down. Everything else (no persist, a thrown error, an
-    // aborted/salvaged run) disposes exactly as before.
+    // A persisted, cleanly-completed session skips teardown here — it
+    // stays open until close_agent (or a later failed/aborted run) tears it
+    // down.
     if (!persisting) {
       await disposeSubAgentSession({
         signal: runController.signal,

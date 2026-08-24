@@ -1,7 +1,7 @@
 /**
  * Pure read/edit bookkeeping for dispatched workers, consumed by
  * evaluateSubAgentStop's requireEvidence check (CritiqueDirector). Reads
- * performed through run_shell count as evidence too (CL-6937) — the prompt
+ * performed through run_shell count as evidence too — the prompt
  * prohibits shell file work, but a prompt violation deserves a correction,
  * not a verdict that the work never happened. `editedPaths` (from typed write
  * tools only) is diagnostics for interventions.jsonl; no stop decision
@@ -109,7 +109,7 @@ export function nextThrashState(
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
     } else if (name === SHELL_TOOL) {
-      // Shell reads are evidence too (CL-6937) — the prompt prohibits shell
+      // Shell reads are evidence too — the prompt prohibits shell
       // file work, but a prompt violation deserves a correction, not a
       // verdict that the work never happened.
       const command = args.command;

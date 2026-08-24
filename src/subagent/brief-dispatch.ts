@@ -1,5 +1,5 @@
 /**
- * Parent-side re-dispatch bookkeeping for task briefs (CL-4343 + CL-5203).
+ * Parent-side re-dispatch bookkeeping for task briefs.
  *
  * This module tracks how often the *parent* re-spawns the same brief so
  * salvage outcomes can be classified per-fingerprint (successful completes

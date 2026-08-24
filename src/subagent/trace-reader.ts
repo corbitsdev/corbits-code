@@ -1,5 +1,5 @@
 /**
- * On-disk trace reader backing the `read_agent_trace` fleet verb (CL-6951).
+ * On-disk trace reader backing the `read_agent_trace` fleet verb.
  *
  * Every sub-agent worker writes its full turn history to `turns.jsonl`
  * (segmented — see incremental-jsonl.ts) under its own workdir, but nothing

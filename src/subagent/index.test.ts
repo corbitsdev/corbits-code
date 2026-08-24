@@ -284,7 +284,7 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
-  test("re-read pressure no longer stops a worker (CL-6936)", () => {
+  test("re-read pressure no longer stops a worker", () => {
     let thrash = EMPTY_THRASH_STATE;
     thrash = nextThrashState(thrash, [
       { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
@@ -608,7 +608,7 @@ describe("thrash edge cases", () => {
     expect(stop(s)).toBeNull();
   });
 
-  test("re-reading the same chunk repeatedly is not a stop (CL-6936)", () => {
+  test("re-reading the same chunk repeatedly is not a stop", () => {
     let s = EMPTY_THRASH_STATE;
     s = nextThrashState(s, [edit("big.ts")]);
     for (let i = 0; i < 8; i++) {

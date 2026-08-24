@@ -1,4 +1,4 @@
-// --- Shell file evidence (CL-6937) -----------------------------------------
+// --- Shell file evidence -----------------------------------------
 //
 // The stop policy's requireEvidence / CritiqueDirector gate measures whether
 // a worker did real work by counting typed tool calls. Reads done through

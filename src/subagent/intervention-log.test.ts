@@ -24,7 +24,7 @@ async function flush(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 10));
 }
 
-describe("intervention log (CL-6938)", () => {
+describe("intervention log", () => {
   test("records carry the shared context, the measurement, and the run state", async () => {
     const dir = await mkdtemp(join(tmpdir(), "intervention-log-"));
     const sink = createInterventionLog(
