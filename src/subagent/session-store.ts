@@ -92,9 +92,11 @@ export interface SubAgentSession {
   // "pending_init" until the run wires up markRunning(); see the type doc.
   lifecycleStatus: AgentLifecycleStatus;
   // True when this session's agent is meant to survive a clean completion
-  // (spawn_agent opts in). Only a retained session in lifecycleStatus
-  // "completed" is exempt from pruneCompleted's cap — once close_agent runs,
-  // this flips back to false and the cap applies normally.
+  // (spawn_agent opts in). An open retained session ("completed" or
+  // "interrupted") is governed by its own retention cap (`maxRetained`),
+  // separate from `maxCompleted` (the TUI display cap) — see pruneRetained.
+  // Once close_agent runs, this flips back to false and the session is a
+  // normal finished record subject to `maxCompleted` like any other.
   retained?: boolean;
 }
 
@@ -114,8 +116,17 @@ export interface StartSessionInput {
 
 export interface SubAgentSessionStoreOptions {
   // Cap on completed/failed sessions retained after finish. Running sessions
-  // are never pruned by this bound.
+  // are never pruned by this bound. Does NOT govern open retained sessions
+  // ("completed"/"interrupted" with retained:true) — see maxRetained.
   maxCompleted?: number;
+  // CL-7007: cap on open retained sessions (spawn_agent workers a caller may
+  // still resume_agent/followup_task). Sized for fan-out (dozens of
+  // concurrent workers), independent of maxCompleted's TUI display cap.
+  // Least-recently-used is evicted first; a "running" session is never
+  // evicted regardless of this bound. Non-finite/undefined values (and a
+  // JSON round-trip that turned a configured Infinity into null) fall back
+  // to the default rather than silently becoming 0.
+  maxRetained?: number;
   // Cap on transcript entries per session (oldest dropped).
   maxEntries?: number;
   // Cap on characters per text/thinking/result entry.
@@ -164,7 +175,10 @@ export interface SubAgentSessionStore {
   // "shutdown" session is gone for good (close_agent is permanent), an
   // "interrupted" one already tore its agent down, and "running"/
   // "pending_init"/"not_found" have nothing to resume.
-  resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
+  // CL-7007: a session dropped by pruneRetained still reports its terminal
+  // lifecycleStatus plus `hint` pointing at read_agent_trace — never a bare
+  // "not_found" that reads like a bad id.
+  resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus; hint?: string };
   // CL-6997: registers the per-session interrupt/followup handles run.ts
   // hands back via onAgentReady. Distinct maps from registerClose/closeOne
   // above (interrupt must never route through close's codepath).
@@ -182,7 +196,9 @@ export interface SubAgentSessionStore {
   followupOne(
     id: string,
     message: string,
-  ): Promise<{ ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus }>;
+  ): Promise<
+    { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
+  >;
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -190,8 +206,31 @@ export interface SubAgentSessionStore {
 export const DEFAULT_CANCEL_REASON = "Cancelled by operator";
 
 const DEFAULT_MAX_COMPLETED = 20;
+// CL-7007: sized for fan-out dispatch (dozens of spawn_agent workers), not a
+// sidebar list — see maxRetained doc above.
+const DEFAULT_MAX_RETAINED = 50;
 const DEFAULT_MAX_ENTRIES = 400;
 const DEFAULT_MAX_ENTRY_CHARS = 24_000;
+
+const EVICTED_RETENTION_HINT =
+  "Session evicted to bound retained-session memory; recover full detail via read_agent_trace(agent_id).";
+
+// Bound on tombstones kept for evicted sessions, so an unbounded stream of
+// short-lived retained workers cannot grow this map forever either.
+const MAX_EVICTED_TOMBSTONES = 500;
+
+/** Resolves a configured cap, guarding against non-finite values (including
+ * a JSON round-trip that turned a configured `Infinity` into `null`) so the
+ * cap can never silently collapse to `0`/`NaN`. */
+function resolveCap(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) ? value : fallback;
+}
+
+/** Terminal record for a session dropped from the store by retention eviction. */
+interface EvictedRecord {
+  lifecycleStatus: AgentLifecycleStatus;
+  hint: string;
+}
 
 let nextId = 0;
 function defaultCreateId(): string {
@@ -298,7 +337,8 @@ function stringifyUnknown(value: unknown): string {
 export function createSubAgentSessionStore(
   options: SubAgentSessionStoreOptions = {},
 ): SubAgentSessionStore {
-  const maxCompleted = options.maxCompleted ?? DEFAULT_MAX_COMPLETED;
+  const maxCompleted = resolveCap(options.maxCompleted, DEFAULT_MAX_COMPLETED);
+  const maxRetained = resolveCap(options.maxRetained, DEFAULT_MAX_RETAINED);
   const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const maxEntryChars = options.maxEntryChars ?? DEFAULT_MAX_ENTRY_CHARS;
   const now = options.now ?? (() => Date.now());
@@ -317,6 +357,23 @@ export function createSubAgentSessionStore(
   const interruptHandles = new Map<string, () => void>();
   const followupHandles = new Map<string, (message: string) => Promise<string>>();
   const listeners = new Set<() => void>();
+  // CL-7007: tombstones for sessions dropped by pruneRetained, keyed by id,
+  // insertion-ordered (Map preserves it) so the oldest can be dropped first
+  // once MAX_EVICTED_TOMBSTONES is exceeded. Lets resume_agent/followup_task
+  // report an actionable terminal status instead of a bare "not_found" for a
+  // session evicted purely to bound retention memory.
+  const evicted = new Map<string, EvictedRecord>();
+
+  const recordEviction = (session: SubAgentSession): void => {
+    evicted.set(session.id, {
+      lifecycleStatus: session.lifecycleStatus,
+      hint: EVICTED_RETENTION_HINT,
+    });
+    if (evicted.size > MAX_EVICTED_TOMBSTONES) {
+      const oldest = evicted.keys().next().value;
+      if (oldest !== undefined) evicted.delete(oldest);
+    }
+  };
 
   // Per-session revision counters, bumped on every mutation. Notify fires on
   // every streamed child token, so list()/get()/listForStrip() would otherwise
@@ -405,16 +462,25 @@ export function createSubAgentSessionStore(
     cancelHandles.delete(id);
   };
 
-  // CL-7001: `maxCompleted` is the one bound this store owns for every
-  // finished session, retained or not — a retained-but-idle ("completed")
-  // session used to be exempt here with no separate cap or TTL, which is
-  // exactly why every spawn_agent worker leaked by default. A session that
-  // was resumed and is actively running again (lifecycleStatus "running")
-  // is still excluded: it has a live caller, not an idle leak.
+  // An open retained session (spawn_agent's reusable-session contract:
+  // retained:true and still addressable — "completed" or "interrupted") is
+  // governed by pruneRetained's own cap below, not this one.
+  const isOpenRetained = (s: SubAgentSession): boolean =>
+    s.retained === true &&
+    (s.lifecycleStatus === "completed" || s.lifecycleStatus === "interrupted");
+
+  // CL-7001/CL-7007: `maxCompleted` bounds every ordinary finished session —
+  // one that was never retained, or a retained one already closed via
+  // close_agent (retained flips back to false there). It is a TUI display
+  // cap and was never sized to also be the retention policy for reusable
+  // sessions; open retained sessions are excluded here and bounded instead
+  // by pruneRetained. A session that was resumed and is actively running
+  // again (lifecycleStatus "running") is still excluded: it has a live
+  // caller, not an idle leak.
   const pruneCompleted = (): void => {
     if (maxCompleted <= 0) {
       for (const [id, s] of sessions) {
-        if (s.status !== "running" && s.lifecycleStatus !== "running") {
+        if (s.status !== "running" && s.lifecycleStatus !== "running" && !isOpenRetained(s)) {
           releaseHandles(id);
           sessions.delete(id);
           forgetRevision(id);
@@ -423,7 +489,9 @@ export function createSubAgentSessionStore(
       return;
     }
     const finished = [...sessions.values()]
-      .filter((s) => s.status !== "running" && s.lifecycleStatus !== "running")
+      .filter(
+        (s) => s.status !== "running" && s.lifecycleStatus !== "running" && !isOpenRetained(s),
+      )
       .sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0));
     const excess = finished.length - maxCompleted;
     if (excess <= 0) return;
@@ -431,6 +499,32 @@ export function createSubAgentSessionStore(
       const drop = finished[i];
       if (drop !== undefined) {
         releaseHandles(drop.id);
+        sessions.delete(drop.id);
+        forgetRevision(drop.id);
+      }
+    }
+  };
+
+  // CL-7007: bounds open retained sessions (dozens-of-workers fan-out), the
+  // resource-safety bound CL-7002 removed by mistake when it folded retained
+  // sessions into pruneCompleted's TUI cap. Evicts least-recently-used first
+  // (by lastActivityAt); a session actively running again is never a
+  // candidate (excluded by isOpenRetained requiring "completed"/
+  // "interrupted"). Handles are released exactly like pruneCompleted's
+  // eviction — sidecars, reactor, and the lock entry are not simply
+  // forgotten — and a tombstone is kept so resume_agent/followup_task can
+  // still report an actionable status afterward instead of "not_found".
+  const pruneRetained = (): void => {
+    const openRetained = [...sessions.values()]
+      .filter(isOpenRetained)
+      .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    const excess = openRetained.length - maxRetained;
+    if (excess <= 0) return;
+    for (let i = 0; i < excess; i++) {
+      const drop = openRetained[i];
+      if (drop !== undefined) {
+        releaseHandles(drop.id);
+        recordEviction(drop);
         sessions.delete(drop.id);
         forgetRevision(drop.id);
       }
@@ -711,6 +805,7 @@ export function createSubAgentSessionStore(
         cancelHandles.delete(id);
         if (!agentRetained) closeHandles.delete(id);
         pruneCompleted();
+        pruneRetained();
       });
     },
 
@@ -765,7 +860,13 @@ export function createSubAgentSessionStore(
 
     async closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus> {
       const session = sessions.get(id);
-      if (session === undefined) return "not_found";
+      if (session === undefined) {
+        // CL-7007: an id evicted by pruneRetained already had its handles
+        // released — from close_agent's perspective that is indistinguishable
+        // from "already shut down", not a bad id.
+        if (evicted.has(id)) return "shutdown";
+        return "not_found";
+      }
       if (session.lifecycleStatus === "shutdown") return "shutdown";
       let close = closeHandles.get(id);
       if (close === undefined) {
@@ -831,15 +932,24 @@ export function createSubAgentSessionStore(
       mutate(id, (s) => {
         s.lifecycleStatus = "interrupted";
       });
+      pruneRetained();
       return { ok: true };
     },
 
     async followupOne(
       id: string,
       message: string,
-    ): Promise<{ ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus }> {
+    ): Promise<
+      { ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus; hint?: string }
+    > {
       const session = sessions.get(id);
-      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session === undefined) {
+        const tombstone = evicted.get(id);
+        if (tombstone !== undefined) {
+          return { ok: false, status: tombstone.lifecycleStatus, hint: tombstone.hint };
+        }
+        return { ok: false, status: "not_found" };
+      }
       if (
         session.retained !== true ||
         (session.lifecycleStatus !== "completed" && session.lifecycleStatus !== "interrupted")
@@ -856,12 +966,21 @@ export function createSubAgentSessionStore(
         s.report = reply;
         pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
       });
+      pruneRetained();
       return { ok: true, reply };
     },
 
-    resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
+    resumeOne(
+      id: string,
+    ): { ok: true } | { ok: false; status: AgentLifecycleStatus; hint?: string } {
       const session = sessions.get(id);
-      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session === undefined) {
+        const tombstone = evicted.get(id);
+        if (tombstone !== undefined) {
+          return { ok: false, status: tombstone.lifecycleStatus, hint: tombstone.hint };
+        }
+        return { ok: false, status: "not_found" };
+      }
       if (session.lifecycleStatus !== "completed" || session.retained !== true) {
         return { ok: false, status: session.lifecycleStatus };
       }
@@ -917,6 +1036,7 @@ export function createSubAgentSessionStore(
       sessions.clear();
       revisions.clear();
       snapshotCache.clear();
+      evicted.clear();
       notify();
     },
   };
