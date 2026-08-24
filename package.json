@@ -54,7 +54,6 @@
   },
   "catalog": {
     "@types/semver": "^7.7.1",
-    "ajv": "^8.17.1",
     "arktype": "^2.1.29",
     "better-auth": "^1.4.18",
     "drizzle-orm": "^0.45.1",
@@ -77,7 +76,6 @@
     "@opentui/core": "0.5.1",
     "@opentui/keymap": "0.5.1",
     "@opentui/solid": "0.5.1",
-    "ajv": "catalog:",
     "arktype": "catalog:",
     "highlight.js": "^11.11.1",
     "solid-js": "1.9.14"

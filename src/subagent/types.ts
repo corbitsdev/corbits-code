@@ -10,6 +10,7 @@ import type { ToolPlugin } from "@intx/tools-posix";
 
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
+import type { OutputType } from "./submit-result.js";
 import type { Settings } from "../config/settings.js";
 import type { ShellTimeoutConfig } from "../plugins/shell-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -144,6 +145,6 @@ export type RunSubAgentParams = {
    * gates it, not a new mechanism.
    */
   tier?: SubagentTier;
-  /** DirectorPackage.reportContract.outputSchema, when the resolved leaf declares one. */
-  reportSchema?: Record<string, unknown>;
+  /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
+  reportType?: OutputType;
 } & SubAgentSandboxDeps;
