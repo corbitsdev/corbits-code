@@ -48,11 +48,6 @@ export interface NudgePolicy {
   readonly stallMs?: number;
 }
 
-export interface ReportContract {
-  /** Required top-level sections in the worker report. */
-  readonly requiredSections: readonly string[];
-}
-
 /**
  * One shipped director: hard primary intent + package fields.
  * Packages land in later levels; registry holds the closed set.
@@ -80,7 +75,6 @@ export interface DirectorPackage {
   readonly writePaths?: readonly string[];
   readonly spawn: SpawnRights;
   readonly nudge?: NudgePolicy;
-  readonly report: ReportContract;
   readonly modelRole: ModelRole;
 }
 

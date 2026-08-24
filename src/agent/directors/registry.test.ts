@@ -26,9 +26,6 @@ describe("director registry", () => {
       expect(pkg.systemPrompt.length).toBeGreaterThan(40);
       expect(pkg.systemPrompt.startsWith("Placeholder")).toBe(false);
       expect(pkg.systemPrompt.toLowerCase()).toContain("primary intent");
-      expect(pkg.report.requiredSections).toEqual(
-        expect.arrayContaining(["Summary", "Findings", "Blockers", "Paths"]),
-      );
     }
   });
 

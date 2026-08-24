@@ -20,7 +20,6 @@ export const gaasbotPackage: DirectorPackage = {
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "plan",
   systemPrompt: `You are GaasbotDirector, a specialist in Corbits Code.
 

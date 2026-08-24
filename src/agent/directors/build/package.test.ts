@@ -27,14 +27,6 @@ describe("buildDirectorPackage", () => {
     expect(allow).toContain("apply_patch");
   });
 
-  test("report.requiredSections includes Summary, Findings, Blockers, Paths", () => {
-    const sections = buildDirectorPackage.report.requiredSections;
-    expect(sections).toContain("Summary");
-    expect(sections).toContain("Findings");
-    expect(sections).toContain("Blockers");
-    expect(sections).toContain("Paths");
-  });
-
   test("modelRole is implement", () => {
     expect(buildDirectorPackage.modelRole).toBe("implement");
   });

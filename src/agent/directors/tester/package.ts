@@ -33,6 +33,5 @@ Report: Summary, Findings (commands + results), Blockers, Paths.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "test",
 };
