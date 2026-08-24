@@ -64,7 +64,7 @@ export function buildHarnessFacts(
           "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
         ]
       : [
-          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn build for substantial/multi-file/parallel/specialist work (hard cap 4 workers). Docs/design still spawn shakespeare/bruckheimer/brand-reviewer except one-line fixes.",
+          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn build for substantial/multi-file/parallel/specialist work. Docs/design still spawn shakespeare/bruckheimer/brand-reviewer except one-line fixes.",
           "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools. Path tools are the DIY surface.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",

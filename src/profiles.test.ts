@@ -30,9 +30,9 @@ test("loadProfile parses valid profile", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ model: "claude-opus-4-8", maxTurns: 50 }));
+  await writeFile(path, JSON.stringify({ model: "claude-opus-4-8" }));
   const result = await loadProfile(path);
-  expect(result).toEqual({ model: "claude-opus-4-8", maxTurns: 50 });
+  expect(result).toEqual({ model: "claude-opus-4-8" });
 });
 
 test("loadProfile parses systemPromptExtensions", async () => {
@@ -50,14 +50,6 @@ test("loadProfile rejects unknown keys", async () => {
   const path = join(dir, "profile.json");
   await writeFile(path, JSON.stringify({ model: "x", unknownKey: true }));
   await expect(loadProfile(path)).rejects.toThrow(/unknownKey must be removed/);
-});
-
-test("loadProfile rejects invalid maxTurns", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ maxTurns: -1 }));
-  await expect(loadProfile(path)).rejects.toThrow(/maxTurns/);
 });
 
 test("loadProfile rejects non-array systemPromptExtensions", async () => {
@@ -89,11 +81,11 @@ test("resolveProfile applies project profile fields", async () => {
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "profile.json"),
-    JSON.stringify({ model: "claude-sonnet", maxTurns: 30 }),
+    JSON.stringify({ model: "claude-sonnet", systemPromptExtensions: ["ext1"] }),
   );
   const result = await resolveProfile(cwd);
   expect(result.model).toBe("claude-sonnet");
-  expect(result.maxTurns).toBe(30);
+  expect(result.systemPromptExtensions).toEqual(["ext1"]);
 });
 
 test("resolveProfile surfaces profile name when set", async () => {
@@ -112,7 +104,7 @@ test("resolveProfile: project profile fields override named profile fields", asy
   await mkdir(namedDir, { recursive: true });
   await writeFile(
     join(namedDir, "work.json"),
-    JSON.stringify({ model: "base-model", maxTurns: 10 }),
+    JSON.stringify({ model: "base-model", systemPromptExtensions: ["ext1"] }),
   );
   const localDir = join(cwd, ".corbits");
   await mkdir(localDir, { recursive: true });
@@ -128,8 +120,7 @@ test("resolveProfile: project profile fields override named profile fields", asy
   const namedProfile = await loadProfile(join(namedDir, "work.json"));
   const merged = { ...namedProfile };
   if (projectProfile?.model !== undefined) merged.model = projectProfile.model;
-  if (projectProfile?.maxTurns !== undefined) merged.maxTurns = projectProfile.maxTurns;
   expect(merged.model).toBe("override-model");
-  // maxTurns not in project profile so named profile value survives
-  expect(merged.maxTurns).toBe(10);
+  // systemPromptExtensions not in project profile so named profile value survives
+  expect(merged.systemPromptExtensions).toEqual(["ext1"]);
 });
