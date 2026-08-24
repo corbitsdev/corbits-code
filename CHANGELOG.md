@@ -11,6 +11,23 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Agent
+
+- Removed behavior-policing repetition/cycle/thrash detection outright: the
+  streamed-text loop detector and contentless-growth guard on sub-agent runs,
+  the tool-fingerprint period/cycle thrash pause and turns-since-user-message
+  backstop on the main director loop, and the standalone period-detection
+  utility they shared. These were compensating for bugs (tool-arg rejections
+  driving identical retries, missing prompt-cache keys, byte-identical
+  thinking-only turns, line-numbered patch input) that are now fixed at their
+  cause, and the streamed-text detector's own defaults were shown to kill
+  healthy runs reacting correctly to a stable external error. Transport-level
+  abort handling (provider stream errors, connection failures, retry/backoff
+  on the model API call) and turn-budget / no-progress (identical tool-call
+  fingerprint) limits are unchanged.
+
 ## [0.2.108] - 2026-08-24
 
 ### Agent

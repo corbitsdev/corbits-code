@@ -5,7 +5,6 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { detectSequencePeriod, type SequencePeriodCheck } from "../util/period-detection.js";
 import { evaluateThrashStop, type ThrashConfig, type ThrashState } from "./thrash.js";
 import {
   demoteNestedReportHeadings,
@@ -64,8 +63,7 @@ export function preferCompletedSubAgentReply(reply: string): "keep-reply" | "hon
   return reply.trim().length > 0 ? "keep-reply" : "honor-abort";
 }
 
-export type SubAgentCatchOutcome =
-  "salvage-repetition" | "salvage-deadline" | "salvage-cancelled" | "rethrow";
+export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
 
 /**
  * Decide what a cancelled/aborted sub-agent run should return to the parent.
@@ -78,12 +76,7 @@ export type SubAgentCatchOutcome =
 export function resolveSubAgentCatchOutcome(input: {
   deadlineHit: boolean;
   hadProgress: boolean;
-  repetitionHit?: boolean;
 }): SubAgentCatchOutcome {
-  // Repetition wins: it is our own abort, so it can never also be a deadline
-  // (the deadline timer refuses to mark an already-aborted run), and it always
-  // salvages — the looped tail is exactly what the parent needs to see.
-  if (input.repetitionHit === true) return "salvage-repetition";
   if (input.deadlineHit) return "salvage-deadline";
   if (input.hadProgress) return "salvage-cancelled";
   return "rethrow";
@@ -129,136 +122,6 @@ export function fingerprintToolCalls(
   parts.sort();
   return parts.join("|");
 }
-
-export type ToolFingerprintThrashCheck = SequencePeriodCheck;
-
-// No legitimate orchestration pattern needs a longer repeating unit than
-// this to be recognized as thrash. A local forensic scan (see
-// scripts/tool-fingerprint-forensics.ts) over 328 real session traces (559
-// tool-only runs) found zero cycles of any period 1-6 at all — the scan only
-// checks periods up to 6 (MAX_PERIOD_SCANNED in the script), so this ceiling
-// has no forensic backing above period 6, only headroom.
-//
-// This is a ceiling, not a guarantee: any period above it (a 7+ rotation),
-// and any "phase-broken" cycle that inserts a varying element between
-// otherwise-repeating windows (e.g. A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...), never
-// matches here and can escape period detection indefinitely. That is exactly
-// what TURNS_SINCE_USER_MESSAGE_BACKSTOP below exists to catch — a
-// turns-since-last-user-message count with no pattern requirement, checked
-// as a secondary/final net after period detection has had its chance to
-// fire.
-const TOOL_FINGERPRINT_MAX_PERIOD = 8;
-
-// A truly identical consecutive tool call (period 1) is the one shape a
-// legitimate agent can plausibly produce on purpose — rerunning a flaky
-// test, polling a build. The forensic scan found zero occurrences of even
-// two consecutive identical fingerprints in local trace history (a stronger
-// result than CL-5611's original "zero 3+" finding), so there is no
-// *measured* floor for legitimate period-1 repetition — this threshold is
-// inferred headroom for that plausible-but-unobserved case, and deliberately
-// set above 4: review on CL-5611 found the previous 4-repeat hard pause
-// false-positived on exactly this kind of legitimate polling.
-const IDENTICAL_REPEAT_MIN = 5;
-
-// Any cycle of length 2+ (A,B,A,B,..., A,B,C,A,B,C,...) has no plausible
-// legitimate justification — nobody deliberately re-issues a *different*
-// tool call with identical arguments in a fixed rotation. Fire fast: three
-// full cycles, per the operator's explicit "trigger fairly quickly" target
-// (A,B,A,B,A,B pauses at 6 turns; A,B,C,A,B,C,A,B,C at 9), still comfortably
-// above the observed healthy ceiling of zero.
-const CYCLE_REPEAT_MIN = 3;
-
-/**
- * Thrash check over a rolling history of consecutive tool-only-turn
- * fingerprints, via exact-period detection (detectSequencePeriod in
- * util/period-detection.ts). Generalizes the old consecutive-identical-only
- * check to catch any repeating cycle — A,A,A,..., A,B,A,B,..., A,B,C,A,B,C,...
- * — not just immediate repeats, which previously let an alternating A,B
- * pattern escape detection at any length. See docs/ARCHITECTURE.md for the
- * forensic basis of the thresholds.
- *
- * This is the fast path, not the only path: TOOL_FINGERPRINT_MAX_PERIOD is a
- * ceiling, so a cycle above it (or a phase-broken cycle that never settles
- * into an exact repeating tail) never fires here.
- * detectTurnsSinceUserMessageBackstop below is the final net for those cases.
- */
-export function detectToolFingerprintThrash(
-  history: readonly string[],
-): ToolFingerprintThrashCheck {
-  return detectSequencePeriod(history, {
-    minPeriod: 1,
-    maxPeriod: TOOL_FINGERPRINT_MAX_PERIOD,
-    minRepeats: (period) => (period === 1 ? IDENTICAL_REPEAT_MIN : CYCLE_REPEAT_MIN),
-    minDistinct: (period) => (period === 1 ? 1 : 2),
-  });
-}
-
-// Secondary/final-net check: how long it has been since the operator last
-// sent a genuine message, independent of whether the intervening turns form
-// a detectable pattern or contain narration. Period detection (above) is the
-// fast path and stays primary — it fires well before this on any cycle it
-// can see (A,B at 6 turns, A,B,C at 9). This backstop exists for what period
-// detection structurally cannot see: any period above
-// TOOL_FINGERPRINT_MAX_PERIOD (e.g. a 9-element rotation), "phase-broken"
-// cycles that insert a varying element between repeats (e.g.
-// A,B,A,B,UNIQUE,A,B,A,B,UNIQUE,...) that never settle into an exact
-// repeating tail at any period, and — the round-4 fix — a model that inserts
-// one narrated word every N tool-only turns purely to keep resetting a
-// narration-sensitive counter. Model-emitted text does not reset this
-// counter; only a genuine user/operator message does (see director.ts). That
-// is deliberate: this answers "how long since the operator last saw a real
-// checkpoint," not "is the model narrating." (CL-5893: a successful leaf
-// task completion also resets it, bounded by MAX_LEAF_PROGRESS_BACKSTOP_RESETS
-// below — see director.ts.)
-//
-// Because narration no longer resets it, reaching this threshold does not
-// hard-pause on its own — it only fires a nudge asking for a progress
-// summary. Only if the nudge goes unheeded for a further full interval (see
-// director.ts's turnsSinceUserMessage escalation) does the session hard
-// pause, on the theory that ignoring a direct request is a real no-progress
-// signal, whereas mere silence during a long autonomous stretch is not.
-//
-// Threshold justification: 100 is a judgment call, not a measured value.
-// turns-since-last-genuine-operator-message has never been separately
-// measured. An earlier claim that it had been was fabricated and is
-// retracted — do not restate it, and do not invent a replacement
-// justification in its place.
-//
-// The nearest real measurement is scripts/tool-fingerprint-forensics.ts,
-// which measures a related but different quantity — consecutive
-// tool-only-turn streaks, reset by narration — p50 3, p90 8, p99 16, max 28
-// across 328 local sessions with a tool-only run. It does not directly apply
-// here (narration does not reset this counter, so the distributions are not
-// comparable), but it is the only forensic data point on hand, and 100 sits
-// well above every percentile of it, which is the informal basis for
-// treating 100 as generous headroom.
-//
-// src/subagent/intervention-log.ts now records every stop and nudge with its
-// measured value beside the threshold it crossed. If this number is ever
-// wrong, that log — not another guess — is how to find out.
-export const TURNS_SINCE_USER_MESSAGE_BACKSTOP = 100;
-
-// CL-5893: cap on how many times a successful leaf task completion may
-// re-arm the backstop interval before a genuine operator message is
-// required. Without a cap, a loop of trivial always-succeeding leaf tasks
-// would reset the backstop forever and never force an operator checkpoint.
-// At 5 resets (~500 turns of headroom before this bound, vs. the plain
-// 100-turn threshold) a runaway trivial-success loop still nudges then
-// pauses, while genuine fleet-heavy work gets meaningfully more room than
-// the unbounded reset before this cap existed.
-export const MAX_LEAF_PROGRESS_BACKSTOP_RESETS = 5;
-
-/** True once turns-since-last-user-message reaches the backstop threshold. */
-export function detectTurnsSinceUserMessageBackstop(turnsSinceUserMessage: number): boolean {
-  return turnsSinceUserMessage >= TURNS_SINCE_USER_MESSAGE_BACKSTOP;
-}
-
-// Bounds the rolling fingerprint buffer director.ts keeps for the thrash
-// check above. Detection only ever looks at the tail, so history older than
-// the longest possible confirming window (max period * max repeats-needed)
-// carries no signal — capping keeps a very long productive tool-only streak
-// (e.g. 200+ turns) from growing the buffer or the per-turn scan unbounded.
-export const TOOL_FINGERPRINT_HISTORY_CAP = TOOL_FINGERPRINT_MAX_PERIOD * IDENTICAL_REPEAT_MIN;
 
 export type SubAgentStopReason =
   | "complete"
@@ -432,7 +295,6 @@ export type ForcedStopReason =
   | "deadline"
   | "no-ship"
   | "stalled"
-  | "repetition"
   | "incomplete-report";
 
 // Exact Summary text for each forced-stop reason. This is the single source
@@ -451,7 +313,6 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   deadline: "Stopped: wall-clock deadline reached before finishing.",
   stalled:
     "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
-  repetition: "Stopped: degenerate repetition in streamed output (same window looping mid-turn).",
   "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
   "turn-budget": "Turn budget reached before finishing.",
 };
@@ -485,11 +346,9 @@ export function forcedStopReport(
                 ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
                 : reason === "stalled"
                   ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-                  : reason === "repetition"
-                    ? "The model looped the same output window mid-stream; the tail of the loop is in Findings. Re-dispatching the identical brief will be refused and would likely loop again — change prompt/intent/success_criteria/do_not/agent, not maxTurns alone."
-                    : reason === "incomplete-report"
-                      ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
-                      : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
+                  : reason === "incomplete-report"
+                    ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
+                    : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (never-acted planning envelopes; cancel after a
@@ -538,11 +397,6 @@ export function isDeadlineSubAgentReport(report: string): boolean {
   return isForcedStopSubAgentReport(report, "deadline");
 }
 
-/** True when the worker returned a streamed-repetition salvage report. */
-export function isRepetitionSubAgentReport(report: string): boolean {
-  return isForcedStopSubAgentReport(report, "repetition");
-}
-
 const TURN_BUDGET_PARENT_HINT =
   "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
 
@@ -561,9 +415,6 @@ const DEADLINE_PARENT_HINT =
 
 const NO_SHIP_PARENT_HINT =
   "[Sub-agent stopped after searching many files without writing any. Do not search the repo yourself and do not re-dispatch the identical brief (it will be refused) — change success_criteria and do_not, or treat findings as unexecuted.]";
-
-const REPETITION_PARENT_HINT =
-  "[Sub-agent aborted after its streamed output degenerated into a loop. Do not re-dispatch the identical brief — it will be refused and would likely loop again; change prompt, intent, success_criteria, do_not, and/or agent (maxTurns alone does not change the fingerprint).]";
 
 const NO_PROGRESS_PARENT_HINT =
   "[Sub-agent stopped for no-progress (identical tool-call fingerprint). Do not re-dispatch the identical brief (it will be refused) — tighten success_criteria and do_not, or change approach.]";
@@ -619,11 +470,6 @@ export function appendNoShipParentHint(report: string): string {
   return `${NO_SHIP_PARENT_HINT}\n\n${report}`;
 }
 
-export function appendRepetitionParentHint(report: string): string {
-  if (!isRepetitionSubAgentReport(report)) return report;
-  return `${REPETITION_PARENT_HINT}\n\n${report}`;
-}
-
 /** True when the worker returned a no-progress salvage report. */
 export function isNoProgressSubAgentReport(report: string): boolean {
   return isForcedStopSubAgentReport(report, "no-progress");
@@ -634,7 +480,7 @@ export function appendNoProgressParentHint(report: string): string {
   return `${NO_PROGRESS_PARENT_HINT}\n\n${report}`;
 }
 
-/** Stack parent-visible salvage hints for budget / never-acted / deadline / repetition / no-progress. */
+/** Stack parent-visible salvage hints for budget / never-acted / deadline / no-progress. */
 export function appendSubAgentParentHints(
   report: string,
   options: SubAgentParentHintOptions = {},
@@ -643,7 +489,7 @@ export function appendSubAgentParentHints(
     appendNeverEditedParentHint(
       appendNeverActedParentHint(
         appendTurnBudgetParentHint(
-          appendNoProgressParentHint(appendNoShipParentHint(appendRepetitionParentHint(report))),
+          appendNoProgressParentHint(appendNoShipParentHint(report)),
           options,
         ),
       ),

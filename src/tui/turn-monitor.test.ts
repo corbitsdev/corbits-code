@@ -562,39 +562,6 @@ describe("stall watchdog", () => {
 });
 
 describe("repetition guard", () => {
-  test("aborts a looping model without waiting on the stall clock", async () => {
-    await withTestRenderer(async (h) => {
-      const t: Harness = await setup(h);
-      try {
-        t.bridge.submit("build it", "immediate");
-        t.port.clear();
-
-        // The captured incident shape: the two sentences run together with
-        // no line break between cycles.
-        const line1 =
-          "I'll verify callId emission and remaining edges, then write the ranked findings.";
-        const line2 = "Confirming callId emission, then writing the ranked findings.";
-        const cycle = `${line1}${line2}`;
-
-        // Tokens keep landing every tick — a real stall would never fire here.
-        for (let i = 0; i < 30; i++) {
-          t.bridge.handle({
-            type: "inference.text.delta",
-            data: { token: cycle },
-          });
-          t.advance(10);
-          t.tick();
-        }
-
-        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
-        expect(t.shell.statusFlash).toContain("repeating itself");
-        expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE);
-      } finally {
-        t.bridge.dispose();
-      }
-    });
-  });
-
   test("a slow but progressing turn is never killed", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h);

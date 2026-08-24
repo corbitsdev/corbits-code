@@ -249,17 +249,16 @@ test("a grok provider no longer pauses a 10-turn productive tool-only streak", a
   );
 });
 
-test("a grok provider still pauses when the same tool call repeats without progress", async () => {
+// CL-6995: the main-session tool-fingerprint thrash pause was removed
+// outright (no repetition/cycle detection on the director loop). Identical
+// tool calls, repeatedly, no longer auto-pause any provider's session.
+test("a grok provider no longer pauses when the same tool call repeats", async () => {
   const grokDirector = createChatDirector("sys", [], {
     onTasksChange: () => {},
     provider: { providerName: "xai", model: "grok-4" },
   });
-  // Identical-consecutive (period 1) needs 5 repeats, not 4 — 4 identical
-  // calls in a row is legitimate polling (rerunning a flaky test, checking a
-  // build) and must not false-positive. See src/agent/director.test.ts for
-  // the dedicated coverage of that distinction.
-  const grokActions = await runToolOnlyStreak(grokDirector, 5, /* varyPath */ false);
+  const grokActions = await runToolOnlyStreak(grokDirector, 10, /* varyPath */ false);
   expect(grokActions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-    true,
+    false,
   );
 });

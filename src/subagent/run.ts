@@ -68,19 +68,6 @@ import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
-import {
-  detectRepetition,
-  INITIAL_CONTENTLESS_GROWTH_STATE,
-  trackContentlessGrowth,
-  type ContentlessGrowthState,
-  DEFAULT_CONTENTLESS_GROWTH_CONFIG,
-  DEFAULT_REPETITION_CONFIG,
-  DEFAULT_TEXT_FOLDED_REPETITION_CONFIG,
-  DEFAULT_THINKING_REPETITION_CONFIG,
-  REPETITION_CHECK_INTERVAL_CHARS,
-  type RepetitionConfig,
-  type RepetitionHit,
-} from "./repetition.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
@@ -206,7 +193,7 @@ function applyCapabilityFilter(tools: AgentTool[], capabilities: CapabilityFilte
 export interface SubAgentRunController {
   signal: AbortSignal;
   deadlineHit: () => boolean;
-  /** Abort the run from inside (e.g. repetition detection), distinct from parent cancel and deadline. */
+  /** Abort the run from inside, distinct from parent cancel and deadline. */
   abort: (reason: Error) => void;
   dispose: () => void;
 }
@@ -254,30 +241,6 @@ export function createSubAgentRunController(
       parentSignal?.removeEventListener("abort", onParentAbort);
     },
   };
-}
-
-/**
- * Stopped-line / log detail for a repetition abort. Reports the looped
- * window's length and repeat count against the detector's threshold, never
- * the window text itself (CL-6775) — the looped text is model output, and
- * the parent-facing report carries a capped sample separately via `partial`.
- */
-export function repetitionStopDetail(hit: RepetitionHit, config: RepetitionConfig | null): string {
-  const threshold = config?.repeatThreshold;
-  return `period ${hit.window.length}ch × ${hit.repeats}${threshold !== undefined ? ` (threshold ${threshold})` : ""}`;
-}
-
-/** Stopped-line / log detail for a contentless/zero-width growth abort (CL-6775). */
-export function contentlessGrowthDetail(
-  measured: ContentlessGrowthState | null,
-  stream: string | null,
-): string {
-  if (measured === null) return "contentless/zero-width flood";
-  return (
-    `contentless/zero-width flood: ${stream ?? "stream"} ` +
-    `${measured.rawChars}raw/${measured.visibleChars}visible ` +
-    `(min ${DEFAULT_CONTENTLESS_GROWTH_CONFIG.minVisibleChars}visible per ${DEFAULT_CONTENTLESS_GROWTH_CONFIG.rawWindowChars}raw)`
-  );
 }
 
 /** String form of an abort signal's reason (cancel detail), or undefined. */
@@ -773,60 +736,9 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
     // transcript (which would interleave sub-agent text with the parent turn).
     const toolNamesUsed: string[] = [];
     let lastPartialText = "";
-    // Watch the streamed text of the in-flight cycle: turn-level stop checks
-    // (inference.done) never fire while a model loops inside one turn, so a
-    // degenerate loop is aborted from the stream side. The recorder keeps the
-    // cycle text so the looped tail survives the abort as the salvage payload.
+    // Records the in-flight cycle's text so a cancel/deadline salvage has a
+    // tail to report even when the last turn boundary produced no partial text.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
-    // Holder object rather than a let: the value is written inside the stream
-    // sink closure, and flow analysis would otherwise narrow a let to null at
-    // the later catch-site reads.
-    // `detector` names which of the three checks fired (CL-6775): raw-text
-    // periodicity, digit-folded thinking, or the contentless/zero-width growth
-    // guard — recorded so the intervention log can attribute aborts to a
-    // specific detector, not just "repetition" in general.
-    const repetition: {
-      hit: RepetitionHit | null;
-      contentless: boolean;
-      detector: "raw-text-periodicity" | "digit-folded-thinking" | "contentless-growth" | null;
-      config: RepetitionConfig | null;
-      contentlessMeasured: ContentlessGrowthState | null;
-      contentlessStream: string | null;
-    } = {
-      hit: null,
-      contentless: false,
-      detector: null,
-      config: null,
-      contentlessMeasured: null,
-      contentlessStream: null,
-    };
-    let charsSinceRepetitionCheck = 0;
-    let charsSinceThinkingRepetitionCheck = 0;
-    // Contentless-growth guard: catches zero-width floods (U+200C/U+200D walls)
-    // that detectRepetition is structurally blind to — its normalize() strips
-    // invisibles before the periodicity check. One window per stream kind.
-    let textContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
-    let thinkingContentless: ContentlessGrowthState = INITIAL_CONTENTLESS_GROWTH_STATE;
-    const degenerate = (): boolean => repetition.hit !== null || repetition.contentless;
-    const checkContentless = (
-      state: ContentlessGrowthState,
-      token: string,
-      stream: string,
-    ): ContentlessGrowthState => {
-      const next = trackContentlessGrowth(state, token);
-      if (next.hit) {
-        repetition.contentless = true;
-        repetition.detector = "contentless-growth";
-        repetition.contentlessMeasured = next.measured;
-        repetition.contentlessStream = stream;
-        runController.abort(
-          new Error(
-            `sub-agent ${stream} output grew with only invisible/contentless characters (zero-width flood)`,
-          ),
-        );
-      }
-      return next.state;
-    };
     const streamSink = (event: ReactorEmittedEvent): void => {
       const name = subAgentToolName(event);
       if (name !== null) {
@@ -834,66 +746,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         params.onProgress?.({ description: params.description, toolName: name });
       }
       cycleRecorder.handleEvent(event);
-      if (event.type === "inference.text.delta" && !degenerate()) {
-        // Count the raw token, not the buffer growth: once the buffer is pinned
-        // at its cap, appends no longer change its length and a growth-based
-        // counter would disarm detection for the rest of the turn.
-        const token = (event.data as { token?: unknown }).token;
-        if (typeof token === "string") {
-          textContentless = checkContentless(textContentless, token, "streamed");
-        }
-        charsSinceRepetitionCheck += typeof token === "string" ? token.length : 0;
-        if (charsSinceRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
-          charsSinceRepetitionCheck = 0;
-          // Two passes: digit-preserving for phrase loops, then the capped
-          // folded pass for counter/timestamp/fence/emoji floods that are
-          // never byte-periodic or fall under the plain window floor.
-          const rawHit = detectRepetition(cycleRecorder.text());
-          const hit =
-            rawHit ??
-            detectRepetition(cycleRecorder.text(), DEFAULT_TEXT_FOLDED_REPETITION_CONFIG, {
-              normalizeDigits: true,
-            });
-          if (hit !== null) {
-            repetition.hit = hit;
-            repetition.detector = "raw-text-periodicity";
-            repetition.config =
-              rawHit !== null ? DEFAULT_REPETITION_CONFIG : DEFAULT_TEXT_FOLDED_REPETITION_CONFIG;
-            runController.abort(
-              new Error(`sub-agent streamed output repeated the same window ${hit.repeats} times`),
-            );
-          }
-        }
-      }
-      // Thinking deltas are never shown to the user, so a monotonic-counter
-      // loop confined to them (the observed live thrash) never trips the
-      // turn-level stop checks either — sample them on the same interval with
-      // digit-normalized detection tuned for the collapsed period.
-      if (event.type === "inference.thinking.delta" && !degenerate()) {
-        const token = (event.data as { token?: unknown }).token;
-        if (typeof token === "string") {
-          thinkingContentless = checkContentless(thinkingContentless, token, "thinking");
-        }
-        charsSinceThinkingRepetitionCheck += typeof token === "string" ? token.length : 0;
-        if (charsSinceThinkingRepetitionCheck >= REPETITION_CHECK_INTERVAL_CHARS && !degenerate()) {
-          charsSinceThinkingRepetitionCheck = 0;
-          const hit = detectRepetition(
-            cycleRecorder.thinkingText(),
-            DEFAULT_THINKING_REPETITION_CONFIG,
-            {
-              normalizeDigits: true,
-            },
-          );
-          if (hit !== null) {
-            repetition.hit = hit;
-            repetition.detector = "digit-folded-thinking";
-            repetition.config = DEFAULT_THINKING_REPETITION_CONFIG;
-            runController.abort(
-              new Error(`sub-agent thinking output repeated the same window ${hit.repeats} times`),
-            );
-          }
-        }
-      }
       const partial = partialTextFromEvent(event);
       if (partial !== null) lastPartialText = partial;
       params.onEvent?.(event);
@@ -974,12 +826,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         // salvage with the generic error reason. Draining first lets the sink's
         // own bookkeeping (lastPartialText) catch late tool.start / inference.done
         // events before bare-vs-salvage is decided.
-        // Repetition and deadline are already known here; a parent cancel is
-        // labeled cancelled even if the outcome below resolves to rethrow.
-        // A contentless flood shares the repetition salvage path: both are
-        // self-inflicted degenerate-output aborts whose tail is the evidence.
         const abortedCycleText = await cycleRecorder.dispose(
-          degenerate() ? "repetition" : runController.deadlineHit() ? "deadline" : "cancelled",
+          runController.deadlineHit() ? "deadline" : "cancelled",
           { drain: streamPromise },
         );
         // Deadline always salvages (even with zero output). Cancel after any
@@ -989,68 +837,22 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
         const outcome = resolveSubAgentCatchOutcome({
           deadlineHit: runController.deadlineHit(),
           hadProgress,
-          repetitionHit: degenerate(),
         });
         if (outcome !== "rethrow") {
-          const reason =
-            outcome === "salvage-repetition"
-              ? "repetition"
-              : outcome === "salvage-deadline"
-                ? "deadline"
-                : "cancelled";
+          const reason = outcome === "salvage-deadline" ? "deadline" : "cancelled";
           const tail =
             lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
-          // Lead with the detected window so the parent sees the loop unit
-          // itself, not just an arbitrary tail that happens to contain it.
-          const partial =
-            repetition.hit !== null
-              ? `Looped window (repeated ${repetition.hit.repeats}x): ${repetition.hit.window.slice(0, 300)}\n\n${tail}`
-              : repetition.contentless
-                ? `Contentless output: the stream grew with only invisible characters (zero-width flood).\n\n${tail}`
-                : tail;
           const detail =
-            repetition.hit !== null
-              ? repetitionStopDetail(repetition.hit, repetition.config)
-              : repetition.contentless
-                ? contentlessGrowthDetail(
-                    repetition.contentlessMeasured,
-                    repetition.contentlessStream,
-                  )
-                : reason === "deadline" && resolvedDeadlineMs !== undefined
-                  ? `${resolvedDeadlineMs}ms elapsed`
-                  : abortReasonText(runController.signal);
+            reason === "deadline" && resolvedDeadlineMs !== undefined
+              ? `${resolvedDeadlineMs}ms elapsed`
+              : abortReasonText(runController.signal);
           interventions({
-            // CL-6775: which detector fired is folded into the id (rather than
-            // a new field) so scripts/intervention-forensics.ts buckets each
-            // detector separately without any change to its aggregation logic.
-            id:
-              reason === "repetition" && repetition.detector !== null
-                ? `repetition-${repetition.detector}`
-                : reason,
+            id: reason,
             class: "stop",
-            ...(repetition.hit !== null
-              ? {
-                  measurement: {
-                    metric: "repeats",
-                    value: repetition.hit.repeats,
-                    ...(repetition.config !== null
-                      ? { threshold: repetition.config.repeatThreshold }
-                      : {}),
-                  },
-                }
-              : repetition.contentless
-                ? {
-                    measurement: {
-                      metric: "visibleChars",
-                      value: repetition.contentlessMeasured?.visibleChars ?? 0,
-                      threshold: DEFAULT_CONTENTLESS_GROWTH_CONFIG.minVisibleChars,
-                    },
-                  }
-                : {}),
             state: { totalToolCalls: toolNamesUsed.length },
             ...(detail !== undefined ? { detail } : {}),
           });
-          return appendActivitySummary(forcedStopReport(reason, partial, detail), toolNamesUsed);
+          return appendActivitySummary(forcedStopReport(reason, tail, detail), toolNamesUsed);
         }
       }
       throw err;

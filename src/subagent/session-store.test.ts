@@ -266,11 +266,11 @@ describe("terminal stop reasons", () => {
     const session = store.start({ description: "d", agentId: "a", brief: "b" });
     store.complete(
       session.id,
-      'Stopped: repetition — window "Groaning. " × 1363\n\n## Summary\nStopped: degenerate repetition in streamed output (same window looping mid-turn).',
+      "Stopped: turn-budget — 40 turns\n\n## Summary\nTurn budget reached before finishing.",
     );
     const stored = store.get(session.id);
     expect(stored?.status).toBe("done");
-    expect(stored?.stopReason).toBe('repetition — window "Groaning. " × 1363');
+    expect(stored?.stopReason).toBe("turn-budget — 40 turns");
   });
 
   test("a clean complete has no stopReason", () => {

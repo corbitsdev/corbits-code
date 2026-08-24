@@ -70,11 +70,11 @@ describe("createCycleTextRecorder", () => {
   test("flush writes the buffer with a reason and resets", async () => {
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(delta("looping output"));
-    await recorder.flush("repetition");
+    await recorder.flush("cancelled");
 
     const records = await readPartialRecords();
     expect(records).toHaveLength(1);
-    expect(records[0]?.reason).toBe("repetition");
+    expect(records[0]?.reason).toBe("cancelled");
     expect(records[0]?.text).toBe("looping output");
     expect(recorder.text()).toBe("");
   });
@@ -177,7 +177,7 @@ describe("createCycleTextRecorder", () => {
     expect(recorder.text()).toBe("visible reply");
     expect(recorder.thinkingText()).toBe("0/1 1/2 2/3 ");
 
-    await recorder.flush("repetition");
+    await recorder.flush("cancelled");
     const records = await readPartialRecords();
     expect(records[0]?.text).toBe("visible reply");
     expect(records[0]?.thinkingText).toBe("0/1 1/2 2/3 ");
@@ -189,11 +189,11 @@ describe("createCycleTextRecorder", () => {
     // must still be diagnosable from thinkingText alone.
     const recorder = createCycleTextRecorder(() => dir);
     recorder.handleEvent(thinkingDelta("0/1 1/2 2/3 3/4 4/5 "));
-    const snapshot = await recorder.dispose("repetition");
+    const snapshot = await recorder.dispose("cancelled");
 
     expect(snapshot).toBe("");
     const records = await readPartialRecords();
-    expect(records[0]?.reason).toBe("repetition");
+    expect(records[0]?.reason).toBe("cancelled");
     expect(records[0]?.text).toBe("");
     expect(records[0]?.thinkingText).toBe("0/1 1/2 2/3 3/4 4/5 ");
   });

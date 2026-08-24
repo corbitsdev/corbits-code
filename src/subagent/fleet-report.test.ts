@@ -152,13 +152,13 @@ describe("forced-stop reasons", () => {
         lane({
           id: "api",
           status: "done",
-          stopReason: 'repetition — window "Groaning. " × 1363',
+          stopReason: "turn-budget — 40 turns",
         }),
         lane({ id: "docs" }),
       ],
       T0 + 1000,
     );
-    expect(updates).toEqual(['api stopped — repetition — window "Groaning. " × 1363']);
+    expect(updates).toEqual(["api stopped — turn-budget — 40 turns"]);
   });
 
   test("a cancelled lane carries its recorded reason", () => {
