@@ -148,14 +148,15 @@ describe("sub-agent stop helpers", () => {
     expect(subAgentTurnLimitExceeded(1_000_000, Infinity)).toBe(false);
   });
 
-  test("evaluateSubAgentStop returns complete when tools were used and the final turn has none", () => {
+  test("evaluateSubAgentStop returns incomplete-report when the final turn has no tool calls and no envelope", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
         turnsCompleted: 2,
         maxTurns: 10,
+        lastAssistantText: "",
       }),
-    ).toBe("complete");
+    ).toBe("incomplete-report");
   });
 
   const SUMMARY_ONLY_NARRATION = [
@@ -293,6 +294,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 40,
         maxTurns: 60,
         thrashState: thrash,
@@ -304,6 +306,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 10,
         maxTurns: 10,
       }),
@@ -314,6 +317,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 5,
         maxTurns: 10,
       }),
@@ -333,6 +337,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 10,
         maxTurns: 10,
         thrashState: thrash,
@@ -344,6 +349,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 8,
         maxTurns: 10,
         thrashState: EMPTY_THRASH_STATE,
@@ -353,6 +359,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 9,
         maxTurns: 10,
         thrashState: EMPTY_THRASH_STATE,
@@ -361,6 +368,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 10,
         maxTurns: 10,
         thrashState: EMPTY_THRASH_STATE,
@@ -378,6 +386,7 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
+        lastAssistantText: "",
         turnsCompleted: 5,
         maxTurns: 20,
         thrashState: thrash,
@@ -649,6 +658,7 @@ describe("thrash edge cases", () => {
   const stop = (turnsCompleted: number, maxTurns: number, thrashState = EMPTY_THRASH_STATE) =>
     evaluateSubAgentStop({
       hasToolCalls: true,
+      lastAssistantText: "",
       turnsCompleted,
       maxTurns,
       thrashState,

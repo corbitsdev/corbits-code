@@ -11,6 +11,15 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Agent
+
+- `evaluateSubAgentStop` now always requires the final assistant text; the
+  omitted-text branch that unconditionally completed a tool-less turn is
+  removed, so every call path gets the `incomplete-report` nudge and salvage
+  when a tool-using run ends in envelope-less narration.
+
 ## [0.2.109] - 2026-08-24
 
 ### Agent
