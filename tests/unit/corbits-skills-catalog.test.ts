@@ -119,12 +119,20 @@ test("style skill is guidance, not ceremony or tool-contract restatement", async
   expect(skill).not.toContain("## Acknowledgment");
 });
 
-test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
+test("create-issue is Linear-first without restated MCP tool contracts", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
   expect(skill).toContain("gh issue create");
   expect(skill).toContain(".corbits/MEMORY.md");
   expect(skill).toContain("Preferred issue tracker:");
+  expect(skill).toContain("Do not invent a Linear REST client");
+  expect(skill).toContain("Do not restate MCP tool names or schemas");
+  // Availability check uses the family prefix; individual MCP tool contracts stay out.
+  expect(skill).toContain("`mcp__linear__*`");
+  expect(skill).not.toContain("mcp__linear__save_issue");
+  expect(skill).not.toContain("mcp__linear__list_teams");
+  expect(skill).not.toContain("mcp__linear__prepare_attachment_upload");
+  expect(skill).not.toContain("mcp__linear__save_status_update");
 });
 
 test("use_skill-only skills set user-invocable: false", async () => {
