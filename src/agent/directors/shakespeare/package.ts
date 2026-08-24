@@ -75,6 +75,5 @@ export const shakespearePackage: DirectorPackage = {
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
-  nudge: { maxTurns: 50 },
   modelRole: "docs",
 };

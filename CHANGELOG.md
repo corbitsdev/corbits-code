@@ -15,15 +15,27 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Agent
 
-- `spawn_agent` now threads the resolved director package's `nudge.maxTurns`
-  budget the same way `task()` does, closing a parity gap where a director
-  dispatched via `spawn_agent` resolved to an unbounded turn budget instead of
-  its configured finite one. Removed the false "hard cap 4 workers" claim from
-  director prompt text (no such cap exists anywhere in the fleet code). The
-  unused `maxTurns` field on project/named profile files
-  (`.corbits/profile.json`, `~/.corbits/profiles/<name>.json`) has been
-  removed since nothing read it — a silently-ignored knob is worse than no
-  knob.
+- Deleted the sub-agent turn-budget mechanism entirely: `maxTurns` is gone
+  from `task()`, `spawn_agent`, `AgentProfile`, director packages'
+  `nudge.maxTurns`, and `settings.subagentMaxTurns`; a leaf now runs until it
+  produces a report envelope, is cancelled, hits an opt-in wall-clock
+  deadline, or stalls — never on a turn count. Removed
+  `resolveSubAgentMaxTurns` / `resolveDefaultSubAgentMaxTurns` /
+  `clampSubAgentMaxTurns` / `validateTaskMaxTurns` (`src/config/settings.ts`),
+  the `turn-budget` stop reason and its report text/parent hint, the
+  near-budget `report-forced` wrap-up nudge, and the re-dispatch ledger's
+  turn-budget branch (the `higher maxTurns` / re-dispatch-cap hints). This
+  also retires the `spawn_agent`/`task()` `nudge.maxTurns` parity fix shipped
+  an hour prior — with the mechanism itself gone, that parity is moot.
+  `task()` is now marked deprecated in favor of `spawn_agent` + `wait_agents`
+  for new call sites; it is not removed since most dispatch still routes
+  through it. Removed the false "hard cap 4 workers" claim from director
+  prompt text (no such cap exists anywhere in the fleet code). The unused
+  `maxTurns` field on project/named profile files (`.corbits/profile.json`,
+  `~/.corbits/profiles/<name>.json`) has been removed since nothing read it —
+  a silently-ignored knob is worse than no knob. If a run needs stopping, the
+  operator interrupts it (`interrupt_agent`) rather than the harness enforcing
+  a count.
 
 - `evaluateSubAgentStop` now always requires the final assistant text; the
   omitted-text branch that unconditionally completed a tool-less turn is

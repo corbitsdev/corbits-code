@@ -39,8 +39,4 @@ describe("emilPackage", () => {
     expect(emilPackage.outOfLane).toContain("shipping product code without design brief");
     expect(emilPackage.outOfLane).toContain("marketing content");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(emilPackage.nudge?.maxTurns).toBe(40);
-  });
 });

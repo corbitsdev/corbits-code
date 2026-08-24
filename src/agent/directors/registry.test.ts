@@ -102,7 +102,6 @@ describe("director registry", () => {
 
     const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
     expect(grey.orchestrator).toBe(true);
-    expect(grey.maxTurns).toBe(DIRECTOR_REGISTRY.greybeard.nudge?.maxTurns);
 
     const shakespeare = packageToProfile(DIRECTOR_REGISTRY.shakespeare);
     expect(shakespeare.capabilities?.mode).toBe("allow");

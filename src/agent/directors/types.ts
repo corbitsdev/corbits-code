@@ -57,7 +57,6 @@ export interface SpawnRights {
 }
 
 export interface NudgePolicy {
-  readonly maxTurns?: number;
   /** Stall silence budget in ms before a parent-facing stall notice. */
   readonly stallMs?: number;
 }

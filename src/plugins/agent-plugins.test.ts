@@ -55,7 +55,7 @@ describe("resolveAgentPluginProfiles", () => {
   test("skips malformed profiles, keeps valid ones", async () => {
     const { mod, config } = agentModule("p1", [
       validProfile,
-      { id: "bad", maxTurns: "nonexistent" }, // invalid maxTurns type
+      { id: "bad", orchestrator: "nonexistent" }, // invalid orchestrator type
       { description: "missing id" }, // missing required id
     ]);
     const profiles = await resolveAgentPluginProfiles([mod], config);

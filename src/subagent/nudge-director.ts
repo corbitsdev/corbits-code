@@ -1,5 +1,5 @@
 /**
- * Sub-agent director: stop policy, wrap-up nudge near turn budget, and stall
+ * Sub-agent director: stop policy and stall
  * recovery for quiet leaves.
  */
 
@@ -15,12 +15,7 @@ import type {
 } from "@intx/types/runtime";
 import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import {
-  DEFAULT_THRASH_CONFIG,
-  EMPTY_THRASH_STATE,
-  nextThrashState,
-  type ThrashState,
-} from "./thrash.js";
+import { EMPTY_THRASH_STATE, nextThrashState, type ThrashState } from "./thrash.js";
 import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
 import {
   evaluateSubAgentStop,
@@ -28,9 +23,6 @@ import {
   lastText,
   type ForcedStopReason,
 } from "./stop-policy.js";
-
-const REPORT_FORCED_WRAP_UP_NUDGE =
-  "You are close to your turn budget. Stop calling tools and write your final report now: summarize what you did, your findings, and any blockers.";
 
 const TOOL_FAILURE_RECOVERY_NUDGE =
   "A tool call failed. Do not repeat the same failed call unchanged. Inspect the error and current state, then change the arguments or approach. If you cannot recover, report the blocker.";
@@ -74,12 +66,11 @@ function withEphemeralNudge(
 
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
-  private readonly maxTurns: number;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
-  // Armed for wrap-up (report-forced) or failed-tool recovery so the
+  // Armed for failed-tool recovery so the
   // follow-up infer (after pending tool calls from THIS turn have executed)
   // carries the nudge. Cannot attach the nudge to this turn's own infer: the
   // model just emitted tool_use blocks, and every provider requires tool_result
@@ -104,11 +95,11 @@ export class SubAgentDirector extends DefaultDirector {
   // (directors are pure decide(event, ...) functions — see requestContinuation
   // above), so the run loop periodically pings this same continuation channel
   // and the director only acts on a ping if genuinely nothing happened since
-  // the last one. Precedence: this check sits below turn-budget
-  // (evaluateSubAgentStop, above) — that fires from real inference.done turns
-  // and always takes priority; stall pings only ever fire on a continuation
-  // message that inference.done/tool.done handling did not already consume
-  // this cycle.
+  // the last one. Precedence: this check sits below the turn-boundary stop
+  // checks above (evaluateSubAgentStop) — those fire from real inference.done
+  // turns and always take priority; stall pings only ever fire on a
+  // continuation message that inference.done/tool.done handling did not
+  // already consume this cycle.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
@@ -136,14 +127,12 @@ export class SubAgentDirector extends DefaultDirector {
   /** Run state every intervention record carries, for judging it afterwards. */
   private interventionState(): {
     turnsCompleted: number;
-    maxTurns: number;
     totalToolCalls: number;
     readCounts: number;
     editedPaths: number;
   } {
     return {
       turnsCompleted: this.turnsCompleted,
-      maxTurns: this.maxTurns,
       totalToolCalls: this.thrashState.totalToolCalls,
       readCounts: this.thrashState.readCounts.size,
       editedPaths: this.thrashState.editedPaths.size,
@@ -154,14 +143,12 @@ export class SubAgentDirector extends DefaultDirector {
     systemPrompt: string,
     toolDefinitions: ToolDefinition[],
     requestContinuation: (() => void) | undefined,
-    maxTurns: number,
     stallTimeoutMs?: number,
     now: () => number = Date.now,
     requireEvidence = false,
   ) {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
-    this.maxTurns = maxTurns;
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
     this.lastActivityAt = now();
@@ -223,8 +210,6 @@ export class SubAgentDirector extends DefaultDirector {
 
       const stop = evaluateSubAgentStop({
         hasToolCalls,
-        turnsCompleted: this.turnsCompleted,
-        maxTurns: this.maxTurns,
         thrashState: this.thrashState,
         requireEvidence: this.requireEvidence,
         lastAssistantText: this.lastAssistantText,
@@ -273,52 +258,12 @@ export class SubAgentDirector extends DefaultDirector {
         if (compacted !== null) return compacted;
         return terminal;
       }
-      if (stop === "report-forced") {
-        // Not a stop: let the pending tool calls execute as normal (deferring
-        // to super.decide below), and arm the nudge for the infer that
-        // follows once their results land. Turn-budget stays reachable —
-        // this fires once, forceReportWithin turns before the cap.
-        this.pendingNudgeText = REPORT_FORCED_WRAP_UP_NUDGE;
-        this.interventions({
-          id: "report-forced",
-          class: "nudge",
-          measurement: {
-            metric: "turnsRemaining",
-            value: this.maxTurns - this.turnsCompleted,
-            threshold: DEFAULT_THRASH_CONFIG.forceReportWithin,
-          },
-          state: this.interventionState(),
-        });
-      } else if (stop === "turn-budget") {
-        const checkpoint = "subagent-turn-budget";
-        const detail = `${this.turnsCompleted}/${this.maxTurns} turns`;
-        this.interventions({
-          id: stop,
-          class: "stop",
-          measurement: {
-            metric: "turnsCompleted",
-            value: this.turnsCompleted,
-            threshold: this.maxTurns,
-          },
-          state: this.interventionState(),
-          ...(detail !== undefined ? { detail } : {}),
-        });
-        this.onForcedStop(stop);
-        const terminal: ReactorAction[] = [
-          capabilities.checkpoint(checkpoint),
-          capabilities.reply(forcedStopReport(stop, lastText(content), detail)),
-        ];
-        this.compaction.noteIdleTurn(event, terminal);
-        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
-        if (compacted !== null) return compacted;
-        return terminal;
-      }
     }
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
-      if (event.result.isError === true && this.pendingNudgeText !== REPORT_FORCED_WRAP_UP_NUDGE) {
-        // Mandatory wrap-up wins over failed-tool recovery guidance.
+      if (event.result.isError === true) {
+        // Failed-tool recovery guidance.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
         this.interventions({
           id: "tool-failure-recovery",
@@ -346,7 +291,7 @@ export class SubAgentDirector extends DefaultDirector {
    * First stall past the timeout: one continuation nudge, asking the leaf to
    * report status or keep going. A second consecutive stall (no activity
    * since the nudge) escalates to the existing salvage path, same shape as
-   * turn-budget above. Returns null when this event is not
+   * the turn-boundary checks above. Returns null when this event is not
    * a stall check the director should act on (let it fall through as an
    * ordinary continuation).
    */

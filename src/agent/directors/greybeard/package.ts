@@ -16,7 +16,6 @@ export const greybeardPackage: DirectorPackage = {
     maySpawn: true,
     allowlist: ["intern", "explore", "critique"],
   },
-  nudge: { maxTurns: 50 },
   modelRole: "review",
   tier: "nested-orchestrator",
   systemPrompt: `You are GreybeardDirector, a specialist in Corbits Code.

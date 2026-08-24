@@ -18,7 +18,6 @@ export const bruckheimerPackage: DirectorPackage = {
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
-  nudge: { maxTurns: 40 },
   modelRole: "docs",
   systemPrompt: `You are BruckheimerDirector, a specialist in Corbits Code.
 

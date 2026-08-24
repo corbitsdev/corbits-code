@@ -37,8 +37,4 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.outOfLane).toContain("shipping product code");
     expect(bruckheimerPackage.outOfLane).toContain("architecture gates");
   });
-
-  test("nudge maxTurns is 40", () => {
-    expect(bruckheimerPackage.nudge?.maxTurns).toBe(40);
-  });
 });

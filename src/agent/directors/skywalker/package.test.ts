@@ -78,10 +78,6 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.outOfLane).toContain("diagnostic fleets for why/how/stall questions");
   });
 
-  test("nudge maxTurns", () => {
-    expect(skywalkerPackage.nudge?.maxTurns).toBe(100);
-  });
-
   test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Parent tools");

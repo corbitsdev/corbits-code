@@ -20,8 +20,6 @@ import {
   createBriefDispatchLedger,
   fingerprintTaskBrief,
   classifyBriefSalvage,
-  TURN_BUDGET_STOP_AFTER_DISPATCHES,
-  TURN_BUDGET_STOP_PARENT_HINT,
   EMPTY_THRASH_STATE,
   nextThrashState,
   partialTextFromEvent,
@@ -32,7 +30,6 @@ import {
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
-  subAgentTurnLimitExceeded,
   SubAgentDirector,
   TaskToolArgs,
   type RunSubAgentParams,
@@ -140,20 +137,10 @@ describe("sub-agent teardown", () => {
 });
 
 describe("sub-agent stop helpers", () => {
-  const TEST_MAX_TURNS = 30;
-
-  test("explicit turn budget hard-stops at the limit; unbounded (Infinity) never does", () => {
-    expect(subAgentTurnLimitExceeded(TEST_MAX_TURNS, TEST_MAX_TURNS)).toBe(true);
-    expect(subAgentTurnLimitExceeded(TEST_MAX_TURNS - 1, TEST_MAX_TURNS)).toBe(false);
-    expect(subAgentTurnLimitExceeded(1_000_000, Infinity)).toBe(false);
-  });
-
   test("evaluateSubAgentStop returns incomplete-report when the final turn has no tool calls and no envelope", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: "",
       }),
     ).toBe("incomplete-report");
@@ -183,8 +170,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
       }),
     ).toBe("incomplete-report");
@@ -194,8 +179,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 3,
-        maxTurns: 10,
         lastAssistantText: SUMMARY_ONLY_NARRATION,
         incompleteReportNudgeFired: true,
       }),
@@ -206,8 +189,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: FULL_REPORT_ENVELOPE,
       }),
     ).toBe("complete");
@@ -239,8 +220,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: true,
@@ -257,8 +236,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: true,
@@ -275,8 +252,6 @@ describe("sub-agent stop helpers", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: false,
-        turnsCompleted: 2,
-        maxTurns: 10,
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: false,
@@ -284,7 +259,7 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
-  test("evaluateSubAgentStop does not hard-stop implement for many unique reads", () => {
+  test("evaluateSubAgentStop does not stop for many unique reads while still calling tools", () => {
     let thrash = EMPTY_THRASH_STATE;
     for (let i = 0; i < 200; i++) {
       thrash = nextThrashState(thrash, [
@@ -295,36 +270,21 @@ describe("sub-agent stop helpers", () => {
       evaluateSubAgentStop({
         hasToolCalls: true,
         lastAssistantText: "",
-        turnsCompleted: 40,
-        maxTurns: 60,
         thrashState: thrash,
       }),
     ).toBeNull();
   });
 
-  test("evaluateSubAgentStop trips turn-budget when the leaf is still making progress", () => {
+  test("evaluateSubAgentStop keeps running while the worker is still calling tools", () => {
     expect(
       evaluateSubAgentStop({
         hasToolCalls: true,
         lastAssistantText: "",
-        turnsCompleted: 10,
-        maxTurns: 10,
-      }),
-    ).toBe("turn-budget");
-  });
-
-  test("evaluateSubAgentStop keeps running while fingerprints change under budget", () => {
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        turnsCompleted: 5,
-        maxTurns: 10,
       }),
     ).toBeNull();
   });
 
-  test("re-read pressure no longer stops a worker; turn-budget still does (CL-6936)", () => {
+  test("re-read pressure no longer stops a worker (CL-6936)", () => {
     let thrash = EMPTY_THRASH_STATE;
     thrash = nextThrashState(thrash, [
       { type: "tool_call", name: "edit_file", arguments: { path: "a.ts" } },
@@ -338,45 +298,12 @@ describe("sub-agent stop helpers", () => {
       evaluateSubAgentStop({
         hasToolCalls: true,
         lastAssistantText: "",
-        turnsCompleted: 10,
-        maxTurns: 10,
         thrashState: thrash,
       }),
-    ).toBe("turn-budget");
-  });
-
-  test("evaluateSubAgentStop returns report-forced once, at forceReportWithin turns before the cap", () => {
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        turnsCompleted: 8,
-        maxTurns: 10,
-        thrashState: EMPTY_THRASH_STATE,
-      }),
-    ).toBe("report-forced");
-    // Nudge already fired; turn-budget stays reachable on the following turns.
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        turnsCompleted: 9,
-        maxTurns: 10,
-        thrashState: EMPTY_THRASH_STATE,
-      }),
     ).toBeNull();
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        turnsCompleted: 10,
-        maxTurns: 10,
-        thrashState: EMPTY_THRASH_STATE,
-      }),
-    ).toBe("turn-budget");
   });
 
-  test("evaluateSubAgentStop multi-file unique reads do not thrash under budget", () => {
+  test("evaluateSubAgentStop multi-file unique reads do not thrash", () => {
     let thrash = EMPTY_THRASH_STATE;
     for (let i = 0; i < 12; i++) {
       thrash = nextThrashState(thrash, [
@@ -387,19 +314,16 @@ describe("sub-agent stop helpers", () => {
       evaluateSubAgentStop({
         hasToolCalls: true,
         lastAssistantText: "",
-        turnsCompleted: 5,
-        maxTurns: 20,
         thrashState: thrash,
       }),
     ).toBeNull();
   });
 
   test("forcedStopReport is a real envelope with salvage findings, not a summarize instruction", () => {
-    const budget = forcedStopReport("turn-budget", "");
-    const budgetParsed = parseSubAgentReport(budget);
-    expect(budgetParsed.summary).toContain("Turn budget");
-    expect(budgetParsed.findings).toContain("no partial findings");
-    expect(budget.toLowerCase()).not.toContain("summarize progress");
+    const emptyCancelled = forcedStopReport("cancelled", "");
+    const cancelledParsedEmpty = parseSubAgentReport(emptyCancelled);
+    expect(cancelledParsedEmpty.findings).toContain("no partial findings");
+    expect(emptyCancelled.toLowerCase()).not.toContain("summarize progress");
 
     // Nested agent envelope must not clobber the outer cancelled Summary when
     // runSubAgent re-parses the forced stop.
@@ -477,17 +401,17 @@ describe("sub-agent stop helpers", () => {
     expect(stopReasonFromReport(cancelled)).toBe("cancelled — Session closed");
     // Without a detail the line is the bare reason token.
     expect(stopReasonFromReport(forcedStopReport("cancelled", "partial"))).toBe("cancelled");
-    expect(stopReasonFromReport(forcedStopReport("turn-budget", "x", "30/30 turns"))).toBe(
-      "turn-budget — 30/30 turns",
+    expect(stopReasonFromReport(forcedStopReport("deadline", "x", "30s elapsed"))).toBe(
+      "deadline — 30s elapsed",
     );
 
     // A nested forced-stop quoted in Findings must not leak its Stopped line
     // as the outer report's reason.
     const nested = forcedStopReport(
-      "turn-budget",
+      "deadline",
       forcedStopReport("cancelled", "inner", "inner reason"),
     );
-    expect(stopReasonFromReport(nested)).toBe("turn-budget");
+    expect(stopReasonFromReport(nested)).toBe("deadline");
     // A clean report has no Stopped line.
     expect(stopReasonFromReport("## Summary\nDone.\n\n## Findings\nx")).toBe(null);
   });
@@ -655,32 +579,12 @@ describe("thrash edge cases", () => {
     name: "grep",
     arguments: { pattern, path: "src" },
   });
-  const stop = (turnsCompleted: number, maxTurns: number, thrashState = EMPTY_THRASH_STATE) =>
+  const stop = (thrashState = EMPTY_THRASH_STATE) =>
     evaluateSubAgentStop({
       hasToolCalls: true,
       lastAssistantText: "",
-      turnsCompleted,
-      maxTurns,
       thrashState,
     });
-
-  test("report-forced fires once and turn-budget remains reachable", () => {
-    // Director always passes thrashState, so these are the director's semantics.
-    expect(stop(27, 30)).toBeNull();
-    expect(stop(28, 30)).toBe("report-forced"); // single wrap-up nudge, 2 turns out
-    expect(stop(29, 30)).toBeNull(); // nudge consumed; leaf keeps working
-    expect(stop(30, 30)).toBe("turn-budget"); // hard cap still reachable
-  });
-
-  test("small maxTurns degrades gracefully instead of collapsing to one turn", () => {
-    expect(stop(1, 1)).toBe("turn-budget"); // no room for a nudge turn
-    expect(stop(1, 2)).toBeNull();
-    expect(stop(2, 2)).toBe("turn-budget");
-    // maxTurns=3: room for exactly one nudge turn before the cap.
-    expect(stop(1, 3)).toBe("report-forced");
-    expect(stop(2, 3)).toBeNull();
-    expect(stop(3, 3)).toBe("turn-budget");
-  });
 
   test("an ordinary edit-then-verify loop is not a stop", () => {
     // edit -> read-back verify, four times, on one file: legitimate iteration.
@@ -689,7 +593,7 @@ describe("thrash edge cases", () => {
       s = nextThrashState(s, [edit("hot.ts")]);
       s = nextThrashState(s, [read("hot.ts")]);
     }
-    expect(stop(8, 30, s)).toBeNull();
+    expect(stop(s)).toBeNull();
   });
 
   test("chunked reads of a large edited file are not a stop", () => {
@@ -701,7 +605,7 @@ describe("thrash edge cases", () => {
       read("big.ts", { offset: 1000, limit: 500 }),
       read("big.ts", { offset: 1500, limit: 500 }),
     ]);
-    expect(stop(2, 30, s)).toBeNull();
+    expect(stop(s)).toBeNull();
   });
 
   test("re-reading the same chunk repeatedly is not a stop (CL-6936)", () => {
@@ -711,157 +615,7 @@ describe("thrash edge cases", () => {
       s = nextThrashState(s, [read("big.ts", { offset: 0, limit: 500 })]);
     }
     s = nextThrashState(s, [grep("p1"), grep("p2"), grep("p3")]);
-    expect(stop(6, 30, s)).toBeNull();
-  });
-});
-
-describe("SubAgentDirector report-forced wiring", () => {
-  const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
-
-  function makeCapabilities(): ReactorCapabilities {
-    return {
-      infer: (options) =>
-        ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
-      executeTools: (calls, parallel, addToHistory) =>
-        ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
-      suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
-      fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
-      emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
-      reply: (content) => ({ type: "reply", content }) as ReactorAction,
-      checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
-      compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
-      wait: () => ({ type: "wait" }) as ReactorAction,
-      done: () => ({ type: "done" }) as ReactorAction,
-    };
-  }
-
-  function makeInferenceDoneEvent(
-    toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
-  ): ReactorInboundEvent {
-    return {
-      type: "inference.done",
-      turn: {
-        role: "assistant",
-        model: "test",
-        timestamp: 0,
-        content: toolCalls.map((tc) => ({
-          type: "tool_call",
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.args ?? {},
-        })),
-      },
-      usage: { input: 0, output: 0 },
-      source: "test",
-    } as unknown as ReactorInboundEvent;
-  }
-
-  function makeToolDoneEvent(callId: string): ReactorInboundEvent {
-    return {
-      type: "tool.done",
-      result: { callId, content: "ok" },
-    } as unknown as ReactorInboundEvent;
-  }
-
-  function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
-    return Array.isArray(result) ? result : [result];
-  }
-
-  test("stops and nudges are recorded with their measured value and threshold (CL-6938)", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 3);
-    const capabilities = makeCapabilities();
-    const recorded: { id: string; class: string; value?: number; threshold?: number }[] = [];
-    director.observeInterventions((event) => {
-      recorded.push({
-        id: event.id,
-        class: event.class,
-        ...(event.measurement !== undefined
-          ? {
-              value: event.measurement.value,
-              ...(event.measurement.threshold !== undefined
-                ? { threshold: event.measurement.threshold }
-                : {}),
-            }
-          : {}),
-      });
-    });
-
-    // Turn 1 of 3 fires report-forced (a nudge); continuing past maxTurns
-    // then fires turn-budget (a stop).
-    for (let i = 0; i < 6; i++) {
-      await director.decide(
-        makeInferenceDoneEvent([{ id: "r1", name: "read_file", args: { path: "a.ts" } }]),
-        mockState,
-        capabilities,
-      );
-    }
-
-    const nudge = recorded.find((r) => r.id === "report-forced");
-    expect(nudge?.class).toBe("nudge");
-    const stop = recorded.find((r) => r.id === "turn-budget");
-    expect(stop?.class).toBe("stop");
-    expect(stop?.value).toBeGreaterThanOrEqual(stop?.threshold ?? 0);
-  });
-
-  // maxTurns=3, forceReportWithin (default 2) → report-forced fires exactly
-  // at turnsCompleted===1, leaving turns 2 and 3 for turn-budget to remain
-  // reachable (regression for the report-forced turn-budget blocker).
-  test("report-forced still executes the pending tool calls, then nudges the follow-up infer", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 3);
-    const capabilities = makeCapabilities();
-
-    // Turn 1: model calls a tool while report-forced's window is active.
-    const doneEvent = makeInferenceDoneEvent([
-      { id: "tc-1", name: "read_file", args: { path: "a.ts" } },
-    ]);
-    const turn1 = actionsArray(await director.decide(doneEvent, mockState, capabilities));
-
-    // A tool_use turn must be followed by tool_result — report-forced must
-    // not skip execution and send a bare nudge, or every provider 400s.
-    const execute = turn1.find((a) => a.type === "execute_tools");
-    expect(execute).toBeDefined();
-    expect(turn1.some((a) => a.type === "infer")).toBe(false);
-
-    // Turn 1's tool result lands; the follow-up infer must carry the
-    // ephemeral wrap-up nudge armed by the report-forced turn.
-    const toolDone = makeToolDoneEvent("tc-1");
-    const turn2 = actionsArray(await director.decide(toolDone, mockState, capabilities));
-    const infer = turn2.find((a) => a.type === "infer");
-    expect(infer).toBeDefined();
-    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (
-      infer.options as { ephemeralTurns?: { content: { text?: string }[] }[] }
-    )?.ephemeralTurns;
-    expect(ephemeralTurns).toBeDefined();
-    expect(ephemeralTurns?.[0]?.content?.[0]?.text).toContain("turn budget");
-  });
-
-  test("the nudge fires only once — the next infer after report-forced carries no ephemeral turn", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 3);
-    const capabilities = makeCapabilities();
-
-    await director.decide(
-      makeInferenceDoneEvent([{ id: "tc-1", name: "read_file", args: { path: "a.ts" } }]),
-      mockState,
-      capabilities,
-    );
-    await director.decide(makeToolDoneEvent("tc-1"), mockState, capabilities);
-
-    // Turn 2 (post-nudge): model calls another tool, well clear of the
-    // single report-forced window: the follow-up infer must be a plain infer.
-    const turn2Done = makeInferenceDoneEvent([
-      { id: "tc-2", name: "read_file", args: { path: "b.ts" } },
-    ]);
-    await director.decide(turn2Done, mockState, capabilities);
-    const turn3 = actionsArray(
-      await director.decide(makeToolDoneEvent("tc-2"), mockState, capabilities),
-    );
-    const infer = turn3.find((a) => a.type === "infer");
-    expect(infer).toBeDefined();
-    if (infer === undefined || infer.type !== "infer") throw new Error("expected infer action");
-    const ephemeralTurns = (infer.options as { ephemeralTurns?: unknown[] } | undefined)
-      ?.ephemeralTurns;
-    expect(ephemeralTurns).toBeUndefined();
+    expect(stop(s)).toBeNull();
   });
 });
 
@@ -916,7 +670,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("no nudge fires before the stall timeout elapses", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -935,7 +689,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("first stall past the timeout gets one continuation nudge", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -954,7 +708,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("a second consecutive stall escalates to the salvage report", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -974,7 +728,7 @@ describe("SubAgentDirector stall management", () => {
 
   test("real activity between pings resets the stall streak", async () => {
     let now = 0;
-    const director = new SubAgentDirector("system", [], undefined, 30, 1000, () => now);
+    const director = new SubAgentDirector("system", [], undefined, 1000, () => now);
     const capabilities = makeCapabilities();
 
     await director.decide(toolCallDoneEvent("tc-1"), mockState, capabilities);
@@ -1038,81 +792,6 @@ describe("createTaskTool", () => {
     expect(result).toContain('Sub-agent "');
     expect(result).toContain(report);
     expect(result).toContain("## Summary");
-  });
-
-  test("does not inherit a bogus parent-session maxTurns dep on the task tool", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      maxTurns: 25,
-      profiles: [{ id: "leaf" }],
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    } as Parameters<typeof createTaskTool>[0] & { maxTurns: number });
-
-    // Plugin profile (not a director package) so package nudge.maxTurns does not apply.
-    const result = await callTask(tool, {
-      description: "Investigate",
-      prompt: "Do the work",
-      agent: "leaf",
-    });
-
-    expect(result).toContain("done");
-    expect(captured).toBeDefined();
-    expect(captured?.maxTurns).toBe(Infinity);
-  });
-
-  test("uses settings subagentMaxTurns when task and profile omit maxTurns", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      settings: { providers: {}, subagentMaxTurns: 42 },
-      profiles: [{ id: "leaf" }],
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    });
-
-    await callTask(tool, {
-      description: "Settings default",
-      prompt: "Work",
-      agent: "leaf",
-    });
-
-    expect(captured?.maxTurns).toBe(42);
-  });
-
-  test("forwards task maxTurns to runSubAgent", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      profiles: [{ id: "leaf" }],
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    });
-
-    await callTask(tool, {
-      description: "Long job",
-      prompt: "Work",
-      maxTurns: 50,
-      agent: "leaf",
-    });
-
-    expect(captured?.maxTurns).toBe(50);
   });
 
   test("profile inference rebuilds provider from settings", async () => {
@@ -1216,119 +895,6 @@ describe("createTaskTool", () => {
     });
     expect(out).toContain("Error:");
     expect(out).toContain("unavailable");
-  });
-
-  test("accepts task maxTurns above 100", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    });
-
-    const result = await callTask(tool, {
-      description: "Long job",
-      prompt: "Work",
-      maxTurns: 500,
-      intent: "explore",
-    });
-
-    expect(result).not.toContain("Error:");
-    expect(captured?.maxTurns).toBe(500);
-  });
-
-  test("rejects task maxTurns below 1", async () => {
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => ({ report: "done" }),
-    });
-
-    const result = await callTask(tool, {
-      description: "Too short",
-      prompt: "Work",
-      maxTurns: 0,
-      intent: "explore",
-    });
-
-    expect(result).toContain("Error:");
-    expect(result).toContain("at least 1");
-  });
-
-  test("uses profile maxTurns when task omits maxTurns", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      profiles: [{ id: "deep", maxTurns: 45 }],
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    });
-
-    await callTask(tool, {
-      description: "Profile budget",
-      prompt: "Work",
-      agent: "deep",
-    });
-
-    expect(captured?.maxTurns).toBe(45);
-  });
-
-  test("task maxTurns overrides profile maxTurns", async () => {
-    let captured: RunSubAgentParams | undefined;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      profiles: [{ id: "deep", maxTurns: 45 }],
-      run: async (params) => {
-        captured = params;
-        return { report: "done" };
-      },
-    });
-
-    await callTask(tool, {
-      description: "Override",
-      prompt: "Work",
-      agent: "deep",
-      maxTurns: 60,
-    });
-
-    expect(captured?.maxTurns).toBe(60);
-  });
-
-  test("appends parent hint when the worker hits turn budget", async () => {
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => ({
-        report: forcedStopReport("turn-budget", "partial"),
-        stopReason: "turn-budget",
-      }),
-    });
-
-    const result = await callTask(tool, {
-      description: "Budget",
-      prompt: "Work",
-      intent: "explore",
-    });
-
-    expect(result).toContain("turn budget");
-    expect(result).toContain("Turn budget reached");
   });
 
   test("forwards sandbox deps (permission gate and inherited MCP tools) to runSubAgent", async () => {
@@ -1784,7 +1350,7 @@ describe("buildDispatchBrief typed spawn contract", () => {
 });
 
 describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
-  test("fingerprint ignores whitespace and omits maxTurns/description", () => {
+  test("fingerprint ignores whitespace and omits description", () => {
     const a = fingerprintTaskBrief({
       prompt: "  map callers of X  ",
       intent: "explore",
@@ -1817,11 +1383,11 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(ledger.admit(fp).dispatchCount).toBe(3);
   });
 
-  test("turn-budget dispatch count advances across repeated same-brief admits", () => {
+  test("dispatch count advances across repeated same-brief admits", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "budget job" });
     expect(ledger.admit(fp).dispatchCount).toBe(1);
-    ledger.recordOutcome(fp, "turn-budget");
+    ledger.recordOutcome(fp, "deadline");
     const second = ledger.admit(fp);
     expect(second.dispatchCount).toBe(2);
   });
@@ -1830,7 +1396,7 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     const ledger = createBriefDispatchLedger();
     const fp = fingerprintTaskBrief({ prompt: "ok job" });
     expect(ledger.admit(fp).dispatchCount).toBe(1);
-    ledger.recordOutcome(fp, "turn-budget");
+    ledger.recordOutcome(fp, "deadline");
     expect(ledger.admit(fp).dispatchCount).toBe(2);
     // Success zeros dispatchCount so the next admit is 1.
     ledger.recordOutcome(fp, null);
@@ -1854,18 +1420,6 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(classifyBriefSalvage({ stopReason: "deadline", wasCancelled: false })).toBe("deadline");
     // An operator cancel wins even when the run's own reason disagrees.
     expect(classifyBriefSalvage({ stopReason: "deadline", wasCancelled: true })).toBe("cancelled");
-  });
-
-  test("turn-budget parent hint flips after re-dispatch threshold", () => {
-    const report = forcedStopReport("turn-budget", "partial");
-    const first = appendSubAgentParentHints(report, "turn-budget", { dispatchCount: 1 });
-    expect(first).toContain("higher maxTurns");
-    expect(first).not.toContain("re-dispatch cap");
-    const third = appendSubAgentParentHints(report, "turn-budget", {
-      dispatchCount: TURN_BUDGET_STOP_AFTER_DISPATCHES,
-    });
-    expect(third).toContain("re-dispatch cap");
-    expect(third).toContain(TURN_BUDGET_STOP_PARENT_HINT.slice(1, 40));
   });
 
   test("createTaskTool always re-dispatches an identical brief after a forced-stop salvage", async () => {
@@ -1902,89 +1456,5 @@ describe("brief re-dispatch ledger (CL-4343 / CL-5203)", () => {
     expect(runs).toBe(2);
     expect(sessions.list().filter((s) => s.status === "running")).toHaveLength(0);
     expect(sessions.list().filter((s) => s.description === "Thrash job")).toHaveLength(1);
-  });
-
-  test("createTaskTool flips turn-budget hint on third same-brief dispatch", async () => {
-    const budget = {
-      report: forcedStopReport("turn-budget", "partial work"),
-      stopReason: "turn-budget" as const,
-    };
-    let runs = 0;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => {
-        runs += 1;
-        return budget;
-      },
-    });
-    const args = { description: "Budget job", prompt: "long job", intent: "explore" };
-    const r1 = await callTask(tool, args);
-    expect(r1).toContain("higher maxTurns");
-    const r2 = await callTask(tool, { ...args, maxTurns: 50 });
-    expect(r2).toContain("higher maxTurns");
-    const r3 = await callTask(tool, { ...args, maxTurns: 80 });
-    expect(r3).toContain("re-dispatch cap");
-    expect(runs).toBe(3);
-  });
-
-  test("createTaskTool success resets turn-budget retry budget", async () => {
-    const budget = {
-      report: forcedStopReport("turn-budget", "partial"),
-      stopReason: "turn-budget" as const,
-    };
-    const ok = {
-      report: "## Summary\nDone\n\n## Findings\nok\n\n## Blockers\nNone\n\n## Paths\n",
-    };
-    let runs = 0;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => {
-        runs += 1;
-        // Two budgets, then success, then budget again — post-success should invite maxTurns.
-        if (runs <= 2 || runs === 4) return budget;
-        return ok;
-      },
-    });
-    const args = { description: "Reset job", prompt: "reset budget", intent: "explore" };
-    expect(await callTask(tool, args)).toContain("higher maxTurns");
-    expect(await callTask(tool, args)).toContain("higher maxTurns");
-    expect(await callTask(tool, args)).toContain("Done");
-    const afterSuccess = await callTask(tool, args);
-    expect(afterSuccess).toContain("higher maxTurns");
-    expect(afterSuccess).not.toContain("re-dispatch cap");
-    expect(runs).toBe(4);
-  });
-
-  test("createTaskTool auth failure does not burn turn-budget count", async () => {
-    const budget = {
-      report: forcedStopReport("turn-budget", "partial"),
-      stopReason: "turn-budget" as const,
-    };
-    let runs = 0;
-    const tool = createTaskTool({
-      permissionGate: testPermissionGate,
-      cwd: "/repo",
-      getWorkdirBase: () => "/repo/.corbits",
-      provider,
-      run: async () => {
-        runs += 1;
-        if (runs === 1) throw new Error("provider down");
-        return budget;
-      },
-    });
-    const args = { description: "Crash then budget", prompt: "count carefully", intent: "explore" };
-    const fail = await callTask(tool, args);
-    expect(fail).toContain("failed");
-    // First successful body is still dispatchCount 1 → invites higher maxTurns.
-    const firstBody = await callTask(tool, args);
-    expect(firstBody).toContain("higher maxTurns");
-    expect(firstBody).not.toContain("re-dispatch cap");
-    expect(runs).toBe(2);
   });
 });

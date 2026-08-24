@@ -71,7 +71,7 @@ import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
 import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
-import { resolveDefaultSubAgentMaxTurns, toolWatchdogFromSettings } from "../config/settings.js";
+import { toolWatchdogFromSettings } from "../config/settings.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
 import { ID_PREFIX } from "../branding.js";
@@ -212,7 +212,7 @@ export interface SubAgentRunController {
  * deadline into one abort signal. The run has a single signal to check while
  * still being able to tell a genuine cancel apart from the deadline firing
  * (deadlineHit()) when picking a forcedStopReport reason. When deadlineMs is
- * omitted, no timer is armed — maxTurns + cancel remain the only bounds.
+ * omitted, no timer is armed — cancel remains the only bound.
  */
 export function createSubAgentRunController(
   parentSignal: AbortSignal | undefined,
@@ -344,8 +344,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   let stallWatchdog: ReturnType<typeof setInterval> | undefined;
   // Combines the caller's cancel signal with an optional opt-in wall-clock
   // deadline so a leaf that hits the deadline can still return a salvage
-  // report. When deadlineMs is omitted, no timer is armed — maxTurns + cancel
-  // remain the only bounds. Declared before try so finally can dispose.
+  // report. When deadlineMs is omitted, no timer is armed — cancel remains
+  // the only bound. Declared before try so finally can dispose.
   // The task tool is exempt from the generic per-tool watchdog (see
   // resolveToolExecutionTimeoutMs), so there is no outer budget to clamp under.
   const resolvedDeadlineMs =
@@ -598,8 +598,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
       }
     };
 
-    const maxTurns = params.maxTurns ?? resolveDefaultSubAgentMaxTurns(params.settings);
-
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
@@ -620,7 +618,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
             model: params.provider.model,
           }),
           requestContinuation,
-          maxTurns,
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,
           shouldRequireEvidence(params),

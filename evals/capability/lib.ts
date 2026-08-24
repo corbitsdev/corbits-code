@@ -60,7 +60,6 @@ export interface EvalCase {
   /** Fixture path relative to the repository root. */
   fixture: string;
   prompt: string;
-  maxTurns?: number;
   /** Grader filename relative to the case directory (default verify.sh). */
   verify: string;
   /** Absolute path to the case directory on disk. */
@@ -139,9 +138,6 @@ export interface CaseResult {
   turnsUsed: number | null;
   toolCallCount: number | null;
   tokenUsage: EvalTokenUsage | null;
-  maxTurns: number | null;
-  /** True when turnsUsed exceeded the configured maxTurns budget. */
-  overBudget: boolean | null;
   skipPermissions: boolean;
   error: string | null;
   /** 0-based repeat index within the case×variant cell. */
@@ -277,10 +273,6 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
     throw new Error(`case ${id}: missing prompt`);
   }
   const verify = typeof raw.verify === "string" && raw.verify.length > 0 ? raw.verify : "verify.sh";
-  const maxTurns =
-    typeof raw.maxTurns === "number" && Number.isFinite(raw.maxTurns) && raw.maxTurns > 0
-      ? Math.floor(raw.maxTurns)
-      : undefined;
   const bait = parseBait(raw.bait, id);
   const httpFixture = raw.httpFixture === true ? true : undefined;
   const requireBehaviors = parseRequireBehaviors(raw.requireBehaviors, id);
@@ -292,7 +284,6 @@ export function parseCaseJson(raw: unknown, caseDir: string): EvalCase {
     prompt,
     verify,
     caseDir,
-    ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(bait !== undefined ? { bait } : {}),
     ...(httpFixture !== undefined ? { httpFixture } : {}),
     ...(requireBehaviors !== undefined ? { requireBehaviors } : {}),
@@ -670,35 +661,6 @@ export function summarizeRun(results: readonly CaseResult[]): EvalRunTotals {
   };
 }
 
-/**
- * Soft turn-budget evaluation. When maxTurns is set:
- * - missing turnsUsed → fail closed (overBudget true) so a broken metrics path
- *   cannot silently pass a budgeted case
- * - turnsUsed > maxTurns → overBudget true
- * When maxTurns is unset, overBudget is null (budget not in force).
- */
-export function evaluateSoftBudget(args: { maxTurns: number | null; turnsUsed: number | null }): {
-  overBudget: boolean | null;
-  budgetError: string | null;
-} {
-  if (args.maxTurns === null) {
-    return { overBudget: null, budgetError: null };
-  }
-  if (args.turnsUsed === null) {
-    return {
-      overBudget: true,
-      budgetError: `turn budget set (${args.maxTurns}) but turnsUsed was not reported`,
-    };
-  }
-  if (args.turnsUsed > args.maxTurns) {
-    return {
-      overBudget: true,
-      budgetError: `over turn budget (${args.turnsUsed} > ${args.maxTurns})`,
-    };
-  }
-  return { overBudget: false, budgetError: null };
-}
-
 function parseTokenUsage(raw: unknown): EvalTokenUsage | null {
   if (!isRecord(raw)) return null;
   const num = (k: string): number =>
@@ -751,8 +713,6 @@ function parseCaseResult(raw: unknown): CaseResult {
     turnsUsed: typeof raw.turnsUsed === "number" ? raw.turnsUsed : null,
     toolCallCount: typeof raw.toolCallCount === "number" ? raw.toolCallCount : null,
     tokenUsage: parseTokenUsage(raw.tokenUsage),
-    maxTurns: typeof raw.maxTurns === "number" ? raw.maxTurns : null,
-    overBudget: typeof raw.overBudget === "boolean" ? raw.overBudget : null,
     skipPermissions: Boolean(raw.skipPermissions ?? true),
     error: typeof raw.error === "string" ? raw.error : raw.error === null ? null : null,
     repeat:
