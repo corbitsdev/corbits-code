@@ -18,6 +18,7 @@ export const draperPackage: DirectorPackage = {
   // Read-only critique — product write tools not mounted.
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "review",
   systemPrompt: `You are DraperDirector, a specialist in Corbits Code.

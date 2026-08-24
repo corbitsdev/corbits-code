@@ -19,6 +19,7 @@ export const gaasbotPackage: DirectorPackage = {
   optionalSkills: ["philosophy"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 35 },
   modelRole: "plan",
   systemPrompt: `You are GaasbotDirector, a specialist in Corbits Code.

@@ -9,6 +9,7 @@ export const planPackage: DirectorPackage = {
   optionalSkills: ["style", "philosophy", "interview"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "plan",
   systemPrompt: `You are PlanDirector, a specialist in Corbits Code.

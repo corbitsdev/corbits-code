@@ -22,6 +22,7 @@ import {
   type DirectorPackage,
   type ResolveDirectorInput,
   type ResolveDirectorResult,
+  type SubagentTier,
   type TaskIntent,
 } from "./types.js";
 
@@ -59,6 +60,11 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> = 
 
 export function isDirectorId(value: unknown): value is DirectorId {
   return typeof value === "string" && (DIRECTOR_IDS as readonly string[]).includes(value);
+}
+
+/** Fleet authority tier for a closed director id, or undefined for non-director profiles. */
+export function tierForDirectorId(id: string): SubagentTier | undefined {
+  return isDirectorId(id) ? DIRECTOR_REGISTRY[id].tier : undefined;
 }
 
 export function listDirectors(): readonly DirectorPackage[] {

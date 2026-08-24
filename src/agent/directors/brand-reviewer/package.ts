@@ -16,6 +16,7 @@ export const brandReviewerPackage: DirectorPackage = {
   description: "DESIGN.md brand gate",
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 40 },
   modelRole: "docs",
   systemPrompt: `You are BrandReviewerDirector, a specialist in Corbits Code.
