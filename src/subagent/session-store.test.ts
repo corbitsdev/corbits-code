@@ -350,18 +350,30 @@ describe("CL-6943 reusable worker sessions", () => {
   test("resume_agent fails on a session close_agent already shut down (close is permanent)", async () => {
     const store = createSubAgentSessionStore();
     const session = store.start({ description: "d", agentId: "a", brief: "b", retained: true });
+    // registerClose always fires in production before onAgentReady's window
+    // closes (CL-7001) — closeOne otherwise waits for it up to the deadline.
+    store.registerClose(session.id, async () => {});
     store.complete(session.id, "## Summary\nDone.");
     await store.closeOne(session.id, 1000);
     expect(store.resumeOne(session.id)).toEqual({ ok: false, status: "shutdown" });
   });
 
-  test("pruneCompleted does not evict a retained, still-open session past maxCompleted", () => {
+  // CL-7001: a retained, still-open session used to be exempt from this cap
+  // entirely — no separate cap or TTL — which is exactly why every
+  // spawn_agent worker leaked by default. maxCompleted is now the one bound
+  // the store owns for every finished session, retained or not, and
+  // eviction releases the session's close handle instead of abandoning it.
+  test("pruneCompleted evicts a retained, still-open session past maxCompleted and releases it", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 1 });
     const retained = store.start({
       description: "keep-me",
       agentId: "a",
       brief: "b",
       retained: true,
+    });
+    let closed = false;
+    store.registerClose(retained.id, async () => {
+      closed = true;
     });
     store.complete(retained.id, "## Summary\nDone.");
 
@@ -370,8 +382,8 @@ describe("CL-6943 reusable worker sessions", () => {
       store.complete(s.id, "## Summary\nDone.");
     }
 
-    expect(store.get(retained.id)).toBeDefined();
-    expect(store.get(retained.id)?.lifecycleStatus).toBe("completed");
+    expect(store.get(retained.id)).toBeUndefined();
+    expect(closed).toBe(true);
   });
 
   test("once closed, a retained session becomes a normal finished record subject to the cap", async () => {
@@ -382,6 +394,7 @@ describe("CL-6943 reusable worker sessions", () => {
       brief: "b",
       retained: true,
     });
+    store.registerClose(retained.id, async () => {});
     store.complete(retained.id, "## Summary\nDone.");
     await store.closeOne(retained.id, 1000);
 

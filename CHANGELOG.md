@@ -35,9 +35,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   so a wedged descendant cannot hang the call) and `resume_agent(id)` to
   reopen a retained, completed session. Sessions now carry an explicit
   lifecycle status (`pending_init | running | interrupted | completed |
-  shutdown | not_found`) alongside the existing display status; a retained
-  session is exempt from the finished-session display cap until it is
-  actually closed.
+  shutdown | not_found`) alongside the existing display status.
+- Fixed four resource-leak / false-success bugs in the retained-session
+  lifecycle above: a retained session is now released (its close handle
+  invoked, its reactor and LSP sidecars torn down) once it falls out of the
+  same finished-session cap every other session already used, instead of
+  being exempt from any bound; `cancelAll` and session teardown (`/clear`,
+  closing a session) now release every still-open retained session, not
+  only ones still mid-turn; `close_agent` called while a worker's agent is
+  still being constructed now waits for it (bounded by the same close
+  deadline) instead of reporting a false "shutdown" over a session nothing
+  can ever release again; and a session salvaged by a deadline or a cancel
+  no longer reports as resumable once its agent has actually been disposed.
 
 ## [0.2.109] - 2026-08-24
 

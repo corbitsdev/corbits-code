@@ -485,7 +485,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         .then((result) => {
           if (childCtl.signal.aborted) return;
           deps.fleetRecords.resolve(session.id, result.report);
-          deps.sessions.complete(session.id, result.report);
+          // CL-7001: result.agentRetained is only true on run.ts's clean-
+          // completion path when persist actually skipped teardown — a
+          // deadline/cancel salvage resolves through the same promise but
+          // always disposed its agent first, so the store must not treat it
+          // as resumable just because retained:true was requested at spawn.
+          deps.sessions.complete(session.id, result.report, {
+            agentRetained: result.agentRetained === true,
+          });
         })
         .catch((err) => {
           if (childCtl.signal.aborted) return;
