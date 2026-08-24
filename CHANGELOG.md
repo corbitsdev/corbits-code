@@ -11,6 +11,15 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Agent
+
+- Removed `AgentProfile.fleetTier`: no loader ever populated it from any config
+  format, so it was declared but unreachable. Fail-closed behavior is
+  unchanged — a profile-sourced orchestrator is still denied `task`/
+  `search_agents` with no supported opt-in.
+
 ## [0.2.108] - 2026-08-24
 
 ### Agent

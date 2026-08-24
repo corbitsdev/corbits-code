@@ -486,14 +486,9 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
             orchestrator = true;
             // Fail closed (CL-6941): a profile is outside the closed director
-            // set, so orchestrator: true alone does not grant a tier. Only an
-            // explicit non-leaf profile.fleetTier opts in; anything else
-            // (absent, or "leaf") leaves orchestratorTier undefined, which
+            // set, so orchestrator: true alone does not grant a tier. No
+            // profile field opts in; orchestratorTier stays undefined, which
             // runSubAgent treats as "leaf" and denies task/search_agents.
-            orchestratorTier =
-              profile.fleetTier !== undefined && profile.fleetTier !== "leaf"
-                ? profile.fleetTier
-                : undefined;
           }
           // Per-agent pinned inference (provider/model/effort), if declared.
           // Resolution uses policy (mode: pin / agentModelFallback: none) so a
