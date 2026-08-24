@@ -804,6 +804,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...sandbox,
             cwd: worktreeCwd ?? deps.cwd,
             workdirBase: deps.getWorkdirBase(),
+            // Same id as the SubAgentSessionStore record so read_agent_trace's
+            // descendant check (authority.ts assertCanTargetAgent) can reuse the
+            // store's parentSessionId chain instead of a second identity scheme.
+            ...(session !== undefined ? { id: session.id } : {}),
             provider,
             ...(settings !== undefined ? { settings } : {}),
             ...(catalog !== undefined ? { catalog } : {}),
