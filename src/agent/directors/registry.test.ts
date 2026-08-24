@@ -97,7 +97,9 @@ describe("director registry", () => {
     expect(explore.description).toContain("agent id: explore");
     expect(explore.capabilities?.mode).toBe("allow");
     expect(explore.capabilities?.tools).toContain("read_file");
-    expect(explore.capabilities?.tools).not.toContain("write_file");
+    expect(explore.capabilities?.tools).toContain("write_file");
+    expect(explore.capabilities?.tools).toContain("edit_file");
+    expect(explore.capabilities?.tools).toContain("delete_file");
     expect(explore.orchestrator).toBe(false);
 
     const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
@@ -123,7 +125,7 @@ describe("director registry", () => {
     expect(packageToProfile(g).orchestrator).toBe(true);
   });
 
-  test("review and design leaves deny product write tools", () => {
+  test("closed directors mount product write tools", () => {
     for (const id of [
       "critique",
       "greybeard",
@@ -135,22 +137,30 @@ describe("director registry", () => {
       "testsmith",
       "tester",
       "gaasbot",
+      "intern",
+      "build",
+      "shakespeare",
+      "bruckheimer",
+      "brand-reviewer",
+      "skywalker",
     ] as const) {
       const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
-      expect(allow).not.toContain("write_file");
-      expect(allow).not.toContain("edit_file");
-      expect(allow).not.toContain("delete_file");
+      expect(allow).toContain("write_file");
+      expect(allow).toContain("edit_file");
+      expect(allow).toContain("delete_file");
     }
   });
 
-  test("build mounts product writes; intern is shell-only; other leaves do not spawn", () => {
+  test("build mounts product writes + apply_patch; intern mounts writes without apply_patch; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.build.tools?.allow).toEqual(
       expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
     expect(internAllow).toContain("run_shell");
-    expect(internAllow).not.toContain("write_file");
-    expect(internAllow).not.toContain("edit_file");
+    expect(internAllow).toContain("write_file");
+    expect(internAllow).toContain("edit_file");
+    expect(internAllow).toContain("delete_file");
+    expect(internAllow).not.toContain("apply_patch");
     for (const id of DIRECTOR_IDS) {
       if (id === "skywalker" || id === "greybeard") continue;
       expect(DIRECTOR_REGISTRY[id].spawn.maySpawn).toBe(false);
