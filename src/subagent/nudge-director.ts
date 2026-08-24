@@ -23,14 +23,10 @@ import {
 } from "./thrash.js";
 import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
 import {
-  DEFAULT_SUBAGENT_REPEAT_LIMIT,
   evaluateSubAgentStop,
-  fingerprintToolCalls,
   forcedStopReport,
   lastText,
-  nextToolCallStreak,
   type ForcedStopReason,
-  type ToolCallStreak,
 } from "./stop-policy.js";
 
 const REPORT_FORCED_WRAP_UP_NUDGE =
@@ -79,17 +75,12 @@ function withEphemeralNudge(
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
-  private readonly repeatLimit: number;
   /** When true (intent=implement), tool-less finish without edits salvages as never-edited. */
   private readonly requireEdit: boolean;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
   private everHadToolCalls = false;
-  private streak: ToolCallStreak = {
-    lastFingerprint: undefined,
-    consecutiveIdentical: 0,
-  };
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
   // Armed for wrap-up (report-forced) or failed-tool recovery so the
   // follow-up infer (after pending tool calls from THIS turn have executed)
@@ -116,11 +107,11 @@ export class SubAgentDirector extends DefaultDirector {
   // (directors are pure decide(event, ...) functions — see requestContinuation
   // above), so the run loop periodically pings this same continuation channel
   // and the director only acts on a ping if genuinely nothing happened since
-  // the last one. Precedence: this check sits below no-progress /
-  // turn-budget (evaluateSubAgentStop, above) — those fire from real
-  // inference.done turns and always take priority; stall pings only ever
-  // fire on a continuation message that inference.done/tool.done handling
-  // did not already consume this cycle.
+  // the last one. Precedence: this check sits below turn-budget
+  // (evaluateSubAgentStop, above) — that fires from real inference.done turns
+  // and always takes priority; stall pings only ever fire on a continuation
+  // message that inference.done/tool.done handling did not already consume
+  // this cycle.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
@@ -167,7 +158,6 @@ export class SubAgentDirector extends DefaultDirector {
     toolDefinitions: ToolDefinition[],
     requestContinuation: (() => void) | undefined,
     maxTurns: number,
-    repeatLimit: number = DEFAULT_SUBAGENT_REPEAT_LIMIT,
     stallTimeoutMs?: number,
     now: () => number = Date.now,
     requireEdit = false,
@@ -176,7 +166,6 @@ export class SubAgentDirector extends DefaultDirector {
     super(systemPrompt, toolDefinitions, {});
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
     this.maxTurns = maxTurns;
-    this.repeatLimit = repeatLimit;
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
     this.lastActivityAt = now();
@@ -232,9 +221,7 @@ export class SubAgentDirector extends DefaultDirector {
         text?: string;
       }[];
       this.lastAssistantText = lastText(content);
-      const fingerprint = fingerprintToolCalls(content);
-      this.streak = nextToolCallStreak(this.streak, fingerprint);
-      const hasToolCalls = fingerprint !== null;
+      const hasToolCalls = content.some((block) => block.type === "tool_call");
       if (hasToolCalls) {
         this.everHadToolCalls = true;
         this.thrashState = nextThrashState(this.thrashState, content);
@@ -245,8 +232,6 @@ export class SubAgentDirector extends DefaultDirector {
         everHadToolCalls: this.everHadToolCalls,
         turnsCompleted: this.turnsCompleted,
         maxTurns: this.maxTurns,
-        consecutiveIdentical: this.streak.consecutiveIdentical,
-        repeatLimit: this.repeatLimit,
         thrashState: this.thrashState,
         requireEdit: this.requireEdit,
         requireEvidence: this.requireEvidence,
@@ -312,37 +297,23 @@ export class SubAgentDirector extends DefaultDirector {
           },
           state: this.interventionState(),
         });
-      } else if (
-        stop === "no-progress" ||
-        stop === "turn-budget" ||
-        stop === "never-acted" ||
-        stop === "never-edited"
-      ) {
+      } else if (stop === "turn-budget" || stop === "never-acted" || stop === "never-edited") {
         const checkpoint =
-          stop === "no-progress"
-            ? "subagent-no-progress"
-            : stop === "never-acted"
-              ? "subagent-never-acted"
-              : stop === "never-edited"
-                ? "subagent-never-edited"
-                : "subagent-turn-budget";
+          stop === "never-acted"
+            ? "subagent-never-acted"
+            : stop === "never-edited"
+              ? "subagent-never-edited"
+              : "subagent-turn-budget";
         const detail =
-          stop === "no-progress"
-            ? `identical tool call × ${this.streak.consecutiveIdentical}`
-            : stop === "turn-budget"
-              ? `${this.turnsCompleted}/${this.maxTurns} turns`
-              : undefined;
+          stop === "turn-budget" ? `${this.turnsCompleted}/${this.maxTurns} turns` : undefined;
         this.interventions({
           id: stop,
           class: "stop",
-          measurement:
-            stop === "no-progress"
-              ? {
-                  metric: "consecutiveIdentical",
-                  value: this.streak.consecutiveIdentical,
-                  threshold: this.repeatLimit,
-                }
-              : { metric: "turnsCompleted", value: this.turnsCompleted, threshold: this.maxTurns },
+          measurement: {
+            metric: "turnsCompleted",
+            value: this.turnsCompleted,
+            threshold: this.maxTurns,
+          },
           state: this.interventionState(),
           ...(detail !== undefined ? { detail } : {}),
         });
@@ -389,7 +360,7 @@ export class SubAgentDirector extends DefaultDirector {
    * First stall past the timeout: one continuation nudge, asking the leaf to
    * report status or keep going. A second consecutive stall (no activity
    * since the nudge) escalates to the existing salvage path, same shape as
-   * no-progress/turn-budget above. Returns null when this event is not
+   * turn-budget above. Returns null when this event is not
    * a stall check the director should act on (let it fall through as an
    * ordinary continuation).
    */

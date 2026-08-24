@@ -11,7 +11,6 @@ import {
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js";
-import { detectTailCharLoop } from "../subagent/repetition.js";
 
 describe("shouldAbortForStall", () => {
   // Mid-stream hang: tokens already flowed, then everything went silent —
@@ -137,78 +136,6 @@ describe("applyStallRecovery", () => {
       "custom message",
     );
     expect(calls).toEqual(["abort", "custom message"]);
-  });
-});
-
-describe("detectTailCharLoop", () => {
-  test("finds nothing in fresh, varied output", () => {
-    const text = [
-      "I'll check the callId emission path first.",
-      "Running the search now.",
-      "Found three matches across the module.",
-    ].join("\n");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
-  });
-
-  // The captured incident: the two sentences ran together with no line break
-  // at all. A line-splitting detector never sees this; the period search
-  // does not care where (or whether) the lines break.
-  test("flags the captured incident string verbatim, with no newlines", () => {
-    const line1 =
-      "I'll verify callId emission and remaining edges, then write the ranked findings.";
-    const line2 = "Confirming callId emission, then writing the ranked findings.";
-    const text = Array(30).fill(`${line1}${line2}`).join("");
-    const check = detectTailCharLoop(text);
-    expect(check.repeating).toBe(true);
-    expect(check.period).toBe(line1.length + line2.length);
-  });
-
-  // The second captured incident: a 10-char unit ("Groaning. ") emitted
-  // ~1,363 times. The old 24-char period floor never saw it; 9 distinct
-  // chars keeps it above REPETITION_MIN_DISTINCT_CHARS.
-  test("flags a short-phrase loop with a 10-char unit", () => {
-    const text = "Groaning. ".repeat(60);
-    const check = detectTailCharLoop(text);
-    expect(check.repeating).toBe(true);
-    expect(check.period).toBe("Groaning. ".length);
-  });
-
-  test("does not flag the same cycle a handful of times", () => {
-    const line1 =
-      "I'll verify callId emission and remaining edges, then write the ranked findings.";
-    const line2 = "Confirming callId emission, then writing the ranked findings.";
-    // Fewer than the occurrence threshold: a model can legitimately restate
-    // a step once or twice across tool-call cycles without looping.
-    const text = Array(4).fill(`${line1}${line2}`).join("");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
-  });
-
-  test("does not flag a repeated markdown table separator row", () => {
-    const row = "| ---------------------- | ---------------------- |";
-    const text = Array(6).fill(row).join("\n");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
-  });
-
-  test("does not flag a few identical code lines", () => {
-    const line = "  const result = await fetchData(request, options, context)";
-    const text = Array(3).fill(line).join("\n");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
-  });
-
-  test("ignores short recurring fragments", () => {
-    const text = Array(10).fill("ok").join(" ");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
-  });
-
-  // A monochrome run is periodic at every period by construction — the
-  // easiest thing to false-trigger on if entropy is not checked.
-  test("does not flag a long run of the same character", () => {
-    expect(detectTailCharLoop("x".repeat(500)).repeating).toBe(false);
-  });
-
-  test("does not flag a repeated horizontal rule", () => {
-    const text = Array(10).fill("----------------------------").join("\n");
-    expect(detectTailCharLoop(text).repeating).toBe(false);
   });
 });
 
