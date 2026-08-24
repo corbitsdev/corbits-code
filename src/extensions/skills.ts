@@ -50,13 +50,25 @@ function stripFrontmatter(raw: string): string {
   return raw.slice(end + 3).trim();
 }
 
-function parseSkillFrontmatter(raw: string): { name?: string; description?: string } {
+function parseSkillFrontmatter(raw: string): {
+  name?: string;
+  description?: string;
+  disableModelInvocation?: boolean;
+} {
   const block = frontmatterBlock(raw);
   if (block === undefined) return {};
-  const out: { name?: string; description?: string } = {};
+  const out: {
+    name?: string;
+    description?: string;
+    disableModelInvocation?: boolean;
+  } = {};
   for (const line of block.split("\n")) {
-    const match = /^(name|description):\s*(.+)$/.exec(line.trim());
+    const trimmed = line.trim();
+    const match = /^(name|description):\s*(.+)$/.exec(trimmed);
     if (match) out[match[1] as "name" | "description"] = match[2]!.trim();
+    if (/^disable-model-invocation:\s*true\s*$/.test(trimmed)) {
+      out.disableModelInvocation = true;
+    }
   }
   return out;
 }
@@ -136,11 +148,15 @@ export async function resolveSkillBody(
 // Discover every available skill (name + one-line description) for the lazy
 // listing in the system prompt. Deduped by name: the first base dir that
 // provides a skill wins, so a higher-precedence dir shadows a lower one.
+// Skills with `disable-model-invocation: true` are omitted from the listing
+// but still occupy the name in `seen` so a lower-priority same-name skill
+// cannot leak in. Explicit `use_skill` / `resolveSkillBody` loads still work.
 export async function discoverSkills(
   cwd: string,
   pluginDirs: string[] = [],
 ): Promise<SkillSummary[]> {
-  const seen = new Map<string, SkillSummary>();
+  const seen = new Set<string>();
+  const skills: SkillSummary[] = [];
   for (const base of skillBaseDirs(cwd, pluginDirs)) {
     const entries = await readdir(base, { withFileTypes: true }).catch(() => undefined);
     if (entries === undefined) continue;
@@ -149,8 +165,11 @@ export async function discoverSkills(
       const raw = await readRaw(join(base, entry.name, "SKILL.md"));
       if (raw === undefined) continue;
       const fm = parseSkillFrontmatter(raw);
-      seen.set(entry.name, { name: entry.name, description: fm.description ?? "" });
+      // First-wins: claim the name even when skipping the listing.
+      seen.add(entry.name);
+      if (fm.disableModelInvocation) continue;
+      skills.push({ name: entry.name, description: fm.description ?? "" });
     }
   }
-  return [...seen.values()];
+  return skills;
 }
