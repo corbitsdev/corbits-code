@@ -12,10 +12,8 @@ export interface ModelFamilyPolicy {
    * Consecutive tool-only assistant turns (tool calls, no text) before the
    * main chat director injects a one-shot wrap-up nudge. A long tool-only
    * streak is normal orchestration (Linear lookups, code reads, etc.) and
-   * must not by itself stop the session — this is a soft check-in, not a
-   * loop-protection trigger. The real stop signal is a repeating cycle in
-   * the tool-fingerprint history, independent of this threshold — see
-   * detectToolFingerprintThrash in subagent/stop-policy.ts.
+   * must not by itself stop the session — this is a soft check-in, and it
+   * never escalates to a pause on its own.
    */
   toolOnlyTurnNudgeAt: number;
   /** Ephemeral nudge text injected at toolOnlyTurnNudgeAt. */

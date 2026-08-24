@@ -15,8 +15,7 @@ import type { TaskIntent } from "./report.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 
 /** Salvage classes that must not be re-dispatched with an identical brief. */
-export type HardBlockSalvage =
-  "no-ship" | "no-progress" | "repetition" | "never-acted" | "never-edited";
+export type HardBlockSalvage = "no-ship" | "never-acted" | "never-edited";
 
 // Every forced-stop reason a leaf can report maps 1:1 onto a salvage kind
 // the parent ledger cares about.
@@ -44,13 +43,7 @@ export interface BriefDispatchRecord {
  */
 export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
 
-const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>([
-  "no-ship",
-  "no-progress",
-  "repetition",
-  "never-acted",
-  "never-edited",
-]);
+const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>(["no-ship", "never-acted", "never-edited"]);
 
 export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSalvage {
   return HARD_BLOCK_SALVAGES.has(kind);
