@@ -47,6 +47,8 @@ export interface DispatchBrief {
   successCriteria?: readonly string[];
   doNot?: readonly string[];
   reportFocus?: string;
+  /** Turn token (CL-6946) a leaf must echo back to `submit_result`. Leaf-tier dispatches only. */
+  turnToken?: string;
 }
 
 export function buildDispatchBrief(brief: DispatchBrief): string {
@@ -85,6 +87,14 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
     reportLines.push(`Focus Findings on: ${brief.reportFocus.trim()}`);
   }
   parts.push("", "## Report shape", ...reportLines);
+  if (brief.turnToken !== undefined && brief.turnToken.length > 0) {
+    parts.push(
+      "",
+      "## Turn token",
+      brief.turnToken,
+      `If you call submit_result, pass turn_token="${brief.turnToken}" exactly. A mismatched token means this turn was superseded — do not resubmit under it.`,
+    );
+  }
   return parts.join("\n");
 }
 
