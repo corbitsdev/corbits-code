@@ -106,6 +106,21 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("philosophy skill is guidance without fake enforcement", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/philosophy/SKILL.md")).text();
+  expect(skill).toContain(USER_INVOCABLE_FALSE);
+  expect(skill).toContain("Constraint ownership");
+  expect(skill).toContain("exactly one");
+  expect(skill).toContain("guidance for choices");
+  expect(skill).toContain("Backwards compatibility");
+  expect(skill).toContain("Pragmatic over idealistic");
+  expect(skill).not.toContain("## Acknowledgment");
+  expect(skill).not.toContain("I have reviewed the philosophy skill");
+  expect(skill).not.toContain("write_file");
+  expect(skill).not.toContain("run_shell");
+  expect(skill).not.toContain("use_skill(");
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
