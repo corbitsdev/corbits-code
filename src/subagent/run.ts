@@ -107,7 +107,12 @@ import {
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
 import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
-import { createCloseAgentTool, createResumeAgentTool } from "./lifecycle-tools.js";
+import {
+  createCloseAgentTool,
+  createResumeAgentTool,
+  createInterruptAgentTool,
+  createFollowupTaskTool,
+} from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult, SubAgentProvider } from "./types.js";
 import type { TaskIntent } from "./report.js";
@@ -338,6 +343,18 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
   // Set only on the clean-completion return path; read by the finally block
   // to decide whether a persisted session's teardown is skipped (CL-6943).
   let turnSucceeded = false;
+  // CL-6997: set only on the interrupt_agent path (a dedicated signal fired
+  // by the `interrupt` handle below, never runController) — the finally
+  // block skips teardown here too, exactly like a persisted clean success,
+  // so the agent and its workdir lock stay live for a later followup_task.
+  let interruptedKeepAlive = false;
+  // Scoped to this run's `agent.send()` call only. Firing it rejects that
+  // one send's promise (per Agent.send's documented signal option) without
+  // touching agent.close() or runController — the reactor cycle it belongs
+  // to keeps running in the background, exactly as the vendored send-queue
+  // documents, so a later followup_task's agent.send() simply queues behind
+  // it rather than racing a half-torn-down session.
+  const interruptController = new AbortController();
   // Declared before try (same reasoning as closeOnAbort above): assigned once
   // requestContinuation/modelFamilyPolicy exist inside the try, but must be
   // visible to the finally block, which is a sibling scope, not a child.
@@ -473,6 +490,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         "wait_agents",
         "close_agent",
         "resume_agent",
+        "interrupt_agent",
+        "followup_task",
       ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
@@ -565,6 +584,8 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         createWaitAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions }),
         createResumeAgentTool({ sessions: fleetSessions }),
+        createInterruptAgentTool({ sessions: fleetSessions }),
+        createFollowupTaskTool({ sessions: fleetSessions }),
       ];
     }
 
@@ -824,7 +845,26 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         // real so the listener does not outlive the session.
         runController.dispose();
       };
-      params.onAgentReady(boundedClose);
+      // CL-6997: interrupt only fires interruptController — never
+      // runController/close, so it cannot hit the close()-ordering wedge
+      // documented in dispose.ts (CL-6984).
+      const interrupt = (): void => {
+        if (!interruptController.signal.aborted) {
+          interruptController.abort(new Error("interrupted by interrupt_agent"));
+        }
+      };
+      // CL-6997: followup_task's payoff — call agent.send() again on the
+      // same live agent object. The vendored send-queue serializes this
+      // behind whatever cycle was in flight (interrupted or not), and
+      // agent.history()/the context store already hold every prior turn, so
+      // this reuses full context rather than starting fresh.
+      const followup = async (message: string): Promise<string> => {
+        const result = await agent!.send(message, { signal: runController.signal });
+        return result.reply.trim().length > 0
+          ? result.reply.trim()
+          : "Sub-agent finished without a textual result.";
+      };
+      params.onAgentReady({ close: boundedClose, interrupt, followup });
     }
 
     const fullPrompt = buildDispatchBrief({
@@ -849,7 +889,14 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     };
     try {
       ensureNotAborted();
-      const sendOpts = { signal: runController.signal };
+      // Combine the run's own controller with the dedicated interrupt signal
+      // (CL-6997) so either one stops this send() call, while only
+      // runController's abort is wired to closeOnAbort/teardown.
+      const sendSignal =
+        typeof AbortSignal.any === "function"
+          ? AbortSignal.any([runController.signal, interruptController.signal])
+          : runController.signal;
+      const sendOpts = { signal: sendSignal };
       const fresh = await refreshInferenceSourceBundle(
         bundle.sources,
         bundle.defaultSource,
@@ -884,6 +931,24 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
         ...(params.persist === true ? { agentRetained: true } : {}),
       };
     } catch (err) {
+      // CL-6997: interrupt_agent fired its own signal, not runController's —
+      // check that first so an interrupted send doesn't fall into the
+      // cancel/deadline salvage path (which tears down in the finally
+      // block) or rethrow as a bare AbortError.
+      if (interruptController.signal.aborted && !runController.signal.aborted) {
+        interruptedKeepAlive = true;
+        const abortedCycleText = await cycleRecorder.dispose("cancelled", { drain: streamPromise });
+        const tail =
+          lastPartialText.trim().length > 0 ? lastPartialText : abortedCycleText.slice(-2000);
+        return {
+          report: appendActivitySummary(
+            forcedStopReport("cancelled", tail, "interrupted by interrupt_agent"),
+            toolNamesUsed,
+          ),
+          stopReason: "cancelled",
+          interrupted: true,
+        };
+      }
       if (isSubAgentCancelError(err, runController.signal)) {
         // Close the recorder against the dead cycle before its inference.error
         // arrives: closing at entry stops that auto-flush from mislabeling this
@@ -928,7 +993,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
     }
   } finally {
     if (stallWatchdog !== undefined) clearInterval(stallWatchdog);
-    const persisting = params.persist === true && turnSucceeded;
+    // CL-7001 + CL-6997: a run keeps its agent alive either because it
+    // completed cleanly under persist, or because interrupt_agent fired and
+    // the session must stay reusable. Both skip teardown and both need the
+    // parent-signal listener kept so a later cancel still reaches them.
+    const persisting = (params.persist === true && turnSucceeded) || interruptedKeepAlive;
     // CL-7001: a persisting run must keep the parent-signal forwarding alive
     // (see createSubAgentRunController's dispose doc) — boundedClose (the
     // close_agent handle) fully disposes the runController itself once the

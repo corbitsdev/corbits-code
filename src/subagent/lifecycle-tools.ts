@@ -145,3 +145,105 @@ export function createResumeAgentTool(deps: LifecycleToolDeps): AgentTool {
     },
   });
 }
+
+const InterruptAgentArgs = type({
+  target: "string",
+});
+
+export const interruptAgentToolDefinition: ToolDefinition = {
+  name: "interrupt_agent",
+  description:
+    "Stop a worker session's current turn while keeping the session and its context intact and " +
+    "reusable — distinct from close_agent, which is permanent. The worker's in-flight tool call or " +
+    "inference keeps running in the background (there is no way to hard-stop it without tearing the " +
+    "session down); this only stops the caller from waiting on it and marks the session " +
+    "'interrupted' so followup_task or resume_agent can pick it back up with full prior context. " +
+    "Fails on a session that is not currently running.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", description: "agent_id of the session to interrupt." },
+    },
+    required: ["target"],
+  },
+};
+
+export function createInterruptAgentTool(deps: LifecycleToolDeps): AgentTool {
+  return tool({
+    definition: interruptAgentToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const parsed = InterruptAgentArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return lifecycleResult(
+          call.id,
+          `Error: interrupt_agent arguments invalid: ${parsed.summary}`,
+        );
+      }
+      const target = parsed.target.trim();
+      const outcome = deps.sessions.interruptOne(target);
+      if (!outcome.ok) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot interrupt "${target}" (status: ${outcome.status}).`,
+        );
+      }
+      return lifecycleResult(
+        call.id,
+        JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),
+      );
+    },
+  });
+}
+
+const FollowupTaskArgs = type({
+  target: "string",
+  message: "string",
+});
+
+export const followupTaskToolDefinition: ToolDefinition = {
+  name: "followup_task",
+  description:
+    "Send new work into an existing retained worker session (one that is 'completed' or " +
+    "'interrupted'), reusing its prior context and tool outputs rather than starting a fresh worker. " +
+    "Blocks until the worker replies to this new message, and returns its reply. Fails on a session " +
+    "that was never retained, is still running, or was closed via close_agent (closing is permanent).",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", description: "agent_id of the retained session to resume." },
+      message: { type: "string", description: "The new instruction/message for the worker." },
+    },
+    required: ["target", "message"],
+  },
+};
+
+export function createFollowupTaskTool(deps: LifecycleToolDeps): AgentTool {
+  return tool({
+    definition: followupTaskToolDefinition,
+    handler: async (call, _signal): Promise<ToolResult> => {
+      const parsed = FollowupTaskArgs(call.arguments);
+      if (parsed instanceof type.errors) {
+        return lifecycleResult(
+          call.id,
+          `Error: followup_task arguments invalid: ${parsed.summary}`,
+        );
+      }
+      const target = parsed.target.trim();
+      const message = parsed.message.trim();
+      if (message.length === 0) {
+        return lifecycleResult(call.id, "Error: followup_task requires a non-empty message.");
+      }
+      const outcome = await deps.sessions.followupOne(target, message);
+      if (!outcome.ok) {
+        return lifecycleResult(
+          call.id,
+          `Error: cannot send followup to "${target}" (status: ${outcome.status}).`,
+        );
+      }
+      return lifecycleResult(
+        call.id,
+        JSON.stringify({ agent_id: target, status: "completed", reply: outcome.reply }),
+      );
+    },
+  });
+}
