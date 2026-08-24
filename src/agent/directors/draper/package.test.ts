@@ -27,9 +27,12 @@ describe("draperPackage", () => {
     expect(p).toMatch(/visual and CBS/i);
     expect(p).toMatch(/Never fix product code/i);
     expect(p).toMatch(/Never redesign or rewrite copy/i);
-    expect(p).toContain("build (fixes)");
-    expect(p).toContain("brand-reviewer (DESIGN.md ownership)");
-    expect(p).toContain("emil (design-engineering laws)");
+    expect(p).toContain("Builder (fixes)");
+    expect(p).toContain("Rand (DESIGN.md ownership)");
+    expect(p).toContain("Emil (design-engineering laws)");
+    expect(p).toMatch(/not Rand/);
+    expect(p).not.toMatch(/Brand Reviewer/);
+    expect(p).not.toMatch(/brand-reviewer/);
   });
 
   test("systemPrompt has blinders-on / brief-scoped visual review", () => {
