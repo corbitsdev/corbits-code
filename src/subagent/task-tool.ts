@@ -20,7 +20,7 @@ import {
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
 } from "../agent/directors/identity.js";
-import type { DirectorPackage } from "../agent/directors/types.js";
+import type { DirectorPackage, SubagentTier } from "../agent/directors/types.js";
 import type { Settings } from "../config/settings.js";
 import {
   resolveSubAgentMaxTurns,
@@ -348,6 +348,14 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
       let capabilities: CapabilityFilter | undefined;
       let systemPromptRole: string | undefined;
       let orchestrator = false;
+      /**
+       * Fleet authority tier (CL-6941) for this dispatch — forwarded to
+       * runSubAgent, which fails closed (denies task/search_agents) when
+       * orchestrator is true and this is left undefined or resolves to
+       * "leaf". Set alongside `orchestrator = true` in every branch below;
+       * never left to default once orchestrator is true.
+       */
+      let orchestratorTier: SubagentTier | undefined;
       let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
       let resolvedPackage: DirectorPackage | undefined;
@@ -423,6 +431,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
+            orchestratorTier = pkg.tier;
             if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
               nestedSpawnAllowlist = pkg.spawn.allowlist;
             }
@@ -476,6 +485,15 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           // even if their profile is marked orchestrator — recursion bottoms out.
           if (profile.orchestrator === true && deps.allowOrchestrator !== false) {
             orchestrator = true;
+            // Fail closed (CL-6941): a profile is outside the closed director
+            // set, so orchestrator: true alone does not grant a tier. Only an
+            // explicit non-leaf profile.fleetTier opts in; anything else
+            // (absent, or "leaf") leaves orchestratorTier undefined, which
+            // runSubAgent treats as "leaf" and denies task/search_agents.
+            orchestratorTier =
+              profile.fleetTier !== undefined && profile.fleetTier !== "leaf"
+                ? profile.fleetTier
+                : undefined;
           }
           // Per-agent pinned inference (provider/model/effort), if declared.
           // Resolution uses policy (mode: pin / agentModelFallback: none) so a
@@ -510,6 +528,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
+          orchestratorTier = pkg.tier;
           if (pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0) {
             nestedSpawnAllowlist = pkg.spawn.allowlist;
           }
@@ -802,7 +821,13 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             ...(capabilities !== undefined ? { capabilities } : {}),
             ...(systemPromptRole !== undefined ? { systemPromptRole } : {}),
             ...(resolvedDirectorId !== undefined ? { directorId: resolvedDirectorId } : {}),
-            ...(orchestrator ? { orchestrator: true, nestedDispatch: nestedDispatch! } : {}),
+            ...(orchestrator
+              ? {
+                  orchestrator: true,
+                  ...(orchestratorTier !== undefined ? { orchestratorTier } : {}),
+                  nestedDispatch: nestedDispatch!,
+                }
+              : {}),
             maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
           };
