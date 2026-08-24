@@ -105,6 +105,7 @@ import {
 } from "./stop-policy.js";
 import { SubAgentDirector } from "./nudge-director.js";
 import { assertTierMayMountFleetVerb } from "./authority.js";
+import { createReadAgentTraceTool } from "./trace-tool.js";
 import {
   abortError,
   createSubAgentSpawnRegistryPlugin,
@@ -435,7 +436,7 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       // AgentProfile with orchestrator: true from mounting task/search_agents
       // just because it is outside the closed director set.
       const tier = params.orchestratorTier ?? "leaf";
-      for (const verb of ["task", "search_agents"]) {
+      for (const verb of ["task", "search_agents", "read_agent_trace"]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
       if (params.nestedDispatch === undefined) {
@@ -481,6 +482,11 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
               }),
             ]
           : []),
+        // Every worker at every nesting depth is created under the same root
+        // workdirBase (nestedDispatch.getWorkdirBase is threaded through
+        // unchanged, never rebound to this worker's own dir), so the trace
+        // reader's search root is that same function.
+        createReadAgentTraceTool(nd.getWorkdirBase),
       ];
     }
 

@@ -39,6 +39,22 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   own), so the two layers no longer multiply. Attempt counts are now logged
   on each recovery so retry storms are visible in traces.
 
+- **`read_agent_trace` lets an orchestrator inspect a worker's on-disk trace
+  directly**, so a cancelled or interrupted worker's completed work is no
+  longer invisible just because its in-memory session record is gone. Reads
+  turns, tool calls, and tool errors straight from the worker's
+  `turns.jsonl`, tolerating a partially written or malformed line without
+  failing. Every response is bounded on four independent axes — turn window,
+  entry count, per-entry characters, and total output characters (the first
+  three multiply, so a total-output ceiling caps them together) — each with
+  a hard maximum the caller cannot exceed, and a truncated response says
+  exactly what was left out and how to page for the rest. A Tier 2 nested
+  orchestrator can only read its own descendants' traces, enforced by
+  reusing `SubAgentSessionStore`'s existing parentSessionId chain
+  (`assertCanTargetAgent`'s first live call site); leaf directors never see
+  the tool at all. `progress_note` for leaf workers is a separate,
+  not-yet-implemented follow-up.
+
 ### Fixed
 
 - **Interrupting a turn no longer risks a startup crash.** If an interrupt hit
