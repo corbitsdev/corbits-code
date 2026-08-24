@@ -32,13 +32,23 @@ describe("retained session lifecycle", () => {
     expect(closed).toBe(true);
   });
 
-  test("retained completed sessions are exempt from the display cap without bound", () => {
-    const store = createSubAgentSessionStore({ maxCompleted: 3 });
+  // CL-7007: retained completed sessions are no longer bounded by
+  // `maxCompleted` (the TUI display cap) at all — that was CL-7002's fix,
+  // and it created a new bug: resume_agent/followup_task started failing
+  // with a bare "not_found" once more than `maxCompleted` (default 20)
+  // workers had spawned in a turn, even though every one of them was still
+  // perfectly reusable. Open retained sessions now get their own explicit
+  // cap, `maxRetained`, sized for fan-out rather than a sidebar list — this
+  // test moved from asserting `maxCompleted` bounds them to asserting
+  // `maxRetained` does (still bounded, still no leak, just the right knob).
+  test("retained completed sessions are bounded by maxRetained, not the display cap", () => {
+    const store = createSubAgentSessionStore({ maxCompleted: 3, maxRetained: 3 });
     for (let i = 0; i < 50; i++) {
       const s = store.start({ description: `w${i}`, agentId: "build", brief: "b", retained: true });
+      store.registerClose(s.id, async () => {});
       store.complete(s.id, "done");
     }
-    console.log("sessions retained despite maxCompleted=3:", store.list().length);
+    console.log("sessions retained despite maxRetained=3:", store.list().length);
     expect(store.list().length).toBeLessThanOrEqual(3);
   });
 
