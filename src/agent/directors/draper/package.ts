@@ -4,7 +4,6 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
 /**
  * Draper — product visual / CBS critique (dev-scoped). CL-5830 / CL-7035.
  * Never ships product code; marketing copy pipeline is out of lane.
- * Package id/path stays `draper` (global rename is out of scope).
  */
 export const draperPackage: DirectorPackage = {
   id: "draper",

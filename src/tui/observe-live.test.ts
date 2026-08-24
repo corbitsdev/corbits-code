@@ -30,7 +30,7 @@ function liveChildSession(
 ): ObserveSession {
   return {
     sessionId: "live-child-1",
-    agentId: opts?.agentId ?? "explore",
+    agentId: opts?.agentId ?? "explorer",
     description: opts?.description ?? "live map callers",
     lines,
   };
@@ -55,13 +55,13 @@ describe("live subagent observe", () => {
           enterSubagentObserve(
             shell,
             liveChildSession(liveLines, {
-              agentId: "explore",
+              agentId: "explorer",
               description: "map callers",
             }),
           );
 
           expect(shell.observe?.sessionId).toBe("live-child-1");
-          expect(shell.observe?.agentId).toBe("explore");
+          expect(shell.observe?.agentId).toBe("explorer");
           expect(shell.observe?.description).toBe("map callers");
           expect(focusOwner(shell.focus)).toBe("observe");
           expect(shell.parentStreamLog).not.toBeNull();

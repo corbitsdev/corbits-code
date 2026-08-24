@@ -50,7 +50,7 @@ describe("formatChromeZones", () => {
       ],
       agents: [
         {
-          agentId: "explore",
+          agentId: "explorer",
           currentToolStartedAt: null,
           description: "map setChromeZones callers",
           status: "running",
@@ -69,7 +69,7 @@ describe("formatChromeZones", () => {
     const out = formatChromeZones(state, NOW);
     expect(out.task).toBeNull();
     expect(out.agents).not.toBeNull();
-    expect(out.agents?.[0]?.label).toContain("explore");
+    expect(out.agents?.[0]?.label).toContain("explorer");
     expect(out.agents?.[0]?.kind).toBe("lane");
     expect(out.agents?.some((r) => r.kind === "header")).toBe(false);
   });
@@ -101,14 +101,14 @@ describe("formatChromeZones", () => {
       {
         agents: [
           {
-            agentId: "explore",
+            agentId: "explorer",
             currentToolStartedAt: null,
             description: "map callers",
             status: "running",
           },
         ],
         observe: {
-          agentId: "explore",
+          agentId: "explorer",
           description: "map callers of openListOverlay",
         },
       },
@@ -520,7 +520,7 @@ describe("chromeFromSession", () => {
       ],
       agents: [
         {
-          agentId: "explore",
+          agentId: "explorer",
           currentToolStartedAt: null,
           description: "map callers",
           status: "running",
@@ -538,7 +538,7 @@ describe("chromeFromSession", () => {
     ]);
     expect(state.agents).toEqual([
       {
-        agentId: "explore",
+        agentId: "explorer",
         currentToolStartedAt: null,
         description: "map callers",
         status: "running",
@@ -551,7 +551,7 @@ describe("chromeFromSession", () => {
     const zones = formatChromeZones(state, NOW);
     expect(zones.task).toBeNull();
     expect(zones.agents).not.toBeNull();
-    expect(zones.agents?.[0]?.label).toContain("explore");
+    expect(zones.agents?.[0]?.label).toContain("explorer");
   });
 
   test("falls back agent id; empty bags hide", () => {
@@ -572,10 +572,10 @@ describe("chromeFromSession", () => {
 
   test("observe passes through and paints the agents strip", () => {
     const state = chromeFromSession({
-      observe: { agentId: "explore", description: "watch" },
+      observe: { agentId: "explorer", description: "watch" },
     });
     expect(state.observe).toEqual({
-      agentId: "explore",
+      agentId: "explorer",
       description: "watch",
     });
     expect(formatChromeZones(state, NOW).agents).toEqual([
@@ -594,7 +594,7 @@ describe("annotateAgentTools", () => {
   const state: ChromeLiveState = {
     agents: [
       {
-        agentId: "explore",
+        agentId: "explorer",
         description: "map callers",
         status: "running",
         currentToolStartedAt: null,

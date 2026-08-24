@@ -1,31 +1,31 @@
 import { describe, expect, test } from "bun:test";
-import { brandReviewerPackage } from "./package.js";
+import { randPackage } from "./package.js";
 
-describe("brandReviewerPackage", () => {
+describe("randPackage", () => {
   test("id matches directory", () => {
-    expect(brandReviewerPackage.id).toBe("brand-reviewer");
+    expect(randPackage.id).toBe("rand");
   });
 
   test("systemPrompt is real, not a placeholder", () => {
-    expect(brandReviewerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(brandReviewerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(randPackage.systemPrompt.length).toBeGreaterThan(0);
+    expect(randPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
   });
 
-  test("systemPrompt identity is Rand / RandDirector (package id stays brand-reviewer)", () => {
-    const p = brandReviewerPackage.systemPrompt;
+  test("systemPrompt identity is Rand / RandDirector", () => {
+    const p = randPackage.systemPrompt;
     expect(p).toMatch(/RandDirector \(Rand\)/);
     expect(p).toMatch(/brand contract lane|DESIGN\.md/i);
     expect(p).not.toMatch(/BrandReviewerDirector/);
   });
 
   test("systemPrompt states PRIMARY INTENT", () => {
-    expect(brandReviewerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-    expect(brandReviewerPackage.systemPrompt).toContain("name build");
-    expect(brandReviewerPackage.systemPrompt).not.toContain("name implement");
+    expect(randPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+    expect(randPackage.systemPrompt).toContain("name builder");
+    expect(randPackage.systemPrompt).not.toContain("name implement");
   });
 
-  test("systemPrompt is blinders-on DESIGN.md gate (not draper / emil / build / orchestrator)", () => {
-    const p = brandReviewerPackage.systemPrompt;
+  test("systemPrompt is blinders-on DESIGN.md gate (not draper / emil / builder / orchestrator)", () => {
+    const p = randPackage.systemPrompt;
     expect(p).toMatch(/BLINDERS ON/i);
     expect(p).toMatch(/success_criteria/i);
     expect(p).toMatch(/not draper/i);
@@ -35,7 +35,7 @@ describe("brandReviewerPackage", () => {
   });
 
   test("systemPrompt teaches DESIGN.md gate workflow and verdicts", () => {
-    const p = brandReviewerPackage.systemPrompt;
+    const p = randPackage.systemPrompt;
     expect(p).toMatch(/Gate the work/i);
     expect(p).toMatch(/APPROVED/);
     expect(p).toMatch(/CHANGES REQUESTED/);
@@ -45,7 +45,7 @@ describe("brandReviewerPackage", () => {
   });
 
   test("systemPrompt has DONE GATE and REPORT MAP for brand gate", () => {
-    const p = brandReviewerPackage.systemPrompt;
+    const p = randPackage.systemPrompt;
     expect(p).toContain("DONE GATE");
     expect(p).toContain("REPORT MAP");
     expect(p).toMatch(/pass \| fail \| blocked/);
@@ -54,7 +54,7 @@ describe("brandReviewerPackage", () => {
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
-    const p = brandReviewerPackage.systemPrompt;
+    const p = randPackage.systemPrompt;
     expect(p).not.toMatch(/parameters?:/i);
     expect(p).not.toMatch(/fan-out/i);
     expect(p).not.toMatch(/at most \d+/i);
@@ -66,27 +66,27 @@ describe("brandReviewerPackage", () => {
   });
 
   test("spawn.maySpawn is false", () => {
-    expect(brandReviewerPackage.spawn.maySpawn).toBe(false);
+    expect(randPackage.spawn.maySpawn).toBe(false);
   });
 
   test("tools.allow includes write tools", () => {
-    const allow = brandReviewerPackage.tools?.allow ?? [];
+    const allow = randPackage.tools?.allow ?? [];
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
   });
 
   test("systemPrompt mentions DESIGN.md", () => {
-    expect(brandReviewerPackage.systemPrompt).toMatch(/DESIGN\.md/);
-    expect(brandReviewerPackage.systemPrompt).not.toMatch(/authz/i);
+    expect(randPackage.systemPrompt).toMatch(/DESIGN\.md/);
+    expect(randPackage.systemPrompt).not.toMatch(/authz/i);
   });
 
   test("modelRole is docs", () => {
-    expect(brandReviewerPackage.modelRole).toBe("docs");
+    expect(randPackage.modelRole).toBe("docs");
   });
 
-  test("primaryIntent and outOfLane match brand-reviewer lane", () => {
-    expect(brandReviewerPackage.primaryIntent).toBe("Own DESIGN.md create/use + brand gate");
-    expect(brandReviewerPackage.outOfLane).toContain("arbitrary product code outside DESIGN.md");
+  test("primaryIntent and outOfLane match rand lane", () => {
+    expect(randPackage.primaryIntent).toBe("Own DESIGN.md create/use + brand gate");
+    expect(randPackage.outOfLane).toContain("arbitrary product code outside DESIGN.md");
   });
 });

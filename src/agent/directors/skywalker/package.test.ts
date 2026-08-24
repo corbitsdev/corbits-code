@@ -24,18 +24,18 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
     expect(skywalkerPackage.spawn.allowlist).toHaveLength(15);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
-      "build",
-      "explore",
-      "plan",
+      "builder",
+      "explorer",
+      "counsel",
       "intern",
-      "critique",
+      "critic",
       "greybeard",
       "neckbeard",
       "bruckheimer",
       "gaasbot",
       "draper",
       "emil",
-      "brand-reviewer",
+      "rand",
       "shakespeare",
       "testsmith",
       "tester",
@@ -84,7 +84,7 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("long-blocking");
     expect(p).toContain("tool.boundary");
     expect(p).toContain("Dispatch intern");
-    expect(p).toContain("or build (substantial code)");
+    expect(p).toContain("or builder (substantial code)");
   });
 
   test("systemPrompt has effort scaling / fan-out ladder", () => {
@@ -100,17 +100,17 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Anti-cascade");
     expect(p).toContain("COMMUNICATION first");
     expect(p).toContain("Never spawn parallel");
-    expect(p).toContain("one explore worker");
+    expect(p).toContain("one explorer worker");
     expect(p).toContain("search the repo yourself after a worker stops");
     expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
   });
 
-  test("systemPrompt simple path skips explore+critique for tiny work", () => {
+  test("systemPrompt simple path skips explorer+critic for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("DIY on the parent");
-    expect(p).toContain("skip spawn, skip explore, skip critique");
+    expect(p).toContain("skip spawn, skip explorer, skip critic");
     expect(p).toContain("write_file/edit_file");
-    expect(p).toContain("Do not always explore→implement→critique");
+    expect(p).toContain("Do not always explorer→implement→critic");
   });
 
   test("systemPrompt routes URL reads through web_fetch on primary", () => {
@@ -143,30 +143,30 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("implement success_criteria");
   });
 
-  test("systemPrompt has critique-after-implement verify path", () => {
+  test("systemPrompt has critic-after-implement verify path", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Verify after ship");
     expect(p).toContain("public-API");
-    expect(p).toContain("critique");
+    expect(p).toContain("critic");
     expect(p).toContain("tester");
     expect(p).toContain("correctness/brief gaps");
   });
 
-  test("systemPrompt spawn-target for substantial code is build, not implement", () => {
+  test("systemPrompt spawn-target for substantial code is builder, not implement", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("spawn build");
-    expect(p).toContain("spawn (build for code");
-    expect(p).toContain("build = ship product code + tests");
+    expect(p).toContain("spawn builder");
+    expect(p).toContain("spawn (builder for code");
+    expect(p).toContain("builder = ship product code + tests");
     expect(p).not.toContain("implement = ship product code + tests");
     expect(p).not.toMatch(/\bspawn implement\b/);
-    expect(p).toContain("explore → implement → critique");
-    expect(p).toContain("Do not always explore→implement→critique");
+    expect(p).toContain("explorer → implement → critic");
+    expect(p).toContain("Do not always explorer→implement→critic");
   });
 
-  test("systemPrompt re-dispatches build on blocking critique", () => {
+  test("systemPrompt re-dispatches builder on blocking critic", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("blocking");
-    expect(p).toContain("re-dispatch **build**");
+    expect(p).toContain("re-dispatch **builder**");
     expect(p).toContain("ship → verify → fix → re-verify");
     expect(p).toContain("Cap re-fix rounds");
   });

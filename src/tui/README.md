@@ -24,7 +24,7 @@ setChromeZones(
   shell,
   formatChromeZones({
     task: { title: "wire host", status: "doing", remaining: 1 },
-    agents: [{ agentId: "explore", description: "map callers", status: "running" }],
+    agents: [{ agentId: "explorer", description: "map callers", status: "running" }],
   }),
 );
 // null lines hide the zone; geometry measures heights (never guessed here).
