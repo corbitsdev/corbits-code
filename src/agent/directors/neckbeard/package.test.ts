@@ -25,12 +25,12 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("denies product write tools", () => {
+  test("mounts product write tools", () => {
     const allow = neckbeardPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {

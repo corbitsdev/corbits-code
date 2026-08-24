@@ -76,13 +76,13 @@ describe("draperPackage", () => {
     expect(draperPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow is review surface without product writes", () => {
+  test("tools.allow is review surface with product writes", () => {
     const allow = draperPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).not.toContain("use_skill");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {

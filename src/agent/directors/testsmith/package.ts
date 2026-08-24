@@ -1,5 +1,5 @@
 import type { DirectorPackage } from "../types.js";
-import { READ_TOOLS } from "../tool-sets.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Testsmith: test design specialist — strategy and cases only; never implements product
@@ -29,8 +29,8 @@ Design in the report. Prefer:
 
 OUT OF LANE: fixing production code, becoming the implementer, running the full verify-and-fix loop, fleet orchestration.
 
-Read and search the codebase to ground the design; you have no product-mutation tools.`,
-  tools: { allow: READ_TOOLS },
+Read and search the codebase to ground the design; do not mutate product code.`,
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "test",

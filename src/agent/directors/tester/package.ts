@@ -1,5 +1,5 @@
 import type { DirectorPackage } from "../types.js";
-import { READ_TOOLS } from "../tool-sets.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Tester leaf (CL-7026).
@@ -34,7 +34,7 @@ DONE GATE: Stop when the brief's verify ask is answered with evidence OR explici
 REPORT MAP: Findings must map each requested check → pass | fail | blocked, with commands run and key failure excerpts. Paths list suites/files exercised.
 
 OUT OF LANE: fixing product code, "just quickly" fixing, redesigning the suite as Testsmith's primary job, fleet orchestration, architecture essays, exploration maps as primary.`,
-  tools: { allow: READ_TOOLS },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "test",
