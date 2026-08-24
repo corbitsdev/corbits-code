@@ -18,6 +18,17 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Tier 3 leaf workers can now report via `submit_result`, a typed channel alongside
   the markdown envelope that validates against a director-declared JSON Schema
   and returns a correction (capped at 3 rounds) on an invalid submission.
+- **`spawn_agent` / `wait_agents` split the fused spawn+wait out of `task()`.**
+  `spawn_agent` starts a worker and returns immediately with `{ agent_id,
+  status: "running" }` — it never awaits the worker's completion. `wait_agents`
+  blocks until any of the given (or, if omitted, all currently running)
+  agent ids reaches a terminal state, or `timeout_ms` elapses (default
+  30s, clamped to a 300s max); a timeout is not an error and never touches
+  the workers — they keep running and stay waitable. Lets an orchestrator
+  fire several workers in one turn instead of serializing one `task()` call
+  per worker. `task()` is unchanged and remains the single-call spawn+block
+  primitive for the common one-worker case.
+
 - **Fleet authority tiers are now runtime-enforced, not documented in a prompt.**
   Every director package carries a required `tier` (`orchestrator` /
   `nested-orchestrator` / `leaf`): skywalker gets full fleet control, greybeard
