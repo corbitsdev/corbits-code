@@ -52,4 +52,3 @@ Do not expand into product implementation, DESIGN.md / brand, or a review campai
 - Typed brief with `success_criteria` / `do_not` / `report_focus`.
 - DESIGN.md → brand-reviewer. Product code → build. Review → `/review`.
 - Do not invent architecture campaigns after criteria are met.
-
