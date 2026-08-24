@@ -76,6 +76,15 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
 export type RunSubAgentParams = {
   cwd: string;
   workdirBase: string;
+  /**
+   * Stable id for this worker's on-disk trace directory (subagents/<id>).
+   * Callers that track a session store (task-tool.ts) pass the same id as
+   * the SubAgentSessionStore record so read_agent_trace's descendant check
+   * can reuse the store's existing parentSessionId chain instead of a
+   * second identity scheme. Falls back to a fresh generated id when unset
+   * or unsafe for a path segment.
+   */
+  id?: string;
   provider: SubAgentProvider;
   settings?: Settings;
   catalog?: readonly ProviderCatalogEntry[];
