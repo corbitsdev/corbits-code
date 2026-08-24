@@ -53,6 +53,7 @@ function session(over: Partial<SubAgentSession>): SubAgentSession {
     entries: [],
     startedAt: 0,
     lastActivityAt: 0,
+    lifecycleStatus: "running",
     ...over,
   };
 }

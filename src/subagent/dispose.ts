@@ -31,6 +31,13 @@ export function isSubAgentCancelError(err: unknown, signal?: AbortSignal): boole
 export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
 
 /**
+ * Bounded cleanup deadline for close_agent (CL-6943): a wedged descendant's
+ * teardown is abandoned (not awaited further), not a reason to hang the
+ * caller.
+ */
+export const DEFAULT_CLOSE_DEADLINE_MS = 30_000;
+
+/**
  * Honest limits for plugin-spawn teardown (for operator docs and output notes).
  * Corbits Code can dispose posix tools and LSP sidecars per sub-agent session; OS
  * children spawned inside shell-guard and ripgrep middleware are aborted via the
