@@ -21,6 +21,7 @@ import type {
 } from "@intx/types/runtime";
 import { ageImageBlocks } from "./attachment-store.js";
 import type { SummaryContext } from "./summarizer.js";
+import { PATH_KEYED_READ_TOOLS, SEARCH_QUERY_TOOLS } from "../agent/tool-classification.js";
 
 // ---------------------------------------------------------------------------
 // Task boundary decision
@@ -237,19 +238,18 @@ export function compactorNoOpFloor(keepRecentTurns: number): number {
 // Minimum anchor score for a turn to be pulled forward past the summary boundary.
 const ANCHOR_SCORE_THRESHOLD = 5;
 
-// Tool names whose results are path-keyed for re-read dedup during compaction.
-const READ_TOOLS = new Set(["read_file"]);
-
 // Replayable query tools deduped by full-argument identity: a later identical
 // grep/search_files/list_dir call reflects newer workspace state, so an older
 // identical result is stale the same way an older read_file body is.
 // run_shell is deliberately excluded — the same command is not idempotent
 // (builds, tests, mutations), so an older run_shell result can be the only
-// record of a genuinely distinct outcome.
-const QUERY_TOOLS = new Set(["grep", "search_files", "list_dir"]);
+// record of a genuinely distinct outcome. Built on the shared SEARCH_QUERY_TOOLS
+// base plus list_dir, which compaction treats as replayable the same way
+// (unlike thrash's narrower SEARCH_TOOLS — see tool-classification.ts).
+const QUERY_TOOLS = new Set([...SEARCH_QUERY_TOOLS, "list_dir"]);
 
 function isReplayableResultTool(name: string): boolean {
-  return READ_TOOLS.has(name) || QUERY_TOOLS.has(name);
+  return PATH_KEYED_READ_TOOLS.has(name) || QUERY_TOOLS.has(name);
 }
 
 // Call-id index for stub rendering (name + path). Dedup keys live on `readKey`.
