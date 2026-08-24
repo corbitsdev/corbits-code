@@ -4,11 +4,10 @@
  * owns the per-turn `SubmitResultState` (one instance per runSubAgent call).
  */
 
-import Ajv, { type Schema } from "ajv";
+import { ArkErrors, type Type } from "arktype";
 
-const ajv = new Ajv({ allErrors: true, strict: false });
-
-export type JsonSchema = Schema;
+/** A director's declared shape for submit_result's payload. */
+export type OutputType = Type<unknown>;
 
 export const SUBMIT_RESULT_MAX_CORRECTIONS = 3;
 
@@ -27,8 +26,8 @@ export interface SubmitResultInput {
   submittedToken: unknown;
   /** The result argument the worker passed. */
   result: unknown;
-  /** Declared output schema, if the director's report contract has one. */
-  schema?: JsonSchema;
+  /** Declared output shape, if the director's report contract has one. */
+  outputType?: OutputType;
   state: SubmitResultState;
   maxCorrections?: number;
 }
@@ -52,16 +51,15 @@ export function evaluateSubmitResult(input: SubmitResultInput): {
       message: `Error: submit_result correction cap (${cap}) reached for this turn. No further attempts accepted — finish with the markdown report envelope instead.`,
     };
   }
-  if (input.schema !== undefined) {
-    const validate = ajv.compile(input.schema);
-    const valid = validate(input.result);
-    if (!valid) {
+  if (input.outputType !== undefined) {
+    const checked = input.outputType(input.result);
+    if (checked instanceof ArkErrors) {
       input.state.corrections += 1;
       return {
         ok: false,
         message: [
           `Invalid submission (${input.state.corrections}/${cap} corrections used):`,
-          ajv.errorsText(validate.errors, { separator: "\n", dataVar: "result" }),
+          checked.summary,
           "Fix and call submit_result again with the same turn_token.",
         ].join("\n"),
       };

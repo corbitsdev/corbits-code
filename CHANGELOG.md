@@ -11,13 +11,13 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.2.108] - 2026-08-24
 
 ### Agent
 
 - Tier 3 leaf workers can now report via `submit_result`, a typed channel alongside
-  the markdown envelope that validates against a director-declared JSON Schema
-  and returns a correction (capped at 3 rounds) on an invalid submission.
+  the markdown envelope that validates against a director-declared shape and
+  returns a correction (capped at 3 rounds) on an invalid submission.
 - **`spawn_agent` / `wait_agents` split the fused spawn+wait out of `task()`.**
   `spawn_agent` starts a worker and returns immediately with `{ agent_id,
   status: "running" }` — it never awaits the worker's completion. `wait_agents`
