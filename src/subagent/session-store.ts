@@ -165,6 +165,24 @@ export interface SubAgentSessionStore {
   // "interrupted" one already tore its agent down, and "running"/
   // "pending_init"/"not_found" have nothing to resume.
   resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
+  // CL-6997: registers the per-session interrupt/followup handles run.ts
+  // hands back via onAgentReady. Distinct maps from registerClose/closeOne
+  // above (interrupt must never route through close's codepath).
+  registerInterrupt(id: string, interrupt: () => void): void;
+  registerFollowup(id: string, followup: (message: string) => Promise<string>): void;
+  // Fires the registered interrupt handle and flips lifecycleStatus to
+  // "interrupted" synchronously — the caller does not wait for the aborted
+  // run's promise to settle. Fails closed on anything not currently running
+  // or with no interrupt handle registered (e.g. a session past init).
+  interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
+  // Sends `message` through the registered followup handle (the same live
+  // agent, same context) and records the reply as this session's new report
+  // on success. Fails closed on a session that is not retained or not in a
+  // resumable state ("completed" or "interrupted").
+  followupOne(
+    id: string,
+    message: string,
+  ): Promise<{ ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus }>;
   subscribe(listener: () => void): () => void;
   clear(): void;
 }
@@ -294,6 +312,10 @@ export function createSubAgentSessionStore(
   // Distinct from cancelHandles (a synchronous abort() signal) because
   // closing must be awaitable and bounded by a deadline.
   const closeHandles = new Map<string, (deadlineMs?: number) => Promise<void>>();
+  // CL-6997: interrupt/followup handles, kept separate from closeHandles so
+  // an interrupt can never accidentally resolve to the close codepath.
+  const interruptHandles = new Map<string, () => void>();
+  const followupHandles = new Map<string, (message: string) => Promise<string>>();
   const listeners = new Set<() => void>();
 
   // Per-session revision counters, bumped on every mutation. Notify fires on
@@ -481,6 +503,8 @@ export function createSubAgentSessionStore(
       // from growing duplicates when a tool call is retried.
       cancelHandles.delete(id);
       closeHandles.delete(id);
+      interruptHandles.delete(id);
+      followupHandles.delete(id);
       forgetRevision(id);
       const session: SubAgentSession = {
         id,
@@ -781,8 +805,58 @@ export function createSubAgentSessionStore(
         }
       });
       cancelHandles.delete(id);
+      interruptHandles.delete(id);
+      followupHandles.delete(id);
       pruneCompleted();
       return "shutdown";
+    },
+
+    registerInterrupt(id: string, interrupt: () => void): void {
+      if (!sessions.has(id)) return;
+      interruptHandles.set(id, interrupt);
+    },
+
+    registerFollowup(id: string, followup: (message: string) => Promise<string>): void {
+      if (!sessions.has(id)) return;
+      followupHandles.set(id, followup);
+    },
+
+    interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
+      const session = sessions.get(id);
+      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session.status !== "running") return { ok: false, status: session.lifecycleStatus };
+      const interrupt = interruptHandles.get(id);
+      if (interrupt === undefined) return { ok: false, status: session.lifecycleStatus };
+      interrupt();
+      mutate(id, (s) => {
+        s.lifecycleStatus = "interrupted";
+      });
+      return { ok: true };
+    },
+
+    async followupOne(
+      id: string,
+      message: string,
+    ): Promise<{ ok: true; reply: string } | { ok: false; status: AgentLifecycleStatus }> {
+      const session = sessions.get(id);
+      if (session === undefined) return { ok: false, status: "not_found" };
+      if (
+        session.retained !== true ||
+        (session.lifecycleStatus !== "completed" && session.lifecycleStatus !== "interrupted")
+      ) {
+        return { ok: false, status: session.lifecycleStatus };
+      }
+      const followup = followupHandles.get(id);
+      if (followup === undefined) return { ok: false, status: session.lifecycleStatus };
+      const reply = await followup(message);
+      mutate(id, (s) => {
+        s.status = "done";
+        s.lifecycleStatus = "completed";
+        s.finishedAt = now();
+        s.report = reply;
+        pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+      });
+      return { ok: true, reply };
     },
 
     resumeOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
@@ -838,6 +912,8 @@ export function createSubAgentSessionStore(
       for (const id of closeHandles.keys()) releaseHandles(id);
       cancelHandles.clear();
       closeHandles.clear();
+      interruptHandles.clear();
+      followupHandles.clear();
       sessions.clear();
       revisions.clear();
       snapshotCache.clear();
