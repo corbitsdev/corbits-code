@@ -33,12 +33,40 @@ export interface AutoShellRule {
 const CMD = String.raw`(?:^|[\n;&|({]\s*)(?:\w+=\S*\s+)*`;
 const inCmd = (body: string): RegExp => new RegExp(`${CMD}${body}`);
 
-// Drop the contents of single- and double-quoted spans before matching so a
-// quoted argument cannot trip a rule (e.g. `git commit -m 'fix > bug'` is not a
-// redirect, `echo "npm install"` is not an install). Quoted-out redirect targets
-// and heredoc markers fall away with their quotes, which is why the file-mutation
-// heredoc pattern keys on the bare `<<` operator rather than the marker word.
-const stripQuoted = (command: string): string => command.replace(/'[^']*'|"[^"]*"/g, " ");
+// Quote-aware dequoting for rule matching. Real shells strip the quote
+// characters themselves and hand the program a literal argument, so a rule
+// must see the same thing the program would: a quoted redirect target
+// (`>"file"`), a quoted flag (`"-c"`), or a quoted program/subcommand name
+// (`"sed" -i`, `npm "install"`) all read exactly like their unquoted form.
+// The one thing quoting genuinely changes is that a shell *operator*
+// character loses its operator meaning inside quotes — `'fix > bug'` is a
+// literal string, not a redirect — so only that small set of operator
+// characters (`> < | & ; \``) is neutralized when it occurs inside a quoted
+// span; every other character (letters, digits, `-`) passes through
+// dequoted. Heredoc bodies are left alone: the file-mutation heredoc pattern
+// keys on the bare `<<` operator, which is always outside any quoting.
+const QUOTE_NEUTRALIZED_OPERATORS = new Set(["<", ">", "|", "&", ";", "`"]);
+
+const dequoteForMatching = (command: string): string => {
+  let out = "";
+  let quote: '"' | "'" | null = null;
+  for (const ch of command) {
+    if (quote !== null) {
+      if (ch === quote) {
+        quote = null;
+      } else {
+        out += QUOTE_NEUTRALIZED_OPERATORS.has(ch) ? " " : ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+};
 
 // Named separately (not inlined in AUTO_SHELL_RULES below) so the dedicated
 // `env -S`/`--split-string` check further down — which cannot be expressed as
@@ -71,9 +99,10 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
     reason:
       "File creation and edits must go through the write_file and edit_file tools, not shell tooling (python, sed -i, awk, perl, tee, or output redirection). Re-do this change with edit_file for a surgical replacement or write_file for the full contents.",
     patterns: [
-      // `>` / `>>` (optionally fd-qualified) to a target that is not an fd dup
+      // `>` / `>>` (optionally fd-qualified, optionally clobber-forced with a
+      // trailing `|` as in `>|` / `>>|`) to a target that is not an fd dup
       // (`2>&1`) or a safe pseudo-device (`> /dev/null`, a TTY).
-      /[0-9]?>>?\s*(?!&|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/))[^\s|;&)]/,
+      /[0-9]?>>?\|?\s*(?!&|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/))[^\s|;&)]/,
       // tee writes its stdin to one or more files.
       /(?:^|[\n;&|({]\s*)tee\b/,
       // In-place stream editors: sed -i, perl -pi -e, ruby -i.
@@ -166,7 +195,7 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
 ];
 
 export function matchAutoShellRule(command: string): AutoShellRule | undefined {
-  const scannable = stripQuoted(command);
+  const scannable = dequoteForMatching(command);
   return AUTO_SHELL_RULES.find((rule) => rule.patterns.some((pattern) => pattern.test(scannable)));
 }
 
