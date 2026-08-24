@@ -68,9 +68,6 @@ export interface AgentProfile {
   // coordinators (e.g. a planning agent that fans work out to specialists);
   // leaf-task agents should leave this unset.
   orchestrator?: boolean;
-  // Optional inference-turn budget when this profile is dispatched via task(agent=...).
-  // Floor-sanitized (≥1) at dispatch time; task(maxTurns) overrides when set.
-  maxTurns?: number;
   // Where the profile came from, for search_agents labeling (e.g. "claude",
   // "plugin:<id>", "local"). Omitted for built-in defaults.
   source?: string;

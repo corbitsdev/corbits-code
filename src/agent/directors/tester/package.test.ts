@@ -35,10 +35,6 @@ describe("testerPackage", () => {
     expect(testerPackage.modelRole).toBe("test");
   });
 
-  test("nudge.maxTurns is 40", () => {
-    expect(testerPackage.nudge?.maxTurns).toBe(40);
-  });
-
   test("primaryIntent is runtime verify never fix", () => {
     expect(testerPackage.primaryIntent).toMatch(/run|verify/i);
     expect(testerPackage.primaryIntent).toMatch(/never fix/i);

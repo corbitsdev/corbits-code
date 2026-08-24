@@ -22,11 +22,7 @@ import {
 } from "../agent/directors/identity.js";
 import type { DirectorPackage, SubagentTier } from "../agent/directors/types.js";
 import type { Settings } from "../config/settings.js";
-import {
-  resolveSubAgentMaxTurns,
-  resolveInferenceWithPolicy,
-  validateTaskMaxTurns,
-} from "../config/settings.js";
+import { resolveInferenceWithPolicy } from "../config/settings.js";
 import {
   resolveEffortForRole,
   validateEffort,
@@ -40,7 +36,6 @@ import {
   classifyBriefSalvage,
   createBriefDispatchLedger,
   fingerprintTaskBrief,
-  TURN_BUDGET_STOP_AFTER_DISPATCHES,
 } from "./brief-dispatch.js";
 import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
 import { detectModelFamily } from "./provider-family.js";
@@ -70,13 +65,18 @@ export const TaskToolArgs = type({
   "success_criteria?": "string[]",
   "do_not?": "string[]",
   "report_focus?": "string",
-  "maxTurns?": "number",
 });
 
+// Deprecated (CL-7004): task() is the fused, blocking spawn+wait primitive.
+// Prefer spawn_agent + wait_agents for new call sites — spawn_agent returns
+// immediately and wait_agents blocks on whichever workers you need next, so
+// multiple workers do not serialize behind one call. task() is not removed —
+// much still routes through it — but new work should reach for the split
+// verbs first.
 export const taskToolDefinition: ToolDefinition = {
   name: "task",
   description:
-    'Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover). Turn-budget salvage may invite a higher maxTurns a few times, then stops recommending re-dispatch until a successful complete resets the same-brief retry budget.',
+    'Deprecated: prefer spawn_agent + wait_agents for new call sites (this fused blocking form is kept for compatibility). Spawn a sub-agent (a short-lived child agent) for one self-contained job. This is not a checklist item — use manage_tasks for your own work list. The sub-agent has the full file, search, and shell toolset, uses this session\'s permission gate (saved grants and auto mode when eligible; you may be prompted for other consequential actions), and returns a structured report (Summary / Findings / Blockers / Paths). Use it to parallelize exploration ("map every caller of X") or hand off a well-scoped implementation so your own context stays focused. Fire several task calls in one turn to run sub-agents in parallel. When launching multiple agents with the same profile, assign each a distinct lens in description and prompt so they do not duplicate work. The sub-agent cannot ask you questions. Depending on dispatch configuration it either shares your working tree directly, or runs isolated in its own git worktree snapshotted from your last commit — in the isolated case, any uncommitted or untracked changes in your working tree are excluded. Write a clear brief: context = durable background; prompt = actionable goal; goals = optional manage_tasks seeds. Prefer the typed spawn contract so workers finish without thrashing: intent (explore|implement|review|plan|general), success_criteria (done-when checklist), do_not (scope fence), report_focus (what Findings must cover).',
   inputSchema: {
     type: "object",
     properties: {
@@ -126,11 +126,6 @@ export const taskToolDefinition: ToolDefinition = {
         type: "string",
         description:
           "Optional agent profile id from search_agents (or .agents/agents/). Profiles specify capability restrictions and role. Role drives reasoning-effort defaults (orchestrator high, worker medium) unless the profile pins inference.reasoningEffort; parent session effort is inheritance only when the role default is unsupported on the model.",
-      },
-      maxTurns: {
-        type: "number",
-        description:
-          "Optional inference-turn budget for this worker only (not the parent session limit). Unset is unbounded; minimum 1 when set.",
       },
     },
     required: ["description", "prompt"],
@@ -322,7 +317,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         success_criteria: rawSuccessCriteria,
         do_not: rawDoNot,
         report_focus: rawReportFocus,
-        maxTurns: rawMaxTurns,
       } = parsed;
       const description = rawDesc.trim();
       const context = rawCtx?.trim();
@@ -359,7 +353,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
        * never left to default once orchestrator is true.
        */
       let orchestratorTier: SubagentTier | undefined;
-      let profileMaxTurns: number | undefined;
       let resolvedDirectorId: string | undefined;
       let resolvedPackage: DirectorPackage | undefined;
       /** Child-package spawn allowlist to forward into nested task (if this worker may spawn). */
@@ -431,7 +424,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           systemPromptRole = formatDirectorSystemPrompt(pkg);
           const caps = packageToCapabilities(pkg);
           if (caps !== undefined) capabilities = caps;
-          if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
           if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
             orchestrator = true;
             orchestratorTier = pkg.tier;
@@ -478,9 +470,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           if (profile.capabilities !== undefined) {
             capabilities = profile.capabilities;
           }
-          if (profile.maxTurns !== undefined) {
-            profileMaxTurns = profile.maxTurns;
-          }
           if (profile.systemPromptRole !== undefined) {
             systemPromptRole = profile.systemPromptRole;
           }
@@ -523,7 +512,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
         systemPromptRole = formatDirectorSystemPrompt(pkg);
         const caps = packageToCapabilities(pkg);
         if (caps !== undefined) capabilities = caps;
-        if (pkg.nudge?.maxTurns !== undefined) profileMaxTurns = pkg.nudge.maxTurns;
         if (pkg.spawn.maySpawn && deps.allowOrchestrator !== false) {
           orchestrator = true;
           orchestratorTier = pkg.tier;
@@ -581,20 +569,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           provider = rest;
         }
       }
-
-      let taskMaxTurns: number | undefined;
-      if (rawMaxTurns !== undefined) {
-        const verdict = validateTaskMaxTurns(rawMaxTurns);
-        if (!verdict.ok) {
-          return taskToolResult(call.id, `Error: ${verdict.message}`);
-        }
-        taskMaxTurns = verdict.value;
-      }
-      const resolvedMaxTurns = resolveSubAgentMaxTurns({
-        ...(settings !== undefined ? { settings } : {}),
-        ...(profileMaxTurns !== undefined ? { profileMaxTurns } : {}),
-        ...(taskMaxTurns !== undefined ? { taskMaxTurns } : {}),
-      });
 
       const brief = buildDispatchBrief({
         description,
@@ -740,7 +714,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           } catch (err) {
             // Admit already happened and the strip session may be "running" —
             // release the ledger slot and fail the session so a worktree setup
-            // error never burns turn-budget budget or leaves a ghost row.
+            // error never burns re-dispatch bookkeeping or leaves a ghost row.
             const message =
               err instanceof WorktreeError
                 ? err.message
@@ -819,7 +793,6 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
                   nestedDispatch: nestedDispatch!,
                 }
               : {}),
-            maxTurns: resolvedMaxTurns,
             ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
             // submit_result mount gate (CL-6946): only a resolved Tier 3 leaf
             // director gets tier here, and only if it declared an outputType.
@@ -848,10 +821,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             provider: lastCycleSource?.provider ?? provider.providerName,
             model: lastCycleSource?.model ?? provider.model,
           });
-          const hintOptions = {
-            dispatchCount,
-            turnBudgetStopAfterDispatches: TURN_BUDGET_STOP_AFTER_DISPATCHES,
-          };
+          const hintOptions = { dispatchCount };
           if (wasCancelled) {
             subagentStatus = "cancelled";
             if (session !== undefined && deps.sessions?.get(session.id)?.status === "running") {
@@ -899,7 +869,7 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             );
           }
           subagentStatus = "failed";
-          // Run never produced a body — undo the admit so turn-budget retry budget
+          // Run never produced a body — undo the admit so re-dispatch bookkeeping
           // is not burned by auth/provider crashes.
           briefLedger.release(fingerprint);
           const authMessage = formatSubAgentTaskAuthFailureMessage(description, err);

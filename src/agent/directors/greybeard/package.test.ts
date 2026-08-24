@@ -66,8 +66,4 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.outOfLane).toContain("shipping product code");
     expect(greybeardPackage.outOfLane).toContain("pedantic style-only nitpicking");
   });
-
-  test("nudge maxTurns is 50", () => {
-    expect(greybeardPackage.nudge?.maxTurns).toBe(50);
-  });
 });

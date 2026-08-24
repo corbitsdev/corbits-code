@@ -1,12 +1,13 @@
 /**
- * Pure stop / salvage policy for leaf sub-agents: turn budget, thrash,
- * deadlines, and parent-facing salvage reports.
+ * Pure stop / salvage policy for leaf sub-agents: deadlines and parent-facing
+ * salvage reports. There is no turn budget — a leaf runs until it produces a
+ * report envelope, is cancelled, hits an opt-in wall-clock deadline, or stalls.
  */
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { evaluateThrashStop, type ThrashConfig, type ThrashState } from "./thrash.js";
 import { demoteNestedReportHeadings, formatSubAgentReport, hasReportEnvelope } from "./report.js";
+import type { ThrashState } from "./thrash.js";
 
 // Minimum gap kept between an opt-in internal deadline and the outer
 // tool-execution watchdog, so there is time left for the salvage report to
@@ -16,8 +17,8 @@ export const SUBAGENT_DEADLINE_MARGIN_MS = 30_000;
 /**
  * Clamp an explicit opt-in wall-clock deadline to stay a margin below the
  * effective outer tool-execution watchdog. There is no default leaf deadline —
- * maxTurns + operator cancel are the primary bounds; callers pass deadlineMs
- * only when they want an extra wall-clock stop.
+ * operator cancel is the primary bound; callers pass deadlineMs only when they
+ * want an extra wall-clock stop.
  *
  * When the outer watchdog is omitted (undefined), the requested deadline is
  * kept — an absent settings timeout must not clamp a 5-hour (or any) explicit
@@ -68,22 +69,15 @@ export function resolveSubAgentCatchOutcome(input: {
   return "rethrow";
 }
 
-export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: number): boolean {
-  return turnsCompleted >= maxTurns;
-}
-
-export type SubAgentStopReason =
-  "complete" | "turn-budget" | "report-forced" | "incomplete-report" | "incomplete-report-stop";
+export type SubAgentStopReason = "complete" | "incomplete-report" | "incomplete-report-stop";
 
 /**
  * Pure stop decision for leaf workers. Null means keep running tools.
  *
- * "report-forced" and "incomplete-report"
- * are not competing stop reasons — they are one-shot signals telling the
- * caller to inject a wrap-up / redirect nudge and keep running; turn-budget
- * remains reachable afterward. A tool-less turn (including one that never
- * called a tool at all) completes only when the assistant text has a
- * four-heading envelope (Summary, Findings, Blockers, Paths). Missing
+ * "incomplete-report" is a one-shot signal telling the caller to inject a
+ * wrap-up / redirect nudge and keep running. A tool-less turn (including one
+ * that never called a tool at all) completes only when the assistant text has
+ * a four-heading envelope (Summary, Findings, Blockers, Paths). Missing
  * envelope nudges once (`incomplete-report`) then salvages
  * (`incomplete-report-stop`).
  * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
@@ -92,11 +86,6 @@ export type SubAgentStopReason =
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
-  turnsCompleted: number;
-  maxTurns: number;
-  /** When set, the near-budget force-report nudge is evaluated after tool-budget checks. */
-  thrashState?: ThrashState;
-  thrashConfig?: Partial<ThrashConfig>;
   /**
    * When true (CritiqueDirector leaf), a tool-using run that never
    * read or searched a file is not a successful complete — even a four-heading
@@ -104,6 +93,8 @@ export function evaluateSubAgentStop(input: {
    * narration as a finished review.
    */
   requireEvidence?: boolean;
+  /** Read/search bookkeeping for the evidence gate above. */
+  thrashState?: ThrashState;
   /**
    * Final assistant text of this turn. A missing four-heading envelope
    * (Summary/Findings/Blockers/Paths) nudges once then salvages.
@@ -113,7 +104,7 @@ export function evaluateSubAgentStop(input: {
   incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
   // A tool-less turn is complete only with a report envelope. CritiqueDirector
-  // additionally requires at least one read/search in thrashState.readCounts.
+  // additionally requires at least one read/search (hasEvidence).
   if (!input.hasToolCalls) {
     if (!hasReportEnvelope(input.lastAssistantText)) {
       return input.incompleteReportNudgeFired === true
@@ -130,17 +121,6 @@ export function evaluateSubAgentStop(input: {
     }
     return "complete";
   }
-  if (input.thrashState !== undefined) {
-    const thrashStop = evaluateThrashStop({
-      hasToolCalls: true,
-      turnsCompleted: input.turnsCompleted,
-      maxTurns: input.maxTurns,
-      ...(input.thrashConfig !== undefined ? { config: input.thrashConfig } : {}),
-    });
-    if (thrashStop !== null) return thrashStop;
-  }
-
-  if (subAgentTurnLimitExceeded(input.turnsCompleted, input.maxTurns)) return "turn-budget";
   return null;
 }
 
@@ -148,10 +128,8 @@ export function evaluateSubAgentStop(input: {
 // tools, at which point its final assistant text is the result handed back to
 // the dispatcher. It has no submit_output or ask_operator; consequential
 // tools still go through the parent's permission gate (grants, auto mode, or
-// prompts). The hard turn budget stops a leaf that would otherwise burn the
-// full budget with no parent-visible report. Near the budget the leaf gets a
-// one-shot wrap-up nudge (report-forced) rather than a stop, so turn-budget
-// stays reachable for a leaf that is genuinely still making progress.
+// prompts). Unbounded runs terminate only on a model-produced report envelope
+// or an operator/deadline/stall interrupt — there is no turn cap.
 
 export function lastText(content: readonly { type: string }[]): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -174,8 +152,7 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
   return text.length > 0 ? text : null;
 }
 
-export type ForcedStopReason =
-  "turn-budget" | "cancelled" | "deadline" | "stalled" | "incomplete-report";
+export type ForcedStopReason = "cancelled" | "deadline" | "stalled" | "incomplete-report";
 
 // Exact Summary text rendered for each forced-stop reason. Human-facing only —
 // forcedStopReport is the sole reader; the parent classifies outcomes from the
@@ -187,16 +164,15 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   stalled:
     "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
   "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
-  "turn-budget": "Turn budget reached before finishing.",
 };
 
 /**
  * Build the parent-facing report when a leaf is force-stopped. There is no
  * further inference, so this must already be a full envelope — not an
  * instruction asking the finished worker to summarize. `detail` is the
- * path-specific specifics (turn counts, cancel reason) rendered verbatim on
- * the report's `Stopped:` line so the parent and the TUI see the cause, not
- * just that the worker stopped.
+ * path-specific specifics (cancel reason) rendered verbatim on the report's
+ * `Stopped:` line so the parent and the TUI see the cause, not just that the
+ * worker stopped.
  */
 export function forcedStopReport(
   reason: ForcedStopReason,
@@ -211,9 +187,7 @@ export function forcedStopReport(
         ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
         : reason === "stalled"
           ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-          : reason === "incomplete-report"
-            ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
-            : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
+          : "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
   // stuffed into Findings (cancel after a structured partial).
@@ -230,13 +204,6 @@ export function forcedStopReport(
   });
 }
 
-const TURN_BUDGET_PARENT_HINT =
-  "[Sub-agent hit its turn budget before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a higher maxTurns if more work is warranted.]";
-
-/** After enough same-brief dispatches, stop inviting another maxTurns bump (CL-4343). */
-export const TURN_BUDGET_STOP_PARENT_HINT =
-  "[Sub-agent hit its turn budget again on the same brief (re-dispatch cap). Stop raising maxTurns on this fingerprint — restate the task, change approach (intent / success_criteria / do_not / prompt / agent), or finish from Findings. Further identical dispatches are still admitted but will not invite more maxTurns bumps.]";
-
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
 
@@ -244,15 +211,9 @@ const DEADLINE_PARENT_HINT =
 export interface SubAgentParentHintOptions {
   /**
    * 1-based count of how many times this brief fingerprint has been admitted
-   * this session (including the run that produced `report`). Used to flip the
-   * turn-budget hint after repeated same-brief retries.
+   * this session (including the run that produced `report`).
    */
   dispatchCount?: number;
-  /**
-   * After this many total same-brief dispatches, turn-budget salvage recommends
-   * stopping rather than raising maxTurns. Defaults to 3 (original + 2 retries).
-   */
-  turnBudgetStopAfterDispatches?: number;
 }
 
 /**
@@ -264,15 +225,9 @@ export interface SubAgentParentHintOptions {
 export function appendSubAgentParentHints(
   report: string,
   reason: ForcedStopReason | undefined,
-  options: SubAgentParentHintOptions = {},
+  _options: SubAgentParentHintOptions = {},
 ): string {
   switch (reason) {
-    case "turn-budget": {
-      const stopAfter = options.turnBudgetStopAfterDispatches ?? 3;
-      const count = options.dispatchCount ?? 1;
-      const hint = count >= stopAfter ? TURN_BUDGET_STOP_PARENT_HINT : TURN_BUDGET_PARENT_HINT;
-      return `${hint}\n\n${report}`;
-    }
     case "deadline":
       return `${DEADLINE_PARENT_HINT}\n\n${report}`;
     default:

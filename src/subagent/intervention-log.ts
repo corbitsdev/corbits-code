@@ -1,13 +1,10 @@
 /**
  * Intervention log: one record every time the harness decides a run is stuck.
  *
- * We ship ~14 stop reasons and ~20 injected-text interventions, and until now
- * there was no way to tell how often any of them was wrong. Every threshold in
- * the tree was set by judgment, and the tuning history is a record of that not
- * working — a grok 6/10 pair reverted as miscalibrated, IDENTICAL_REPEAT_MIN
- * moved 4 -> 5 after polling false positives, a grok stall timeout reverted,
- * and TURNS_SINCE_USER_MESSAGE_BACKSTOP resting on a justification the code
- * itself retracts (CL-6938).
+ * There was no way to tell how often a stop or nudge trigger was wrong. Every
+ * threshold in the tree was set by judgment, and the tuning history is a
+ * record of that not working — a grok 6/10 pair reverted as miscalibrated,
+ * and a grok stall timeout reverted (CL-6938).
  *
  * The point of this file is that a threshold change can cite data. Each record
  * carries the trigger's *measured value beside its threshold*, the identity of
@@ -60,7 +57,7 @@ export interface InterventionMeasurement {
 
 export interface InterventionRecord {
   ts: string;
-  /** Stable id of the intervention, e.g. "no-progress", "report-forced". */
+  /** Stable id of the intervention, e.g. "stalled", "report-forced". */
   id: string;
   class: InterventionClass;
   /** "leaf" | "orchestrator" — which side of a dispatch fired it. */
@@ -82,7 +79,6 @@ export interface InterventionRecord {
    */
   state?: {
     turnsCompleted?: number;
-    maxTurns?: number;
     totalToolCalls?: number;
     readCounts?: number;
     editedPaths?: number;

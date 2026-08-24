@@ -84,7 +84,6 @@ Everything the product path already observes is recorded:
 | `turnsUsed`                        | turn collector                                                                    |
 | `toolCallCount`                    | turn collector                                                                    |
 | `tokenUsage`                       | `{ input, output, cacheRead, cacheWrite, thinking }`                              |
-| `maxTurns` / `overBudget`          | case budget vs turns used                                                         |
 | `provider` / `model` / `variantId` | resolved config for that cell (`variantId` is `provider:model` by default)        |
 | `skipPermissions`                  | whether permissions were skipped                                                  |
 | `repeat`                           | 0-based repeat index within the case×variant cell                                 |
@@ -193,7 +192,6 @@ Flags:
 | `--out <path>`                       | Write machine-readable results JSON                                                                                                                                                                                                                          |
 | `--baseline <path>`                  | Compare this run to a prior results file (improve/regress + metric deltas)                                                                                                                                                                                   |
 | `--ask-permissions`                  | Do **not** pass `--dangerously-skip-permissions`                                                                                                                                                                                                             |
-| `--max-turns <n>`                    | Soft turn budget: case **fails** if `turnsUsed` exceeds, or if turns are not reported when a budget is set (fail closed). Does not hard-kill mid-run                                                                                                         |
 | `--agent-timeout-ms <n>`             | Wall-clock limit for `runExec` (default `1200000`, env `CORBITS_EVAL_AGENT_TIMEOUT_MS`)                                                                                                                                                                      |
 | `--verify-timeout-ms <n>`            | Wall-clock limit for `verify.sh` (default `120000`, env `CORBITS_EVAL_VERIFY_TIMEOUT_MS`)                                                                                                                                                                    |
 | `--repeats <n>`                      | Runs per case×variant cell (default `1`; gate runs use `5`, baseline freezes `3`). Results record every repeat plus per-cell aggregates                                                                                                                      |
@@ -217,7 +215,6 @@ verify.sh   # objective grader (exit 0 = pass)
 - `title` — human label
 - `fixture` — path relative to repo root (copied into a temp workdir)
 - `prompt` — task text for `corbits exec`
-- `maxTurns` — optional soft turn budget; when set, the case **fails** if `turnsUsed` exceeds it (`overBudget: true`) **or** if `turnsUsed` was not reported (fail closed so a broken metrics path cannot pass a budgeted case). Not a hard mid-run kill (product path has no turn budget hook yet).
 - `verify` — grader filename (default `verify.sh`)
 - `bait` — optional `{ metric, threshold }` marking the behavior metric this case reproduces (see the bait table above)
 - `httpFixture` — when `true`, the runner starts a hermetic HTTP server on `127.0.0.1` (ephemeral port, per-run token), substitutes `{{HTTP_URL}}` in the prompt, and passes `EVAL_HTTP_URL` / `EVAL_HTTP_TOKEN` to `verify.sh`. The server is stopped when the case run ends — nothing external is contacted
@@ -280,8 +277,6 @@ verify.sh   # objective grader (exit 0 = pass)
         "cacheWrite": 0,
         "thinking": 0
       },
-      "maxTurns": 20,
-      "overBudget": false,
       "skipPermissions": true,
       "error": null,
       "repeat": 0,

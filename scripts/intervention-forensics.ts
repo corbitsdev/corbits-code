@@ -3,13 +3,12 @@
 // before any stop/nudge threshold is changed again (CL-6938).
 //
 // Reports, per intervention id: how often it fired, split by model family, with
-// the measured value distribution beside the threshold it crossed, and two
-// context columns. These are NOT a measured false-positive rate — a stop on a
-// run that had already edited files, or one that fired with turn budget still
-// left, is equally consistent with a correct stop or a wrong one:
+// the measured value distribution beside the threshold it crossed, and one
+// context column. This is NOT a measured false-positive rate — a stop on a
+// run that had already edited files is equally consistent with a correct
+// stop or a wrong one:
 //
 //   edited  — stops that fired on a run which had already edited files.
-//   early   — stops that fired before half the turn budget was spent.
 //
 // Also aggregates outcome records: what each completed dispatch actually
 // produced (a salvage kind, or clean-complete), by kind. This is the log's
@@ -75,7 +74,6 @@ interface Bucket {
   values: number[];
   thresholds: Set<number>;
   editedWork: number;
-  earlyBudget: number;
 }
 
 function emptyBucket(): Bucket {
@@ -86,7 +84,6 @@ function emptyBucket(): Bucket {
     values: [],
     thresholds: new Set(),
     editedWork: 0,
-    earlyBudget: 0,
   };
 }
 
@@ -160,9 +157,6 @@ for (const file of files) {
     const state = record.state;
     if (record.class === "stop" && state !== undefined) {
       if ((state.editedPaths ?? 0) > 0) bucket.editedWork++;
-      const turns = state.turnsCompleted ?? 0;
-      const max = state.maxTurns ?? 0;
-      if (max > 0 && turns < max / 2) bucket.earlyBudget++;
     }
   }
 }
@@ -175,9 +169,7 @@ if (records === 0) {
 }
 
 const rows = [...buckets.entries()].sort((a, b) => b[1].count - a[1].count);
-console.log(
-  "\nintervention                       n   value p50/p90/max   threshold  edited  early",
-);
+console.log("\nintervention                       n   value p50/p90/max   threshold  edited");
 for (const [key, bucket] of rows) {
   const sorted = [...bucket.values].sort((a, b) => a - b);
   const dist =
@@ -186,7 +178,7 @@ for (const [key, bucket] of rows) {
       : `${percentile(sorted, 50)}/${percentile(sorted, 90)}/${sorted[sorted.length - 1]!}`;
   const thresholds = bucket.thresholds.size === 0 ? "-" : [...bucket.thresholds].join(",");
   console.log(
-    `${key.padEnd(33)} ${String(bucket.count).padStart(3)}   ${dist.padEnd(16)} ${thresholds.padEnd(10)} ${String(bucket.editedWork).padStart(5)}  ${String(bucket.earlyBudget).padStart(5)}`,
+    `${key.padEnd(33)} ${String(bucket.count).padStart(3)}   ${dist.padEnd(16)} ${thresholds.padEnd(10)} ${String(bucket.editedWork).padStart(5)}`,
   );
 }
 
@@ -229,7 +221,7 @@ if (repetitionRows.length > 0) {
 }
 
 console.log(
-  "\nedited = stops on runs that had already edited files; early = stops before half the turn budget (context, not a false-positive rate).",
+  "\nedited = stops on runs that had already edited files (context, not a false-positive rate).",
 );
 
 // The one real rate in this script: interventions per dispatch, per model.

@@ -1,17 +1,9 @@
 /**
- * Pure near-budget wrap-up detection plus read/edit bookkeeping for dispatched
- * workers. Wired into SubAgentDirector via evaluateSubAgentStop.
- *
- * Re-read pressure is deliberately not a stop signal: the fingerprint period
- * detector in stop-policy.ts catches genuinely repeating read cycles on the
- * evidence that they repeat, and a raw re-read count cannot tell four reads
- * spread across real progress from four reads in a loop (CL-6936).
- *
- * The state this module accumulates is consumed by evaluateSubAgentStop's
- * requireEvidence check, not by a stop of its own. Reads performed through
- * run_shell count as evidence there too (CL-6937) — the prompt prohibits
- * shell file work, but a prompt violation deserves a correction, not a
- * verdict that the work never happened. `editedPaths` (from typed write
+ * Pure read/edit bookkeeping for dispatched workers, consumed by
+ * evaluateSubAgentStop's requireEvidence check (CritiqueDirector). Reads
+ * performed through run_shell count as evidence too (CL-6937) — the prompt
+ * prohibits shell file work, but a prompt violation deserves a correction,
+ * not a verdict that the work never happened. `editedPaths` (from typed write
  * tools only) is diagnostics for interventions.jsonl; no stop decision
  * depends on it.
  */
@@ -19,19 +11,6 @@
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
 import { PATH_KEYED_READ_TOOLS, SEARCH_QUERY_TOOLS } from "../agent/tool-classification.js";
 import { classifyShellFileEvidence } from "./shell-evidence.js";
-
-/** Tunable thresholds for force-report detection. */
-export interface ThrashConfig {
-  /**
-   * When turnsCompleted equals maxTurns - forceReportWithin and the worker is
-   * still issuing tools, inject a one-shot wrap-up nudge.
-   */
-  forceReportWithin: number;
-}
-
-export const DEFAULT_THRASH_CONFIG: ThrashConfig = {
-  forceReportWithin: 2,
-};
 
 /** Accumulated read/edit bookkeeping across turns (immutable snapshots). */
 export interface ThrashState {
@@ -45,9 +24,6 @@ export const EMPTY_THRASH_STATE: ThrashState = {
   editedPaths: new Set(),
   totalToolCalls: 0,
 };
-
-/** "report-forced" is a near-budget wrap-up-nudge signal, not a stop. */
-export type ThrashStopReason = "report-forced";
 
 /** Content block shape compatible with fingerprintToolCalls / inference turns. */
 export interface ThrashToolCallBlock {
@@ -164,54 +140,4 @@ export function nextThrashState(
     editedPaths: editedPaths ?? prev.editedPaths,
     totalToolCalls,
   };
-}
-
-/**
- * True on the single turn forceReportWithin turns before the cap where the
- * leaf is still issuing tools — the signal to inject a wrap-up nudge, not a
- * stop. Fires only when that turn leaves at least one further turn before
- * maxTurns, so a small budget degrades straight to turn-budget instead of
- * spending its only turn on a nudge that never gets to run.
- */
-export function thrashForceReport(
-  turnsCompleted: number,
-  maxTurns: number,
-  hasToolCalls: boolean,
-  config: ThrashConfig = DEFAULT_THRASH_CONFIG,
-): boolean {
-  if (!hasToolCalls) return false;
-  if (maxTurns <= 0) return false;
-  const within = Math.max(0, config.forceReportWithin);
-  const threshold = maxTurns - within;
-  if (threshold < 1 || threshold >= maxTurns) return false;
-  return turnsCompleted === threshold;
-}
-
-function resolveConfig(partial?: Partial<ThrashConfig>): ThrashConfig {
-  if (partial === undefined) return DEFAULT_THRASH_CONFIG;
-  return {
-    forceReportWithin: partial.forceReportWithin ?? DEFAULT_THRASH_CONFIG.forceReportWithin,
-  };
-}
-
-/**
- * Pure force-report decision. Null means keep running (or defer to
- * evaluateSubAgentStop for tool-less / fingerprint / hard budget).
- * "report-forced" is a one-shot nudge signal, not a stop — the caller injects
- * a wrap-up nudge and keeps running.
- *
- * Only evaluates when hasToolCalls is true.
- */
-export function evaluateThrashStop(input: {
-  hasToolCalls: boolean;
-  turnsCompleted: number;
-  maxTurns: number;
-  config?: Partial<ThrashConfig>;
-}): ThrashStopReason | null {
-  if (!input.hasToolCalls) return null;
-  const config = resolveConfig(input.config);
-  if (thrashForceReport(input.turnsCompleted, input.maxTurns, input.hasToolCalls, config)) {
-    return "report-forced";
-  }
-  return null;
 }

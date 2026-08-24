@@ -82,8 +82,4 @@ describe("critiquePackage", () => {
     expect(critiquePackage.outOfLane).toContain("DESIGN.md");
     expect(critiquePackage.outOfLane).toContain("pedantic fun without evidence");
   });
-
-  test("nudge maxTurns is 45", () => {
-    expect(critiquePackage.nudge?.maxTurns).toBe(45);
-  });
 });

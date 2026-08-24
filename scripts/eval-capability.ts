@@ -43,7 +43,6 @@ import {
   parseMatrix,
   expandMatrix,
   makeResultKey,
-  evaluateSoftBudget,
   checkBehaviorRequirements,
   httpFixtureEnv,
   withEnv,
@@ -79,7 +78,6 @@ interface CliOptions {
   outPath?: string;
   baselinePath?: string;
   skipPermissions: boolean;
-  maxTurnsOverride?: number;
   /** Wall-clock limit for runExec (ms). */
   agentTimeoutMs: number;
   /** Wall-clock limit for verify.sh (ms). */
@@ -118,7 +116,6 @@ function printUsage(): void {
   --out <path>          Write results JSON
   --baseline <path>     Compare to prior results JSON
   --ask-permissions     Do not pass --dangerously-skip-permissions
-  --max-turns <n>       Soft turn budget (case fails if turnsUsed exceeds; not a hard kill)
   --agent-timeout-ms <n> Wall-clock limit for runExec (default 1200000)
   --verify-timeout-ms <n> Wall-clock limit for verify.sh (default 120000)
   --repeats <n>         Runs per case×variant cell (default 1; gate runs use 5)
@@ -230,12 +227,6 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case "--ask-permissions":
         opts.skipPermissions = false;
         break;
-      case "--max-turns": {
-        const n = Number(next());
-        if (!Number.isFinite(n) || n <= 0) throw new Error("--max-turns must be a positive number");
-        opts.maxTurnsOverride = Math.floor(n);
-        break;
-      }
       case "--agent-timeout-ms": {
         const n = Number(next());
         if (!Number.isFinite(n) || n <= 0) {
@@ -659,7 +650,6 @@ function failResult(
   error: string,
   partial?: Partial<CaseResult>,
 ): CaseResult {
-  const maxTurns = opts.maxTurnsOverride ?? caseDef.maxTurns ?? null;
   return {
     resultKey: makeResultKey(variant.id, caseDef.id),
     id: caseDef.id,
@@ -679,8 +669,6 @@ function failResult(
     turnsUsed: null,
     toolCallCount: null,
     tokenUsage: null,
-    maxTurns,
-    overBudget: null,
     skipPermissions: opts.skipPermissions,
     error,
     repeat,
@@ -740,10 +728,6 @@ async function runCase(
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
     argv.push("--force");
     if (opts.director !== undefined) argv.push("--director", opts.director);
-
-    const maxTurns = opts.maxTurnsOverride ?? caseDef.maxTurns ?? null;
-    // maxTurns is a soft post-run budget (case fails if exceeded). It does not
-    // hard-kill the agent mid-run — product path has no mid-turn budget hook yet.
 
     argv.push(prompt);
 
@@ -831,23 +815,14 @@ async function runCase(
     }
     console.log(`verify exit: ${verify.exitCode}  (${verify.durationMs}ms)`);
 
-    // Soft maxTurns: fail when exceeded; fail closed when turns weren't reported.
-    const budget = evaluateSoftBudget({ maxTurns, turnsUsed });
-    const overBudget = budget.overBudget;
     // requireBehaviors can fail a green agent+verify run (e.g. web-bait honesty).
-    const passed =
-      agentExitCode === 0 &&
-      verify.exitCode === 0 &&
-      overBudget !== true &&
-      requireBehaviorCheck.ok;
+    const passed = agentExitCode === 0 && verify.exitCode === 0 && requireBehaviorCheck.ok;
     const preview =
       execResult.text.length > 400 ? `${execResult.text.slice(0, 400)}…` : execResult.text;
 
     let error: string | null = null;
     if (!passed) {
-      if (budget.budgetError !== null) {
-        error = budget.budgetError;
-      } else if (!requireBehaviorCheck.ok) {
+      if (!requireBehaviorCheck.ok) {
         error = requireBehaviorCheck.failures.join("; ");
       } else if (verify.timedOut) {
         error = `verify timed out after ${opts.verifyTimeoutMs}ms`;
@@ -886,8 +861,6 @@ async function runCase(
       turnsUsed,
       toolCallCount,
       tokenUsage,
-      maxTurns,
-      overBudget,
       skipPermissions: opts.skipPermissions,
       error,
       repeat,
@@ -923,7 +896,6 @@ function formatMetricsLine(r: CaseResult): string {
   if (r.tokenUsage !== null) {
     parts.push(`tok=${r.tokenUsage.input}+${r.tokenUsage.output}`);
   }
-  if (r.overBudget === true) parts.push("OVER_BUDGET");
   return parts.join(" ");
 }
 

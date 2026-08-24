@@ -16,10 +16,6 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
-  resolveDefaultSubAgentMaxTurns,
-  resolveSubAgentMaxTurns,
-  clampSubAgentMaxTurns,
-  validateTaskMaxTurns,
   toolWatchdogFromSettings,
   loadGlobalSettingsWriteBase,
   persistSkipPermissionsDefault,
@@ -929,101 +925,6 @@ describe("lastChangelogVersion", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe("subagentMaxTurns", () => {
-  test("is unbounded when unset", () => {
-    expect(resolveDefaultSubAgentMaxTurns(null)).toBe(Infinity);
-    expect(resolveDefaultSubAgentMaxTurns({ providers: {} })).toBe(Infinity);
-  });
-
-  test("resolveSubAgentMaxTurns precedence", () => {
-    const settings = { providers: {}, subagentMaxTurns: 40 };
-    expect(resolveSubAgentMaxTurns({ settings })).toBe(40);
-    expect(resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55 })).toBe(55);
-    expect(resolveSubAgentMaxTurns({ settings, profileMaxTurns: 55, taskMaxTurns: 70 })).toBe(70);
-  });
-
-  test("clampSubAgentMaxTurns enforces floor only", () => {
-    expect(clampSubAgentMaxTurns(0)).toBe(1);
-    expect(clampSubAgentMaxTurns(-5)).toBe(1);
-    expect(clampSubAgentMaxTurns(150)).toBe(150);
-    expect(clampSubAgentMaxTurns(500)).toBe(500);
-  });
-
-  test("validateTaskMaxTurns accepts values above 100 and rejects below 1", () => {
-    const high = validateTaskMaxTurns(500);
-    expect(high.ok).toBe(true);
-    if (high.ok) {
-      expect(high.value).toBe(500);
-    }
-    expect(validateTaskMaxTurns(101).ok).toBe(true);
-    expect(validateTaskMaxTurns(0).ok).toBe(false);
-    expect(validateTaskMaxTurns(-1).ok).toBe(false);
-    expect(validateTaskMaxTurns(50).ok).toBe(true);
-  });
-
-  test("resolveSubAgentMaxTurns keeps high task and profile budgets", () => {
-    expect(resolveSubAgentMaxTurns({ taskMaxTurns: 500 })).toBe(500);
-    expect(resolveSubAgentMaxTurns({ profileMaxTurns: 250 })).toBe(250);
-    expect(
-      resolveSubAgentMaxTurns({
-        settings: { providers: {}, subagentMaxTurns: 400 },
-      }),
-    ).toBe(400);
-  });
-
-  test("loadSettings round-trips subagentMaxTurns", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, subagentMaxTurns: 42 });
-      expect(await loadSettings(path)).toEqual({ ...firepass, subagentMaxTurns: 42 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadSettings round-trips subagentMaxTurns above 100", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, subagentMaxTurns: 500 });
-      expect(await loadSettings(path)).toEqual({ ...firepass, subagentMaxTurns: 500 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects invalid subagentMaxTurns in settings", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        subagentMaxTurns: 0,
-      }),
-    ).toBe(false);
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        subagentMaxTurns: 1.5,
-      }),
-    ).toBe(false);
-  });
-
-  test("accepts subagentMaxTurns above 100 in settings", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        subagentMaxTurns: 500,
-      }),
-    ).toBe(true);
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        subagentMaxTurns: 101,
-      }),
-    ).toBe(true);
   });
 });
 
