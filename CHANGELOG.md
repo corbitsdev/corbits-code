@@ -29,6 +29,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the subtree-scoping rule for those is written and tested but not yet wired to
   a live call site. `task()` is unchanged and still the only spawn verb.
 
+### Fixed
+
+- **Interrupting a turn no longer risks a startup crash.** If an interrupt hit
+  the agent mid-teardown, a failed close could leave its in-process workdir
+  lock stuck held, and the immediate rebuild threw "an agent is already open"
+  as an unhandled rejection. A failed close now short-circuits the rebuild
+  with a clear, catchable error instead of retrying a doomed second
+  acquisition.
+
 ## [0.2.107] - 2026-08-24
 
 ### Agent
