@@ -65,9 +65,8 @@ export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir", ...PRODUCT_WR
 export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
   ...PRODUCT_WRITE_TOOLS,
-  "search_agents",
   "task",
 ] as const;
 
-/** Skywalker primary: orchestrator surface (writes already composed). */
-export const SKYWALKER_TOOLS = [...ORCHESTRATOR_TOOLS] as const;
+/** Skywalker primary: orchestrator surface plus fleet discovery (Tier-1 only). */
+export const SKYWALKER_TOOLS = [...ORCHESTRATOR_TOOLS, "search_agents"] as const;

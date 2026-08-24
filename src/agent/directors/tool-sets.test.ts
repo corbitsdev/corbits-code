@@ -70,6 +70,12 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     expect(SKYWALKER_TOOLS).toContain("task");
     expect(ORCHESTRATOR_TOOLS).toContain("task");
   });
+
+  // CL-7051: fleet discovery is Tier-1 only.
+  test("search_agents is on Skywalker only, not the nested orchestrator surface", () => {
+    expect(SKYWALKER_TOOLS as readonly string[]).toContain("search_agents");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("search_agents");
+  });
 });
 
 describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
@@ -89,6 +95,7 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
     }
   });
 });
+
 
 describe("BUILD_TOOLS", () => {
   test("includes apply_patch alongside path mutation tools", () => {

@@ -88,14 +88,16 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("counsel");
   });
 
-  test("tools.allow is orchestrator surface with product writes", () => {
+  test("tools.allow is orchestrator surface with product writes but without fleet discovery", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
     expect(allow).toContain("task");
-    expect(allow).toContain("search_agents");
+    // CL-7051: search_agents is Skywalker-only — nested directors spawn from allowlist.
+    expect(allow).not.toContain("search_agents");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
   });
+
 
   test("modelRole is review", () => {
     expect(greybeardPackage.modelRole).toBe("review");
