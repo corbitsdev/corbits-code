@@ -127,9 +127,6 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     orchestrator: pkg.spawn.maySpawn,
     ...(pkg.nudge?.maxTurns !== undefined ? { maxTurns: pkg.nudge.maxTurns } : {}),
     ...(capabilities !== undefined ? { capabilities } : {}),
-    ...(pkg.writePaths !== undefined && pkg.writePaths.length > 0
-      ? { writePaths: [...pkg.writePaths] }
-      : {}),
   };
 }
 

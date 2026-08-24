@@ -34,9 +34,8 @@ export const BUILD_TOOLS = [
 
 /**
  * Docs leaves: read/search/lsp/web + file writes — no run_shell, no delete_file.
- * Envelope policy, not a writePaths lock: docs leaves omit shell so they cannot
- * mutate via the terminal. Optional package writePaths, when a profile sets it,
- * is still enforced by the permission gate on path-keyed write tools.
+ * Envelope policy only: docs leaves omit shell so they cannot mutate via the
+ * terminal. There is no separate path-level lock on top of the tool envelope.
  *
  * Composed from READ_TOOLS minus run_shell so it tracks the read surface
  * automatically; only the write tools are added explicitly. `apply_patch` is
