@@ -29,6 +29,16 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   the subtree-scoping rule for those is written and tested but not yet wired to
   a live call site. `task()` is unchanged and still the only spawn verb.
 
+- **Retry recovery no longer multiplies with the harness's own retries.** The
+  director's inference-recovery layer previously re-issued a full-context
+  `infer()` call for `timeout`/`retryable` errors even though the harness's
+  own retry policy already retries and exhausts those categories before
+  surfacing them — compounding to up to 9 identical full-context sends per
+  logical turn in the worst case. The director now only recovers
+  internal-recovery aborts (a category the harness never retries on its
+  own), so the two layers no longer multiply. Attempt counts are now logged
+  on each recovery so retry storms are visible in traces.
+
 ### Fixed
 
 - **Interrupting a turn no longer risks a startup crash.** If an interrupt hit

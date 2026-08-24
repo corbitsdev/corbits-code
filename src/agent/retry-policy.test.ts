@@ -129,6 +129,57 @@ describe("createCorbitsRetryPolicy", () => {
     expect(await policy(bare429)).toEqual({ kind: "retry", delayMs: 500 });
   });
 
+  // CL-6910: the harness only surfaces `inference.error` to the director
+  // once this policy returns `abort` — so the attempt cap here IS the
+  // on-wire send cap for these categories (the director no longer re-wraps
+  // them, see director.test.ts). Bound at 3 sends for each error class the
+  // ticket names: rate limit (quota_exhausted), gateway error and malformed
+  // response (both normalized to retryable/protocol_mismatch here).
+  test("rate limit (quota_exhausted) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
+    const policy = createCorbitsRetryPolicy();
+    const situation = (attempt: number) => ({
+      attempt,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted" as const,
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 10,
+      },
+    });
+    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 10 });
+    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 10 });
+    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+  });
+
+  test("gateway error (retryable) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
+    const policy = createCorbitsRetryPolicy();
+    const situation = (attempt: number) => ({
+      attempt,
+      elapsedMs: 0,
+      error: { category: "retryable" as const, message: "gateway timeout" },
+    });
+    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+  });
+
+  test("malformed response (HTML gateway page) aborts by the 3rd attempt — bounds harness sends to 3", async () => {
+    const policy = createCorbitsRetryPolicy();
+    const situation = (attempt: number) => ({
+      attempt,
+      elapsedMs: 0,
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "malformed JSON in SSE data payload",
+        raw: HTML_503,
+      },
+    });
+    expect(await policy(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await policy(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await policy(situation(3))).toEqual({ kind: "abort" });
+  });
+
   test("live providerId getter: xAI → non-xAI stops remapping bare 429", async () => {
     let current: string | undefined = "xai/thegreataxios";
     const policy = createCorbitsRetryPolicy({ providerId: () => current });
