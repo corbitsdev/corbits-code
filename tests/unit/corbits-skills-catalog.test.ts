@@ -106,6 +106,19 @@ test("spawn-recipe skills contain task(agent=", async () => {
   }
 });
 
+test("implement skill is a sequential Skywalker spawn recipe without a false 4-cap", async () => {
+  const skill = await Bun.file(join(pluginRoot, "skills/implement/SKILL.md")).text();
+  expect(skill).toContain("You are Skywalker");
+  expect(skill).toContain('task(agent="greybeard")');
+  expect(skill).toContain('task(agent="build")');
+  expect(skill).toContain('task(agent="critique")');
+  expect(skill).toContain("Do not invent a worker-count or fan-out ceiling");
+  expect(skill).not.toContain("hard cap 4");
+  expect(skill).not.toContain("4 workers");
+  expect(skill).not.toContain("max-parallel");
+  expect(skill).not.toContain("INTERN_TOOLS");
+});
+
 test("create-issue selects Linear MCP, GitHub gh, and MEMORY.md preference", async () => {
   const skill = await Bun.file(join(pluginRoot, "skills/create-issue/SKILL.md")).text();
   expect(skill).toContain("mcp__linear__");
