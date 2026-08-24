@@ -16,7 +16,6 @@ import {
   saveGlobalSettings,
   saveLocalSettings,
   type Settings,
-  DEFAULT_SUBAGENT_MAX_TURNS,
   resolveDefaultSubAgentMaxTurns,
   resolveSubAgentMaxTurns,
   clampSubAgentMaxTurns,
@@ -934,9 +933,9 @@ describe("lastChangelogVersion", () => {
 });
 
 describe("subagentMaxTurns", () => {
-  test("defaults to 30 when unset", () => {
-    expect(resolveDefaultSubAgentMaxTurns(null)).toBe(DEFAULT_SUBAGENT_MAX_TURNS);
-    expect(resolveDefaultSubAgentMaxTurns({ providers: {} })).toBe(30);
+  test("is unbounded when unset", () => {
+    expect(resolveDefaultSubAgentMaxTurns(null)).toBe(Infinity);
+    expect(resolveDefaultSubAgentMaxTurns({ providers: {} })).toBe(Infinity);
   });
 
   test("resolveSubAgentMaxTurns precedence", () => {

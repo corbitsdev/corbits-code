@@ -129,7 +129,7 @@ export const taskToolDefinition: ToolDefinition = {
       maxTurns: {
         type: "number",
         description:
-          "Optional inference-turn budget for this worker only (not the parent session limit). Defaults to settings or 30; minimum 1.",
+          "Optional inference-turn budget for this worker only (not the parent session limit). Unset is unbounded; minimum 1 when set.",
       },
     },
     required: ["description", "prompt"],
