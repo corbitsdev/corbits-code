@@ -481,6 +481,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // just because retained:true was requested at spawn.
           deps.sessions.complete(session.id, result.report, {
             agentRetained: result.agentRetained === true,
+            ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
           });
         })
         .catch((err) => {
