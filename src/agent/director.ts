@@ -677,19 +677,52 @@ class ChatDirectorImpl extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    // Only `aborted` (internal-recovery-abort) lands here: the harness's own
+    // retry policy already owns `timeout`/`retryable`/`quota_exhausted` and
+    // has exhausted its own attempt budget (up to MAX_ATTEMPTS full-context
+    // sends, see vendor/intx-inference/src/retry-policy.ts) before an
+    // `inference.error` of one of those categories ever reaches the
+    // director. Re-wrapping an already-exhausted harness retry in another
+    // `capabilities.infer()` call multiplied the two budgets instead of
+    // composing them (up to 9 identical full-context sends per turn,
+    // CL-6910) without recovering anything the harness had not already
+    // tried. Internal-recovery-abort is different: the harness's default
+    // policy never retries `aborted` at all, so this remains the only
+    // layer that owns that category, and it does not compound with the
+    // harness's own attempts.
     if (
       event.type === "inference.error" &&
-      (event.error.category === "timeout" ||
-        event.error.category === "retryable" ||
-        (event.error.category === "aborted" && isInternalRecoveryAbort(event)))
+      event.error.category === "aborted" &&
+      isInternalRecoveryAbort(event)
     ) {
       if (this.inferenceRecoveries < MAX_INFERENCE_RECOVERIES) {
         this.inferenceRecoveries++;
+        logger.warn`inference-recovery attempt=${String(this.inferenceRecoveries)} max=${String(MAX_INFERENCE_RECOVERIES)} category=${event.error.category}`;
         return [capabilities.checkpoint("inference-recovery"), capabilities.infer()];
       }
+      logger.warn`inference-recovery-exhausted max=${String(MAX_INFERENCE_RECOVERIES)} category=${event.error.category}`;
       return [
         capabilities.checkpoint("inference-recovery-exhausted"),
         capabilities.reply("The request could not recover. Send a message to resume."),
+      ];
+    }
+
+    // The vendored DefaultDirector's inference.error preamble map
+    // (vendor/intx-inference/src/default-director.ts, ERROR_PREAMBLE) has no
+    // `timeout` entry, so it falls back to the `fatal` wording ("...
+    // unrecoverable inference error"). Before CL-6910, a `timeout` reaching
+    // the director was rare (the harness retried it first, then the director
+    // recovered it again — see the block above), so operators almost never
+    // saw that fallback text. Now an exhausted `timeout` routinely lands here
+    // as a terminal reply, so the misleading "unrecoverable" wording would
+    // become the routine message for an ordinary timeout. Intercept it here
+    // with accurate, calm wording rather than patching the vendored map.
+    if (event.type === "inference.error" && event.error.category === "timeout") {
+      return [
+        capabilities.checkpoint("inference-error"),
+        capabilities.reply(
+          "This agent's request timed out because the inference provider did not respond in time. The request was retried and gave up.",
+        ),
       ];
     }
 
