@@ -17,7 +17,6 @@ export const brandReviewerPackage: DirectorPackage = {
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
-  report: { requiredSections: ["Summary", "Findings", "Blockers", "Paths"] },
   modelRole: "docs",
   systemPrompt: `You are BrandReviewerDirector, a specialist in Corbits Code.
 
