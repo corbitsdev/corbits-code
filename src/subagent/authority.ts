@@ -88,6 +88,16 @@ function isDescendant(
 }
 
 /**
+ * SEAM, NOT YET A LIVE GATE: this function has no production call site today.
+ * No verb in this codebase currently lets one live agent target another
+ * (`task` only spawns; it never addresses an existing session), so the
+ * subtree rule below is exercised only by authority.test.ts — it is not
+ * enforced at runtime yet. It exists now so CL-6942 (split spawn from wait)
+ * and CL-6944 (send_input steering) — the first two verbs that make one
+ * agent addressable by another — can call it from day one instead of
+ * inventing their own check. Until one of those wires a call site here, do
+ * not describe this rule as enforced; only assertTierMayMountFleetVerb is.
+ *
  * Authority rule (root owns its tree; a child manages only its own
  * descendants): throws unless `actor` is Tier 1, or `targetId` is `actor.id`
  * itself, or a descendant of `actor.id` in `nodes`. A Tier 3 leaf holds no
