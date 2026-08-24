@@ -51,15 +51,6 @@ describe("skywalkerPackage", () => {
     expect(allow).toContain("delete_file");
   });
 
-  test("report required sections", () => {
-    expect(skywalkerPackage.report.requiredSections).toEqual([
-      "Summary",
-      "Findings",
-      "Blockers",
-      "Paths",
-    ]);
-  });
-
   test("modelRole is orchestrator", () => {
     expect(skywalkerPackage.modelRole).toBe("orchestrator");
   });

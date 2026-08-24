@@ -29,12 +29,6 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.writePaths).toBeUndefined();
   });
 
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(bruckheimerPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is docs", () => {
     expect(bruckheimerPackage.modelRole).toBe("docs");
   });

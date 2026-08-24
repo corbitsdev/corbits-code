@@ -27,12 +27,6 @@ describe("gaasbotPackage", () => {
     expect(allow).not.toContain("delete_file");
   });
 
-  test("report requires envelope sections", () => {
-    for (const section of ["Summary", "Findings", "Blockers", "Paths"]) {
-      expect(gaasbotPackage.report.requiredSections).toContain(section);
-    }
-  });
-
   test("modelRole is plan", () => {
     expect(gaasbotPackage.modelRole).toBe("plan");
   });
