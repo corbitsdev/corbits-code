@@ -134,7 +134,9 @@ function parseSegmentTurns(
       if (skipMalformed) {
         const recovered = recoverTurnFromGluedLine(line);
         if (recovered !== null) {
-          log.warn?.(`recovered trailing turn from glued/malformed JSON at ${fileName} line ${i + 1}`);
+          log.warn?.(
+            `recovered trailing turn from glued/malformed JSON at ${fileName} line ${i + 1}`,
+          );
           turns.push(recovered);
           continue;
         }

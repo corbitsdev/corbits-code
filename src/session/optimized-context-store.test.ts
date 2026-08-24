@@ -157,10 +157,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
-      "a",
-      "b",
-    ]);
+    expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual(["a", "b"]);
   });
 
   test("skips a truncated mid-string glued to the next record", async () => {
@@ -169,9 +166,11 @@ describe("createOptimizedContextStore load", () => {
 
     // Crash mid-write left a stub; the next append continued without a newline,
     // so a truncated prefix is glued onto the following valid record (CL-7052).
-    const glued =
-      '{"role":"user","content":[{"type":"te' + JSON.stringify(turn("b"));
-    fs.writeFileSync(path.join(dir, TURNS_FILE), jsonl([turn("a")]) + glued + "\n" + jsonl([turn("c")]));
+    const glued = '{"role":"user","content":[{"type":"te' + JSON.stringify(turn("b"));
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a")]) + glued + "\n" + jsonl([turn("c")]),
+    );
 
     const loaded = await store.load();
     expect(loaded.turns.map((t) => (t.content[0] as { text: string }).text)).toEqual([
