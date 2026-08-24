@@ -1,39 +1,33 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 const calls: { toolName: string; args: Record<string, unknown> }[] = [];
 let connectConfigs: { name: string; url?: string }[] = [];
 
-// Bun mutates the imported namespace object in place when a module is
-// mocked, so the capture is shallow-copied immediately -- holding onto the
-// live namespace would turn into the mocked exports as soon as mock.module
-// below runs, making the afterAll restore a no-op. The mock also needs to
-// spread the real module rather than replace it outright, or any other
-// export (unwrapToolContent, connectMCPServers) disappears for the rest of
-// the process for every file that runs after this one.
-const realClient = { ...(await import("../mcp/client.js")) };
-
-mock.module("../mcp/client.js", () => ({
-  ...realClient,
-  connectMCPServer: async (config: { name: string; url?: string }) => {
-    connectConfigs.push(config);
-    return {
-      ok: true,
-      client: {
-        serverName: config.name,
-        tools: [],
-        call: async (toolName: string, args: Record<string, unknown>) => {
-          calls.push({ toolName, args });
-          return "mock result";
+// The mock needs to spread the real module rather than replace it outright,
+// or any other export (unwrapToolContent, connectMCPServers) disappears for
+// the rest of the process for every file that runs after this one.
+await withMockedModule(
+  import.meta.resolve("../mcp/client.js"),
+  (real: typeof import("../mcp/client.js")) => ({
+    ...real,
+    connectMCPServer: async (config: { name: string; url?: string }) => {
+      connectConfigs.push(config);
+      return {
+        ok: true,
+        client: {
+          serverName: config.name,
+          tools: [],
+          call: async (toolName: string, args: Record<string, unknown>) => {
+            calls.push({ toolName, args });
+            return "mock result";
+          },
+          close: async () => undefined,
         },
-        close: async () => undefined,
-      },
-    };
-  },
-}));
-
-afterAll(() => {
-  mock.module("../mcp/client.js", () => realClient);
-});
+      };
+    },
+  }),
+);
 
 const {
   createWebSearchTool,
