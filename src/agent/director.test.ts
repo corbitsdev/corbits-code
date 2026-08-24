@@ -1218,4 +1218,20 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     }
     expect(inferCount).toBe(2); // MAX_INFERENCE_RECOVERIES
   });
+
+  test("timeout category produces the timeout preamble, not the fatal fallback", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => {},
+      provider: providerlessPolicy,
+    });
+    const capabilities = makeCapabilities();
+
+    const actions = actionsArray(
+      await director.decide(inferenceErrorEvent("timeout"), mockState, capabilities),
+    );
+    const reply = actions.find((a) => a.type === "reply");
+    expect(reply).toBeDefined();
+    expect((reply as { content: string }).content).toContain("did not respond in time");
+    expect((reply as { content: string }).content).not.toContain("unrecoverable inference error");
+  });
 });

@@ -707,6 +707,25 @@ class ChatDirectorImpl extends DefaultDirector {
       ];
     }
 
+    // The vendored DefaultDirector's inference.error preamble map
+    // (vendor/intx-inference/src/default-director.ts, ERROR_PREAMBLE) has no
+    // `timeout` entry, so it falls back to the `fatal` wording ("...
+    // unrecoverable inference error"). Before CL-6910, a `timeout` reaching
+    // the director was rare (the harness retried it first, then the director
+    // recovered it again — see the block above), so operators almost never
+    // saw that fallback text. Now an exhausted `timeout` routinely lands here
+    // as a terminal reply, so the misleading "unrecoverable" wording would
+    // become the routine message for an ordinary timeout. Intercept it here
+    // with accurate, calm wording rather than patching the vendored map.
+    if (event.type === "inference.error" && event.error.category === "timeout") {
+      return [
+        capabilities.checkpoint("inference-error"),
+        capabilities.reply(
+          "This agent's request timed out because the inference provider did not respond in time. The request was retried and gave up.",
+        ),
+      ];
+    }
+
     // Both nudge budgets are monotonic per inbound user message rather than
     // resetting on "real" tool work. Classifying a tool call as progress is
     // gameable: a weak model learns that any tool call (including a no-op
