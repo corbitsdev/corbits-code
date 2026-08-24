@@ -16,6 +16,7 @@ import {
   setStatusFlash,
   submitPrompt,
 } from "./shell";
+import { RUNTIME_FLASH_MS } from "./runtime-notices";
 import { UI } from "./theme";
 
 async function withShell(
@@ -295,15 +296,46 @@ describe("no permanent hint strip", () => {
 
   test("state that is only sometimes true takes a row only while it is true", async () => {
     await withShell((shell) => {
-      setStatusFlash(shell, "copied 3 lines");
+      const lapse: (() => void)[] = [];
+      setStatusFlash(shell, "copied 3 lines", {
+        ttlMs: RUNTIME_FLASH_MS,
+        schedule: (fn, ms) => {
+          expect(ms).toBe(RUNTIME_FLASH_MS);
+          lapse.push(fn);
+          return () => {};
+        },
+      });
       expect(noticeText(shell)).toContain("copied 3 lines");
       expect(shell.layout.heights.notice).toBe(1);
       expect(shell.notice.visible).toBe(true);
 
-      setStatusFlash(shell, null);
+      lapse[0]?.();
+      expect(shell.statusFlash).toBeNull();
       expect(noticeText(shell)).toBe("");
       expect(shell.layout.heights.notice).toBe(0);
       expect(shell.notice.visible).toBe(false);
+    });
+  });
+
+  test("a lapsed flash does not paint after the renderer is torn down without dispose", async () => {
+    await withTestRenderer(async (h) => {
+      const lapse: (() => void)[] = [];
+      const shell = createAppShell(h.renderer, {
+        title: "test",
+        cwd: "/src/corbits-code",
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+        flashSchedule: (fn, ms) => {
+          expect(ms).toBe(RUNTIME_FLASH_MS);
+          lapse.push(fn);
+          return () => {};
+        },
+      });
+      setStatusFlash(shell, "copied 3 lines", { ttlMs: RUNTIME_FLASH_MS });
+      h.destroy();
+      expect(h.renderer.isDestroyed).toBe(true);
+      expect(shell.disposed).toBe(false);
+      expect(() => lapse[0]?.()).not.toThrow();
     });
   });
 

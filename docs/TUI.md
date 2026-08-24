@@ -546,7 +546,9 @@ running its own selection. Two chords cover remaining copy needs:
   (`CliRenderEvents.SELECTION` → `copyFinishedSelection` in
   `selection-copy.ts`). On mouse-up, non-empty selected text is written
   through the system clipboard port and the highlight clears with a status
-  flash. Empty clicks do not copy.
+  flash. Empty clicks do not copy. Confirmation flashes pass
+  `ttlMs: RUNTIME_FLASH_MS` so they clear themselves; omit TTL only for
+  live conditions that stay true until replaced (stall notice, landing hold).
 - **Alt+M** toggles DEC mouse reporting off and back on
   (`toggleMouseCapture`, `shell.ts`). Off, the terminal's own drag-select
   and copy work exactly as in any other terminal program; the status flash

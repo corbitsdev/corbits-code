@@ -21,7 +21,9 @@ import {
   setShellBridgeHooks,
   submitPrompt,
   type AppShell,
+  type FlashSchedule,
 } from "./shell";
+import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
 const CLIP: PendingImageAttachment = {
   id: "clip-1",
@@ -51,7 +53,7 @@ const CLIP_OTHER: PendingImageAttachment = {
 
 function withShell(
   fn: (shell: AppShell) => Promise<void>,
-  opts?: { readonly wireKeys?: boolean },
+  opts?: { readonly wireKeys?: boolean; readonly flashSchedule?: FlashSchedule },
 ): Promise<void> {
   return withTestRenderer(
     async (h) => {
@@ -59,6 +61,7 @@ function withShell(
         terminal: { columns: 80, rows: 24 },
         wireKeys: opts?.wireKeys ?? true,
         run: "idle",
+        ...(opts?.flashSchedule !== undefined ? { flashSchedule: opts.flashSchedule } : {}),
       });
       try {
         await fn(shell);
@@ -89,6 +92,47 @@ describe("image attachments", () => {
       expect(shell.pendingAttachments).toEqual([]);
       expect(shell.statusFlash).toContain("no PNG");
     });
+  });
+
+  test("fail / attached / duplicate confirmation flashes expire via flashSchedule", async () => {
+    const lapse: (() => void)[] = [];
+    const flashSchedule: FlashSchedule = (fn, ms) => {
+      expect(ms).toBe(RUNTIME_FLASH_MS);
+      lapse.push(fn);
+      return () => {};
+    };
+
+    await withShell(
+      async (shell) => {
+        setPromptImageSource(shell, async () => ({ ok: false, reason: "no PNG" }));
+        expect(await attachClipboardImage(shell)).toBe(false);
+        expect(shell.statusFlash).toContain("no PNG");
+        expect(lapse).toHaveLength(1);
+        lapse[0]?.();
+        expect(shell.statusFlash).toBeNull();
+      },
+      { flashSchedule },
+    );
+
+    lapse.length = 0;
+    await withShell(
+      async (shell) => {
+        setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP }));
+        expect(await attachClipboardImage(shell)).toBe(true);
+        expect(shell.statusFlash).toContain("attached clipboard.png");
+        expect(lapse).toHaveLength(1);
+        lapse[0]?.();
+        expect(shell.statusFlash).toBeNull();
+
+        setPromptImageSource(shell, async () => ({ ok: true, attachment: CLIP_SAME_CONTENT }));
+        expect(await attachClipboardImage(shell)).toBe(false);
+        expect(shell.statusFlash).toContain(`${CLIP.name} is already attached`);
+        expect(lapse).toHaveLength(2);
+        lapse[1]?.();
+        expect(shell.statusFlash).toBeNull();
+      },
+      { flashSchedule },
+    );
   });
 
   test("quitting mid-read does not attach into the disposed shell", async () => {

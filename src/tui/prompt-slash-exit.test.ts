@@ -17,6 +17,7 @@ import {
   setStatusFlash,
   type AppShell,
 } from "./shell";
+import { RUNTIME_FLASH_MS } from "./runtime-notices";
 
 const CATALOG: readonly PaletteCommand[] = [
   {
@@ -241,7 +242,15 @@ describe("Ctrl+C exit", () => {
           return () => {};
         },
       });
-      setStatusFlash(shell, "copied 3 lines");
+      setStatusFlash(shell, "copied 3 lines", {
+        ttlMs: RUNTIME_FLASH_MS,
+        schedule: (fn) => {
+          // Armed but not fired — the ctrl+c window must not clear it.
+          return () => {
+            void fn;
+          };
+        },
+      });
       lapse[0]?.();
       expect(shell.statusFlash).toBe("copied 3 lines");
     });
