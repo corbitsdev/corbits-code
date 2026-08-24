@@ -39,7 +39,11 @@ import {
   type SubAgentProvider,
   type SubAgentSessionStore,
 } from "../subagent/index.js";
-import { createFleetRecords, createSpawnAgentTool, createWaitAgentsTool } from "../subagent/agent-fleet.js";
+import {
+  createFleetRecords,
+  createSpawnAgentTool,
+  createWaitAgentsTool,
+} from "../subagent/agent-fleet.js";
 import {
   createCloseAgentTool,
   createResumeAgentTool,
