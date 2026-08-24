@@ -14,6 +14,11 @@ describe("assertTierMayMountFleetVerb", () => {
     // CL-6943: the reusable-session verbs are gated the same way.
     expect(() => assertTierMayMountFleetVerb("leaf", "close_agent")).toThrow(FleetAuthorityError);
     expect(() => assertTierMayMountFleetVerb("leaf", "resume_agent")).toThrow(FleetAuthorityError);
+    // CL-6997: interrupt_agent / followup_task are gated the same way.
+    expect(() => assertTierMayMountFleetVerb("leaf", "interrupt_agent")).toThrow(
+      FleetAuthorityError,
+    );
+    expect(() => assertTierMayMountFleetVerb("leaf", "followup_task")).toThrow(FleetAuthorityError);
   });
 
   test("leaves may still mount non-fleet tools", () => {
