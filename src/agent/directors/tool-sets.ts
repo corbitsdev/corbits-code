@@ -59,12 +59,7 @@ export const DOCS_TOOLS = [
 export const REVIEW_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 
 /** Mechanical intern: shell-first + path writes when the brief requires them. */
-export const INTERN_TOOLS = [
-  "run_shell",
-  "read_file",
-  "list_dir",
-  ...PRODUCT_WRITE_TOOLS,
-] as const;
+export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir", ...PRODUCT_WRITE_TOOLS] as const;
 
 /** Nested orchestrator surface (greybeard / package filter): dispatch + path writes. */
 export const ORCHESTRATOR_TOOLS = [
