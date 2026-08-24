@@ -349,6 +349,39 @@ describe("inference.error text", () => {
     expect(line).toContain("/model");
   });
 
+  test("ctx.providerId xAI + bare quota_exhausted 429 shows rate-limit copy", () => {
+    const ctx = createStreamMapContext({ providerId: "xai/thegreataxios" });
+    const [event] = mapProductionEvent(
+      {
+        type: "inference.error",
+        data: {
+          error: {
+            category: "quota_exhausted",
+            message: "Too Many Requests",
+            statusCode: 429,
+            raw: { error: { message: "Too Many Requests" } },
+          },
+        },
+      },
+      ctx,
+    );
+    expect(event?.type).toBe("error");
+    if (event?.type !== "error") return;
+    expect(event.message.toLowerCase()).toMatch(/rate limit/);
+    expect(event.message).not.toContain("Quota exhausted");
+  });
+
+  test("bare quota_exhausted 429 without ctx/provider still shows Quota exhausted", () => {
+    expect(
+      message({
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        raw: { error: { message: "Too Many Requests" } },
+      }),
+    ).toBe("Quota exhausted — usage limit reached.");
+  });
+
   test("an unclassified failure keeps the provider's own words", () => {
     expect(message({ message: "socket hang up" })).toBe("socket hang up");
     expect(message({ category: "wat", message: "socket hang up" })).toBe("socket hang up");

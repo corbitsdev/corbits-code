@@ -55,4 +55,96 @@ describe("createCorbitsRetryPolicy", () => {
     });
     expect(decision).toEqual({ kind: "abort" });
   });
+
+  test("stamped xAI bare 429 retries as retryable, not long-quota abort", async () => {
+    const policy = createCorbitsRetryPolicy({ providerId: "xai/thegreataxios" });
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    });
+    // Remapped to retryable → default backoff, not abort on moderate Retry-After.
+    expect(decision).toEqual({ kind: "retry", delayMs: 500 });
+  });
+
+  test("stamped xAI usage/quota body still aborts on long retryAfterMs", async () => {
+    const policy = createCorbitsRetryPolicy({ providerId: "xai/thegreataxios" });
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "You exceeded your current quota",
+        statusCode: 429,
+        retryAfterMs: 86_400_000,
+        raw: {
+          error: {
+            message: "You exceeded your current quota",
+            code: "insufficient_quota",
+          },
+        },
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
+
+  test("unknown provider bare 429 with moderate Retry-After still aborts as quota", async () => {
+    const policy = createCorbitsRetryPolicy({ providerId: "openai" });
+    const decision = await policy({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
+
+  test("live providerId getter: non-xAI → xAI starts remapping bare 429", async () => {
+    let current: string | undefined = "openai";
+    const policy = createCorbitsRetryPolicy({ providerId: () => current });
+    const bare429 = {
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted" as const,
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    };
+    expect(await policy(bare429)).toEqual({ kind: "abort" });
+    current = "xai/thegreataxios";
+    expect(await policy(bare429)).toEqual({ kind: "retry", delayMs: 500 });
+  });
+
+  test("live providerId getter: xAI → non-xAI stops remapping bare 429", async () => {
+    let current: string | undefined = "xai/thegreataxios";
+    const policy = createCorbitsRetryPolicy({ providerId: () => current });
+    const bare429 = {
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted" as const,
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    };
+    expect(await policy(bare429)).toEqual({ kind: "retry", delayMs: 500 });
+    current = "openai";
+    expect(await policy(bare429)).toEqual({ kind: "abort" });
+  });
 });

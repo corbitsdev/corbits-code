@@ -107,9 +107,15 @@ export interface StreamMapContext {
    * consumes it, or expires it.
    */
   errorRollbackArmed: boolean;
+  /**
+   * Live catalog provider id (e.g. `xai/thegreataxios`). Harness
+   * `inference.error` events omit providerId; the session stamps this so
+   * transcript formatting can reuse known-provider remappers.
+   */
+  providerId?: string;
 }
 
-export function createStreamMapContext(): StreamMapContext {
+export function createStreamMapContext(opts?: { providerId?: string }): StreamMapContext {
   return {
     callIdToName: new Map(),
     callIdToArgs: new Map(),
@@ -119,6 +125,7 @@ export function createStreamMapContext(): StreamMapContext {
     attemptArmed: false,
     attemptCallIds: new Set(),
     errorRollbackArmed: false,
+    ...(opts?.providerId !== undefined ? { providerId: opts.providerId } : {}),
   };
 }
 
@@ -452,6 +459,12 @@ function mapEvent(
             : "inference error";
       // A classified failure gets the line written for it; anything unclassified
       // keeps the provider's own words rather than a generic stand-in.
+      const providerId =
+        typeof err?.providerId === "string"
+          ? err.providerId
+          : typeof ctx?.providerId === "string"
+            ? ctx.providerId
+            : undefined;
       const message =
         typeof err?.category === "string"
           ? inferenceErrorMessage({
@@ -459,7 +472,8 @@ function mapEvent(
               message: rawMessage,
               ...(typeof err.statusCode === "number" ? { statusCode: err.statusCode } : {}),
               ...(err.raw !== undefined ? { raw: err.raw } : {}),
-              ...(typeof err.providerId === "string" ? { providerId: err.providerId } : {}),
+              ...(providerId !== undefined ? { providerId } : {}),
+              ...(typeof err.retryAfterMs === "number" ? { retryAfterMs: err.retryAfterMs } : {}),
             })
           : rawMessage;
       // Hand the armed boundary to the next event rather than disarming: the

@@ -191,6 +191,12 @@ export interface SessionBridge {
    * or similar) on whatever cadence it already polls at.
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
+  /**
+   * Stamp the live catalog provider id onto the stream map context so
+   * `inference.error` transcript lines can identify known-xAI short 429s
+   * when the harness event omits `providerId`.
+   */
+  setInferenceProviderId: (id: string | undefined) => void;
 }
 
 const NOOP_PORT: SessionPort = {
@@ -1230,6 +1236,14 @@ export function attachSessionBridge(
       if (bag.disposed) return;
       bag.agentSessions = sessions;
       syncAgentProgress(shell, bag, sessions, now());
+    },
+    setInferenceProviderId: (id) => {
+      if (bag.disposed) return;
+      if (id === undefined) {
+        delete bag.mapCtx.providerId;
+      } else {
+        bag.mapCtx.providerId = id;
+      }
     },
     dispose: () => {
       bag.disposed = true;
