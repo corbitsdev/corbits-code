@@ -118,6 +118,8 @@ import {
   isSubAgentCancelError,
 } from "./dispose.js";
 import { createTaskTool } from "./task-tool.js";
+import { createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
+import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, SubAgentProvider } from "./types.js";
 import type { TaskIntent } from "./report.js";
 import { runWithSubAgentIdentity } from "./identity-context.js";
@@ -486,7 +488,13 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
       // AgentProfile with orchestrator: true from mounting task/search_agents
       // just because it is outside the closed director set.
       const tier = params.orchestratorTier ?? "leaf";
-      for (const verb of ["task", "search_agents", "read_agent_trace"]) {
+      for (const verb of [
+        "task",
+        "search_agents",
+        "read_agent_trace",
+        "spawn_agent",
+        "wait_agents",
+      ]) {
         assertTierMayMountFleetVerb(tier, verb);
       }
       if (params.nestedDispatch === undefined) {
@@ -545,6 +553,33 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<string> {
           tier,
           getNodes: () => nd.sessions?.list() ?? [],
         }),
+      ];
+      // spawn_agent/wait_agents (CL-6942) need a session store as their
+      // mailbox; reuse the orchestrator's if it has one, else give this
+      // install its own rather than inventing separate bookkeeping.
+      const fleetSessions = nd.sessions ?? createSubAgentSessionStore();
+      const fleetDeps = {
+        permissionGate: nd.permissionGate,
+        ...(nd.inheritMcpTools !== undefined ? { inheritMcpTools: nd.inheritMcpTools } : {}),
+        ...(nd.shellTimeout !== undefined ? { shellTimeout: nd.shellTimeout } : {}),
+        ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+        ...(nd.extraToolPlugins !== undefined ? { extraToolPlugins: nd.extraToolPlugins } : {}),
+        cwd: params.cwd,
+        getWorkdirBase: nd.getWorkdirBase,
+        provider: nd.provider,
+        getBlobReader: () => sessionBlobReader,
+        run: runSubAgent,
+        telemetry: liveTelemetry,
+        sessions: fleetSessions,
+        ...(nd.onEvent !== undefined ? { onEvent: nd.onEvent } : {}),
+        ...(nd.onProgress !== undefined ? { onProgress: nd.onProgress } : {}),
+        ...(nd.settings !== undefined ? { settings: nd.settings } : {}),
+        ...(nd.catalog !== undefined ? { catalog: nd.catalog } : {}),
+      };
+      tools = [
+        ...tools,
+        createSpawnAgentTool(fleetDeps),
+        createWaitAgentsTool({ sessions: fleetSessions }),
       ];
     }
 
