@@ -840,7 +840,11 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
               ),
             );
           }
-          if (session !== undefined) deps.sessions?.complete(session.id, result.report);
+          if (session !== undefined)
+            deps.sessions?.complete(session.id, result.report, {
+              ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+            });
+
           const reported = appendSubAgentParentHints(result.report, result.stopReason, hintOptions);
           return await finishWithWorktree(
             taskToolResult(

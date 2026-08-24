@@ -29,7 +29,6 @@ export {
   formatSubAgentReport,
   hasReportEnvelope,
   parseSubAgentReport,
-  stopReasonFromReport,
   subAgentToolName,
   type DispatchBrief,
   type SubAgentReport,
