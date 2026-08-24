@@ -17,6 +17,7 @@ import {
 import { resolveWorkspacePath } from "./path-restriction.js";
 import type { RootsProvider } from "./worktree-roots.js";
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+import { AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS } from "../agent/tool-classification.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -30,14 +31,9 @@ import { isProductMutationTool, productMutationPaths } from "../agent/product-mu
 // for a denial to prevent. Every other posix tool is consequential and
 // defaults to the "ask" tier. Catastrophic commands are denied earlier by the
 // authorization plugin, so they never reach here.
-const READ_ONLY_TOOLS = new Set([
-  "read_file",
-  "search_files",
-  "grep",
-  "list_dir",
-  "lsp",
-  "manage_tasks",
-]);
+//
+// Membership lives in tool-classification.ts (AUTO_ALLOW_READ_TOOLS, imported
+// here as READ_ONLY_TOOLS) — see CL-6809.
 
 // Tools that take a single path-like argument the gate should check against
 // restriction (outside the workspace boundary, or writes under the session state root).
