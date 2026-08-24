@@ -113,7 +113,7 @@ test("plan skill spawns Counsel (plan) and does not ship", async () => {
   expect(skill).toMatch(/agent-proof/);
   expect(skill).toMatch(/[Dd]o not (implement|ship)/);
   expect(skill).toContain("/create-issue");
-  expect(skill).toContain("intent=\"plan\"");
+  expect(skill).toContain('intent="plan"');
   expect(skill).not.toContain(USER_INVOCABLE_FALSE);
 });
 
