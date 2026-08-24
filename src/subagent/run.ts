@@ -283,18 +283,15 @@ function abortReasonText(signal: AbortSignal): string | undefined {
 }
 
 /**
- * Arm requireEvidence only for CritiqueDirector. Greybeard is also
+ * Arm requireEvidence only for the critique director. Greybeard is also
  * intent=review and may spawn-only then envelope; that is not a fake
  * review — do not pull it into the empty-readCounts gate.
  */
 export function shouldRequireEvidence(input: {
   intent?: TaskIntent;
-  systemPromptRole?: string;
+  directorId?: string;
 }): boolean {
-  return (
-    typeof input.systemPromptRole === "string" &&
-    input.systemPromptRole.includes("CritiqueDirector")
-  );
+  return input.directorId === "critique";
 }
 
 // Spin up an isolated, autonomous agent loop, hand it one task, and return

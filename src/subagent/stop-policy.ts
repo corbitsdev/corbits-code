@@ -266,7 +266,6 @@ export type SubAgentStopReason =
   | "no-progress"
   | "never-acted"
   | "never-edited"
-  | "no-ship"
   | "report-forced"
   | "incomplete-report"
   | "incomplete-report-stop";
@@ -277,7 +276,7 @@ export type SubAgentStopReason =
  * Precedence when tools are still firing:
  * no-progress (identical fingerprints) > turn-budget (hard cap).
  * Look volume never hard-stops.
- * "report-forced", "no-ship-nudge", and "incomplete-report"
+ * "report-forced" and "incomplete-report"
  * are not competing stop reasons — they are one-shot signals telling the
  * caller to inject a wrap-up / redirect nudge and keep running; turn-budget
  * remains reachable afterward. Tool-less turns end as never-acted

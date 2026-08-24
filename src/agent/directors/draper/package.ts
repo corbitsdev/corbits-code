@@ -61,5 +61,5 @@ Missing references, out-of-lane asks, ambiguous scope.
 ## Paths
 Files and references inspected.
 
-Never write/edit/delete product files. Never spawn. Never commit.`,
+Never commit.`,
 };
