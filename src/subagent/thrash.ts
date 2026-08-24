@@ -15,6 +15,7 @@
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+import { PATH_KEYED_READ_TOOLS, SEARCH_QUERY_TOOLS } from "../agent/tool-classification.js";
 import { classifyShellFileEvidence } from "./shell-evidence.js";
 
 /** Tunable thresholds for force-report detection. */
@@ -53,8 +54,11 @@ export interface ThrashToolCallBlock {
   arguments?: unknown;
 }
 
-const READ_TOOLS = new Set(["read_file"]);
-const SEARCH_TOOLS = new Set(["grep", "search_files"]);
+// list_dir is deliberately excluded: a repeated identical listing of the same
+// directory is not the stuck read/search loop this bookkeeping watches for
+// the way a repeated read_file or grep is (see tool-classification.ts).
+const READ_TOOLS = PATH_KEYED_READ_TOOLS;
+const SEARCH_TOOLS = SEARCH_QUERY_TOOLS;
 const SHELL_TOOL = "run_shell";
 
 function parseArgs(raw: unknown): Record<string, unknown> {
