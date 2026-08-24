@@ -1,6 +1,6 @@
 /**
- * close_agent / resume_agent (CL-6943): the session-lifecycle half of
- * reusable worker sessions. spawn_agent/wait_agents (CL-6942) start and
+ * close_agent / resume_agent: the session-lifecycle half of
+ * reusable worker sessions. spawn_agent/wait_agents start and
  * collect workers; these two verbs let an orchestrator tear one down on
  * purpose (close_agent) or bring a retained one back for further input
  * (resume_agent), instead of every session dying the instant its turn ends.

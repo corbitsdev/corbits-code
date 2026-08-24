@@ -53,7 +53,7 @@ describe("thrash pure module", () => {
     let state = EMPTY_THRASH_STATE;
     state = nextThrashState(state, [read("a.ts")]);
     // An edit no longer erases read evidence: readCounts is the requireEvidence
-    // record, not a thrash counter (CL-6936).
+    // record, not a thrash counter.
     state = nextThrashState(state, [edit("a.ts")]);
     expect(state.readCounts.get("a.ts")).toBe(1);
     state = nextThrashState(state, [read("a.ts"), read("a.ts")]);
@@ -75,7 +75,7 @@ describe("thrash pure module", () => {
     expect(state.totalToolCalls).toBe(1);
   });
 
-  test("run_shell file reads count as read evidence (CL-6937)", () => {
+  test("run_shell file reads count as read evidence", () => {
     const shell = (command: string): ThrashToolCallBlock => ({
       type: "tool_call",
       name: "run_shell",

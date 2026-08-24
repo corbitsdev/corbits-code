@@ -11,10 +11,10 @@ describe("assertTierMayMountFleetVerb", () => {
     expect(() => assertTierMayMountFleetVerb("leaf", "task")).toThrow(FleetAuthorityError);
     expect(() => assertTierMayMountFleetVerb("leaf", "search_agents")).toThrow(FleetAuthorityError);
     expect(() => assertTierMayMountFleetVerb("leaf", "spawn_agent")).toThrow(FleetAuthorityError);
-    // CL-6943: the reusable-session verbs are gated the same way.
+    // The reusable-session verbs are gated the same way.
     expect(() => assertTierMayMountFleetVerb("leaf", "close_agent")).toThrow(FleetAuthorityError);
     expect(() => assertTierMayMountFleetVerb("leaf", "resume_agent")).toThrow(FleetAuthorityError);
-    // CL-6997: interrupt_agent / followup_task are gated the same way.
+    // Interrupt_agent / followup_task are gated the same way.
     expect(() => assertTierMayMountFleetVerb("leaf", "interrupt_agent")).toThrow(
       FleetAuthorityError,
     );

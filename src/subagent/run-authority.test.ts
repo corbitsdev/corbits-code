@@ -1,9 +1,9 @@
 /**
- * Gate-level proof for CL-6941: authority.test.ts proves the assert
- * functions throw when called directly, which is necessary but not
- * sufficient — it does not prove runSubAgent itself cannot be talked into
- * mounting a fleet verb for a caller whose tier cannot be established. These
- * tests drive runSubAgent (the real mount point) end to end.
+ * authority.test.ts proves the assert functions throw when called directly,
+ * which is necessary but not sufficient — it does not prove runSubAgent
+ * itself cannot be talked into mounting a fleet verb for a caller whose tier
+ * cannot be established. These tests drive runSubAgent (the real mount
+ * point) end to end.
  */
 
 import { describe, expect, test } from "bun:test";
