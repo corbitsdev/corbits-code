@@ -24,6 +24,18 @@ export type DirectorId = (typeof DIRECTOR_IDS)[number];
 
 export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general";
 
+/**
+ * Fleet authority tier (CL-6941). Runtime-enforced at the tool-mount point in
+ * subagent/run.ts and by subagent/authority.ts — never by prompt wording.
+ *
+ * - "orchestrator": Tier 1, primary (skywalker). Full fleet control over the
+ *   whole tree.
+ * - "nested-orchestrator": Tier 2, scoped to its own subtree (e.g. greybeard).
+ *   May manage only its own descendants, never siblings or ancestors.
+ * - "leaf": Tier 3, worker bee. No fleet verbs at all.
+ */
+export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
+
 /** Static model-role tag for CL-5816 stub resolution (not a full package yet). */
 export type ModelRole =
   "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
@@ -67,6 +79,8 @@ export interface DirectorPackage {
   readonly spawn: SpawnRights;
   readonly nudge?: NudgePolicy;
   readonly modelRole: ModelRole;
+  /** Fleet authority tier — data on the package, gated at mount, not prose. */
+  readonly tier: SubagentTier;
 }
 
 export interface ResolveDirectorInput {

@@ -227,9 +227,25 @@ When profiles exist (local `.agents/agents/` and/or enabled **`kind: "agent"`** 
 
 Profiles with `orchestrator: true` may themselves call `task` (one hop only): nested dispatch installs `task` + `search_agents` with `allowOrchestrator: false` so the tree bottoms out. Unknown `agent` ids fail closed.
 
+#### Fleet authority tiers (`src/subagent/authority.ts`) (CL-6941)
+
+Every director package carries a required `tier: SubagentTier` field (`src/agent/directors/types.ts`) — data on the package, never a prompt instruction:
+
+| Tier                      | Who                                             | Fleet surface                                                                                                    |
+| ------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1 — `orchestrator`        | skywalker (primary)                             | Full fleet control over the whole tree.                                                                          |
+| 2 — `nested-orchestrator` | greybeard, or any package with `spawn.maySpawn` | Same fleet surface, scoped to its own subtree: may manage only its own descendants, never a sibling or ancestor. |
+| 3 — `leaf`                | every other director                            | No fleet verbs at all.                                                                                           |
+
+Enforcement is runtime code at the existing tool-mount point, not prompt wording — this is the fix for four prior mechanisms (`writePaths`, `report.requiredSections`, a `--config` comment, the thrash matcher) that were documented-as-enforced while enforcing nothing:
+
+- **Mount-time gate.** `runSubAgent` (`src/subagent/run.ts`) resolves the spawned director's tier via `tierForDirectorId` (`src/agent/directors/registry.ts`) and calls `assertTierMayMountFleetVerb(tier, toolName)` (`src/subagent/authority.ts`) before installing `task` / `search_agents`. A Tier 3 leaf can never receive a fleet verb even if `orchestrator: true` is passed by mistake — the mount throws instead of silently installing the tool. `FLEET_VERBS` in `authority.ts` also names the not-yet-implemented verbs (`spawn_agent`, `wait_agents`, `list_agents`, `send_input`, `interrupt_agent`, `close_agent`, `resume_agent`, `read_agent_trace`, `followup_task`) so their future mount sites inherit the same gate.
+- **Subtree authority.** `assertCanTargetAgent(actor, targetId, nodes)` (`src/subagent/authority.ts`) implements the "root owns its tree; a child manages only its own descendants" rule: Tier 1 may target anyone, Tier 2 may target only its own descendants (walked over the same `{id, parentSessionId}` shape `SubAgentSessionStore` already tracks — no parallel tree), Tier 3 holds no fleet verbs and always fails closed. This is the authority primitive the fleet-targeting verbs land against in later child issues (CL-6942, CL-6951, CL-6945, CL-6946); CL-6941 lands the boundary and its tests, not the verbs.
+- `task()` is unaffected and remains the only spawn verb until the new verbs land beside it (deprecated-not-deleted per the CL-6940 epic).
+
 #### Closed director fleet (`src/agent/directors/`)
 
-Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, `modelRole`) registered in a **closed** set of 16 ids. There is no catch-all worker: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only). Skywalker is the primary session identity: `task(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, `modelRole`, fleet authority `tier`) registered in a **closed** set of 16 ids. There is no catch-all worker: `task` without `agent` or non-general `intent`, and `task(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `createTaskTool` (not prompt-only). Skywalker is the primary session identity: `task(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
 
 **Primary**
 

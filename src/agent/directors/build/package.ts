@@ -15,6 +15,7 @@ export const buildDirectorPackage: DirectorPackage = {
   optionalSkills: ["style", "philosophy", "typescript"],
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
+  tier: "leaf",
   nudge: { maxTurns: 60 },
   modelRole: "implement",
   systemPrompt: `You are BuildDirector, a specialist in Corbits Code.
