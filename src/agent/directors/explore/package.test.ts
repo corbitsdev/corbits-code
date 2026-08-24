@@ -38,13 +38,13 @@ describe("explorePackage", () => {
     expect(explorePackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow is read-only (no product writes)", () => {
+  test("tools.allow mounts product writes (lane: no product edits)", () => {
     const allow = explorePackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("grep");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is explore", () => {

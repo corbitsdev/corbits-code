@@ -46,7 +46,7 @@ API contract check (blocking when brief specifies signatures):
 - Prefer reading tests/callers; a tiny sync call via run_shell that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
-Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/build.
+Write tools are mounted with no path lock — do not use them. Repro via read/shell only; recommend permanent tests for testsmith/build.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to build)

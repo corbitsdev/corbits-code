@@ -1,5 +1,5 @@
 import type { DirectorPackage } from "../types.js";
-import { READ_TOOLS } from "../tool-sets.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Tester: runtime verification specialist — run tests and report; never fix product code.
@@ -23,12 +23,12 @@ Workflow:
 1. Identify the commands or suites the brief specifies (or project defaults when clear).
 2. Run them via shell / harness-allowed tools.
 3. Capture exit codes, key failures, and paths.
-4. Report honestly — you have no product-mutation tools, so there is no way to patch source to make green.
+4. Report honestly — do not patch source to make green; leave product fixes to build.
 
 If tests fail: document failures, suspected area, and blockers. Suggest a re-dispatch to build or testsmith when design gaps appear.
 
 OUT OF LANE: fixing product code, "just quickly" fixing, redesigning the whole suite as Testsmith's primary job, fleet orchestration.`,
-  tools: { allow: READ_TOOLS },
+  tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "test",

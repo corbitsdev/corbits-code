@@ -17,12 +17,15 @@ describe("internPackage", () => {
     expect(internPackage.spawn.maySpawn).toBe(false);
   });
 
-  test("tools.allow is shell-first minimal surface", () => {
+  test("tools.allow is shell-first with path writes", () => {
     const allow = internPackage.tools?.allow ?? [];
     expect(allow).toContain("run_shell");
     expect(allow).toContain("read_file");
     expect(allow).toContain("list_dir");
-    for (const name of ["write_file", "edit_file", "delete_file", "grep", "search_files", "task"]) {
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
+    for (const name of ["grep", "search_files", "task", "apply_patch"]) {
       expect(allow).not.toContain(name);
     }
   });

@@ -44,13 +44,13 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.systemPrompt).toMatch(/never spawn a parallel diagnostic fleet/i);
   });
 
-  test("tools.allow is orchestrator surface without product writes", () => {
+  test("tools.allow is orchestrator surface with product writes", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
     expect(allow).toContain("task");
     expect(allow).toContain("search_agents");
-    expect(allow).not.toContain("write_file");
-    expect(allow).not.toContain("edit_file");
-    expect(allow).not.toContain("delete_file");
+    expect(allow).toContain("write_file");
+    expect(allow).toContain("edit_file");
+    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {
