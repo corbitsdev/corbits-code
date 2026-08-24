@@ -198,6 +198,7 @@ import {
   setStatusFlash,
   surfaceSystemNotice,
 } from "./shell.js";
+import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import {
   captureAuthFailure,
   classifyAgentSendFailure,
@@ -2619,7 +2620,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         isCodexProviderName(config.providerName),
       );
       if (next === undefined) {
-        setStatusFlash(host.shell, "this model has no reasoning effort levels");
+        setStatusFlash(host.shell, "this model has no reasoning effort levels", {
+          ttlMs: RUNTIME_FLASH_MS,
+        });
         return;
       }
       config = { ...config, reasoningEffort: next };
@@ -2630,7 +2633,9 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         model: config.model,
         effort: next,
       });
-      setStatusFlash(host.shell, `reasoning effort: ${next}`);
+      setStatusFlash(host.shell, `reasoning effort: ${next}`, {
+        ttlMs: RUNTIME_FLASH_MS,
+      });
     });
 
     // Recall spans the whole session, including what was sent before a resume.

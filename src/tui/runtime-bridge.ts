@@ -34,7 +34,8 @@ import {
 import { rampAnimating } from "./ramp.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { resolveRampPhase, resolveTurnLabel, sendFailureText } from "./session-chrome.js";
-import { quotaWaitSeconds, shouldAutoRetryQuota } from "./quota-retry.js";
+import { shouldAutoRetryQuota } from "./quota-retry.js";
+import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
 import {
   applyStallRecovery,
   repetitionRecoveryMessage,
@@ -1153,16 +1154,16 @@ export function attachSessionBridge(
       bag.quotaFired = true;
       const replay = bag.lastSentMessage;
       bag.turn = clearQuotaWait(bag.turn);
-      setStatusFlash(shell, "rate limit cleared — resubmitting");
+      setStatusFlash(shell, "rate limit cleared — resubmitting", {
+        ttlMs: RUNTIME_FLASH_MS,
+      });
       submit(replay, "immediate");
       return;
     }
 
     if (quota !== null) {
-      setStatusFlash(
-        shell,
-        `rate limited — retrying in ${quotaWaitSeconds(quota.retryAt, nowMs)}s`,
-      );
+      // Durable error already lives in the transcript; do not park a sticky
+      // countdown flash that outlives every other confirmation.
       return;
     }
 
@@ -1180,7 +1181,10 @@ export function attachSessionBridge(
     if (bag.turn.status === "running" && bag.turn.repeating) {
       const repeatedTokens = bag.turn.streamTokenCount - (bag.turn.repeatingSinceTokenCount ?? 0);
       applyStallRecovery(
-        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        {
+          abort: doInterrupt,
+          notify: (message) => setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
+        },
         repetitionRecoveryMessage(repeatedTokens),
       );
       return;
@@ -1190,7 +1194,10 @@ export function attachSessionBridge(
 
     if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery(
-        { abort: doInterrupt, notify: (message) => setStatusFlash(shell, message) },
+        {
+          abort: doInterrupt,
+          notify: (message) => setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
+        },
         STALL_RECOVERY_MESSAGE,
       );
       return;
