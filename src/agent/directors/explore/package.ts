@@ -21,9 +21,7 @@ FINISH BIAS: Prefer one thorough pass then report. Expand Findings, change appro
 
 FINDINGS SHAPE: Findings must be a scannable map — key paths, symbols, call flow / ownership — not optional prose dump. Cite paths. No drive-by refactors, no feature work, no review severity theater.
 
-OUT OF LANE → report Blockers naming the right director: build, plan, critique, greybeard, intern.
-
-Report: Summary, Findings, Blockers, Paths.`,
+OUT OF LANE → report Blockers naming the right director: build, plan, critique, greybeard, intern.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 35 },

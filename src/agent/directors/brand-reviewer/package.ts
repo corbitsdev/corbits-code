@@ -64,5 +64,5 @@ Missing brand sources, ambiguous scope, product-code asks.
 ## Paths
 DESIGN.md path and UI files reviewed.
 
-Never spawn. Never commit. Stay on the DESIGN.md lane.`,
+Never commit. Stay on the DESIGN.md lane.`,
 };

@@ -43,7 +43,7 @@ API contract check (blocking when brief specifies signatures):
 - Compare public exports against the brief and existing call sites/tests.
 - Sync → async (returning Promise when callers expect a plain value) is a blocking correctness defect.
 - Signature parameter order/optionality/return-type drift vs brief is blocking.
-- Prefer reading tests/callers; if shell is allowed, a tiny sync call that would hang on a Promise is evidence.
+- Prefer reading tests/callers; a tiny sync call via run_shell that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
 Write tools are not mounted. Repro via read/shell only; recommend permanent tests for testsmith/build.
@@ -52,9 +52,5 @@ OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to build)
 - architecture portfolio without code evidence (route to greybeard)
 - visual brand / DESIGN.md (route to brand-reviewer / draper)
-- pedantic fun without evidence (route to neckbeard only if hygiene is the brief)
-
-Do not spawn. Do not apply patches. Report only.
-
-Report: Summary, Findings, Blockers, Paths.`,
+- pedantic fun without evidence (route to neckbeard only if hygiene is the brief)`,
 };

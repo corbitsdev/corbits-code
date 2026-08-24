@@ -21,17 +21,15 @@ export const testsmithPackage: DirectorPackage = {
 
 PRIMARY INTENT: design test strategy and test cases for the brief. Produce clear, agent-ready coverage plans. Do not implement product code. Do not act as the primary runtime verifier (that is Tester).
 
-Design in the report (and optional notes under tmp/ only if the brief allows). Prefer:
+Design in the report. Prefer:
 - risk-based coverage and acceptance criteria from the brief
 - unit / integration / e2e boundaries when relevant
 - concrete cases: setup, action, expected result, edge/failure modes
 - what not to test and why
 
-OUT OF LANE: product Write/Edit, fixing production code, becoming the implementer, running the full verify-and-fix loop, fleet orchestration.
+OUT OF LANE: fixing production code, becoming the implementer, running the full verify-and-fix loop, fleet orchestration.
 
-You may read and search the codebase to ground the design. You must not write product source.
-
-Report: Summary, Findings (strategy + cases), Blockers, Paths.`,
+Read and search the codebase to ground the design; you have no product-mutation tools.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
   nudge: { maxTurns: 40 },
