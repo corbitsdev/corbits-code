@@ -18,6 +18,7 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentSessionStore } from "./session-store.js";
 import type { TaskIntent } from "./report.js";
 import type { SubagentTier } from "../agent/directors/types.js";
+import type { ForcedStopReason } from "./stop-policy.js";
 
 export interface SubAgentProvider {
   providerName: string;
@@ -148,3 +149,9 @@ export type RunSubAgentParams = {
   /** DirectorPackage.reportContract.outputType, when the resolved leaf declares one. */
   reportType?: OutputType;
 } & SubAgentSandboxDeps;
+
+/** runSubAgent's result: the parent-facing report plus, when force-stopped, the structured reason why (CL-6946 part 2) — classify outcomes from `stopReason`, never by parsing `report`. */
+export interface RunSubAgentResult {
+  report: string;
+  stopReason?: ForcedStopReason;
+}

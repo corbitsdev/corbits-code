@@ -32,6 +32,7 @@ import {
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
 import { isOperatorOriginated } from "./message-provenance.js";
 import { classifyBriefSalvage, isHardBlockSalvage } from "../subagent/brief-dispatch.js";
+import type { ForcedStopReason } from "../subagent/stop-policy.js";
 import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
 
 // Fired when turnsSinceUserMessage reaches TURNS_SINCE_USER_MESSAGE_BACKSTOP.
@@ -933,8 +934,11 @@ class ChatDirectorImpl extends DefaultDirector {
 
     if (event.type === "tool.done" && this.pendingTaskCallIds.has(event.result.callId)) {
       this.pendingTaskCallIds.delete(event.result.callId);
-      const body = typeof event.result.content === "string" ? event.result.content : "";
-      const salvage = classifyBriefSalvage(body);
+      const detail = event.result.detail as { stopReason?: ForcedStopReason } | undefined;
+      const salvage = classifyBriefSalvage({
+        ...(detail?.stopReason !== undefined ? { stopReason: detail.stopReason } : {}),
+        wasCancelled: false,
+      });
       if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
         this.salvageNudgeFired = true;
         this.pendingSalvageNudge = PRIMARY_SALVAGE_NUDGE;
@@ -958,9 +962,8 @@ class ChatDirectorImpl extends DefaultDirector {
       // the backstop forever — once the cap is exhausted, leaf successes
       // stop resetting the interval and the nudge/pause escalation
       // eventually forces an operator checkpoint. Credit also requires the
-      // tool result content to actually be a string: non-string content is
-      // coerced to "" above only for salvage classification (an empty body
-      // classifies as success), which must not also buy backstop credit.
+      // tool result content to actually be a string, independent of the
+      // structured salvage classification above.
       if (
         !event.result.isError &&
         salvage === null &&

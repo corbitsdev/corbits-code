@@ -111,11 +111,16 @@ function taskTurn(id: string): ReactorInboundEvent {
 // "successful leaf tool.done" progress signal.
 function taskDoneEvent(
   callId: string,
-  options: { isError?: boolean; content?: string } = {},
+  options: { isError?: boolean; content?: string; stopReason?: string } = {},
 ): ReactorInboundEvent {
   return {
     type: "tool.done",
-    result: { callId, isError: options.isError ?? false, content: options.content ?? "ok" },
+    result: {
+      callId,
+      isError: options.isError ?? false,
+      content: options.content ?? "ok",
+      ...(options.stopReason !== undefined ? { detail: { stopReason: options.stopReason } } : {}),
+    },
   } as unknown as ReactorInboundEvent;
 }
 
@@ -866,7 +871,7 @@ describe("ChatDirector tool-only loop protection", () => {
       await director.decide(
         {
           type: "tool.done",
-          result: { callId: "task-1", content: salvage },
+          result: { callId: "task-1", content: salvage, detail: { stopReason: "no-ship" } },
         } as unknown as ReactorInboundEvent,
         mockState,
         capabilities,
@@ -1071,7 +1076,10 @@ describe("ChatDirector tool-only loop protection", () => {
         await director.decide(taskTurn(id), mockState, capabilities);
         const result = actionsArray(
           await director.decide(
-            taskDoneEvent(id, { content: forcedStopReport("no-progress", "x") }),
+            taskDoneEvent(id, {
+              content: forcedStopReport("no-progress", "x"),
+              stopReason: "no-progress",
+            }),
             mockState,
             capabilities,
           ),

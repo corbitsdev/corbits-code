@@ -21,6 +21,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `search_agents` with no supported opt-in.
 - Removed the default 30-turn leaf sub-agent ceiling; an unset `maxTurns` now runs unbounded (explicit budgets still apply).
 - Deleted two unenforced orchestrator prompt rules: a "4 workers at once" fan-out cap and a same-agent lane-disjointness rule.
+- Sub-agent forced-stop outcomes (turn budget, no-progress, deadline,
+  cancelled, etc.) are now classified from the structured stop reason the run
+  reports directly, not by re-parsing the parent-facing report's prose.
+  Removes the `isXxxSubAgentReport` classifier family and per-reason parent
+  hint functions in favor of a single structured switch.
 
 ## [0.2.108] - 2026-08-24
 

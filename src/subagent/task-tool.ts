@@ -35,7 +35,7 @@ import {
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { DEFAULT_CANCEL_REASON, type SubAgentSessionStore } from "./session-store.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
-import { appendSubAgentParentHints } from "./stop-policy.js";
+import { appendSubAgentParentHints, type ForcedStopReason } from "./stop-policy.js";
 import {
   classifyBriefSalvage,
   createBriefDispatchLedger,
@@ -55,6 +55,7 @@ import { join } from "node:path";
 import type {
   NestedDispatchDeps,
   RunSubAgentParams,
+  RunSubAgentResult,
   SubAgentProvider,
   SubAgentSandboxDeps,
 } from "./types.js";
@@ -149,7 +150,7 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   provider: SubAgentProvider | (() => SubAgentProvider);
   // Required runner — inject runSubAgent in production, a mock in tests.
   // Keeping this required (no default import of run) breaks the run↔task-tool cycle.
-  run: (params: RunSubAgentParams) => Promise<string>;
+  run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   // When set, each spawn is recorded as an inspectable session (identity,
@@ -192,9 +193,20 @@ export type TaskToolDeps = SubAgentSandboxDeps & {
   telemetry?: Telemetry;
 };
 
-function taskToolResult(callId: string, content: string): ToolResult {
+function taskToolResult(
+  callId: string,
+  content: string,
+  stopReason?: ForcedStopReason,
+): ToolResult {
   const isError = content.startsWith("Error:") || content.startsWith("Error ");
-  return { callId, content, ...(isError ? { isError: true } : {}) };
+  return {
+    callId,
+    content,
+    ...(isError ? { isError: true } : {}),
+    // Structured stop-reason side channel (CL-6946 part 2): the parent chat
+    // director classifies salvage outcomes from this, never from `content`.
+    ...(stopReason !== undefined ? { detail: { stopReason } } : {}),
+  };
 }
 
 type RequiredTaskField = "description" | "prompt";
@@ -842,7 +854,10 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
           const wasCancelled =
             childCtl.signal.aborted ||
             (session !== undefined && deps.sessions?.get(session.id)?.status === "cancelled");
-          const salvage = classifyBriefSalvage(result);
+          const salvage = classifyBriefSalvage({
+            ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+            wasCancelled,
+          });
           briefLedger.recordOutcome(fingerprint, salvage);
           // Prefer the last provider/model that actually served inference
           // (captured off inference.done above) over the pre-dispatch
@@ -862,15 +877,27 @@ export function createTaskTool(deps: TaskToolDeps): AgentTool {
             if (session !== undefined && deps.sessions?.get(session.id)?.status === "running") {
               deps.sessions.cancel(session.id, cancelReason(childCtl.signal));
             }
-            const reported = appendSubAgentParentHints(result, hintOptions);
+            const reported = appendSubAgentParentHints(
+              result.report,
+              result.stopReason,
+              hintOptions,
+            );
             return await finishWithWorktree(
-              taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
+              taskToolResult(
+                call.id,
+                `Sub-agent "${description}" reported:\n\n${reported}`,
+                salvage ?? undefined,
+              ),
             );
           }
-          if (session !== undefined) deps.sessions?.complete(session.id, result);
-          const reported = appendSubAgentParentHints(result, hintOptions);
+          if (session !== undefined) deps.sessions?.complete(session.id, result.report);
+          const reported = appendSubAgentParentHints(result.report, result.stopReason, hintOptions);
           return await finishWithWorktree(
-            taskToolResult(call.id, `Sub-agent "${description}" reported:\n\n${reported}`),
+            taskToolResult(
+              call.id,
+              `Sub-agent "${description}" reported:\n\n${reported}`,
+              salvage ?? undefined,
+            ),
           );
         } catch (err) {
           if (

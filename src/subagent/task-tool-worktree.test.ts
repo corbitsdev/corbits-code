@@ -71,7 +71,7 @@ describe("createTaskTool worktree isolation", () => {
       useWorktree: true,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -106,7 +106,7 @@ describe("createTaskTool worktree isolation", () => {
       provider,
       run: async (params) => {
         captured = params;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -130,7 +130,7 @@ describe("createTaskTool worktree isolation", () => {
       useWorktree: true,
       run: async () => {
         ran = true;
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -162,7 +162,7 @@ describe("createTaskTool worktree isolation", () => {
         worktreePath = params.cwd;
         // Simulate the sub-agent leaving uncommitted work behind.
         await writeFile(join(params.cwd, "new-file.txt"), "unfinished work");
-        return "done";
+        return { report: "done" };
       },
     });
 
@@ -203,7 +203,7 @@ describe("createTaskTool worktree isolation", () => {
         await writeFile(join(params.cwd, "wip.txt"), "half-finished change");
         await run("git", ["add", "."], { cwd: params.cwd });
         await run("git", ["stash"], { cwd: params.cwd });
-        return "done";
+        return { report: "done" };
       },
     });
 
