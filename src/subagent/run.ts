@@ -605,7 +605,6 @@ export async function runSubAgent(params: RunSubAgentParams): Promise<RunSubAgen
           maxTurns,
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,
-          params.intent === "implement",
           shouldRequireEvidence(params),
         );
         director.observeForcedStop((reason) => {

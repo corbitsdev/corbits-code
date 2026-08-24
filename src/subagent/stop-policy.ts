@@ -73,13 +73,7 @@ export function subAgentTurnLimitExceeded(turnsCompleted: number, maxTurns: numb
 }
 
 export type SubAgentStopReason =
-  | "complete"
-  | "turn-budget"
-  | "never-acted"
-  | "never-edited"
-  | "report-forced"
-  | "incomplete-report"
-  | "incomplete-report-stop";
+  "complete" | "turn-budget" | "report-forced" | "incomplete-report" | "incomplete-report-stop";
 
 /**
  * Pure stop decision for leaf workers. Null means keep running tools.
@@ -87,11 +81,10 @@ export type SubAgentStopReason =
  * "report-forced" and "incomplete-report"
  * are not competing stop reasons — they are one-shot signals telling the
  * caller to inject a wrap-up / redirect nudge and keep running; turn-budget
- * remains reachable afterward. Tool-less turns end as never-acted
- * or never-edited when those apply; otherwise a tool-less turn after tools
- * completes only when the assistant text has a four-heading envelope
- * (Summary, Findings, Blockers, Paths). Omitting `lastAssistantText`
- * still completes (back-compat). Missing envelope nudges
+ * remains reachable afterward. A tool-less turn (including one that never
+ * called a tool at all) completes only when the assistant text has a
+ * four-heading envelope (Summary, Findings, Blockers, Paths). Omitting
+ * `lastAssistantText` still completes (back-compat). Missing envelope nudges
  * once (`incomplete-report`) then salvages (`incomplete-report-stop`).
  * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
  * is not complete even with all four headings — same incomplete-report
@@ -99,19 +92,11 @@ export type SubAgentStopReason =
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
-  /** True when any turn in this run (including the current one) issued tools. */
-  everHadToolCalls: boolean;
   turnsCompleted: number;
   maxTurns: number;
   /** When set, the near-budget force-report nudge is evaluated after tool-budget checks. */
   thrashState?: ThrashState;
   thrashConfig?: Partial<ThrashConfig>;
-  /**
-   * When true (intent=implement), a tool-using run that never wrote/edited a
-   * file is not a successful complete — salvage as never-edited so the parent
-   * does not treat a pure-explore "plan" as shipped work.
-   */
-  requireEdit?: boolean;
   /**
    * When true (CritiqueDirector leaf), a tool-using run that never
    * read or searched a file is not a successful complete — even a four-heading
@@ -129,20 +114,10 @@ export function evaluateSubAgentStop(input: {
   /** True after the one-shot incomplete-report wrap-up nudge has been injected. */
   incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
-  // Planning-only prose is never-acted; implement intent that only
-  // read/searched (no edit_file/write_file/delete_file) is never-edited —
-  // both hard-block identical re-dispatch. After those, a tool-less turn
-  // following tools is complete only with a report envelope (or when
-  // lastAssistantText is omitted). CritiqueDirector additionally requires
-  // at least one read/search in thrashState.readCounts.
+  // A tool-less turn is complete only with a report envelope (or when
+  // lastAssistantText is omitted). CritiqueDirector additionally requires at
+  // least one read/search in thrashState.readCounts.
   if (!input.hasToolCalls) {
-    if (!input.everHadToolCalls) return "never-acted";
-    if (
-      input.requireEdit === true &&
-      (input.thrashState === undefined || input.thrashState.editedPaths.size === 0)
-    ) {
-      return "never-edited";
-    }
     if (input.lastAssistantText !== undefined && !hasReportEnvelope(input.lastAssistantText)) {
       return input.incompleteReportNudgeFired === true
         ? "incomplete-report-stop"
@@ -174,14 +149,12 @@ export function evaluateSubAgentStop(input: {
 
 // A sub-agent is a worker, not a chat partner: it runs until it stops calling
 // tools, at which point its final assistant text is the result handed back to
-// the dispatcher — unless it never called tools at all, in which case the
-// result is a never-acted salvage report rather than a successful implement.
-// It has no submit_output or ask_operator; consequential tools still go through
-// the parent's permission gate (grants, auto mode, or prompts). The hard turn
-// budget stops a leaf that would otherwise burn the full budget with no
-// parent-visible report. Near the budget the leaf gets a one-shot wrap-up
-// nudge (report-forced) rather than a stop, so turn-budget stays reachable
-// for a leaf that is genuinely still making progress.
+// the dispatcher. It has no submit_output or ask_operator; consequential
+// tools still go through the parent's permission gate (grants, auto mode, or
+// prompts). The hard turn budget stops a leaf that would otherwise burn the
+// full budget with no parent-visible report. Near the budget the leaf gets a
+// one-shot wrap-up nudge (report-forced) rather than a stop, so turn-budget
+// stays reachable for a leaf that is genuinely still making progress.
 
 export function lastText(content: readonly { type: string }[]): string {
   for (let i = content.length - 1; i >= 0; i--) {
@@ -205,23 +178,13 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
 }
 
 export type ForcedStopReason =
-  | "turn-budget"
-  | "never-acted"
-  | "never-edited"
-  | "cancelled"
-  | "deadline"
-  | "no-ship"
-  | "stalled"
-  | "incomplete-report";
+  "turn-budget" | "cancelled" | "deadline" | "stalled" | "incomplete-report";
 
 // Exact Summary text rendered for each forced-stop reason. Human-facing only —
 // forcedStopReport is the sole reader; the parent classifies outcomes from the
 // structured ForcedStopReason value itself (see run.ts/task-tool.ts), never by
 // parsing this text back out of the report.
 const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
-  "no-ship": "Stopped: implement intent searched many files without writing any.",
-  "never-acted": "Stopped: completed without using any tools.",
-  "never-edited": "Stopped: implement intent finished without writing any files.",
   cancelled: "Stopped: cancelled by operator before finishing.",
   deadline: "Stopped: wall-clock deadline reached before finishing.",
   stalled:
@@ -245,25 +208,18 @@ export function forcedStopReport(
 ): string {
   const summary = FORCED_STOP_SUMMARIES[reason];
   const blockers =
-    reason === "no-ship"
-      ? "Implement searched many files without writing any; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, tighter success_criteria, and do_not. Do not search the repo yourself first."
-      : reason === "never-acted"
-        ? "Worker returned planning/prose only (zero tool calls in the run); parent must not re-dispatch the identical brief (it will be refused) — re-dispatch only with a tighter brief, or treat findings as unexecuted."
-        : reason === "never-edited"
-          ? "Worker used tools but never called edit_file/write_file/delete_file under intent=implement; parent must not re-dispatch the identical brief (it will be refused) — re-dispatch with an edit-first brief, or treat findings as unexecuted."
-          : reason === "cancelled"
-            ? "Operator or parent cancelled the worker mid-run; parent may re-dispatch with the partial findings below."
-            : reason === "deadline"
-              ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
-              : reason === "stalled"
-                ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
-                : reason === "incomplete-report"
-                  ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
-                  : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
+    reason === "cancelled"
+      ? "Operator or parent cancelled the worker mid-run; parent may re-dispatch with the partial findings below."
+      : reason === "deadline"
+        ? "Worker wall-clock deadline elapsed mid-run; parent may re-dispatch with a longer deadline or a narrower scope for the remaining work."
+        : reason === "stalled"
+          ? "Worker went quiet (e.g. parked on a long-running background command) past the stall timeout after an initial nudge; parent may re-dispatch to finish or check on the background work directly."
+          : reason === "incomplete-report"
+            ? "Worker ended a tool-using run with a tool-less turn that had no four-heading report envelope (Summary/Findings/Blockers/Paths) after a wrap-up nudge. Findings below are the narration, not a structured report."
+            : "Worker turn budget exhausted; parent may re-dispatch for remaining work.";
   // Demote nested report-section headings so runSubAgent's parse/format pass
   // cannot clobber this outer Summary/Blockers with an agent-shaped envelope
-  // stuffed into Findings (never-acted planning envelopes; cancel after a
-  // structured partial).
+  // stuffed into Findings (cancel after a structured partial).
   const findings =
     partialText.trim().length > 0
       ? demoteNestedReportHeadings(partialText.trim())
@@ -284,17 +240,8 @@ const TURN_BUDGET_PARENT_HINT =
 export const TURN_BUDGET_STOP_PARENT_HINT =
   "[Sub-agent hit its turn budget again on the same brief (re-dispatch cap). Stop raising maxTurns on this fingerprint — restate the task, change approach (intent / success_criteria / do_not / prompt / agent), or finish from Findings. Further identical dispatches are still admitted but will not invite more maxTurns bumps.]";
 
-const NEVER_ACTED_PARENT_HINT =
-  "[Sub-agent finished without using any tools (planning/prose only). Treat findings as unexecuted; re-dispatch with a tighter brief if the work still needs doing. An identical brief will be refused.]";
-
-const NEVER_EDITED_PARENT_HINT =
-  "[Sub-agent finished implement intent without writing any files (read/search only). Treat findings as unexecuted; re-dispatch with an edit-first brief. An identical brief will be refused.]";
-
 const DEADLINE_PARENT_HINT =
   "[Sub-agent hit an explicit wall-clock deadline before finishing. Continue from Findings rather than redoing completed work; re-dispatch with continuation context and a longer deadline only if more wall-clock time is warranted.]";
-
-const NO_SHIP_PARENT_HINT =
-  "[Sub-agent stopped after searching many files without writing any. Do not search the repo yourself and do not re-dispatch the identical brief (it will be refused) — change success_criteria and do_not, or treat findings as unexecuted.]";
 
 /** Options for parent-hint stacking (session re-dispatch ledger state). */
 export interface SubAgentParentHintOptions {
@@ -329,14 +276,8 @@ export function appendSubAgentParentHints(
       const hint = count >= stopAfter ? TURN_BUDGET_STOP_PARENT_HINT : TURN_BUDGET_PARENT_HINT;
       return `${hint}\n\n${report}`;
     }
-    case "never-acted":
-      return `${NEVER_ACTED_PARENT_HINT}\n\n${report}`;
-    case "never-edited":
-      return `${NEVER_EDITED_PARENT_HINT}\n\n${report}`;
     case "deadline":
       return `${DEADLINE_PARENT_HINT}\n\n${report}`;
-    case "no-ship":
-      return `${NO_SHIP_PARENT_HINT}\n\n${report}`;
     default:
       return report;
   }

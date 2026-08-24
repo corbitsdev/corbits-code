@@ -8,10 +8,12 @@
  * spread across real progress from four reads in a loop (CL-6936).
  *
  * The state this module accumulates is consumed by evaluateSubAgentStop's
- * requireEdit / requireEvidence checks, not by a stop of its own. Reads and
- * writes performed through run_shell count as evidence there (CL-6937) — the
- * prompt prohibits shell file work, but a prompt violation deserves a
- * correction, not a verdict that the work never happened.
+ * requireEvidence check, not by a stop of its own. Reads performed through
+ * run_shell count as evidence there too (CL-6937) — the prompt prohibits
+ * shell file work, but a prompt violation deserves a correction, not a
+ * verdict that the work never happened. `editedPaths` (from typed write
+ * tools only) is diagnostics for interventions.jsonl; no stop decision
+ * depends on it.
  */
 
 import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
@@ -131,8 +133,9 @@ export function nextThrashState(
       const key = searchKey(name, args);
       readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
     } else if (name === SHELL_TOOL) {
-      // Shell file work is evidence too, or a worker that edits with sed -i
-      // salvages as never-edited and is then refused re-dispatch (CL-6937).
+      // Shell reads are evidence too (CL-6937) — the prompt prohibits shell
+      // file work, but a prompt violation deserves a correction, not a
+      // verdict that the work never happened.
       const command = args.command;
       if (typeof command === "string" && command.length > 0) {
         const evidence = classifyShellFileEvidence(command);
@@ -141,10 +144,6 @@ export function nextThrashState(
           for (const key of evidence.reads) {
             readCounts.set(key, (readCounts.get(key) ?? 0) + 1);
           }
-        }
-        if (evidence.writes.length > 0) {
-          if (editedPaths === null) editedPaths = new Set(prev.editedPaths);
-          for (const key of evidence.writes) editedPaths.add(key);
         }
       }
     } else if (isProductMutationTool(name)) {

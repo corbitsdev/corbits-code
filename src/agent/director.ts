@@ -21,10 +21,6 @@ import { isInternalRecoveryAbortRaw } from "../inference-abort.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { resolveModelFamilyPolicy, type ModelFamilyPolicy } from "./model-family-policy.js";
 import { PRESENT_VIEW_PRIMITIVES_GUIDANCE } from "./tool-schema-normalize.js";
-import { isOperatorOriginated } from "./message-provenance.js";
-import { classifyBriefSalvage, isHardBlockSalvage } from "../subagent/brief-dispatch.js";
-import type { ForcedStopReason } from "../subagent/stop-policy.js";
-import { PRIMARY_SALVAGE_NUDGE } from "./look-tour.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
 
@@ -394,10 +390,6 @@ class ChatDirectorImpl extends DefaultDirector {
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
-  // One-shot nudge after a hard-block worker salvage. Not a look-count quota.
-  private salvageNudgeFired = false;
-  private pendingSalvageNudge: string | null = null;
-  private pendingTaskCallIds = new Set<string>();
 
   constructor(
     systemPrompt: string,
@@ -486,26 +478,6 @@ class ChatDirectorImpl extends DefaultDirector {
       this.modelFamilyPolicy.wrapUpNudgeText,
       existing.options,
     );
-    return rewritten;
-  }
-
-  /**
-   * One-shot salvage nudge after a worker hard-block. Fingerprint thrash
-   * (applyToolOnlyLoopProtection) wins when both apply. Attaches to the infer
-   * after pending tools have executed.
-   */
-  private applySalvageNudge(
-    actions: ReactorAction[],
-    capabilities: ReactorCapabilities,
-  ): ReactorAction[] | null {
-    if (this.pendingSalvageNudge === null) return null;
-    const inferIndex = actions.findIndex((a) => a.type === "infer");
-    if (inferIndex === -1) return null;
-    const text = this.pendingSalvageNudge;
-    this.pendingSalvageNudge = null;
-    const rewritten = [...actions];
-    const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
-    rewritten[inferIndex] = inferWithNudge(capabilities, text, existing.options);
     return rewritten;
   }
 
@@ -637,15 +609,6 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
-      // Only a message carrying OPERATOR_ORIGINATED_FLAG resets the salvage
-      // nudge — not every message.received. Synthetic system sends
-      // (compaction continuations, retries, future director continuations)
-      // also fire message.received but are not a genuine operator checkpoint.
-      if (isOperatorOriginated(event.message.flags)) {
-        this.salvageNudgeFired = false;
-        this.pendingSalvageNudge = null;
-        this.pendingTaskCallIds.clear();
-      }
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -700,16 +663,6 @@ class ChatDirectorImpl extends DefaultDirector {
       // toolOnlyStreak is narration-sensitive: any turn with text clears it
       // (same as a fresh user message), and it only drives the soft
       // check-in nudge at toolOnlyTurnNudgeAt, never a stop.
-      const turnContent = event.turn.content as readonly {
-        type: string;
-        name?: string;
-        id?: string;
-      }[];
-      for (const block of turnContent) {
-        if (block.type === "tool_call" && block.name === "task" && typeof block.id === "string") {
-          this.pendingTaskCallIds.add(block.id);
-        }
-      }
       if (hasToolCalls && !hasText) {
         this.toolOnlyStreak++;
       } else {
@@ -752,19 +705,6 @@ class ChatDirectorImpl extends DefaultDirector {
         if (block.name === "ask_operator") {
           this.askOperatorCalls.add(block.id);
         }
-      }
-    }
-
-    if (event.type === "tool.done" && this.pendingTaskCallIds.has(event.result.callId)) {
-      this.pendingTaskCallIds.delete(event.result.callId);
-      const detail = event.result.detail as { stopReason?: ForcedStopReason } | undefined;
-      const salvage = classifyBriefSalvage({
-        ...(detail?.stopReason !== undefined ? { stopReason: detail.stopReason } : {}),
-        wasCancelled: false,
-      });
-      if (salvage !== null && isHardBlockSalvage(salvage) && !this.salvageNudgeFired) {
-        this.salvageNudgeFired = true;
-        this.pendingSalvageNudge = PRIMARY_SALVAGE_NUDGE;
       }
     }
 
@@ -838,8 +778,6 @@ class ChatDirectorImpl extends DefaultDirector {
     // wiring in src/subagent/index.ts).
     const toolOnlyRewrite = this.applyToolOnlyLoopProtection(baseActions, capabilities);
     if (toolOnlyRewrite !== null) return toolOnlyRewrite;
-    const lookRewrite = this.applySalvageNudge(baseActions, capabilities);
-    if (lookRewrite !== null) return lookRewrite;
 
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {

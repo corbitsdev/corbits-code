@@ -461,19 +461,17 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(reply.content).not.toContain("narrated instead of writing a report envelope");
   });
 
-  test("zero-tool first turn still salvages never-acted", async () => {
+  test("zero-tool first turn without a report envelope nudges for one, not a hard stop", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
 
     const result = actions(
       await director.decide(inferenceDoneText("I'll write the red tests next"), state, caps),
     );
-    expect(result.some((action) => action.type === "infer")).toBe(false);
-    expect(result).toContainEqual({ type: "checkpoint", message: "subagent-never-acted" });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply") throw new Error("expected reply action");
-    expect(reply.content).toContain("without using any tools");
-    expect(reply.content).not.toContain("narrated instead of writing a report envelope");
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+    expect(result.some((action) => action.type === "reply")).toBe(false);
   });
 });

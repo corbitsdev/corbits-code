@@ -75,12 +75,9 @@ function withEphemeralNudge(
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly maxTurns: number;
-  /** When true (intent=implement), tool-less finish without edits salvages as never-edited. */
-  private readonly requireEdit: boolean;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
-  private everHadToolCalls = false;
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
   // Armed for wrap-up (report-forced) or failed-tool recovery so the
   // follow-up infer (after pending tool calls from THIS turn have executed)
@@ -160,7 +157,6 @@ export class SubAgentDirector extends DefaultDirector {
     maxTurns: number,
     stallTimeoutMs?: number,
     now: () => number = Date.now,
-    requireEdit = false,
     requireEvidence = false,
   ) {
     super(systemPrompt, toolDefinitions, {});
@@ -169,7 +165,6 @@ export class SubAgentDirector extends DefaultDirector {
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
     this.lastActivityAt = now();
-    this.requireEdit = requireEdit;
     this.requireEvidence = requireEvidence;
   }
 
@@ -223,17 +218,14 @@ export class SubAgentDirector extends DefaultDirector {
       this.lastAssistantText = lastText(content);
       const hasToolCalls = content.some((block) => block.type === "tool_call");
       if (hasToolCalls) {
-        this.everHadToolCalls = true;
         this.thrashState = nextThrashState(this.thrashState, content);
       }
 
       const stop = evaluateSubAgentStop({
         hasToolCalls,
-        everHadToolCalls: this.everHadToolCalls,
         turnsCompleted: this.turnsCompleted,
         maxTurns: this.maxTurns,
         thrashState: this.thrashState,
-        requireEdit: this.requireEdit,
         requireEvidence: this.requireEvidence,
         lastAssistantText: this.lastAssistantText,
         incompleteReportNudgeFired: this.incompleteReportNudgeFired,
@@ -297,15 +289,9 @@ export class SubAgentDirector extends DefaultDirector {
           },
           state: this.interventionState(),
         });
-      } else if (stop === "turn-budget" || stop === "never-acted" || stop === "never-edited") {
-        const checkpoint =
-          stop === "never-acted"
-            ? "subagent-never-acted"
-            : stop === "never-edited"
-              ? "subagent-never-edited"
-              : "subagent-turn-budget";
-        const detail =
-          stop === "turn-budget" ? `${this.turnsCompleted}/${this.maxTurns} turns` : undefined;
+      } else if (stop === "turn-budget") {
+        const checkpoint = "subagent-turn-budget";
+        const detail = `${this.turnsCompleted}/${this.maxTurns} turns`;
         this.interventions({
           id: stop,
           class: "stop",

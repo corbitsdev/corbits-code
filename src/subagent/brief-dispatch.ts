@@ -1,21 +1,15 @@
 /**
  * Parent-side re-dispatch caps for task briefs (CL-4343 + CL-5203).
  *
- * Leaf stops already salvage no-progress / turn-budget / etc. This
- * module tracks how often the *parent* re-spawns the same brief so:
- * - hard-block-class salvages refuse an identical re-dispatch for the rest of
- *   the parent chat session (sticky until the fingerprint changes)
- * - turn-budget salvage flips from "raise maxTurns" to "stop" after enough
- *   same-brief dispatches without a successful complete
+ * This module tracks how often the *parent* re-spawns the same brief so
+ * turn-budget salvage flips from "raise maxTurns" to "stop" after enough
+ * same-brief dispatches without a successful complete.
  *
  * Session-scoped: one ledger per createTaskTool instance (parent chat tool).
  */
 
 import type { TaskIntent } from "./report.js";
 import type { ForcedStopReason } from "./stop-policy.js";
-
-/** Salvage classes that must not be re-dispatched with an identical brief. */
-export type HardBlockSalvage = "no-ship" | "never-acted" | "never-edited";
 
 // Every forced-stop reason a leaf can report maps 1:1 onto a salvage kind
 // the parent ledger cares about.
@@ -32,8 +26,6 @@ export interface TaskBriefFingerprintInput {
 export interface BriefDispatchRecord {
   /** How many times this fingerprint has been accepted for run (including first). */
   dispatchCount: number;
-  /** Last salvage class observed for this fingerprint, if any. */
-  lastSalvage?: BriefSalvageKind;
 }
 
 /**
@@ -42,12 +34,6 @@ export interface BriefDispatchRecord {
  * another re-dispatch. Successful completes reset the counter.
  */
 export const TURN_BUDGET_STOP_AFTER_DISPATCHES = 3;
-
-const HARD_BLOCK_SALVAGES = new Set<BriefSalvageKind>(["no-ship", "never-acted", "never-edited"]);
-
-export function isHardBlockSalvage(kind: BriefSalvageKind): kind is HardBlockSalvage {
-  return HARD_BLOCK_SALVAGES.has(kind);
-}
 
 /**
  * Classify a completed dispatch as a salvage kind the parent ledger cares
@@ -93,13 +79,8 @@ function serializeList(items: readonly string[] | undefined): string {
 
 export interface BriefDispatchLedger {
   get: (fingerprint: string) => BriefDispatchRecord | undefined;
-  /**
-   * Pre-run gate. Returns ok with the 1-based dispatch count that will be used,
-   * or a reject message for the parent tool result.
-   */
-  admit: (
-    fingerprint: string,
-  ) => { ok: true; dispatchCount: number } | { ok: false; message: string };
+  /** Pre-run gate. Always admits, returning the 1-based dispatch count that will be used. */
+  admit: (fingerprint: string) => { dispatchCount: number };
   /** Record the outcome of an admitted run (salvage kind or null on success). */
   recordOutcome: (fingerprint: string, salvage: BriefSalvageKind | null) => void;
   /**
@@ -119,75 +100,31 @@ export function createBriefDispatchLedger(): BriefDispatchLedger {
 
     admit(fingerprint) {
       const existing = byFingerprint.get(fingerprint);
-      if (existing?.lastSalvage !== undefined && isHardBlockSalvage(existing.lastSalvage)) {
-        return {
-          ok: false,
-          message: hardBlockMessage(existing.lastSalvage, existing.dispatchCount),
-        };
-      }
       const nextCount = (existing?.dispatchCount ?? 0) + 1;
-      byFingerprint.set(fingerprint, {
-        dispatchCount: nextCount,
-        ...(existing?.lastSalvage !== undefined ? { lastSalvage: existing.lastSalvage } : {}),
-      });
-      return { ok: true, dispatchCount: nextCount };
+      byFingerprint.set(fingerprint, { dispatchCount: nextCount });
+      return { dispatchCount: nextCount };
     },
 
     recordOutcome(fingerprint, salvage) {
-      const existing = byFingerprint.get(fingerprint);
-      if (existing === undefined) {
-        // admit() always runs first in production; keep defensive for unit tests.
-        byFingerprint.set(fingerprint, {
-          dispatchCount: salvage === null ? 0 : 1,
-          ...(salvage !== null ? { lastSalvage: salvage } : {}),
-        });
-        return;
-      }
       if (salvage === null) {
-        // CL-6710: a successful complete clears the sticky hard-block too.
-        // Two concurrent identical-brief dispatches can both admit; if one
-        // salvages and the other succeeds, the success proves the brief is
-        // re-dispatchable, so it must not leave the sibling's hard-block
-        // standing for the rest of the session.
+        // A successful complete resets the same-brief retry budget.
         byFingerprint.set(fingerprint, { dispatchCount: 0 });
         return;
       }
-      byFingerprint.set(fingerprint, {
-        dispatchCount: existing.dispatchCount,
-        lastSalvage: salvage,
-      });
+      const existing = byFingerprint.get(fingerprint);
+      byFingerprint.set(fingerprint, { dispatchCount: existing?.dispatchCount ?? 1 });
     },
 
     release(fingerprint) {
       const existing = byFingerprint.get(fingerprint);
       if (existing === undefined) return;
       if (existing.dispatchCount <= 1) {
-        if (existing.lastSalvage !== undefined) {
-          byFingerprint.set(fingerprint, {
-            dispatchCount: 0,
-            lastSalvage: existing.lastSalvage,
-          });
-        } else {
-          byFingerprint.delete(fingerprint);
-        }
+        byFingerprint.delete(fingerprint);
         return;
       }
-      byFingerprint.set(fingerprint, {
-        dispatchCount: existing.dispatchCount - 1,
-        ...(existing.lastSalvage !== undefined ? { lastSalvage: existing.lastSalvage } : {}),
-      });
+      byFingerprint.set(fingerprint, { dispatchCount: existing.dispatchCount - 1 });
     },
   };
-}
-
-function hardBlockMessage(salvage: HardBlockSalvage, priorDispatches: number): string {
-  return (
-    `Error: refused re-dispatch of an identical task brief after a ${salvage} salvage ` +
-    `(already dispatched ${priorDispatches} time${priorDispatches === 1 ? "" : "s"}). ` +
-    `Change the brief (prompt, agent, intent, success_criteria, and/or do_not) before retrying — ` +
-    `raising maxTurns alone will not unlock this fingerprint. ` +
-    `To force a re-run of the same work, alter at least one of those fields so the fingerprint changes.`
-  );
 }
 
 /**
