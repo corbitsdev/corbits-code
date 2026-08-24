@@ -55,6 +55,9 @@ export interface WorkflowControllerArgs {
   // The live chat director; the workflow coordinator is attached to it when a
   // workflow starts. Returns undefined before the director is built.
   getDirector: () => { setWorkflowCoordinator: SetCoordinator } | undefined;
+  // Overrides the state-tree home (defaults to the real user home). Tests
+  // pass a sandboxed dir here so persist()/resume() never touch ~/.corbits.
+  home?: string;
 }
 
 // Owns the workflow lifecycle for the TUI: starting, capability overrides,
@@ -116,13 +119,15 @@ export class WorkflowController {
     const runtime = this.runtime;
     if (runtime === undefined) return;
     const sessionId = this.args.getSessionId();
-    void saveWorkflowState(this.args.cwd, sessionId, runtime.state()).catch((err: unknown) => {
-      const reason = err instanceof Error ? err.message : String(err);
-      warnWorkflowPersistenceFailure(
-        join(sessionDir(this.args.cwd, sessionId), "workflow.json"),
-        reason,
-      );
-    });
+    void saveWorkflowState(this.args.cwd, sessionId, runtime.state(), this.args.home).catch(
+      (err: unknown) => {
+        const reason = err instanceof Error ? err.message : String(err);
+        warnWorkflowPersistenceFailure(
+          join(sessionDir(this.args.cwd, sessionId, this.args.home), "workflow.json"),
+          reason,
+        );
+      },
+    );
   }
 
   private attach(workflow: Workflow): void {
@@ -178,7 +183,7 @@ export class WorkflowController {
 
   // Restore a persisted workflow for the current session, if any.
   async resume(): Promise<void> {
-    const state = await loadWorkflowState(this.args.cwd, this.args.getSessionId());
+    const state = await loadWorkflowState(this.args.cwd, this.args.getSessionId(), this.args.home);
     if (state === null || state.completed || state.stack.length === 0) return;
     const rootName = state.stack[0]?.workflow;
     const workflow = rootName !== undefined ? findWorkflow(rootName) : undefined;
